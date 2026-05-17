@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { MeshStatus, MeshPeersResponse, PairedPeer } from "../../lib/types";
+import type { MeshStatus, MeshPeersResponse, PairedPeer, DiscoveredPeer } from "../../lib/types";
 import { servicesList } from "./meshApi";
 import type { Service } from "./types";
 
@@ -11,6 +11,19 @@ export interface PeerStatus {
   api_port: number;
   online: boolean;
   access_level: string;
+  last_seen: string | null;
+  /** Vouched-but-not-yet-paired. UI shows in Paired section with "auto-pairs when online". */
+  pending?: boolean;
+  /** instance_names of paired peers that vouched for this one (only for pending). */
+  vouched_by_names?: string[];
+}
+
+const LAST_SEEN_GRACE_MS = 90_000;
+
+function withinGrace(lastSeen: string | null | undefined): boolean {
+  if (!lastSeen) return false;
+  const t = Date.parse(lastSeen);
+  return !isNaN(t) && Date.now() - t <= LAST_SEEN_GRACE_MS;
 }
 
 export interface MeshData {
@@ -91,11 +104,32 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           api_port: p.api_port,
           online: p.online,
           access_level: p.access_level,
+          last_seen: p.last_seen,
         }),
       );
 
+      // Vouched-but-not-yet-paired peers: render in the Paired section with
+      // "will auto-pair when online" so users don't see a manual button.
+      const pairedIds = new Set(paired.map((p) => p.instance_id));
+      const pairedNamesById = new Map(paired.map((p) => [p.instance_id, p.name] as const));
+      const pending: PeerStatus[] = (meshPeers.discovered ?? [])
+        .filter((d: DiscoveredPeer) => d.vouched_by.length > 0 && !pairedIds.has(d.instance_id))
+        .map((d: DiscoveredPeer) => ({
+          instance_id: d.instance_id,
+          name: d.instance_name,
+          ip: d.addresses[0]?.ip ?? "",
+          api_port: d.api_port,
+          online: false,
+          access_level: "pending",
+          last_seen: null,
+          pending: true,
+          vouched_by_names: d.vouched_by
+            .map((id) => pairedNamesById.get(id))
+            .filter((n): n is string => Boolean(n)),
+        }));
+
       const remotePromises = paired
-        .filter((p) => p.online && p.ip)
+        .filter((p) => p.ip && (p.online || withinGrace(p.last_seen)))
         .map(async (p) => {
           try {
             const arr = await invoke<Service[]>("mesh_peer_services_list", {
@@ -114,7 +148,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           name: status?.instance_name ?? "this",
           ip: status?.local_ip ?? status?.tailscale_ip ?? "",
         },
-        peers: paired,
+        peers: [...paired, ...pending],
         services: [...local, ...remote],
       };
       writeCache(next);

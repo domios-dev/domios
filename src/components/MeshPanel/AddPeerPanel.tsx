@@ -13,6 +13,9 @@ export default function AddPeerPanel() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [meshOnline, setMeshOnline] = useState<boolean | null>(null);
+  const [scanning, setScanning] = useState(false);
+
   const fetchPeers = useCallback(async () => {
     try {
       const p = await invoke<MeshPeersResponse>("mesh_list_peers");
@@ -20,14 +23,48 @@ export default function AddPeerPanel() {
     } catch {}
   }, []);
 
+  const fetchMeshState = useCallback(async () => {
+    try {
+      const cfg = await invoke<{ mesh: { enabled: boolean } }>("get_config");
+      setMeshOnline(cfg.mesh.enabled);
+    } catch {}
+  }, []);
+
+  const enableMesh = useCallback(async () => {
+    try {
+      const cfg = await invoke<{ mesh: { enabled: boolean }; [k: string]: unknown }>("get_config");
+      await invoke("update_config", {
+        config: { ...cfg, mesh: { ...cfg.mesh, enabled: true } },
+      });
+      setMeshOnline(true);
+    } catch (e) {
+      console.error("Enable mesh failed:", e);
+    }
+  }, []);
+
+  const handleScan = useCallback(async () => {
+    setScanning(true);
+    const start = Date.now();
+    try {
+      await invoke("mesh_scan_peers");
+      await fetchPeers();
+    } catch {}
+    const elapsed = Date.now() - start;
+    if (elapsed < 800) await new Promise((r) => setTimeout(r, 800 - elapsed));
+    setScanning(false);
+  }, [fetchPeers]);
+
   useEffect(() => {
-    invoke("mesh_refresh_discovery").catch(() => {});
     fetchPeers();
-    pollRef.current = setInterval(fetchPeers, 2000);
+    fetchMeshState();
+    pollRef.current = setInterval(() => {
+      fetchPeers();
+      fetchMeshState();
+    }, 2000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [fetchPeers]);
+  }, [fetchPeers, fetchMeshState]);
 
   useEffect(() => {
     if (!connecting) {
@@ -92,11 +129,30 @@ export default function AddPeerPanel() {
   };
 
   const incoming = peers?.incoming_requests ?? [];
-  const discovered = peers?.discovered ?? [];
   const paired = peers?.paired ?? [];
+  const pairedIds = new Set(paired.map((p) => p.instance_id));
+  // Vouched peers are surfaced in the "Paired devices" card as "auto-pairs
+  // when online" — drop them from "Discovered nearby" so users see one row,
+  // not two.
+  const discovered = (peers?.discovered ?? []).filter(
+    (d) => d.vouched_by.length === 0 && !pairedIds.has(d.instance_id),
+  );
 
   return (
     <div className="flex flex-col gap-3">
+      {meshOnline === false && (
+        <div className="text-[11px] bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] rounded p-2.5 flex items-center justify-between gap-3">
+          <span className="text-[var(--ct-muted-fg)]">
+            You're offline — broadcasting peers won't show up here.
+          </span>
+          <button
+            onClick={enableMesh}
+            className="text-[10px] uppercase tracking-wider px-2.5 py-1 rounded border border-[var(--ct-accent)]/40 text-[var(--ct-accent)] hover:bg-[var(--ct-accent)]/10 transition-colors flex-shrink-0"
+          >
+            Go online
+          </button>
+        </div>
+      )}
       {error && (
         <div className="text-[10px] text-[var(--ct-red)] bg-[var(--ct-bg)] border border-[var(--ct-red)] rounded p-2 break-all">
           {error}
@@ -117,11 +173,30 @@ export default function AddPeerPanel() {
         </Section>
       )}
 
-      <Section label={`Discovered nearby${peers ? "" : " · scanning…"}`}>
+      <Section
+        label="Discovered nearby"
+        action={
+          <button
+            onClick={handleScan}
+            disabled={scanning}
+            title="Scan for peers now"
+            className="text-[9px] uppercase tracking-wider text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors disabled:opacity-40 flex items-center gap-1"
+          >
+            {scanning ? (
+              <span className="w-2.5 h-2.5 border border-[var(--ct-accent)] border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M13.5 2.5A6.5 6.5 0 1 1 2.5 8" strokeLinecap="round" />
+                <path d="M13.5 2.5V6h-3.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+            {scanning ? "Scanning…" : "Refresh"}
+          </button>
+        }
+      >
         {discovered.length === 0 ? (
-          <div className="p-3 text-[10px] text-[var(--ct-muted)] italic flex items-center gap-2">
-            <span className="w-2.5 h-2.5 border border-[var(--ct-accent)] border-t-transparent rounded-full animate-spin" />
-            Scanning for peers…
+          <div className="p-3 text-[10px] text-[var(--ct-muted)] italic">
+            No peers found nearby
           </div>
         ) : (
           discovered.map((peer) => (
@@ -179,10 +254,13 @@ export default function AddPeerPanel() {
   );
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+function Section({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-[10px] text-[var(--ct-muted)] uppercase tracking-wide">{label}</div>
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] text-[var(--ct-muted)] uppercase tracking-wide">{label}</div>
+        {action}
+      </div>
       <div className="rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] divide-y divide-[var(--ct-border)]">
         {children}
       </div>

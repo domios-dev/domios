@@ -31,6 +31,8 @@ interface Props {
   width: number;
   height: number;
   onAddPeerClick?: () => void;
+  meshEnabled?: boolean;
+  onGoOnline?: () => void;
 }
 
 const VOLUME_WINDOW_MS = 60 * 1000;
@@ -53,6 +55,8 @@ export function MeshCanvas({
   width,
   height,
   onAddPeerClick,
+  meshEnabled = true,
+  onGoOnline,
 }: Props) {
   const showGhost = peers.length === 0 && !!onAddPeerClick;
   const layout = useMemo<PeerLayout[]>(() => {
@@ -321,6 +325,8 @@ export function MeshCanvas({
                   p.isThisMachine ? !s.source_peer : s.source_peer === p.name,
                 )}
                 onClick={() => onPeerClick(p.name)}
+                offline={p.isThisMachine && !meshEnabled}
+                onGoOnline={p.isThisMachine ? onGoOnline : undefined}
               />
             )}
           </div>

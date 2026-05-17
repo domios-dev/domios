@@ -33,13 +33,12 @@ impl PaneStatusTracker {
         }
     }
 
-    /// Update status based on new PTY output.
-    /// `screen_hash` is the hash of the current screen content (what user sees),
-    /// NOT the raw PTY bytes. This filters out cursor blinks and TUI noise —
-    /// only actual content changes count as "working".
-    pub fn update_output(&mut self, pty_id: &str, screen_hash: [u8; 32]) {
+    /// Update status based on new PTY output. Returns `true` when the screen
+    /// content actually changed (i.e. real activity, not a cursor blink or
+    /// TUI repaint with identical content). Callers can use the return value
+    /// to drive downstream signals like usage-poller activity marking.
+    pub fn update_output(&mut self, pty_id: &str, screen_hash: [u8; 32]) -> bool {
         let now = Instant::now();
-
         let entry = self
             .statuses
             .entry(pty_id.to_string())
@@ -50,11 +49,13 @@ impl PaneStatusTracker {
                 last_check_time: now,
             });
 
-        // Only count as activity if screen content actually changed
         if screen_hash != entry.last_output_hash {
             entry.last_output_hash = screen_hash;
             entry.last_output_time = now;
             entry.status = PaneStatus::Working;
+            true
+        } else {
+            false
         }
     }
 
@@ -197,6 +198,20 @@ mod tests {
         assert_eq!(ids.len(), 2);
         assert!(ids.contains(&"pty-1".to_string()));
         assert!(ids.contains(&"pty-2".to_string()));
+    }
+
+    #[test]
+    fn test_update_output_returns_true_on_content_change() {
+        let mut tracker = PaneStatusTracker::new();
+        assert!(tracker.update_output("pty-1", [1u8; 32]));
+        assert!(tracker.update_output("pty-1", [2u8; 32]));
+    }
+
+    #[test]
+    fn test_update_output_returns_false_on_same_hash() {
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-1", [1u8; 32]);
+        assert!(!tracker.update_output("pty-1", [1u8; 32]));
     }
 
     #[test]

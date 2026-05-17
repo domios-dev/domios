@@ -9,8 +9,8 @@ use tower_http::cors::CorsLayer;
 use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, health_routes, hook_routes,
     logs_routes, mem_routes, mesh_routes, network_routes, notification_routes, pane_routes,
-    services_routes, session_routes, theme_routes, updater_routes, usage_routes, webhook_routes,
-    workspace_routes,
+    pasteboard_routes, services_routes, session_routes, theme_routes, updater_routes,
+    usage_routes, webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -48,7 +48,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/usage", get(pane_routes::get_pane_usage))
         .route("/api/panes/{id}/exec", post(pane_routes::exec_in_pane))
         .route("/api/panes/{id}/resize", post(pane_routes::resize_pane))
-        .route("/api/browser/open", post(pane_routes::open_browser))
         .route("/api/serve-file", get(notification_routes::serve_file))
         .route("/api/notifications", get(notification_routes::list_notifications).post(notification_routes::create_notification))
         .route("/api/notifications/clear", post(notification_routes::clear_notifications))
@@ -98,6 +97,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/services/{id}", get(services_routes::get_service).put(services_routes::update_service).delete(services_routes::delete_service))
         .route("/api/services/{id}/regenerate-token", post(services_routes::regenerate_token))
         .route("/api/activity", get(services_routes::list_activity))
+        .route(
+            "/api/pasteboard",
+            get(pasteboard_routes::paste_list).post(pasteboard_routes::paste_create),
+        )
+        .route(
+            "/api/pasteboard/{id}",
+            get(pasteboard_routes::paste_get).delete(pasteboard_routes::paste_delete),
+        )
         .route("/api/config", get(config_routes::get_config_api).patch(config_routes::patch_config_api))
         .route("/api/update/check", get(updater_routes::check_update))
         .route("/api/update/status", get(updater_routes::update_status))
@@ -158,6 +165,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/graph/path", get(mem_routes::mem_graph_path))
         .route("/api/mem/graph/tunnels", get(mem_routes::mem_graph_tunnels))
         .route("/api/mem/graph/alias", post(mem_routes::mem_graph_alias))
+        .route("/api/mem/graph/repair/find-relations", post(mem_routes::mem_graph_repair_find_relations))
+        .route("/api/mem/graph/repair/delete-relations", post(mem_routes::mem_graph_repair_delete_relations))
+        .route("/api/mem/graph/repair/merge-relations", post(mem_routes::mem_graph_repair_merge_relations))
+        .route("/api/mem/graph/repair/find-entities", post(mem_routes::mem_graph_repair_find_entities))
+        .route("/api/mem/graph/repair/augment-entity", post(mem_routes::mem_graph_repair_augment_entity))
+        .route("/api/mem/graph/repair/delete-entity", post(mem_routes::mem_graph_repair_delete_entity))
+        .route("/api/mem/graph/repair/orphan-vectors", post(mem_routes::mem_graph_repair_orphan_vectors))
+        .route("/api/mem/graph/repair/orphan-blobs", post(mem_routes::mem_graph_repair_orphan_blobs))
         .route("/api/mem/learn", post(mem_routes::mem_learn))
         .route("/api/mem/promote/{id}", post(mem_routes::mem_promote))
         .route("/api/mem/flush", post(mem_routes::mem_flush))

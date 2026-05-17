@@ -411,6 +411,14 @@ pub enum MemSecretAction {
     Lock,
     /// Sign out — also drops persisted creds (OS keychain entry).
     Logout,
+    /// Save the master password to ~/.codeterm/secrets/bitwarden-master.env
+    /// (mode 0600). Daemon then auto-unlocks JIT on every operation — no
+    /// further prompts. Reads value from stdin (preferred — out of shell
+    /// history) or --password.
+    SaveMasterPassword {
+        #[arg(long)]
+        password: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -507,6 +515,9 @@ pub enum MemGraphAction {
         confidence: f64,
         #[arg(long)]
         scope: Option<String>,
+        /// Free-text reason; written to relations.reason for audit.
+        #[arg(long)]
+        reason: Option<String>,
     },
     /// List outgoing relations from an id
     Related {
@@ -697,5 +708,104 @@ pub enum MemGraphAction {
         /// Override the path to knowledge.db.
         #[arg(long)]
         db_path: Option<String>,
+    },
+    /// Find duplicate relations grouped by selected columns.
+    /// Read-only diagnostic — does not mutate the graph.
+    #[clap(name = "find-duplicate-relations")]
+    FindDuplicateRelations {
+        /// Comma-separated columns from: from_id,relation_type,to_id,scope,valid_from.
+        /// Default excludes valid_from because the relations UNIQUE(from,rel,to,valid_from)
+        /// makes grouping by all four a guaranteed no-op — meaningful dedup is on the triple.
+        #[arg(long, default_value = "from_id,relation_type,to_id")]
+        group_by: String,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    /// Delete relations by explicit rowids (audited to graph_purge_log).
+    #[clap(name = "delete-relations")]
+    DeleteRelations {
+        /// Comma-separated rowids (e.g. "42,87,103")
+        #[arg(long)]
+        rowids: String,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
+    /// Merge relations into `keep`, folding properties/confidence.
+    #[clap(name = "merge-relations")]
+    MergeRelations {
+        /// Rowid of the relation to keep (its properties and rowid survive).
+        #[arg(long)]
+        keep: i64,
+        /// Comma-separated rowids to fold into `keep` (these are deleted).
+        #[arg(long)]
+        merge: String,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
+    /// Find duplicate entities (exact name match, alias chain, or vector similarity).
+    #[clap(name = "find-duplicate-entities")]
+    FindDuplicateEntities {
+        /// Strategy: exact-name | alias-chain | vector
+        #[arg(long, default_value = "exact-name")]
+        strategy: String,
+        /// Cosine similarity threshold for `vector` strategy (0.0-1.0).
+        /// 0.90+ = strong-merge candidate, 0.85+ = review-worthy.
+        #[arg(long, default_value_t = 0.85)]
+        threshold: f64,
+        /// Restrict `vector` strategy to entities of this type (Person, Tech, Project, ...).
+        #[arg(long)]
+        entity_type: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    /// Patch properties on an existing entity (audit-logged).
+    #[clap(name = "augment-entity")]
+    AugmentEntity {
+        /// Entity id (e.g. person_andrey)
+        #[arg(long)]
+        id: String,
+        /// JSON object of properties to merge in (e.g. '{"city":"Riga"}')
+        #[arg(long)]
+        patch: String,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
+    /// Find and (optionally) delete orphan rows in mem_vectors — vectors whose
+    /// mem_id has no matching mem_items / entities row. One-shot legacy cleanup.
+    #[clap(name = "repair-orphan-vectors")]
+    RepairOrphanVectors {
+        /// Print orphans without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
+    /// Find and (optionally) delete sha256_*.txt blob files in the mem blobs
+    /// directory that no mem_item references. CAS-aware sweep (refcount = 0).
+    #[clap(name = "repair-orphan-blobs")]
+    RepairOrphanBlobs {
+        /// Print orphans without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
+    /// Delete an entity by id (audited). Refuses if it has active relations
+    /// unless --force, in which case those relations are cascade-deleted too.
+    #[clap(name = "delete-entity")]
+    DeleteEntity {
+        /// Entity id (e.g. seed_person_anna)
+        #[arg(long)]
+        id: String,
+        /// Cascade-delete active relations referencing this entity.
+        #[arg(long)]
+        force: bool,
+        /// Also hard-delete invalidated (historical) relations referencing this entity.
+        /// Default false: history is preserved as ghost rows for `revive-broken` and
+        /// timeline queries. Set this when you're sure the entity is gone for good.
+        #[arg(long)]
+        purge_history: bool,
+        #[arg(long, default_value = "user")]
+        actor: String,
     },
 }

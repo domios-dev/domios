@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { KeyRound, LogIn, Unlock, FlaskConical, Settings2, Clock } from "lucide-react";
+import { KeyRound, LogIn, FlaskConical, Settings2, Clock } from "lucide-react";
 import type { AppConfig, SecretsConfig } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { setPendingCommand } from "../../lib/pendingCommands";
@@ -23,6 +23,7 @@ interface SecretsStatus {
     endpoint?: string | null;
     reason?: string;
   };
+  master_password_saved?: boolean;
 }
 
 interface SecretListItem {
@@ -289,18 +290,6 @@ export function SecretsTab({
     [patchSecrets],
   );
 
-  const setPersistMasterPassword = useCallback(
-    (next: boolean) => {
-      patchSecrets({
-        bitwarden: {
-          ...(cfg.bitwarden ?? { server_url: bitwardenServerUrl }),
-          persist_master_password: next,
-        },
-      });
-    },
-    [patchSecrets, cfg.bitwarden, bitwardenServerUrl],
-  );
-
   const submitPasswordLogin = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -360,14 +349,8 @@ export function SecretsTab({
     [apiBase, jsonHeaders, masterPassword, apiClientId, apiClientSecret, refreshStatus],
   );
 
-  const lock = useCallback(async () => {
-    setError(null);
-    await fetch(`${apiBase}/api/secrets/lock`, { method: "POST", headers: jsonHeaders, body: "{}" });
-    await refreshStatus();
-  }, [apiBase, jsonHeaders, refreshStatus]);
-
   const logout = useCallback(async () => {
-    if (!confirm("Sign out and delete the stored session token from your OS keychain?")) return;
+    if (!confirm("Sign out? This deletes the saved master password and session token.")) return;
     setError(null);
     await fetch(`${apiBase}/api/secrets/logout`, { method: "POST", headers: jsonHeaders, body: "{}" });
     await refreshStatus();
@@ -376,20 +359,14 @@ export function SecretsTab({
   const statusBadge = useMemo(() => {
     if (!status) return null;
     const s = status.status;
-    switch (s.status) {
-      case "unlocked":
-        return (
-          <SettingsPill tone="green">
-            unlocked{s.user ? ` as ${s.user}` : ""}{s.transient ? " (transient)" : ""}
-          </SettingsPill>
-        );
-      case "locked":
-        return <SettingsPill tone="amber">locked</SettingsPill>;
-      case "logged_out":
-        return <SettingsPill tone="muted">logged out</SettingsPill>;
-      case "unavailable":
-        return <SettingsPill tone="red">unavailable</SettingsPill>;
-    }
+    if (s.status === "unavailable") return <SettingsPill tone="red">unavailable</SettingsPill>;
+    if (s.status === "logged_out") return <SettingsPill tone="muted">logged out</SettingsPill>;
+    // Locked + Unlocked are both "signed in" — daemon JIT-unlocks transparently.
+    return (
+      <SettingsPill tone="green">
+        logged in{s.user ? ` as ${s.user}` : ""}
+      </SettingsPill>
+    );
   }, [status]);
 
   const inputClass =
@@ -465,20 +442,40 @@ export function SecretsTab({
               Self-hosted Vaultwarden? Point to{" "}
               <code className="font-mono">https://your-host.example</code>. Changing the URL forces a re-login.
             </div>
-            <label className="flex items-center gap-2 cursor-pointer pt-1">
-              <input
-                type="checkbox"
-                checked={cfg.bitwarden?.persist_master_password ?? false}
-                onChange={(e) => setPersistMasterPassword(e.target.checked)}
-                className="cursor-pointer"
-              />
-              <span className="text-[11px] text-[var(--ct-fg)]">
-                Remember master password (auto-unlock after restart)
-              </span>
-            </label>
-            <div className="text-[10px] text-[var(--ct-muted-fg)] pl-5">
-              Stored in the OS keychain. Useful if you don't want to re-type the password on every daemon restart. Off by default.
-            </div>
+            {backend === "bitwarden" &&
+              (status?.status?.status === "unlocked" || status?.status?.status === "locked") && (
+                status?.master_password_saved ? (
+                  <div className="text-[11px] text-[var(--ct-green)] pt-1">
+                    ✓ Master password saved — daemon auto-unlocks on every operation.
+                  </div>
+                ) : (
+                  <div className="pt-1 space-y-1">
+                    <div className="text-[11px] text-[var(--ct-amber)]">
+                      ⚠ Master password not saved — daemon will lock and prompt on restart.
+                    </div>
+                    <form onSubmit={submitPasswordLogin} className="flex gap-2">
+                      <input
+                        type="password"
+                        placeholder="master password"
+                        autoComplete="current-password"
+                        value={masterPassword}
+                        onChange={(e) => setMasterPassword(e.target.value)}
+                        className={inputClass}
+                        required
+                      />
+                      <button
+                        type="submit"
+                        className="text-xs px-3 py-1.5 rounded bg-[var(--ct-accent)] text-[var(--ct-bg)] hover:opacity-90 whitespace-nowrap"
+                      >
+                        Save
+                      </button>
+                    </form>
+                    <div className="text-[10px] text-[var(--ct-muted-fg)]">
+                      Stored as 0600 file in <code className="font-mono">~/.codeterm/secrets/bitwarden-master.env</code>. Copy to mesh peers for fleet-wide auto-unlock.
+                    </div>
+                  </div>
+                )
+              )}
           </div>
         )}
 
@@ -488,22 +485,19 @@ export function SecretsTab({
           </div>
         )}
 
-        {backend === "bitwarden" &&
-          status?.status?.status &&
-          status.status.status !== "unavailable" &&
-          status.status.status !== "unlocked" && (
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                onClick={logout}
-                className="text-[11px] px-3 py-1.5 rounded border border-[var(--ct-red)]/40 text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10"
-              >
-                Sign out / clear stored session
-              </button>
-              <span className="text-[10px] text-[var(--ct-muted-fg)]">
-                Wipes the bw session token from your keychain.
-              </span>
-            </div>
-          )}
+        {backend === "bitwarden" && status?.status?.status === "locked" && (
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={logout}
+              className="text-[11px] px-3 py-1.5 rounded border border-[var(--ct-red)]/40 text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10"
+            >
+              Sign out
+            </button>
+            <span className="text-[10px] text-[var(--ct-muted-fg)]">
+              Clears saved master password and session token.
+            </span>
+          </div>
+        )}
 
         {status?.status?.status === "unavailable" && (
           <div className="text-[11px] rounded border border-[var(--ct-red)]/40 bg-[var(--ct-red)]/10 p-3 text-[var(--ct-red)] space-y-2">
@@ -625,28 +619,6 @@ export function SecretsTab({
         </SettingsCard>
       )}
 
-      {status?.status?.status === "locked" && backend === "bitwarden" && (
-        <SettingsCard icon={<Unlock size={16} />} title="Unlock vault">
-          <form onSubmit={submitPasswordLogin} className="space-y-2">
-            <input
-              type="password"
-              placeholder="master password"
-              autoComplete="current-password"
-              value={masterPassword}
-              onChange={(e) => setMasterPassword(e.target.value)}
-              className={inputClass}
-              required
-            />
-            <button
-              type="submit"
-              className="text-xs px-3 py-1.5 rounded bg-[var(--ct-accent)] text-[var(--ct-bg)] hover:opacity-90"
-            >
-              Unlock
-            </button>
-          </form>
-        </SettingsCard>
-      )}
-
       {backend === "mock" && status?.status?.status !== "unlocked" && (
         <SettingsCard
           icon={<FlaskConical size={16} />}
@@ -727,12 +699,6 @@ export function SecretsTab({
               </>
             )}
             <div className="flex gap-2 pt-1">
-              <button
-                onClick={lock}
-                className="text-xs px-3 py-1.5 rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
-              >
-                Lock
-              </button>
               <button
                 onClick={logout}
                 className="text-xs px-3 py-1.5 rounded border border-[var(--ct-red)]/40 text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10"

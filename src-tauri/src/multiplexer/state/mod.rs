@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::types::{AgentRole, Pane, PaneType, SplitNode, Tab, TitleLevel, Workspace};
+use super::types::{AgentRole, Pane, PaneType, Tab, TitleLevel, Workspace};
 
 mod alias;
 mod names;
@@ -87,6 +87,8 @@ impl MultiplexerState {
             agent_type: None,
             agent_type_locked: false,
             agent_session_id: None,
+            agent_session_name: None,
+            agent_session_model: None,
             role: Some(AgentRole::Orchestrator),
             parent_pane_id: None,
             can_spawn: true,
@@ -109,9 +111,7 @@ impl MultiplexerState {
         let tab = Tab {
             id: tab_id.clone(),
             title: names::generate_tab_name(),
-            split_tree: SplitNode::Leaf {
-                pane_id: pane_id.clone(),
-            },
+            pane_id: pane_id.clone(),
         };
 
         let workspace = Workspace {

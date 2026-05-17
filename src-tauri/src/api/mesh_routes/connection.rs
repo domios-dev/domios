@@ -46,6 +46,7 @@ pub async fn mesh_connect_peer(
             public_key,
             timestamp: now,
             status: crate::mesh::types::PairingStatus::Pending,
+            introduced_by: None,
         };
         (request, addr.ip.clone(), peer.api_port)
     };
@@ -126,6 +127,7 @@ pub async fn mesh_approve_peer(
             is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
             version: None,
+            consecutive_misses: 0,
         };
         m.paired_peers.insert(request.from_instance_id.clone(), peer);
         m.pending_requests.remove(&request_id);

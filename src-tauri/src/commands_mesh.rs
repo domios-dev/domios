@@ -59,6 +59,7 @@ pub async fn mesh_connect(
             public_key,
             timestamp: now,
             status: crate::mesh::types::PairingStatus::Pending,
+            introduced_by: None,
         };
         (request, addr.ip.clone(), peer.api_port)
     };
@@ -136,6 +137,7 @@ pub async fn mesh_approve_pairing(
             is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
             version: None,
+            consecutive_misses: 0,
         };
         m.paired_peers.insert(request.from_instance_id.clone(), peer);
         m.pending_requests.remove(&request_id);
@@ -368,6 +370,18 @@ pub fn mesh_stop_broadcast(
 ) -> Result<(), String> {
     crate::mesh::discovery::stop_broadcast(&mesh);
     Ok(())
+}
+
+/// Active scan: clean up stale discovered peers, send one immediate UDP beacon,
+/// and return the current discovered list. Called by the UI Refresh button.
+#[tauri::command]
+pub fn mesh_scan_peers(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+) -> Result<serde_json::Value, String> {
+    crate::mesh::discovery::cleanup_stale_peers(&mesh);
+    crate::mesh::discovery::send_immediate_beacon(&mesh);
+    let discovered: Vec<_> = mesh.lock().discovered_peers.values().cloned().collect();
+    serde_json::to_value(discovered).map_err(|e| e.to_string())
 }
 
 /// Set access level for a paired peer.

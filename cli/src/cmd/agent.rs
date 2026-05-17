@@ -4,7 +4,13 @@ use crate::client::SocketClient;
 
 pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) {
     let (base, token) = read_api_config();
-    let http = build_http(&token);
+    let http = match build_http(&token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
     match action {
         AgentAction::List => {
             match http.get(format!("{}/api/agents", base)).send() {
@@ -245,7 +251,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
             }
         }
-        AgentAction::Spawn { agent, title, cwd, role, parent, can_spawn, task, args, workspace, model, no_wait } => {
+        AgentAction::Spawn { agent, title, cwd, role, parent, can_spawn, task, args, workspace, model } => {
             let mut body = serde_json::json!({
                 "agent": agent,
             });
@@ -258,10 +264,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(a) = args { body["args"] = serde_json::json!(a); }
             if let Some(w) = workspace { body["workspace_id"] = serde_json::json!(w); }
             if let Some(m) = model { body["model"] = serde_json::json!(m); }
-            // Always record the spawning agent's pane (when this CLI runs
-            // inside a CodeTerm PTY). Independent of --parent, so a
-            // top-level Orchestrator (no parent in the role hierarchy)
-            // still has a route back for `agent report`.
+            // Record the spawner's pane for report-routing fallback.
             if let Ok(spawner) = std::env::var("CODETERM_PANE_ID") {
                 if !spawner.is_empty() {
                     body["spawned_by_pane_id"] = serde_json::json!(spawner);
@@ -275,44 +278,16 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     }
                     let pid = val.get("pane_id").and_then(|v| v.as_str());
                     let title_str = val.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-                    let ready = val.get("ready").and_then(|v| v.as_bool());
-                    let ready_error = val.get("ready_error").and_then(|v| v.as_str());
                     let warning = val.get("warning").and_then(|v| v.as_str());
-
-                    if no_wait || ready.is_none() {
-                        if let Some(pid) = pid {
-                            println!("Spawned: {} (pane {})", title_str, pid);
-                        } else if let Some(err) = val.get("error").or_else(|| val.get("message")) {
-                            eprintln!("Error: {}", err);
-                        } else {
-                            print_object(&val);
-                        }
-                        if let Some(warning) = warning {
-                            eprintln!("Warning: {}", warning);
-                        }
-                        return;
+                    if let Some(pid) = pid {
+                        println!("Spawned: {} (pane {})", title_str, pid);
+                    } else if let Some(err) = val.get("error").or_else(|| val.get("message")) {
+                        eprintln!("Error: {}", err);
+                    } else {
+                        print_object(&val);
                     }
-
-                    match ready {
-                        Some(true) => {
-                            if let Some(pid) = pid {
-                                println!("Spawned: {} (pane {}) [ready]", title_str, pid);
-                            } else {
-                                print_object(&val);
-                            }
-                            if let Some(warning) = warning {
-                                eprintln!("Warning: {}", warning);
-                            }
-                        }
-                        Some(false) => {
-                            let reason = ready_error.unwrap_or("unknown reason");
-                            eprintln!("Error: spawn failed — {}", reason);
-                            if let Some(pid) = pid {
-                                eprintln!("       pane: {} (you may want to inspect or close it)", pid);
-                            }
-                            std::process::exit(1);
-                        }
-                        None => unreachable!(),
+                    if let Some(warning) = warning {
+                        eprintln!("Warning: {}", warning);
                     }
                 }
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }

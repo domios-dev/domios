@@ -1,54 +1,44 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { ApiConfig } from "../../lib/types";
+import type { ApiConfig, GraphWorkerInfo } from "../../lib/types";
+import { authHeaders, baseUrl } from "../MemoryPanel/memoryApi";
 import { EventRow } from "./EventRenderer";
 import { ClaudeStreamParser, mergeAssistantMessages } from "./streamParser";
 import { useAgentRunStream } from "./useAgentRunStream";
 
 interface Props {
+  worker: GraphWorkerInfo;
   api: ApiConfig;
-  paneId: string | null | undefined;
-  title: string;
-  status: string;
-  color?: string;
-  subtitle?: string;
-  report?: string | null;
-  fallbackText?: string | null;
   onClose: () => void;
 }
 
-const TERMINAL_STATUSES = new Set([
-  "done",
-  "error",
-  "orphaned",
-  "Success",
-  "Failed",
-  "Cancelled",
-]);
+const TERMINAL_STATUSES = new Set(["done", "error", "orphaned"]);
 
-export function AgentRunLogPopup({
-  api,
-  paneId,
-  title,
-  status,
-  color,
-  subtitle,
-  report,
-  fallbackText,
-  onClose,
-}: Props) {
-  const isTerminal = TERMINAL_STATUSES.has(status);
-  const enabled = !!paneId;
+export function AgentRunLogPopup({ worker, api, onClose }: Props) {
+  const title = worker.intent.replace(/^extract:/, "");
+  const subtitle = [worker.agent_provider, worker.model].filter(Boolean).join(" / ");
+  const isTerminal = TERMINAL_STATUSES.has(worker.status);
+  const livePaneId = isTerminal ? null : worker.pane_id;
 
   const { events: liveEvents, rawLines, connected, error } = useAgentRunStream({
     api,
-    paneId,
-    enabled,
+    paneId: livePaneId,
+    enabled: !!livePaneId,
   });
 
-  // Run the fallback log (for terminal workers) through the SAME stream parser
-  // as live runs so completed sessions render with collapsed thinking, tool
-  // calls, and tool results — not a wall of raw JSON.
+  const [fallbackText, setFallbackText] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isTerminal) return;
+    fetch(`${baseUrl(api)}/api/mem/workers/${encodeURIComponent(worker.worker_id)}/log`, {
+      headers: authHeaders(api),
+    })
+      .then((r) => (r.ok ? r.text() : Promise.reject(r.statusText)))
+      .then(setFallbackText)
+      .catch(() => {});
+  }, [api, worker.worker_id, isTerminal]);
+
+  // Run the fallback log through the SAME stream parser as live runs so completed
+  // sessions render with collapsed thinking, tool calls, and tool results.
   const fallbackEvents = useMemo(() => {
     if (!fallbackText) return [];
     const parser = new ClaudeStreamParser();
@@ -62,10 +52,6 @@ export function AgentRunLogPopup({
   const scrollRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom on new content UNLESS the user manually scrolled
-  // up (then they're reading history — don't yank). Track stick-to-bottom
-  // state by checking if the container is near its bottom before each new
-  // event lands.
   const stickyBottomRef = useRef(true);
   useEffect(() => {
     const el = scrollRef.current;
@@ -97,8 +83,6 @@ export function AgentRunLogPopup({
     if (e.target === backdropRef.current) onClose();
   };
 
-  // Only show raw fallback text when the parser couldn't produce a single
-  // event from it (truly garbage output). Otherwise the parsed events render.
   const showFallback =
     events.length === 0 && rawLines.length === 0 && !!fallbackText;
 
@@ -113,12 +97,11 @@ export function AgentRunLogPopup({
         className="flex flex-col bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded-lg shadow-2xl"
         style={{ width: "min(820px, 90vw)", height: "min(640px, 85vh)" }}
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--ct-border)]">
           <div className="flex items-center gap-2 min-w-0">
             <span
               className="text-xs shrink-0"
-              style={{ color: color ?? "var(--ct-muted-fg)" }}
+              style={{ color: worker.color ?? "var(--ct-muted-fg)" }}
             >
               {isTerminal ? "✓" : "◕"}
             </span>
@@ -130,7 +113,7 @@ export function AgentRunLogPopup({
                 {subtitle}
               </span>
             )}
-            <StatusBadge status={status} />
+            <StatusBadge status={worker.status} />
             {!isTerminal && connected && (
               <span className="text-[9px] text-[var(--ct-green)] shrink-0">
                 live
@@ -145,7 +128,6 @@ export function AgentRunLogPopup({
           </button>
         </div>
 
-        {/* Body */}
         <div
           ref={scrollRef}
           className="flex-1 overflow-auto px-4 py-3 text-[11px] leading-relaxed text-[var(--ct-fg)] font-mono"
@@ -157,11 +139,11 @@ export function AgentRunLogPopup({
 
           {events.length === 0 && rawLines.length === 0 && !showFallback && (
             <div className="text-[var(--ct-muted-fg)]">
-              {paneId
+              {livePaneId
                 ? connected
                   ? "Waiting for first event…"
                   : "Connecting…"
-                : status.toLowerCase() === "queued"
+                : worker.status.toLowerCase() === "queued"
                   ? "Queued — waiting for worker slot…"
                   : "Waiting for spawn…"}
             </div>
@@ -177,7 +159,7 @@ export function AgentRunLogPopup({
             </pre>
           )}
 
-          {rawLines.length > 0 && (
+          {rawLines.length > 0 && events.length === 0 && (
             <div className="mt-3 border-t border-[var(--ct-border)] pt-2">
               <button
                 type="button"
@@ -195,10 +177,9 @@ export function AgentRunLogPopup({
           )}
         </div>
 
-        {/* Footer */}
-        {report && (
+        {worker.report && (
           <div className="px-4 py-2 border-t border-[var(--ct-border)] text-[10px] text-[var(--ct-muted-fg)]">
-            <strong>Report:</strong> {report}
+            <strong>Report:</strong> {worker.report}
           </div>
         )}
       </div>

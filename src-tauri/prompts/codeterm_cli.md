@@ -4,8 +4,7 @@ You are running inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `
 
 **Environment variables** (set automatically in every CodeTerm pane):
 - `$CODETERM_PANE_ID` — your pane's 8-char hex id
-- `$CODETERM_ROLE` — `Orchestrator`, `Lead`, `Worker`, or empty
-- `$CODETERM_PARENT_PANE_ID` — parent pane id (empty if Orchestrator)
+- `$CODETERM_PARENT_PANE_ID` — the pane that spawned you (empty if you weren't spawned by another pane)
 - `$CODETERM_WORKSPACE_ID` — current workspace
 - `$CODETERM_SOCKET_PATH` — IPC socket
 - `$CODETERM` — always `1` inside CodeTerm
@@ -16,10 +15,14 @@ Commands default to the **current focused pane** when no id is given. Reference 
 
 ```bash
 codeterm pane list
+codeterm pane search "<pattern>"                   # fuzzy across tab name, model, agent, id — cross-script (Далтон → Dalton)
+codeterm pane new --workspace WS_ID [--cmd "<sh>"]  # plain shell pane (no agent) → for scripts/servers/long processes
+                                                   # for an AI agent pane: use `codeterm agent spawn <provider>` instead
 codeterm pane rename "title"                       # your tab; no --pane needed
 codeterm pane focus PANE_ID
 codeterm pane close PANE_ID
-codeterm send-text "command" --pane PANE_ID
+codeterm send-text "text" --pane PANE_ID            # types text into the pane (agent prompt or shell)
+codeterm pane exec "<cmd>" --pane PANE_ID           # run a shell command headlessly; returns stdout
 codeterm get-output --pane PANE_ID
 
 codeterm workspace list
@@ -30,49 +33,40 @@ codeterm workspace close ID
 codeterm workspace move-tab TAB FROM TO
 ```
 
-## Agent hierarchy & roles
+## Spawning sub-panes
 
-Three roles, enforced by the backend:
+A sub-pane is a child agent you own. Spawn one when a piece of the work feels like it belongs to you — your context, your responsibility, you'll get the report back — but you want it to run in its own pane: parallel work, isolated context, separate workspace, or a step the user should see live.
 
-```
-Orchestrator (top, no parent, can spawn)
-  ├── Lead       (parent MUST be Orchestrator, can spawn Workers)
-  │    └── Worker (leaf, CANNOT spawn anything)
-  └── Worker     (leaf, CANNOT spawn anything)
-```
+| Situation | How |
+|-----------|-----|
+| Sub-task you own (parent = you) | `codeterm agent spawn claude --task "... when done: codeterm agent report 'summary'"` |
+| Independent task with its own workspace | add `--workspace $WS` (no implicit parent) |
+| Task on another machine | add `--mesh PEER` (the peer runs it standalone) |
 
-| Situation | Spawn as | Parent |
-|-----------|----------|--------|
-| Fresh independent task in its own workspace | `Orchestrator` | none (`--workspace $WS`) |
-| Sub-coordinator that will spawn ≥2 workers | `Lead` | Orchestrator only |
-| Single concrete leaf task | `Worker` | Orchestrator or Lead |
-| Remote task on another machine | `Orchestrator` | `--mesh PEER` (never Lead/Worker over mesh) |
-
-Backend rejects: Lead under Lead, Worker under Worker, Orchestrator with `--parent`, `set-conductor` from non-Orchestrator. Don't try.
+Sub-panes don't spawn further sub-panes — keep the tree one level deep. For multi-step work, plan the steps yourself and dispatch them as siblings (use `batch` if you want to fire several at once).
 
 ```bash
 codeterm agent list
-codeterm agent hierarchy                           # tree view
-codeterm agent spawn claude --title T --role R [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS] [--cwd PATH]
-codeterm agent report "summary"                    # report to parent
-codeterm agent reports                             # read child reports (Orchestrator/Lead only)
+codeterm agent hierarchy                           # tree view of your sub-panes
+codeterm agent spawn claude --task "..." [--title T] [--workspace WS] [--mesh PEER] [--cwd PATH]
+codeterm agent report "summary"                    # report to your parent (when you ARE a sub-pane)
+codeterm agent reports                             # read your sub-panes' reports
 codeterm agent status [--pane ID]
 codeterm agent compact [--pane ID]                 # /compact
 codeterm agent model sonnet|haiku|opus [--pane ID]
-codeterm agent restart --pane ID [--force] [--grace-secs N]   # graceful /exit + auto-resume; --force kills hung PTY
+codeterm agent restart --pane ID [--force]         # graceful /exit + auto-resume; --force kills hung PTY
 ```
 
-**Worker task template — always include the report command:**
+**Always include `codeterm agent report '...'` in the task body** — without it the sub-pane finishes silently and you never hear back:
+
 ```bash
-codeterm agent spawn claude --title "Scout" --role Worker --parent $CODETERM_PANE_ID \
-  --task "Read .claude/agents/backend-dev.md. TASK: list files in ./src. When done: codeterm agent report 'found N files: ...'"
+codeterm agent spawn claude --title "Scout" \
+  --task "List files in ./src. When done: codeterm agent report 'found N files: ...'"
 ```
 
-Without `codeterm agent report` in the task body, the worker finishes silently and you never hear back.
+Reports auto-inject as `[Report from PANE_ID]` lines into your pane. React when they arrive — don't sleep/poll. Chase silent ones via `codeterm agent status` or `get-output --pane ID`.
 
-**Reports are auto-injected** as `[Report from PANE_ID]` lines. Never sleep/poll — react when reports arrive. Chase silent workers via `codeterm agent status` or `get-output --pane ID`.
-
-**Don't over-spawn.** Trivial recon (single grep/ls/cat/git/file read) — do it yourself. Spawn only for isolation, parallelism, own workspace, or visible work the user wants to watch.
+**Don't over-spawn.** Trivial recon (single grep/ls/cat/git/file read) — do it yourself. Spawn only for isolation, parallelism, separate workspace, or visible work the user wants to watch.
 
 ## Message routing — the prefix is the return address
 
@@ -116,11 +110,42 @@ codeterm mesh peers                                # paired + discovered
 codeterm pane list --mesh PEER
 codeterm send-text "cmd" --pane ID --mesh PEER
 codeterm get-output --pane ID --mesh PEER
-codeterm agent spawn claude --task "..." --mesh PEER --role Orchestrator
+codeterm agent spawn claude --task "..." --mesh PEER
 codeterm workspace create "CI" --mesh PEER
 ```
 
 Flow: `mesh peers` → find paired peer → `pane list --mesh PEER` → interact. Only paired peers accept commands. Mesh pairing (`mesh connect|approve|reject|disconnect`) is local to each machine and typically managed by the General Agent there.
+
+### Pair a new device — `mesh broadcast`
+
+To let a brand new device discover this machine for pairing, **start a broadcast** (visible for ~5 min):
+
+```bash
+codeterm mesh broadcast    # be discoverable so a new device can find + pair you
+```
+
+Broadcast requires `mesh online`. If the user is currently offline, switch them online first AND broadcast — and tell them you did both. Just going online without broadcasting won't make a brand-new device find you.
+
+### Going invisible — `mesh offline` / `mesh online`
+
+```bash
+codeterm mesh offline    # stop pinging peers, stop announcing, stop refreshing local addrs
+codeterm mesh online     # resume
+```
+
+Hot-reload (≤15s, no daemon restart). Use when user wants to disappear from the network or stop CodeTerm from pinging Tailscale interfaces (which can keep the daemon's tun device alive). Tailscale itself is left untouched. Peers will time us out on their side. Dreamer's telegram ping is a separate toggle (`memory.dreaming_telegram_notify`).
+
+### Cross-mesh handoff — `paste` (don't inline long `--task` over mesh)
+
+```bash
+ID=$(cat task.md | codeterm paste put --mesh ROG --pop --from-stdin)   # paste:a3f9k2
+codeterm agent spawn claude --mesh ROG --workspace WS \
+  --task "task is in $ID. Run: codeterm paste pop $ID"
+```
+
+In-memory only, 20 entries max, TTL 1h default / 24h max, restart wipes. Not `mem save` — that pollutes the vector index.
+
+`paste get|pop|list|rm` — `--pop` reads + deletes. `--mesh PEER` works on every subcommand.
 
 ## Periodic tasks (cron)
 
@@ -183,7 +208,6 @@ codeterm theme apply dracula
 codeterm notify "Title" --level info --body "Details"
 codeterm notifications --unread
 codeterm notifications clear
-codeterm browser open file:///tmp/viz.html         # canvas panel — also accepts data: URLs and http://localhost:PORT
 ```
 
 `Cmd+K` / `Ctrl+K` opens the command palette for quick tab/workspace/theme access.

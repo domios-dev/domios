@@ -13,7 +13,7 @@ use super::cipher::{build_login_cipher, BwCipher};
 use super::store::{is_valid_http_url, unwrap_data_envelope, BitwardenStore};
 use super::{
     BW_KEYRING_API_CLIENT_ID, BW_KEYRING_API_CLIENT_SECRET, BW_KEYRING_LOGIN_EMAIL,
-    BW_KEYRING_MASTER_PW, BW_KEYRING_SESSION,
+    BW_KEYRING_SESSION,
 };
 
 #[async_trait]
@@ -231,15 +231,10 @@ impl SecretStore for BitwardenStore {
 
         *self.session.write().await = Some(SecretString::from(token.clone()));
         let _ = self.keychain.set(BW_KEYRING_SESSION, &token);
-        // Master password persistence is gated by config so the user
-        // explicitly opts into the trade-off (convenient auto-unlock vs.
-        // plaintext-on-disk in dev / key-encrypted-at-rest in release).
-        // API-key flow already persists its own client creds, so the
-        // password is never needed for that path.
-        if self.persist_master_password && creds.api_key_client_id.is_none() {
-            let _ = self
-                .keychain
-                .set(BW_KEYRING_MASTER_PW, creds.master_password.expose_secret());
+        // Always persist master pw to file (mode 0600, ~/.codeterm/secrets/) for JIT auto-unlock.
+        // Skipped only when the user signed in via API key (no master pw to save).
+        if creds.api_key_client_id.is_none() {
+            let _ = super::write_master_password_file(creds.master_password.expose_secret());
             if let Some(email) = creds.email.as_deref() {
                 let _ = self.keychain.set(BW_KEYRING_LOGIN_EMAIL, email);
             }
@@ -266,8 +261,8 @@ impl SecretStore for BitwardenStore {
         let _ = self.keychain.delete(BW_KEYRING_SESSION);
         let _ = self.keychain.delete(BW_KEYRING_API_CLIENT_ID);
         let _ = self.keychain.delete(BW_KEYRING_API_CLIENT_SECRET);
-        let _ = self.keychain.delete(BW_KEYRING_MASTER_PW);
         let _ = self.keychain.delete(BW_KEYRING_LOGIN_EMAIL);
+        super::delete_master_password_file();
         Ok(())
     }
 

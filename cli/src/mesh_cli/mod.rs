@@ -106,6 +106,12 @@ pub enum MeshAction {
         #[command(subcommand)]
         action: MeshPeerAction,
     },
+    /// Go offline: stop pinging peers, stop announcing, stop refreshing
+    /// local addresses (which keeps Tailscale alive). The daemon stays up;
+    /// peers will time out our presence on their side. Local-only command.
+    Offline,
+    /// Come back online — resume mesh activity. Local-only.
+    Online,
 }
 
 #[derive(Subcommand)]
@@ -133,7 +139,7 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
             MeshAction::Connect { .. } | MeshAction::Approve { .. } |
             MeshAction::Reject { .. } | MeshAction::Disconnect { .. } |
             MeshAction::Discover | MeshAction::Broadcast | MeshAction::StopBroadcast |
-            MeshAction::Peer { .. } => {
+            MeshAction::Peer { .. } | MeshAction::Offline | MeshAction::Online => {
                 eprintln!("Error: mesh management commands are local-only and cannot be relayed via --mesh");
                 std::process::exit(1);
             }
@@ -142,7 +148,13 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
     }
 
     let (base, token) = super::read_api_config();
-    let http = super::build_http(&token);
+    let http = match super::build_http(&token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     // `update --apply` over mesh is a two-step (force-check then install) flow,
     // not a single relay call.
@@ -152,6 +164,16 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
             update::run_update_apply_via_mesh(&http, &base, &token, target, manifest_url.as_deref(), after_update.as_deref(), cli.json);
             return;
         }
+    }
+
+    // pane search needs the peer's list ranked by the local fuzzy matcher —
+    // a plain relay would print every pane on the peer with no ranking,
+    // ignoring the user's pattern entirely. Fetch raw, then rank.
+    if let Commands::Pane { action: super::PaneAction::Search { pattern } } = &cli.command {
+        let panes = relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", "/api/panes", None);
+        let arr = panes.as_array().cloned().unwrap_or_default();
+        crate::cmd::pane::print_pane_find_results(cli.json, pattern, &arr);
+        return;
     }
 
     let (method, path, body) = api_map::cli_command_to_api(&cli.command);

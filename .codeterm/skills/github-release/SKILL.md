@@ -60,6 +60,12 @@ Stored in Bitwarden vault (retrieve via `codeterm mem secret get --name <slug>` 
 
 ## Steps
 
+### Agent model
+
+When delegating this skill to an agent (release coordinator or ROG worker), **spawn with `--model haiku`**. The pipeline is mostly orchestration + bash + git/gh — Haiku is fast and cheap enough; Sonnet/Opus is overkill and doubles wall time on thinking phases.
+
+Spawn with `codeterm agent spawn claude --task "..." --model haiku`. Parent is inferred from `$CODETERM_PANE_ID`; reports route back to you automatically (Orchestrator + sub-pane model, no `--role` flag needed).
+
 ### 0. Kill any running dev
 
 Rust builds share the target dir — concurrent `tauri build` + `tauri dev` fight and one silently fails:
@@ -185,8 +191,9 @@ tar -czf "$WORK/CodeTerm_${VER}_x64.app.tar.gz" \
   -C src-tauri/target/x86_64-apple-darwin/release/bundle/macos CodeTerm.app
 
 # 2. Sign each updater artifact with the minisign key (key file at ~/.tauri/codeterm.key,
-# base64-encoded minisign secret, password empty for the local-dev key). Note: ALL artifacts
-# served by the updater (.app.tar.gz on Mac, .nsis.zip on Windows) need a paired .sig.
+# base64-encoded minisign secret, password empty for the local-dev key). The .sig is
+# READ once below to extract the base64 signature into latest.json, then thrown away —
+# the tauri updater reads `signature` from the manifest, never downloads .sig files.
 # The .dmg / .exe files do NOT need signing — they are user-facing only.
 KEY_B64=$(cat ~/.tauri/codeterm.key | tr -d '\n')
 for art in \
@@ -237,9 +244,12 @@ cat > "$WORK/latest.json" <<JSON
 JSON
 python3 -m json.tool "$WORK/latest.json" >/dev/null  # validate
 
-# 6. Publish on the public mirror — upload BOTH the user-facing direct downloads
-# (.dmg / .exe) AND the updater artifacts (.app.tar.gz / .nsis.zip). The .sig files
-# only accompany the updater artifacts.
+# 6. Publish on the public mirror — upload the user-facing direct downloads
+# (.dmg / .exe) AND the updater artifacts (.app.tar.gz / .nsis.zip). Do NOT upload
+# the .sig files — their content already lives inline in latest.json's `signature`
+# field, and the tauri updater never fetches separate .sig assets. Same rule for
+# any standalone CLI binary: it's already bundled inside the .app / .exe as a
+# sidecar, so no separate cli archive on the release.
 gh release create v$VER \
   --repo rollacode/codeterm-releases \
   --title "v$VER" --target main \
@@ -249,11 +259,8 @@ gh release create v$VER \
   "$WORK/CodeTerm_${VER}_x64.dmg" \
   "$WORK/CodeTerm_${VER}_x64-setup.exe" \
   "$WORK/CodeTerm_${VER}_aarch64.app.tar.gz" \
-  "$WORK/CodeTerm_${VER}_aarch64.app.tar.gz.sig" \
   "$WORK/CodeTerm_${VER}_x64.app.tar.gz" \
-  "$WORK/CodeTerm_${VER}_x64.app.tar.gz.sig" \
   "$WORK/CodeTerm_${VER}_x64-setup.nsis.zip" \
-  "$WORK/CodeTerm_${VER}_x64-setup.nsis.zip.sig" \
   "$WORK/latest.json"
 
 # 7. Verify anon access (smoke):
@@ -285,6 +292,7 @@ codeterm --mesh ROG agent spawn claude \
   --workspace "$WORKSPACE_ID" \
   --title "v$VER windows release" \
   --role Orchestrator \
+  --model haiku \
   --task "You are on ROG (Windows 11) via mesh. Build CodeTerm v$VER Windows release.
 
 Steps:
@@ -321,7 +329,7 @@ ROG-specific gotchas (verified v1.2.1):
 - BLACKSTAR fallback: workspace at `C:\\Developer\\codeterm` (no `amigo` user). Same flow otherwise.
 
 Alternative coordination paths:
-- **Send to existing General Agent instead of spawning a fresh Lead.** `codeterm --mesh ROG send-text --pane <general_pane> --from-file <msg.txt>`. Bypasses agent_spawn pipeline (resilient to PowerShell argv-split bugs on Windows), uses existing GA context, reports auto-route back through the bridge. Find the General pane via `codeterm --mesh ROG pane list --json | jq '.[] | select(.cwd | contains(".codeterm/general"))'`.
+- **Send to existing General Agent instead of spawning a fresh sub-pane.** `codeterm --mesh ROG send-text --pane <general_pane> --from-file <msg.txt>`. Bypasses agent_spawn pipeline (resilient to PowerShell argv-split bugs on Windows), uses existing GA context, reports auto-route back through the bridge. Find the General pane via `codeterm --mesh ROG pane list --json | jq '.[] | select(.cwd | contains(".codeterm/general"))'`.
 - **Parallel shell pane for tactical interventions.** Agent does the long compile; a separate `codeterm --mesh ROG pane new` handles 7z / gh upload / verify steps — seconds instead of minutes-per-agent-prompt.
 
 Wall times (ROG, cold): ~5min per successful build, +2min per failed retry (node version, SDK). Cache-warm: ~3min.
@@ -339,11 +347,17 @@ gh release view v$VER --json assets --jq '.assets[] | "\(.name)  \(.size)B"'
 curl -sIL https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json | grep '^HTTP' | tail -1
 ```
 
-### 10. Return to develop
+### 10. Sync develop with master + return to develop
+
+After the release commit + tag land on master, `develop` is behind by the release/merge commits (and any docs/skill tweaks the release agent committed directly on master during the run). Fast-forward develop and push so the next release doesn't start from a stale base.
 
 ```bash
 git checkout develop
+git pull --ff-only origin master   # fast-forward; master == develop + release commits
+git push origin develop
 ```
+
+If `--ff-only` refuses (someone committed to develop during the release window), `git merge --no-ff origin/master --no-edit && git push origin develop`. **Don't skip this** — v1.2.1 forgot it and the next release had to re-discover the missing commits manually.
 
 ### 11. Bump Homebrew cask (optional, repos still private)
 
@@ -415,7 +429,7 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 | Windows: `sqlite-sys` cc-rs → "malloc.h not found" | `build.sh`'s `SDK_VER` (10.0.22621.0) ≠ installed Windows Kit | check `ls "/c/Program Files (x86)/Windows Kits/10/Include"` then `export SDK_VER=<found-version>` (e.g. 10.0.26100.0 on ROG) |
 | `gh release upload ...` → "no matches found" on Windows | MSYS git-bash + stale cd + relative paths | `cd` back to repo root before upload, or use absolute paths |
 | `git rev-parse v$VER` returns a SHA that doesn't appear in `git log` | annotated tag (`-a`) creates a tag object that points to the commit (one level of indirection) | use `git rev-parse v$VER^{commit}` for the commit SHA, or `gh release view v$VER --json targetCommitish` |
-| `codeterm mesh send` → "prompt never became ready after 10s" | target pane is busy (claude TUI thinking); mesh send waits for shell-prompt-ready | use `codeterm send-text --no-wait` (added 2026-05-12) for inter-agent text drops where prompt readiness isn't meaningful |
+| `codeterm mesh send` → "prompt never became ready after 10s" | target pane is busy (claude TUI thinking); mesh send waits for shell-prompt-ready | use `codeterm send-text --mesh PEER --pane ID "..."` — send-text is fire-and-forget by design, no readiness check |
 | SSH to BLACKSTAR: `cd /c/…` fails | `bash -lc` runs a login shell that re-homes | use `bash -c` (non-login) |
 | `scp User@blackstar:/c/…` fails | remote shell is cmd.exe, doesn't grok the path | stage the file to `C:\Users\User\` on BLACKSTAR first, then `scp User@blackstar:filename` |
 | Public `curl` of release asset → 404 | repo private, CDN rejects unauthenticated | use `gh release download`, or make repo public |

@@ -161,7 +161,6 @@ fn cmd_health() -> Result<CommandResult, String> {
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
         "build": env!("BUILD_HASH"),
-        "build_number": env!("BUILD_NUMBER"),
         "name": "CodeTerm",
         "platform": std::env::consts::OS,
     })))
@@ -170,11 +169,39 @@ fn cmd_health() -> Result<CommandResult, String> {
 fn cmd_pane_list(ctx: &ServiceContext) -> Result<CommandResult, String> {
     let mux = ctx.mux.lock();
     let snapshot = mux.snapshot();
-    let panes: Vec<serde_json::Value> = snapshot.panes.values()
-        .filter(|p| !p.hidden)
-        .map(|p| serde_json::to_value(p).unwrap_or_default())
-        .collect();
+    let panes = build_pane_list_json(&snapshot);
     Ok(CommandResult::Json(serde_json::json!(panes)))
+}
+
+/// Enrich pane JSON with tab + workspace identifiers.
+pub(crate) fn build_pane_list_json(
+    snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
+) -> Vec<serde_json::Value> {
+    let mut tab_index: std::collections::HashMap<String, (String, String, String, String)> =
+        std::collections::HashMap::new();
+    for ws in &snapshot.workspaces {
+        for tab in &ws.tabs {
+            tab_index.insert(
+                tab.pane_id.clone(),
+                (tab.id.clone(), tab.title.clone(), ws.id.clone(), ws.name.clone()),
+            );
+        }
+    }
+    snapshot.panes.values()
+        .filter(|p| !p.hidden)
+        .map(|p| {
+            let mut v = serde_json::to_value(p).unwrap_or_default();
+            if let Some(obj) = v.as_object_mut() {
+                if let Some((tab_id, tab_title, ws_id, ws_name)) = tab_index.get(&p.id) {
+                    obj.insert("tab_id".into(), serde_json::Value::String(tab_id.clone()));
+                    obj.insert("tab_title".into(), serde_json::Value::String(tab_title.clone()));
+                    obj.insert("workspace_id".into(), serde_json::Value::String(ws_id.clone()));
+                    obj.insert("workspace_name".into(), serde_json::Value::String(ws_name.clone()));
+                }
+            }
+            v
+        })
+        .collect()
 }
 
 fn cmd_send_text(
@@ -605,5 +632,60 @@ mod tests {
         let cmd: Command =
             serde_json::from_str(r#"{"cmd": "list_agent_providers"}"#).unwrap();
         assert!(matches!(cmd, Command::ListAgentProviders));
+    }
+
+    // ── cmd_pane_list / build_pane_list_json enrichment ─────────────
+    //
+    // Tests live on the pure helper so we don't have to stand up a full
+    // ServiceContext. This is the surface CLI `pane list` and `pane find`
+    // both read — if these break, the user-visible bug is "the sidebar
+    // friendly name (Dalton/Thomson/Lagrange) doesn't show up in CLI".
+
+    #[test]
+    fn pane_list_attaches_tab_title_and_workspace_name() {
+        use crate::multiplexer::state::MultiplexerState;
+        let (mut state, initial_pane) = MultiplexerState::new();
+        let snapshot = state.snapshot();
+        let ws = snapshot.workspaces.first().expect("default ws").clone();
+        let tab_id = state.find_tab_for_pane(&initial_pane).expect("default tab");
+        state.rename_tab(&ws.id, &tab_id, "Dalton").unwrap();
+        let snapshot = state.snapshot();
+        let panes = build_pane_list_json(&snapshot);
+        let pane = panes.iter()
+            .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(initial_pane.as_str()))
+            .expect("default pane present in list");
+        assert_eq!(
+            pane.get("tab_title").and_then(|v| v.as_str()),
+            Some("Dalton"),
+            "tab_title must be attached so CLI can show the sidebar label",
+        );
+        assert_eq!(
+            pane.get("tab_id").and_then(|v| v.as_str()),
+            Some(tab_id.as_str()),
+        );
+        assert_eq!(
+            pane.get("workspace_id").and_then(|v| v.as_str()),
+            Some(ws.id.as_str()),
+        );
+        assert!(
+            pane.get("workspace_name").and_then(|v| v.as_str()).is_some(),
+            "workspace_name must be attached so user can disambiguate same-titled tabs across workspaces",
+        );
+    }
+
+    #[test]
+    fn pane_list_keeps_tab_info_after_rename_to_fibonacci() {
+        use crate::multiplexer::state::MultiplexerState;
+        let (mut state, visible) = MultiplexerState::new();
+        let ws_id = state.snapshot().workspaces.first().expect("default ws").id.clone();
+        let tab_id = state.find_tab_for_pane(&visible).unwrap();
+        state.rename_tab(&ws_id, &tab_id, "Fibonacci").unwrap();
+        let snapshot = state.snapshot();
+        let panes = build_pane_list_json(&snapshot);
+        assert_eq!(panes.len(), 1);
+        assert_eq!(
+            panes[0].get("tab_title").and_then(|v| v.as_str()),
+            Some("Fibonacci"),
+        );
     }
 }

@@ -28,7 +28,7 @@ Then: `Authorization: Bearer your-secret-token`
 #### System
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| GET | `/api/health` | — | Health check. Returns `version`, `build` (git hash), `build_number` (incremented by `build.sh dev`), `name`. |
+| GET | `/api/health` | — | Health check. Returns `version`, `build` (git short hash), `name`, `platform`, `status`. |
 | GET | `/api/identify` | — | Version, platform, features |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
 | GET | `/api/keepawake` | — | Get keep-awake status (see below) |
@@ -51,7 +51,7 @@ Then: `Authorization: Bearer your-secret-token`
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/panes` | — | List all panes |
-| POST | `/api/panes/{id}/send` | `{text?, enter?, verify?, batch?: [{text, enter?, delay_ms?}]}` | Send text to PTY. Default is fire-and-forget (`{ok:true, fire_and_forget:true}`); opt into screen-echo verification with `verify:true`. Verified response: `{ok, pty_echo_seen, echo_observed, submit_observed, elapsed_ms}` — `pty_echo_seen` (renamed from `verified` in v1.2.1) is `echo_observed && (!enter || submit_observed)`. |
+| POST | `/api/panes/{id}/send` | `{text?, enter?, raw?, batch?: [{text, enter?, delay_ms?}], source_pane?}` | Send text to PTY. Fire-and-forget — returns `{ok:true}` as soon as bytes are written. Verification fields were removed in v1.2.3 (#101): TUI agents (Claude/Codex) intercept input and don't echo per-character, so the old `verify` flag couldn't deliver on its name. For agent request/response, a future `codeterm agent send` will hook into provider semantics. |
 | POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
 | GET | `/api/panes/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
 | GET | `/api/panes/{id}/text` | `?formatted=false` | Visible terminal text (VT100-parsed, alternate buffer included). Served from the backend — no frontend roundtrip, works for hidden panes. Response: `{"text": "...", "formatted": false, "pane_id": "..."}`. With `?formatted=true` the `text` contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility (used on pane remount to restore TUI apps like Claude that hide the cursor via DECTCEM). |
@@ -84,6 +84,16 @@ Then: `Authorization: Bearer your-secret-token`
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | POST | `/api/batch` | `{commands: [{method, params, id?}]}` | Execute multiple commands sequentially (see below) |
+
+#### Pasteboard (cross-mesh ephemeral payloads, #98)
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/pasteboard` | `{body, content_type?, ttl_ms?, pop_on_read?}` | Stash a payload. Returns `{id: "paste:NNNNNN", expires_at}`. TTL default 1h, max 24h. 20-entry cap with oldest-first eviction. |
+| GET | `/api/pasteboard/{id}` | — | Fetch body. `?pop=true` deletes after read. Returns 404 if expired/unknown. |
+| DELETE | `/api/pasteboard/{id}` | — | Explicit delete. |
+| GET | `/api/pasteboard` | — | List local pastes (id, size, ttl_remaining_ms, content_type). |
+
+No disk persistence — restart wipes every paste. Correct semantics for "drop a payload, get a slug, let any peer fetch it, then forget."
 
 ### Pane Fields
 
@@ -155,11 +165,10 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 
 `/api/panes/*/hook/*` and `/api/mem/flush` require the standard Bearer token — there is no auth-exempt loopback path. CodeTerm injects `CODETERM_API_TOKEN` into every PTY (alongside `CODETERM_API_PORT` and `CODETERM_PANE_ID`), and the installed Claude hook commands reference `${CODETERM_API_TOKEN}` directly. External callers wiring custom hooks must set the same header.
 
-#### Canvas (Visualizations)
+#### File serving
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| POST | `/api/browser/open` | `{url}` | Open canvas panel (localhost, data URLs, HTML) |
-| GET | `/api/serve-file` | `?path=...` | Serve local file for canvas |
+| GET | `/api/serve-file` | `?path=...` | Serve a local file (assets, screenshots, etc.) |
 
 #### Notifications
 | Method | Path | Body | Description |
@@ -372,13 +381,20 @@ Daemon-kind services are registered here; cron jobs are projected as virtual `cr
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/services` | `?kind=cron\|daemon&enabled=true\|false` | List all services (cron projection + registered daemons), optionally filtered |
-| POST | `/api/services` | `{name, kind:"daemon", health_mode, health_interval?, push_enabled?, url?, host?, port?, process_label?, script_path?, health_path?, description?, field_mapping?}` | Register a new daemon-kind service. `kind` other than `daemon` returns 400 (cron jobs go through `/api/crons`). Returns `{service, token}` — save the token, it is shown only once. `health_interval` defaults to 30 s. `push_enabled` defaults to false; set true to allow Bearer-token writes to panes. |
+| POST | `/api/services` | `{name, kind:"daemon", health_mode, health_interval?, push_enabled?, url?, host?, port?, process_label?, script_path?, health_path?, health_json_field?, health_ok_values?, health_degraded_values?, description?, field_mapping?}` | Register a new daemon-kind service. `kind` other than `daemon` returns 400 (cron jobs go through `/api/crons`). Returns `{service, token}` — save the token, it is shown only once. `health_interval` defaults to 30 s. `push_enabled` defaults to false; set true to allow Bearer-token writes to panes. |
 | GET | `/api/services/{id}` | — | Get service by ID. Body includes the latest health snapshot (joined from `service_health` via `ROW_NUMBER` window — most recent row only). |
-| PUT | `/api/services/{id}` | `{name?, description?, url?, host?, port?, process_label?, script_path?, health_mode?, health_path?, health_interval?, field_mapping?, push_enabled?, enabled?}` | Update service fields. Each field is a sparse patch (only provided keys are written). |
+| PUT | `/api/services/{id}` | `{name?, description?, url?, host?, port?, process_label?, script_path?, health_mode?, health_path?, health_json_field?, health_ok_values?, health_degraded_values?, health_interval?, field_mapping?, push_enabled?, enabled?}` | Update service fields. Each field is a sparse patch (only provided keys are written). |
 | DELETE | `/api/services/{id}` | — | Delete service + its push token + activity |
 | POST | `/api/services/{id}/regenerate-token` | — | Rotate push token. Returns `{token, push_enabled: true}` — old token is immediately invalidated, and `push_enabled` is auto-set to true (rotating implies you intend to push). |
 
 **Health modes:** `http` (HTTP GET to `url` + optional `health_path`, default `/healthz`), `tcp` (TCP connect to `host:port`), `process` (launchctl/systemd unit via `process_label`), `script` (exit 0 = healthy, `script_path`). The probe scheduler ticks every 30 s and requires **3 consecutive identical observations** before firing a transition event — single-tick blips never page the UI.
+
+**HTTP health response mapper** (per-service, all optional):
+- `health_json_field` — which JSON key to inspect (default: `"status"`). Ignored when body is empty or non-JSON (2xx alone → Healthy).
+- `health_ok_values` — string array of values that mean Healthy, case-insensitive (default: `["ok","healthy","up"]`). Example: `["UP"]` for SonarQube, `["running"]` for custom services.
+- `health_degraded_values` — values that mean Degraded (default: `["degraded","starting"]`). Anything else → Down.
+- If the configured field is absent from the JSON body, the probe falls back to "2xx = Healthy".
+- CLI: `--health-json-field status --health-ok-values UP,ok --health-degraded-values STARTING`
 
 **Push-token middleware.** `POST /api/panes/{id}/send` accepts `Authorization: Bearer <service_token>` (the per-service push token returned at create or rotation time) in addition to the normal API token. Token files live at `<data_dir>/services/<service_id>/token` (mode `0600` on Unix), are 64-hex-char random, and are matched constant-time. Every accepted push is mirrored into the activity log as a `push` event.
 
@@ -456,6 +472,21 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 - `X-CodeTerm-Actor` — stored in `mem_item_history.changed_by`. Defaults to `"user"`; set explicitly via `codeterm mem update --changed-by <actor>` (e.g. `dreamer-calibration:promote`). The calibration sweep populates this with `dreamer-calibration:{promote|demote|archive}` so the calibration log can filter cleanly.
 
 **Extraction concurrency:** `ServiceContext::extract_semaphore` caps auto-extraction at **4 concurrent workers** across the whole process. Every `mem_save` (except items tagged `auto-extracted`, sourced from `extracted_from:*`, or sent with `skip_extract: true`) schedules an extraction task that acquires a permit from this semaphore before spawning a hidden extraction pane. Additional graph routes (`/api/mem/graph/*`), learnings, dreaming, and worker endpoints exist but are not documented here — read `src-tauri/src/api/mem_routes.rs` for the full surface.
+
+#### Memory — Graph self-repair (Dreamer primitives)
+
+Whitelist-bounded graph cleanup primitives. All destructive ops audit-log to `graph_purge_log`. See `docs/MEMORY.md` for the full Dreamer flow.
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/mem/graph/repair/find-relations` | `{group_by:[…], limit:N}` | List duplicate relation groups by a whitelisted subset of columns (`from_id`, `relation_type`, `to_id`, `scope`, `valid_from`). Returns `{groups:[{key, count, rowids, sample}]}`. Read-only. |
+| POST | `/api/mem/graph/repair/delete-relations` | `{rowids:[…], actor}` | Delete explicit rowids; full row payload preserved in audit. |
+| POST | `/api/mem/graph/repair/merge-relations` | `{keep:N, merge:[…], actor}` | Fold merge-rowids into keep — max(confidence), properties merged (keep wins on collision), audit row written. |
+| POST | `/api/mem/graph/repair/find-entities` | `{strategy:{kind:"exact_name"\|"alias_chain"\|"vector", threshold?, entity_type?}, limit:N}` | Surface candidate duplicate entities. Vector strategy uses cosine-sim threshold (0.0–1.0). Read-only. |
+| POST | `/api/mem/graph/repair/augment-entity` | `{id, patch:{…}, actor}` | PATCH `properties_json` then re-embed. Audit row with `count=0`. |
+| POST | `/api/mem/graph/repair/delete-entity` | `{id, force:bool, purge_history:bool, actor}` | Delete entity (refuses if active relations and `force=false`). `force` cascades active rels, `purge_history` also drops invalidated rels. Also cleans `entity_aliases` referencing the id and the entity's `mem_vectors`. |
+| POST | `/api/mem/graph/repair/orphan-vectors` | `{dry_run:bool, actor}` | Find/delete `mem_vectors` rows whose mem_id has no matching `entities`/`mem_items` row. |
+| POST | `/api/mem/graph/repair/orphan-blobs` | `{dry_run:bool, actor}` | CAS-aware sweep of `sha256_*.txt` blob files no `mem_item.body_blob_path` references. |
 
 #### Secrets
 
@@ -860,7 +891,6 @@ Newline-delimited JSON:
 | `pane.send_text` | `{pane_id, text, enter?}` | Send text to PTY (`enter` defaults to `true`, appends `\r`) |
 | `pane.get_output` | `{pane_id, max_bytes?}` | Read terminal output |
 | `pane.rename` | `{pane_id, title}` | Rename pane (pinned) |
-| `browser.open` | `{url}` | Open canvas panel (localhost, data URLs) |
 | `notification.create` | `{title, body?, level?, pane_id?}` | Create notification |
 | `notification.list` | `{unread_only?}` | List notifications |
 | `notification.clear` | `{id?}` | Clear notifications |
@@ -923,9 +953,6 @@ codeterm pane rename "title" [--pane ID] [--id ID]  # Rename tab (default: curre
 # Terminal I/O
 codeterm send-text "command" [--pane ID] [--id ID]  # Send text (default: current, --id alias for --pane)
 codeterm get-output [--pane ID] [--id ID] [--lines 50]  # Read output (default: current, --id alias for --pane)
-
-# Canvas (visualizations)
-codeterm browser open URL                       # Open canvas panel (localhost, data URLs)
 
 # Notifications
 codeterm notify "Title" [--body "..."] [--level info|warning|error]
@@ -1196,4 +1223,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 44 -->
+<!-- revision: 47 -->

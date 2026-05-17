@@ -4,16 +4,11 @@ import type {
   Workspace,
   Tab,
   Pane,
-  Orientation,
   Notification,
   PaneStatus,
 } from "../../lib/types";
 import {
-  collectPaneIds,
   highestTitleLevel,
-  removeLeaf,
-  splitLeaf,
-  updateRatio,
   type ExtendedState,
 } from "./tree";
 
@@ -28,14 +23,6 @@ export type Action =
   | { type: "CLOSE_TAB"; workspaceId: string; tabId: string; removedPaneIds: string[] }
   | { type: "SET_ACTIVE_TAB"; workspaceId: string; tabId: string }
   | {
-      type: "SPLIT_PANE";
-      workspaceId: string;
-      tabId: string;
-      targetPaneId: string;
-      newPane: Pane;
-      orientation: Orientation;
-    }
-  | {
       type: "CLOSE_PANE";
       workspaceId: string;
       tabId: string;
@@ -43,7 +30,6 @@ export type Action =
     }
   | { type: "SET_FOCUSED_PANE"; paneId: string }
   | { type: "SET_PANE_PTY"; paneId: string; ptyId: string }
-  | { type: "UPDATE_SPLIT_RATIO"; workspaceId: string; tabId: string; path: number[]; ratio: number }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
   | { type: "MARK_READ"; id: string }
   | { type: "MARK_ALL_READ" }
@@ -57,27 +43,9 @@ export type Action =
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
     case "SET_STATE": {
-      // Preserve frontend-authoritative split ratios when merging backend state.
-      // Backend doesn't track ratio changes from divider dragging, so we must
-      // keep ratios from the existing local state and only update structural
-      // changes (new/removed panes, tabs, workspaces).
-      const mergedWorkspaces = action.state.workspaces.map((bws) => {
-        const existingWs = state.workspaces.find((w) => w.id === bws.id);
-        if (!existingWs) return bws;
-        return {
-          ...bws,
-          tabs: bws.tabs.map((bTab) => {
-            const existingTab = existingWs.tabs.find((t) => t.id === bTab.id);
-            if (!existingTab) return bTab;
-            const existingPaneIds = collectPaneIds(existingTab.split_tree).sort().join(",");
-            const backendPaneIds = collectPaneIds(bTab.split_tree).sort().join(",");
-            if (existingPaneIds === backendPaneIds) {
-              return { ...bTab, split_tree: existingTab.split_tree };
-            }
-            return bTab;
-          }),
-        };
-      });
+      // One pane per tab now — backend state is authoritative; no split-ratio
+      // preservation needed since there are no dividers to drag.
+      const mergedWorkspaces = action.state.workspaces;
       const mergedPanes = { ...action.state.panes };
       for (const [id, backendPane] of Object.entries(mergedPanes)) {
         const existing = state.panes[id];
@@ -137,9 +105,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
 
     case "CLOSE_WORKSPACE": {
       const ws = state.workspaces.find((w) => w.id === action.id);
-      const removedPaneIds = ws
-        ? ws.tabs.flatMap((t) => collectPaneIds(t.split_tree))
-        : [];
+      const removedPaneIds = ws ? ws.tabs.map((t) => t.pane_id) : [];
       const newPanes = { ...state.panes };
       const newStatuses = { ...state.paneStatuses };
       for (const pid of removedPaneIds) {
@@ -253,53 +219,20 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         ),
       };
 
-    case "SPLIT_PANE": {
-      // Split UX is removed in the current build, but the reducer case stays
-      // as a defense — focus is no longer auto-moved here either.
-      return {
-        ...state,
-        workspaces: state.workspaces.map((ws) => {
-          if (ws.id !== action.workspaceId) return ws;
-          return {
-            ...ws,
-            tabs: ws.tabs.map((tab) => {
-              if (tab.id !== action.tabId) return tab;
-              return {
-                ...tab,
-                split_tree: splitLeaf(
-                  tab.split_tree,
-                  action.targetPaneId,
-                  action.newPane.id,
-                  action.orientation,
-                ),
-              };
-            }),
-          };
-        }),
-        panes: { ...state.panes, [action.newPane.id]: action.newPane },
-      };
-    }
-
     case "CLOSE_PANE": {
       const newPanes = { ...state.panes };
       delete newPanes[action.paneId];
       const newStatuses = { ...state.paneStatuses };
       delete newStatuses[action.paneId];
       // focused_pane_id intentionally untouched — see CLOSE_WORKSPACE comment.
+      // One pane per tab → closing the pane closes the tab.
       return {
         ...state,
         workspaces: state.workspaces.map((ws) => {
           if (ws.id !== action.workspaceId) return ws;
           return {
             ...ws,
-            tabs: ws.tabs.map((tab) => {
-              if (tab.id !== action.tabId) return tab;
-              const newTree = removeLeaf(tab.split_tree, action.paneId);
-              return {
-                ...tab,
-                split_tree: newTree ?? tab.split_tree,
-              };
-            }),
+            tabs: ws.tabs.filter((tab) => tab.id !== action.tabId),
           };
         }),
         panes: newPanes,
@@ -356,25 +289,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             tabs: ws.tabs.map((tab) =>
               tab.id === action.tabId ? { ...tab, title: action.title } : tab
             ),
-          };
-        }),
-      };
-    }
-
-    case "UPDATE_SPLIT_RATIO": {
-      return {
-        ...state,
-        workspaces: state.workspaces.map((ws) => {
-          if (ws.id !== action.workspaceId) return ws;
-          return {
-            ...ws,
-            tabs: ws.tabs.map((tab) => {
-              if (tab.id !== action.tabId) return tab;
-              return {
-                ...tab,
-                split_tree: updateRatio(tab.split_tree, action.path, action.ratio),
-              };
-            }),
           };
         }),
       };

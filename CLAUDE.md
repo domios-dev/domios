@@ -14,7 +14,7 @@
 
 **Hard limit: 1000 lines per source file** (`.rs`, `.ts`, `.tsx`, `.py`, `.swift`). When a file approaches this, split by responsibility. If a single concern legitimately needs more than 1000 lines, your concern is two concerns wearing a trenchcoat.
 
-- `mod.rs` files target <300 lines — facade only (re-exports, trait declarations). Logic belongs in concrete files inside the module.
+- `mod.rs` files target <600 lines — facade + light glue. Heavy logic belongs in concrete files inside the module.
 - Excluded: `target/`, `node_modules/`, `dist/`, `gen/`, `references/`, `vendor/`, `src-tauri/pty-fork/`, data formats.
 - Enforcement: `scripts/check-file-sizes.sh` (CI-wired). `scripts/file-size-allowlist.txt` lists pre-existing oversized files (baseline-locked, must shrink, never grow).
 
@@ -27,7 +27,7 @@ All commands go through `build.sh`. Safe on Windows: never kills production Code
 ```bash
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
 ./build.sh dev --wait       # same, but backgrounds the process and blocks until /api/health
-                            # reports the new build_number — use in scripts/benches/CI
+                            # responds — use in scripts/benches/CI
 ./build.sh check            # cargo check (~2s incremental)
 ./build.sh test             # Rust unit tests
 ./build.sh build            # production build
@@ -41,10 +41,10 @@ source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 **Before debugging, always verify the running build matches your code:**
 
 ```bash
-curl -s http://127.0.0.1:7686/api/health | jq '{build, build_number}'
+curl -s http://127.0.0.1:7686/api/health | jq '.build'
 ```
 
-If `build` (git commit hash) differs from `git rev-parse HEAD`, the old build is still running — restart with `./build.sh dev`. Don't waste time investigating stale binaries.
+If `build` (git commit hash) differs from `git rev-parse HEAD`, the old build is still running — restart with `./build.sh dev`. During iterative work the hash stays the same across restarts, so the real "did the restart take" signal is `./build.sh kill` (which guarantees the old process is gone) followed by a fresh `./build.sh dev`.
 
 Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-dev/logs/codeterm.log`.
 
@@ -188,6 +188,14 @@ SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structu
 ## Architecture (agent providers, detection)
 
 Agent integration is abstracted via providers (`src-tauri/src/agent/`, `src/components/ChatView/parser.ts`). Currently: Claude. Architecture-ready: Codex, Aider, Goose. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`docs/contributing/architecture.md`**.
+
+## Mem self-repair primitives (Dreamer interface)
+
+Graph cleanup goes through `src-tauri/src/mem/graph_repair.rs` — whitelist-bounded typed primitives, never raw SQL. The Dreamer chains these via the prompt at `src-tauri/prompts/dreaming_rem.md` Stage A.4.
+
+CLI: `codeterm mem graph {find-duplicate-relations,delete-relations,merge-relations,find-duplicate-entities,augment-entity,delete-entity,alias,repair-orphan-vectors,repair-orphan-blobs}`. REST: `POST /api/mem/graph/repair/*`. Every destructive op writes a full payload to `graph_purge_log` for reversibility. See `docs/MEMORY.md` for the full table.
+
+When extending the surface: add a typed enum variant (mirror `RelationColumn` / `EntitySimilarityStrategy`) instead of free-form strings; never let LLM-controlled input reach `format!`-built SQL.
 
 ## GitHub Issues
 

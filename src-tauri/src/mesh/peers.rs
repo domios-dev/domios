@@ -134,6 +134,7 @@ pub fn load_peers() -> HashMap<String, PairedPeer> {
             is_primary: d.is_primary,
             access_level: d.access_level,
             version: d.version,
+            consecutive_misses: 0,
         })
     }).collect();
     if scrubbed > 0 {

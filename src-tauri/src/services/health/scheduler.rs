@@ -91,9 +91,15 @@ async fn probe_one(svc: &crate::services::store::Service) -> HealthSnapshot {
             let base = svc.url.clone().unwrap_or_default();
             let path = svc.health_path.as_deref().unwrap_or("/healthz");
             let url = format!("{}{}", base, path);
-            super::http::probe_http(&url, HTTP_TIMEOUT_MS)
-                .await
-                .unwrap_or_default()
+            super::http::probe_http(
+                &url,
+                HTTP_TIMEOUT_MS,
+                svc.health_json_field.as_deref(),
+                svc.health_ok_values.as_deref(),
+                svc.health_degraded_values.as_deref(),
+            )
+            .await
+            .unwrap_or_default()
         }
         HealthMode::Tcp => super::tcp::probe_tcp(
             svc.host.as_deref().unwrap_or(""),

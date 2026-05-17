@@ -11,6 +11,8 @@ interface Props {
   pairedDuration?: string;
   services: Service[];
   onClick?: () => void;
+  offline?: boolean;
+  onGoOnline?: () => void;
 }
 
 const HEALTH_DOT_COLOR: Record<string, string> = {
@@ -31,13 +33,17 @@ export function PeerTerminal({
   pairedDuration,
   services,
   onClick,
+  offline = false,
+  onGoOnline,
 }: Props) {
   return (
     <div
       onClick={onClick}
-      className={`bg-[var(--ct-bg)] rounded-md cursor-pointer transition-shadow ${
+      className={`relative bg-[var(--ct-bg)] rounded-md cursor-pointer transition-shadow ${
         isThisMachine
-          ? "border-2 border-[var(--ct-accent)] shadow-[0_8px_24px_rgba(203,166,247,0.2)]"
+          ? offline
+            ? "border-2 border-[var(--ct-border)] shadow-none opacity-55 grayscale"
+            : "border-2 border-[var(--ct-accent)] shadow-[0_8px_24px_rgba(203,166,247,0.2)]"
           : "border border-[var(--ct-border)] shadow-md"
       }`}
       style={{ width: 360 }}
@@ -51,9 +57,25 @@ export function PeerTerminal({
         </span>
         <span className="ml-auto text-[11px] text-[var(--ct-muted)] font-mono whitespace-nowrap">
           {ip}
-          {isThisMachine ? " · this" : ""}
+          {isThisMachine ? (offline ? " · offline" : " · this") : ""}
         </span>
       </div>
+      {offline && onGoOnline && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onGoOnline();
+          }}
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 px-4 py-2 rounded-full bg-[var(--ct-green,#22c55e)] text-white text-[12px] font-semibold uppercase tracking-wider shadow-[0_6px_18px_rgba(34,197,94,0.5)] hover:brightness-110 active:scale-95 transition-transform"
+          style={{
+            transform: "translate(-50%, -50%) rotate(-4deg)",
+            filter: "drop-shadow(0 0 0.5px rgba(0,0,0,0.4))",
+          }}
+          title="Turn on mesh broadcasting"
+        >
+          Go online
+        </button>
+      )}
       <div
         className="px-3.5 py-2 text-[12px]"
         style={{

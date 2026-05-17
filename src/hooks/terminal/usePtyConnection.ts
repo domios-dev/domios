@@ -61,26 +61,34 @@ export function usePtyConnection({
       const predictedId = ptyId || crypto.randomUUID();
       connectedPtyRef.current = predictedId;
 
-      // Restore visible pane state for existing PTY.
-      // Use formatted=true: preserves colors, cursor position, AND cursor visibility.
-      // Fixes double-cursor: TUI apps like Claude hide xterm cursor via DECTCEM,
-      // plain text restore would lose that state.
+      // Replay full ANSI history on mount so scrollback survives remounts.
       if (ptyId) {
+        let restored = false;
         try {
-          const formatted = await invoke<string>("get_pane_text", { paneId, formatted: true });
-          if (formatted) term.write(formatted);
-        } catch {
+          const raw = await invoke<string>("get_pane_history_raw", { paneId });
+          if (raw) {
+            term.write(raw);
+            restored = true;
+          }
+        } catch { /* fall back to screen dump */ }
+
+        if (!restored) {
           try {
-            const text = await invoke<string>("get_pane_text", { paneId, formatted: false });
-            if (text) term.write(text);
+            const formatted = await invoke<string>(
+              "get_pane_text",
+              { paneId, formatted: true },
+            );
+            if (formatted) term.write(formatted);
           } catch {
             try {
-              const output = await invoke<string>("get_pane_output", { paneId });
-              if (output) term.write(output);
+              const text = await invoke<string>(
+                "get_pane_text",
+                { paneId, formatted: false },
+              );
+              if (text) term.write(text);
             } catch { /* ignore */ }
           }
         }
-        // Force TUI redraw after screen restore
         requestAnimationFrame(() => {
           try {
             fitAddonRef.current?.fit();

@@ -59,62 +59,27 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("enter"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
-            let verify = params
-                .as_ref()
-                .and_then(|p| p.get("verify"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
             let source_pane = params
                 .as_ref()
                 .and_then(|p| p.get("source_pane"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
                 .filter(|s| !s.is_empty() && s != &pane_id);
+            // Source-prefix only for agent recipients; shells just execute the bytes.
+            let target_has_agent = mux.lock().get_pane(&pane_id)
+                .map(|p| p.agent_type.is_some())
+                .unwrap_or(false);
             let text = match source_pane.as_deref() {
-                Some(src) => {
-                    let title = mux.lock().get_pane(src).map(|p| p.title.clone()).unwrap_or_default();
+                Some(src) if target_has_agent => {
+                    let label = mux.lock().display_label_for_pane(src);
                     let short = src.chars().take(8).collect::<String>();
-                    let label = if title.is_empty() { short.clone() } else { title };
                     format!("[from {} pane={}] {}", label, short, raw_text)
                 }
-                None => raw_text,
+                _ => raw_text,
             };
-            let svc_ref = svc.as_ref();
-            if verify {
-                let pty_id = svc_ref.resolve_pty_id(&pane_id)
-                    .map_err(|e| JsonRpcError { code: -32602, message: e })?;
-                let opts = crate::service::inject_verify::VerifyOpts::default();
-                let strategy = crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
-                    timeout: std::time::Duration::from_secs(10),
-                };
-                return Ok(match svc_ref.send_text_verified(&pty_id, &text, enter, strategy, opts) {
-                    Ok(r) => serde_json::json!({
-                        "ok": true,
-                        // Advisory: best-available evidence that the TTY echoed
-                        // the bytes (and consumed Enter when requested). Falsy
-                        // here does NOT mean delivery failed — bytes are always
-                        // written; long messages may scroll past the capture
-                        // window before the verifier polls. Treat `error` as
-                        // the only delivery gate.
-                        "pty_echo_seen": r.echo_observed && (!enter || r.submit_observed),
-                        "echo_observed": r.echo_observed,
-                        "submit_observed": r.submit_observed,
-                        "elapsed_ms": r.elapsed.as_millis() as u64,
-                    }),
-                    Err(e) => serde_json::json!({
-                        "ok": false,
-                        "pty_echo_seen": false,
-                        "error": format!("{}", e),
-                    }),
-                });
-            }
-            svc_ref.send_text(&pane_id, &text, enter)
+            svc.as_ref().send_text(&pane_id, &text, enter)
                 .map_err(|e| JsonRpcError { code: -32603, message: e })?;
-            Ok(serde_json::json!({
-                "ok": true,
-                "fire_and_forget": true,
-                "verified": false,
-            }))
+            Ok(serde_json::json!({"ok": true}))
         }
 
         "pane.get_output" => {
@@ -184,24 +149,6 @@ pub(super) fn dispatch(
             )
             .map(|r| r.into_json())
             .map_err(|e| JsonRpcError { code: -32603, message: e })
-        }
-
-        "browser.open" => {
-            let url = get_string_param(params, "url")?;
-            let activate = params
-                .as_ref()
-                .and_then(|p| p.get("activate"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let new_pane_id = {
-                let mut mux = mux.lock();
-                mux.open_browser(Some(url.clone()), activate).map_err(|e| JsonRpcError {
-                    code: -32603,
-                    message: e,
-                })?
-            };
-            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
-            Ok(serde_json::json!({"pane_id": new_pane_id, "url": url}))
         }
 
         _ => Err(JsonRpcError {

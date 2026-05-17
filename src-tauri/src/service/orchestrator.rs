@@ -321,6 +321,12 @@ impl ServiceContext {
         let (tab_id, pane_id) = {
             let mut mux = self.mux.lock();
             let result = mux.create_tab(&ws_id)?;
+            // Pin the sidebar label up-front (rename_pane sync runs later too).
+            if let Some(ref t) = params.title {
+                if !t.trim().is_empty() {
+                    let _ = mux.rename_tab(&ws_id, &result.0, t);
+                }
+            }
             if let Some(ref dir) = params.cwd {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.cwd = Some(dir.clone());
@@ -395,7 +401,7 @@ impl ServiceContext {
             }
         });
         let launch_cmd = build_agent_command(agent_cmd, &params, bg_task.as_deref(), &self.agent_registry);
-        launch_agent_in_background(self.clone(), pane_id.clone(), launch_cmd, agent_cmd.to_string(), bg_task, ready_tx);
+        launch_agent_in_background(self.clone(), pane_id.clone(), tab_id.clone(), ws_id.clone(), launch_cmd, agent_cmd.to_string(), bg_task, ready_tx);
 
         Ok(SpawnResult {
             pane_id,
@@ -417,6 +423,8 @@ pub(crate) use crate::agent::registry::AgentRegistry;
 pub(crate) fn launch_agent_in_background(
     svc: ServiceContext,
     pane_id: String,
+    tab_id: String,
+    ws_id: String,
     launch_cmd: String,
     agent_cmd: String,
     task: Option<String>,
@@ -465,7 +473,9 @@ pub(crate) fn launch_agent_in_background(
                         break pid;
                     }
                     Err(e) => {
-                        log::error!("launch_agent: backend PTY spawn failed: {}", e);
+                        log::error!("launch_agent: backend PTY spawn failed for pane {}: {}", pane_id, e);
+                        // Clean up the orphaned pane — it has no PTY and is unreachable
+                        let _ = svc.close_tab(&ws_id, &tab_id);
                         if let Some(tx) = ready_tx {
                             let _ = tx.send(Err(format!("backend PTY spawn failed: {}", e)));
                         }
@@ -515,7 +525,10 @@ pub(crate) fn launch_agent_in_background(
             .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
                 timeout: std::time::Duration::from_secs(15),
             });
-        if let Err(e) = svc.send_text_verified(&pty_id, &launch_cmd, true, launch_strategy, launch_opts) {
+        // Use shell dispatch (bash script on Unix, bracketed paste on Windows) so
+        // bash 3.2 hosts (macOS Intel system shell) never see raw ESC markers
+        // (#93 — keeps shell-level launch off the bracketed-paste path).
+        if let Err(e) = svc.send_shell_spawn_verified(&pty_id, &launch_cmd, launch_strategy, launch_opts) {
             log::error!(
                 "launch_agent: launch_cmd failed for pane {} (pty {}): {}",
                 pane_id, pty_id, e

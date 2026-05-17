@@ -39,7 +39,11 @@ pub async fn create_shell_pane(
         command: PaneCommand::Shell,
         ..Default::default()
     }).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    // Mirror `pane_id` as `id` so the conventional CRUD idiom (`jq '.id'`,
+    // resp.get("id")) reaches the new pane without anyone having to learn
+    // our per-resource naming. Both fields hold the same value.
     Ok(Json(serde_json::json!({
+        "id": handle.pane_id,
         "pane_id": handle.pane_id,
         "workspace_id": handle.workspace_id,
         "tab_id": handle.tab_id,
@@ -59,9 +63,6 @@ pub(crate) struct SendTextBody {
     /// Use for keystrokes that need to be interpreted by TUI (e.g. vim j/k navigation).
     #[serde(default)]
     raw: bool,
-    /// When `Some(true)`, block until echo + submit are observed.
-    /// Default is fire-and-forget when the caller omits the field.
-    verify: Option<bool>,
     /// Sender's pane id when CLI is invoked from inside CodeTerm. Daemon
     /// prepends `[from <title> pane=<id>] ` so the recipient knows the
     /// return-address. Mirrors `[Mesh: PEER pane=ID]` for mesh hops and
@@ -127,12 +128,16 @@ pub async fn send_text(
         return Err((StatusCode::NOT_FOUND, "Pane not found or PTY did not start within 3s"));
     }
 
+    // Source-prefix only for agent recipients; shells just execute the bytes.
+    let target_has_agent = state.svc.mux.lock().get_pane(&pane_id)
+        .map(|p| p.agent_type.is_some())
+        .unwrap_or(false);
     let source_prefix: Option<String> = body.source_pane.as_deref()
         .filter(|s| !s.is_empty() && *s != pane_id)
+        .filter(|_| target_has_agent)
         .map(|src| {
-            let title = state.svc.mux.lock().get_pane(src).map(|p| p.title.clone()).unwrap_or_default();
+            let label = state.svc.mux.lock().display_label_for_pane(src);
             let short: String = src.chars().take(8).collect();
-            let label = if title.is_empty() { short.clone() } else { title };
             format!("[from {} pane={}] ", label, short)
         });
     let prepend = |s: &str| -> String {
@@ -165,43 +170,11 @@ pub async fn send_text(
         return Ok(Json(serde_json::json!({"ok": true})));
     }
 
-    let verify = body.verify.unwrap_or(false);
-    if verify {
-        let pty_id = state.svc.resolve_pty_id(&pane_id)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-        let opts = crate::service::inject_verify::VerifyOpts::default();
-        let strategy = crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
-            timeout: std::time::Duration::from_secs(10),
-        };
-        let text_owned = prepend(&body.text.clone().unwrap_or_default());
-        return match state.svc.send_text_verified(&pty_id, &text_owned, body.enter, strategy, opts) {
-            Ok(r) => {
-                record_push_activity(&state, &svc_token_match, &pane_id, &text_owned);
-                Ok(Json(serde_json::json!({
-                    "ok": true,
-                    "pty_echo_seen": r.echo_observed && (!body.enter || r.submit_observed),
-                    "echo_observed": r.echo_observed,
-                    "submit_observed": r.submit_observed,
-                    "elapsed_ms": r.elapsed.as_millis() as u64,
-                })))
-            }
-            Err(e) => Ok(Json(serde_json::json!({
-                "ok": false,
-                "pty_echo_seen": false,
-                "error": format!("{}", e),
-            }))),
-        };
-    }
-
     let text = prepend(&body.text.unwrap_or_default());
     state.svc.send_text(&pane_id, &text, body.enter)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     record_push_activity(&state, &svc_token_match, &pane_id, &text);
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "fire_and_forget": true,
-        "verified": false,
-    })))
+    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 pub async fn focus_pane(
@@ -311,25 +284,6 @@ pub async fn exec_in_pane(
     let mut resp = serde_json::json!({"output": output, "offset": offset});
     if timed_out { resp["timeout"] = serde_json::json!(true); }
     Ok(Json(resp))
-}
-
-#[derive(Deserialize)]
-pub(crate) struct OpenBrowserBody {
-    url: String,
-    #[serde(default)]
-    activate: Option<bool>,
-}
-
-pub async fn open_browser(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<OpenBrowserBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let activate = body.activate.unwrap_or(false);
-    let new_pane_id = state.svc.open_browser(body.url.clone(), activate)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to open browser"))?;
-    Ok(Json(serde_json::json!({"pane_id": new_pane_id, "url": body.url})))
 }
 
 pub async fn close_pane(
@@ -695,28 +649,14 @@ mod tests_send_text_body {
         assert!(default_true());
     }
 
+    /// send-text is always fire-and-forget — the `verify` field was removed in #101
+    /// because TUI agents intercept input and don't echo per-character, making
+    /// verification unreliable (especially over mesh). Deserialization must
+    /// accept legacy clients that still send the field by ignoring it.
     #[test]
-    fn send_text_body_verify_defaults_to_none() {
-        let json = r#"{"text":"hi"}"#;
-        let body: SendTextBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.verify, None);
-        assert_eq!(body.verify.unwrap_or(false), false,
-            "absent verify resolves to fire-and-forget by default");
-    }
-
-    #[test]
-    fn send_text_body_verify_explicit_false() {
-        let json = r#"{"text":"hi","verify":false}"#;
-        let body: SendTextBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.verify, Some(false));
-        assert_eq!(body.verify.unwrap_or(false), false,
-            "explicit verify=false keeps fire-and-forget path");
-    }
-
-    #[test]
-    fn send_text_body_verify_explicit_true() {
+    fn send_text_body_ignores_legacy_verify_field() {
         let json = r#"{"text":"hi","verify":true}"#;
         let body: SendTextBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.verify, Some(true));
+        assert_eq!(body.text.as_deref(), Some("hi"));
     }
 }

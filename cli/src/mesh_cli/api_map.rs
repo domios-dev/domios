@@ -18,7 +18,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             let p = pane.as_deref().unwrap_or("general");
             ("GET".into(), format!("/api/panes/{}/output?lines={}&strip_ansi=true", p, lines), None)
         }
-        Commands::SendText { text, pane, from_file, from_stdin, verify, no_wait } => {
+        Commands::SendText { text, pane, from_file, from_stdin } => {
             let p = pane.as_deref().unwrap_or("general");
             let source = std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
             let body_text = if *from_stdin {
@@ -40,12 +40,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 eprintln!("      try --from-file <path> with a real tempfile.");
                 std::process::exit(2);
             }
-            let mut body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
-            if *verify {
-                body["verify"] = serde_json::json!(true);
-            } else if *no_wait {
-                body["verify"] = serde_json::json!(false);
-            }
+            let body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
             ("POST".into(), format!("/api/panes/{}/send", p), Some(body.to_string()))
         }
         Commands::Notify { title, body, level } => {
@@ -96,11 +91,71 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 let p = pane.as_deref().unwrap_or("general");
                 ("GET".into(), format!("/api/panes/{}/status", p), None)
             }
+            crate::PaneAction::Search { .. } => {
+                // pane search runs entirely on the CLI side off `/api/panes`;
+                // mesh just relays the list. The fuzzy ranking happens
+                // locally so the response shape stays the same as `pane list`.
+                ("GET".into(), "/api/panes".into(), None)
+            }
+        },
+        Commands::Paste { action } => match action {
+            crate::PasteAction::Put { body, from_file, from_stdin, ttl, content_type, pop } => {
+                let resolved = if *from_stdin {
+                    use std::io::Read;
+                    let mut buf = String::new();
+                    if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
+                        eprintln!("Error: failed to read --from-stdin: {}", e);
+                        std::process::exit(1);
+                    }
+                    buf
+                } else if let Some(path) = from_file.as_ref() {
+                    // Surface the read error explicitly — the local path
+                    // exits 1 on failure (cmd/paste.rs), the mesh path used
+                    // to silently fall back to `body` (typically empty) and
+                    // then trip the empty-body guard below with a misleading
+                    // message. Same UX both paths.
+                    match std::fs::read_to_string(path) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            eprintln!("Error: failed to read --from-file {}: {}", path, e);
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    body.clone()
+                };
+                if resolved.trim().is_empty() {
+                    eprintln!("Error: paste put (mesh) body is empty");
+                    std::process::exit(2);
+                }
+                let mut payload = serde_json::json!({"body": resolved});
+                if let Some(spec) = ttl.as_deref() {
+                    if let Some(ms) = crate::cmd::paste::parse_duration_ms(spec) {
+                        payload["ttl_ms"] = serde_json::json!(ms);
+                    }
+                }
+                if let Some(ct) = content_type.as_deref() {
+                    payload["content_type"] = serde_json::json!(ct);
+                }
+                if *pop {
+                    payload["pop_on_read"] = serde_json::json!(true);
+                }
+                ("POST".into(), "/api/pasteboard".into(), Some(payload.to_string()))
+            }
+            crate::PasteAction::Get { id, pop } => {
+                let q = if *pop { "?pop=true" } else { "" };
+                ("GET".into(), format!("/api/pasteboard/{}{}", id, q), None)
+            }
+            crate::PasteAction::Pop { id } => {
+                ("GET".into(), format!("/api/pasteboard/{}?pop=true", id), None)
+            }
+            crate::PasteAction::List => ("GET".into(), "/api/pasteboard".into(), None),
+            crate::PasteAction::Rm { id } => ("DELETE".into(), format!("/api/pasteboard/{}", id), None),
         },
         Commands::Agent { action } => match action {
             crate::AgentAction::List => ("GET".into(), "/api/agents".into(), None),
             crate::AgentAction::Hierarchy => ("GET".into(), "/api/agents/hierarchy".into(), None),
-            crate::AgentAction::Spawn { agent, title, task, role, parent, workspace, can_spawn, cwd, args, model, no_wait } => {
+            crate::AgentAction::Spawn { agent, title, task, role, parent, workspace, can_spawn, cwd, args, model } => {
                 let agent_name = agent.as_str();
                 let mut body = serde_json::json!({
                     "agent": agent_name,
@@ -114,7 +169,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 if let Some(c) = cwd { body["cwd"] = serde_json::json!(c); }
                 if let Some(a) = args { if !a.is_empty() { body["args"] = serde_json::json!(a); } }
                 if let Some(m) = model { body["model"] = serde_json::json!(m); }
-                if *no_wait { body["wait_ready_secs"] = serde_json::json!(0); }
                 ("POST".into(), "/api/agents/spawn".into(), Some(body.to_string()))
             }
             _ => ("GET".into(), "/api/agents".into(), None),
@@ -123,10 +177,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             let qs = if *unread { "?unread=true" } else { "" };
             ("GET".into(), format!("/api/notifications{}", qs), None)
         }
-        Commands::Browser { action } => match action {
-            crate::BrowserAction::Open { url } => ("POST".into(), "/api/browser/open".into(),
-                Some(serde_json::json!({"url": url}).to_string())),
-        },
         Commands::Cron { action } => match action {
             crate::CronAction::List { .. } => ("GET".into(), "/api/crons".into(), None),
             crate::CronAction::Create { name, schedule, task, workspace, agent, model, cwd, description, .. } => {
@@ -322,7 +372,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 if let Some(e) = enabled { path.push(sep); let _ = sep; path.push_str(&format!("enabled={}", e)); }
                 ("GET".into(), path, None)
             }
-            ServiceAction::Add { name, kind, health_mode, url, host, port, process_label, script_path, health_path, health_interval, description, push } => {
+            ServiceAction::Add { name, kind, health_mode, url, host, port, process_label, script_path, health_path, health_json_field, health_ok_values, health_degraded_values, health_interval, description, push } => {
                 let mut body = serde_json::json!({
                     "name": name,
                     "kind": kind,
@@ -336,14 +386,21 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 if let Some(v) = process_label { body["process_label"] = serde_json::json!(v); }
                 if let Some(v) = script_path { body["script_path"] = serde_json::json!(v); }
                 if let Some(v) = health_path { body["health_path"] = serde_json::json!(v); }
+                if let Some(v) = health_json_field { body["health_json_field"] = serde_json::json!(v); }
+                if let Some(v) = health_ok_values { body["health_ok_values"] = serde_json::json!(v); }
+                if let Some(v) = health_degraded_values { body["health_degraded_values"] = serde_json::json!(v); }
                 if let Some(v) = description { body["description"] = serde_json::json!(v); }
                 ("POST".into(), "/api/services".into(), Some(body.to_string()))
             }
             ServiceAction::Show { id } => ("GET".into(), format!("/api/services/{}", urlencoding::encode(id)), None),
-            ServiceAction::Edit { id, name, url, enabled } => {
+            ServiceAction::Edit { id, name, url, health_path, health_json_field, health_ok_values, health_degraded_values, enabled } => {
                 let mut body = serde_json::json!({});
                 if let Some(v) = name { body["name"] = serde_json::json!(v); }
                 if let Some(v) = url { body["url"] = serde_json::json!(v); }
+                if let Some(v) = health_path { body["health_path"] = serde_json::json!(v); }
+                if let Some(v) = health_json_field { body["health_json_field"] = serde_json::json!(v); }
+                if let Some(v) = health_ok_values { body["health_ok_values"] = serde_json::json!(v); }
+                if let Some(v) = health_degraded_values { body["health_degraded_values"] = serde_json::json!(v); }
                 if let Some(v) = enabled { body["enabled"] = serde_json::json!(v); }
                 ("PUT".into(), format!("/api/services/{}", urlencoding::encode(id)), Some(body.to_string()))
             }
@@ -487,11 +544,12 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 if let Some(s) = scope { payload["scope"] = json!(s); }
                 ("POST".into(), "/api/mem/graph/entities".into(), Some(payload.to_string()))
             }
-            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope } => {
+            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope, reason } => {
                 let mut payload = json!({"from": from, "rel": rel, "to": to, "confidence": confidence});
                 if let Some(v) = valid_from { payload["valid_from"] = json!(v); }
                 if let Some(v) = valid_to { payload["valid_to"] = json!(v); }
                 if let Some(v) = scope { payload["scope"] = json!(v); }
+                if let Some(v) = reason { payload["reason"] = json!(v); }
                 ("POST".into(), "/api/mem/graph/relate".into(), Some(payload.to_string()))
             }
             MemGraphAction::Related { id, rel, as_of, include_invalidated } => {
@@ -531,6 +589,57 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 ("GET".into(), path, None)
             }
             MemGraphAction::Alias { .. } => ("POST".into(), "/api/mem/graph/alias".into(), None),
+            MemGraphAction::FindDuplicateRelations { group_by, limit } => {
+                let group_by_vec: Vec<&str> = group_by.split(',').map(|s| s.trim()).collect();
+                let payload = json!({"group_by": group_by_vec, "limit": limit});
+                ("POST".into(), "/api/mem/graph/repair/find-relations".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::DeleteRelations { rowids, actor } => {
+                let rowids_vec: Vec<i64> = rowids.split(',')
+                    .filter_map(|s| s.trim().parse::<i64>().ok())
+                    .collect();
+                let payload = json!({"rowids": rowids_vec, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/delete-relations".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::MergeRelations { keep, merge, actor } => {
+                let merge_vec: Vec<i64> = merge.split(',')
+                    .filter_map(|s| s.trim().parse::<i64>().ok())
+                    .collect();
+                let payload = json!({"keep": keep, "merge": merge_vec, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/merge-relations".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::FindDuplicateEntities { strategy, threshold, entity_type, limit } => {
+                let strategy_value = match strategy.as_str() {
+                    "alias-chain" | "alias_chain" => json!({"kind": "alias_chain"}),
+                    "vector" => {
+                        let mut v = json!({"kind": "vector", "threshold": threshold});
+                        if let Some(et) = entity_type.clone() {
+                            v["entity_type"] = serde_json::Value::String(et);
+                        }
+                        v
+                    }
+                    _ => json!({"kind": "exact_name"}),
+                };
+                let payload = json!({"strategy": strategy_value, "limit": limit});
+                ("POST".into(), "/api/mem/graph/repair/find-entities".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::AugmentEntity { id, patch, actor } => {
+                let patch_val: serde_json::Value = serde_json::from_str(patch).unwrap_or(json!({}));
+                let payload = json!({"id": id, "patch": patch_val, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/augment-entity".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::RepairOrphanVectors { dry_run, actor } => {
+                let payload = json!({"dry_run": dry_run, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/orphan-vectors".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::RepairOrphanBlobs { dry_run, actor } => {
+                let payload = json!({"dry_run": dry_run, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/orphan-blobs".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::DeleteEntity { id, force, purge_history, actor } => {
+                let payload = json!({"id": id, "force": force, "purge_history": purge_history, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/delete-entity".into(), Some(payload.to_string()))
+            }
             // Local-only graph mutations: no mesh relay. Fall through to
             // /stats so the call still returns valid JSON if a caller
             // somehow routes it across the wire.
@@ -613,3 +722,4 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
         }
     }
 }
+

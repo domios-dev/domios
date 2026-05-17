@@ -26,7 +26,6 @@ export function NetworkTab() {
             ["GET", "/api/panes/:id/output/stream", "SSE real-time stream"],
           ]} />
           <EndpointGroup title="Integration" endpoints={[
-            ["POST", "/api/browser/open", "Open URL {url}"],
             ["POST", "/api/notifications", "Create {title, body, level}"],
             ["GET", "/api/network", "Connection info + IPs"],
             ["GET", "/api/serve-file", "Serve local file {?path=}"],

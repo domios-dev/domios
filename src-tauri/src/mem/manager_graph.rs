@@ -1,5 +1,10 @@
 //! Mem graph operations + learning promotion.
 
+use super::graph_repair::{
+    augment_entity, delete_relations_by_rowids, find_duplicate_entities,
+    find_duplicate_relations, merge_relations, DuplicateEntityGroup, DuplicateRelationGroup,
+    EntitySimilarityStrategy, MergeReport, RelationColumn,
+};
 use super::{graph, store, Entity, MemManager, Relation};
 
 impl MemManager {
@@ -119,5 +124,77 @@ impl MemManager {
             None,
         );
         Ok(())
+    }
+
+    pub fn graph_find_duplicate_relations(
+        &self,
+        group_by: &[RelationColumn],
+        limit: usize,
+    ) -> Result<Vec<DuplicateRelationGroup>, String> {
+        let conn = self.conn.lock();
+        find_duplicate_relations(&conn, group_by, limit)
+    }
+
+    pub fn graph_delete_relations(&self, rowids: &[i64], actor: &str) -> Result<u64, String> {
+        let conn = self.conn.lock();
+        delete_relations_by_rowids(&conn, rowids, actor)
+    }
+
+    pub fn graph_delete_entity(
+        &self,
+        entity_id: &str,
+        force: bool,
+        purge_history: bool,
+        actor: &str,
+    ) -> Result<crate::mem::graph_repair::DeleteEntityReport, String> {
+        let conn = self.conn.lock();
+        crate::mem::graph_repair::delete_entity_by_id(&conn, entity_id, force, purge_history, actor)
+    }
+
+    pub fn graph_repair_orphan_vectors(
+        &self,
+        dry_run: bool,
+        actor: &str,
+    ) -> Result<crate::mem::graph_repair::RepairOrphanVectorsReport, String> {
+        let conn = self.conn.lock();
+        crate::mem::graph_repair::repair_orphan_vectors(&conn, dry_run, actor)
+    }
+
+    pub fn graph_repair_orphan_blobs(
+        &self,
+        dry_run: bool,
+        actor: &str,
+    ) -> Result<crate::mem::graph_repair::RepairOrphanBlobsReport, String> {
+        let conn = self.conn.lock();
+        crate::mem::graph_repair::repair_orphan_blobs(&conn, self.blobs_dir(), dry_run, actor)
+    }
+
+    pub fn graph_merge_relations(
+        &self,
+        keep: i64,
+        merge: &[i64],
+        actor: &str,
+    ) -> Result<MergeReport, String> {
+        let conn = self.conn.lock();
+        merge_relations(&conn, keep, merge, actor)
+    }
+
+    pub fn graph_find_duplicate_entities(
+        &self,
+        strategy: EntitySimilarityStrategy,
+        limit: usize,
+    ) -> Result<Vec<DuplicateEntityGroup>, String> {
+        let conn = self.conn.lock();
+        find_duplicate_entities(&conn, strategy, limit)
+    }
+
+    pub fn graph_augment_entity(
+        &self,
+        entity_id: &str,
+        patch: serde_json::Map<String, serde_json::Value>,
+        actor: &str,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock();
+        augment_entity(&conn, entity_id, patch, actor)
     }
 }

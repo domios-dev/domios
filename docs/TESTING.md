@@ -132,6 +132,38 @@ Known platform differences:
 - Paths: `C:\Users\` vs `/Users/`
 - Some PTY I/O tests are bash-specific
 
+## Manual paste smoke matrix
+
+Paste paths must be re-checked manually on each platform until the
+WebDriver harness lands (#102 follow-up). All paths route through
+`src/lib/clipboardPaste.ts` — file/image classification is shared,
+so a regression in one path usually means a regression in all.
+
+| Input | macOS (Cmd) | Windows (Ctrl) | Linux (Ctrl) |
+|-------|-------------|----------------|--------------|
+| Plain text via Ctrl+V / Cmd+V | echoed (bracketed) | echoed (bracketed) | echoed (bracketed) |
+| Long text (>1MB) via Ctrl+V | no UI freeze, no truncation | same | same |
+| Ctrl+Shift+V | same as Ctrl+V | same as Ctrl+V | same as Ctrl+V |
+| Right-click → Paste | same as Ctrl+V | same as Ctrl+V | same as Ctrl+V |
+| Drag plain text from another app | bracketed text in PTY | same | same |
+| Drag a single file from Finder/Explorer | quoted absolute path | quoted absolute path | quoted absolute path |
+| Drag multiple files | space-separated quoted paths | same | same |
+| Drag a folder | quoted folder path | same | same |
+| Drag multiple folders | space-separated quoted paths | same | same |
+| PNG image on clipboard via Ctrl+V | temp-file path (`.png`) | same | same |
+
+Behaviour rules locked in code:
+- Plain text is always wrapped in `\x1b[200~...\x1b[201~` (bracketed paste)
+  via `sendPlainTextToPty` — the same envelope on every path so TUIs
+  collapse it to a single `[Pasted text #N]` placeholder.
+- File / folder paths are joined with single space and quoted by
+  `quotePathForPaste` (single quotes by default, double quotes if the
+  path itself contains a single quote, with `"\$\``" escaped).
+- Image bytes are persisted via the `save_clipboard_image` Tauri
+  command, then the saved path is pasted.
+- A non-empty native clipboard file list wins over any plain text on
+  the clipboard — paste behaves "as if you dragged the files".
+
 ## Prompt Detection Architecture
 
 The permission prompt detection pipeline detects when AI agents show interactive prompts (e.g., "Do you want to proceed? 1. Yes 2. No") and renders clickable approval buttons in the chat UI.
@@ -235,4 +267,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 - Session restore with active Claude across restart
 - Real Claude permission prompt → chat UI → approve → Claude continues (needs real Claude running)
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

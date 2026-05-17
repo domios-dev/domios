@@ -83,7 +83,16 @@ pub struct WeeklyProjection {
     pub dow_estimates: [f64; 7],
     pub rate_per_min_recent: f64,
     pub rest_of_today_est: f64,
+    pub today_so_far: f64,
     pub confidence: Confidence,
+    /// Per-day actuals for the active cycle, oldest→newest. None = no data.
+    pub day_actuals: Vec<DayActual>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DayActual {
+    pub day_start_ms: i64,
+    pub pct: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -344,6 +353,10 @@ fn compute_weekly(
     let est_we_total = (dow_estimate(0) + dow_estimate(6)) / 2.0;
     let dow_estimates: [f64; 7] = std::array::from_fn(|d| dow_estimate(d));
 
+    let day_actuals = compute_day_actuals(
+        store, provider, account_id, today_start_ms, cycle_end_ms,
+    )?;
+
     Ok(Some(WeeklyProjection {
         end_of_today_pct: end_of_today.min(200.0),
         end_of_cycle_pct: end_of_cycle.min(200.0),
@@ -352,7 +365,9 @@ fn compute_weekly(
         dow_estimates,
         rate_per_min_recent: rate_per_min,
         rest_of_today_est: rest_of_today,
+        today_so_far,
         confidence: baseline.confidence.clone(),
+        day_actuals,
     }))
 }
 
@@ -361,31 +376,55 @@ fn today_delta(
     provider: &str,
     account_id: Option<&str>,
     now_ms: i64,
-    current_pct: f64,
+    _current_pct: f64,
     current_resets_at: i64,
 ) -> Result<f64, String> {
     let today_start_ms = local_start_of_day_ms(now_ms);
+    Ok(day_delta_for_window(
+        store,
+        provider,
+        account_id,
+        today_start_ms,
+        now_ms + 1,
+        current_resets_at,
+    )?
+    .unwrap_or(0.0))
+}
+
+// Pair-walk within day + midnight bridge if prev sample ≤ 2h before day start.
+fn day_delta_for_window(
+    store: &UsageStoreHandle,
+    provider: &str,
+    account_id: Option<&str>,
+    day_start_ms: i64,
+    day_end_ms: i64,
+    cycle_end_ms: i64,
+) -> Result<Option<f64>, String> {
+    const MAX_MIDNIGHT_GAP_MS: i64 = 2 * 60 * 60 * 1000;
     store.with_conn(|conn| {
-        let today_min: Option<f64> = conn
+        let mut stmt = conn
             .prepare(
-                r#"SELECT MIN(weekly_pct)
+                r#"SELECT captured_at, weekly_pct, weekly_resets_at
                      FROM usage_snapshots
                      WHERE provider = ?1
                        AND parsed_ok = 1
                        AND (?2 IS NULL OR account_id = ?2)
                        AND captured_at >= ?3
-                       AND captured_at <= ?4
-                       AND weekly_pct IS NOT NULL"#,
+                       AND captured_at < ?4
+                       AND weekly_pct IS NOT NULL
+                     ORDER BY captured_at ASC"#,
             )
-            .map_err(|e| format!("prepare today_min: {}", e))?
-            .query_row(
-                params![provider, account_id, today_start_ms, now_ms],
-                |r| r.get::<_, Option<f64>>(0),
+            .map_err(|e| format!("prepare day samples: {}", e))?;
+        let samples: Vec<(i64, f64, Option<i64>)> = stmt
+            .query_map(
+                params![provider, account_id, day_start_ms, day_end_ms],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?, r.get::<_, Option<i64>>(2)?)),
             )
-            .ok()
-            .flatten();
+            .map_err(|e| format!("query day samples: {}", e))?
+            .filter_map(Result::ok)
+            .filter(|(_, _, reset)| reset.map(|r| r == cycle_end_ms).unwrap_or(true))
+            .collect();
 
-        // Fetch captured_at too so we can detect a large gap before midnight.
         let yest: Option<(f64, i64, i64)> = conn
             .prepare(
                 r#"SELECT weekly_pct, weekly_resets_at, captured_at
@@ -395,37 +434,66 @@ fn today_delta(
                        AND (?2 IS NULL OR account_id = ?2)
                        AND captured_at < ?3
                        AND weekly_pct IS NOT NULL
-                       AND weekly_resets_at IS NOT NULL
+                       AND weekly_resets_at = ?4
                      ORDER BY captured_at DESC
                      LIMIT 1"#,
             )
             .map_err(|e| format!("prepare yest: {}", e))?
-            .query_row(params![provider, account_id, today_start_ms], |r| {
-                Ok((r.get::<_, f64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
-            })
+            .query_row(
+                params![provider, account_id, day_start_ms, cycle_end_ms],
+                |r| Ok((r.get::<_, f64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)),
+            )
             .ok();
 
-        // Cross-midnight bridge: only usable when the pre-midnight reading was
-        // taken within 2 hours of midnight. A bigger gap means we don't know
-        // when the spending happened — crediting the whole delta to today would
-        // inflate today_so_far and break the projection.
-        const MAX_MIDNIGHT_GAP_MS: i64 = 2 * 60 * 60 * 1000;
-        let from_yest = yest.and_then(|(prev_pct, prev_resets, prev_at)| {
-            let gap = today_start_ms - prev_at;
-            if prev_resets == current_resets_at
-                && prev_pct <= current_pct
-                && gap <= MAX_MIDNIGHT_GAP_MS
-            {
-                Some(current_pct - prev_pct)
-            } else {
-                None
+        if samples.is_empty() && yest.is_none() {
+            return Ok(None);
+        }
+
+        let mut total = 0.0_f64;
+        if let (Some(first), Some((prev_pct, _prev_resets, prev_at))) = (samples.first(), yest) {
+            let gap = day_start_ms - prev_at;
+            if gap <= MAX_MIDNIGHT_GAP_MS && prev_pct <= first.1 {
+                total += first.1 - prev_pct;
             }
-        });
-        let from_today_min = today_min
-            .map(|m| (current_pct - m).max(0.0))
-            .unwrap_or(0.0);
-        Ok(from_yest.unwrap_or(from_today_min))
+        }
+        for w in samples.windows(2) {
+            let delta = w[1].1 - w[0].1;
+            if delta > 0.0 {
+                total += delta;
+            }
+        }
+
+        if samples.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(total))
     })
+}
+
+fn compute_day_actuals(
+    store: &UsageStoreHandle,
+    provider: &str,
+    account_id: Option<&str>,
+    today_start_ms: i64,
+    cycle_end_ms: i64,
+) -> Result<Vec<DayActual>, String> {
+    let cycle_start_ms = cycle_end_ms - 7 * DAY_MS;
+    let first_day_aligned = local_start_of_day_ms(cycle_start_ms);
+    let mut out: Vec<DayActual> = Vec::new();
+    let mut cursor = first_day_aligned;
+    while cursor < cycle_end_ms {
+        let day_end = if cursor == local_start_of_day_ms(today_start_ms) {
+            cycle_end_ms.min(cursor + DAY_MS)
+        } else {
+            cursor + DAY_MS
+        };
+        let pct = day_delta_for_window(
+            store, provider, account_id, cursor, day_end, cycle_end_ms,
+        )?;
+        out.push(DayActual { day_start_ms: cursor, pct });
+        cursor += DAY_MS;
+    }
+    Ok(out)
 }
 
 fn latest_weekly(

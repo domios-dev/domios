@@ -24,6 +24,28 @@ pub async fn get_pane_output(
         .to_string())
 }
 
+/// Raw PTY history with ANSI intact — frontend feeds it back to xterm on remount.
+#[tauri::command]
+pub async fn get_pane_history_raw(
+    svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+) -> Result<String, String> {
+    let cmd = crate::dispatch::Command::GetOutput {
+        pane_id,
+        offset: None,
+        max_bytes: None,
+        strip_ansi: false,
+        full: true,
+    };
+    let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
+    Ok(result
+        .into_json()
+        .get("output")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string())
+}
+
 /// formatted=true preserves ANSI + cursor state (needed for TUI remount).
 #[tauri::command]
 pub async fn get_pane_text(

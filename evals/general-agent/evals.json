@@ -3,6 +3,54 @@
   "description": "Evaluates the CodeTerm General Agent system prompt for correct behavioral responses",
   "evals": [
     {
+      "id": 103,
+      "name": "broadcast-requires-online-presence",
+      "prompt": "[Telegram: 123456789] Включи бродкаст чтоб новый ноут увидел меня. Сейчас я в оффлайне у себя в mesh switcher'е стоит offline.",
+      "expected_output": "Agent flips mesh online first (mesh.enabled=true) because broadcasting from an offline state is contradictory, THEN starts broadcast. Explains the auto-online to the user.",
+      "expectations": [
+        "Turns mesh online before / together with starting broadcast — either `codeterm mesh online` or PATCH /api/config setting mesh.enabled=true",
+        "Starts broadcast via `codeterm mesh broadcast` or `mesh_start_broadcast`",
+        "Explicitly mentions to the user that mesh was brought online (so they understand why their switcher state changed)",
+        "Does NOT silently switch online without telling them, and does NOT refuse with a generic 'mesh is offline' error"
+      ]
+    },
+    {
+      "id": 102,
+      "name": "go-invisible-uses-mesh-offline",
+      "prompt": "[Telegram: 123456789] Уйди в инвиз — выруби меня из mesh, не хочу чтоб кто-то видел этот комп сейчас. Тейлскейл не трогай.",
+      "expected_output": "Agent runs `codeterm mesh offline` to flip the local mesh switch — does NOT stop Tailscale, does NOT unpair peers, does NOT mass-disconnect.",
+      "expectations": [
+        "Uses `codeterm mesh offline` to flip the local mesh-enabled flag",
+        "Does NOT run `tailscale down` or any Tailscale CLI — Tailscale stays untouched",
+        "Does NOT run `codeterm mesh disconnect` on any peer (that's permanent un-pairing, not invisibility)",
+        "Eventually replies to the Telegram user confirming the switch via bridge send"
+      ]
+    },
+    {
+      "id": 101,
+      "name": "disable-dreamer-telegram-toggle",
+      "prompt": "[Telegram: 123456789] Отключи телеграм-уведомления у дримера, не хочу больше получать его ночные брифы — диарю в меме оставь как есть.",
+      "expected_output": "Agent flips `memory.dreaming_telegram_notify` to false via config edit (codeterm config or PATCH /api/config), preserving everything else.",
+      "expectations": [
+        "Flips `memory.dreaming_telegram_notify` to false — via `codeterm config set`, PATCH /api/config, or direct config.toml edit",
+        "Does NOT disable the dreaming cron itself (`codeterm cron disable mem-dreaming-auto`) — only the telegram leg",
+        "Touches only `memory.dreaming_telegram_notify`. Does NOT also flip `memory.auto_extract`, `memory.librarian_enabled`, or any unrelated memory setting in the same response.",
+        "Eventually replies to the Telegram user confirming the change"
+      ]
+    },
+    {
+      "id": 100,
+      "name": "cross-mesh-handoff-uses-paste",
+      "prompt": "I need to dispatch a long autonomous task to the claude agent on ROG. The task body is roughly 3 screens of prose with code blocks. Spawn the agent and give it the task.",
+      "expected_output": "Agent stashes the task body on ROG via `codeterm paste put --mesh ROG` first, then spawns claude with a short `--task` pointing at the paste slug — NOT inlining the long body in `--task`.",
+      "expectations": [
+        "Uses `codeterm paste put --mesh ROG` (with --from-stdin or --from-file) to stash the task body and get a paste slug",
+        "Spawns the remote agent via `codeterm agent spawn claude --mesh ROG` with a SHORT --task that references the paste slug (e.g. `codeterm paste pop $ID`)",
+        "Does NOT pass the full 3-screen task body inline as the --task argument",
+        "Does NOT reach for `codeterm mem save` to stash the ephemeral task body (mem is for durable facts, not handoffs)"
+      ]
+    },
+    {
       "id": 1,
       "name": "implicit-request-ask-not-act",
       "prompt": "[Telegram: 123456789] как там мой проект на workstation, все ок?",

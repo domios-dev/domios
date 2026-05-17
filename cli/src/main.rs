@@ -120,7 +120,7 @@ pub fn read_mesh_signed_token() -> Option<String> {
 }
 
 /// Build HTTP client with auth header
-pub fn build_http(token: &Option<String>) -> reqwest::blocking::Client {
+pub fn build_http(token: &Option<String>) -> Result<reqwest::blocking::Client, reqwest::Error> {
     let mut headers = reqwest::header::HeaderMap::new();
     if let Some(t) = token {
         if let Ok(val) = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", t)) {
@@ -142,7 +142,7 @@ pub fn build_http(token: &Option<String>) -> reqwest::blocking::Client {
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(60))
         .build()
-        .unwrap_or_else(|_| reqwest::blocking::Client::new())
+    // No fallback — propagate the error so callers know auth headers were dropped
 }
 
 mod args;
@@ -155,7 +155,7 @@ pub use args::agent::AgentAction;
 pub use args::cron::CronAction;
 pub use args::service::ServiceAction;
 pub use args::update::UpdateAction;
-pub use args::misc::{WorkspaceAction, PaneAction, BrowserAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction};
+pub use args::misc::{WorkspaceAction, PaneAction, PasteAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction};
 
 /// Resolve pane ID: explicit arg > $CODETERM_PANE_ID env var > focused pane from server.
 ///
@@ -220,7 +220,13 @@ fn main() {
     let json_output = cli.json;
     if let Commands::Config { ref action } = cli.command {
         let (base_url, token) = read_api_config();
-        let http = build_http(&token);
+        let http = match build_http(&token) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Error: failed to build HTTP client: {}", e);
+                std::process::exit(1);
+            }
+        };
         let result = match action {
             ConfigAction::Get { key } => {
                 let url = format!("{}/api/config?key={}", base_url, key);
@@ -385,14 +391,13 @@ fn main() {
             }
         },
 
-        Commands::Browser { action } => match action {
-            BrowserAction::Open { url } => {
-                client.call("browser.open", Some(serde_json::json!({ "url": url })))
-            }
-        },
-
         Commands::Pane { action } => {
             cmd::pane::handle_pane(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Paste { action } => {
+            cmd::paste::handle_paste(cli.json, action);
             return;
         }
 
@@ -421,7 +426,7 @@ fn main() {
             }
         }
 
-        Commands::SendText { pane, text, from_file, from_stdin, verify, no_wait } => {
+        Commands::SendText { pane, text, from_file, from_stdin } => {
             cmd::send_text::handle_send_text(
                 &mut client,
                 cli.json,
@@ -429,8 +434,6 @@ fn main() {
                 text,
                 from_file,
                 from_stdin,
-                verify,
-                no_wait,
             );
             return;
         }
@@ -458,7 +461,13 @@ fn main() {
 
         Commands::Keepawake { action } => {
             let (base, token) = read_api_config();
-            let http = build_http(&token);
+            let http = match build_http(&token) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    std::process::exit(1);
+                }
+            };
             let result: Result<serde_json::Value, String> = match action.unwrap_or(KeepAwakeAction::Status) {
                 KeepAwakeAction::Status => http
                     .get(format!("{}/api/keepawake", base))
@@ -618,13 +627,25 @@ fn main() {
         }
         Commands::Sessions { action } => {
             let (base_url, token) = read_api_config();
-            let http = build_http(&token);
+            let http = match build_http(&token) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    std::process::exit(1);
+                }
+            };
             cmd::sessions::handle_sessions(cli.json, action, &http, &base_url, token.as_deref());
             return;
         }
         Commands::Usage { action } => {
             let (base_url, token) = read_api_config();
-            let http = build_http(&token);
+            let http = match build_http(&token) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    std::process::exit(1);
+                }
+            };
             cmd::usage::handle_usage(cli.json, action, &http, &base_url, token.as_deref());
             return;
         }

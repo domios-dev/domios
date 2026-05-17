@@ -51,6 +51,7 @@ fn make_relation(conn: &Connection, from: &str, rel: &str, to: &str) {
             valid_to: None,
             confidence: 1.0,
             properties: serde_json::json!({}),
+            reason: None,
         },
     )
     .unwrap();
