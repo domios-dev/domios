@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { X, TerminalSquare, FolderOpen } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
-import { getAllProviders } from "../../lib/agentProviders";
+import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useConfig } from "../../hooks/useConfig";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { FolderIcon, ShieldCheckIcon } from "../Icons";
@@ -67,6 +67,12 @@ export function WorkspaceItem({
 
   const { config } = useConfig();
   const agentsConfig = config.agents ?? {};
+  // Backend descriptors — single source of truth across bundled +
+  // user-installed JS plugins. Frontend `getAllProviders()` only knew
+  // about plugins with a `src/index.ts` FE module, which left
+  // drop-in `~/.codeterm/plugins/<id>/plugin.js` plugins invisible
+  // in the workspace menu.
+  const { providers } = useAgentProviders();
 
   const menuItems: DropdownMenuItem[] = useMemo(() => {
     const items: DropdownMenuItem[] = [
@@ -76,12 +82,10 @@ export function WorkspaceItem({
         onClick: onNewTerminal,
       },
     ];
-    // Dynamic agent provider entries from registry, filtered by per-provider
-    // visibility toggle. `visible_in_menu` defaults to true when unset.
-    for (const provider of getAllProviders()) {
+    for (const provider of providers) {
       if (agentsConfig[provider.id]?.visible_in_menu === false) continue;
       items.push({
-        label: `New ${provider.displayName} Session`,
+        label: `New ${provider.display_name} Session`,
         icon: <AgentIcon providerId={provider.id} className="text-[12px]" />,
         onClick: () => onNewAgent(provider.id),
       });
@@ -104,7 +108,7 @@ export function WorkspaceItem({
       });
     }
     return items;
-  }, [onNewTerminal, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig]);
+  }, [onNewTerminal, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig, providers]);
 
   return (
     <div

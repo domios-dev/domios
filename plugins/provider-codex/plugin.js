@@ -190,6 +190,28 @@ module.exports.default = {
     return out;
   },
 
+  // Latest `turn_context.payload.model` in the JSONL tail. Codex writes
+  // a turn_context record at the start of every assistant turn — so the
+  // last one wins. Short-label result ("Codex" / "GPT-5.5" / "Sonnet")
+  // matches the native badge convention.
+  detectSessionModel: function (cwd, sessionId) {
+    var path = this.sessionFilePath(cwd, sessionId);
+    if (!path) return null;
+    var contents = host.fs.readFile(path);
+    if (!contents) return null;
+    var lines = contents.split("\n");
+    for (var i = lines.length - 1; i >= 0; i--) {
+      var line = lines[i];
+      if (!line) continue;
+      var v;
+      try { v = JSON.parse(line); } catch (_) { continue; }
+      if (!v || v.type !== "turn_context") continue;
+      var m = v.payload && v.payload.model;
+      if (typeof m === "string" && m) return codexShortLabel(m);
+    }
+    return null;
+  },
+
   // Mirrors native parse_session_messages: response_item type with
   // payload.type === "message", role user|assistant, content blocks of
   // type input_text|output_text|text.
@@ -260,6 +282,25 @@ var extractSessionUuid = function (stem) {
   if (rest.length <= 20) return null;
   if (rest.charAt(19) !== "-") return null;
   return rest.substring(20);
+};
+
+// Short tab-badge label for a codex model id ("gpt-5-codex" → "Codex",
+// "gpt-5" → "GPT-5", "claude-sonnet-4-6" → "Sonnet").
+var codexShortLabel = function (modelId) {
+  var m = String(modelId || "").toLowerCase();
+  if (m.indexOf("codex") !== -1) return "Codex";
+  var fams = ["opus", "sonnet", "haiku", "gemini"];
+  for (var i = 0; i < fams.length; i++) {
+    if (m.indexOf(fams[i]) !== -1) {
+      return fams[i].charAt(0).toUpperCase() + fams[i].substring(1);
+    }
+  }
+  if (m.indexOf("gpt") === 0) {
+    var head = m.split("-").slice(0, 2).join("-");
+    return "GPT" + head.substring(3);
+  }
+  var first = m.split("-")[0] || m;
+  return first.charAt(0).toUpperCase() + first.substring(1);
 };
 
 // Read first line, parse as JSON, return {sessionId, cwd} when the
