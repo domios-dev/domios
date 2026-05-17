@@ -44,166 +44,98 @@ use super::vm::VmError;
 /// (rule.path, sessions.rootDir, …) without us threading them
 /// through every call site.
 pub(super) fn install(ctx: &Ctx<'_>, manifest_json: Option<&str>) -> Result<(), VmError> {
-    let g = ctx.globals();
     let host = rquickjs::Object::new(ctx.clone())
         .map_err(|e| VmError::Script(format!("host obj: {e}")))?;
 
+    // Tiny helper to fold the repeated `host.set(name, Func::new(closure))
+    // .map_err(|e| VmError::Script(format!("set {name}: {e}")))?` shape.
+    // Reads top-to-bottom as a flat table of (name, closure).
+    macro_rules! bind {
+        ($name:expr, $closure:expr) => {
+            host.set($name, Func::new($closure))
+                .map_err(|e| VmError::Script(format!("set {}: {e}", $name)))?
+        };
+    }
+
     let manifest_owned: Option<String> = manifest_json.map(|s| s.to_string());
-    host.set(
-        "manifestJson",
-        Func::new(move || -> Option<String> { manifest_owned.clone() }),
-    )
-    .map_err(|e| VmError::Script(format!("set manifestJson: {e}")))?;
+    bind!("manifestJson", move || -> Option<String> { manifest_owned.clone() });
 
     // ── Identity / paths ────────────────────────────────────────────
-
-    host.set("platform", Func::new(|| -> String {
-        std::env::consts::OS.to_string()
-    }))
-    .map_err(|e| VmError::Script(format!("set platform: {e}")))?;
-
-    host.set("homeDir", Func::new(|| -> Option<String> {
+    bind!("platform", || -> String { std::env::consts::OS.to_string() });
+    bind!("homeDir", || -> Option<String> {
         dirs::home_dir().map(|p| p.to_string_lossy().into_owned())
-    }))
-    .map_err(|e| VmError::Script(format!("set homeDir: {e}")))?;
-
-    host.set("expandHome", Func::new(|path: String| -> Option<String> {
-        PluginManifest::expand_home(&path)
-            .map(|p| p.to_string_lossy().into_owned())
-    }))
-    .map_err(|e| VmError::Script(format!("set expandHome: {e}")))?;
-
-    host.set("envGet", Func::new(|name: String| -> Option<String> {
-        std::env::var(&name).ok()
-    }))
-    .map_err(|e| VmError::Script(format!("set envGet: {e}")))?;
-
-    host.set("unixNow", Func::new(|| -> i64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0)
-    }))
-    .map_err(|e| VmError::Script(format!("set unixNow: {e}")))?;
-
-    host.set("unixNowMs", Func::new(|| -> i64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0)
-    }))
-    .map_err(|e| VmError::Script(format!("set unixNowMs: {e}")))?;
+    });
+    bind!("expandHome", |path: String| -> Option<String> {
+        PluginManifest::expand_home(&path).map(|p| p.to_string_lossy().into_owned())
+    });
+    bind!("envGet", |name: String| -> Option<String> { std::env::var(&name).ok() });
+    bind!("unixNow", || -> i64 { since_epoch().as_secs() as i64 });
+    bind!("unixNowMs", || -> i64 { since_epoch().as_millis() as i64 });
 
     // ── Filesystem ──────────────────────────────────────────────────
-
-    host.set("fileExists", Func::new(|path: String| -> bool {
-        Path::new(&path).exists()
-    }))
-    .map_err(|e| VmError::Script(format!("set fileExists: {e}")))?;
-
-    host.set("readFile", Func::new(|path: String| -> Option<String> {
+    bind!("fileExists", |path: String| -> bool { Path::new(&path).exists() });
+    bind!("readFile", |path: String| -> Option<String> {
         std::fs::read_to_string(&path).ok()
-    }))
-    .map_err(|e| VmError::Script(format!("set readFile: {e}")))?;
-
-    host.set(
-        "writeFile",
-        Func::new(|path: String, contents: String| -> bool {
-            let p = Path::new(&path);
-            if let Some(parent) = p.parent() {
-                if !parent.as_os_str().is_empty() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
+    });
+    bind!("writeFile", |path: String, contents: String| -> bool {
+        let p = Path::new(&path);
+        if let Some(parent) = p.parent() {
+            if !parent.as_os_str().is_empty() {
+                let _ = std::fs::create_dir_all(parent);
             }
-            std::fs::write(p, contents).is_ok()
-        }),
-    )
-    .map_err(|e| VmError::Script(format!("set writeFile: {e}")))?;
-
-    host.set("removeFile", Func::new(|path: String| -> bool {
-        std::fs::remove_file(&path).is_ok()
-    }))
-    .map_err(|e| VmError::Script(format!("set removeFile: {e}")))?;
-
-    host.set("makeDirs", Func::new(|path: String| -> bool {
-        std::fs::create_dir_all(&path).is_ok()
-    }))
-    .map_err(|e| VmError::Script(format!("set makeDirs: {e}")))?;
-
-    host.set(
-        "readDirJson",
-        Func::new(|path: String| -> Option<String> { read_dir_json(&path) }),
-    )
-    .map_err(|e| VmError::Script(format!("set readDirJson: {e}")))?;
-
-    host.set(
-        "walkDirJson",
-        Func::new(|path: String, max_depth: i32| -> Option<String> {
-            walk_dir_json(&path, max_depth.max(0) as usize)
-        }),
-    )
-    .map_err(|e| VmError::Script(format!("set walkDirJson: {e}")))?;
+        }
+        std::fs::write(p, contents).is_ok()
+    });
+    bind!("removeFile", |path: String| -> bool { std::fs::remove_file(&path).is_ok() });
+    bind!("makeDirs", |path: String| -> bool { std::fs::create_dir_all(&path).is_ok() });
+    bind!("readDirJson", |path: String| -> Option<String> { read_dir_json(&path) });
+    bind!("walkDirJson", |path: String, max_depth: i32| -> Option<String> {
+        walk_dir_json(&path, max_depth.max(0) as usize)
+    });
 
     // ── Shell / process help ────────────────────────────────────────
-
-    host.set("shellQuote", Func::new(|s: String| -> String {
-        // Default = POSIX single-quote escape; plugin asks for OS-aware
-        // form via `shellQuoteFor(..., platform)`.
-        posix_single_quote(&s)
-    }))
-    .map_err(|e| VmError::Script(format!("set shellQuote: {e}")))?;
-
-    host.set(
-        "shellQuoteFor",
-        Func::new(|s: String, platform: String| -> String {
-            match platform.as_str() {
-                "windows" => powershell_quote(&s),
-                _ => posix_single_quote(&s),
-            }
-        }),
-    )
-    .map_err(|e| VmError::Script(format!("set shellQuoteFor: {e}")))?;
-
-    host.set(
-        "writeTempFile",
-        Func::new(|contents: String, suffix: Option<String>| -> Option<String> {
+    bind!("shellQuote", |s: String| -> String { posix_single_quote(&s) });
+    bind!("shellQuoteFor", |s: String, platform: String| -> String {
+        match platform.as_str() {
+            "windows" => powershell_quote(&s),
+            _ => posix_single_quote(&s),
+        }
+    });
+    bind!("writeTempFile",
+        |contents: String, suffix: Option<String>| -> Option<String> {
             write_temp_file(&contents, suffix.as_deref())
-        }),
-    )
-    .map_err(|e| VmError::Script(format!("set writeTempFile: {e}")))?;
+        });
 
     // ── Sqlite (read-only) ──────────────────────────────────────────
-
-    host.set(
-        "sqliteQueryAllJson",
-        Func::new(
-            |db_path: String, sql: String, params_json: Option<String>| -> Option<String> {
-                sqlite_query_all_json(&db_path, &sql, params_json.as_deref())
-            },
-        ),
-    )
-    .map_err(|e| VmError::Script(format!("set sqliteQueryAllJson: {e}")))?;
+    bind!("sqliteQueryAllJson",
+        |db: String, sql: String, params_json: Option<String>| -> Option<String> {
+            sqlite_query_all_json(&db, &sql, params_json.as_deref())
+        });
 
     // ── Logging ─────────────────────────────────────────────────────
+    bind!("log", |level: String, msg: String| {
+        match level.as_str() {
+            "trace" => log::trace!("[plugin] {msg}"),
+            "debug" => log::debug!("[plugin] {msg}"),
+            "warn" => log::warn!("[plugin] {msg}"),
+            "error" => log::error!("[plugin] {msg}"),
+            _ => log::info!("[plugin] {msg}"),
+        }
+    });
 
-    host.set(
-        "log",
-        Func::new(|level: String, msg: String| {
-            match level.as_str() {
-                "trace" => log::trace!("[plugin] {msg}"),
-                "debug" => log::debug!("[plugin] {msg}"),
-                "warn" => log::warn!("[plugin] {msg}"),
-                "error" => log::error!("[plugin] {msg}"),
-                _ => log::info!("[plugin] {msg}"),
-            }
-        }),
-    )
-    .map_err(|e| VmError::Script(format!("set log: {e}")))?;
-
-    g.set("host", host)
+    ctx.globals()
+        .set("host", host)
         .catch(ctx)
         .map_err(|e| VmError::Script(format!("set host global: {e:?}")))?;
     Ok(())
+}
+
+/// Wall-clock duration since UNIX epoch. Clock-set-before-1970 returns
+/// zero rather than panic — keeps the plugin VM resilient to bad clocks.
+fn since_epoch() -> std::time::Duration {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or(std::time::Duration::ZERO)
 }
 
 // ── Implementations ───────────────────────────────────────────────────

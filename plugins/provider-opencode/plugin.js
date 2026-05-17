@@ -1,12 +1,6 @@
-// OpenCode (sst/opencode) provider plugin — pure-logic surface.
-// Session storage is a sqlite database + per-part JSON files (modern
-// builds keep everything in opencode.db). Enumeration and parsing
-// those stay in the native Rust provider; this plugin covers detect,
-// schema, launch/resume command building, slash commands.
-
-function shellQuote(s) {
-  return "'" + String(s).replace(/'/g, "'\\''") + "'";
-}
+// OpenCode (sst/opencode) provider plugin. Detection + slash commands +
+// schema + sqlite-backed session detection via host.fs.sqliteQuery
+// against `<XDG_DATA_HOME|~/.local/share>/opencode/opencode.db`.
 
 var TITLE_RE = /opencode/i;
 // Two-part fingerprint: must mention opencode AND show a TUI / prompt
@@ -92,7 +86,7 @@ module.exports.default = {
       if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
       parts.push("--format");
       parts.push("json");
-      parts.push(shellQuote(p.task));
+      parts.push(host.shell.quote(p.task));
     } else if (p.skipPermissions) {
       parts.push("--dangerously-skip-permissions");
     }
@@ -107,7 +101,7 @@ module.exports.default = {
     // not supported on resume. Per-session permission rules live on the
     // session JSON. Honour intent by silently dropping the flag.
     var _ = skipPermissions;
-    var parts = ["opencode", "--session", shellQuote(sessionId)];
+    var parts = ["opencode", "--session", host.shell.quote(sessionId)];
     return parts.join(" ");
   },
 

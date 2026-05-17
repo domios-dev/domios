@@ -12,15 +12,6 @@ function manifest() {
   try { return JSON.parse(host.manifestJson() || "null"); } catch (e) { return null; }
 }
 
-function shellQuote(s) {
-  // Cross-platform shim: single-quote for POSIX, the Rust-side
-  // `ShellSyntax::quote` does platform-specific quoting natively.
-  // Plugins emit POSIX form; if the user opts-in on Windows they'll
-  // see PowerShell forward through (claude on Windows runs under
-  // pwsh.exe which accepts POSIX single quotes literally).
-  return "'" + String(s).replace(/'/g, "'\\''") + "'";
-}
-
 var TITLE_RE = /claude/i;
 // v2.1+ TUIs prefix the title with a braille spinner glyph or ✳/✻.
 var BRAILLE_LO = 0x2801;
