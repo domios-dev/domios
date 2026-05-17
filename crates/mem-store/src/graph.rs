@@ -405,18 +405,18 @@ pub fn add_alias_with_rewire(
         "INSERT OR REPLACE INTO entity_aliases (alias_id, canonical_id, created_at) VALUES (?1, ?2, ?3)",
         rusqlite::params![alias_id, canonical_id, &now],
     )?;
-    tx.execute(
+    let rewired_from = tx.execute(
         "UPDATE OR IGNORE relations SET from_id = ?1 WHERE from_id = ?2",
         rusqlite::params![canonical_id, alias_id],
-    )?;
-    tx.execute(
+    )? as u64;
+    let rewired_to = tx.execute(
         "UPDATE OR IGNORE relations SET to_id = ?1 WHERE to_id = ?2",
         rusqlite::params![canonical_id, alias_id],
-    )?;
-    tx.execute(
+    )? as u64;
+    let dropped_dupes = tx.execute(
         "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
         rusqlite::params![alias_id],
-    )?;
+    )? as u64;
     tx.execute(
         "DELETE FROM entities WHERE id = ?1",
         rusqlite::params![alias_id],
@@ -425,6 +425,20 @@ pub fn add_alias_with_rewire(
         "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
         rusqlite::params![alias_id, format!("{}_chunk_%", alias_id)],
     );
+
+    let details = serde_json::json!({
+        "op": "add_alias",
+        "alias_id": alias_id,
+        "canonical_id": canonical_id,
+        "rewired_from": rewired_from,
+        "rewired_to": rewired_to,
+        "dropped_duplicate_relations": dropped_dupes,
+    }).to_string();
+    tx.execute(
+        "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
+         VALUES (?1, ?2, NULL, NULL, NULL, 'add_alias', ?3)",
+        rusqlite::params![&now, (rewired_from + rewired_to + dropped_dupes) as i64, details],
+    )?;
     tx.commit()?;
     Ok(())
 }
