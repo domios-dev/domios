@@ -339,6 +339,15 @@ Capture both numbers — they go in the log block as `ISLANDS_AFTER:`
 and `ORPHANS_AFTER:`. If they didn't drop, your bridging round didn't
 land — re-check what you ran.
 
+If you created any new topic entities via `introduce-topic` this round,
+backfill their embeddings so `mem search` can find them now:
+
+    codeterm mem reembed --scope entities
+
+This is a no-op if every entity already has a vector — safe to call
+unconditionally. Without it, new topics live in the graph but stay
+invisible to semantic search until the next daemon restart.
+
 ## A.3 — Dedup pass
 
 Two flavours; do both.
