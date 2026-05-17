@@ -1,7 +1,0 @@
-{
-  "name": "@codeterm/provider-cursor",
-  "version": "0.1.0",
-  "private": true,
-  "description": "CodeTerm provider plugin for Cursor Agent CLI (cursor.com/cli)",
-  "main": "plugin.js"
-}
