@@ -79,6 +79,9 @@ module.exports.default = {
   },
 
   buildLaunchCommand: function (params) {
+    // `--dangerously-skip-permissions` is `run`-only — opencode TUI
+    // rejects unknown args and exits to help. Drop it silently for
+    // interactive launches; honour caller intent in headless+task.
     var p = params || {};
     var parts = ["opencode"];
     if (p.headless && p.task) {
@@ -87,8 +90,6 @@ module.exports.default = {
       parts.push("--format");
       parts.push("json");
       parts.push(host.shell.quote(p.task));
-    } else if (p.skipPermissions) {
-      parts.push("--dangerously-skip-permissions");
     }
     if (p.args && p.args.length > 0) {
       for (var i = 0; i < p.args.length; i++) parts.push(p.args[i]);
