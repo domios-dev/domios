@@ -140,6 +140,16 @@ impl MemManager {
         delete_relations_by_rowids(&conn, rowids, actor)
     }
 
+    pub fn graph_delete_entity(
+        &self,
+        entity_id: &str,
+        force: bool,
+        actor: &str,
+    ) -> Result<crate::mem::graph_repair::DeleteEntityReport, String> {
+        let conn = self.conn.lock();
+        crate::mem::graph_repair::delete_entity_by_id(&conn, entity_id, force, actor)
+    }
+
     pub fn graph_merge_relations(
         &self,
         keep: i64,

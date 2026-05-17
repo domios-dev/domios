@@ -130,7 +130,7 @@ The General Agent also gets `CODETERM_RULE` and `BRIDGE_MEM` via the provider's 
 - **Two locations only.** Every prompt belongs in either `src-tauri/prompts/` (in-binary) or `.claude/agents/` (Claude Code subagent definitions). Do not scatter `.md` instructions through `src-tauri/src/`, `cli/`, `src/`, or anywhere else.
 - **No inline multi-line prompt strings in Rust or TypeScript.** If you catch yourself writing a `format!("You are an agent that ...")` longer than two lines, stop. Move it to `src-tauri/prompts/<name>.md`, add a const in `prompts.rs`, and use `crate::prompts::<NAME>.replace("{var}", value)`. Even short ones (rerank is ~5 lines) belong in a file — having one source of truth is more important than line count.
 - **Every new prompt const goes through `prompts.rs`.** Never `include_str!("../prompts/foo.md")` directly from a sibling module — that fragments the index. The whole point of `prompts.rs` is that you can `grep WORKER_` once and find every prompt in the project.
-- **No hot-reload assumptions.** `include_str!()` is compile-time. If a change "isn't taking effect", it is almost always a stale binary — check `build_number` via `curl -s http://127.0.0.1:7686/api/health` against your expected build.
+- **No hot-reload assumptions.** `include_str!()` is compile-time. If a change "isn't taking effect", it is almost always a stale binary — kill and restart dev (`./build.sh kill && ./build.sh dev`); the kill guarantees the old process is gone.
 - **Run prompt-evaluator on every prompt change.** This is the only guard against silent behavioral regressions — prompt diffs do not show up in unit tests.
 - **Prompts are English-only.** Like all code and docs.
 

@@ -23,6 +23,8 @@ pub struct Relation {
     pub valid_to: Option<String>,
     pub confidence: f64,
     pub properties: Value,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 pub fn insert_entity(conn: &Connection, e: &Entity) -> Result<(), String> {
@@ -73,11 +75,11 @@ pub fn insert_relation(conn: &Connection, r: &Relation) -> Result<(), String> {
     conn.execute(
         r#"INSERT OR IGNORE INTO relations
            (from_id, relation_type, to_id, scope, valid_from, valid_to,
-            confidence, properties_json, created_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
+            confidence, properties_json, created_at, reason)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#,
         params![
             &r.from_id, &r.relation_type, &r.to_id, &r.scope,
-            &r.valid_from, &r.valid_to, r.confidence, &props, &now,
+            &r.valid_from, &r.valid_to, r.confidence, &props, &now, &r.reason,
         ],
     )
     .map_err(|e| format!("insert relation: {}", e))?;
@@ -155,6 +157,7 @@ pub fn timeline(
             valid_to: r.get(5)?,
             confidence: r.get(6)?,
             properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
+            reason: None,
         })
     }).map_err(|e| e.to_string())?;
     let mut out = Vec::new();
@@ -226,6 +229,7 @@ pub fn related(
                 valid_to: r.get(5)?,
                 confidence: r.get(6)?,
                 properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
+                reason: None,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -289,6 +293,7 @@ pub fn traverse(
                 valid_to: r.get(5)?,
                 confidence: r.get(6)?,
                 properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
+                reason: None,
             })
         }).map_err(|e| e.to_string())?;
 
@@ -350,6 +355,7 @@ pub fn shortest_path(
                 valid_to: r.get(5)?,
                 confidence: r.get(6)?,
                 properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
+                reason: None,
             })
         }).map_err(|e| e.to_string())?;
 
@@ -544,6 +550,7 @@ mod tests {
                 valid_to: Some("2026-03-01T00:00:00Z".into()),
                 confidence: 1.0,
                 properties: serde_json::json!({}),
+                reason: None,
             },
         )
         .unwrap();
@@ -558,6 +565,7 @@ mod tests {
                 valid_to: None,
                 confidence: 1.0,
                 properties: serde_json::json!({}),
+                reason: None,
             },
         )
         .unwrap();
@@ -596,6 +604,7 @@ mod tests {
                 valid_to: None,
                 confidence: 1.0,
                 properties: serde_json::json!({}),
+                reason: None,
             },
         )
         .unwrap();
@@ -623,6 +632,7 @@ mod tests {
             valid_to: None,
             confidence: 1.0,
             properties: serde_json::json!({}),
+            reason: None,
         };
         insert_relation(&conn, &r).unwrap();
         insert_relation(&conn, &r).unwrap();
@@ -648,6 +658,7 @@ mod tests {
             valid_from: "2026-01-01T00:00:00.000000+00:00".into(),
             valid_to: None,
             confidence: 1.0, properties: serde_json::Value::Null,
+            reason: None,
         }
     }
 
@@ -658,6 +669,7 @@ mod tests {
             valid_from: "2024-01-01T00:00:00.000000+00:00".into(),
             valid_to: Some("2025-06-01T00:00:00.000000+00:00".into()),
             confidence: 1.0, properties: serde_json::Value::Null,
+            reason: None,
         }
     }
 
@@ -714,6 +726,7 @@ mod tests {
             valid_from: "2024-01-01T00:00:00.000000+00:00".into(),
             valid_to: Some("2025-01-01T00:00:00.000000+00:00".into()),
             confidence: 1.0, properties: serde_json::Value::Null,
+            reason: None,
         }).unwrap();
         insert_relation(&conn, &Relation {
             from_id: "e_a".into(), relation_type: "via".into(), to_id: "e_c".into(),
@@ -721,6 +734,7 @@ mod tests {
             valid_from: "2026-01-01T00:00:00.000000+00:00".into(),
             valid_to: None,
             confidence: 1.0, properties: serde_json::Value::Null,
+            reason: None,
         }).unwrap();
         insert_relation(&conn, &Relation {
             from_id: "e_c".into(), relation_type: "via".into(), to_id: "e_b".into(),
@@ -728,6 +742,7 @@ mod tests {
             valid_from: "2026-01-01T00:00:00.000000+00:00".into(),
             valid_to: None,
             confidence: 1.0, properties: serde_json::Value::Null,
+            reason: None,
         }).unwrap();
 
         let path = shortest_path(&conn, "e_a", "e_b", 4, false).unwrap().unwrap();
@@ -759,6 +774,7 @@ mod tests {
                 valid_from: "2024-01-01T00:00:00.000000+00:00".into(),
                 valid_to: Some("2025-06-01T00:00:00.000000+00:00".into()),
                 confidence: 1.0, properties: serde_json::Value::Null,
+                reason: None,
             }).unwrap();
         }
 
@@ -787,6 +803,7 @@ mod tests {
             valid_from: "2026-01-01T00:00:00.000000+00:00".into(),
             valid_to: None,
             confidence: 1.0, properties: serde_json::Value::Null,
+            reason: None,
         }).unwrap();
         insert_relation(&conn, &Relation {
             from_id: "e_a".into(), relation_type: "dead".into(), to_id: "e_b".into(),
@@ -794,6 +811,7 @@ mod tests {
             valid_from: "2025-01-01T00:00:00.000000+00:00".into(),
             valid_to: Some("2025-06-01T00:00:00.000000+00:00".into()),
             confidence: 1.0, properties: serde_json::Value::Null,
+            reason: None,
         }).unwrap();
 
         let active = timeline(&conn, "e_a", false).unwrap();
@@ -850,6 +868,54 @@ mod tests {
     }
 
     #[test]
+    fn insert_relation_persists_reason() {
+        let conn = fresh();
+        pair_entities(&conn);
+        let r = Relation {
+            from_id: "e_a".into(),
+            relation_type: "uses".into(),
+            to_id: "e_b".into(),
+            scope: "global".into(),
+            valid_from: "2026-01-01T00:00:00Z".into(),
+            valid_to: None,
+            confidence: 1.0,
+            properties: serde_json::json!({}),
+            reason: Some("dreamer-bridge".into()),
+        };
+        insert_relation(&conn, &r).unwrap();
+
+        let got: Option<String> = conn.query_row(
+            "SELECT reason FROM relations WHERE from_id='e_a' AND to_id='e_b' AND relation_type='uses'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(got.as_deref(), Some("dreamer-bridge"));
+    }
+
+    #[test]
+    fn insert_relation_null_reason() {
+        let conn = fresh();
+        pair_entities(&conn);
+        let r = Relation {
+            from_id: "e_a".into(),
+            relation_type: "uses".into(),
+            to_id: "e_b".into(),
+            scope: "global".into(),
+            valid_from: "2026-01-01T00:00:00Z".into(),
+            valid_to: None,
+            confidence: 1.0,
+            properties: serde_json::json!({}),
+            reason: None,
+        };
+        insert_relation(&conn, &r).unwrap();
+        let got: Option<String> = conn.query_row(
+            "SELECT reason FROM relations WHERE from_id='e_a'",
+            [], |r| r.get(0),
+        ).unwrap();
+        assert!(got.is_none());
+    }
+
+    #[test]
     fn iso_t_separator_does_not_leak_through_string_compare() {
         let conn = fresh();
         pair_entities(&conn);
@@ -859,6 +925,7 @@ mod tests {
             valid_from: "2025-01-01T00:00:00.000000+00:00".into(),
             valid_to: Some("2025-06-01T00:00:00.000000+00:00".into()),
             confidence: 1.0, properties: serde_json::Value::Null,
+            reason: None,
         };
         insert_relation(&conn, &dead).unwrap();
         let rs = related(&conn, "e_a", None, None, false).unwrap();

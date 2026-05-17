@@ -3,8 +3,7 @@
 # was rebuilding codeterm-embed on every cycle (70+ seconds) even when
 # nothing in src-tauri changed. With this script:
 #
-#   - CLI still rebuilds (fast incremental, 5-6s; touch is for the
-#     BUILD_NUMBER env baked into cli's build.rs)
+#   - CLI still rebuilds (fast incremental, 5-6s)
 #   - codeterm-embed skipped if the bundled binary is already present
 #     and >1MB (i.e. a real binary, not the build-time stub).
 #     Force-rebuild via:  REBUILD_EMBED=1 ./build.sh dev

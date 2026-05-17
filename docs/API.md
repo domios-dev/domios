@@ -28,7 +28,7 @@ Then: `Authorization: Bearer your-secret-token`
 #### System
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| GET | `/api/health` | — | Health check. Returns `version`, `build` (git hash), `build_number` (incremented by `build.sh dev`), `name`. |
+| GET | `/api/health` | — | Health check. Returns `version`, `build` (git short hash), `name`, `platform`, `status`. |
 | GET | `/api/identify` | — | Version, platform, features |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
 | GET | `/api/keepawake` | — | Get keep-awake status (see below) |

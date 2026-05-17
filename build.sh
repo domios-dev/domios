@@ -3,7 +3,7 @@
 # Usage:
 #   ./build.sh dev       — dev mode (hot reload, incremental)
 #   ./build.sh dev --wait — same, but backgrounds and blocks until /api/health
-#                          reports the new build_number (handy for scripts/agents)
+#                          responds (handy for scripts/agents)
 #   ./build.sh check     — cargo check only (~2s incremental)
 #   ./build.sh test      — run Rust unit tests
 #   ./build.sh build     — production build
@@ -122,16 +122,11 @@ case "$CMD" in
   dev)
     kill_dev
     ensure_deps
-    # Increment build number
-    BUILD_NUM=$(cat BUILD_NUMBER 2>/dev/null || echo 0)
-    BUILD_NUM=$((BUILD_NUM + 1))
-    echo "$BUILD_NUM" > BUILD_NUMBER
-    # Build CLI first (so it's ready when app starts)
     echo "Building CLI..."
     cargo build --release --manifest-path cli/Cargo.toml
     install_cli_to "$HOME/.codeterm/bin"
     install_cli_to "$HOME/.codeterm-dev/bin"
-    echo "Build #$BUILD_NUM starting..."
+    echo "Starting dev..."
 
     WAIT=0
     for arg in "${@:2}"; do
@@ -146,7 +141,7 @@ case "$CMD" in
       ( pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json >> "$LOG" 2>&1 ) &
       DEV_PID=$!
       disown "$DEV_PID" 2>/dev/null || true
-      echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to report build_number=$BUILD_NUM..."
+      echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
       DEADLINE=$(( $(date +%s) + 300 ))
       while : ; do
         if [ "$(date +%s)" -gt "$DEADLINE" ]; then
@@ -161,10 +156,10 @@ case "$CMD" in
         fi
         HEALTH=$(curl -s --max-time 2 http://127.0.0.1:7686/api/health 2>/dev/null || true)
         if [ -n "$HEALTH" ]; then
-          BN=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('build_number',''))" 2>/dev/null || true)
           SHA=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('build','')[:8])" 2>/dev/null || true)
-          if [ "$BN" = "$BUILD_NUM" ]; then
-            echo "Dev ready: build #$BN (commit $SHA), pid $DEV_PID"
+          STATUS=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+          if [ "$STATUS" = "ok" ]; then
+            echo "Dev ready: build $SHA, pid $DEV_PID"
             exit 0
           fi
         fi
