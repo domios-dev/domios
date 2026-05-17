@@ -472,13 +472,32 @@ Rules:
   existing value is wrong, find the source mem_item and correct it
   there instead.
 
+### A.4d Housekeeping — orphan vectors and blobs
+
+Always run at the END of A.4, after all deletes/merges/aliases settled.
+Aliasing and deletion can leave behind `mem_vectors` rows whose `mem_id`
+no longer points anywhere, and `body_blob_path` files no `mem_item`
+references. These are wasted space + ghost search hits.
+
+    codeterm mem graph repair-orphan-vectors --dry-run
+    codeterm mem graph repair-orphan-blobs --dry-run
+
+If either reports `count > 0`, re-run WITHOUT `--dry-run` to apply.
+
+    codeterm mem graph repair-orphan-vectors --actor dreamer
+    codeterm mem graph repair-orphan-blobs --actor dreamer
+
+Audit lands in `graph_purge_log` with `op=repair_orphan_vectors` /
+`op=repair_orphan_blobs`. Safe to call unconditionally — a zero-orphan
+run writes no audit row.
+
 ### Verify A.4
 
     codeterm mem graph find-duplicate-relations \
         --group-by from_id,relation_type,to_id,valid_from --limit 1
 
 Should be empty (or a strictly smaller set than before). Log how many
-delete-relations and merge-relations operations ran, plus any augments.
+delete-relations, merge-relations, augments, and orphan-cleanups ran.
 
 # STAGE B — Diary + worker report (the user-visible output)
 
