@@ -713,8 +713,10 @@ pub enum MemGraphAction {
     /// Read-only diagnostic — does not mutate the graph.
     #[clap(name = "find-duplicate-relations")]
     FindDuplicateRelations {
-        /// Comma-separated columns from: from_id,relation_type,to_id,scope,valid_from
-        #[arg(long, default_value = "from_id,relation_type,to_id,valid_from")]
+        /// Comma-separated columns from: from_id,relation_type,to_id,scope,valid_from.
+        /// Default excludes valid_from because the relations UNIQUE(from,rel,to,valid_from)
+        /// makes grouping by all four a guaranteed no-op — meaningful dedup is on the triple.
+        #[arg(long, default_value = "from_id,relation_type,to_id")]
         group_by: String,
         #[arg(long, default_value_t = 50)]
         limit: usize,
