@@ -3,6 +3,7 @@
 pub mod store;
 pub mod search;
 pub mod graph;
+pub mod graph_repair;
 pub mod layers;
 pub mod extract;
 pub mod seed;
