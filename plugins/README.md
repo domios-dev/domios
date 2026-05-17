@@ -188,16 +188,37 @@ interface ProviderPlugin {
 
 ### Smoke / unit tests
 
-Each plugin should have `tests/*.test.ts` with parser fixtures from
-real provider sessions. Run via:
+Each plugin ships per-module tests in `tests/`:
 
-```bash
-npx tsx plugins/provider-<id>/tests/parser.test.ts
+```
+plugins/provider-claude/tests/
+├── parser.test.ts    ← 124 assertions on JSONL → ChatMessage conversion
+├── detect.test.ts    ← title regex + PTY fingerprint + noise patterns
+├── status.test.ts    ← event → PaneStatus mapping
+└── plugin.test.ts    ← ProviderPlugin contract surface (meta/parseLine/
+                        actions/imageSend/titlePattern/noisePatterns)
 ```
 
+Run everything in one go from the repo root:
+
+```bash
+pnpm test:plugins        # all plugins + host registry, ~244 assertions
+```
+
+Or one file at a time:
+
+```bash
+npx tsx plugins/provider-claude/tests/parser.test.ts
+```
+
+The host-side registry has its own suite at
+`src/lib/plugins/__tests__/registry.test.ts` covering
+`register/unregister/getPlugin/getAllPlugins/detectProvider/isProviderNoise`.
+
 The current test runner is a tiny `assert`/`eq` shim inside each test
-file (legacy from before the workspace). Migrating to `vitest` is
-planned — when done, `pnpm -F @codeterm/provider-<id> test` will work.
+file. Migrating to `vitest` is planned — when done,
+`pnpm -F @codeterm/provider-<id> test` will work and we'll add proper
+React Testing Library coverage for renderers.
 
 ### Capturing real fixtures
 

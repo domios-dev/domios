@@ -13,8 +13,11 @@
 
 import type { DetectionSample } from "../../../src/lib/plugins/types";
 
-export const titlePattern =
-  /claude|^[⠁⠂⠄⠈⠐⠠⡀⠘⠃⠅⠑⠒⠔⠕⠡⠢⠤⠥⠨⠱⠲⠴⠸✱✻] /i;
+// Claude's working-spinner uses the full Braille range U+2800..U+28FF
+// as activity glyphs prefixed before the task name. Matching the whole
+// range is simpler than listing the specific dots and survives Claude
+// adding new ones.
+export const titlePattern = /claude|^[⠀-⣿✱✳✻] /i;
 
 export const noisePatterns: RegExp[] = [
   /bypass permissions on/i,

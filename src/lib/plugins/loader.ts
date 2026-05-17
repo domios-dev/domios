@@ -40,7 +40,7 @@ export function loadBundledPlugins(): void {
     }
     register(plugin);
   }
-  if (import.meta.env.DEV) {
+  if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
     console.debug(`[plugins] bundled load complete (${Object.keys(modules).length} plugins)`);
   }
 }
