@@ -1,12 +1,44 @@
 {
-  "id": "provider-codex",
-  "kind": "provider",
-  "provider_id": "codex",
+  "id": "codex",
+  "version": "0.1.0",
   "displayName": "Codex",
-  "engine": ">=1.3.0",
-  "entry": "src/index.ts",
-  "permissions": {
-    "transport_events": ["pty"],
-    "send_text": true
+  "binaryName": "codex",
+  "cliBinary": "codex",
+  "iconHint": "◆",
+  "iconColor": "var(--ct-fg)",
+  "entry": "plugin.js",
+  "spawn": {
+    "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
+    "taskDelivery": "pty_input",
+    "taskInputWarmupMs": 3000,
+    "verifySubmit": {
+      "kind": "tui_input_drained",
+      "timeoutSecs": 15,
+      "idleAfterDrainMs": 800
+    },
+    "sessionIdInjection": "none",
+    "statusBarRows": 1,
+    "preservesContextOnResume": false,
+    "supportsLazySkills": false,
+    "hasHooks": false
+  },
+  "models": [
+    { "id": "gpt-5.5", "displayName": "GPT-5.5", "description": "Frontier model for complex coding, research, and real-world work." },
+    { "id": "gpt-5.4", "displayName": "GPT-5.4", "description": "Strong model for everyday coding." },
+    { "id": "gpt-5.4-mini", "displayName": "GPT-5.4 Mini", "description": "Small, fast, and cost-efficient model for simpler coding tasks." },
+    { "id": "gpt-5.3-codex", "displayName": "GPT-5.3 Codex", "description": "Coding-optimized model." },
+    { "id": "gpt-5.2", "displayName": "GPT-5.2", "description": "Optimized for professional work and long-running agents." }
+  ],
+  "defaultModel": "gpt-5.5",
+  "installer": {
+    "macos": "npm install -g @openai/codex",
+    "linux": "npm install -g @openai/codex",
+    "windows": "npm install -g @openai/codex"
+  },
+  "commands": {
+    "compact": "/compact",
+    "exit": "/exit",
+    "autoApproveFlags": ["--dangerously-bypass-approvals-and-sandbox"],
+    "modelLaunchArgsFormat": ["-m", "{model}"]
   }
 }

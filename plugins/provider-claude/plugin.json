@@ -1,12 +1,47 @@
 {
-  "id": "provider-claude",
-  "kind": "provider",
-  "provider_id": "claude",
+  "id": "claude",
+  "version": "0.1.0",
   "displayName": "Claude Code",
-  "engine": ">=1.3.0",
-  "entry": "src/index.ts",
-  "permissions": {
-    "transport_events": ["pty", "events"],
-    "send_text": true
+  "binaryName": "claude",
+  "cliBinary": "claude",
+  "iconHint": "✳",
+  "iconColor": "#d97757",
+  "entry": "plugin.js",
+  "spawn": {
+    "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
+    "taskDelivery": "inline_flag",
+    "verifySubmit": {
+      "kind": "tui_input_drained",
+      "timeoutSecs": 15,
+      "idleAfterDrainMs": 800
+    },
+    "sessionIdInjection": "fresh_and_fork",
+    "statusBarRows": 3,
+    "preservesContextOnResume": true,
+    "supportsLazySkills": true,
+    "hasHooks": true
+  },
+  "sessions": {
+    "rootDir": "~/.claude/projects",
+    "cwdEncoding": "dash_encoded",
+    "fileExtension": "jsonl"
+  },
+  "models": [
+    { "id": "opus", "displayName": "Claude Opus 4.7 (1M context)", "description": "Most capable for complex work." },
+    { "id": "sonnet", "displayName": "Claude Sonnet 4.6", "description": "Best for everyday tasks. Default for most work." },
+    { "id": "haiku", "displayName": "Claude Haiku 4.5", "description": "Fastest for quick answers." }
+  ],
+  "defaultModel": "sonnet",
+  "installer": {
+    "macos": "curl -fsSL https://claude.ai/install.sh | bash",
+    "linux": "curl -fsSL https://claude.ai/install.sh | bash",
+    "windows": "powershell -Command \"irm https://claude.ai/install.ps1 | iex\""
+  },
+  "commands": {
+    "compact": "/compact",
+    "exit": "/exit",
+    "modelSwitchFormat": "/model {model}",
+    "autoApproveFlags": ["--dangerously-skip-permissions"],
+    "modelLaunchArgsFormat": ["--model", "{model}"]
   }
 }

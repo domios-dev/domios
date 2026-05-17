@@ -1,0 +1,41 @@
+{
+  "id": "cursor",
+  "version": "0.1.0",
+  "displayName": "Cursor Agent",
+  "binaryName": "agent",
+  "cliBinary": "agent",
+  "iconHint": "▶",
+  "iconColor": "#7a73ff",
+  "entry": "plugin.js",
+  "spawn": {
+    "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
+    "taskDelivery": "pty_input",
+    "taskInputWarmupMs": 1500,
+    "verifySubmit": {
+      "kind": "tui_input_drained",
+      "timeoutSecs": 15,
+      "idleAfterDrainMs": 800
+    },
+    "sessionIdInjection": "none",
+    "statusBarRows": 2,
+    "preservesContextOnResume": true,
+    "supportsLazySkills": false,
+    "hasHooks": false
+  },
+  "models": [
+    { "id": "gpt-5.2", "displayName": "GPT-5.2", "description": "Default Cursor model." },
+    { "id": "claude-sonnet-4.6", "displayName": "Claude Sonnet 4.6", "description": "Anthropic Sonnet via Cursor." },
+    { "id": "claude-opus-4.7", "displayName": "Claude Opus 4.7", "description": "Anthropic Opus via Cursor." }
+  ],
+  "defaultModel": "gpt-5.2",
+  "installer": {
+    "macos": "curl https://cursor.com/install -fsS | bash",
+    "linux": "curl https://cursor.com/install -fsS | bash",
+    "windows": "powershell -Command \"irm https://cursor.com/install.ps1 | iex\""
+  },
+  "commands": {
+    "exit": "/exit",
+    "modelSwitchFormat": "/model {model}",
+    "modelLaunchArgsFormat": ["--model", "{model}"]
+  }
+}
