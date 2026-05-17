@@ -24,7 +24,14 @@ fi
 # 2. Ensure target installed
 rustup target add x86_64-apple-darwin >/dev/null
 
-# 3. Build x86_64 sidecar + main bin + CLI
+# 3. Stub the externalBin + resources globs so tauri_build's validation passes during step 3b.
+mkdir -p src-tauri/bundled-embed src-tauri/bundled-cli
+touch src-tauri/bundled-embed/codeterm-embed-x86_64-apple-darwin
+HOST_TRIPLE=$(rustc -vV | awk '/^host:/ { print $2 }')
+touch "src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}"
+touch src-tauri/bundled-cli/codeterm
+
+# 3b. Build x86_64 sidecar + main bin + CLI
 cargo build --release --target x86_64-apple-darwin --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
 cargo build --release --target x86_64-apple-darwin --manifest-path cli/Cargo.toml
 
@@ -41,13 +48,9 @@ for f in src-tauri/bundled-embed/codeterm-embed-x86_64-apple-darwin \
   codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$f"
 done
 
-# 5. Write merge config
+# 5. Merge config: add bundled-embed-libs/* to resources (don't suppress beforeBuildCommand).
 cat > /tmp/tauri.x86_64.conf.json <<'JSONEOF'
 {
-  "build": {
-    "beforeDevCommand": "",
-    "beforeBuildCommand": ""
-  },
   "bundle": {
     "resources": {
       "../skills": "skills",
@@ -58,8 +61,21 @@ cat > /tmp/tauri.x86_64.conf.json <<'JSONEOF'
 }
 JSONEOF
 
-# 6. Full Tauri build → notarized .app + DMG wrapper (signed, not yet DMG-notarized)
+# 6. Tauri build with cross-target + updater signing. CARGO_BUILD_TARGET forces every cargo
+# invocation inside beforeBuildCommand to cross-compile; TAURI_SIGNING_PRIVATE_KEY makes Tauri
+# emit the .app.tar.gz + .sig updater bundle alongside the DMG.
+export CARGO_BUILD_TARGET=x86_64-apple-darwin
+export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/codeterm.key)"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
 pnpm tauri build --target x86_64-apple-darwin --config /tmp/tauri.x86_64.conf.json
+unset CARGO_BUILD_TARGET TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+
+# 6b. Arch assertion: fail before notarize if CLI or GUI is wrong arch.
+APP_CLI="src-tauri/target/x86_64-apple-darwin/release/bundle/macos/CodeTerm.app/Contents/Resources/cli/codeterm"
+APP_GUI="src-tauri/target/x86_64-apple-darwin/release/bundle/macos/CodeTerm.app/Contents/MacOS/codeterm"
+file "$APP_CLI" | grep -q x86_64 || { echo "FATAL: bundled CLI is not x86_64: $(file "$APP_CLI")"; exit 1; }
+file "$APP_GUI" | grep -q x86_64 || { echo "FATAL: bundled GUI is not x86_64: $(file "$APP_GUI")"; exit 1; }
+echo "OK: both bundled CLI and GUI are x86_64"
 
 DMG="src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/CodeTerm_$(jq -r .version package.json)_x64.dmg"
 

@@ -11,13 +11,16 @@ const exeExt = isWindows ? ".exe" : "";
 const repoRoot = path.resolve(__dirname, "..");
 const srcTauriDir = path.join(repoRoot, "src-tauri");
 
-const triple = execSync("rustc -vV", { encoding: "utf8" })
+// CARGO_BUILD_TARGET (cross-builds) wins over host triple so the suffix matches Tauri's lookup.
+const buildTarget = process.env.CARGO_BUILD_TARGET || "";
+const triple = buildTarget || execSync("rustc -vV", { encoding: "utf8" })
   .split("\n")
   .find((l) => l.startsWith("host:"))
   .split(":")[1]
   .trim();
 
-const src = path.join(srcTauriDir, "target", "release", `codeterm-embed${exeExt}`);
+const targetSubdir = buildTarget ? path.join("target", buildTarget, "release") : path.join("target", "release");
+const src = path.join(srcTauriDir, targetSubdir, `codeterm-embed${exeExt}`);
 const destDir = path.join(srcTauriDir, "bundled-embed");
 const dest = path.join(destDir, `codeterm-embed-${triple}${exeExt}`);
 
