@@ -419,10 +419,18 @@ pub async fn mem_graph_repair_orphan_vectors(
     Ok(Json(serde_json::json!({ "report": report })))
 }
 
+#[derive(Deserialize)]
+pub struct RepairOrphanBlobsBody {
+    #[serde(default)]
+    pub dry_run: bool,
+    #[serde(default = "default_actor")]
+    pub actor: String,
+}
+
 pub async fn mem_graph_repair_orphan_blobs(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Json(b): Json<RepairOrphanVectorsBody>,
+    Json(b): Json<RepairOrphanBlobsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let report = state.svc.mem.graph_repair_orphan_blobs(b.dry_run, &b.actor)

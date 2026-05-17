@@ -12,21 +12,29 @@ sqlite3 "$DB" "
     DELETE FROM relations WHERE from_id LIKE 'seed_%' OR to_id LIKE 'seed_%';
     DELETE FROM entities WHERE id LIKE 'seed_%';
     DELETE FROM entity_aliases WHERE alias_id LIKE 'seed_%' OR canonical_id LIKE 'seed_%';
-    DELETE FROM graph_purge_log WHERE actor = 'dreamer-eval';
+    DELETE FROM graph_purge_log WHERE actor IN ('dreamer-eval','add_alias');
 "
 
 NOW="2026-01-01T00:00:00Z"
 
 # Two near-duplicate Person entities (differ only by trailing space + case),
 # plus one extra Person referenced by the relations.
+# seed_orphan_stub: a degree-0 entity to exercise delete-entity (no canonical to alias into).
 sqlite3 "$DB" "
     INSERT INTO entities (id, entity_type, scope, properties_json, created_at, updated_at)
     VALUES
-        ('seed_person_owner',  'Person', 'global', '{\"name\":\"SeedAndrey\"}',   '$NOW', '$NOW'),
-        ('seed_person_ownery', 'Person', 'global', '{\"name\":\"seedandrey \"}',  '$NOW', '$NOW'),
-        ('seed_person_anna',    'Person', 'global', '{\"name\":\"SeedAnna\"}',     '$NOW', '$NOW'),
-        ('seed_proj_test',      'Project','global', '{\"name\":\"SeedTestProj\"}', '$NOW', '$NOW');
+        ('seed_person_zzbeta',     'Person', 'global', '{\"name\":\"Zzbeta_Eval_Person\"}',  '$NOW', '$NOW'),
+        ('seed_person_zzbetay',    'Person', 'global', '{\"name\":\"zzbeta_eval_person \"}', '$NOW', '$NOW'),
+        ('seed_person_zzomega',    'Person', 'global', '{\"name\":\"Zzomega_Eval_Person\"}', '$NOW', '$NOW'),
+        ('seed_proj_zzeval',       'Project','global', '{\"name\":\"Zzeval_Test_Proj\"}',    '$NOW', '$NOW'),
+        ('seed_orphan_zzstub',     'Project','global', '{\"name\":\"Zzorphan_Stub\"}',       '$NOW', '$NOW');
 "
+
+# Plant an orphan vector by inserting a row referencing a non-existent mem_id.
+# The repair-orphan-vectors primitive should surface and clean it.
+# (Skipped if mem_vectors virtual table isn't accessible from raw sqlite3 — the
+# eval will still cover the path via the REST endpoint.)
+sqlite3 "$DB" "INSERT OR IGNORE INTO mem_vectors (mem_id, embedding) VALUES ('seed_ghost_vector', X'00000000');" 2>/dev/null || true
 
 # Two relation duplicate groups:
 #   - 3x (andrey, knows, anna) at distinct valid_from — identical otherwise.
@@ -38,11 +46,11 @@ sqlite3 "$DB" "
     INSERT INTO relations
         (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json, created_at)
     VALUES
-        ('seed_person_owner','knows','seed_person_anna','global','2026-01-01T00:00:00Z',NULL,1.0,'{}','2026-01-01T00:00:00Z'),
-        ('seed_person_owner','knows','seed_person_anna','global','2026-01-02T00:00:00Z',NULL,1.0,'{}','2026-01-02T00:00:00Z'),
-        ('seed_person_owner','knows','seed_person_anna','global','2026-01-03T00:00:00Z',NULL,1.0,'{}','2026-01-03T00:00:00Z'),
-        ('seed_person_owner','works_on','seed_proj_test','global','2026-01-01T00:00:00Z',NULL,0.7,'{\"src\":\"x\"}','2026-01-01T00:00:00Z'),
-        ('seed_person_owner','works_on','seed_proj_test','global','2026-01-02T00:00:00Z',NULL,0.9,'{\"src\":\"y\"}','2026-01-02T00:00:00Z');
+        ('seed_person_zzbeta','knows','seed_person_zzomega','global','2026-01-01T00:00:00Z',NULL,1.0,'{}','2026-01-01T00:00:00Z'),
+        ('seed_person_zzbeta','knows','seed_person_zzomega','global','2026-01-02T00:00:00Z',NULL,1.0,'{}','2026-01-02T00:00:00Z'),
+        ('seed_person_zzbeta','knows','seed_person_zzomega','global','2026-01-03T00:00:00Z',NULL,1.0,'{}','2026-01-03T00:00:00Z'),
+        ('seed_person_zzbeta','works_on','seed_proj_zzeval','global','2026-01-01T00:00:00Z',NULL,0.7,'{\"src\":\"x\"}','2026-01-01T00:00:00Z'),
+        ('seed_person_zzbeta','works_on','seed_proj_zzeval','global','2026-01-02T00:00:00Z',NULL,0.9,'{\"src\":\"y\"}','2026-01-02T00:00:00Z');
 "
 
 echo "seeded relations:"

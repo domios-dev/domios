@@ -417,6 +417,31 @@ pub fn add_alias_with_rewire(
         "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
         rusqlite::params![alias_id],
     )? as u64;
+
+    let alias_props: Option<String> = tx.query_row(
+        "SELECT properties_json FROM entities WHERE id = ?1",
+        rusqlite::params![alias_id], |r| r.get(0),
+    ).ok();
+    let canonical_props: Option<String> = tx.query_row(
+        "SELECT properties_json FROM entities WHERE id = ?1",
+        rusqlite::params![canonical_id], |r| r.get(0),
+    ).ok();
+    if let (Some(a), Some(c)) = (alias_props, canonical_props) {
+        let alias_obj = serde_json::from_str::<serde_json::Value>(&a).ok()
+            .and_then(|v| v.as_object().cloned()).unwrap_or_default();
+        let mut canon_obj = serde_json::from_str::<serde_json::Value>(&c).ok()
+            .and_then(|v| v.as_object().cloned()).unwrap_or_default();
+        for (k, v) in alias_obj {
+            canon_obj.entry(k).or_insert(v);
+        }
+        let merged = serde_json::to_string(&serde_json::Value::Object(canon_obj))
+            .expect("Map<String, Value> serialization is infallible");
+        tx.execute(
+            "UPDATE entities SET properties_json = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![merged, &now, canonical_id],
+        )?;
+    }
+
     tx.execute(
         "DELETE FROM entities WHERE id = ?1",
         rusqlite::params![alias_id],
