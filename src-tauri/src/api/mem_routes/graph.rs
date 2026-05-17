@@ -276,6 +276,105 @@ pub async fn mem_graph_full(
     })))
 }
 
+// ─── Repair endpoints ────────────────────────────────────────────────
+
+use crate::mem::graph_repair::{EntitySimilarityStrategy, RelationColumn};
+
+fn default_repair_limit() -> usize { 50 }
+fn default_actor() -> String { "user".to_string() }
+
+#[derive(Deserialize)]
+pub struct RepairFindRelationsBody {
+    pub group_by: Vec<RelationColumn>,
+    #[serde(default = "default_repair_limit")]
+    pub limit: usize,
+}
+
+pub async fn mem_graph_repair_find_relations(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<RepairFindRelationsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let groups = state.svc.mem.graph_find_duplicate_relations(&b.group_by, b.limit)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "groups": groups })))
+}
+
+#[derive(Deserialize)]
+pub struct RepairDeleteRelationsBody {
+    pub rowids: Vec<i64>,
+    #[serde(default = "default_actor")]
+    pub actor: String,
+}
+
+pub async fn mem_graph_repair_delete_relations(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<RepairDeleteRelationsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let deleted = state.svc.mem.graph_delete_relations(&b.rowids, &b.actor)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "deleted": deleted })))
+}
+
+#[derive(Deserialize)]
+pub struct RepairMergeRelationsBody {
+    pub keep: i64,
+    pub merge: Vec<i64>,
+    #[serde(default = "default_actor")]
+    pub actor: String,
+}
+
+pub async fn mem_graph_repair_merge_relations(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<RepairMergeRelationsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let report = state.svc.mem.graph_merge_relations(b.keep, &b.merge, &b.actor)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "report": report })))
+}
+
+#[derive(Deserialize)]
+pub struct RepairFindEntitiesBody {
+    pub strategy: EntitySimilarityStrategy,
+    #[serde(default = "default_repair_limit")]
+    pub limit: usize,
+}
+
+pub async fn mem_graph_repair_find_entities(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<RepairFindEntitiesBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let groups = state.svc.mem.graph_find_duplicate_entities(b.strategy, b.limit)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "groups": groups })))
+}
+
+#[derive(Deserialize)]
+pub struct RepairAugmentEntityBody {
+    pub id: String,
+    pub patch: serde_json::Map<String, serde_json::Value>,
+    #[serde(default = "default_actor")]
+    pub actor: String,
+}
+
+pub async fn mem_graph_repair_augment_entity(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<RepairAugmentEntityBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    state.svc.mem.graph_augment_entity(&b.id, b.patch, &b.actor)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::validate_canonical;

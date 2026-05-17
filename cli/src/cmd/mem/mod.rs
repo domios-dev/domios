@@ -507,6 +507,64 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 let payload = serde_json::json!({ "alias": alias, "canonical": canonical });
                 mem_post_request(&http, &format!("{}/api/mem/graph/alias", base), &payload)
             }
+            MemGraphAction::FindDuplicateRelations { group_by, limit } => {
+                let group_by_vec: Vec<&str> = group_by.split(',').map(|s| s.trim()).collect();
+                let payload = serde_json::json!({
+                    "group_by": group_by_vec,
+                    "limit": limit,
+                });
+                mem_post_request(&http, &format!("{}/api/mem/graph/repair/find-relations", base), &payload)
+            }
+            MemGraphAction::DeleteRelations { rowids, actor } => {
+                let rowids_vec: Vec<i64> = rowids.split(',')
+                    .filter_map(|s| s.trim().parse::<i64>().ok())
+                    .collect();
+                let payload = serde_json::json!({
+                    "rowids": rowids_vec,
+                    "actor": actor,
+                });
+                mem_post_request(&http, &format!("{}/api/mem/graph/repair/delete-relations", base), &payload)
+            }
+            MemGraphAction::MergeRelations { keep, merge, actor } => {
+                let merge_vec: Vec<i64> = merge.split(',')
+                    .filter_map(|s| s.trim().parse::<i64>().ok())
+                    .collect();
+                let payload = serde_json::json!({
+                    "keep": keep,
+                    "merge": merge_vec,
+                    "actor": actor,
+                });
+                mem_post_request(&http, &format!("{}/api/mem/graph/repair/merge-relations", base), &payload)
+            }
+            MemGraphAction::FindDuplicateEntities { strategy, limit } => {
+                let strategy_kind = match strategy.as_str() {
+                    "exact-name" | "exact_name" => "exact_name",
+                    "alias-chain" | "alias_chain" => "alias_chain",
+                    other => {
+                        eprintln!("unknown strategy: {} (use exact-name or alias-chain)", other);
+                        std::process::exit(1);
+                    }
+                };
+                let payload = serde_json::json!({
+                    "strategy": {"kind": strategy_kind},
+                    "limit": limit,
+                });
+                mem_post_request(&http, &format!("{}/api/mem/graph/repair/find-entities", base), &payload)
+            }
+            MemGraphAction::AugmentEntity { id, patch, actor } => {
+                let patch_val: serde_json::Value = serde_json::from_str(&patch)
+                    .unwrap_or(serde_json::json!({}));
+                if !patch_val.is_object() {
+                    eprintln!("--patch must be a JSON object, got: {}", patch);
+                    std::process::exit(1);
+                }
+                let payload = serde_json::json!({
+                    "id": id,
+                    "patch": patch_val,
+                    "actor": actor,
+                });
+                mem_post_request(&http, &format!("{}/api/mem/graph/repair/augment-entity", base), &payload)
+            }
             // Local-only mutations + reads that benefit from direct DB access:
             // route through the same dispatcher as main() so a future reorder
             // of main.rs cannot turn this into a panic in production. The

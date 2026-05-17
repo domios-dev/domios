@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
 import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
-import { WorkerLogPopup } from "./WorkerLogPopup";
+import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { DreamCard, DreamDetailModal, type DreamDiaryEntry } from "./DreamCard";
 
 interface Props {
@@ -376,7 +376,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
       </section>
 
       {logWorker && (
-        <WorkerLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
+        <AgentRunLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
       )}
       {openDream && (
         <DreamDetailModal entry={openDream} onClose={() => setOpenDream(null)} />
