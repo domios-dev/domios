@@ -23,6 +23,65 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+/// CamelCase mirror of `SessionMetadata` so plugin authors can return
+/// `{ sessionId, projectPath, ... }` instead of snake_case.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SerdeSessionMetadata {
+    session_id: String,
+    provider: Option<String>,
+    #[serde(default)]
+    project_path: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    summary: Option<String>,
+    file_path: String,
+    #[serde(default)]
+    created_ts: Option<i64>,
+    #[serde(default)]
+    modified_ts: Option<i64>,
+}
+
+impl SerdeSessionMetadata {
+    fn into_session_metadata(self, fallback_provider: &str) -> SessionMetadata {
+        SessionMetadata {
+            session_id: self.session_id,
+            provider: self.provider.unwrap_or_else(|| fallback_provider.to_string()),
+            project_path: self.project_path,
+            title: self.title,
+            summary: self.summary,
+            file_path: self.file_path,
+            created_ts: self.created_ts,
+            modified_ts: self.modified_ts,
+        }
+    }
+}
+
+/// CamelCase mirror of `SessionMessage` so plugin authors don't have to
+/// remember `is_meta` over `isMeta`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SerdeSessionMessage {
+    role: String,
+    text: String,
+    #[serde(default)]
+    ts: Option<i64>,
+    #[serde(default)]
+    is_meta: bool,
+}
+
+impl From<SerdeSessionMessage> for SessionMessage {
+    fn from(s: SerdeSessionMessage) -> Self {
+        SessionMessage {
+            role: s.role,
+            text: s.text,
+            ts: s.ts,
+            is_meta: s.is_meta,
+        }
+    }
+}
+
 use crate::agent::provider::{
     self, AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, SessionIdInjection,
     SessionMessage, SessionMetadata, SettingField, TaskDelivery, VerifySubmitStrategy,
@@ -257,9 +316,43 @@ impl AgentProvider for JsProvider {
     }
 
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
+        if let Some(p) = self.try_call::<Option<String>>(
+            "sessionFilePath",
+            &[json!(cwd), json!(session_id)],
+        ) {
+            return p.map(PathBuf::from);
+        }
         let cfg = self.manifest.sessions.as_ref()?;
         let dir = self.sessions_dir(cwd)?;
         Some(dir.join(format!("{}.{}", session_id, cfg.file_extension)))
+    }
+
+    fn session_exists(&self, cwd: &str, session_id: &str) -> bool {
+        if let Some(b) = self.try_call::<bool>(
+            "sessionExists",
+            &[json!(cwd), json!(session_id)],
+        ) {
+            return b;
+        }
+        self.session_file_path(cwd, session_id)
+            .map(|p| p.exists())
+            .unwrap_or(false)
+    }
+
+    fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
+        self.try_call::<Option<String>>(
+            "detectSessionModel",
+            &[json!(cwd), json!(session_id)],
+        )
+        .flatten()
+    }
+
+    fn detect_active_session(&self, cwd: &str, current_sid: &str) -> Option<String> {
+        self.try_call::<Option<String>>(
+            "detectActiveSession",
+            &[json!(cwd), json!(current_sid)],
+        )
+        .flatten()
     }
 
     fn session_id_injection(&self) -> SessionIdInjection {
@@ -272,6 +365,17 @@ impl AgentProvider for JsProvider {
         exclude: &[String],
         max_age: Option<Duration>,
     ) -> Option<String> {
+        // Plugin can do its own detection (sqlite, filename heuristics,
+        // whatever its provider needs). Falls back to the generic dir
+        // walk driven by manifest.sessions.* when the plugin doesn't
+        // implement `detectSessionId`.
+        let max_age_ms = max_age.map(|d| d.as_millis() as i64).unwrap_or(0);
+        if let Some(v) = self.try_call::<Option<String>>(
+            "detectSessionId",
+            &[json!(cwd), json!(exclude), json!(max_age_ms)],
+        ) {
+            return v;
+        }
         let cfg = self.manifest.sessions.as_ref()?;
         let dir = self.sessions_dir(cwd)?;
         if !dir.exists() {
@@ -309,6 +413,17 @@ impl AgentProvider for JsProvider {
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
+        // Plugin can enumerate via sqlite, recursive walk, network call,
+        // whatever. Falls back to the manifest-driven single-level
+        // listing when the plugin doesn't implement `enumerateSessions`.
+        if let Some(list) =
+            self.try_call::<Vec<SerdeSessionMetadata>>("enumerateSessions", &[])
+        {
+            return list
+                .into_iter()
+                .map(|m| m.into_session_metadata(&self.manifest.id))
+                .collect();
+        }
         let Some(cfg) = self.manifest.sessions.as_ref() else {
             return Vec::new();
         };
@@ -382,7 +497,8 @@ impl AgentProvider for JsProvider {
 
     fn parse_session_messages(&self, file_path: &Path) -> Vec<SessionMessage> {
         let Ok(text) = std::fs::read_to_string(file_path) else { return Vec::new() };
-        self.try_call::<Vec<SessionMessage>>("parseSessionMessages", &[json!(text)])
+        self.try_call::<Vec<SerdeSessionMessage>>("parseSessionMessages", &[json!(text)])
+            .map(|v| v.into_iter().map(SessionMessage::from).collect())
             .unwrap_or_default()
     }
 
@@ -518,6 +634,55 @@ impl AgentProvider for JsProvider {
             }
         }
         Ok(())
+    }
+
+    fn check_integration(&self) -> serde_json::Value {
+        self.try_call::<serde_json::Value>("checkIntegration", &[])
+            .unwrap_or_else(|| serde_json::json!({ "status": "ok" }))
+    }
+
+    fn install_integration(&self, api_port: u16) -> Result<(), String> {
+        if let Some(v) = self.try_call::<serde_json::Value>(
+            "installIntegration",
+            &[serde_json::json!(api_port)],
+        ) {
+            return result_from_js(&v);
+        }
+        Ok(())
+    }
+
+    fn uninstall_integration(&self) -> Result<(), String> {
+        if let Some(v) = self.try_call::<serde_json::Value>("uninstallIntegration", &[]) {
+            return result_from_js(&v);
+        }
+        Ok(())
+    }
+
+    fn ensure_integration_on_startup(&self, api_port: u16) {
+        // Defer to plugin if it implements this method; otherwise use the
+        // generic check-then-install dance. Either way, swallow errors —
+        // missing hooks shouldn't block startup.
+        if let Some(v) = self.try_call::<serde_json::Value>(
+            "ensureIntegrationOnStartup",
+            &[serde_json::json!(api_port)],
+        ) {
+            let _ = result_from_js(&v);
+            return;
+        }
+        let status = self.check_integration();
+        let already = status
+            .get("hooks_installed")
+            .and_then(|b| b.as_bool())
+            .unwrap_or(false);
+        if already {
+            return;
+        }
+        if let Err(e) = self.install_integration(api_port) {
+            log::warn!(
+                "[js-plugin {}] auto-install integration failed: {e}",
+                self.manifest.id
+            );
+        }
     }
 }
 

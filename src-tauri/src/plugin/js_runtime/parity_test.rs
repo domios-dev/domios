@@ -200,6 +200,191 @@ mod claude {
         assert!(cmd.contains("--dangerously-skip-permissions"));
     }
 
+    /// Synthetic Claude plugin variant that points its rule + integration
+    /// paths into a tempdir so we exercise the real plugin.js end-to-end
+    /// against `JsProvider` without touching the user's real `~/.claude/`.
+    fn claude_in_temp(
+        rule_path: &std::path::Path,
+        settings_path: &std::path::Path,
+    ) -> JsProvider {
+        let plugin_js = std::fs::read_to_string(
+            workspace_plugins_root().join("provider-claude").join("plugin.js"),
+        )
+        .unwrap();
+        let manifest_json = format!(
+            r#"{{
+                "id":"claude-test","version":"0.1.0","displayName":"X",
+                "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
+                         "taskDelivery":"pty_input",
+                         "verifySubmit":{{"kind":"none"}}}},
+                "rule":{{"path":"{rp}"}},
+                "integration":{{"kind":"claude_settings_json","settingsPath":"{sp}"}}
+            }}"#,
+            rp = rule_path.to_string_lossy().replace('\\', "/"),
+            sp = settings_path.to_string_lossy().replace('\\', "/"),
+        );
+        let manifest: crate::plugin::js_runtime::PluginManifest =
+            serde_json::from_str(&manifest_json).unwrap();
+        let vm = crate::plugin::js_runtime::vm::PluginVm::from_source_with(
+            "claude-test",
+            plugin_js,
+            Some(manifest_json),
+        )
+        .unwrap();
+        JsProvider::new(manifest, std::sync::Arc::new(vm))
+    }
+
+    #[test]
+    fn integration_install_creates_all_four_hooks_with_markers() {
+        if !ws_exists() { return; }
+        let dir = tempfile::tempdir().unwrap();
+        let provider = claude_in_temp(
+            &dir.path().join("rule.md"),
+            &dir.path().join("settings.json"),
+        );
+
+        // Before install: settings_exists=false.
+        let pre = provider.check_integration();
+        assert_eq!(pre["settings_exists"], false);
+        assert_eq!(pre["hooks_installed"], false);
+
+        // Install.
+        provider.install_integration(7686).expect("install ok");
+        let json: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("settings.json")).unwrap(),
+        )
+        .unwrap();
+        for key in ["Notification", "Stop", "PreCompact", "SessionStart"] {
+            let arr = json["hooks"][key].as_array().expect(key);
+            assert!(arr.iter().any(|e| {
+                e["hooks"].as_array().map_or(false, |inner| {
+                    inner.iter().any(|h| h["_source"] == "codeterm-hook-v2")
+                })
+            }), "missing v2 hook in {key}");
+            // Curl points to the right port + path.
+            let any_cmd = arr.iter().flat_map(|e| {
+                e["hooks"].as_array().cloned().unwrap_or_default()
+            }).find_map(|h| h["command"].as_str().map(String::from)).unwrap();
+            assert!(any_cmd.contains("CODETERM_API_PORT:-7686"), "{key} cmd: {any_cmd}");
+        }
+
+        // checkIntegration now reports installed.
+        let post = provider.check_integration();
+        assert_eq!(post["settings_exists"], true);
+        assert_eq!(post["hooks_installed"], true);
+        assert_eq!(post["notification_hook"], true);
+        assert_eq!(post["stop_hook"], true);
+        assert_eq!(post["precompact_hook"], true);
+        assert_eq!(post["session_start_hook"], true);
+    }
+
+    #[test]
+    fn integration_install_preserves_unrelated_settings_fields() {
+        if !ws_exists() { return; }
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join("settings.json");
+        std::fs::write(
+            &settings,
+            r#"{"theme":"dark","permissions":{"allow":["Bash"]},"hooks":{"Notification":[]}}"#,
+        )
+        .unwrap();
+        let provider = claude_in_temp(&dir.path().join("rule.md"), &settings);
+        provider.install_integration(7686).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        // Unrelated fields untouched.
+        assert_eq!(json["theme"], "dark");
+        assert_eq!(json["permissions"]["allow"][0], "Bash");
+    }
+
+    #[test]
+    fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
+        if !ws_exists() { return; }
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join("settings.json");
+        // Pre-existing settings with: a user hook (must survive), a
+        // stale codeterm v1 hook (must be removed), and an unrelated key.
+        std::fs::write(
+            &settings,
+            r#"{
+                "hooks":{
+                    "Notification":[
+                        {"matcher":"perm","hooks":[{"type":"command","command":"my-user-script","timeout":1}]},
+                        {"matcher":"perm","hooks":[{"type":"command","command":"curl http://localhost:7686/api/panes/$X/hook/permission","_source":"codeterm"}]}
+                    ]
+                }
+            }"#,
+        )
+        .unwrap();
+        let provider = claude_in_temp(&dir.path().join("rule.md"), &settings);
+        provider.install_integration(7686).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        let arr = json["hooks"]["Notification"].as_array().unwrap();
+        // Three entries expected: user hook + new v2 hook. (Stale v1 dropped.)
+        assert_eq!(arr.len(), 2);
+        assert!(
+            arr.iter().any(|e| {
+                e["hooks"][0]["command"]
+                    .as_str()
+                    .map_or(false, |s| s.contains("my-user-script"))
+            }),
+            "user hook must survive"
+        );
+        assert!(
+            arr.iter().all(|e| {
+                e["hooks"][0]["_source"].as_str().map_or(true, |s| s != "codeterm")
+            }),
+            "v1 stale entry must be dropped"
+        );
+        assert!(arr.iter().any(|e| {
+            e["hooks"][0]["_source"] == "codeterm-hook-v2"
+        }));
+    }
+
+    #[test]
+    fn integration_uninstall_drops_notification_and_stop_keeps_precompact() {
+        if !ws_exists() { return; }
+        let dir = tempfile::tempdir().unwrap();
+        let provider = claude_in_temp(
+            &dir.path().join("rule.md"),
+            &dir.path().join("settings.json"),
+        );
+        provider.install_integration(7686).unwrap();
+        provider.uninstall_integration().unwrap();
+        let json: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("settings.json")).unwrap(),
+        )
+        .unwrap();
+        // Mirroring native: Notification + Stop dropped; PreCompact +
+        // SessionStart kept (mem continuity).
+        let n = json["hooks"]["Notification"].as_array().unwrap();
+        let s = json["hooks"]["Stop"].as_array().unwrap();
+        let pc = json["hooks"]["PreCompact"].as_array().unwrap();
+        let ss = json["hooks"]["SessionStart"].as_array().unwrap();
+        assert!(n.iter().all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v2"));
+        assert!(s.iter().all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v2"));
+        assert!(pc.iter().any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v2"));
+        assert!(ss.iter().any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v2"));
+    }
+
+    #[test]
+    fn integration_ensure_on_startup_is_idempotent() {
+        if !ws_exists() { return; }
+        let dir = tempfile::tempdir().unwrap();
+        let provider = claude_in_temp(
+            &dir.path().join("rule.md"),
+            &dir.path().join("settings.json"),
+        );
+        provider.ensure_integration_on_startup(7686);
+        let first = std::fs::read_to_string(dir.path().join("settings.json")).unwrap();
+        provider.ensure_integration_on_startup(7686);
+        let second = std::fs::read_to_string(dir.path().join("settings.json")).unwrap();
+        // Second pass must NOT duplicate hooks — checkIntegration sees
+        // installed=true and skips re-write.
+        assert_eq!(first, second);
+    }
+
     /// Bridge-rule install: native impl writes to `~/.claude/rules/codeterm.md`
     /// via `dirs::home_dir()`. The JS plugin gets the SAME functional
     /// guarantee using only `host.expandHome` + `host.writeFile`. Test
@@ -211,32 +396,7 @@ mod claude {
         if !ws_exists() { return; }
         let dir = tempfile::tempdir().unwrap();
         let rule_path = dir.path().join("rules").join("codeterm.md");
-        // Synthetic plugin: same plugin.js as bundled claude, but a
-        // manifest whose rule.path points into our tempdir. Skip the
-        // workspace one to avoid touching real ~/.claude.
-        let plugin_js = std::fs::read_to_string(
-            workspace_plugins_root().join("provider-claude").join("plugin.js"),
-        )
-        .unwrap();
-        let manifest_json = format!(
-            r#"{{
-                "id":"claude-test","version":"0.1.0","displayName":"X",
-                "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
-                         "taskDelivery":"pty_input",
-                         "verifySubmit":{{"kind":"none"}}}},
-                "rule":{{"path":"{rp}"}}
-            }}"#,
-            rp = rule_path.to_string_lossy().replace('\\', "/")
-        );
-        let manifest: crate::plugin::js_runtime::PluginManifest =
-            serde_json::from_str(&manifest_json).unwrap();
-        let vm = crate::plugin::js_runtime::vm::PluginVm::from_source_with(
-            "claude-test",
-            plugin_js,
-            Some(manifest_json),
-        )
-        .unwrap();
-        let provider = JsProvider::new(manifest, std::sync::Arc::new(vm));
+        let provider = claude_in_temp(&rule_path, &dir.path().join("settings.json"));
 
         provider
             .install_bridge_rule("PROTOCOL PAYLOAD v1")
@@ -253,18 +413,104 @@ mod claude {
     }
 
     #[test]
-    fn launch_command_simple_interactive_form() {
+    fn launch_command_no_task_matches_native_shape() {
         if !ws_exists() { return; }
-        let (_n, j) = pair();
-        // JS plugin emits the simple form (no stdin-pipe). Native impl
-        // adds OS-specific env wrappers; we don't claim parity there.
+        let (n, j) = pair();
         let params = AgentLaunchParams {
             skip_permissions: true,
             ..Default::default()
         };
-        let cmd = j.build_launch_command(&params);
-        assert!(cmd.starts_with("claude"));
-        assert!(cmd.contains("--dangerously-skip-permissions"));
+        let nat = n.build_launch_command(&params);
+        let js = j.build_launch_command(&params);
+        // Same env preamble + same trailing claude invocation. The JS
+        // form uses cross-platform host primitives so it should match
+        // native byte-for-byte for the no-task case.
+        assert_eq!(nat, js, "native vs js launch mismatch");
+    }
+
+    #[test]
+    fn launch_command_headless_uses_stdin_pipe_in_both() {
+        if !ws_exists() { return; }
+        let (n, j) = pair();
+        let params = AgentLaunchParams {
+            task: Some("count files in repo".into()),
+            skip_permissions: true,
+            headless: true,
+            ..Default::default()
+        };
+        let nat = n.build_launch_command(&params);
+        let js = j.build_launch_command(&params);
+        for cmd in [&nat, &js] {
+            if cfg!(target_os = "windows") {
+                assert!(cmd.contains("Get-Content "), "headless missing pipe: {cmd}");
+                assert!(cmd.contains(" -Raw -Encoding UTF8 |"));
+            } else {
+                assert!(cmd.contains("cat "), "headless missing pipe: {cmd}");
+                assert!(cmd.contains(" |"));
+            }
+            assert!(cmd.contains(" -p"));
+            assert!(cmd.contains("--output-format stream-json"));
+            assert!(cmd.contains("--verbose"));
+            assert!(cmd.contains("--allowedTools Bash"));
+            assert!(cmd.contains("--dangerously-skip-permissions"));
+            assert!(cmd.contains(".ct-task-"));
+        }
+    }
+
+    #[test]
+    fn launch_command_headless_writes_task_bytes_through_plugin() {
+        if !ws_exists() { return; }
+        let (_n, j) = pair();
+        let body = "do thing --kind fact `whoami` 'quotes'";
+        let cmd = j.build_launch_command(&AgentLaunchParams {
+            task: Some(body.into()),
+            skip_permissions: true,
+            headless: true,
+            ..Default::default()
+        });
+        // Pull the task-file path out of the pipe prefix and verify the
+        // bytes the plugin wrote round-trip byte-exact to the task body.
+        let token = if cfg!(target_os = "windows") {
+            cmd.split("Get-Content '").nth(1).and_then(|s| s.split('\'').next())
+        } else {
+            cmd.split("cat '").nth(1).and_then(|s| s.split('\'').next())
+        };
+        let path = token.expect("path token");
+        let bytes = std::fs::read(path).expect("temp task file written");
+        let written = if cfg!(target_os = "windows") {
+            assert!(bytes.starts_with(&[0xEF, 0xBB, 0xBF]), "BOM expected on Windows");
+            String::from_utf8(bytes[3..].to_vec()).unwrap()
+        } else {
+            String::from_utf8(bytes).unwrap()
+        };
+        assert_eq!(written, body, "task body must round-trip byte-exact through plugin");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn launch_command_session_id_only_in_visible_mode() {
+        if !ws_exists() { return; }
+        let (n, j) = pair();
+        let visible = AgentLaunchParams {
+            session_id: Some("my-uuid".into()),
+            skip_permissions: true,
+            ..Default::default()
+        };
+        for cmd in [n.build_launch_command(&visible), j.build_launch_command(&visible)] {
+            assert!(cmd.contains("--session-id"), "visible must inject: {cmd}");
+            assert!(cmd.contains("my-uuid"));
+        }
+        let headless = AgentLaunchParams {
+            task: Some("x".into()),
+            session_id: Some("should-not-appear".into()),
+            skip_permissions: true,
+            headless: true,
+            ..Default::default()
+        };
+        for cmd in [n.build_launch_command(&headless), j.build_launch_command(&headless)] {
+            assert!(!cmd.contains("--session-id"), "headless must skip: {cmd}");
+            assert!(!cmd.contains("should-not-appear"));
+        }
     }
 }
 
@@ -400,6 +646,113 @@ mod codex {
         let cmd2 = j.build_resume_command("uuid-1234", true).unwrap();
         assert_eq!(cmd2, "codex resume --dangerously-bypass-approvals-and-sandbox 'uuid-1234'");
     }
+
+    /// Build a synthetic `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
+    /// tree in a tempdir, point HOME at it, then walk through the
+    /// plugin. Verifies enumerateSessions, detectSessionId, and
+    /// sessionFilePath all work end-to-end without native Rust help.
+    #[test]
+    fn codex_rollout_walk_via_plugin() {
+        if !ws_exists() { return; }
+        let dir = tempfile::tempdir().unwrap();
+        // Plugin honours `CODETERM_CODEX_SESSIONS_ROOT` to avoid hitting
+        // the user's real `~/.codex/sessions` during tests. (dirs::home_dir
+        // ignores HOME env on Windows, so HOME redirect would be ineffective.)
+        let sessions_root = dir.path().join("codex-sessions");
+        let sessions = sessions_root.join("2026").join("04").join("12");
+        std::fs::create_dir_all(&sessions).unwrap();
+
+        let uuid_a = "019d773a-a5e8-7a02-9295-a40f9f9016ea";
+        let uuid_b = "029d773a-a5e8-7a02-9295-a40f9f9016ea";
+        let uuid_c = "039d773a-a5e8-7a02-9295-a40f9f9016ea";
+        let file_a = sessions.join(format!("rollout-2026-04-12T10-00-01-{uuid_a}.jsonl"));
+        let file_b = sessions.join(format!("rollout-2026-04-12T10-30-00-{uuid_b}.jsonl"));
+        let file_c = sessions.join(format!("rollout-2026-04-12T11-00-00-{uuid_c}.jsonl"));
+        std::fs::write(
+            &file_a,
+            format!(r#"{{"type":"session_meta","payload":{{"id":"{uuid_a}","cwd":"/proj/foo"}}}}
+{{"type":"response_item","payload":{{"type":"message","role":"user","content":[]}}}}
+"#),
+        )
+        .unwrap();
+        std::fs::write(
+            &file_b,
+            format!(r#"{{"type":"session_meta","payload":{{"id":"{uuid_b}","cwd":"/other/dir"}}}}
+"#),
+        )
+        .unwrap();
+        std::fs::write(
+            &file_c,
+            format!(r#"{{"type":"session_meta","payload":{{"id":"{uuid_c}","cwd":"/proj/foo"}}}}
+"#),
+        )
+        .unwrap();
+        // Touch modified times so c > a > b ordering is deterministic.
+        let now = std::time::SystemTime::now();
+        let _ = filetime::set_file_mtime(
+            &file_a,
+            filetime::FileTime::from_system_time(now - std::time::Duration::from_secs(60)),
+        );
+        let _ = filetime::set_file_mtime(
+            &file_c,
+            filetime::FileTime::from_system_time(now),
+        );
+
+        // Synthetic plugin pointing at our tempdir via HOME env.
+        let plugin_js = std::fs::read_to_string(
+            workspace_plugins_root().join("provider-codex").join("plugin.js"),
+        )
+        .unwrap();
+        let manifest_json = r#"{
+            "id":"codex-test","version":"0","displayName":"X","binaryName":"codex",
+            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
+                     "taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}
+        }"#;
+        let manifest: crate::plugin::js_runtime::PluginManifest =
+            serde_json::from_str(manifest_json).unwrap();
+        let prev = std::env::var("CODETERM_CODEX_SESSIONS_ROOT").ok();
+        unsafe {
+            std::env::set_var(
+                "CODETERM_CODEX_SESSIONS_ROOT",
+                sessions_root.to_string_lossy().as_ref(),
+            );
+        }
+        let vm = crate::plugin::js_runtime::vm::PluginVm::from_source_with(
+            "codex-test",
+            plugin_js,
+            Some(manifest_json.to_string()),
+        )
+        .unwrap();
+        let provider = JsProvider::new(manifest, std::sync::Arc::new(vm));
+
+        // enumerateSessions sees all three rollouts with their meta.
+        let all = provider.enumerate_sessions();
+        let by_id: std::collections::HashMap<_, _> =
+            all.iter().map(|s| (s.session_id.clone(), s.clone())).collect();
+        assert_eq!(by_id.len(), 3, "expected 3 sessions, got {}: {by_id:#?}", by_id.len());
+        assert_eq!(by_id[uuid_a].provider, "codex");
+        assert_eq!(by_id[uuid_a].project_path.as_deref(), Some("/proj/foo"));
+        assert_eq!(by_id[uuid_b].project_path.as_deref(), Some("/other/dir"));
+
+        // detectSessionId filters by cwd and returns the newest match.
+        let latest = provider.detect_session_id("/proj/foo", &[], None);
+        assert_eq!(latest.as_deref(), Some(uuid_c));
+
+        let latest_excl = provider.detect_session_id("/proj/foo", &[uuid_c.to_string()], None);
+        assert_eq!(latest_excl.as_deref(), Some(uuid_a));
+
+        // sessionFilePath resolves UUID → on-disk rollout path.
+        let path = provider.session_file_path("ignored", uuid_a).unwrap();
+        assert_eq!(path, file_a);
+
+        // Cleanup env so other tests see the original.
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("CODETERM_CODEX_SESSIONS_ROOT", v),
+                None => std::env::remove_var("CODETERM_CODEX_SESSIONS_ROOT"),
+            }
+        }
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -498,6 +851,145 @@ mod opencode {
         assert!(!cmd.contains("--dangerously-skip-permissions"));
         assert!(cmd.contains("--session"));
         assert!(cmd.contains("ses_abc123"));
+    }
+
+    /// Stand up a synthetic opencode.db at $XDG_DATA_HOME/opencode/opencode.db,
+    /// seed it with rows that mirror the real schema, then point the plugin
+    /// at it via env override and exercise detectSessionId / detectActiveSession
+    /// / detectSessionModel / sessionExists end-to-end through `JsProvider`.
+    #[test]
+    fn opencode_sqlite_session_detection_via_plugin() {
+        if !ws_exists() { return; }
+        let dir = tempfile::tempdir().unwrap();
+        let opencode_dir = dir.path().join("opencode");
+        std::fs::create_dir_all(&opencode_dir).unwrap();
+        let db_path = opencode_dir.join("opencode.db");
+
+        // Seed a sqlite db with the columns our plugin queries.
+        {
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, time_created INTEGER, time_archived INTEGER);\
+                 CREATE TABLE message (session_id TEXT, time_created INTEGER, data TEXT);",
+            )
+            .unwrap();
+            let cwd_fwd = "/proj/foo";
+            let cwd_bwd = "\\proj\\foo";
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64;
+            // 3 live sessions for our cwd at decreasing time_created;
+            // 1 archived; 1 in another dir; 1 explicitly old.
+            conn.execute(
+                "INSERT INTO session VALUES (?1, ?2, ?3, NULL)",
+                rusqlite::params!["ses_new", cwd_fwd, now - 1000],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO session VALUES (?1, ?2, ?3, NULL)",
+                rusqlite::params!["ses_mid", cwd_bwd, now - 10_000],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO session VALUES (?1, ?2, ?3, NULL)",
+                rusqlite::params!["ses_excluded", cwd_fwd, now - 2_000],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO session VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params!["ses_arch", cwd_fwd, now - 500, now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO session VALUES (?1, ?2, ?3, NULL)",
+                rusqlite::params!["ses_other_cwd", "/other/place", now - 200],
+            )
+            .unwrap();
+            // Stale session > maxAge.
+            conn.execute(
+                "INSERT INTO session VALUES (?1, ?2, ?3, NULL)",
+                rusqlite::params!["ses_stale", cwd_fwd, now - 10_000_000],
+            )
+            .unwrap();
+            // Message rows for detectSessionModel / detectActiveSession.
+            conn.execute(
+                "INSERT INTO message VALUES (?1, ?2, ?3)",
+                rusqlite::params!["ses_new", now - 800,
+                    r#"{"role":"assistant","modelID":"anthropic/claude-opus-4-7"}"#],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO message VALUES (?1, ?2, ?3)",
+                rusqlite::params!["ses_mid", now - 5_000,
+                    r#"{"role":"assistant","modelID":"anthropic/claude-sonnet-4-6"}"#],
+            )
+            .unwrap();
+        }
+
+        // Load opencode plugin with XDG_DATA_HOME pointed at our tempdir.
+        let plugin_js = std::fs::read_to_string(
+            workspace_plugins_root().join("provider-opencode").join("plugin.js"),
+        )
+        .unwrap();
+        let manifest_json = r#"{
+            "id":"opencode-test","version":"0","displayName":"X","binaryName":"opencode",
+            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
+                     "taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}
+        }"#;
+        let manifest: crate::plugin::js_runtime::PluginManifest =
+            serde_json::from_str(manifest_json).unwrap();
+        // SAFETY: integration tests; harmless env mutation scoped to this fn.
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", dir.path().to_string_lossy().as_ref());
+        }
+        let vm = crate::plugin::js_runtime::vm::PluginVm::from_source_with(
+            "opencode-test",
+            plugin_js,
+            Some(manifest_json.to_string()),
+        )
+        .unwrap();
+        let provider = JsProvider::new(manifest, std::sync::Arc::new(vm));
+
+        // Newest live session in /proj/foo with no exclusion → ses_new.
+        let sid = provider.detect_session_id("/proj/foo", &[], None);
+        assert_eq!(sid.as_deref(), Some("ses_new"));
+
+        // Exclusion list skips ses_new → next newest is ses_excluded.
+        let sid2 = provider.detect_session_id(
+            "/proj/foo",
+            &["ses_new".to_string()],
+            None,
+        );
+        assert_eq!(sid2.as_deref(), Some("ses_excluded"));
+
+        // Strict max_age = 50 ms — even ses_new (now-1000) misses.
+        let none = provider.detect_session_id(
+            "/proj/foo",
+            &[],
+            Some(std::time::Duration::from_millis(50)),
+        );
+        assert!(none.is_none(), "max_age filter must drop everything");
+
+        // Archived + other-cwd rows must NOT surface.
+        let sid_other = provider.detect_session_id("/totally/different/dir", &[], None);
+        assert_eq!(sid_other, None);
+
+        // sessionExists hits the live row.
+        assert!(provider.session_exists("/proj/foo", "ses_new"));
+        assert!(!provider.session_exists("/proj/foo", "ses_does_not_exist"));
+
+        // detectSessionModel reads from the assistant row for the session.
+        let model = provider.detect_session_model("/proj/foo", "ses_new");
+        assert_eq!(model.as_deref(), Some("anthropic/claude-opus-4-7"));
+
+        // detectActiveSession returns the session id with the most recent
+        // message in the cwd.
+        let active = provider.detect_active_session("/proj/foo", "");
+        assert_eq!(active.as_deref(), Some("ses_new"));
+
+        // Cleanup env so other tests aren't affected.
+        unsafe { std::env::remove_var("XDG_DATA_HOME"); }
     }
 }
 
