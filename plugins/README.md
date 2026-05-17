@@ -192,7 +192,7 @@ Each plugin ships per-module tests in `tests/`:
 
 ```
 plugins/provider-claude/tests/
-├── parser.test.ts    ← 124 assertions on JSONL → ChatMessage conversion
+├── parser.test.ts    ← JSONL → ChatMessage conversion
 ├── detect.test.ts    ← title regex + PTY fingerprint + noise patterns
 ├── status.test.ts    ← event → PaneStatus mapping
 └── plugin.test.ts    ← ProviderPlugin contract surface (meta/parseLine/
@@ -202,7 +202,7 @@ plugins/provider-claude/tests/
 Run everything in one go from the repo root:
 
 ```bash
-pnpm test:plugins        # all plugins + host registry, ~244 assertions
+pnpm test:plugins        # all plugin suites + host registry
 ```
 
 Or one file at a time:
