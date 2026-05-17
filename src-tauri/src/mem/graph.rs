@@ -420,6 +420,31 @@ pub fn add_alias(conn: &Connection, alias_id: &str, canonical_id: &str) -> Resul
         params![alias_id],
     ).map_err(|e| format!("cleanup alias relations: {}", e))?;
 
+    // Carryover: fold alias props into canonical (canonical wins on collision).
+    let alias_props: Option<String> = tx.query_row(
+        "SELECT properties_json FROM entities WHERE id = ?1",
+        params![alias_id], |r| r.get(0),
+    ).ok();
+    let canonical_props: Option<String> = tx.query_row(
+        "SELECT properties_json FROM entities WHERE id = ?1",
+        params![canonical_id], |r| r.get(0),
+    ).ok();
+    if let (Some(a), Some(c)) = (alias_props, canonical_props) {
+        let alias_obj = serde_json::from_str::<Value>(&a).ok()
+            .and_then(|v| v.as_object().cloned()).unwrap_or_default();
+        let mut canon_obj = serde_json::from_str::<Value>(&c).ok()
+            .and_then(|v| v.as_object().cloned()).unwrap_or_default();
+        for (k, v) in alias_obj {
+            canon_obj.entry(k).or_insert(v);
+        }
+        let merged = serde_json::to_string(&Value::Object(canon_obj))
+            .map_err(|e| format!("merge props: {}", e))?;
+        tx.execute(
+            "UPDATE entities SET properties_json = ?1, updated_at = ?2 WHERE id = ?3",
+            params![merged, &now, canonical_id],
+        ).map_err(|e| format!("write merged props: {}", e))?;
+    }
+
     // Remove the alias entity itself (keeping canonical)
     tx.execute(
         "DELETE FROM entities WHERE id = ?1",
@@ -794,6 +819,34 @@ mod tests {
 
         let from: String = conn.query_row("SELECT from_id FROM relations WHERE relation_type = 'knows'", [], |r| r.get(0)).unwrap();
         assert_eq!(from, "canonical", "relation should be rewired to canonical");
+    }
+
+    #[test]
+    fn add_alias_carries_over_properties_into_canonical() {
+        let conn = fresh();
+        insert_entity(&conn, &Entity {
+            id: "canonical".into(),
+            entity_type: "Person".into(),
+            scope: "global".into(),
+            properties: serde_json::json!({"name": "Andrey", "shared": "canonical_wins"}),
+        }).unwrap();
+        insert_entity(&conn, &Entity {
+            id: "alias".into(),
+            entity_type: "Person".into(),
+            scope: "global".into(),
+            properties: serde_json::json!({"alt_name": "Dyusha", "shared": "alias_loses"}),
+        }).unwrap();
+
+        add_alias(&conn, "alias", "canonical").unwrap();
+
+        let props: String = conn.query_row(
+            "SELECT properties_json FROM entities WHERE id = 'canonical'",
+            [], |r| r.get(0)
+        ).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&props).unwrap();
+        assert_eq!(parsed["name"], "Andrey");
+        assert_eq!(parsed["alt_name"], "Dyusha", "non-colliding alias props must carry over");
+        assert_eq!(parsed["shared"], "canonical_wins", "canonical wins on collision");
     }
 
     #[test]
