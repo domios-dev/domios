@@ -109,6 +109,8 @@ importers:
         specifier: ^19.0.0
         version: 19.2.4
 
+  plugins/provider-cursor: {}
+
   plugins/provider-opencode:
     dependencies:
       react:

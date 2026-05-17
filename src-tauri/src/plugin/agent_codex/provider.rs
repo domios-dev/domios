@@ -430,26 +430,9 @@ impl AgentProvider for CodexProvider {
         ]
     }
 
-    fn notifications_schema(&self) -> Vec<SettingField> {
-        use crate::agent::provider::{BadgeStyle, BadgeVariant};
-        vec![SettingField::Section {
-            title: "Codex Notifications".into(),
-            description: Some(
-                "Notifications fire when Codex needs your input or finishes a task. \
-                 Powered by CodeTerm's pane-output detection — no setup required."
-                    .into(),
-            ),
-            fields: vec![SettingField::Badge {
-                query_command: "check_provider_integration".into(),
-                query_args: Some(serde_json::json!({ "provider_id": "codex" })),
-                variants: vec![BadgeVariant {
-                    id: "ok".into(),
-                    label: "auto-enabled".into(),
-                    style: BadgeStyle::Green,
-                }],
-            }],
-        }]
-    }
+    // No notifications_schema — Codex notifications fire via the PTY
+    // event pipeline without any per-user configuration, so surfacing
+    // a status card was just noise.
 }
 
 /// Extract UUID from a codex session filename stem.
