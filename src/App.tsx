@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
-import { SplitContainer } from "./components/Terminal/SplitContainer";
+import { TabContent } from "./components/Terminal/TabContent";
 import { NotificationToastContainer } from "./components/Notifications/NotificationToast";
 import { SettingsPanel, type SectionId } from "./components/Settings/SettingsPanel";
 import { Onboarding } from "./components/Onboarding/Onboarding";
@@ -153,9 +153,7 @@ function AppInner() {
     setActiveTab,
     closePane,
     setFocusedPane,
-    openBrowser,
     setPanePty,
-    updateSplitRatio,
     dismissToast,
     spawnClaudeTab,
   } = useMultiplexer();
@@ -234,15 +232,6 @@ function AppInner() {
       setPanePty(paneId, ptyId);
     },
     [setPanePty],
-  );
-
-  const handleUpdateRatio = useCallback(
-    (path: number[], ratio: number) => {
-      if (activeWs && activeTab) {
-        updateSplitRatio(activeWs.id, activeTab.id, path, ratio);
-      }
-    },
-    [activeWs, activeTab, updateSplitRatio],
   );
 
   // Command palette commands
@@ -484,7 +473,6 @@ function AppInner() {
     handleNewTab,
     handleCloseCurrentTab,
     handleCloseFocusedPane,
-    openBrowser,
     createWorkspace,
     setFocusedPane,
     activeWs,
@@ -623,15 +611,11 @@ function AppInner() {
                   pointerEvents: isVisible ? "auto" : "none",
                 }}
               >
-                <SplitContainer
-                  node={tab.split_tree}
-                  panes={state.panes}
-                  focusedPaneId={state.focused_pane_id}
+                <TabContent
+                  pane={state.panes[tab.pane_id]}
+                  isFocused={state.focused_pane_id === tab.pane_id}
                   onFocusPane={setFocusedPane}
-                  onClosePane={closePane}
                   onPtySpawned={handlePtySpawned}
-                  path={[]}
-                  onUpdateRatio={handleUpdateRatio}
                   theme={theme}
                   fontConfig={config.font}
                   terminalConfig={config.terminal}

@@ -18,14 +18,9 @@ export interface Workspace {
 export interface Tab {
   id: string;
   title: string;
-  split_tree: SplitNode;
+  /** One pane per tab. Split layouts were removed. */
+  pane_id: string;
 }
-
-export type SplitNode =
-  | { type: "Leaf"; pane_id: string }
-  | { type: "Split"; orientation: Orientation; ratio: number; children: SplitNode[] };
-
-export type Orientation = "Horizontal" | "Vertical";
 
 export type AgentRole = "Orchestrator" | "Lead" | "Worker" | "Conductor" | "SubWorker";
 
@@ -42,13 +37,14 @@ export interface PendingPrompt {
 export interface Pane {
   id: string;
   pty_id: string | null;
-  pane_type: "Terminal" | "Browser";
+  pane_type: "Terminal";
   title: string;
   cwd: string | null;
-  url?: string;
   title_level?: TitleLevel;
   agent_type?: string | null;
   agent_session_id?: string | null;
+  agent_session_name?: string | null;
+  agent_session_model?: string | null;
   role?: AgentRole | null;
   parent_pane_id?: string | null;
   can_spawn?: boolean;
@@ -256,7 +252,6 @@ export interface KeybindingsConfig {
   zoom_in: string;
   zoom_out: string;
   zoom_reset: string;
-  open_browser: string;
   open_settings: string;
 }
 

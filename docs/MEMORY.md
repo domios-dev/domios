@@ -1,6 +1,6 @@
 # CodeTerm Memory System
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
 
 Persistent memory for agents. Survives restarts, provider switches
 (Claude ↔ Codex), and CodeTerm upgrades. Agent-agnostic.
@@ -135,8 +135,26 @@ and a `log::warn!` fires (`[wake-up] pinned-eviction`). Action: shrink pins (`me
 
 **API:**
 - `codeterm mem graph create --id <id> --entity-type Person --scope global` (idempotent)
-- `codeterm mem graph relate --from <id> --rel mentions --to person_tima`
+- `codeterm mem graph relate --from <id> --rel mentions --to person_tima --reason "dreamer-bridge"`
 - `codeterm mem graph related --id <id>` — outgoing relations
+
+### Self-repair primitives (`src-tauri/src/mem/graph_repair.rs`)
+
+The Dreamer cleans historical pollution (duplicate relations, near-duplicate entities, orphan vectors) via typed primitives only — no raw SQL surface for the LLM. Every destructive op writes a full payload to `graph_purge_log` for reversibility.
+
+| CLI | What it does | Audit-logged |
+|---|---|---|
+| `mem graph find-duplicate-relations --group-by …` | Read-only: list groups by whitelisted columns | no |
+| `mem graph delete-relations --rowids 1,2,3` | Delete explicit rowids | yes (payload preserved) |
+| `mem graph merge-relations --keep R --merge R1,R2` | Fold rows into `keep`, max(confidence), merge properties (canonical wins) | yes |
+| `mem graph find-duplicate-entities --strategy exact-name\|alias-chain\|vector --threshold 0.85 --entity-type Tech` | Surface candidates. Vector strategy uses cosine-sim ≥ threshold | no |
+| `mem graph alias --alias A --canonical C` | Merge entity A into C: rewire all relations, fold A's properties into C, delete A + its mem_vectors | yes (since #22) |
+| `mem graph augment-entity --id E --patch '{"city":"Riga"}'` | PATCH entity properties + re-embed | yes (count=0) |
+| `mem graph delete-entity --id E [--force] [--purge-history]` | Direct entity delete with safety net (errors if active relations and no `--force`). `--purge-history` also drops invalidated relations | yes |
+| `mem graph repair-orphan-vectors [--dry-run]` | Sweep `mem_vectors` rows whose mem_id has no matching entity/mem_item | yes |
+| `mem graph repair-orphan-blobs [--dry-run]` | CAS-aware sweep of `sha256_*.txt` blob files no `mem_item.body_blob_path` references | yes |
+
+Whitelist enums (`RelationColumn`, `EntitySimilarityStrategy`) make SQL injection a compile-time impossibility — the Dreamer cannot pass arbitrary WHERE clauses. See `src-tauri/prompts/dreaming_rem.md` Stage A.4 for how the Dreamer chains these.
 
 ## Auto-flush from agent hooks
 

@@ -5,6 +5,7 @@ import { HamburgerIcon, CloseXIcon } from "../Icons";
 
 import { isMac } from "../../lib/keybindings";
 import { KeepAwakeTray } from "./KeepAwakeTray";
+import { MeshPresenceTray } from "./MeshPresenceTray";
 import { UpdateBadge } from "../UpdateBadge";
 
 interface TitlebarProps {
@@ -84,6 +85,7 @@ export function Titlebar({
       {/* Tray area — right side, before window controls */}
       <div className="flex items-center gap-1 pr-1">
         <UpdateBadge onNavigate={onOpenSettingsAbout} />
+        <MeshPresenceTray />
         <KeepAwakeTray />
       </div>
 

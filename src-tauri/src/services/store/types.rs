@@ -67,6 +67,12 @@ pub struct Service {
     pub health_mode: HealthMode,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub health_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_json_field: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_ok_values: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_degraded_values: Option<Vec<String>>,
     pub health_interval: u32,
     pub health_ttl: u32,
     pub health: HealthSnapshot,
@@ -104,6 +110,12 @@ pub struct ServiceCreate {
     #[serde(default)]
     pub health_path: Option<String>,
     #[serde(default)]
+    pub health_json_field: Option<String>,
+    #[serde(default)]
+    pub health_ok_values: Option<Vec<String>>,
+    #[serde(default)]
+    pub health_degraded_values: Option<Vec<String>>,
+    #[serde(default)]
     pub health_interval: Option<u32>,
     #[serde(default)]
     pub field_mapping: Option<FieldMapping>,
@@ -131,6 +143,12 @@ pub struct ServiceUpdate {
     pub health_mode: Option<HealthMode>,
     #[serde(default)]
     pub health_path: Option<String>,
+    #[serde(default)]
+    pub health_json_field: Option<String>,
+    #[serde(default)]
+    pub health_ok_values: Option<Vec<String>>,
+    #[serde(default)]
+    pub health_degraded_values: Option<Vec<String>>,
     #[serde(default)]
     pub health_interval: Option<u32>,
     #[serde(default)]

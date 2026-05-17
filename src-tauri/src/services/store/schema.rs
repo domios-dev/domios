@@ -1,29 +1,32 @@
 use rusqlite::Connection;
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS services (
-            id              TEXT PRIMARY KEY,
-            name            TEXT NOT NULL,
-            kind            TEXT NOT NULL,
-            description     TEXT,
-            url             TEXT,
-            host            TEXT,
-            port            INTEGER,
-            process_label   TEXT,
-            script_path     TEXT,
-            health_mode     TEXT NOT NULL,
-            health_path     TEXT,
-            health_interval INTEGER NOT NULL DEFAULT 30,
-            health_ttl      INTEGER NOT NULL DEFAULT 60,
-            field_mapping   TEXT,
-            push_enabled    BOOLEAN NOT NULL DEFAULT 0,
-            registered_at   INTEGER NOT NULL,
-            updated_at      INTEGER NOT NULL,
-            enabled         BOOLEAN NOT NULL DEFAULT 1
+            id                      TEXT PRIMARY KEY,
+            name                    TEXT NOT NULL,
+            kind                    TEXT NOT NULL,
+            description             TEXT,
+            url                     TEXT,
+            host                    TEXT,
+            port                    INTEGER,
+            process_label           TEXT,
+            script_path             TEXT,
+            health_mode             TEXT NOT NULL,
+            health_path             TEXT,
+            health_json_field       TEXT,
+            health_ok_values        TEXT,
+            health_degraded_values  TEXT,
+            health_interval         INTEGER NOT NULL DEFAULT 30,
+            health_ttl              INTEGER NOT NULL DEFAULT 60,
+            field_mapping           TEXT,
+            push_enabled            BOOLEAN NOT NULL DEFAULT 0,
+            registered_at           INTEGER NOT NULL,
+            updated_at              INTEGER NOT NULL,
+            enabled                 BOOLEAN NOT NULL DEFAULT 1
         );
         CREATE INDEX IF NOT EXISTS idx_services_kind ON services(kind);
         CREATE INDEX IF NOT EXISTS idx_services_enabled ON services(enabled);
@@ -62,6 +65,23 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
 
     conn.execute(
         "INSERT OR IGNORE INTO schema_version (id, version) VALUES (1, ?1)",
+        [SCHEMA_VERSION],
+    )?;
+    Ok(())
+}
+
+/// Idempotent migrations — safe to re-run on every open.
+pub fn migrate_schema(conn: &Connection) -> rusqlite::Result<()> {
+    // v1 → v2: per-service health response mapper columns
+    for sql in &[
+        "ALTER TABLE services ADD COLUMN health_json_field TEXT",
+        "ALTER TABLE services ADD COLUMN health_ok_values TEXT",
+        "ALTER TABLE services ADD COLUMN health_degraded_values TEXT",
+    ] {
+        let _ = conn.execute(sql, []); // silently ignore "duplicate column" on re-run
+    }
+    conn.execute(
+        "INSERT OR REPLACE INTO schema_version (id, version) VALUES (1, ?1)",
         [SCHEMA_VERSION],
     )?;
     Ok(())

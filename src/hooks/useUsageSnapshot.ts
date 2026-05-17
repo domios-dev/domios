@@ -153,6 +153,11 @@ export interface SessionProjection {
   will_exceed: boolean;
 }
 
+export interface DayActual {
+  day_start_ms: number;
+  pct: number | null;
+}
+
 export interface WeeklyProjection {
   end_of_today_pct: number;
   end_of_cycle_pct: number;
@@ -162,7 +167,10 @@ export interface WeeklyProjection {
   dow_estimates: number[];
   rate_per_min_recent: number;
   rest_of_today_est: number;
+  today_so_far: number;
   confidence: "high" | "medium" | "low";
+  /** Per-day actuals for active cycle, oldest→newest. Authoritative — use this for past + today bars. */
+  day_actuals: DayActual[];
 }
 
 export interface ProjectionResponse {

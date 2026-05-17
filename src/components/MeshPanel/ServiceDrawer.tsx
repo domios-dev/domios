@@ -66,7 +66,7 @@ export function ServiceDrawer({
   if (state.kind === "peer") {
     const isSelf = state.id === thisMachineName;
     const peer = peers.find((p) => p.name === state.id) ?? (isSelf
-      ? { instance_id: "self", name: thisMachineName, ip: thisMachineIp ?? "", api_port: 0, online: true, access_level: "full" } satisfies PeerStatus
+      ? { instance_id: "self", name: thisMachineName, ip: thisMachineIp ?? "", api_port: 0, online: true, access_level: "full", last_seen: null } satisfies PeerStatus
       : null);
     if (!peer) return null;
     return (

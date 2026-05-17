@@ -46,6 +46,7 @@ export function SchemaRenderer({
           field={field}
           providerId={providerId}
           providerConfig={providerConfig}
+          config={config}
           onChange={onChange}
           hideActions={hideActions}
           hidePathLinks={hidePathLinks}
@@ -55,10 +56,19 @@ export function SchemaRenderer({
   );
 }
 
+// Per-provider toggle inherits from [agent] when unset — mirrors backend
+// `provider_config()` fallback so UI matches what runtime actually uses.
+function globalToggleFallback(key: string, config: AppConfig): boolean | undefined {
+  if (key === "resume_sessions") return config.agent?.resume_sessions;
+  if (key === "resume_skip_permissions") return config.agent?.resume_skip_permissions;
+  return undefined;
+}
+
 interface FieldRendererProps {
   field: SettingField;
   providerId: string;
   providerConfig: ProviderConfig;
+  config: AppConfig;
   onChange: (providerId: string, patch: Partial<ProviderConfig>) => void;
   hideActions?: boolean;
   hidePathLinks?: boolean;
@@ -68,6 +78,7 @@ function FieldRenderer({
   field,
   providerId,
   providerConfig,
+  config,
   onChange,
   hideActions,
   hidePathLinks,
@@ -86,6 +97,7 @@ function FieldRenderer({
               field={sub}
               providerId={providerId}
               providerConfig={providerConfig}
+              config={config}
               onChange={onChange}
               hideActions={hideActions}
               hidePathLinks={hidePathLinks}
@@ -95,7 +107,9 @@ function FieldRenderer({
       );
 
     case "toggle": {
-      const value = (providerConfig[field.key] as boolean | undefined) ?? field.default;
+      const value = (providerConfig[field.key] as boolean | undefined)
+        ?? globalToggleFallback(field.key, config)
+        ?? field.default;
       return (
         <ToggleField
           label={field.label}
@@ -217,6 +231,7 @@ function FieldRenderer({
               field={sub}
               providerId={providerId}
               providerConfig={providerConfig}
+              config={config}
               onChange={onChange}
               hideActions={hideActions}
               hidePathLinks={hidePathLinks}

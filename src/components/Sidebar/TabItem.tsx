@@ -6,7 +6,6 @@ import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TelegramIcon, TerminalIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import type { Pane, PaneStatus, Tab } from "../../lib/types";
-import { ROLE_ICONS } from "./HierarchyTree";
 
 interface TabItemProps {
   tab: Tab;
@@ -43,6 +42,7 @@ export function TabItem({
   isClosing,
 }: TabItemProps) {
   const agentProvider = getAgentProvider(pane?.agent_type);
+  const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
   const tabRef = useRef<HTMLDivElement>(null);
@@ -115,7 +115,7 @@ export function TabItem({
         e.dataTransfer.effectAllowed = "move";
       }}
       className={`
-        sidebar-tab group flex items-center justify-between pl-8 pr-2 py-1 cursor-pointer transition-colors relative
+        sidebar-tab group flex items-center justify-between pl-4 pr-2 py-1.5 cursor-pointer transition-colors relative
         ${animClass}
         ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
@@ -131,22 +131,15 @@ export function TabItem({
         />
       )}
       <div className="flex items-center gap-2 min-w-0 relative z-[1]">
-        {/* Icon — Lead/Worker role icon > orange sparkle for Claude Code (spins when working) > terminal icon */}
-        {/* Orchestrator uses standard icon (Claude sparkle or terminal) — it's just a user tab */}
-        {pane?.role && pane.role !== "Orchestrator" && pane.role !== "Conductor" ? (
-          <span
-            className={`shrink-0 text-[11px] leading-none text-[var(--ct-muted-fg)] ${status === "Working" ? "animate-pulse" : ""}`}
-            title={`${pane.role}${status === "Working" ? " — working" : ""}`}
-          >{ROLE_ICONS[pane.role]}</span>
-        ) : hasAgent ? (
+        {hasAgent ? (
           <AgentIcon
             providerId={agentProvider?.id ?? "claude"}
             working={status === "Working"}
-            className="shrink-0 text-[12px] leading-none"
+            className={`shrink-0 leading-none ${isSubPane ? "text-[10px]" : "text-[12px]"}`}
             title={status === "Working" ? `${agentProvider?.displayName || "Agent"} working...` : status === "Waiting" ? `${agentProvider?.displayName || "Agent"} — waiting for input` : agentProvider?.displayName || "Agent"}
           />
         ) : (
-          <TerminalIcon className="shrink-0" />
+          <TerminalIcon className={`shrink-0 ${isSubPane ? "scale-90" : ""}`} />
         )}
         {editing ? (
           <input
@@ -208,21 +201,31 @@ export function TabItem({
           </span>
         )}
       </div>
-      {/* 3-dot menu — visible on hover */}
-      {canClose && (
-        <DropdownMenu
-          items={menuItems}
-          className="sidebar-tab-close shrink-0 relative z-[1]"
-          trigger={
-            <button
-              className="w-5 h-5 flex items-center justify-center rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-border)] transition-colors"
-              title="Tab actions"
-            >
-              <span className="text-[13px] leading-none font-bold">⋮</span>
-            </button>
-          }
-        />
-      )}
+      {/* Right slot: model badge by default, 3-dot menu on hover (layered) */}
+      <div className="shrink-0 relative z-[1] flex items-center">
+        {pane?.agent_session_model && (
+          <span
+            className="sidebar-tab-badge px-1 py-0 text-[8px] leading-tight rounded font-mono uppercase tracking-wider border border-[var(--ct-border)] text-[var(--ct-muted-fg)]"
+            title={pane.agent_session_model}
+          >
+            {pane.agent_session_model}
+          </span>
+        )}
+        {canClose && (
+          <DropdownMenu
+            items={menuItems}
+            className="sidebar-tab-close absolute inset-y-0 right-0 flex items-center"
+            trigger={
+              <button
+                className="w-5 h-5 flex items-center justify-center rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-border)] transition-colors"
+                title="Tab actions"
+              >
+                <span className="text-[13px] leading-none font-bold">⋮</span>
+              </button>
+            }
+          />
+        )}
+      </div>
     </div>
   );
 }

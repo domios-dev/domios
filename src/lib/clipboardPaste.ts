@@ -111,6 +111,14 @@ export async function sendFilePathsToPty(ptyId: string, paths: string[]): Promis
   return true;
 }
 
+/** Write plain text to PTY wrapped in bracketed-paste markers — the same
+ * envelope every paste path (Ctrl+V, drag-drop, context menu) should produce
+ * so TUIs collapse it to a single "[Pasted text #N]" placeholder. */
+export async function sendPlainTextToPty(ptyId: string, text: string): Promise<void> {
+  const bracketed = `\x1b[200~${text}\x1b[201~`;
+  await invoke("write_pty_string", { ptyId, data: bracketed });
+}
+
 /** Read clipboard via web API + native file-ref fallback, route to PTY. */
 export async function pasteClipboardToPty(ptyId: string): Promise<boolean> {
   const nativePaths = await readNativeClipboardFiles();
@@ -123,8 +131,7 @@ export async function pasteClipboardToPty(ptyId: string): Promise<boolean> {
   // reliably delivers the full string.
   const plain = await readPlainTextSafely();
   if (plain) {
-    const bracketed = `\x1b[200~${plain}\x1b[201~`;
-    await invoke("write_pty_string", { ptyId, data: bracketed });
+    await sendPlainTextToPty(ptyId, plain);
     return true;
   }
 

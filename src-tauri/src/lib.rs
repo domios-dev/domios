@@ -14,6 +14,7 @@ pub mod mem;
 pub mod mesh;
 pub mod multiplexer;
 mod notification;
+pub mod pasteboard;
 pub mod paths;
 pub mod plugin;
 pub mod prompts;
@@ -134,6 +135,7 @@ pub fn run() {
             commands::write_pty,
             commands::write_pty_string,
             commands::get_pane_output,
+            commands::get_pane_history_raw,
             commands::get_pane_text,
             commands::list_agent_providers,
             commands::wait_shell_ready,
@@ -249,6 +251,7 @@ pub fn run() {
             commands_mesh::mesh_start_discovery,
             commands_mesh::mesh_start_broadcast,
             commands_mesh::mesh_stop_broadcast,
+            commands_mesh::mesh_scan_peers,
             commands_mesh::mesh_set_access,
             commands_mesh::mesh_peer_services_list,
             // Keep-awake commands
@@ -411,6 +414,7 @@ pub fn run() {
                     .expect("services.db init"),
                 ),
                 tokens: Arc::new(crate::services::tokens::TokenStore::new()),
+                pasteboard: crate::pasteboard::PasteboardState::new(),
                 input_parser,
                 usage_store: crate::usage::UsageStore::open(&crate::paths::data_dir())
                     .expect("usage.db init"),
@@ -419,6 +423,12 @@ pub fn run() {
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
+
+            // Re-kick session-name + model pollers for panes restored from
+            // snapshot: set_pane_agent_type fires on transitions, but a
+            // restore brings agent_type back already-set so no transition
+            // ever happens. Walk the restored panes once at boot.
+            service_state.kick_off_pollers_for_existing_agents();
 
             {
                 let store = service_state.services_store.clone();

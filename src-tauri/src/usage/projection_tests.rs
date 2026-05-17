@@ -353,6 +353,26 @@ fn from_yest_ignored_when_gap_too_large() {
     assert!((delta - 0.0).abs() < 0.01, "expected 0, got {}", delta);
 }
 
+/// Mid-day cycle reset: snapshot drops mid-day from 98% → 0% (manual reset /
+/// plan upgrade). The pair-walk skips the negative jump, attributing only the
+/// post-reset climb to the day — not the bogus `MAX - MIN = 98%` MIN-fallback
+/// would've returned.
+#[test]
+fn mid_day_reset_skipped_in_pair_walk() {
+    let p = unique_provider("mid-day-reset");
+    let s = store();
+    let today_start = local_start_of_day_ms(chrono::Utc::now().timestamp_millis());
+    insert(&s, &p, today_start + 3_600_000, Some(95.0), Some(RESETS_A));
+    insert(&s, &p, today_start + 5_400_000, Some(98.0), Some(RESETS_A));
+    insert(&s, &p, today_start + 7_200_000, Some(0.0), Some(RESETS_A));
+    insert(&s, &p, today_start + 10_800_000, Some(5.0), Some(RESETS_A));
+    insert(&s, &p, today_start + 14_400_000, Some(8.0), Some(RESETS_A));
+    let now = today_start + 14_400_000 + 1;
+    let delta = today_delta(&s, &p, None, now, 8.0, RESETS_A).unwrap();
+    // Pre-reset 95→98 = +3, post-reset 0→5→8 = +8. Negative 98→0 dropped.
+    assert!((delta - 11.0).abs() < 0.01, "expected 11, got {}", delta);
+}
+
 /// Same large-gap scenario but with multiple readings today: the intra-day
 /// min is used correctly regardless of the pre-midnight gap.
 #[test]
@@ -369,4 +389,70 @@ fn from_yest_gap_with_intra_day_readings() {
     let delta = today_delta(&s, &p, None, now, 58.0, RESETS_A).unwrap();
     // from_today_min = 58 - 50 = 8 (genuine intra-day activity)
     assert!((delta - 8.0).abs() < 0.01, "expected 8, got {}", delta);
+}
+
+// ── compute_day_actuals (per-cycle daily deltas) ───────────────────────────
+
+#[test]
+fn day_actuals_emits_one_bucket_per_cycle_day() {
+    let p = unique_provider("actuals-len");
+    let s = store();
+    let now = now_at_hour(15);
+    let cycle_end = now + 5 * DAY_MS;
+    let actuals = compute_day_actuals(&s, &p, None, now, cycle_end).unwrap();
+    // 7 days back from cycle_end, aligned to local-start-of-day → at least 7,
+    // possibly 8 if the cycle's start time crossed a midnight boundary.
+    assert!((7..=8).contains(&actuals.len()), "got {} buckets", actuals.len());
+    assert!(actuals.iter().all(|a| a.pct.is_none()), "empty db → all None");
+}
+
+#[test]
+fn day_actuals_sparse_history_attributes_only_observed_spend() {
+    // Cycle started 7 days ago. Only days 3–today have polling data.
+    // The first two empty days must stay None (not inherit cumulative).
+    let p = unique_provider("actuals-sparse");
+    let s = store();
+    let now = now_at_hour(15);
+    let today_start = local_start_of_day_ms(now);
+    let cycle_end = today_start + DAY_MS;
+    // Day -4: 5 → 10
+    insert(&s, &p, today_start - 4 * DAY_MS + 9 * 3_600_000, Some(5.0), Some(cycle_end));
+    insert(&s, &p, today_start - 4 * DAY_MS + 15 * 3_600_000, Some(10.0), Some(cycle_end));
+    // Day -3: 12 → 14
+    insert(&s, &p, today_start - 3 * DAY_MS + 10 * 3_600_000, Some(12.0), Some(cycle_end));
+    insert(&s, &p, today_start - 3 * DAY_MS + 18 * 3_600_000, Some(14.0), Some(cycle_end));
+    // Today: 14 (last yesterday EOD-ish) → 22 now. yest 22:00 = 14.
+    insert(&s, &p, today_start - 2 * 3_600_000, Some(14.0), Some(cycle_end));
+    insert(&s, &p, now, Some(22.0), Some(cycle_end));
+    let actuals = compute_day_actuals(&s, &p, None, today_start, cycle_end).unwrap();
+    // Today bucket is the LAST one (day_start_ms == today_start).
+    let today_bucket = actuals.iter().find(|a| a.day_start_ms == today_start).unwrap();
+    // Bridge 14→14 = 0 + within-day no pairs (just one sample at now) → 0?
+    // Actually two samples: yest-22:00 (gets filtered by day_start cutoff) and now.
+    // So today has 1 sample. Bridge 14→22 (within 2h gap) = +8. Total 8.
+    assert!(today_bucket.pct.is_some());
+    let v = today_bucket.pct.unwrap();
+    assert!((v - 8.0).abs() < 0.01, "today bucket got {}", v);
+    // Days with no samples should be None, not 0.
+    let empty_days = actuals.iter().filter(|a| a.pct.is_none()).count();
+    assert!(empty_days >= 2, "expected ≥2 empty days, got {}", empty_days);
+}
+
+#[test]
+fn day_actuals_skip_other_cycle_rows() {
+    // A snapshot from a different cycle (RESETS_B) appearing within this
+    // cycle's day window must not contribute to that day's delta.
+    let p = unique_provider("actuals-cycle-filter");
+    let s = store();
+    let now = now_at_hour(15);
+    let today_start = local_start_of_day_ms(now);
+    let cycle_end = today_start + DAY_MS;
+    insert(&s, &p, today_start - DAY_MS + 9 * 3_600_000, Some(0.0), Some(cycle_end));
+    insert(&s, &p, today_start - DAY_MS + 18 * 3_600_000, Some(20.0), Some(cycle_end));
+    // Stray row from a different cycle, same day — must be filtered.
+    insert(&s, &p, today_start - DAY_MS + 12 * 3_600_000, Some(99.0), Some(RESETS_B));
+    let actuals = compute_day_actuals(&s, &p, None, today_start, cycle_end).unwrap();
+    let yest = actuals.iter().find(|a| a.day_start_ms == today_start - DAY_MS).unwrap();
+    let v = yest.pct.unwrap();
+    assert!((v - 20.0).abs() < 0.01, "expected 20%, got {}", v);
 }

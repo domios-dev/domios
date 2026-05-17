@@ -32,31 +32,39 @@ pub(crate) fn start_background_tasks(
         });
     }
 
-    // Mesh: periodic health check + stale peer cleanup
+    // Mesh: periodic health check + stale peer cleanup. Loop is ALWAYS
+    // spawned; the body re-reads `mesh.enabled` on every tick so a CLI
+    // toggle to offline takes effect without restart (and dropping the
+    // process back to online resumes work). See `codeterm mesh offline`.
     {
         let mesh = states.mesh.clone();
-        let mesh_enabled = states.config.lock().mesh.enabled;
-        if mesh_enabled {
-            let app_h = app_handle.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(10));
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("Failed to create mesh health runtime");
-                rt.block_on(async {
-                    // Per-peer last successful sync timestamp (Unix secs).
-                    // Used by should_proactive_sync to decide when to refresh
-                    // gossip view from a still-online paired peer. Lives across
-                    // loop iterations so periodic sync interval is honored.
-                    let mut last_sync_secs: std::collections::HashMap<String, u64> =
-                        std::collections::HashMap::new();
-                    loop {
-                        tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-                        // Clean up stale discovered peers
-                        mesh::discovery::cleanup_stale_peers(&mesh);
-                        // Clean up expired pairing requests
-                        mesh.lock().cleanup_expired_requests();
+        let cfg = states.config.clone();
+        let app_h = app_handle.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create mesh health runtime");
+            rt.block_on(async {
+                let mut last_sync_secs: std::collections::HashMap<String, u64> =
+                    std::collections::HashMap::new();
+                // instance_id → last auto-pair attempt timestamp (secs). Retry
+                // after AUTO_PAIR_RETRY_SECS so an offline vouched peer that
+                // comes back online still gets paired without restart.
+                let mut auto_pair_attempted: std::collections::HashMap<String, u64> =
+                    std::collections::HashMap::new();
+                const AUTO_PAIR_RETRY_SECS: u64 = 60;
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                    if !cfg.lock().mesh.enabled {
+                        // Offline / invisible: don't poll peers, don't cleanup
+                        // — peers will time us out on their side via their own
+                        // ping scheduler. The Tailscale daemon is left alone.
+                        continue;
+                    }
+                    mesh::discovery::cleanup_stale_peers(&mesh);
+                    mesh.lock().cleanup_expired_requests();
                         // Ping all paired peers
                         let (peers, sync_payload, signed_token) = {
                             let m = mesh.lock();
@@ -173,10 +181,100 @@ pub(crate) fn start_background_tasks(
                         if changed {
                             let _ = app_h.emit("mesh-state-changed", ());
                         }
+
+                        // Auto-pair: for any vouched discovered peer not yet paired,
+                        // send a pair request. The remote auto-approves if we're
+                        // also vouched on their side. Failed attempts retry after
+                        // AUTO_PAIR_RETRY_SECS so an offline peer eventually pairs
+                        // when it comes back online.
+                        let attempt_now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default().as_secs();
+                        let auto_pair_candidates: Vec<_> = {
+                            let m = mesh.lock();
+                            m.discovered_peers
+                                .values()
+                                .filter(|p| {
+                                    !p.vouched_by.is_empty()
+                                        && !m.paired_peers.contains_key(&p.instance_id)
+                                        && auto_pair_attempted.get(&p.instance_id)
+                                            .map(|&last| attempt_now.saturating_sub(last) >= AUTO_PAIR_RETRY_SECS)
+                                            .unwrap_or(true)
+                                        && !m.pending_requests.values().any(|r| {
+                                            r.from_instance_id == p.instance_id
+                                        })
+                                })
+                                .map(|p| (p.instance_id.clone(), p.addresses.clone(), p.api_port))
+                                .collect()
+                        };
+                        for (target_id, addresses, target_port) in auto_pair_candidates {
+                            auto_pair_attempted.insert(target_id.clone(), attempt_now);
+                            let mesh2 = mesh.clone();
+                            let app_h2 = app_h.clone();
+                            tokio::spawn(async move {
+                                let (request, target_addr) = {
+                                    let mut m = mesh2.lock();
+                                    let addr = addresses
+                                        .iter()
+                                        .find(|a| a.is_tailscale)
+                                        .or_else(|| addresses.first())
+                                        .map(|a| a.ip.clone());
+                                    let Some(addr) = addr else { return };
+                                    let local_addr = m.tailscale_ip.clone()
+                                        .or_else(|| m.local_ip.clone())
+                                        .unwrap_or_else(|| "127.0.0.1".to_string());
+                                    let Some(pk) = m.ident.identity.public_key.clone() else { return };
+                                    let now = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default().as_secs();
+                                    let req = crate::mesh::types::PairingRequest {
+                                        request_id: uuid::Uuid::new_v4().to_string(),
+                                        from_instance_id: m.ident.identity.instance_id.clone(),
+                                        from_instance_name: m.ident.instance_name.clone(),
+                                        from_address: local_addr,
+                                        from_port: m.api_port,
+                                        public_key: pk,
+                                        timestamp: now,
+                                        status: crate::mesh::types::PairingStatus::Pending,
+                                        introduced_by: None,
+                                    };
+                                    // Store so the accept handler can resolve target on callback
+                                    m.pairing_targets.insert(
+                                        req.request_id.clone(),
+                                        (addr.clone(), target_port, target_id.clone()),
+                                    );
+                                    m.pending_requests.insert(req.request_id.clone(), req.clone());
+                                    (req, addr)
+                                };
+                                let client = reqwest::Client::builder()
+                                    .timeout(std::time::Duration::from_secs(5))
+                                    .build().unwrap_or_default();
+                                let url = format!("http://{}:{}/api/mesh/pair/request", target_addr, target_port);
+                                log::info!("[mesh] Auto-pairing vouched peer {} at {}", target_id, url);
+                                match client.post(&url).json(&request).send().await {
+                                    Ok(r) if r.status().is_success() => {
+                                        log::info!("[mesh] Auto-pair request sent to {}", target_id);
+                                        let _ = app_h2.emit("mesh-state-changed", ());
+                                    }
+                                    Ok(r) => {
+                                        log::warn!("[mesh] Auto-pair {} rejected: {}", target_id, r.status());
+                                        // Drop the stored request so we don't hold a dead entry
+                                        let mut m = mesh2.lock();
+                                        m.pending_requests.remove(&request.request_id);
+                                        m.pairing_targets.remove(&request.request_id);
+                                    }
+                                    Err(e) => {
+                                        log::warn!("[mesh] Auto-pair {} failed: {}", target_id, e);
+                                        let mut m = mesh2.lock();
+                                        m.pending_requests.remove(&request.request_id);
+                                        m.pairing_targets.remove(&request.request_id);
+                                    }
+                                }
+                            });
+                        }
                     }
                 });
             });
-        }
     }
 
     // Periodic + event-driven announce — push our current addresses to every
@@ -195,17 +293,18 @@ pub(crate) fn start_background_tasks(
     //      move to dislodge our cache on their side.
     {
         let mesh = states.mesh.clone();
-        let mesh_enabled = states.config.lock().mesh.enabled;
-        if mesh_enabled {
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(10));
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("Failed to create mesh announce runtime");
-                rt.block_on(async {
-                    use std::time::Duration;
-                    // Startup burst.
+        let cfg = states.config.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create mesh announce runtime");
+            rt.block_on(async {
+                use std::time::Duration;
+                // Startup burst — only fires if mesh is currently enabled.
+                // Going offline pre-startup-burst skips it cleanly.
+                if cfg.lock().mesh.enabled {
                     let _ = mesh::refresh_local_addresses(&mesh);
                     let report = mesh::broadcast_announce(&mesh, None).await;
                     log::info!(
@@ -213,38 +312,42 @@ pub(crate) fn start_background_tasks(
                         report.sent, report.ok,
                         report.stale_peers.len(), report.errors.len()
                     );
+                }
 
-                    let mut last_heartbeat = std::time::Instant::now();
-                    loop {
-                        // 15s base + 0..5s jitter — fast enough to feel
-                        // realtime when Tailscale comes back up, slow
-                        // enough not to thrash the discovery CLI.
-                        let jitter = (std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .subsec_nanos() % 5) as u64;
-                        tokio::time::sleep(Duration::from_secs(15 + jitter)).await;
-
-                        let changed = mesh::refresh_local_addresses(&mesh);
-                        let heartbeat_due =
-                            last_heartbeat.elapsed() >= Duration::from_secs(90);
-                        if !changed && !heartbeat_due {
-                            continue;
-                        }
-                        let report = mesh::broadcast_announce(&mesh, None).await;
-                        last_heartbeat = std::time::Instant::now();
-                        let kind = if changed { "addr-change" } else { "heartbeat" };
-                        if report.sent > 0 {
-                            log::info!(
-                                "[mesh/announce.{}] sent={} ok={} stale={} errors={}",
-                                kind, report.sent, report.ok,
-                                report.stale_peers.len(), report.errors.len()
-                            );
-                        }
+                let mut last_heartbeat = std::time::Instant::now();
+                loop {
+                    let jitter = (std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .subsec_nanos() % 5) as u64;
+                    tokio::time::sleep(Duration::from_secs(15 + jitter)).await;
+                    // Re-check on every tick so `codeterm mesh offline`
+                    // takes effect without a daemon restart. While offline
+                    // we explicitly do NOT call refresh_local_addresses —
+                    // that's what pokes Tailscale CLI / interface scan and
+                    // can keep the daemon's tun device alive.
+                    if !cfg.lock().mesh.enabled {
+                        continue;
                     }
-                });
+                    let changed = mesh::refresh_local_addresses(&mesh);
+                    let heartbeat_due =
+                        last_heartbeat.elapsed() >= Duration::from_secs(90);
+                    if !changed && !heartbeat_due {
+                        continue;
+                    }
+                    let report = mesh::broadcast_announce(&mesh, None).await;
+                    last_heartbeat = std::time::Instant::now();
+                    let kind = if changed { "addr-change" } else { "heartbeat" };
+                    if report.sent > 0 {
+                        log::info!(
+                            "[mesh/announce.{}] sent={} ok={} stale={} errors={}",
+                            kind, report.sent, report.ok,
+                            report.stale_peers.len(), report.errors.len()
+                        );
+                    }
+                }
             });
-        }
+        });
     }
 
     // Background update check (5s delay to not slow startup)

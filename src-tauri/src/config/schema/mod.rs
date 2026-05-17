@@ -244,7 +244,6 @@ pub struct KeybindingsConfig {
     pub zoom_in: String,
     pub zoom_out: String,
     pub zoom_reset: String,
-    pub open_browser: String,
     pub open_settings: String,
 }
 
@@ -267,7 +266,6 @@ impl Default for KeybindingsConfig {
             zoom_in: "Ctrl+=".to_string(),
             zoom_out: "Ctrl+-".to_string(),
             zoom_reset: "Ctrl+0".to_string(),
-            open_browser: "Ctrl+Shift+B".to_string(),
             open_settings: "Ctrl+,".to_string(),
         }
     }
@@ -404,6 +402,13 @@ pub struct MemoryConfig {
     pub librarian_enabled: bool,
     #[serde(default = "default_l1_budget_tokens")]
     pub l1_budget_tokens: usize,
+    /// Whether the nightly dreamer pushes its one-line "🧠 Dreamer brief"
+    /// insight to the Telegram bridge after writing the diary. Default
+    /// `true` (preserves existing behaviour). Flip to `false` if you find
+    /// the nightly Telegram ping noisy — the diary in mem stays the
+    /// durable record either way.
+    #[serde(default = "default_true")]
+    pub dreaming_telegram_notify: bool,
 }
 
 impl Default for MemoryConfig {
@@ -423,6 +428,7 @@ impl Default for MemoryConfig {
             file_sync_interval_minutes: default_file_sync_interval(),
             librarian_enabled: true,
             l1_budget_tokens: default_l1_budget_tokens(),
+            dreaming_telegram_notify: true,
         }
     }
 }
@@ -527,23 +533,14 @@ pub struct SecretsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BitwardenSettings {
-    /// Bitwarden / Vaultwarden server URL. Default `https://vault.bitwarden.com`.
     #[serde(default = "default_bitwarden_server_url")]
     pub server_url: String,
-    /// When true, the master password is saved in the OS keychain on
-    /// successful unlock so the daemon can auto-unlock after restart.
-    /// Default false (user re-types each fresh daemon). Trade-off:
-    /// convenient + no surprise prompts vs. plaintext-on-disk in dev
-    /// builds where the keychain is a 0600 JSON file.
-    #[serde(default)]
-    pub persist_master_password: bool,
 }
 
 impl Default for BitwardenSettings {
     fn default() -> Self {
         Self {
             server_url: default_bitwarden_server_url(),
-            persist_master_password: false,
         }
     }
 }
@@ -633,7 +630,7 @@ pub struct MeshConfig {
 impl Default for MeshConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             instance_name: hostname::get()
                 .map(|h| {
                     let name = h.to_string_lossy().to_string();

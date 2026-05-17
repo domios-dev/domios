@@ -15,7 +15,13 @@ fn handle_resp(
 
 pub fn handle_mesh(json: bool, action: MeshAction) {
     let (base, token) = read_api_config();
-    let http = build_http(&token);
+    let http = match build_http(&token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
     match action {
         MeshAction::Status => {
             match http.get(format!("{}/api/mesh/status", base))
@@ -338,5 +344,48 @@ pub fn handle_mesh(json: bool, action: MeshAction) {
                 }
             }
         },
+        MeshAction::Offline => set_mesh_enabled(&http, &base, &token, false, json),
+        MeshAction::Online => set_mesh_enabled(&http, &base, &token, true, json),
+    }
+}
+
+/// Flip `[mesh] enabled` in config.toml via the existing PATCH /api/config
+/// endpoint. Both the address-refresh loop and the ping scheduler re-read
+/// the flag on every tick, so the change takes effect within ~15s without
+/// a daemon restart. The local Tailscale daemon is left untouched.
+fn set_mesh_enabled(
+    http: &reqwest::blocking::Client,
+    base: &str,
+    token: &Option<String>,
+    enabled: bool,
+    json: bool,
+) {
+    // Use the key/value form so we touch ONLY mesh.enabled — sending a
+    // partial `{"mesh": {...}}` would replace the whole `[mesh]` table and
+    // lose instance_name, broadcast_duration_secs, etc.
+    let body = serde_json::json!({"key": "mesh.enabled", "value": enabled});
+    let resp = http
+        .patch(format!("{}/api/config", base))
+        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+        .json(&body)
+        .send();
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            if json {
+                let val: serde_json::Value = r.json().unwrap_or_default();
+                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+            } else if enabled {
+                println!("mesh: ONLINE — peers will see us within ~15s");
+            } else {
+                println!("mesh: OFFLINE — invisible to peers; Tailscale untouched");
+            }
+        }
+        Ok(r) => {
+            let status = r.status();
+            let body = r.text().unwrap_or_default();
+            eprintln!("Error ({}): {}", status, body);
+            std::process::exit(1);
+        }
+        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
     }
 }

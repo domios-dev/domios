@@ -154,11 +154,7 @@ pub async fn hook_stop(
         }));
     }
 
-    // Skip for protected panes (General Agent) — agent_type is permanent there.
-    let is_protected = state.svc.mux.lock().get_pane(&pane_id).map(|p| p.protected).unwrap_or(false);
-    if !is_protected {
-        state.svc.set_pane_agent_type(&pane_id, None);
-    }
+    // Stop = turn boundary, not exit — agent_type stays; PTY-close clears it.
     state.svc.prompt_detector.lock().clear(&pane_id);
     {
         let mut mux = state.svc.mux.lock();

@@ -13,8 +13,7 @@ use crate::secrets::{SecretError, SecretStore, SecretString};
 use super::exec::{BwExec, BwRunCtx, NoopBwExec};
 use super::subprocess::SubprocessBwExec;
 use super::{
-    BW_KEYRING_LOGIN_EMAIL, BW_KEYRING_MASTER_PW, BW_KEYRING_SERVICE, BW_KEYRING_SESSION,
-    DEFAULT_BW_SERVER,
+    BW_KEYRING_LOGIN_EMAIL, BW_KEYRING_SERVICE, BW_KEYRING_SESSION, DEFAULT_BW_SERVER,
 };
 
 pub struct BitwardenStore {
@@ -24,10 +23,6 @@ pub struct BitwardenStore {
     pub(super) unavailable_reason: Option<String>,
     pub(super) user: Mutex<Option<String>>,
     pub(super) server_url: Mutex<String>,
-    /// When true, master password is saved on successful unlock so the
-    /// daemon can auto-unlock after restart. Off by default — opt-in via
-    /// `integrations.secrets.providers.bitwarden.persist_master_password`.
-    pub persist_master_password: bool,
 }
 
 impl BitwardenStore {
@@ -71,7 +66,6 @@ impl BitwardenStore {
             unavailable_reason: None,
             user: Mutex::new(None),
             server_url: Mutex::new(server_url),
-            persist_master_password: false,
         }
     }
 
@@ -83,7 +77,6 @@ impl BitwardenStore {
             unavailable_reason: Some(reason.into()),
             user: Mutex::new(None),
             server_url: Mutex::new(DEFAULT_BW_SERVER.to_string()),
-            persist_master_password: false,
         }
     }
 
@@ -106,38 +99,15 @@ impl BitwardenStore {
         }
     }
 
-    /// Try to restore an unlocked session from persisted credentials.
-    /// Called once at construction. Silent — failures here just leave
-    /// the store in its current state (typically Locked or LoggedOut),
-    /// and the user can `unlock` manually to re-establish.
+    /// Try to restore an unlocked session from the persisted master-password
+    /// file. Called once at construction. Silent failures — falls back to
+    /// JIT auto-unlock on the next operation via [`try_unlock_from_file`].
     pub async fn auto_unlock_from_keychain(&self) {
-        if self.unavailable_reason.is_some() {
-            return;
-        }
-        // If we already have a session AND bw_status agrees we're
-        // unlocked, nothing to do. We treat any other state as "try
-        // re-unlock" — sessions can expire silently.
+        if self.unavailable_reason.is_some() { return; }
         if let Ok(s) = self.bw_status().await {
-            if s.status == "unlocked" {
-                return;
-            }
+            if s.status == "unlocked" { return; }
         }
-        let master = match self.keychain.get(BW_KEYRING_MASTER_PW) {
-            Ok(v) if !v.is_empty() => v,
-            _ => return,
-        };
-        let email = self.keychain.get(BW_KEYRING_LOGIN_EMAIL).ok();
-        let creds = crate::secrets::UnlockCredentials {
-            master_password: SecretString::from(master),
-            two_factor_token: None,
-            email,
-            api_key_client_id: None,
-            api_key_client_secret: None,
-        };
-        match self.unlock(creds).await {
-            Ok(()) => log::info!("[secrets/bw] auto-unlocked from stored master password"),
-            Err(e) => log::warn!("[secrets/bw] auto-unlock failed: {}", e),
-        }
+        self.try_unlock_from_file().await;
     }
 
     pub(super) fn require_available(&self) -> Result<(), SecretError> {
@@ -162,7 +132,14 @@ impl BitwardenStore {
         args: Vec<&str>,
         stdin: Option<String>,
     ) -> Result<serde_json::Value, SecretError> {
-        let session = self.current_session().await?;
+        let session = match self.current_session().await {
+            Ok(s) => s,
+            Err(SecretError::Locked) => {
+                self.try_unlock_from_file().await;
+                self.current_session().await?
+            }
+            Err(e) => return Err(e),
+        };
         let resp = self
             .exec
             .run(BwRunCtx {
@@ -174,6 +151,31 @@ impl BitwardenStore {
             .await
             .map_err(|e| SecretError::Backend { message: e })?;
         resp.into_data()
+    }
+
+    /// JIT auto-unlock: read ~/.codeterm/secrets/bitwarden-master.env on every
+    /// locked op so the agent never has to see/think about unlock.
+    pub(super) async fn try_unlock_from_file(&self) {
+        if self.unavailable_reason.is_some() { return; }
+        let path = match super::master_password_file_path() {
+            Some(p) => p,
+            None => return,
+        };
+        let master = match super::read_master_password_file(&path) {
+            Some(s) if !s.is_empty() => s,
+            _ => return,
+        };
+        let email = self.keychain.get(BW_KEYRING_LOGIN_EMAIL).ok();
+        let creds = crate::secrets::UnlockCredentials {
+            master_password: SecretString::from(master),
+            two_factor_token: None,
+            email,
+            api_key_client_id: None,
+            api_key_client_secret: None,
+        };
+        if let Err(e) = self.unlock(creds).await {
+            log::warn!("[secrets/bw] JIT unlock from {} failed: {}", path.display(), e);
+        }
     }
 
     pub(super) async fn run_no_session(
