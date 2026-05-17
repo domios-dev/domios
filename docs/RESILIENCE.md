@@ -21,7 +21,7 @@ production environments.
 ## Health probe
 
 The daemon exposes `GET /api/health` on its bind port (prod 7685, dev 7686).
-A healthy response returns 200 with JSON `{ "status": "ok", "build", "build_number" }`.
+A healthy response returns 200 with JSON `{ "status": "ok", "build", "version", "name", "platform" }`.
 Watchdogs use this endpoint as the liveness signal.
 
 A 5-second timeout is generous — handlers should respond in under 100ms even
