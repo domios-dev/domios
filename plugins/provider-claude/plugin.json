@@ -1,0 +1,12 @@
+{
+  "id": "provider-claude",
+  "kind": "provider",
+  "provider_id": "claude",
+  "displayName": "Claude Code",
+  "engine": ">=1.3.0",
+  "entry": "src/index.ts",
+  "permissions": {
+    "transport_events": ["pty", "events"],
+    "send_text": true
+  }
+}

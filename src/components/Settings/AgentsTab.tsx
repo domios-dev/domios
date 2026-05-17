@@ -46,7 +46,7 @@ export function AgentsOverview({
               <span className="text-xs text-[var(--ct-muted-fg)]">Provider</span>
               <div className="flex items-center gap-2">
                 <select
-                  value={config.general_agent?.agent_provider ?? "claude"}
+                  value={config.general_agent?.agent_provider ?? providers[0]?.id ?? ""}
                   onChange={(e) => onUpdate("general_agent", { agent_provider: e.target.value })}
                   className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                 >

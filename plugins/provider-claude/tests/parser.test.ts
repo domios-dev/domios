@@ -1,9 +1,9 @@
 /**
  * Standalone tests for JSONL and terminal output parsers.
- * Run: npx tsx src/components/ChatView/parser.test.ts
+ * Run: npx tsx plugins/provider-claude/tests/parser.test.ts
  */
 
-import { parseJsonlSession, parseTerminalOutput } from "./parser";
+import { parseJsonlSession, parseTerminalOutput } from "../src/parser";
 
 let passed = 0;
 let failed = 0;

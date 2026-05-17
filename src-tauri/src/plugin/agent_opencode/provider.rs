@@ -767,7 +767,8 @@ impl AgentProvider for OpenCodeProvider {
                     .into(),
             ),
             fields: vec![SettingField::Badge {
-                query_command: "check_pty_status_available".into(),
+                query_command: "check_provider_integration".into(),
+                query_args: Some(serde_json::json!({ "provider_id": "opencode" })),
                 variants: vec![BadgeVariant {
                     id: "ok".into(),
                     label: "auto-enabled".into(),

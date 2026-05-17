@@ -1,265 +1,86 @@
-use super::ClaudeHooksStatus;
+//! Generic provider-integration dispatchers.
+//!
+//! Each agent provider can have an optional "integration" — hooks /
+//! callbacks / settings it needs to push events back into CodeTerm.
+//! Claude installs JSON entries into `~/.claude/settings.json`. Codex
+//! and Opencode are observed entirely through PTY parsing and need no
+//! integration at all (trait defaults give them `status: "ok"`).
+//!
+//! These tauri commands are thin dispatchers that route through the
+//! `AgentRegistry` to the right provider implementation. Adding a new
+//! provider requires zero changes here.
 
-fn claude_settings_path() -> Result<std::path::PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-    Ok(home.join(".claude").join("settings.json"))
-}
+use serde_json::Value as Json;
+use tauri::State;
 
-// v2 = hooks carry `Authorization: Bearer $CODETERM_API_TOKEN` and rely on
-// auth_middleware instead of the old loopback-exemption path. Any older
-// marker is treated as upgradable so we overwrite the pre-v2 curl commands.
-pub(super) const CODETERM_HOOK_MARKER: &str = "codeterm-hook-v2";
+use crate::service::ServiceState;
 
-/// True when a hook entry was installed by CodeTerm at any version — used on
-/// install to REMOVE stale entries before writing the current ones. Accepts
-/// any historical marker plus a URL-based legacy fallback.
-fn is_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
-    hook_entry.get("hooks").and_then(|hs| hs.as_array())
-        .map(|hs| hs.iter().any(|h| {
-            if let Some(source) = h.get("_source").and_then(|s| s.as_str()) {
-                if source.starts_with("codeterm-hook") || source == "codeterm" {
-                    return true;
-                }
-            }
-            h.get("command").and_then(|c| c.as_str())
-                .map(|cmd| {
-                    let is_codeterm_url = cmd.contains("7685") || cmd.contains("7686");
-                    let is_codeterm_path = cmd.contains("/api/notifications")
-                        || cmd.contains("/api/panes/")
-                        || cmd.contains("/hook/permission")
-                        || cmd.contains("/hook/stop")
-                        || cmd.contains("/hook/session_start")
-                        || cmd.contains("/api/mem/flush");
-                    is_codeterm_url && is_codeterm_path
-                })
-                .unwrap_or(false)
-        }))
-        .unwrap_or(false)
-}
-
-/// True only when the hook matches the CURRENT installer output. Drives the
-/// `hooks_installed` bit so we force-upgrade stale pre-v2 entries (which
-/// lacked the auth header and relied on the dropped exemption).
-fn is_current_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
-    hook_entry.get("hooks").and_then(|hs| hs.as_array())
-        .map(|hs| hs.iter().any(|h| {
-            h.get("_source").and_then(|s| s.as_str())
-                .map(|src| src == CODETERM_HOOK_MARKER)
-                .unwrap_or(false)
-        }))
-        .unwrap_or(false)
-}
-
-// Always-on signal for providers without a hook-file system (Codex, Opencode).
-// Their PTY output parser runs unconditionally inside the multiplexer, so the
-// Notifications badge is always green.
-#[tauri::command]
-pub fn check_pty_status_available() -> Result<&'static str, String> {
-    Ok("ok")
-}
-
-/// Check if Claude Code hooks are installed for CodeTerm notifications.
-#[tauri::command]
-pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
-    let path = claude_settings_path()?;
-    if !path.exists() {
-        return Ok(ClaudeHooksStatus {
-            settings_exists: false,
-            hooks_installed: false,
-            notification_hook: false,
-            stop_hook: false,
-            precompact_hook: false,
-            session_start_hook: false,
-        });
-    }
-
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse settings.json: {}", e))?;
-
-    let notification_hook = json.pointer("/hooks/Notification")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_current_codeterm_hook))
-        .unwrap_or(false);
-    let stop_hook = json.pointer("/hooks/Stop")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_current_codeterm_hook))
-        .unwrap_or(false);
-    let precompact_hook = json.pointer("/hooks/PreCompact")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_current_codeterm_hook))
-        .unwrap_or(false);
-    let session_start_hook = json.pointer("/hooks/SessionStart")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_current_codeterm_hook))
-        .unwrap_or(false);
-
-    Ok(ClaudeHooksStatus {
-        settings_exists: true,
-        hooks_installed: notification_hook && stop_hook && precompact_hook && session_start_hook,
-        notification_hook,
-        stop_hook,
-        precompact_hook,
-        session_start_hook,
-    })
-}
-
-pub fn ensure_claude_hooks_installed() {
-    match check_claude_hooks() {
-        Ok(status) if status.hooks_installed => {
-            log::debug!("[startup] claude hooks already installed");
-        }
-        Ok(_) | Err(_) => {
-            if let Err(e) = install_claude_hooks(None) {
-                log::warn!("[startup] failed to auto-install claude hooks: {}", e);
-            } else {
-                log::info!("[startup] claude hooks auto-installed (Notification, Stop, PreCompact, SessionStart)");
-            }
-        }
-    }
+fn default_api_port() -> u16 {
+    #[cfg(debug_assertions)]
+    { 7686 }
+    #[cfg(not(debug_assertions))]
+    { 7685 }
 }
 
 #[tauri::command]
-pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
-    let path = claude_settings_path()?;
-    let port = api_port.unwrap_or_else(|| {
-        #[cfg(debug_assertions)]
-        { 7686 }
-        #[cfg(not(debug_assertions))]
-        { 7685 }
-    });
-
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-
-    let mut json: serde_json::Value = if path.exists() {
-        let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse settings.json: {}", e))?
-    } else {
-        serde_json::json!({})
-    };
-
-    let null_dev = crate::shell::ShellSyntax::NULL_DEV;
-    // Hook callbacks share one auth header so the endpoints can stay behind
-    // auth_middleware and don't need a loopback/LAN exemption. CodeTerm sets
-    // $CODETERM_API_TOKEN in the PTY env at spawn time.
-    let auth_h = "-H \"Authorization: Bearer ${CODETERM_API_TOKEN}\"";
-    let notify_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' {auth_h} -d '{{}}' > {null_dev} 2>&1 || true"
-    );
-    let stop_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' {auth_h} -d '{{}}' > {null_dev} 2>&1 || true"
-    );
-    // flush PTY scrollback before summarization destroys it
-    let precompact_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/mem/flush -H 'Content-Type: application/json' {auth_h} -d '{{\"pane\":\"'\"$CODETERM_PANE_ID\"'\",\"title\":\"pre-compact\"}}' > {null_dev} 2>&1 || true"
-    );
-    // Forward Claude's SessionStart JSON (delivered on stdin) to CodeTerm so we
-    // learn the new session_id when the user runs /new, /clear, or starts fresh.
-    let session_start_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' {auth_h} --data-binary @- > {null_dev} 2>&1 || true"
-    );
-
-    if json.get("hooks").is_none() {
-        json["hooks"] = serde_json::json!({});
-    }
-
-    let notif_hook = serde_json::json!({
-        "matcher": "permission_prompt",
-        "hooks": [{
-            "type": "command",
-            "command": notify_cmd,
-            "timeout": 5000,
-            "_source": CODETERM_HOOK_MARKER
-        }]
-    });
-
-    let stop_hook = serde_json::json!({
-        "matcher": "",
-        "hooks": [{
-            "type": "command",
-            "command": stop_cmd,
-            "timeout": 5000,
-            "_source": CODETERM_HOOK_MARKER
-        }]
-    });
-
-    let precompact_hook = serde_json::json!({
-        "matcher": "",
-        "hooks": [{
-            "type": "command",
-            "command": precompact_cmd,
-            "timeout": 10000,
-            "_source": CODETERM_HOOK_MARKER
-        }]
-    });
-
-    let session_start_hook = serde_json::json!({
-        "matcher": "",
-        "hooks": [{
-            "type": "command",
-            "command": session_start_cmd,
-            "timeout": 5000,
-            "_source": CODETERM_HOOK_MARKER
-        }]
-    });
-
-    let hooks = json["hooks"].as_object_mut()
-        .ok_or("hooks is not an object")?;
-
-    for key in &["Notification", "Stop", "PreCompact", "SessionStart"] {
-        if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
-            arr.retain(|h| !is_codeterm_hook(h));
-        }
-    }
-
-    if !hooks.contains_key("Notification") {
-        hooks.insert("Notification".into(), serde_json::json!([]));
-    }
-    hooks["Notification"].as_array_mut().unwrap().push(notif_hook);
-
-    if !hooks.contains_key("Stop") {
-        hooks.insert("Stop".into(), serde_json::json!([]));
-    }
-    hooks["Stop"].as_array_mut().unwrap().push(stop_hook);
-
-    if !hooks.contains_key("PreCompact") {
-        hooks.insert("PreCompact".into(), serde_json::json!([]));
-    }
-    hooks["PreCompact"].as_array_mut().unwrap().push(precompact_hook);
-
-    if !hooks.contains_key("SessionStart") {
-        hooks.insert("SessionStart".into(), serde_json::json!([]));
-    }
-    hooks["SessionStart"].as_array_mut().unwrap().push(session_start_hook);
-
-    let pretty = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-    std::fs::write(&path, pretty).map_err(|e| e.to_string())?;
-    log::info!("Claude Code hooks installed at {:?}", path);
-    Ok(())
+pub fn check_provider_integration(
+    svc: State<'_, ServiceState>,
+    provider_id: String,
+) -> Result<Json, String> {
+    svc.agent_registry
+        .with_provider(&provider_id, |p| p.check_integration())
+        .ok_or_else(|| format!("Unknown provider: {}", provider_id))
 }
 
 #[tauri::command]
-pub fn uninstall_claude_hooks() -> Result<(), String> {
-    let path = claude_settings_path()?;
-    if !path.exists() { return Ok(()); }
+pub fn install_provider_integration(
+    svc: State<'_, ServiceState>,
+    provider_id: String,
+    api_port: Option<u16>,
+) -> Result<(), String> {
+    let port = api_port.unwrap_or_else(default_api_port);
+    svc.agent_registry
+        .with_provider(&provider_id, |p| p.install_integration(port))
+        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
+}
 
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let mut json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse settings.json: {}", e))?;
+#[tauri::command]
+pub fn uninstall_provider_integration(
+    svc: State<'_, ServiceState>,
+    provider_id: String,
+) -> Result<(), String> {
+    svc.agent_registry
+        .with_provider(&provider_id, |p| p.uninstall_integration())
+        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
+}
 
-    if let Some(hooks) = json.get_mut("hooks").and_then(|v| v.as_object_mut()) {
-        for key in &["Notification", "Stop"] {
-            if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
-                arr.retain(|h| !is_codeterm_hook(h));
-            }
-        }
+#[tauri::command]
+pub fn check_provider_rule(
+    svc: State<'_, ServiceState>,
+    provider_id: String,
+) -> Result<Json, String> {
+    svc.agent_registry
+        .with_provider(&provider_id, |p| p.check_rule_status())
+        .ok_or_else(|| format!("Unknown provider: {}", provider_id))
+}
+
+#[tauri::command]
+pub fn install_provider_rule(
+    svc: State<'_, ServiceState>,
+    provider_id: String,
+) -> Result<(), String> {
+    svc.agent_registry
+        .with_provider(&provider_id, |p| p.install_rule())
+        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
+}
+
+/// Called once at startup. Iterates every registered provider and gives
+/// it a chance to auto-install its CodeTerm integration if missing.
+/// Providers without an integration (Codex, Opencode) just no-op.
+pub fn ensure_integrations_for_all(registry: &crate::agent::registry::AgentRegistry) {
+    let port = default_api_port();
+    let ids = registry.provider_ids();
+    for id in &ids {
+        registry.with_provider(id, |p| p.ensure_integration_on_startup(port));
     }
-
-    let pretty = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-    std::fs::write(&path, pretty).map_err(|e| e.to_string())?;
-    log::info!("Claude Code hooks removed");
-    Ok(())
 }

@@ -154,8 +154,6 @@ pub fn run() {
             clipboard_files::read_clipboard_files,
             commands::save_temp_file,
             commands::copy_image_to_clipboard,
-            commands::install_project_rules,
-            commands::check_rule_installed,
             commands::check_for_update,
             commands::install_app_update,
             commands::open_folder,
@@ -209,11 +207,12 @@ pub fn run() {
             config::get_themes_dir,
             // Directory completion
             commands::list_dir_completions,
-            // Claude hooks commands
-            commands::check_claude_hooks,
-            commands::install_claude_hooks,
-            commands::uninstall_claude_hooks,
-            commands::check_pty_status_available,
+            // Provider integration (hooks/callbacks) — generic dispatchers
+            commands::check_provider_integration,
+            commands::install_provider_integration,
+            commands::uninstall_provider_integration,
+            commands::check_provider_rule,
+            commands::install_provider_rule,
             // Session commands
             session::save_session,
             session::save_session_named,
@@ -360,10 +359,12 @@ pub fn run() {
             // Re-index any items missing vectors (catches failed bg indexing)
             mem.reindex_missing();
 
-            // Auto-install Claude hooks (Notification, Stop, PreCompact).
-            // PreCompact is critical for mem — it flushes pane scrollback
-            // before Claude summarizes the context window.
-            commands::ensure_claude_hooks_installed();
+            // Auto-install each provider's CodeTerm integration (hooks /
+            // callbacks). Providers without an integration no-op via the
+            // AgentProvider trait default. For Claude this installs the
+            // Notification / Stop / PreCompact / SessionStart hooks that
+            // POST events back into our HTTP API.
+            commands::ensure_integrations_for_all(&agent_registry);
 
             let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
                 crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),

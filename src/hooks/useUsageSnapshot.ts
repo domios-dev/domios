@@ -4,7 +4,9 @@ import { listen } from "@tauri-apps/api/event";
 import type { UsageSnapshot, UsageSnapshotEvent } from "../types/usage";
 
 export interface UseUsageSnapshotOptions {
-  provider?: string;
+  /** Provider id (e.g. "claude", "codex"). Required — no implicit default
+      so adding a new provider doesn't silently fall through to Claude. */
+  provider: string;
   accountId?: string | null;
   enabled?: boolean;
 }
@@ -17,8 +19,8 @@ export interface UseUsageSnapshotResult {
   refresh: () => Promise<void>;
 }
 
-export function useUsageSnapshot(opts: UseUsageSnapshotOptions = {}): UseUsageSnapshotResult {
-  const { provider = "claude", accountId = null, enabled = true } = opts;
+export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapshotResult {
+  const { provider, accountId = null, enabled = true } = opts;
   const [snapshot, setSnapshot] = useState<UsageSnapshot | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +76,7 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions = {}): UseUsageSn
 }
 
 export interface UseUsageHistoryOptions {
-  provider?: string;
+  provider: string;
   accountId?: string | null;
   sinceMs: number;
   limit?: number;
@@ -91,7 +93,7 @@ export interface UseUsageHistoryResult {
 
 export function useUsageHistory(opts: UseUsageHistoryOptions): UseUsageHistoryResult {
   const {
-    provider = "claude",
+    provider,
     accountId = null,
     sinceMs,
     limit = 200,
@@ -179,7 +181,7 @@ export interface ProjectionResponse {
 }
 
 export interface UseUsageProjectionOptions {
-  provider?: string;
+  provider: string;
   accountId?: string | null;
   enabled?: boolean;
 }
@@ -191,8 +193,8 @@ export interface UseUsageProjectionResult {
   refetch: () => Promise<void>;
 }
 
-export function useUsageProjection(opts: UseUsageProjectionOptions = {}): UseUsageProjectionResult {
-  const { provider = "claude", accountId = null, enabled = true } = opts;
+export function useUsageProjection(opts: UseUsageProjectionOptions): UseUsageProjectionResult {
+  const { provider, accountId = null, enabled = true } = opts;
   const [projection, setProjection] = useState<ProjectionResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);

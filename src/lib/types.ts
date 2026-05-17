@@ -458,13 +458,19 @@ export type SettingField =
   | { kind: "api_key"; env_var: string; label: string; link?: string }
   | { kind: "info"; title?: string; body: string; level: NoteLevel }
   | { kind: "path_link"; label: string; path: string; open: PathOpenKind }
-  | { kind: "badge"; query_command: string; variants: BadgeVariant[] }
+  | {
+      kind: "badge";
+      query_command: string;
+      query_args?: Record<string, unknown>;
+      variants: BadgeVariant[];
+    }
   | {
       kind: "action";
       id: string;
       label: string;
       command: string;
       state_query?: string;
+      args?: Record<string, unknown>;
       confirm?: string;
       style: ActionStyle;
     }

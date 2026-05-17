@@ -1,10 +1,6 @@
 use tauri::State;
 
-use crate::prompts::CODETERM_RULE;
 use crate::service::ServiceState;
-
-use super::skills::extract_revision;
-use super::RuleStatus;
 
 /// Result of `install_provider_in_pane` — the new tab/pane the install
 /// command was queued in. Frontend uses these to switch focus.
@@ -102,17 +98,6 @@ pub fn restart_general_agent(
     Ok(())
 }
 
-#[tauri::command]
-pub fn install_project_rules() -> Result<(), String> {
-    let dest = dirs::home_dir()
-        .ok_or("Cannot find home directory")?
-        .join(".claude")
-        .join("rules");
-    std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
-    std::fs::write(dest.join("codeterm.md"), CODETERM_RULE).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 /// Probe PATH for a CLI binary. Used by the per-provider Installation card
 /// in Settings → Agents to render the install/missing badge. Returns
 /// `Ok(true)` when the binary is found, `Ok(false)` when missing — never
@@ -144,29 +129,3 @@ pub fn check_cli_installed(binary: String) -> Result<bool, String> {
     }
 }
 
-#[tauri::command]
-pub fn check_rule_installed() -> Result<RuleStatus, String> {
-    let path = dirs::home_dir()
-        .ok_or("Cannot find home directory")?
-        .join(".claude")
-        .join("rules")
-        .join("codeterm.md");
-    let bundled_revision = extract_revision(CODETERM_RULE);
-    if path.exists() {
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
-        let installed_revision = extract_revision(&content);
-        Ok(RuleStatus {
-            installed: true,
-            update_available: installed_revision < bundled_revision,
-            revision: bundled_revision,
-            installed_revision,
-        })
-    } else {
-        Ok(RuleStatus {
-            installed: false,
-            update_available: false,
-            revision: bundled_revision,
-            installed_revision: 0,
-        })
-    }
-}

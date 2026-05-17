@@ -440,7 +440,8 @@ impl AgentProvider for CodexProvider {
                     .into(),
             ),
             fields: vec![SettingField::Badge {
-                query_command: "check_pty_status_available".into(),
+                query_command: "check_provider_integration".into(),
+                query_args: Some(serde_json::json!({ "provider_id": "codex" })),
                 variants: vec![BadgeVariant {
                     id: "ok".into(),
                     label: "auto-enabled".into(),

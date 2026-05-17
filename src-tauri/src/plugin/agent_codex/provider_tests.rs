@@ -264,13 +264,19 @@ fn codex_notifications_schema_present() {
             assert_eq!(title, "Codex Notifications");
             let mut saw_badge = false;
             for f in fields {
-                if let crate::agent::provider::SettingField::Badge { query_command, .. } = f {
-                    if query_command == "check_pty_status_available" {
+                if let crate::agent::provider::SettingField::Badge { query_command, query_args, .. } = f {
+                    if query_command == "check_provider_integration"
+                        && query_args
+                            .as_ref()
+                            .and_then(|v| v.get("provider_id"))
+                            .and_then(|v| v.as_str())
+                            == Some("codex")
+                    {
                         saw_badge = true;
                     }
                 }
             }
-            assert!(saw_badge, "expected Badge wired to check_pty_status_available");
+            assert!(saw_badge, "expected Badge wired to check_provider_integration(codex)");
         }
         _ => panic!("expected Section as top-level notifications field"),
     }
