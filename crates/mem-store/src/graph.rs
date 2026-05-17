@@ -183,6 +183,12 @@ pub fn revive_broken(conn: &Connection, opts: ReviveBrokenOptions) -> MemStoreRe
     Ok(ReviveBrokenReport { revived: count, dry_run: opts.dry_run })
 }
 
+/// NOTE on embeddings: this function creates the topic entity row but does NOT
+/// embed it into `mem_vectors` (this crate has no access to the embedder).
+/// Callers running outside the daemon (CLI local dispatch) should follow up with
+/// `codeterm mem reembed --scope entities` to backfill the new topic's vector,
+/// or rely on the daemon's startup `backfill_entity_embeddings`. The Dreamer's
+/// A.2 playbook does this automatically at the end of each cycle.
 pub fn introduce_topic(
     conn: &Connection,
     opts: IntroduceTopicOptions,
@@ -399,21 +405,64 @@ pub fn add_alias_with_rewire(
         "INSERT OR REPLACE INTO entity_aliases (alias_id, canonical_id, created_at) VALUES (?1, ?2, ?3)",
         rusqlite::params![alias_id, canonical_id, &now],
     )?;
-    tx.execute(
+    let rewired_from = tx.execute(
         "UPDATE OR IGNORE relations SET from_id = ?1 WHERE from_id = ?2",
         rusqlite::params![canonical_id, alias_id],
-    )?;
-    tx.execute(
+    )? as u64;
+    let rewired_to = tx.execute(
         "UPDATE OR IGNORE relations SET to_id = ?1 WHERE to_id = ?2",
         rusqlite::params![canonical_id, alias_id],
-    )?;
-    tx.execute(
+    )? as u64;
+    let dropped_dupes = tx.execute(
         "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
         rusqlite::params![alias_id],
-    )?;
+    )? as u64;
+
+    let alias_props: Option<String> = tx.query_row(
+        "SELECT properties_json FROM entities WHERE id = ?1",
+        rusqlite::params![alias_id], |r| r.get(0),
+    ).ok();
+    let canonical_props: Option<String> = tx.query_row(
+        "SELECT properties_json FROM entities WHERE id = ?1",
+        rusqlite::params![canonical_id], |r| r.get(0),
+    ).ok();
+    if let (Some(a), Some(c)) = (alias_props, canonical_props) {
+        let alias_obj = serde_json::from_str::<serde_json::Value>(&a).ok()
+            .and_then(|v| v.as_object().cloned()).unwrap_or_default();
+        let mut canon_obj = serde_json::from_str::<serde_json::Value>(&c).ok()
+            .and_then(|v| v.as_object().cloned()).unwrap_or_default();
+        for (k, v) in alias_obj {
+            canon_obj.entry(k).or_insert(v);
+        }
+        let merged = serde_json::to_string(&serde_json::Value::Object(canon_obj))
+            .expect("Map<String, Value> serialization is infallible");
+        tx.execute(
+            "UPDATE entities SET properties_json = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![merged, &now, canonical_id],
+        )?;
+    }
+
     tx.execute(
         "DELETE FROM entities WHERE id = ?1",
         rusqlite::params![alias_id],
+    )?;
+    let _ = tx.execute(
+        "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
+        rusqlite::params![alias_id, format!("{}_chunk_%", alias_id)],
+    );
+
+    let details = serde_json::json!({
+        "op": "add_alias",
+        "alias_id": alias_id,
+        "canonical_id": canonical_id,
+        "rewired_from": rewired_from,
+        "rewired_to": rewired_to,
+        "dropped_duplicate_relations": dropped_dupes,
+    }).to_string();
+    tx.execute(
+        "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
+         VALUES (?1, ?2, NULL, NULL, NULL, 'add_alias', ?3)",
+        rusqlite::params![&now, (rewired_from + rewired_to + dropped_dupes) as i64, details],
     )?;
     tx.commit()?;
     Ok(())

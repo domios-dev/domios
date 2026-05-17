@@ -191,8 +191,9 @@ tar -czf "$WORK/CodeTerm_${VER}_x64.app.tar.gz" \
   -C src-tauri/target/x86_64-apple-darwin/release/bundle/macos CodeTerm.app
 
 # 2. Sign each updater artifact with the minisign key (key file at ~/.tauri/codeterm.key,
-# base64-encoded minisign secret, password empty for the local-dev key). Note: ALL artifacts
-# served by the updater (.app.tar.gz on Mac, .nsis.zip on Windows) need a paired .sig.
+# base64-encoded minisign secret, password empty for the local-dev key). The .sig is
+# READ once below to extract the base64 signature into latest.json, then thrown away —
+# the tauri updater reads `signature` from the manifest, never downloads .sig files.
 # The .dmg / .exe files do NOT need signing — they are user-facing only.
 KEY_B64=$(cat ~/.tauri/codeterm.key | tr -d '\n')
 for art in \
@@ -243,9 +244,12 @@ cat > "$WORK/latest.json" <<JSON
 JSON
 python3 -m json.tool "$WORK/latest.json" >/dev/null  # validate
 
-# 6. Publish on the public mirror — upload BOTH the user-facing direct downloads
-# (.dmg / .exe) AND the updater artifacts (.app.tar.gz / .nsis.zip). The .sig files
-# only accompany the updater artifacts.
+# 6. Publish on the public mirror — upload the user-facing direct downloads
+# (.dmg / .exe) AND the updater artifacts (.app.tar.gz / .nsis.zip). Do NOT upload
+# the .sig files — their content already lives inline in latest.json's `signature`
+# field, and the tauri updater never fetches separate .sig assets. Same rule for
+# any standalone CLI binary: it's already bundled inside the .app / .exe as a
+# sidecar, so no separate cli archive on the release.
 gh release create v$VER \
   --repo rollacode/codeterm-releases \
   --title "v$VER" --target main \
@@ -255,11 +259,8 @@ gh release create v$VER \
   "$WORK/CodeTerm_${VER}_x64.dmg" \
   "$WORK/CodeTerm_${VER}_x64-setup.exe" \
   "$WORK/CodeTerm_${VER}_aarch64.app.tar.gz" \
-  "$WORK/CodeTerm_${VER}_aarch64.app.tar.gz.sig" \
   "$WORK/CodeTerm_${VER}_x64.app.tar.gz" \
-  "$WORK/CodeTerm_${VER}_x64.app.tar.gz.sig" \
   "$WORK/CodeTerm_${VER}_x64-setup.nsis.zip" \
-  "$WORK/CodeTerm_${VER}_x64-setup.nsis.zip.sig" \
   "$WORK/latest.json"
 
 # 7. Verify anon access (smoke):
