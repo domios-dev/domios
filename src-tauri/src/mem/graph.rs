@@ -410,21 +410,19 @@ pub fn add_alias(conn: &Connection, alias_id: &str, canonical_id: &str) -> Resul
         params![alias_id, canonical_id, &now],
     ).map_err(|e| format!("add_alias: {}", e))?;
 
-    // Rewire relations: any relation pointing to alias → point to canonical
-    tx.execute(
+    let rewired_from = tx.execute(
         "UPDATE OR IGNORE relations SET from_id = ?1 WHERE from_id = ?2",
         params![canonical_id, alias_id],
-    ).map_err(|e| format!("rewire from: {}", e))?;
-    tx.execute(
+    ).map_err(|e| format!("rewire from: {}", e))? as u64;
+    let rewired_to = tx.execute(
         "UPDATE OR IGNORE relations SET to_id = ?1 WHERE to_id = ?2",
         params![canonical_id, alias_id],
-    ).map_err(|e| format!("rewire to: {}", e))?;
+    ).map_err(|e| format!("rewire to: {}", e))? as u64;
 
-    // Delete the duplicate row relations that couldn't be rewired
-    tx.execute(
+    let dropped_dupes = tx.execute(
         "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
         params![alias_id],
-    ).map_err(|e| format!("cleanup alias relations: {}", e))?;
+    ).map_err(|e| format!("cleanup alias relations: {}", e))? as u64;
 
     // Carryover: fold alias props into canonical (canonical wins on collision).
     let alias_props: Option<String> = tx.query_row(
@@ -461,6 +459,20 @@ pub fn add_alias(conn: &Connection, alias_id: &str, canonical_id: &str) -> Resul
         "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
         params![alias_id, format!("{}_chunk_%", alias_id)],
     );
+
+    let details = serde_json::json!({
+        "op": "add_alias",
+        "alias_id": alias_id,
+        "canonical_id": canonical_id,
+        "rewired_from": rewired_from,
+        "rewired_to": rewired_to,
+        "dropped_duplicate_relations": dropped_dupes,
+    }).to_string();
+    tx.execute(
+        "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
+         VALUES (?1, ?2, NULL, NULL, NULL, 'add_alias', ?3)",
+        params![&now, (rewired_from + rewired_to + dropped_dupes) as i64, details],
+    ).map_err(|e| format!("audit add_alias: {}", e))?;
 
     tx.commit().map_err(|e| format!("add_alias commit: {}", e))?;
     Ok(())
@@ -901,6 +913,45 @@ mod tests {
             [], |r| r.get(0)
         ).unwrap();
         assert_eq!(canonical_vecs, 1, "canonical vectors must stay");
+    }
+
+    #[test]
+    fn add_alias_writes_audit_log() {
+        let conn = fresh();
+        insert_entity(&conn, &Entity {
+            id: "alias".into(), entity_type: "Person".into(),
+            scope: "global".into(), properties: serde_json::Value::Null,
+        }).unwrap();
+        insert_entity(&conn, &Entity {
+            id: "canonical".into(), entity_type: "Person".into(),
+            scope: "global".into(), properties: serde_json::Value::Null,
+        }).unwrap();
+        insert_entity(&conn, &Entity {
+            id: "other".into(), entity_type: "Person".into(),
+            scope: "global".into(), properties: serde_json::Value::Null,
+        }).unwrap();
+        let now = "2026-01-01T00:00:00Z";
+        conn.execute(
+            "INSERT INTO relations (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json, created_at)
+             VALUES ('alias','knows','other','global',?1,NULL,1.0,'{}',?1),
+                    ('other','knows','alias','global',?1,NULL,1.0,'{}',?1)",
+            rusqlite::params![now],
+        ).unwrap();
+
+        add_alias(&conn, "alias", "canonical").unwrap();
+
+        let (count, actor, details): (i64, String, String) = conn.query_row(
+            "SELECT count, actor, details_json FROM graph_purge_log ORDER BY id DESC LIMIT 1",
+            [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        ).unwrap();
+        assert_eq!(actor, "add_alias");
+        let parsed: serde_json::Value = serde_json::from_str(&details).unwrap();
+        assert_eq!(parsed["op"], "add_alias");
+        assert_eq!(parsed["alias_id"], "alias");
+        assert_eq!(parsed["canonical_id"], "canonical");
+        assert!(parsed["rewired_from"].as_u64().unwrap() + parsed["rewired_to"].as_u64().unwrap() >= 2,
+            "should account for 2 rewired edges, got: {:?}", parsed);
+        assert!(count >= 2, "audit count covers rewires + dupes, got {}", count);
     }
 
     #[test]
