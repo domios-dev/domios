@@ -25,9 +25,6 @@ fn rel(from: &str, rel: &str, to: &str, vf: &str) -> Relation {
 #[test]
 fn find_duplicate_relations_groups_by_exact_key() {
     let conn = fresh_conn();
-    // Three open relations with same (from, rel, to) but distinct valid_from
-    // (UNIQUE(from_id, relation_type, to_id, valid_from) — distinct valid_from
-    // bypasses the constraint while simulating historical duplicate pollution).
     insert_relation(&conn, &rel("a", "knows", "b", "2026-01-01T00:00:00Z")).unwrap();
     insert_relation(&conn, &rel("a", "knows", "b", "2026-01-02T00:00:00Z")).unwrap();
     insert_relation(&conn, &rel("a", "knows", "b", "2026-01-03T00:00:00Z")).unwrap();
@@ -46,4 +43,43 @@ fn find_duplicate_relations_groups_by_exact_key() {
     assert_eq!(g.key["from_id"], "a");
     assert_eq!(g.key["relation_type"], "knows");
     assert_eq!(g.key["to_id"], "b");
+}
+
+#[test]
+fn find_duplicate_relations_errors_on_empty_group_by() {
+    let conn = fresh_conn();
+    let err = find_duplicate_relations(&conn, &[], 10).unwrap_err();
+    assert!(err.contains("group_by"), "error should mention group_by, got: {}", err);
+}
+
+#[test]
+fn find_duplicate_relations_returns_empty_when_no_dupes() {
+    let conn = fresh_conn();
+    let now = "2026-01-01T00:00:00Z";
+    insert_relation(&conn, &rel("a","knows","b", now)).unwrap();
+    insert_relation(&conn, &rel("c","knows","d", now)).unwrap();
+    let groups = find_duplicate_relations(
+        &conn,
+        &[RelationColumn::FromId, RelationColumn::RelationType, RelationColumn::ToId],
+        100,
+    ).unwrap();
+    assert!(groups.is_empty());
+}
+
+#[test]
+fn find_duplicate_relations_respects_limit() {
+    let conn = fresh_conn();
+    insert_relation(&conn, &rel("a","knows","b", "2026-01-01T00:00:00Z")).unwrap();
+    insert_relation(&conn, &rel("a","knows","b", "2026-01-02T00:00:00Z")).unwrap();
+    insert_relation(&conn, &rel("c","knows","d", "2026-01-01T00:00:00Z")).unwrap();
+    insert_relation(&conn, &rel("c","knows","d", "2026-01-02T00:00:00Z")).unwrap();
+    insert_relation(&conn, &rel("c","knows","d", "2026-01-03T00:00:00Z")).unwrap();
+
+    let groups = find_duplicate_relations(
+        &conn,
+        &[RelationColumn::FromId, RelationColumn::RelationType, RelationColumn::ToId],
+        1,
+    ).unwrap();
+    assert_eq!(groups.len(), 1, "limit=1 should yield only top group");
+    assert_eq!(groups[0].count, 3, "ORDER BY count DESC should put (c,knows,d) first");
 }

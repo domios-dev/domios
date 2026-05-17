@@ -71,8 +71,11 @@ pub fn find_duplicate_relations(
         }
         let rowids_csv: String = row.get(group_by.len()).map_err(|e| e.to_string())?;
         let count: i64 = row.get(group_by.len() + 1).map_err(|e| e.to_string())?;
-        let rowids: Vec<i64> = rowids_csv.split(',').filter_map(|s| s.parse().ok()).collect();
-        let sample = load_relation_by_rowid(conn, rowids[0])?;
+        let rowids: Vec<i64> = rowids_csv.split(',')
+            .map(|s| s.parse::<i64>().map_err(|e| format!("parse rowid '{}': {}", s, e)))
+            .collect::<Result<_, _>>()?;
+        let first_rowid = *rowids.first().ok_or("empty rowid group from GROUP_CONCAT")?;
+        let sample = load_relation_by_rowid(conn, first_rowid)?;
         out.push(DuplicateRelationGroup {
             key: Value::Object(key),
             rowids,
@@ -83,25 +86,17 @@ pub fn find_duplicate_relations(
     Ok(out)
 }
 
-fn load_relation_by_rowid(conn: &Connection, rowid: i64) -> Result<Relation, String> {
-    conn.query_row(
-        "SELECT from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json
-         FROM relations WHERE id = ?1",
-        params![rowid],
-        |r| {
-            let props_json: String = r.get(7)?;
-            Ok(Relation {
-                from_id: r.get(0)?,
-                relation_type: r.get(1)?,
-                to_id: r.get(2)?,
-                scope: r.get(3)?,
-                valid_from: r.get(4)?,
-                valid_to: r.get(5)?,
-                confidence: r.get(6)?,
-                properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
-            })
-        },
-    ).map_err(|e| format!("load relation {}: {}", rowid, e))
+pub fn load_relation_by_rowid(conn: &Connection, rowid: i64) -> Result<Relation, String> {
+    let (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, props_json):
+        (String, String, String, String, String, Option<String>, f64, String) = conn.query_row(
+            "SELECT from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json
+             FROM relations WHERE id = ?1",
+            params![rowid],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)),
+        ).map_err(|e| format!("load relation {}: {}", rowid, e))?;
+    let properties = serde_json::from_str(&props_json)
+        .map_err(|e| format!("parse properties for rowid {}: {}", rowid, e))?;
+    Ok(Relation { from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties })
 }
 
 #[cfg(test)] mod tests;
