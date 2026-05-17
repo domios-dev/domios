@@ -415,6 +415,10 @@ pub fn add_alias_with_rewire(
         "DELETE FROM entities WHERE id = ?1",
         rusqlite::params![alias_id],
     )?;
+    let _ = tx.execute(
+        "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
+        rusqlite::params![alias_id, format!("{}_chunk_%", alias_id)],
+    );
     tx.commit()?;
     Ok(())
 }
