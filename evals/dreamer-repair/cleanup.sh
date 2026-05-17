@@ -66,11 +66,30 @@ echo "$ent_json" \
     done
 
 echo
-echo "[A.4c] Augmenting seed_person_andrey with city + role..."
+echo "[A.4c] Augmenting seed_person_zzbeta with city + role..."
 dc --json mem graph augment-entity \
-    --id "seed_person_andrey" \
+    --id "seed_person_zzbeta" \
     --patch '{"city":"Riga","role":"Senior iOS dev"}' \
     --actor "dreamer-eval" >/dev/null
+echo "       done"
+
+echo
+echo "[A.4 stretch] delete-entity for the orphan stub (degree 0, no canonical to alias into)..."
+dc --json mem graph delete-entity \
+    --id "seed_orphan_zzstub" \
+    --actor "dreamer-eval" >/dev/null
+echo "       done"
+
+echo
+echo "[A.4 stretch] find-duplicate-entities --strategy vector (cosine threshold 0.85)..."
+vec_groups=$(dc --json mem graph find-duplicate-entities --strategy vector --threshold 0.85 --limit 20)
+vec_count=$(echo "$vec_groups" | jq '.groups | length')
+echo "       found $vec_count vector-similarity pair(s)"
+
+echo
+echo "[A.4d] Housekeeping — repair orphan vectors and blobs."
+dc --json mem graph repair-orphan-vectors --actor "dreamer-eval" >/dev/null
+dc --json mem graph repair-orphan-blobs   --actor "dreamer-eval" >/dev/null
 echo "       done"
 
 echo

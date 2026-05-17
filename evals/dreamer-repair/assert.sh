@@ -19,7 +19,7 @@ fi
 # 2. works_on merge happened — final confidence is 0.9 (max of 0.7, 0.9).
 conf=$(sqlite3 "$DB" \
     "SELECT confidence FROM relations
-     WHERE from_id='seed_person_andrey' AND relation_type='works_on'")
+     WHERE from_id='seed_person_zzbeta' AND relation_type='works_on'")
 if [ "$conf" != "0.9" ]; then
     fail "expected works_on confidence 0.9, got '$conf'"
 fi
@@ -27,7 +27,7 @@ fi
 # 3. Exactly one works_on row remains.
 works_count=$(sqlite3 "$DB" \
     "SELECT COUNT(*) FROM relations
-     WHERE from_id='seed_person_andrey' AND relation_type='works_on'")
+     WHERE from_id='seed_person_zzbeta' AND relation_type='works_on'")
 if [ "$works_count" != "1" ]; then
     fail "expected 1 works_on row, got $works_count"
 fi
@@ -35,16 +35,16 @@ fi
 # 4. Exactly one knows row remains.
 knows_count=$(sqlite3 "$DB" \
     "SELECT COUNT(*) FROM relations
-     WHERE from_id='seed_person_andrey' AND relation_type='knows'")
+     WHERE from_id='seed_person_zzbeta' AND relation_type='knows'")
 if [ "$knows_count" != "1" ]; then
     fail "expected 1 knows row, got $knows_count"
 fi
 
-# 5. Aliasing happened: ≤1 seed_person_andrey* entity remains.
+# 5. Aliasing happened: ≤1 seed_person_zzbeta* entity remains.
 remaining=$(sqlite3 "$DB" \
-    "SELECT COUNT(*) FROM entities WHERE id LIKE 'seed_person_andrey%'")
+    "SELECT COUNT(*) FROM entities WHERE id LIKE 'seed_person_zzbeta%'")
 if [ "$remaining" -gt "1" ]; then
-    fail "expected ≤1 seed_person_andrey* entity, got $remaining"
+    fail "expected ≤1 seed_person_zzbeta* entity, got $remaining"
 fi
 
 # 6. Alias row was created in entity_aliases.
@@ -56,20 +56,44 @@ fi
 
 # 7. Canonical entity got augmented with city + role.
 props=$(sqlite3 "$DB" \
-    "SELECT properties_json FROM entities WHERE id = 'seed_person_andrey'")
+    "SELECT properties_json FROM entities WHERE id = 'seed_person_zzbeta'")
 if ! echo "$props" | jq -e '.city == "Riga"' >/dev/null 2>&1; then
-    fail "expected city=Riga on seed_person_andrey, got: $props"
+    fail "expected city=Riga on seed_person_zzbeta, got: $props"
 fi
 if ! echo "$props" | jq -e '.role == "Senior iOS dev"' >/dev/null 2>&1; then
-    fail "expected role='Senior iOS dev' on seed_person_andrey, got: $props"
+    fail "expected role='Senior iOS dev' on seed_person_zzbeta, got: $props"
 fi
 
-# 8. Audit log: dreamer-eval actor wrote ≥2 entries (delete + merge minimum;
-#    augment-entity also writes; alias does not currently audit, that's OK).
+# 8. Audit log: dreamer-eval actor wrote ≥4 entries (delete-relations, merge-relations,
+#    augment-entity, delete-entity, repair-orphan-vectors, repair-orphan-blobs as applicable).
 audits=$(sqlite3 "$DB" \
     "SELECT COUNT(*) FROM graph_purge_log WHERE actor='dreamer-eval'")
-if [ "$audits" -lt "2" ]; then
-    fail "expected ≥2 graph_purge_log entries from dreamer-eval, got $audits"
+if [ "$audits" -lt "4" ]; then
+    fail "expected ≥4 graph_purge_log entries from dreamer-eval, got $audits"
+fi
+
+# 9. delete-entity executed — seed_orphan_zzstub is gone.
+orphan_remaining=$(sqlite3 "$DB" \
+    "SELECT COUNT(*) FROM entities WHERE id='seed_orphan_zzstub'")
+if [ "$orphan_remaining" != "0" ]; then
+    fail "expected seed_orphan_zzstub deleted, still present ($orphan_remaining)"
+fi
+
+# 10. add_alias audit row landed (#22). actor='add_alias' on the rows the aliasing step produced.
+alias_audits=$(sqlite3 "$DB" \
+    "SELECT COUNT(*) FROM graph_purge_log
+     WHERE actor='add_alias'
+     AND details_json LIKE '%seed_%'")
+if [ "$alias_audits" -lt "1" ]; then
+    fail "expected ≥1 add_alias audit row for seed_ aliases, got $alias_audits"
+fi
+
+# 11. repair-orphan-vectors ran — the seeded ghost vector is gone (or stayed if
+#     the sqlite3 INSERT into vec0 wasn't possible; either way no failure).
+ghost_remaining=$(sqlite3 "$DB" \
+    "SELECT COUNT(*) FROM mem_vectors WHERE mem_id='seed_ghost_vector'" 2>/dev/null || echo "0")
+if [ "$ghost_remaining" != "0" ]; then
+    fail "expected seed_ghost_vector removed by repair-orphan-vectors, got $ghost_remaining"
 fi
 
 if [ "$FAIL" -eq "0" ]; then

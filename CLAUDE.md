@@ -189,6 +189,14 @@ SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structu
 
 Agent integration is abstracted via providers (`src-tauri/src/agent/`, `src/components/ChatView/parser.ts`). Currently: Claude. Architecture-ready: Codex, Aider, Goose. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`docs/contributing/architecture.md`**.
 
+## Mem self-repair primitives (Dreamer interface)
+
+Graph cleanup goes through `src-tauri/src/mem/graph_repair.rs` — whitelist-bounded typed primitives, never raw SQL. The Dreamer chains these via the prompt at `src-tauri/prompts/dreaming_rem.md` Stage A.4.
+
+CLI: `codeterm mem graph {find-duplicate-relations,delete-relations,merge-relations,find-duplicate-entities,augment-entity,delete-entity,alias,repair-orphan-vectors,repair-orphan-blobs}`. REST: `POST /api/mem/graph/repair/*`. Every destructive op writes a full payload to `graph_purge_log` for reversibility. See `docs/MEMORY.md` for the full table.
+
+When extending the surface: add a typed enum variant (mirror `RelationColumn` / `EntitySimilarityStrategy`) instead of free-form strings; never let LLM-controlled input reach `format!`-built SQL.
+
 ## GitHub Issues
 
 Issue titles use `<scope>: description` — same scopes as commit prefixes:

@@ -473,6 +473,21 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 
 **Extraction concurrency:** `ServiceContext::extract_semaphore` caps auto-extraction at **4 concurrent workers** across the whole process. Every `mem_save` (except items tagged `auto-extracted`, sourced from `extracted_from:*`, or sent with `skip_extract: true`) schedules an extraction task that acquires a permit from this semaphore before spawning a hidden extraction pane. Additional graph routes (`/api/mem/graph/*`), learnings, dreaming, and worker endpoints exist but are not documented here — read `src-tauri/src/api/mem_routes.rs` for the full surface.
 
+#### Memory — Graph self-repair (Dreamer primitives)
+
+Whitelist-bounded graph cleanup primitives. All destructive ops audit-log to `graph_purge_log`. See `docs/MEMORY.md` for the full Dreamer flow.
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/mem/graph/repair/find-relations` | `{group_by:[…], limit:N}` | List duplicate relation groups by a whitelisted subset of columns (`from_id`, `relation_type`, `to_id`, `scope`, `valid_from`). Returns `{groups:[{key, count, rowids, sample}]}`. Read-only. |
+| POST | `/api/mem/graph/repair/delete-relations` | `{rowids:[…], actor}` | Delete explicit rowids; full row payload preserved in audit. |
+| POST | `/api/mem/graph/repair/merge-relations` | `{keep:N, merge:[…], actor}` | Fold merge-rowids into keep — max(confidence), properties merged (keep wins on collision), audit row written. |
+| POST | `/api/mem/graph/repair/find-entities` | `{strategy:{kind:"exact_name"\|"alias_chain"\|"vector", threshold?, entity_type?}, limit:N}` | Surface candidate duplicate entities. Vector strategy uses cosine-sim threshold (0.0–1.0). Read-only. |
+| POST | `/api/mem/graph/repair/augment-entity` | `{id, patch:{…}, actor}` | PATCH `properties_json` then re-embed. Audit row with `count=0`. |
+| POST | `/api/mem/graph/repair/delete-entity` | `{id, force:bool, purge_history:bool, actor}` | Delete entity (refuses if active relations and `force=false`). `force` cascades active rels, `purge_history` also drops invalidated rels. Also cleans `entity_aliases` referencing the id and the entity's `mem_vectors`. |
+| POST | `/api/mem/graph/repair/orphan-vectors` | `{dry_run:bool, actor}` | Find/delete `mem_vectors` rows whose mem_id has no matching `entities`/`mem_items` row. |
+| POST | `/api/mem/graph/repair/orphan-blobs` | `{dry_run:bool, actor}` | CAS-aware sweep of `sha256_*.txt` blob files no `mem_item.body_blob_path` references. |
+
 #### Secrets
 
 Pluggable secret-store layer. Active backend is selected by `integrations.secrets.backend` in `config.toml`; built-in backends are `local` (OS keychain, default), `bitwarden` (Bitwarden CLI, optional Vaultwarden server), and `mock` (in-memory, dev only). All endpoints require the standard Bearer token. **Local-only by design** — secret routes are never relayed across the mesh; the CLI rejects `--mesh` on `mem secret` subcommands with exit code 7.
@@ -1208,4 +1223,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 46 -->
+<!-- revision: 47 -->
