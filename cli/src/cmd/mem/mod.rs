@@ -459,11 +459,12 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/entities", base), &payload)
             }
-            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope } => {
+            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope, reason } => {
                 let payload = serde_json::json!({
                     "from": from, "rel": rel, "to": to,
                     "valid_from": valid_from, "valid_to": valid_to,
                     "confidence": confidence, "scope": scope,
+                    "reason": reason,
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/relate", base), &payload)
             }

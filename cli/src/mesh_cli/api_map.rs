@@ -544,11 +544,12 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 if let Some(s) = scope { payload["scope"] = json!(s); }
                 ("POST".into(), "/api/mem/graph/entities".into(), Some(payload.to_string()))
             }
-            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope } => {
+            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope, reason } => {
                 let mut payload = json!({"from": from, "rel": rel, "to": to, "confidence": confidence});
                 if let Some(v) = valid_from { payload["valid_from"] = json!(v); }
                 if let Some(v) = valid_to { payload["valid_to"] = json!(v); }
                 if let Some(v) = scope { payload["scope"] = json!(v); }
+                if let Some(v) = reason { payload["reason"] = json!(v); }
                 ("POST".into(), "/api/mem/graph/relate".into(), Some(payload.to_string()))
             }
             MemGraphAction::Related { id, rel, as_of, include_invalidated } => {

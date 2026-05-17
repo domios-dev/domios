@@ -515,6 +515,9 @@ pub enum MemGraphAction {
         confidence: f64,
         #[arg(long)]
         scope: Option<String>,
+        /// Free-text reason; written to relations.reason for audit.
+        #[arg(long)]
+        reason: Option<String>,
     },
     /// List outgoing relations from an id
     Related {
