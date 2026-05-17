@@ -566,6 +566,14 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/repair/augment-entity", base), &payload)
             }
+            MemGraphAction::DeleteEntity { id, force, actor } => {
+                let payload = serde_json::json!({
+                    "id": id,
+                    "force": force,
+                    "actor": actor,
+                });
+                mem_post_request(&http, &format!("{}/api/mem/graph/repair/delete-entity", base), &payload)
+            }
             // Local-only mutations + reads that benefit from direct DB access:
             // route through the same dispatcher as main() so a future reorder
             // of main.rs cannot turn this into a panic in production. The

@@ -622,6 +622,10 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 let payload = json!({"id": id, "patch": patch_val, "actor": actor});
                 ("POST".into(), "/api/mem/graph/repair/augment-entity".into(), Some(payload.to_string()))
             }
+            MemGraphAction::DeleteEntity { id, force, actor } => {
+                let payload = json!({"id": id, "force": force, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/delete-entity".into(), Some(payload.to_string()))
+            }
             // Local-only graph mutations: no mesh relay. Fall through to
             // /stats so the call still returns valid JSON if a caller
             // somehow routes it across the wire.
