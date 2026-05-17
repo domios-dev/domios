@@ -362,12 +362,14 @@ pub fn augment_entity(
 pub struct DeleteEntityReport {
     pub entity_id: String,
     pub cascaded_relations: u64,
+    pub cascaded_history: u64,
 }
 
 pub fn delete_entity_by_id(
     conn: &Connection,
     entity_id: &str,
     force: bool,
+    purge_history: bool,
     actor: &str,
 ) -> Result<DeleteEntityReport, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
@@ -422,6 +424,13 @@ pub fn delete_entity_by_id(
         Vec::new()
     };
 
+    let cascaded_history: u64 = if purge_history {
+        tx.execute(
+            "DELETE FROM relations WHERE valid_to IS NOT NULL AND (from_id = ?1 OR to_id = ?1)",
+            params![entity_id],
+        ).map_err(|e| e.to_string())? as u64
+    } else { 0 };
+
     tx.execute("DELETE FROM entities WHERE id = ?1", params![entity_id])
         .map_err(|e| e.to_string())?;
 
@@ -445,18 +454,21 @@ pub fn delete_entity_by_id(
             "properties_json": properties_json,
         },
         "cascaded_relations": cascaded_rels,
+        "cascaded_history": cascaded_history,
         "force": force,
+        "purge_history": purge_history,
     }).to_string();
     tx.execute(
         "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
          VALUES (?1, ?2, NULL, NULL, NULL, ?3, ?4)",
-        params![now, (1 + cascaded_rels.len()) as i64, actor, details],
+        params![now, (1 + cascaded_rels.len() + cascaded_history as usize) as i64, actor, details],
     ).map_err(|e| e.to_string())?;
 
     tx.commit().map_err(|e| e.to_string())?;
     Ok(DeleteEntityReport {
         entity_id: entity_id.to_string(),
         cascaded_relations: cascaded_rels.len() as u64,
+        cascaded_history,
     })
 }
 

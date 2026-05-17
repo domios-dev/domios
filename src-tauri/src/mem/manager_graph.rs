@@ -144,10 +144,11 @@ impl MemManager {
         &self,
         entity_id: &str,
         force: bool,
+        purge_history: bool,
         actor: &str,
     ) -> Result<crate::mem::graph_repair::DeleteEntityReport, String> {
         let conn = self.conn.lock();
-        crate::mem::graph_repair::delete_entity_by_id(&conn, entity_id, force, actor)
+        crate::mem::graph_repair::delete_entity_by_id(&conn, entity_id, force, purge_history, actor)
     }
 
     pub fn graph_merge_relations(
