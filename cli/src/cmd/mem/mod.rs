@@ -459,11 +459,12 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/entities", base), &payload)
             }
-            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope } => {
+            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope, reason } => {
                 let payload = serde_json::json!({
                     "from": from, "rel": rel, "to": to,
                     "valid_from": valid_from, "valid_to": valid_to,
                     "confidence": confidence, "scope": scope,
+                    "reason": reason,
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/relate", base), &payload)
             }
@@ -564,6 +565,14 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                     "actor": actor,
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/repair/augment-entity", base), &payload)
+            }
+            MemGraphAction::DeleteEntity { id, force, actor } => {
+                let payload = serde_json::json!({
+                    "id": id,
+                    "force": force,
+                    "actor": actor,
+                });
+                mem_post_request(&http, &format!("{}/api/mem/graph/repair/delete-entity", base), &payload)
             }
             // Local-only mutations + reads that benefit from direct DB access:
             // route through the same dispatcher as main() so a future reorder

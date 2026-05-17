@@ -27,7 +27,7 @@ All commands go through `build.sh`. Safe on Windows: never kills production Code
 ```bash
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
 ./build.sh dev --wait       # same, but backgrounds the process and blocks until /api/health
-                            # reports the new build_number — use in scripts/benches/CI
+                            # responds — use in scripts/benches/CI
 ./build.sh check            # cargo check (~2s incremental)
 ./build.sh test             # Rust unit tests
 ./build.sh build            # production build
@@ -41,10 +41,10 @@ source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 **Before debugging, always verify the running build matches your code:**
 
 ```bash
-curl -s http://127.0.0.1:7686/api/health | jq '{build, build_number}'
+curl -s http://127.0.0.1:7686/api/health | jq '.build'
 ```
 
-If `build` (git commit hash) differs from `git rev-parse HEAD`, the old build is still running — restart with `./build.sh dev`. Don't waste time investigating stale binaries.
+If `build` (git commit hash) differs from `git rev-parse HEAD`, the old build is still running — restart with `./build.sh dev`. During iterative work the hash stays the same across restarts, so the real "did the restart take" signal is `./build.sh kill` (which guarantees the old process is gone) followed by a fresh `./build.sh dev`.
 
 Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-dev/logs/codeterm.log`.
 

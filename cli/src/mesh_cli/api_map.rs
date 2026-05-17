@@ -544,11 +544,12 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 if let Some(s) = scope { payload["scope"] = json!(s); }
                 ("POST".into(), "/api/mem/graph/entities".into(), Some(payload.to_string()))
             }
-            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope } => {
+            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope, reason } => {
                 let mut payload = json!({"from": from, "rel": rel, "to": to, "confidence": confidence});
                 if let Some(v) = valid_from { payload["valid_from"] = json!(v); }
                 if let Some(v) = valid_to { payload["valid_to"] = json!(v); }
                 if let Some(v) = scope { payload["scope"] = json!(v); }
+                if let Some(v) = reason { payload["reason"] = json!(v); }
                 ("POST".into(), "/api/mem/graph/relate".into(), Some(payload.to_string()))
             }
             MemGraphAction::Related { id, rel, as_of, include_invalidated } => {
@@ -620,6 +621,10 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 let patch_val: serde_json::Value = serde_json::from_str(patch).unwrap_or(json!({}));
                 let payload = json!({"id": id, "patch": patch_val, "actor": actor});
                 ("POST".into(), "/api/mem/graph/repair/augment-entity".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::DeleteEntity { id, force, actor } => {
+                let payload = json!({"id": id, "force": force, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/delete-entity".into(), Some(payload.to_string()))
             }
             // Local-only graph mutations: no mesh relay. Fall through to
             // /stats so the call still returns valid JSON if a caller

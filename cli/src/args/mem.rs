@@ -515,6 +515,9 @@ pub enum MemGraphAction {
         confidence: f64,
         #[arg(long)]
         scope: Option<String>,
+        /// Free-text reason; written to relations.reason for audit.
+        #[arg(long)]
+        reason: Option<String>,
     },
     /// List outgoing relations from an id
     Related {
@@ -755,6 +758,19 @@ pub enum MemGraphAction {
         /// JSON object of properties to merge in (e.g. '{"city":"Riga"}')
         #[arg(long)]
         patch: String,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
+    /// Delete an entity by id (audited). Refuses if it has active relations
+    /// unless --force, in which case those relations are cascade-deleted too.
+    #[clap(name = "delete-entity")]
+    DeleteEntity {
+        /// Entity id (e.g. seed_person_anna)
+        #[arg(long)]
+        id: String,
+        /// Cascade-delete active relations referencing this entity.
+        #[arg(long)]
+        force: bool,
         #[arg(long, default_value = "user")]
         actor: String,
     },
