@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:plugins": "bash scripts/plugin-tests.sh"
   },
   "keywords": [],
   "author": "",
