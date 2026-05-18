@@ -225,24 +225,24 @@ fn find_duplicate_entities_by_exact_name() {
     let conn = fresh_conn();
     use crate::mem::graph::{insert_entity, Entity};
     insert_entity(&conn, &Entity {
-        id: "person_owner".into(), entity_type: "Person".into(),
-        scope: "global".into(), properties: serde_json::json!({"name": "Andrey"}),
+        id: "person_robert".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "Robert"}),
     }).unwrap();
     insert_entity(&conn, &Entity {
-        id: "person_ownery".into(), entity_type: "Person".into(),
-        scope: "global".into(), properties: serde_json::json!({"name": "andrey "}),
+        id: "person_roberty".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "robert "}),
     }).unwrap();
     insert_entity(&conn, &Entity {
         id: "person_other".into(), entity_type: "Person".into(),
-        scope: "global".into(), properties: serde_json::json!({"name": "Anna"}),
+        scope: "global".into(), properties: serde_json::json!({"name": "Susan"}),
     }).unwrap();
 
     let groups = find_duplicate_entities(&conn, EntitySimilarityStrategy::ExactName, 100).unwrap();
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].entity_type, "Person");
     assert_eq!(groups[0].member_ids.len(), 2);
-    assert!(groups[0].member_ids.contains(&"person_owner".to_string()));
-    assert!(groups[0].member_ids.contains(&"person_ownery".to_string()));
+    assert!(groups[0].member_ids.contains(&"person_robert".to_string()));
+    assert!(groups[0].member_ids.contains(&"person_roberty".to_string()));
     assert_eq!(groups[0].reason, "exact_name");
 }
 
@@ -252,7 +252,7 @@ fn find_duplicate_entities_by_alias_chain() {
     use crate::mem::graph::{insert_entity, Entity, add_alias};
     insert_entity(&conn, &Entity {
         id: "canonical".into(), entity_type: "Person".into(),
-        scope: "global".into(), properties: serde_json::json!({"name": "Andrey"}),
+        scope: "global".into(), properties: serde_json::json!({"name": "Canonical"}),
     }).unwrap();
     insert_entity(&conn, &Entity {
         id: "alias1".into(), entity_type: "Person".into(),
@@ -277,8 +277,8 @@ fn find_duplicate_entities_empty_when_no_duplicates() {
     let conn = fresh_conn();
     use crate::mem::graph::{insert_entity, Entity};
     insert_entity(&conn, &Entity {
-        id: "person_owner".into(), entity_type: "Person".into(),
-        scope: "global".into(), properties: serde_json::json!({"name": "Andrey"}),
+        id: "person_robert".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "Robert"}),
     }).unwrap();
     let groups = find_duplicate_entities(&conn, EntitySimilarityStrategy::ExactName, 100).unwrap();
     assert!(groups.is_empty());
@@ -289,26 +289,26 @@ fn augment_entity_patches_properties_and_logs() {
     let conn = fresh_conn();
     use crate::mem::graph::{insert_entity, Entity};
     insert_entity(&conn, &Entity {
-        id: "person_owner".into(),
+        id: "person_robert".into(),
         entity_type: "Person".into(),
         scope: "global".into(),
-        properties: serde_json::json!({"name": "Andrey"}),
+        properties: serde_json::json!({"name": "Robert"}),
     }).unwrap();
 
     let mut patch = serde_json::Map::new();
-    patch.insert("city".into(), serde_json::json!("Riga"));
-    patch.insert("description".into(), serde_json::json!("Senior iOS dev, 10y XP"));
+    patch.insert("city".into(), serde_json::json!("Berlin"));
+    patch.insert("description".into(), serde_json::json!("Backend engineer, 10y XP"));
 
-    augment_entity(&conn, "person_owner", patch, "dreamer").unwrap();
+    augment_entity(&conn, "person_robert", patch, "dreamer").unwrap();
 
     let props: String = conn.query_row(
-        "SELECT properties_json FROM entities WHERE id = 'person_owner'",
+        "SELECT properties_json FROM entities WHERE id = 'person_robert'",
         [], |r| r.get(0)
     ).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&props).unwrap();
-    assert_eq!(parsed["name"], "Andrey", "existing non-collision keys preserved");
-    assert_eq!(parsed["city"], "Riga", "new keys added");
-    assert_eq!(parsed["description"], "Senior iOS dev, 10y XP");
+    assert_eq!(parsed["name"], "Robert", "existing non-collision keys preserved");
+    assert_eq!(parsed["city"], "Berlin", "new keys added");
+    assert_eq!(parsed["description"], "Backend engineer, 10y XP");
 
     let (count, actor, details): (i64, String, String) = conn.query_row(
         "SELECT count, actor, details_json FROM graph_purge_log ORDER BY id DESC LIMIT 1",
@@ -318,7 +318,7 @@ fn augment_entity_patches_properties_and_logs() {
     assert_eq!(actor, "dreamer");
     let parsed_d: serde_json::Value = serde_json::from_str(&details).unwrap();
     assert_eq!(parsed_d["op"], "augment_entity");
-    assert_eq!(parsed_d["entity_id"], "person_owner");
+    assert_eq!(parsed_d["entity_id"], "person_robert");
 }
 
 #[test]
@@ -326,30 +326,30 @@ fn augment_entity_overwrites_existing_keys() {
     let conn = fresh_conn();
     use crate::mem::graph::{insert_entity, Entity};
     insert_entity(&conn, &Entity {
-        id: "person_owner".into(),
+        id: "person_robert".into(),
         entity_type: "Person".into(),
         scope: "global".into(),
         properties: serde_json::json!({"city": "OldCity"}),
     }).unwrap();
 
     let mut patch = serde_json::Map::new();
-    patch.insert("city".into(), serde_json::json!("Riga"));
+    patch.insert("city".into(), serde_json::json!("Berlin"));
 
-    augment_entity(&conn, "person_owner", patch, "dreamer").unwrap();
+    augment_entity(&conn, "person_robert", patch, "dreamer").unwrap();
 
     let props: String = conn.query_row(
-        "SELECT properties_json FROM entities WHERE id = 'person_owner'",
+        "SELECT properties_json FROM entities WHERE id = 'person_robert'",
         [], |r| r.get(0)
     ).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&props).unwrap();
-    assert_eq!(parsed["city"], "Riga", "patch overwrites existing key");
+    assert_eq!(parsed["city"], "Berlin", "patch overwrites existing key");
 }
 
 #[test]
 fn augment_entity_missing_entity_errors() {
     let conn = fresh_conn();
     let mut patch = serde_json::Map::new();
-    patch.insert("city".into(), serde_json::json!("Riga"));
+    patch.insert("city".into(), serde_json::json!("Berlin"));
     let err = augment_entity(&conn, "nonexistent", patch, "dreamer").unwrap_err();
     assert!(err.contains("nonexistent") || err.contains("not found"),
             "error should reference missing entity, got: {}", err);

@@ -1033,19 +1033,19 @@ mod tests {
 
     #[tokio::test]
     async fn normalize_merges_high_confidence_asymmetric_pair() {
-        // Typo-class pair: andrey vs andreyy. LD=1, ratio=6/7=0.857 ≥ 0.85.
-        // andreyy has 1 relation, andrey has 3 → andreyy becomes alias of andrey.
+        // Typo-class pair: robert vs robertt. LD=1, ratio=6/7=0.857 ≥ 0.85.
+        // robertt has 1 relation, robert has 3 → robertt becomes alias of robert.
         let mem = MemManager::open_in_memory().unwrap();
         {
             let c = mem.conn();
             let c = c.lock();
-            for id in ["person_owner", "person_ownery", "x", "y", "z"] {
+            for id in ["person_robert", "person_robertt", "x", "y", "z"] {
                 let etype = if id.starts_with("person") { "person" } else { "thing" };
                 insert_entity(&c, id, etype, 0);
             }
-            insert_relation(&c, "person_ownery", "mentions", "x");
+            insert_relation(&c, "person_robertt", "mentions", "x");
             for to in ["x", "y", "z"] {
-                insert_relation(&c, "person_owner", "mentions", to);
+                insert_relation(&c, "person_robert", "mentions", to);
             }
         }
 
@@ -1053,10 +1053,10 @@ mod tests {
         assert_eq!(report.promoted, 1, "exactly one merge expected");
 
         let canonical: String = mem.conn().lock().query_row(
-            "SELECT canonical_id FROM entity_aliases WHERE alias_id = 'person_ownery'",
+            "SELECT canonical_id FROM entity_aliases WHERE alias_id = 'person_robertt'",
             [], |r| r.get(0),
         ).unwrap();
-        assert_eq!(canonical, "person_owner");
+        assert_eq!(canonical, "person_robert");
     }
 
     #[tokio::test]

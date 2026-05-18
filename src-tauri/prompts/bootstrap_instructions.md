@@ -16,7 +16,6 @@ One question at a time, keep it natural — don't dump a questionnaire. Wait for
 
 ### Step 3: Check for existing data
 Look for existing AI assistant installations on this machine:
-- `~/.a gateway/` — a gateway (agents, identity, config)
 - `~/.claude/skills/` — Claude Code skills (beyond codeterm)
 - `~/.claude/agents/` — agent definitions
 
