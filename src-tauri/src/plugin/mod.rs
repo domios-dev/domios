@@ -15,6 +15,7 @@ pub mod agent_opencode;
 pub mod bundle_hash;
 pub mod common;
 pub mod js_runtime;
+pub mod system_plugins;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
