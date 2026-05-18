@@ -11,7 +11,7 @@ import {
   useAgentDetection,
   useTauriFileDrop,
 } from "../../hooks/terminal";
-import { sendFilePathsToPty, sendPlainTextToPty } from "../../lib/clipboardPaste";
+import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
@@ -81,14 +81,24 @@ export function TerminalPane({
   useAgentDetection({ termRef, paneId, termReady });
 
   // --- Tauri native drag-drop (provides real file paths, no byte copy) ---
-  useTauriFileDrop({
+  // Routes through term.paste so xterm wraps with bracketed-paste markers
+  // only when the running app has enabled bracketed mode — same single
+  // pipeline as keyboard paste.
+  const { isDragOver: isFileDragOver } = useTauriFileDrop({
     containerRef,
     enabled: termReady,
     onPaths: (paths) => {
-      const id = connectedPtyRef.current;
-      if (id) sendFilePathsToPty(id, paths);
+      const term = termRef.current;
+      if (!term || paths.length === 0) return;
+      term.paste(paths.map(quotePathForPaste).join(" "));
     },
   });
+
+  // Tracks "user is dragging non-file content (text from another app) over
+  // this pane". Tauri's drag-drop covers FILE drags, HTML dragenter covers
+  // everything else (selected text from a browser, etc.). Combined visually.
+  const [isTextDragOver, setIsTextDragOver] = useState(false);
+  const showDropOverlay = (isFileDragOver || isTextDragOver) && termReady;
 
   // --- Input handling ---
   const { copySelection, pasteFromClipboard, clearTerminal } = useTerminalInput({
@@ -168,20 +178,34 @@ export function TerminalPane({
       }}
       onMouseDown={handleClick}
       onContextMenu={handleContextMenu}
+      onDragEnter={(e) => {
+        // Only flip for drags carrying actual draggable data — ignores DOM
+        // drag interactions from internal UI (resizing splits, etc.) which
+        // don't put anything on `dataTransfer.types`.
+        if (e.dataTransfer.types.length > 0) setIsTextDragOver(true);
+      }}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onDragLeave={(e) => {
+        // dragleave fires when moving between children too. Only clear when
+        // the cursor truly leaves the pane bounds — relatedTarget is null
+        // (or outside `currentTarget`) on a real exit.
+        if (!e.relatedTarget || !(e.currentTarget as Node).contains(e.relatedTarget as Node)) {
+          setIsTextDragOver(false);
+        }
+      }}
       onDrop={(e) => {
-        // File drops are handled by Tauri's native drag-drop event (useTauriFileDrop).
-        // This handler only covers plain-text drops (e.g. drag a selection from another
-        // app and drop it into the terminal). Routes through sendPlainTextToPty so the
-        // bracketed-paste envelope matches every other paste path (#102).
+        // File drops are handled by Tauri's native drag-drop (useTauriFileDrop).
+        // This handler covers plain-text drops (drag selection from browser,
+        // etc.). Routes through term.paste so the bracketed-paste wrap is
+        // governed by xterm's live mode state — same pipeline as every
+        // other paste path.
         e.preventDefault();
         e.stopPropagation();
-        const currentPtyId = connectedPtyRef.current;
-        if (!currentPtyId) return;
+        setIsTextDragOver(false);
+        const term = termRef.current;
+        if (!term) return;
         const text = e.dataTransfer.getData("text/plain");
-        if (text) {
-          sendPlainTextToPty(currentPtyId, text).catch(() => {});
-        }
+        if (text) term.paste(text);
       }}
     >
       {/* Search bar */}
@@ -201,6 +225,31 @@ export function TerminalPane({
         style={{ padding: 8, opacity: shell.overlayVisible ? 0 : 1, transition: "opacity 0.3s ease-in" }}
         onClick={() => termRef.current?.focus()}
       />
+
+      {/* Drop-target overlay — fades in while a file or text drag is
+          hovering this pane so the user gets clear "release to paste" feedback.
+          pointer-events: none so the drag continues to bubble naturally. */}
+      <div
+        className="absolute inset-2 rounded-md flex items-center justify-center pointer-events-none"
+        style={{
+          opacity: showDropOverlay ? 1 : 0,
+          transition: "opacity 120ms ease-out",
+          background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, transparent)",
+          border: "2px dashed color-mix(in srgb, var(--ct-accent, #58a6ff) 70%, transparent)",
+          zIndex: 5,
+        }}
+      >
+        <div
+          className="px-3 py-1.5 rounded text-[12px] font-medium"
+          style={{
+            background: "color-mix(in srgb, var(--ct-bg, #0d1117) 80%, transparent)",
+            color: "var(--ct-fg, #c9d1d9)",
+            border: "1px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 50%, transparent)",
+          }}
+        >
+          Drop to paste
+        </div>
+      </div>
 
       {/* Loading overlay */}
       {shell.overlayVisible && (

@@ -753,12 +753,12 @@ mod tests {
     fn build_announce_includes_tailscale_and_lan() {
         let mut m = MeshManager::new("test-host".into(), 7685);
         m.disk_persist = false;
-        m.tailscale_ip = Some("100.84.1.2".into());
+        m.tailscale_ip = Some("100.65.0.30".into());
         m.local_ip = Some("192.168.1.5".into());
         let ann = m.build_announce();
         assert_eq!(ann.addresses.len(), 2);
         assert!(ann.addresses[0].is_tailscale, "tailscale first");
-        assert_eq!(ann.addresses[0].ip, "100.84.1.2");
+        assert_eq!(ann.addresses[0].ip, "100.65.0.30");
         assert_eq!(ann.addresses[1].ip, "192.168.1.5");
         assert!(!ann.addresses[1].is_tailscale);
         assert_eq!(ann.api_port, 7685);
@@ -785,7 +785,7 @@ mod tests {
             addresses: vec![
                 PeerAddress { ip: "8.8.8.8".into(), is_tailscale: false },
                 PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false },
-                PeerAddress { ip: "100.84.1.2".into(), is_tailscale: true },
+                PeerAddress { ip: "100.65.0.30".into(), is_tailscale: true },
             ],
             api_port: 7685,
             public_key: String::new(),
@@ -803,6 +803,6 @@ mod tests {
         // address selection by reading addresses directly.
         let picked = m.paired_peers["peer-A"].addresses.iter()
             .min_by_key(|a| types::address_tier(a)).unwrap();
-        assert_eq!(picked.ip, "100.84.1.2");
+        assert_eq!(picked.ip, "100.65.0.30");
     }
 }

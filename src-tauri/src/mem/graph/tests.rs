@@ -331,13 +331,13 @@
             id: "canonical".into(),
             entity_type: "Person".into(),
             scope: "global".into(),
-            properties: serde_json::json!({"name": "Andrey", "shared": "canonical_wins"}),
+            properties: serde_json::json!({"name": "Alice", "shared": "canonical_wins"}),
         }).unwrap();
         insert_entity(&conn, &Entity {
             id: "alias".into(),
             entity_type: "Person".into(),
             scope: "global".into(),
-            properties: serde_json::json!({"alt_name": "", "shared": "alias_loses"}),
+            properties: serde_json::json!({"alt_name": "Liz", "shared": "alias_loses"}),
         }).unwrap();
 
         add_alias(&conn, "alias", "canonical").unwrap();
@@ -347,8 +347,8 @@
             [], |r| r.get(0)
         ).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&props).unwrap();
-        assert_eq!(parsed["name"], "Andrey");
-        assert_eq!(parsed["alt_name"], "", "non-colliding alias props must carry over");
+        assert_eq!(parsed["name"], "Alice");
+        assert_eq!(parsed["alt_name"], "Liz", "non-colliding alias props must carry over");
         assert_eq!(parsed["shared"], "canonical_wins", "canonical wins on collision");
     }
 

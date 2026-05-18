@@ -244,8 +244,8 @@ pub async fn spawn_pty(
             // Pane was tagged with an agent but had no session to resume —
             // typically a "silent" claude pane the user spawned and never
             // talked to before a kill. Without this branch the pane comes
-            // back as a bare powershell, which is exactly the bug Andrey
-            // reported. Launch the agent fresh so the pane matches what
+            // back as a bare powershell, which is exactly the previously
+            // reported bug. Launch the agent fresh so the pane matches what
             // the snapshot promised. Gated on restored_from_snapshot so
             // it does NOT race the orchestrator's own launch on a fresh
             // `agent spawn` (would otherwise paste the launch twice).
