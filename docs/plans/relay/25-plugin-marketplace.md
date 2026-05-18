@@ -1,6 +1,6 @@
 # Plugin marketplace + delivery
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
 
 Closes the gap left by **20-provider-plugins-ts** — provider plugins are
 already TS bundles, but they only reach a running daemon if the user
@@ -836,6 +836,205 @@ they don't yet have.
   `marketplace refresh` does a full `git pull`. Once we have many
   channels with many plugins, a manifest-only fetch (just
   `channel.json` HEAD) is the obvious optimisation. Park.
+
+## Schema review against VSCode / Claude Code / Zed / Obsidian
+
+Compared our v2 draft against the four reference manifests. Adopting
+the lessons that aren't VSCode-style bloat. Edits to the manifest
+shown below; rationale in inline comments.
+
+### Plugin manifest v2 (revised)
+
+```jsonc
+{
+  "schemaVersion": 2,                          // manifest shape; bump
+                                               //   on breaking change
+  "id": "claude",                              // immutable; doubles as
+                                               //   the folder name
+                                               //   (Obsidian lesson:
+                                               //   id != folder breaks
+                                               //   lifecycle hooks)
+  "version": "0.1.0",                          // strict semver. If
+                                               //   omitted → git SHA
+                                               //   becomes the version
+                                               //   (Claude Code rule;
+                                               //   convenient for
+                                               //   --from-dir)
+  "displayName": "Claude Code",
+  "description": "Anthropic Claude provider with hooks + skills.",
+  "author": {                                  // object, not bare
+    "name": "codeterm-core",                   //   string — matches
+    "email": "team@codeterm.ai",               //   Claude + npm
+    "url": "https://codeterm.ai"
+  },
+  "license": "MIT",                            // SPDX id
+  "repository": "https://github.com/codeterm/plugins",
+  "homepage": "https://codeterm.ai/plugins/claude",
+  "keywords": ["claude", "anthropic", "provider"],
+  "categories": ["providers"],                 // curated set;
+                                               //   marketplace
+                                               //   filtering
+  "icon": "icon.svg",                          // relative to plugin dir
+  "preview": false,                            // beta/unstable flag
+
+  "engines": { "codeterm": "^1.3.0" },         // runtime compat
+
+  "activationEvents": [                        // VSCode's biggest perf
+    "onProvider:claude",                       //   lesson — declare
+    "onWorkspace"                              //   when to wake the
+  ],                                           //   VM; default "lazy"
+
+  "extensionKind": ["local", "mesh"],          // local / remote /
+                                               //   mesh — relevant
+                                               //   when codeterm peers
+                                               //   sync plugin state
+
+  "contributes": {                             // explicit ONLY for
+    "providers": [                             //   contributions that
+      { "id": "claude", "entry": "plugin.js" } //   need a JS entry.
+    ]                                          //   skills/, hooks/
+                                               //   discovered from
+                                               //   their dirs.
+  },
+
+  "dependencies": {                            // other plugin ids
+    "host-utilities": "^0.2.0"                 //   this one needs
+  },
+  "conflictsWith": [],                         // plugin ids that
+                                               //   can't coexist
+                                               //   (e.g. two
+                                               //   claude-resume
+                                               //   patchers)
+
+  "permissions": {                             // granular caps; tag
+    "fs":        { "~/.claude": "rw" },        //   each fs path with
+    "sqlite":    { "~/.claude/store.db": "r" }, //  mode
+    "network":   ["api.anthropic.com"],        // allow-list (false →
+                                               //   no network)
+    "processes": ["claude"],                   // spawn allow-list
+    "env":       { "read": ["CLAUDE_*"],
+                   "write": [] }
+  }
+}
+```
+
+### Edits adopted from the audit
+
+1. **Keep `id` (not `name`).** Obsidian's id≡folder rule is what we
+   already do via the watcher; renaming buys nothing and breaks Rust
+   `register_provider(id)` ergonomics. `displayName` already covers
+   the human label.
+2. **`repository`, `homepage`, `license`, `keywords`, `categories`,
+   `icon`, `preview`** — all free metadata, used by every system.
+3. **`author` becomes an object** with `{name, email?, url?}`.
+   Matches Claude / npm.
+4. **`activationEvents` baked in from day one.** Default = lazy
+   (`onProvider:<id>`, `onSkill:<id>`, `onHook:<event>`). Plugin can
+   opt into `onStartup` if it really has to. VSCode's biggest
+   retrofit pain — don't repeat.
+5. **`extensionKind` array** — we have mesh, so VSCode's local/remote
+   split is immediately relevant. Plugin states which contexts it's
+   safe in.
+6. **`dependencies` + `conflictsWith`** — VSCode's
+   `extensionDependencies` distilled to one field each. Skipping
+   `extensionPack` (curation primitive we don't need at MVP).
+7. **`permissions` expanded** — added `processes` (spawn allow-list),
+   `env` (read/write env-var allow-lists), tagged fs paths with
+   `r`/`rw`. Closer to a real capability model, still parseable.
+   Granularity matters once third-party plugins land — VSCode
+   regrets having none.
+8. **Drop empty `contributes` arrays for `themes/skills/hooks`** in
+   examples. Claude's pattern: presence of `skills/`, `hooks/hooks.json`
+   directories auto-discovers. Only `providers` needs an explicit
+   entry script.
+9. **`${CODETERM_PLUGIN_ROOT}` env var** — bound when invoking any
+   provider/hook command, equals the plugin's install directory.
+   Plugins reference resources relocatably (`${CODETERM_PLUGIN_ROOT}/svg/claude.svg`).
+10. **Version-resolution rule** spelled out: explicit `version` wins;
+    if absent (only allowed for `--from-dir` installs and channel
+    entries with `ref` instead of `version`), the git SHA the plugin
+    was built from becomes the version. Channel manifests MUST
+    specify a version (no implicit-SHA in user-facing channels).
+
+### Edits deferred (not worth complexity this rev)
+
+- `bin/` Claude convention — providers already handle their CLI
+  themselves; `cliBinary` + `installer` in current manifest cover it.
+- `extensionPack` (VSCode) — curation primitive, premature.
+- `qna`, `sponsor`, `badges`, `pricing`, `galleryBanner` —
+  marketplace decoration, can grow into them organically.
+
+### Channel manifest v2
+
+Channel manifest gets a small but important upgrade — polymorphic
+plugin sources, owner block, reserved-name validation.
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "name": "codeterm-core",
+  "displayName": "CodeTerm Core",
+  "description": "Official provider plugins shipped by the CodeTerm team.",
+  "owner": {                                   // required; channel
+    "name": "CodeTerm Team",                   //   maintainers visible
+    "email": "team@codeterm.ai",               //   to users so they
+    "url": "https://codeterm.ai"               //   know who to trust
+  },
+  "metadata": {
+    "pluginRoot": ".",                         // relative base for
+                                               //   `source` paths
+                                               //   below — lets a
+                                               //   channel keep
+                                               //   plugins in a
+                                               //   subdir
+    "version": "2026.05.18"                    // catalog version,
+                                               //   bumped by author
+                                               //   on every plugin
+                                               //   add/update
+  },
+  "plugins": [
+    {
+      "id": "claude",
+      "source": "provider-claude",             // relative dir in this
+                                               //   channel repo
+      "version": "0.2.0"                       // MUST match the
+                                               //   referenced plugin's
+                                               //   own plugin.json
+    },
+    {
+      "id": "gemini",
+      "source": { "type": "github",            // polymorphic source:
+                  "repo": "vendor/codeterm-gemini",
+                  "ref":  "v0.3.0" },
+      "version": "0.3.0"
+    },
+    {
+      "id": "experimental",
+      "source": { "type": "npm",               // future expansion —
+                  "package": "@vendor/codeterm-plugin",
+                  "version": "0.1.0" },
+      "version": "0.1.0"
+    }
+  ]
+}
+```
+
+### Reserved names and path hygiene
+
+Bake validation into channel-add + plugin-publish:
+
+- Reserved channel names: `codeterm`, `codeterm-core`, `codeterm-official`,
+  `core`, `system`, `default`. Channel registering with a reserved
+  name + a non-system source is rejected at `plugin channel add`.
+- Reserved plugin ids: same list. A community plugin claiming
+  `id: "claude"` loads (Case J) but with the unverified flag and
+  never claims system status — hash check blocks shadowing.
+- No `../` in any source path. Paths normalised to plugin's own
+  install dir on copy. (Claude's cache-copy lesson.)
+- `id` must match the install folder name. Mismatch = manifest
+  validation error. (Obsidian's lifecycle-hook lesson.)
+- Channel name with mixed case + spaces lower-snake on save
+  (`Cool Stuff` → `cool-stuff`), warned to author at publish.
 
 ## Open questions
 
