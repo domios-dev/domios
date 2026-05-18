@@ -210,6 +210,39 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 Err(e) => { eprintln!("Status request failed: {}", e); std::process::exit(1); }
             }
         }
+        PaneAction::Stop { pane } => {
+            let pane_id = resolve_pane(client, pane);
+            let (api_url, api_token) = read_api_config();
+            let http = match build_http(&api_token) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            match http
+                .post(format!("{}/api/panes/{}/stop", api_url, pane_id))
+                .header("Content-Type", "application/json")
+                .body("{}")
+                .send()
+            {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let body: serde_json::Value = resp.json().unwrap_or_else(|_| serde_json::json!({}));
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&body).unwrap());
+                    } else if !status.is_success() {
+                        eprintln!("Stop failed: HTTP {}", status);
+                        std::process::exit(1);
+                    } else if body.get("stopped").and_then(|v| v.as_bool()).unwrap_or(false) {
+                        println!("Stopped pane {}", pane_id);
+                    } else {
+                        println!("Pane {} has no stop keystroke declared", pane_id);
+                    }
+                }
+                Err(e) => { eprintln!("Stop request failed: {}", e); std::process::exit(1); }
+            }
+        }
     }
 }
 

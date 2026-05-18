@@ -121,6 +121,16 @@ pub enum PaneAction {
         /// Substring or short pattern to match
         pattern: String,
     },
+    /// Interrupt the agent's current generation (NOT a clean exit). Sends the
+    /// provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode,
+    /// Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key).
+    /// Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge
+    /// and have it map straight here.
+    Stop {
+        /// Pane ID (default: current focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
+    },
 }
 
 /// Cross-mesh ephemeral pastebin (#98). In-memory; daemon restart wipes
