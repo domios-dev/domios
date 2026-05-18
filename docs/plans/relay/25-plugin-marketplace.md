@@ -1,6 +1,6 @@
 # Plugin marketplace + delivery
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
 
 Closes the gap left by **20-provider-plugins-ts** — provider plugins are
 already TS bundles, but they only reach a running daemon if the user
@@ -156,20 +156,36 @@ plugin came from the default channel, a community channel, or a manual
 all of them uniformly.
 
 ```bash
-codeterm plugin list                                         # installed
-codeterm plugin install <plugin-id> [--channel <name>]       # default channel inferred
-codeterm plugin update [--all | <plugin-id>]                 # pull channel(s), diff, apply
-codeterm plugin uninstall <plugin-id>                        # blocked for system unless --force
+codeterm plugin install <id>                          # search all channels by id; conflict → error w/ choices
+codeterm plugin remove  <id> [--force]                # uninstall; --force for system
+codeterm plugin update  [<id>] [--approve-perms]      # all if no id
+codeterm plugin list    [--json]                      # installed
+codeterm plugin info    <id>                          # version, source channel, contributions
+codeterm plugin search  [<query>]                     # what's available across channels
 
-codeterm plugin marketplace add <name> <git-url>
-codeterm plugin marketplace list
-codeterm plugin marketplace remove <name>
-codeterm plugin marketplace refresh [<name>]                 # git pull + re-index
+codeterm plugin channel add     <url>                 # name derived from channel.json
+codeterm plugin channel list
+codeterm plugin channel remove  <name>
+codeterm plugin channel refresh [<name>]              # git pull + re-index
 ```
+
+Three things this surface deliberately avoids:
+
+- **No `marketplace` noun.** A channel is the only thing being managed,
+  call it that.
+- **No `--channel` flag on `install` by default.** `plugin install gemini`
+  searches every channel for `id == gemini`. Exactly one match → install.
+  Zero → "not found, channels searched: …". Multiple → explicit error:
+  `id 'gemini' exists in [community, partner-corp] — pass --channel <name>`.
+  The flag exists as the disambiguator, not as the default path.
+- **No `marketplace add <name> <url>`.** Channel name is read from the
+  cloned repo's `channel.json` field. Two channels with the same name →
+  add refuses with the conflict; user removes one or the channel author
+  picks a different name.
 
 Update flow:
 - `plugin update --all` runs `git pull` on every channel cache
-  (`~/.codeterm/marketplace-cache/<channel>/`), reads each `channel.json`,
+  (`~/.codeterm/channels/<channel>/`), reads each `channel.json`,
   compares with `~/.codeterm/plugins/<id>/plugin.json#version`, copies
   new versions in.
 - System plugins are updated unconditionally on `codeterm plugin update`
@@ -182,7 +198,7 @@ On a fresh install, `~/.codeterm/plugins/` is empty. Startup sequence:
 
 1. Detect empty plugins dir.
 2. Add default channel (`codeterm-core` → `https://github.com/...`)
-   to the marketplace list automatically.
+   to the channel list automatically.
 3. Run `plugin install <id>` for every entry the channel lists with a
    matching `SYSTEM_PLUGIN_HASHES` row. (For an air-gapped install
    without network, the binary also ships an embedded fallback bundle
@@ -235,19 +251,27 @@ New tab next to Agents / Notifications. Two sections:
 ## CLI surface (full)
 
 ```
-codeterm plugin list [--json]
-codeterm plugin info <id>
-codeterm plugin install <id> [--channel <name>] [--from-dir <path>]
-codeterm plugin update [--all | <id>] [--dry-run]
-codeterm plugin uninstall <id> [--force]
-codeterm plugin reload <id>                       # force hot-reload
+codeterm plugin install  <id> [--channel <name>] [--version <ver>] [--from-dir <path>]
+codeterm plugin remove   <id> [--force]
+codeterm plugin update   [<id>] [--approve-perms] [--dry-run]
+codeterm plugin list     [--json]
+codeterm plugin info     <id>
+codeterm plugin search   [<query>]
 
-codeterm plugin marketplace add <name> <url>
-codeterm plugin marketplace remove <name>
-codeterm plugin marketplace list [--json]
-codeterm plugin marketplace refresh [<name>]
-codeterm plugin marketplace plugins [<name>]      # what's available
+codeterm plugin pin      <id> [<ver>]                   # pin to current ver if omitted
+codeterm plugin unpin    <id>
+codeterm plugin disable  <id>                           # keep installed, deactivate
+codeterm plugin enable   <id>
+codeterm plugin verify   [--repair]                     # hash check; --repair pulls from embedded
+
+codeterm plugin channel add     <url>
+codeterm plugin channel remove  <name>
+codeterm plugin channel list    [--json]
+codeterm plugin channel refresh [<name>]
 ```
+
+That's 14 verbs total — feels like the floor for what the surface
+needs to cover the case set without secret-handshake flags.
 
 ## Phases
 
@@ -261,7 +285,7 @@ Outcome: fresh `codeterm install` ships with working claude/codex/opencode.
 **This alone fixes the prod-install gap.** Marketplace can wait.
 
 **Phase 2 — channel infra (medium)**
-- `channel.json` schema, marketplace cache dir,
+- `channel.json` schema, channels cache dir,
   `codeterm plugin marketplace *` CLI surface.
 - `codeterm plugin install/update/uninstall` CLI surface.
 - Default channel auto-added on first launch (post-Phase-1 enhancement
@@ -343,21 +367,23 @@ it from their own channel.
    `channel.json` lists `gemini` with `path: "provider-gemini"`,
    `version: "0.1.0"`.
 2. Dev pushes. No CodeTerm-team approval, no central registry PR.
-3. End user adds the channel:
+3. End user adds the channel (no name positional — `channel.json`
+   provides one):
    ```bash
-   codeterm plugin marketplace add community \
-       https://github.com/community-dev/codeterm-plugins
+   codeterm plugin channel add https://github.com/community-dev/codeterm-plugins
+   # Added channel 'community' (3 plugins available).
    ```
-   CodeTerm clones to `~/.codeterm/marketplace-cache/community/`,
+   CodeTerm clones to `~/.codeterm/channels/community/`,
    reads `channel.json`, indexes available plugins.
 4. User browses:
    ```bash
-   codeterm plugin marketplace plugins community
-   # gemini  0.1.0  — Google Gemini provider
+   codeterm plugin search gemini
+   # gemini  0.1.0  community     — Google Gemini provider
    ```
-5. User installs:
+5. User installs by id — no `--channel` needed because only one
+   channel offers `gemini`:
    ```bash
-   codeterm plugin install gemini --channel community
+   codeterm plugin install gemini
    ```
    - Bundle copied to `~/.codeterm/plugins/gemini/`.
    - Loader computes hash, looks up `gemini` in `SYSTEM_PLUGIN_HASHES`
@@ -368,8 +394,9 @@ it from their own channel.
      workspace 3-dot menu, etc.
 6. Dev later ships 0.2.0. Bumps `version` in `provider-gemini/plugin.json`
    AND in `channel.json`. Pushes.
-7. User runs `codeterm plugin update --all` or `update gemini`:
-   - `git pull` on `~/.codeterm/marketplace-cache/community/`.
+7. User runs `codeterm plugin update` (no id → updates everything)
+   or `update gemini`:
+   - `git pull` on `~/.codeterm/channels/community/`.
    - Diff: installed 0.1.0 vs channel 0.2.0 → install.
    - Same hot-reload reload.
 
@@ -383,10 +410,10 @@ channel.
 User decides they don't need OpenCode anymore.
 
 ```bash
-codeterm plugin uninstall opencode
+codeterm plugin remove opencode
 # Refusing: 'opencode' is a system plugin (shipped with CodeTerm).
 #   Use --force to remove anyway; it will be re-installed on next update.
-codeterm plugin uninstall opencode --force
+codeterm plugin remove opencode --force
 # Removed ~/.codeterm/plugins/opencode/
 # Provider 'opencode' unregistered from the live daemon.
 ```
@@ -403,7 +430,7 @@ the binary owns. To keep it out permanently, user adds an
 override:
 
 ```bash
-codeterm plugin pin opencode --disabled
+codeterm plugin disable opencode
 # (writes ~/.codeterm/plugin-overrides.json — read by the bootstrap)
 ```
 
@@ -452,21 +479,23 @@ same place.
 User has been on stock CodeTerm. Friend points them at a community
 plugin.
 
-1. `codeterm plugin marketplace add internal-team \
-      git@github.com:my-org/internal-plugins.git`
+1. `codeterm plugin channel add git@github.com:my-org/internal-plugins.git`
    Private repo — uses user's existing SSH/git creds, no codeterm-
-   specific auth.
-2. `codeterm plugin marketplace refresh internal-team` (or done
+   specific auth. Channel name comes from the repo's `channel.json`
+   (e.g. `internal-team`).
+2. `codeterm plugin channel refresh internal-team` (also runs
    automatically on add).
-3. `codeterm plugin marketplace plugins internal-team` lists what's
-   available.
-4. `codeterm plugin install corp-llm --channel internal-team`.
-5. `codeterm plugin update --all` from then on includes that channel
-   in the pull cycle.
+3. `codeterm plugin search` lists everything available across all
+   channels; the channel column shows where each entry comes from.
+4. `codeterm plugin install corp-llm` — id is unique, installs from
+   the only channel offering it.
+5. `codeterm plugin update` from then on includes every channel in
+   the pull cycle.
 6. If two channels offer the same `id`, install errors with `id
-   conflict: claude in [codeterm-core, sketchy-channel] — specify
-   --channel`. System ids (claude/codex/opencode) always resolve to
-   the system source regardless of `--channel` — no shadow override.
+   'claude' exists in [codeterm-core, sketchy-channel] — pass
+   --channel <name>`. System ids (claude/codex/opencode) always
+   resolve to the system source regardless of `--channel` — no
+   shadow override.
 
 Acceptance: dual-channel scenario covered in
 `evals/plugin-channels/`, including the conflict error path and the
