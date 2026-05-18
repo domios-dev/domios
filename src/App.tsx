@@ -275,29 +275,34 @@ function AppInner() {
         if (sel) navigator.clipboard.writeText(sel).catch(() => {});
         return;
       }
-      if (matchesBinding(e, kb.paste)) {
-        // Skip when xterm or any input/textarea/contenteditable owns the
-        // focus — those have their own paste handlers (TerminalPane via
-        // routeClipboardToTerm, native onPaste on inputs). Without this gate
-        // a paste binding that overlaps with the OS Ctrl+V triggers BOTH
-        // the focused element's paste AND this window-level handler =
-        // double paste. This branch is the fallback for "no focused input"
-        // — e.g. paste while a non-input pane has focus.
+      // App-wide paste: works when the CodeTerm window is focused regardless
+      // of where the inner focus is (titlebar, sidebar, document body, an
+      // unfocused pane). Matches plain Cmd+V / Ctrl+V AND the configured
+      // kb.paste (default Ctrl+Shift+V).
+      //
+      // Skips when an actual editable element owns focus — xterm helper
+      // textarea has its own attachCustomKeyEventHandler that calls
+      // routeClipboardToTerm directly, and real <input>/<textarea>/
+      // contenteditable elements should keep native browser paste. Both
+      // cases would otherwise double-paste against this fallback.
+      const plainPaste = e.code === "KeyV" && !e.shiftKey && !e.altKey
+        && (isMac ? e.metaKey : e.ctrlKey);
+      if (plainPaste || matchesBinding(e, kb.paste)) {
         const active = document.activeElement;
         const isXtermFocused = active?.classList.contains("xterm-helper-textarea");
-        const isInputFocused = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || active?.getAttribute("contenteditable") === "true";
+        const isInputFocused = !isXtermFocused && (
+          active?.tagName === "INPUT"
+          || active?.tagName === "TEXTAREA"
+          || active?.getAttribute("contenteditable") === "true"
+        );
         if (isXtermFocused || isInputFocused) return;
 
-        e.preventDefault();
         const focusedId = stateRef.current.focused_pane_id;
-        if (focusedId) {
-          const focusedPane = stateRef.current.panes[focusedId];
-          if (focusedPane?.pty_id) {
-            navigator.clipboard.readText().then((text) => {
-              if (text) invoke("write_pty_string", { ptyId: focusedPane.pty_id!, data: text });
-            }).catch(() => {});
-          }
-        }
+        if (!focusedId) return;
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("codeterm-paste-to-pane", {
+          detail: { paneId: focusedId },
+        }));
         return;
       }
       if (matchesBinding(e, kb.search)) {
