@@ -78,9 +78,9 @@ fn write_minidump(ctx: &crash_handler::CrashContext, path: &std::path::Path) -> 
     // MinidumpWriter::dump_local_context dumps the current process using the
     // provided exception pointers from crash-handler.
     MinidumpWriter::dump_local_context(
-        Some(ctx.exception_code),
+        Some(ctx.exception_code as i32),
         None,
-        ctx.exception_pointers as _,
+        None,
         &mut file,
     ).is_ok()
 }
