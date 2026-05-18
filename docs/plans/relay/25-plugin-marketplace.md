@@ -1,6 +1,6 @@
 # Plugin marketplace + delivery
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
 
 Closes the gap left by **20-provider-plugins-ts** — provider plugins are
 already TS bundles, but they only reach a running daemon if the user
@@ -641,6 +641,179 @@ parse-fail-auto-repair path and the manual `--repair` invocation.
 Acceptance: `evals/plugin-perms/` flips a fixture plugin's
 permissions between two installs, checks the prompt fires +
 approval persists.
+
+### Case L — Plugin author iterates locally before publishing
+
+A developer is building `provider-grok` and wants to test it against
+their live CodeTerm without pushing to a channel.
+
+```bash
+# in the plugin's source dir on disk
+codeterm plugin install --from-dir .
+# Installed 'grok' 0.0.1-dev from local dir → ~/.codeterm/plugins/grok/
+# Watcher will hot-reload on every save.
+```
+
+`--from-dir` symlinks (or copies, on Windows where symlinks need
+admin) the source directory into `~/.codeterm/plugins/<id>/`. Hot-reload
+watcher already handles file-change → VM reload, so dev's edit/save
+cycle is: edit `plugin.js`, save, alt-tab to a pane, behavior changed.
+No restart, no `git push`.
+
+The plugin is marked **local-dev** in `plugin info`: no channel
+source, version suffix `-dev` if the manifest doesn't already use a
+prerelease tag. `plugin update` skips it (nothing to pull from). To
+"publish", the dev pushes to their git repo and lists it in a
+`channel.json`; users add the channel via Case B.
+
+Acceptance: a `docs/contributing/plugin-author-guide.md` walks
+through `--from-dir` workflow + the "promote to channel" step.
+Smoke test in `evals/plugin-local-dev/`.
+
+### Case M — System plugin shipped with a critical bug, has to be yanked
+
+We ship claude 0.2.0; within hours someone reports it deletes session
+files. We need to pull it without waiting for users to upgrade the
+whole binary.
+
+1. `channel.json` in `codeterm-core` gains a `yanked` field:
+   ```json
+   { "id": "claude", "path": "provider-claude", "version": "0.2.0",
+     "yanked": "session-file deletion bug, use 0.2.1" }
+   ```
+2. We immediately push a 0.2.1 that fixes the bug. Both versions
+   coexist in the channel; 0.2.0 is just flagged.
+3. `plugin update` (auto or manual) on any user's machine sees
+   `yanked` on the installed version → rolls forward to 0.2.1
+   automatically, even if the user pinned 0.2.0. Yanking is
+   stronger than pinning by design (the only way to override is
+   `plugin pin <id> 0.2.0 --acknowledge-yanked`).
+4. Channel UI shows yanked versions with a strike-through and the
+   reason string.
+5. For users who haven't run `plugin update` in a while, next launch
+   does a `channel refresh` if last refresh > 24h and applies the
+   yank rollover transparently.
+
+Same primitive works for third-party channels: a community author can
+yank their own broken release the same way.
+
+Acceptance: `evals/plugin-yank/` flips a fixture channel to mark a
+version yanked, verifies forward-rollover + the `--acknowledge-yanked`
+escape hatch.
+
+### Case N — User learns about available updates
+
+User has been on CodeTerm for a month; meanwhile claude shipped
+0.3.0, codex shipped a config tweak, a community channel they added
+got two new plugins.
+
+1. Background `channel refresh` runs on a schedule (default: every
+   6h, opt-out in settings). Cheap — just `git pull` on each cached
+   channel dir.
+2. Diff detection produces three states per id:
+   - **Updated** (version in channel > installed)
+   - **Yanked** (Case M)
+   - **New available** (in channel, not installed)
+3. Settings → Plugins gains a badge showing the count of
+   updates/new available. Click → Plugin Manager opens with the
+   updated rows highlighted + an "Update All" button.
+4. No interrupt-style desktop notifications by default — Plugin
+   Manager is the surface, not the toast. Power users can opt-in
+   to a tray notification "N plugin updates available" via a
+   settings toggle.
+5. CLI mirrors: `plugin update --dry-run` lists what would change.
+
+Acceptance: `evals/plugin-update-discovery/` simulates a stale
+channel cache + verifies refresh + badge counts.
+
+### Case O — Power user backs up + restores their plugin setup
+
+User sets up a second machine and wants the same channels + plugins
+as their main one. Mesh-sync is parked; we still need an answer.
+
+```bash
+# on machine A
+codeterm plugin export > my-setup.json
+# on machine B, after a fresh codeterm install
+codeterm plugin import my-setup.json
+# Adding channel 'community' from https://...
+# Installing 4 plugins (3 from community, 1 system pin)
+```
+
+`my-setup.json` is a small declarative file:
+
+```json
+{
+  "schemaVersion": 1,
+  "channels": [
+    { "url": "https://github.com/community/codeterm-plugins" }
+  ],
+  "installed": [
+    { "id": "claude",     "version": "0.2.1" },
+    { "id": "gemini",     "version": "0.3.0", "channel": "community" },
+    { "id": "corp-llm",   "version": "1.4.2", "channel": "internal-team",
+      "pinned": true }
+  ],
+  "disabled":  ["opencode"],
+  "overrides": { /* permission approvals, etc */ }
+}
+```
+
+System plugins reference their version but install always resolves
+to whatever the running binary considers system (no drift). Third-
+party plugins install their exact version, pinned. Private channels
+in the export carry the URL only — user re-auths via their own git
+credentials, no secrets shipped in the export.
+
+`plugin import` is idempotent: re-running with the same file is a
+no-op.
+
+Acceptance: `evals/plugin-export-import/` round-trips a fixture
+setup across two `~/.codeterm/` dirs.
+
+### Case P — Plugin discovery (finding new channels)
+
+Adding a channel still requires knowing its URL. Where does a user
+learn about channels in the first place?
+
+1. **Curated index in the docs site** (`docs/plugins-channels.md`)
+   — listing of channels we know about, with description + author +
+   "last updated" timestamp. Editable by community via PR.
+2. **No in-app channel discovery in this rev.** A "Discover" tab
+   that searches a global index is post-MVP; deferred until at least
+   five channels exist in the wild.
+3. Default channel is always pre-added (Case D bootstrap), so the
+   user gets value with zero channel discovery.
+
+Acceptance: `docs/plugins-channels.md` exists with the default
+channel entry and a template stanza for community submissions.
+
+## Documentation + prompt updates that ship with this work
+
+Easy to forget, gates on shipping:
+
+- **`src-tauri/prompts/codeterm_cli.md`** — full command reference.
+  Add the 14 `plugin` verbs from the CLI surface section.
+- **`src-tauri/prompts/codeterm_rule.md`** — GA trigger table.
+  Add rows for "install plugin X" / "list available plugins" /
+  "uninstall X" / "channel add <url>" → matching commands.
+- **`src-tauri/prompts/seed/skill_codeterm.md`** — bridge_mem
+  skill catalog. Add one bullet line per verb family
+  (`codeterm plugin {install,remove,update,channel,...}`).
+- **`docs/contributing/plugin-author-guide.md`** — NEW. Walk
+  authors through the local-dev → channel-publish flow (Case L
+  → Case B).
+- **`docs/plugins-channels.md`** — NEW. Curated channel index
+  (Case P).
+- **`docs/API.md`** — REST/Tauri endpoints for the plugin/channel
+  surface (whatever the CLI calls into).
+- **`CLAUDE.md`** — short pointer at the bottom: "to extend agent
+  providers, see plugins/README.md + docs/plans/relay/20 +
+  docs/contributing/plugin-author-guide.md".
+
+Phase 1 ships the prompt updates with the build that contains the
+`plugin` CLI verbs — agents inside CodeTerm shouldn't see verbs
+they don't yet have.
 
 ## Parked (out of scope this rev, listed so we don't pretend we forgot)
 
