@@ -102,6 +102,7 @@ filetime = "0.2.29"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+sha2 = "0.10"
 
 [lib]
 name = "codeterm_lib"
