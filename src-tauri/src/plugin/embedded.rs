@@ -24,6 +24,27 @@ pub fn ids() -> Vec<&'static str> {
     out
 }
 
+/// Extract every system plugin embedded in the binary into
+/// `<user_plugins_dir>/<id>/` if not already present. Returns the
+/// list of ids actually written. **Never** overwrites existing
+/// directories — see `extract_to`. Intended for first-launch
+/// bootstrap; channel-based updates take over from there.
+///
+/// Quiet-no-op behaviours:
+///   - `<user_plugins_dir>/<id>/` already exists → skipped.
+///   - `dirs::home_dir()` returned None → caller passes whatever it
+///     resolved; this function just writes wherever told.
+pub fn bootstrap_into(user_plugins_dir: &std::path::Path) -> std::io::Result<Vec<String>> {
+    std::fs::create_dir_all(user_plugins_dir)?;
+    let mut written = Vec::new();
+    for id in ids() {
+        if extract_to(id, user_plugins_dir)? {
+            written.push(id.to_string());
+        }
+    }
+    Ok(written)
+}
+
 /// Extract one plugin's tree into `<dst_root>/<id>/`. Idempotent — if
 /// the destination already exists, it is **not** overwritten (we never
 /// stomp user-modified bundles; that's the loader's job after a hash
@@ -106,5 +127,22 @@ mod tests {
         };
         assert!(extract_to(id, tmp.path()).unwrap());
         assert!(!extract_to(id, tmp.path()).unwrap());
+    }
+
+    /// bootstrap_into writes every system plugin into an empty dir,
+    /// then the second call is a no-op (returns []).
+    #[test]
+    fn bootstrap_writes_all_then_idle() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dst = tmp.path().join("plugins");
+        let first = bootstrap_into(&dst).unwrap();
+        let mut expected: Vec<String> = ids().into_iter().map(String::from).collect();
+        expected.sort();
+        let mut got = first.clone();
+        got.sort();
+        assert_eq!(got, expected);
+
+        let second = bootstrap_into(&dst).unwrap();
+        assert!(second.is_empty(), "second bootstrap should be a no-op, got {second:?}");
     }
 }
