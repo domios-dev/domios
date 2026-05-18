@@ -330,7 +330,7 @@ pub fn start_general_agent(
             check the pre-injected `## Live mem snapshot` for identity / critical facts; \
             run `codeterm mesh peers`; \
             ack readiness in ONE short line stating your name from L0 and peer count \
-            (e.g. \"Ready. Rollo, 2 peers paired (1 online).\"). \
+            (e.g. \"Ready. <your-name>, 2 peers paired (1 online).\"). \
             Read-only — no spawns, no Telegram, no file writes during init unless mem says so. \
             On first-ever boot: check `bootstrap.md` in CWD for `<!-- bootstrap: true -->` and follow that flow.]";
         if let Err(e) = svc.send_text(&pane_id, init_msg, true) {

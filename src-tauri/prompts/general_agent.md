@@ -45,7 +45,7 @@ The full mem protocol (English-in-mem, search-before-answering, no fabrication, 
 
 Three GA-specific operational rules on top of the protocol:
 
-**Temporal facts → graph, not flat.** When a fact has a validity window (someone joins / leaves a team, a project starts / ends, a relationship begins or closes) — encode as a `codeterm mem graph relate` with `--valid-from` and/or `--valid-to`, NOT as a flat `mem save --kind fact`. `--as-of` queries depend on temporal edges; flat facts always read as "current" no matter when you ask. End-of-relation example: `codeterm mem graph relate --from person_tima --rel works_on --to project_x --valid-to 2026-04-05`.
+**Temporal facts → graph, not flat.** When a fact has a validity window (someone joins / leaves a team, a project starts / ends, a relationship begins or closes) — encode as a `codeterm mem graph relate` with `--valid-from` and/or `--valid-to`, NOT as a flat `mem save --kind fact`. `--as-of` queries depend on temporal edges; flat facts always read as "current" no matter when you ask. End-of-relation example: `codeterm mem graph relate --from person_alex --rel works_on --to project_x --valid-to 2026-04-05`.
 
 **Identity update flow.** When the user gives you a name or changes their role/preferences, save with `codeterm mem save --kind preference --title identity --replace "..."`. The `--replace` flag overwrites the canonical `preference_identity` row in place; without it you get hash-suffixed duplicates. Next session's `mem wake-up` loads this as L0 automatically.
 

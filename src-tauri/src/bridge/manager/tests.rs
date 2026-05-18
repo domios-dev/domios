@@ -19,12 +19,12 @@ use super::*;
     fn text_msg() -> InboundMessage {
         InboundMessage {
             service: "telegram".into(),
-            user_id: 186809246,
-            user_name: "andrey".into(),
-            text: "включи свет на 1 этаже".into(),
+            user_id: 100000001,
+            user_name: "test_user".into(),
+            text: "do the task".into(),
             attachments: vec![],
             message_id: Some(12345),
-            reply_ctx: ReplyContext::Telegram { chat_id: 186809246 },
+            reply_ctx: ReplyContext::Telegram { chat_id: 100000001 },
         }
     }
 
@@ -59,7 +59,7 @@ use super::*;
         let (url, shutdown, handle) = spawn_hook_server(router).await;
         let (outbound, _rx) = create_outbound_channel();
 
-        let outcome = apply_hook(&outbound, &text_msg(), "general", "включи свет", &cfg(&url)).await;
+        let outcome = apply_hook(&outbound, &text_msg(), "general", "do the task", &cfg(&url)).await;
         assert!(matches!(outcome, HookOutcome::Forward));
 
         let _ = shutdown.send(());
@@ -75,22 +75,22 @@ use super::*;
                 Json(serde_json::json!({
                     "action": "replace",
                     "respond": [
-                        {"channel": "telegram", "to": "186809246", "text": "🦝 включил свет на 1 этаже"}
+                        {"channel": "telegram", "to": "100000001", "text": "task done"}
                     ]
                 }))
             }));
         let (url, shutdown, handle) = spawn_hook_server(router).await;
         let (outbound, mut rx) = create_outbound_channel();
 
-        let outcome = apply_hook(&outbound, &text_msg(), "general", "включи свет", &cfg(&url)).await;
+        let outcome = apply_hook(&outbound, &text_msg(), "general", "do the task", &cfg(&url)).await;
         assert!(matches!(outcome, HookOutcome::Replaced));
 
         // Daemon's reply must land in the outbound channel as a Telegram message.
         let received = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv()).await
             .expect("outbound recv timed out").expect("channel closed");
-        assert_eq!(received.user_id, Some(186809246));
+        assert_eq!(received.user_id, Some(100000001));
         match received.content {
-            OutboundContent::Text { text } => assert!(text.contains("включил свет")),
+            OutboundContent::Text { text } => assert!(text.contains("task done")),
             other => panic!("expected Text, got {:?}", other),
         }
 

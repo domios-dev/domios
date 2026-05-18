@@ -104,42 +104,42 @@ export function quotePathForPaste(p: string): string {
   return `"${p.replace(/(["\\$`])/g, "\\$1")}"`;
 }
 
-export async function sendFilePathsToPty(ptyId: string, paths: string[]): Promise<boolean> {
-  if (paths.length === 0) return false;
-  const data = paths.map(quotePathForPaste).join(" ");
-  await invoke("write_pty_string", { ptyId, data });
-  return true;
+interface TermLike {
+  paste(data: string): void;
 }
 
-/** Write plain text to PTY wrapped in bracketed-paste markers — the same
- * envelope every paste path (Ctrl+V, drag-drop, context menu) should produce
- * so TUIs collapse it to a single "[Pasted text #N]" placeholder. */
-export async function sendPlainTextToPty(ptyId: string, text: string): Promise<void> {
-  const bracketed = `\x1b[200~${text}\x1b[201~`;
-  await invoke("write_pty_string", { ptyId, data: bracketed });
-}
-
-/** Read clipboard via web API + native file-ref fallback, route to PTY. */
-export async function pasteClipboardToPty(ptyId: string): Promise<boolean> {
-  const nativePaths = await readNativeClipboardFiles();
-  if (nativePaths.length > 0) {
-    return sendFilePathsToPty(ptyId, nativePaths);
-  }
-
-  // Prefer readText() over the read()+classifier path: WebView2 truncates
-  // long blobs returned by ClipboardItem.getType("text/plain"). readText()
-  // reliably delivers the full string.
-  const plain = await readPlainTextSafely();
-  if (plain) {
-    await sendPlainTextToPty(ptyId, plain);
+/** Single entry point for every paste path (Ctrl+V, Cmd+V, right-click,
+ * Ctrl+Shift+V, system context menu, DOM paste event). Routes through
+ * xterm's `term.paste` so bracketed-paste-mode wrapping + line-ending
+ * normalization happen exactly once and respect the terminal's live
+ * state. Reads the OS clipboard directly (Tauri files + navigator.clipboard
+ * APIs) — does NOT depend on `event.clipboardData`, which WebView2 fills
+ * unreliably for keyboard-triggered pastes on Windows. */
+export async function routeClipboardToTerm(term: TermLike): Promise<boolean> {
+  const filePaths = await readNativeClipboardFiles();
+  if (filePaths.length > 0) {
+    term.paste(filePaths.map(quotePathForPaste).join(" "));
     return true;
   }
 
-  // No plain text — fall back to the classifier path for images and the
-  // HTML-only edge case (saves the payload to a temp file, paste the path).
+  // readText() before read()+classifier: WebView2 truncates long blobs
+  // returned by ClipboardItem.getType("text/plain"); readText reliably
+  // delivers the full string.
+  const plain = await readPlainTextSafely();
+  if (plain) {
+    term.paste(plain);
+    return true;
+  }
+
+  // No plain text — classifier path: images get saved to a temp file and
+  // pasted as a shell-quoted path; HTML-only is handled the same way.
   const web = await readWebClipboard();
   if (web.paths.length > 0) {
-    await sendFilePathsToPty(ptyId, web.paths);
+    term.paste(web.paths.map(quotePathForPaste).join(" "));
+    return true;
+  }
+  if (web.text) {
+    term.paste(web.text);
     return true;
   }
 

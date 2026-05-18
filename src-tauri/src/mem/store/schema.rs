@@ -69,6 +69,8 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_id);
         CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
         CREATE INDEX IF NOT EXISTS idx_relations_valid ON relations(valid_from, valid_to);
+        -- idx_relations_active_unique created by migrations::add_active_relations_unique_index
+        -- after deduping pre-existing duplicate active edges.
 
         CREATE TABLE IF NOT EXISTS entity_aliases (
             alias_id     TEXT PRIMARY KEY,

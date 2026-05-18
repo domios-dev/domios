@@ -770,22 +770,22 @@ mod tests {
 
     #[test]
     fn parse_first_ip_happy_path() {
-        assert_eq!(parse_first_ip("100.110.3.12\n").as_deref(), Some("100.110.3.12"));
+        assert_eq!(parse_first_ip("100.65.0.40\n").as_deref(), Some("100.65.0.40"));
     }
 
     #[test]
     fn parse_first_ip_trims_whitespace() {
         assert_eq!(
-            parse_first_ip("   100.110.3.12   \n").as_deref(),
-            Some("100.110.3.12")
+            parse_first_ip("   100.65.0.40   \n").as_deref(),
+            Some("100.65.0.40")
         );
     }
 
     #[test]
     fn parse_first_ip_picks_first_of_many() {
         assert_eq!(
-            parse_first_ip("100.110.3.12\nfd7a:115c:a1e0::1\n").as_deref(),
-            Some("100.110.3.12")
+            parse_first_ip("100.65.0.40\nfd7a:115c:a1e0::1\n").as_deref(),
+            Some("100.65.0.40")
         );
     }
 

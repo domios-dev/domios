@@ -32,8 +32,6 @@ pub struct AppConfig {
     pub updater: UpdaterConfig,
     #[serde(default)]
     pub ui: UiConfig,
-    #[serde(default)]
-    pub onboarding_completed: bool,
 }
 
 impl Default for AppConfig {
@@ -54,7 +52,6 @@ impl Default for AppConfig {
             mesh: MeshConfig::default(),
             updater: UpdaterConfig::default(),
             ui: UiConfig::default(),
-            onboarding_completed: false,
         }
     }
 }

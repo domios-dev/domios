@@ -26,10 +26,14 @@ fi
 # --- MSVC environment (Windows only) ---
 setup_env() {
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
-    MSVC_VER="14.44.35207"
     BT_BASE="C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools"
-    SDK_VER="10.0.26100.0"
     SDK_BASE="C:/Program Files (x86)/Windows Kits/10"
+    MSVC_VER=$(ls -1 "$BT_BASE/VC/Tools/MSVC" 2>/dev/null | sort -V | tail -1)
+    SDK_VER=$(ls -1 "$SDK_BASE/Include" 2>/dev/null | grep -E '^10\.' | sort -V | tail -1)
+    if [ -z "$MSVC_VER" ] || [ -z "$SDK_VER" ]; then
+      echo "ERROR: MSVC ($BT_BASE) or Windows SDK ($SDK_BASE) not found" >&2
+      return 1
+    fi
     export CC="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/bin/Hostx64/x64/cl.exe"
     export CXX="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/bin/Hostx64/x64/cl.exe"
     export LIB="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/lib/x64;$SDK_BASE/Lib/$SDK_VER/ucrt/x64;$SDK_BASE/Lib/$SDK_VER/um/x64"

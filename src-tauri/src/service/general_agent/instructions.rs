@@ -236,7 +236,7 @@ mod tests {
             summary: None,
             area: None,
             tags: vec![],
-            body: "I am Andrey, the General Agent on this dev box.".into(),
+            body: "I am Alice, the General Agent on this dev box.".into(),
             source: None,
             importance: 5.0,
             source_path: None,
@@ -258,11 +258,11 @@ mod tests {
 
         let section = render_wake_up_section(Some(&mem));
         assert!(section.contains("## Live mem snapshot"), "section must have header: {}", section);
-        assert!(section.contains("Andrey"), "section must contain identity body: {}", section);
+        assert!(section.contains("Alice"), "section must contain identity body: {}", section);
 
         let rendered = render_agent_md("claude", &section);
         assert!(rendered.contains("## Live mem snapshot"));
-        assert!(rendered.contains("Andrey"));
+        assert!(rendered.contains("Alice"));
         assert!(rendered.contains("never edit autogen"));
         assert!(!rendered.contains("{wake_up}"));
     }

@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn observed_corruption_is_detected_as_missing_echo() {
         // Prompt overwrote first chars: "nset" instead of "unset" — substring miss.
-        let screen = "rollacode@host codeterm % nset CLAUDECODE && claude --dangerously-skip-permissions \"$(cat /tmp/.ct-task-01219c41)\")\"";
+        let screen = "user@host codeterm % nset CLAUDECODE && claude --dangerously-skip-permissions \"$(cat /tmp/.ct-task-01219c41)\")\"";
         let expected = r#"unset CLAUDECODE && claude --dangerously-skip-permissions "$(cat /tmp/.ct-task-01219c41)""#;
         assert!(!screen_contains_echo(screen, expected));
     }
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn duplicated_trailing_paren_passes_echo_check() {
         // Substring still matches with duplicated `)"` tail; submit verify catches it.
-        let screen = "rollacode@host codeterm % unset CLAUDECODE && claude --dangerously-skip-permissions \"$(cat /tmp/.ct-task-01219c41)\")\"";
+        let screen = "user@host codeterm % unset CLAUDECODE && claude --dangerously-skip-permissions \"$(cat /tmp/.ct-task-01219c41)\")\"";
         let expected = r#"unset CLAUDECODE && claude --dangerously-skip-permissions "$(cat /tmp/.ct-task-01219c41)""#;
         assert!(screen_contains_echo(screen, expected));
     }
@@ -337,7 +337,7 @@ mod tests {
         // 5000-char paste: only the trailing portion fits into the 8-row tail
         // window. Echo verify must still confirm via suffix match.
         let body: String = "A".repeat(4900);
-        let expected = format!("[Mesh: BLACKSTAR pane=abc12345] {} TAIL_TOKEN_END", body);
+        let expected = format!("[Mesh: peer-a pane=abc12345] {} TAIL_TOKEN_END", body);
         // Tail captured by screen_state contains only the last ~640 chars of the paste.
         let visible_tail: String = expected.chars().rev().take(600).collect::<String>().chars().rev().collect();
         assert!(

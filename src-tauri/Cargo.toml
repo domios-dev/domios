@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "1.3.0"
+version = "1.3.1"
 edition = "2021"
 default-run = "codeterm"
 
@@ -58,6 +58,9 @@ keyring = { version = "3", default-features = false, features = ["apple-native",
 sqlite-vec = { version = "0.1.9", optional = true }
 fastembed = { version = "5", optional = true }
 codeterm-mem-store = { path = "../crates/mem-store" }
+crash-handler = "0.6"
+crash-context = "0.6"
+minidump-writer = "0.10"
 
 [features]
 default = ["embeddings", "secrets-keyring"]

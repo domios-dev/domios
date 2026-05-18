@@ -261,7 +261,7 @@ mod tests {
                 Json(serde_json::json!({
                     "action": "replace",
                     "respond": [
-                        {"channel": "telegram", "to": "186809246", "text": "🦝 done"}
+                        {"channel": "telegram", "to": "100000001", "text": "task done"}
                     ]
                 }))
             }));
@@ -273,8 +273,8 @@ mod tests {
             Ok(HookDecision::Replace { respond }) => {
                 assert_eq!(respond.len(), 1);
                 assert_eq!(respond[0].channel, "telegram");
-                assert_eq!(respond[0].to, "186809246");
-                assert_eq!(respond[0].text, "🦝 done");
+                assert_eq!(respond[0].to, "100000001");
+                assert_eq!(respond[0].text, "task done");
             }
             other => panic!("expected Replace, got {:?}", other),
         }
