@@ -21,6 +21,7 @@ codeterm pane new --workspace WS_ID [--cmd "<sh>"]  # plain shell pane (no agent
 codeterm pane rename "title"                       # your tab; no --pane needed
 codeterm pane focus PANE_ID
 codeterm pane close PANE_ID
+codeterm pane stop [--pane PANE_ID]                 # interrupt the agent's current generation. Does NOT close the pane.
 codeterm send-text "text" --pane PANE_ID            # types text into the pane (agent prompt or shell)
 codeterm pane exec "<cmd>" --pane PANE_ID           # run a shell command headlessly; returns stdout
 codeterm get-output --pane PANE_ID

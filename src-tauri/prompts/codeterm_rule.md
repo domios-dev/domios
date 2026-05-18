@@ -24,6 +24,7 @@ Tool-call narration in pane is fine. Conversational reply is not.
 - "in terminal" / "в терминале" / "в консоли" → CodeTerm workspace/pane, NOT filesystem
 - "create project X" → `codeterm workspace create "X"`
 - "run tests there" → `codeterm send-text PANE_ID "command"`
+- "stop the agent in that pane" / "interrupt" / `/stop` from a bridge → `codeterm pane stop --pane ID` (does NOT close the pane)
 - Notify on completion → `codeterm notify "Done" --level info`
 - "don't let the computer sleep" / "keep awake" / "prevent sleep for N minutes/hours" → `codeterm keepawake start --duration-secs N [--display]`. Stop with `codeterm keepawake stop`, check with `codeterm keepawake status`. Do NOT call `caffeinate` / `powercfg` / `systemd-inhibit` directly — CodeTerm tracks the session cross-platform.
 
