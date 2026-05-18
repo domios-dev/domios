@@ -11,6 +11,7 @@ tests=(
   plugins/provider-claude/tests/detect.test.ts
   plugins/provider-claude/tests/status.test.ts
   plugins/provider-claude/tests/plugin.test.ts
+  plugins/provider-codex/tests/plugin.test.ts
   plugins/provider-opencode/tests/plugin.test.ts
   src/lib/plugins/__tests__/registry.test.ts
 )

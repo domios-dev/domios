@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@codeterm/provider-claude": "workspace:*",
+    "@codeterm/provider-codex": "workspace:*",
     "@codeterm/provider-opencode": "workspace:*",
     "@sigma/edge-curve": "^3.1.0",
     "@tauri-apps/api": "^2.10.1",

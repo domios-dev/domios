@@ -10,6 +10,7 @@
 //! See `docs/plans/plugin-architecture.md` for the full design.
 
 pub mod agent_claude;
+pub mod agent_codex;
 pub mod agent_opencode;
 pub mod bundle_hash;
 pub mod common;

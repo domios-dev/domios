@@ -1,11 +1,12 @@
 # CodeTerm Plugins
 
 TypeScript packages that extend CodeTerm without rebuilding the Rust
-binary. The default workflow ships two bundled provider plugins:
+binary. The default workflow ships three bundled provider plugins:
 
 | Package | What it covers |
 |---|---|
 | `provider-claude` | Claude Code JSONL parser, MessageBubble renderer, slash commands |
+| `provider-codex` | Codex CLI detection + raw fallback |
 | `provider-opencode` | sst/opencode CLI detection + raw fallback |
 
 User-installed plugins are planned for later — for now plugins live in
