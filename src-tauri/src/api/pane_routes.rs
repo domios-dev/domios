@@ -177,6 +177,33 @@ pub async fn send_text(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+/// Interrupt the agent's current operation (NOT a clean exit).
+/// Reads `provider.stop_keystroke()` for the pane's agent_type and
+/// writes those raw bytes to the PTY. 200 + `{stopped:false}` when
+/// the provider has no stop keystroke declared; 404 when the pane
+/// or PTY is gone. Used by the per-pane Stop button.
+pub async fn stop_pane(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
+    let agent_id = state.svc.mux.lock().get_pane(&pane_id)
+        .and_then(|p| p.agent_type.clone());
+    let bytes: Option<String> = agent_id.and_then(|aid| {
+        state.svc.agent_registry
+            .with_provider(&aid, |p| p.stop_keystroke().map(|s| s.to_string()))
+            .flatten()
+    });
+    let Some(bytes) = bytes else {
+        return Ok(Json(serde_json::json!({"ok": true, "stopped": false})));
+    };
+    state.svc.write_raw(&pane_id, bytes.as_bytes())
+        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    Ok(Json(serde_json::json!({"ok": true, "stopped": true})))
+}
+
 pub async fn focus_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

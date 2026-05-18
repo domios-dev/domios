@@ -37,6 +37,7 @@
   },
   "commands": {
     "exit": "/exit",
+    "stopKey": "\u0003",
     "modelSwitchFormat": "/model {model}",
     "autoApproveFlags": ["--force"],
     "modelLaunchArgsFormat": ["--model", "{model}"]

@@ -48,6 +48,7 @@
   "commands": {
     "compact": "/compact",
     "exit": "/exit",
+    "stopKey": "\u001b",
     "modelSwitchFormat": "/model {model}",
     "autoApproveFlags": ["--dangerously-skip-permissions"],
     "modelLaunchArgsFormat": ["--model", "{model}"]
