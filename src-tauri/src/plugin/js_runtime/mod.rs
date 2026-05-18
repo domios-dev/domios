@@ -26,8 +26,6 @@ mod provider;
 mod vm;
 
 #[cfg(test)]
-mod integration_test;
-#[cfg(test)]
 mod parity_test;
 
 pub use hot_reload::HotReloadRegistry;

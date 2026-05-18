@@ -29,6 +29,10 @@ parking_lot = "0.12"
 base64 = "0.22"
 interprocess = "2"
 sha2 = "0.10"
+# Embedded bundled-plugin bytes for the first-launch bootstrap. The
+# Dir struct is built at compile time from <repo>/plugins/ so a fresh
+# binary on an air-gapped machine still has working providers.
+include_dir = "0.7"
 md-5 = "0.10"
 toml = "0.8"
 dirs = "6"
