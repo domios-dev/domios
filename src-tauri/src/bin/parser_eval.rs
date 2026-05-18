@@ -23,7 +23,6 @@ fn main() -> ExitCode {
     };
     let reg = AgentRegistry::new();
     reg.register_provider(Box::new(codeterm_lib::plugin::agent_claude::ClaudeProvider::new()));
-    reg.register_provider(Box::new(codeterm_lib::plugin::agent_codex::CodexProvider::new()));
     let result = reg.with_provider(&provider, |p| {
         p.usage_parser().map(|parser| parser.parse(&raw))
     });
