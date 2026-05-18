@@ -12,6 +12,7 @@ import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
+import { CrashReportToast } from "./components/CrashReportToast";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useConfig } from "./hooks/useConfig";
 import { useAgentProviders } from "./hooks/useAgentProviders";
@@ -664,6 +665,8 @@ function AppInner() {
       />
 
       <CommandPalette commands={paletteCommands} />
+
+      <CrashReportToast />
 
       <NavigationBackBar onBack={handleBackToMemory} />
     </div>

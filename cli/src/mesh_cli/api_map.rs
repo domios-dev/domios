@@ -413,6 +413,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
             }
         },
+        Commands::Debug { .. } => {
+            eprintln!("Error: `debug` is local-only — refusing to crash a remote peer via --mesh");
+            std::process::exit(2);
+        }
     }
 }
 

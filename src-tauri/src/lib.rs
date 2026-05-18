@@ -1,5 +1,6 @@
 pub mod agent;
 mod api;
+mod crash;
 pub mod attachments;
 mod autostart;
 pub mod bridge;
@@ -61,6 +62,11 @@ pub fn run() {
     // Forward CLI-shaped argv to the bundled CLI before Tauri/logging init,
     // otherwise GUI single-instance silently swallows the args (issue #51).
     startup::forward_to_cli_if_invoked();
+
+    // Install panic + native crash handlers BEFORE any thread spawn or logging
+    // init. Reports land in ~/.codeterm/crashes/ regardless of where the crash
+    // originates (tokio worker, Tauri main, FFI thread, signal handler).
+    crash::install();
 
     startup::setup_logging();
 
@@ -496,6 +502,40 @@ pub fn run() {
             startup::install_bundled_cli(app);
             startup::start_servers(app, &states, &service_state);
             startup::build_system_tray(app)?;
+
+            // After webview is ready, check for crash reports from a previous
+            // session and emit an event the frontend can show as a toast.
+            // Delay a tick so the React side has time to attach the listener.
+            {
+                use tauri::Emitter;
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    let new_reports = crate::crash::check_previous_crashes();
+                    if !new_reports.is_empty() {
+                        let dir = crate::crash::report::crashes_dir();
+                        let files: Vec<String> = new_reports
+                            .iter()
+                            .filter_map(|p| p.file_name())
+                            .filter_map(|n| n.to_str())
+                            .map(|s| s.to_string())
+                            .collect();
+                        log::warn!(
+                            "[crash] previous-session reports found: {} (dir={})",
+                            files.len(),
+                            dir.display()
+                        );
+                        let _ = app_handle.emit(
+                            "crash_report_available",
+                            serde_json::json!({
+                                "dir": dir.to_string_lossy(),
+                                "files": files,
+                            }),
+                        );
+                    }
+                });
+            }
+
             service::sync_watcher::start(crate::paths::data_dir(), service_state.agent_registry.clone());
             startup::start_background_tasks(&app_handle, &states);
 
