@@ -119,13 +119,27 @@ pub fn check_cli_installed(binary: String) -> Result<bool, String> {
     cmd.arg(&binary);
     crate::process_util::no_window_std(&mut cmd);
     let output = cmd.output();
-    match output {
-        Ok(out) if out.status.success() && !out.stdout.is_empty() => Ok(true),
-        Ok(_) => Ok(false),
-        // PATH probe failed at the OS level (e.g. `which` itself missing) —
-        // surface as "not installed" so the UI offers Install rather than
-        // hanging on an error toast.
-        Err(_) => Ok(false),
+    let on_path = matches!(output, Ok(ref out) if out.status.success() && !out.stdout.is_empty());
+    if on_path {
+        return Ok(true);
     }
+
+    // Windows fallback: some agent CLIs (Cursor) only ship a Linux binary, so
+    // users install them inside WSL. Probe `wsl which <binary>` so the
+    // Settings card reports "installed" once the user has the binary
+    // available in their default WSL distro. Skips silently when WSL itself
+    // is missing — keeps the "not installed" answer authoritative.
+    #[cfg(target_os = "windows")]
+    {
+        let mut wsl = std::process::Command::new("wsl");
+        wsl.args(["which", &binary]);
+        crate::process_util::no_window_std(&mut wsl);
+        if let Ok(out) = wsl.output() {
+            if out.status.success() && !out.stdout.is_empty() {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
