@@ -80,7 +80,7 @@ fn write_minidump(ctx: &crash_handler::CrashContext, path: &std::path::Path) -> 
     // The exception pointers are read internally from the OS — no need to
     // thread them through this API.
     MinidumpWriter::dump_local_context(
-        Some(ctx.exception_code),
+        Some(ctx.exception_code as i32),
         None,
         None,
         &mut file,
