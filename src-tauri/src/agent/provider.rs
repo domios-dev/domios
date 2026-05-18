@@ -410,6 +410,10 @@ pub struct ProviderDescriptor {
     /// pipes it into a fresh terminal pane when the user clicks Install.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_command: Option<String>,
+    /// `true` when this provider declares a stop_keystroke — UI shows
+    /// a Stop button on the pane that POSTs to `/api/panes/:id/stop`.
+    #[serde(default)]
+    pub supports_stop: bool,
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
@@ -625,6 +629,15 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// Raw key bytes the host writes into the PTY to interrupt the
+    /// agent's current generation without exiting. Most TUIs accept
+    /// Esc (`""`); cursor-agent listens for Ctrl+C (`""`).
+    /// Returning `None` means the provider has no in-pane stop hook
+    /// and the UI should hide the Stop affordance for that pane.
+    fn stop_keystroke(&self) -> Option<&str> {
+        None
+    }
+
     // ── Plugin skill delivery ────────────────────────────────────────
 
     /// Install a plugin-contributed skill file for this agent. Providers
@@ -797,6 +810,7 @@ pub trait AgentProvider: Send + Sync {
             preserves_context_on_resume: self.preserves_context_on_resume(),
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
+            supports_stop: self.stop_keystroke().is_some(),
         }
     }
 }
@@ -921,6 +935,7 @@ mod tests {
             preserves_context_on_resume: true,
             cli_binary: Some("testcli".into()),
             install_command: Some("npm i -g testcli".into()),
+            supports_stop: true,
         };
 
         let json = serde_json::to_string(&original).expect("serialize");

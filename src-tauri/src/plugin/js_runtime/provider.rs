@@ -546,6 +546,10 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.exit.as_deref()
     }
 
+    fn stop_keystroke(&self) -> Option<&str> {
+        self.manifest.commands.stop_key.as_deref()
+    }
+
     fn model_switch_command(&self, model: &str) -> Option<String> {
         self.manifest
             .commands

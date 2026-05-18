@@ -36,6 +36,7 @@
   "commands": {
     "compact": "/compact",
     "exit": "/exit",
+    "stopKey": "\u001b",
     "autoApproveFlags": ["--dangerously-skip-permissions"],
     "modelLaunchArgsFormat": ["-m", "{model}"]
   }

@@ -294,6 +294,12 @@ pub struct CommandsConfig {
     pub compact: Option<String>,
     #[serde(default)]
     pub exit: Option<String>,
+    /// Raw key bytes the host should send to interrupt the agent's
+    /// current operation (NOT a clean exit — think Esc / Ctrl+C while
+    /// the model is generating). Examples: `""` for Esc,
+    /// `""` for Ctrl+C.
+    #[serde(default)]
+    pub stop_key: Option<String>,
     /// Format string with `{model}` placeholder.
     #[serde(default)]
     pub model_switch_format: Option<String>,
