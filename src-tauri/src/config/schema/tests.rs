@@ -16,22 +16,22 @@ fn memory_l1_budget_user_override() {
 fn telegram_allowed_users_accepts_quoted_strings() {
     let toml = r#"
         telegram_enabled = true
-        telegram_allowed_users = ["186809246"]
+        telegram_allowed_users = ["100000001"]
     "#;
     let cfg: IntegrationsConfig = toml::from_str(toml).unwrap();
-    assert_eq!(cfg.telegram_allowed_users, vec!["186809246".to_string()]);
+    assert_eq!(cfg.telegram_allowed_users, vec!["100000001".to_string()]);
 }
 
 #[test]
 fn telegram_allowed_users_accepts_bare_integers() {
     let toml = r#"
         telegram_enabled = true
-        telegram_allowed_users = [186809246]
+        telegram_allowed_users = [100000001]
     "#;
     let cfg: IntegrationsConfig = toml::from_str(toml).unwrap();
     assert_eq!(
         cfg.telegram_allowed_users,
-        vec!["186809246".to_string()],
+        vec!["100000001".to_string()],
         "bare integer chat ids must coerce to strings — was silent rejection"
     );
 }
@@ -39,12 +39,12 @@ fn telegram_allowed_users_accepts_bare_integers() {
 #[test]
 fn telegram_allowed_users_accepts_mixed() {
     let toml = r#"
-        telegram_allowed_users = [186809246, "789012345"]
+        telegram_allowed_users = [100000001, "789012345"]
     "#;
     let cfg: IntegrationsConfig = toml::from_str(toml).unwrap();
     assert_eq!(
         cfg.telegram_allowed_users,
-        vec!["186809246".to_string(), "789012345".to_string()]
+        vec!["100000001".to_string(), "789012345".to_string()]
     );
 }
 
