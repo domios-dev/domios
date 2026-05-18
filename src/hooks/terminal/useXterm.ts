@@ -94,12 +94,21 @@ export function useXterm({
     //
     // If WebGL context creation fails (some Linux GPUs, headless),
     // fall back silently to the DOM renderer — xterm.js's default.
+    // We push the success/failure into the daemon log via
+    // `report_webgl_status` so the rendering health is observable
+    // without opening browser devtools.
     try {
       const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        invoke("report_webgl_status", { state: "context_lost", detail: null }).catch(() => {});
+      });
       term.loadAddon(webgl);
+      invoke("report_webgl_status", { state: "loaded", detail: null }).catch(() => {});
     } catch (e) {
+      const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
       console.warn("[useXterm] WebGL renderer unavailable, falling back to DOM:", e);
+      invoke("report_webgl_status", { state: "failed", detail }).catch(() => {});
     }
 
     // Copy-on-select removed: silently writing the clipboard every time
