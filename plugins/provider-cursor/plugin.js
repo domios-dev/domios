@@ -159,52 +159,43 @@ module.exports.default = {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-// Scan ~/.cursor/chats/<md5(cwd)>/*/store.db, return [{agentId,
-// lastUsedModel, createdAt}] newest-first. Cursor IDE hashes the
-// backslash native-Windows form of the cwd ("C:\\Users\\..."), but
-// codeterm passes pane cwds in forward-slash form
-// ("C:/Users/..."). md5 differs, so the bucket lookup misses. Try
-// every plausible variant and merge — also covers cases where one
-// session was started from PowerShell and another from MSYS bash.
+// Scan ~/.cursor/chats/<md5(cwd_native)>/*/store.db, return
+// [{agentId, lastUsedModel, createdAt}] newest-first. Cursor IDE keys
+// the workspace bucket by md5 of the OS-NATIVE cwd ("C:\\Users\\..."
+// on Windows) — go through host.path.toNative so we hash what the IDE
+// hashes regardless of how codeterm passed `cwd` in.
 function cursorScanWorkspaceChats(cwd) {
   var base = host.expandHome("~/.cursor/chats");
   if (!base) return [];
   var sep = host.platform() === "windows" ? "\\" : "/";
-  var s = String(cwd || "");
-  var variants = [s, s.replace(/\//g, "\\"), s.replace(/\\/g, "/")];
-  var seenBuckets = {};
+  var hash = host.md5(host.path.toNative(cwd));
+  var wsDir = base + sep + hash;
+  if (!host.fs.fileExists(wsDir)) return [];
+  var entries;
+  try { entries = host.fs.readDir(wsDir); } catch (_) { return []; }
   var out = [];
-  for (var v = 0; v < variants.length; v++) {
-    var hash = host.md5(variants[v]);
-    if (seenBuckets[hash]) continue;
-    seenBuckets[hash] = true;
-    var wsDir = base + sep + hash;
-    if (!host.fs.fileExists(wsDir)) continue;
-    var entries;
-    try { entries = host.fs.readDir(wsDir); } catch (_) { continue; }
-    for (var i = 0; i < entries.length; i++) {
-      var e = entries[i];
-      if (!e || !e.isDir) continue;
-      var db = wsDir + sep + e.name + sep + "store.db";
-      if (!host.fs.fileExists(db)) continue;
-      var rows;
-      try {
-        rows = host.fs.sqliteQuery(db, "SELECT value FROM meta WHERE key='0' LIMIT 1", []);
-      } catch (_) { continue; }
-      if (!rows || !rows.length) continue;
-      var raw = rows[0].value;
-      if (typeof raw !== "string" || !raw) continue;
-      var json = hexToUtf8(raw);
-      if (!json) continue;
-      var meta;
-      try { meta = JSON.parse(json); } catch (_) { continue; }
-      if (!meta || typeof meta.agentId !== "string") continue;
-      out.push({
-        agentId: meta.agentId,
-        lastUsedModel: typeof meta.lastUsedModel === "string" ? meta.lastUsedModel : null,
-        createdAt: typeof meta.createdAt === "number" ? meta.createdAt : 0,
-      });
-    }
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    if (!e || !e.isDir) continue;
+    var db = wsDir + sep + e.name + sep + "store.db";
+    if (!host.fs.fileExists(db)) continue;
+    var rows;
+    try {
+      rows = host.fs.sqliteQuery(db, "SELECT value FROM meta WHERE key='0' LIMIT 1", []);
+    } catch (_) { continue; }
+    if (!rows || !rows.length) continue;
+    var raw = rows[0].value;
+    if (typeof raw !== "string" || !raw) continue;
+    var json = hexToUtf8(raw);
+    if (!json) continue;
+    var meta;
+    try { meta = JSON.parse(json); } catch (_) { continue; }
+    if (!meta || typeof meta.agentId !== "string") continue;
+    out.push({
+      agentId: meta.agentId,
+      lastUsedModel: typeof meta.lastUsedModel === "string" ? meta.lastUsedModel : null,
+      createdAt: typeof meta.createdAt === "number" ? meta.createdAt : 0,
+    });
   }
   out.sort(function (a, b) { return b.createdAt - a.createdAt; });
   return out;
