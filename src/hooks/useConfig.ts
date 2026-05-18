@@ -117,7 +117,6 @@ const DEFAULT_CONFIG: AppConfig = {
     instance_name: "",
     broadcast_duration_secs: 180,
   },
-  onboarding_completed: false,
 };
 
 export function useConfig() {
