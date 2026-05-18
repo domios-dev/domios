@@ -70,6 +70,14 @@ fn generate_system_plugin_hashes() {
         return;
     }
 
+    let out_dir = std::path::PathBuf::from(
+        std::env::var("OUT_DIR").expect("OUT_DIR not set"),
+    );
+    let embed_root = out_dir.join("bundled_plugins");
+    // Wipe + recreate so removed files don't linger between builds.
+    let _ = std::fs::remove_dir_all(&embed_root);
+    std::fs::create_dir_all(&embed_root).expect("mkdir bundled_plugins");
+
     let mut entries: Vec<(String, String)> = Vec::new();
     for child in std::fs::read_dir(&plugins_root)
         .expect("read plugins dir")
@@ -95,7 +103,13 @@ fn generate_system_plugin_hashes() {
 
         let h = bundle_hash::hash_bundle(&path)
             .unwrap_or_else(|e| panic!("hash plugin {}: {e}", path.display()));
-        entries.push((id, h));
+        entries.push((id.clone(), h));
+
+        // Mirror the canonical (filtered) bundle into OUT_DIR for the
+        // include_dir! macro in src/plugin/embedded.rs. Filter mirrors
+        // bundle_hash's skip-set so the embed matches what was hashed.
+        copy_filtered(&path, &embed_root.join(&id))
+            .unwrap_or_else(|e| panic!("copy plugin {} into OUT_DIR: {e}", path.display()));
 
         rerun_if_dir_changed(&path);
     }
@@ -103,6 +117,38 @@ fn generate_system_plugin_hashes() {
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     write_table(&entries);
     println!("cargo:rerun-if-changed={}", plugins_root.display());
+}
+
+fn copy_filtered(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with('.')
+            || name_str == "node_modules"
+            || name_str == "target"
+            || name_str == "Thumbs.db"
+            || name_str == "desktop.ini"
+        {
+            continue;
+        }
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            return Err(std::io::Error::other(format!(
+                "symlink not allowed in plugin bundle: {}",
+                path.display(),
+            )));
+        }
+        let target = dst.join(&name);
+        if file_type.is_dir() {
+            copy_filtered(&path, &target)?;
+        } else if file_type.is_file() {
+            std::fs::copy(&path, &target)?;
+        }
+    }
+    Ok(())
 }
 
 fn verify_id_matches_folder(plugin_dir: &std::path::Path, expected_id: &str) {

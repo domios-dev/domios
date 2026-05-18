@@ -14,6 +14,7 @@ pub mod agent_codex;
 pub mod agent_opencode;
 pub mod bundle_hash;
 pub mod common;
+pub mod embedded;
 pub mod js_runtime;
 pub mod system_plugins;
 
