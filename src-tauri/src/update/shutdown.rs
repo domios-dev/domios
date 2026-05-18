@@ -13,10 +13,11 @@ const POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// Stable fallback exit-command per known provider id.
 /// Used only when the registered provider's `exit_command()` returns None
 /// (test/stub providers, plugin loading order quirks). Real providers
-/// expose this via the trait — see `plugin/agent_claude::provider`.
+/// expose this via the trait — see `plugin/agent_claude::provider` and
+/// `plugin/agent_codex::provider`.
 fn provider_exit_command(provider_id: &str) -> Option<&'static str> {
     match provider_id {
-        "claude" => Some("/exit"),
+        "claude" | "codex" => Some("/exit"),
         _ => None,
     }
 }
@@ -222,6 +223,7 @@ mod tests {
     #[test]
     fn provider_exit_command_known_providers() {
         assert_eq!(provider_exit_command("claude"), Some("/exit"));
+        assert_eq!(provider_exit_command("codex"), Some("/exit"));
     }
 
     #[test]
@@ -229,7 +231,6 @@ mod tests {
         assert_eq!(provider_exit_command("aider"), None);
         assert_eq!(provider_exit_command(""), None);
         assert_eq!(provider_exit_command("Claude"), None);
-        assert_eq!(provider_exit_command("codex"), None);
     }
 
     #[test]
@@ -239,11 +240,16 @@ mod tests {
         // /exit to something else, both this test and the fallback must
         // change together.
         use crate::plugin::agent_claude::ClaudeProvider;
+        use crate::plugin::agent_codex::CodexProvider;
         use crate::agent::provider::AgentProvider;
 
         let claude = ClaudeProvider::new();
         assert_eq!(claude.exit_command(), Some("/exit"));
         assert_eq!(provider_exit_command(claude.id()), claude.exit_command());
+
+        let codex = CodexProvider::new();
+        assert_eq!(codex.exit_command(), Some("/exit"));
+        assert_eq!(provider_exit_command(codex.id()), codex.exit_command());
     }
 
     #[test]

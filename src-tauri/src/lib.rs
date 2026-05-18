@@ -324,6 +324,15 @@ pub fn run() {
                     .expect("agent-claude plugin activation failed");
             }
             {
+                use plugin::agent_codex::AgentCodexPlugin;
+                let manifest = AgentCodexPlugin::manifest();
+                plugin_manager.register(manifest);
+                plugin_manager.attach_native(Box::new(AgentCodexPlugin::new()))
+                    .expect("agent-codex plugin attach failed");
+                plugin_manager.activate(plugin::agent_codex::PLUGIN_ID)
+                    .expect("agent-codex plugin activation failed");
+            }
+            {
                 use plugin::agent_opencode::AgentOpenCodePlugin;
                 let manifest = AgentOpenCodePlugin::manifest();
                 plugin_manager.register(manifest);
