@@ -38,14 +38,6 @@ async function readClipboardFiles(): Promise<string[]> {
   }
 }
 
-function pasteTextOrPaths(term: Terminal, text: string | null, paths: string[]): void {
-  if (paths.length > 0) {
-    term.paste(paths.map(quotePathForPaste).join(" "));
-    return;
-  }
-  if (text) term.paste(text);
-}
-
 export function useTerminalInput({
   termRef,
   connectedPtyRef,
@@ -149,17 +141,34 @@ export function useTerminalInput({
       ev.stopImmediatePropagation();
       ev.preventDefault();
 
-      const paths = extractFilePathsFromClipboard(cd);
-      if (paths.length > 0) {
-        // Resolve any virtual file refs the OS hides behind text/uri-list.
-        readClipboardFiles().then((nativePaths) => {
-          const final = nativePaths.length > 0 ? nativePaths : paths;
-          pasteTextOrPaths(term, cd.getData("text/plain") || null, final);
-        });
-        return;
-      }
-      const text = cd.getData("text/plain");
-      if (text) term.paste(text);
+      // Snapshot browser clipboardData synchronously — some browsers
+      // invalidate it once the handler returns even if a closure holds
+      // a reference.
+      const browserText = cd.getData("text/plain");
+      const browserPaths = extractFilePathsFromClipboard(cd);
+
+      // ALWAYS check the OS pasteboard first via Tauri. macOS Finder
+      // (and Explorer on Windows) put copied files on the OS clipboard
+      // but the path doesn't always surface in browser `clipboardData`
+      // as text/uri-list — that's why pre-fix Ctrl+V on a copied image
+      // file silently did nothing while right-click → Paste worked
+      // (right-click uses this same Tauri path). Symmetry now: both
+      // entry points hit the OS pasteboard the same way.
+      readClipboardFiles().then((nativePaths) => {
+        const paths = nativePaths.length > 0 ? nativePaths : browserPaths;
+        if (paths.length > 0) {
+          term.paste(paths.map(quotePathForPaste).join(" "));
+          return;
+        }
+        if (browserText) term.paste(browserText);
+      }).catch(() => {
+        // Tauri side errored — fall back to whatever the browser had.
+        if (browserPaths.length > 0) {
+          term.paste(browserPaths.map(quotePathForPaste).join(" "));
+          return;
+        }
+        if (browserText) term.paste(browserText);
+      });
     };
     el?.addEventListener("paste", onPaste, true);
 
