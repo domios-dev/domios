@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 export interface UseTauriFileDropOptions {
@@ -7,14 +7,24 @@ export interface UseTauriFileDropOptions {
   enabled?: boolean;
 }
 
-/** Subscribe to Tauri v2 native drag-drop; invoke callback when drop lands inside containerRef. */
+export interface UseTauriFileDropReturn {
+  /** True while the OS is dragging a file over THIS container. Drives the
+   *  drop-here visual overlay. Resets on leave or drop. */
+  isDragOver: boolean;
+}
+
+/** Subscribe to Tauri v2 native drag-drop. Invokes `onPaths` when a drop
+ *  lands inside `containerRef`. Reports a live `isDragOver` flag while the
+ *  dragged file's cursor is hovering this container so the UI can show
+ *  a drop-target overlay. */
 export function useTauriFileDrop({
   containerRef,
   onPaths,
   enabled = true,
-}: UseTauriFileDropOptions): void {
+}: UseTauriFileDropOptions): UseTauriFileDropReturn {
   const onPathsRef = useRef(onPaths);
   onPathsRef.current = onPaths;
+  const [isDragOver, setIsDragOver] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -22,12 +32,28 @@ export function useTauriFileDrop({
     let cancelled = false;
 
     getCurrentWebview().onDragDropEvent((event) => {
-      if (event.payload.type !== "drop") return;
+      const payload = event.payload;
       const el = containerRef.current;
       if (!el) return;
-      if (!isDropInside(event.payload.position, el)) return;
-      const paths = event.payload.paths || [];
-      if (paths.length > 0) onPathsRef.current(paths);
+
+      if (payload.type === "drop") {
+        setIsDragOver(false);
+        if (!isDropInside(payload.position, el)) return;
+        const paths = payload.paths || [];
+        if (paths.length > 0) onPathsRef.current(paths);
+        return;
+      }
+      if (payload.type === "leave") {
+        setIsDragOver(false);
+        return;
+      }
+      // "enter" and "over" both carry position — flip the flag based on
+      // whether the cursor is currently inside this specific container.
+      // Without the per-container check, every pane would highlight at
+      // once when one file is dragged into the window.
+      if (payload.type === "enter" || payload.type === "over") {
+        setIsDragOver(isDropInside(payload.position, el));
+      }
     }).then((fn) => {
       if (cancelled) fn(); else unlisten = fn;
     });
@@ -35,8 +61,11 @@ export function useTauriFileDrop({
     return () => {
       cancelled = true;
       unlisten?.();
+      setIsDragOver(false);
     };
   }, [enabled, containerRef]);
+
+  return { isDragOver };
 }
 
 function isDropInside(
