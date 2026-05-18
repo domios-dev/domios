@@ -2,10 +2,7 @@ import { useEffect, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { invoke } from "@tauri-apps/api/core";
 import { isMac } from "../../lib/keybindings";
-import {
-  extractFilePathsFromClipboard,
-  quotePathForPaste,
-} from "../../lib/clipboardPaste";
+import { routeClipboardToTerm } from "../../lib/clipboardPaste";
 
 export interface UseTerminalInputOptions {
   termRef: React.MutableRefObject<Terminal | null>;
@@ -23,21 +20,6 @@ export interface UseTerminalInputReturn {
   clearTerminal: () => void;
 }
 
-// Single paste point. Uses xterm's `term.paste(text)` public API so the
-// transformation (line-ending normalization, bracketed-paste-mode wrapping
-// based on the terminal's actual state, transmission through onData) is
-// done by the library itself — no hand-rolled `\x1b[200~` we got wrong
-// before. If file paths are present on the clipboard, send them as
-// shell-quoted strings.
-async function readClipboardFiles(): Promise<string[]> {
-  try {
-    const paths = await invoke<string[]>("read_clipboard_files");
-    return paths || [];
-  } catch {
-    return [];
-  }
-}
-
 export function useTerminalInput({
   termRef,
   connectedPtyRef,
@@ -53,25 +35,11 @@ export function useTerminalInput({
   }, [termRef]);
 
   // Programmatic paste — called from the custom right-click menu and the
-  // Ctrl+Shift+V window-level handler. Asynchronously reads the system
-  // clipboard (no DOM paste event in this path) and routes through
-  // term.paste so bracketed-paste-mode wrapping happens correctly.
+  // Ctrl+Shift+V window-level handler. Funnels through the same unified
+  // route as the keyboard path so file/image/text handling is consistent.
   const pasteFromClipboard = useCallback(() => {
     const term = termRef.current;
-    if (!term) return;
-    (async () => {
-      const paths = await readClipboardFiles();
-      if (paths.length > 0) {
-        term.paste(paths.map(quotePathForPaste).join(" "));
-        return;
-      }
-      try {
-        const text = await navigator.clipboard.readText();
-        if (text) term.paste(text);
-      } catch {
-        /* clipboard read denied — nothing to paste */
-      }
-    })();
+    if (term) void routeClipboardToTerm(term);
   }, [termRef]);
 
   const clearTerminal = useCallback(() => {
@@ -83,18 +51,38 @@ export function useTerminalInput({
     if (!term || !termReady) return;
     if (!connectedPtyRef.current) return;
 
-    // Copy on Ctrl+C/Cmd+C ONLY when there's a selection. Without a
-    // selection we let xterm send SIGINT through as usual. Paste is NOT
-    // handled here — see the `paste` event listener below.
+    // Keyboard paths.
+    //
+    // Ctrl+V / Cmd+V — explicit handler that calls routeClipboardToTerm
+    // and preventDefaults the keydown. The DOM `paste` event listener
+    // below is unreliable on Windows WebView2 for keyboard-triggered
+    // pastes (often fires with empty clipboardData, or doesn't fire at
+    // all when focus is on the xterm helper textarea), so we drive the
+    // paste from the keydown directly instead of waiting for the browser
+    // to synthesize a paste event.
+    //
+    // Ctrl+C / Cmd+C — copy ONLY when there's a selection; otherwise
+    // pass through to xterm so SIGINT works.
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       const mod = isMac ? e.metaKey : e.ctrlKey;
-      if (!mod || e.altKey || e.shiftKey) return true;
+      if (!mod || e.altKey) return true;
       if (isMac && e.ctrlKey && e.metaKey) return true;
+
+      if (e.code === "KeyV" && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        void routeClipboardToTerm(term);
+        return false;
+      }
+
+      if (e.shiftKey) return true;
 
       if (e.code === "KeyC") {
         const sel = term.getSelection();
         if (sel) {
+          e.preventDefault();
+          e.stopPropagation();
           navigator.clipboard.writeText(sel).catch(() => {});
           term.clearSelection();
           return false;
@@ -111,64 +99,16 @@ export function useTerminalInput({
       if (currentPty) invoke("write_pty_string", { ptyId: currentPty, data });
     });
 
-    // SINGLE PASTE PATH (the lesson from a long evening of debugging).
-    //
-    // xterm.js registers its own `paste` listener on the textarea inside
-    // the container and exposes no public API to remove it (xtermjs/xterm.js
-    // #1803, #3516). Without intervention BOTH xterm's listener AND any
-    // custom Ctrl+V keydown handler we add fire on every paste, producing
-    // the double-paste seen on some machines and on others the wrong
-    // bracketed-mode envelope (raw `\x1b[200~` written when bracketed mode
-    // was actually OFF, looking like the paste did nothing).
-    //
-    // The fix is a capture-phase listener on the container. Capture phase
-    // fires BEFORE the textarea's bubble-phase listener (where xterm
-    // attaches its handler), so stopImmediatePropagation here cancels
-    // xterm's listener entirely. We then call `term.paste(text)` — the
-    // public xterm API that respects the live bracketed-paste-mode state,
-    // normalises line endings, and emits via onData (which our onData
-    // handler above writes to the PTY). One call, one paste, always
-    // correct envelope.
-    //
-    // Programmatic pastes (custom right-click menu, drag-drop) bypass
-    // this entirely and call term.paste directly — they don't trigger a
-    // DOM paste event.
+    // Safety net for paste events we didn't originate from the keydown
+    // path — WebView2 native context menu "Paste", programmatic
+    // execCommand("paste"), etc. Capture phase + stopImmediatePropagation
+    // cancels xterm.js's own bubble-phase listener (#1803, #3516) so
+    // routeClipboardToTerm fires exactly once.
     const el = containerRef.current;
     const onPaste = (ev: Event) => {
-      const e = ev as ClipboardEvent;
-      const cd = e.clipboardData;
-      if (!cd) return;
       ev.stopImmediatePropagation();
       ev.preventDefault();
-
-      // Snapshot browser clipboardData synchronously — some browsers
-      // invalidate it once the handler returns even if a closure holds
-      // a reference.
-      const browserText = cd.getData("text/plain");
-      const browserPaths = extractFilePathsFromClipboard(cd);
-
-      // ALWAYS check the OS pasteboard first via Tauri. macOS Finder
-      // (and Explorer on Windows) put copied files on the OS clipboard
-      // but the path doesn't always surface in browser `clipboardData`
-      // as text/uri-list — that's why pre-fix Ctrl+V on a copied image
-      // file silently did nothing while right-click → Paste worked
-      // (right-click uses this same Tauri path). Symmetry now: both
-      // entry points hit the OS pasteboard the same way.
-      readClipboardFiles().then((nativePaths) => {
-        const paths = nativePaths.length > 0 ? nativePaths : browserPaths;
-        if (paths.length > 0) {
-          term.paste(paths.map(quotePathForPaste).join(" "));
-          return;
-        }
-        if (browserText) term.paste(browserText);
-      }).catch(() => {
-        // Tauri side errored — fall back to whatever the browser had.
-        if (browserPaths.length > 0) {
-          term.paste(browserPaths.map(quotePathForPaste).join(" "));
-          return;
-        }
-        if (browserText) term.paste(browserText);
-      });
+      void routeClipboardToTerm(term);
     };
     el?.addEventListener("paste", onPaste, true);
 
