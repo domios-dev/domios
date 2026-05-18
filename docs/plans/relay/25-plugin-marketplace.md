@@ -1,6 +1,6 @@
 # Plugin marketplace + delivery
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
 
 Closes the gap left by **20-provider-plugins-ts** — provider plugins are
 already TS bundles, but they only reach a running daemon if the user
@@ -471,6 +471,169 @@ plugin.
 Acceptance: dual-channel scenario covered in
 `evals/plugin-channels/`, including the conflict error path and the
 system-id protection.
+
+### Case F — A plugin crashes / panics / loops
+
+A community plugin throws on every `detect_session_id` call, or its
+VM hangs in an infinite loop on first launch.
+
+1. Per-plugin call sites already use `try_call::<T>` and return
+   `None` on `MissingFunction`. Extend this to count consecutive
+   errors per `(plugin_id, fn_name)`. Threshold (e.g. 5 consecutive
+   errors within 30s) flips the plugin into **quarantined**.
+2. Quarantined plugin: VM dropped, no further calls dispatched, UI
+   shows "disabled — crashed N times, last error: ..." with a Re-enable
+   button. Other plugins keep working — one bad apple doesn't take
+   the daemon down.
+3. Hangs: every `try_call` already runs on a thread with the plugin's
+   mutex — add a configurable wall-clock budget per call (default
+   2s; provider hot-path overrides explicit). Exceeded → kill the
+   VM thread, increment error counter.
+4. System plugins follow the same rule but Re-enable on quarantine
+   is automatic on next launch (we don't want a transient SQLite
+   lock taking claude offline forever).
+
+Acceptance: `evals/plugin-crash/` runs a synthetic plugin that
+panics every call and verifies the daemon stays healthy + quarantine
+log entries land + Re-enable restores normal operation.
+
+### Case G — App upgrade leaves a plugin's `engines` range unsatisfied
+
+User on CodeTerm 1.3.x has `corp-llm` installed declaring
+`"engines": { "codeterm": "^1.3.0" }`. They upgrade to CodeTerm 2.0.
+
+1. On launch, loader reads each manifest's `engines.codeterm` range.
+   Mismatch → plugin **deactivated**, NOT uninstalled. Files stay.
+2. UI shows "incompatible with this CodeTerm version — needs
+   ^1.3.0, you're on 2.0.0". Provider doesn't register, panes that
+   used it become read-only (same flow as Case C uninstall).
+3. `codeterm plugin update <id>` checks if any channel has a newer
+   version with a compatible range; if yes, installs + reactivates.
+4. Install-time variant: `plugin install` against an incompatible
+   plugin refuses cleanly with the same message instead of silently
+   installing a broken bundle.
+5. System plugins must never trip this check on a paired release
+   (we own both the binary and the bundle) — but if they do, embedded
+   `include_dir!` fallback that ships with the binary IS by definition
+   compatible, so loader falls through to it.
+
+Acceptance: matrix in `evals/plugin-engines/` covers install-time
+refusal, app-upgrade deactivation, and downgrade-to-compatible recovery.
+
+### Case H — Plugin removed from its channel
+
+Third-party dev unpublishes `gemini` from `community` channel.
+
+1. Next `plugin marketplace refresh community` notices `gemini` no
+   longer in `channel.json`.
+2. Installed `gemini` plugin **stays installed** — files in
+   `~/.codeterm/plugins/gemini/` are untouched. Plugin keeps working.
+3. UI Plugin Manager shows `gemini` with an "orphan" badge — the
+   plugin is installed but not reachable from any channel any more
+   (no future updates).
+4. `plugin update gemini` errors with "no channel offers gemini —
+   either reinstall from a different channel or uninstall locally".
+5. User decides: keep it (frozen), reinstall from another channel
+   that picked it up, or uninstall.
+
+Same flow for case where the **channel itself** is removed
+(`marketplace remove community`): all plugins from that channel
+flip to "orphan", local files untouched.
+
+Acceptance: covered in `evals/plugin-orphan/` — plugin survives
+channel removal, gets flagged, manual uninstall works.
+
+### Case I — Downgrade and version pinning
+
+User updated to claude 0.2.0, hit a regression, wants to roll back.
+
+```bash
+codeterm plugin install claude --version 0.1.0
+# Downgrading 'claude' 0.2.0 → 0.1.0. Continue? [y/N]
+codeterm plugin pin claude 0.1.0
+# Pinned 'claude' at 0.1.0. `plugin update` will skip it.
+```
+
+Pin lives in `~/.codeterm/plugin-overrides.json`:
+
+```json
+{ "claude": { "pin": "0.1.0", "disabled": false } }
+```
+
+`disabled: true` is the keep-out-permanently from Case C.
+
+For system plugins, pin works but UI nudges: "you're pinned below
+the version this CodeTerm release expects; system status downgraded
+to unverified". The user can run a hash-mismatched system plugin —
+just without the lock + verified badge.
+
+`plugin update` flow respects pins: skipped channel entries shown
+in the dry-run output so the user remembers they're pinned.
+
+Acceptance: `evals/plugin-pin/` covers downgrade install, pin
+respect during update, system-status downgrade on pinned-old.
+
+### Case J — Hash mismatch / disk corruption on a system plugin
+
+User's `~/.codeterm/plugins/claude/plugin.js` got corrupted (disk
+hiccup, manual edit experiment, sync mishap).
+
+1. Loader computes hash on each startup. For ids in
+   `SYSTEM_PLUGIN_HASHES`, mismatch means one of two things:
+   - User has hacked it for local dev: plugin still loads, UI shows
+     "unverified — locally modified".
+   - File got corrupted: plugin probably won't even parse.
+2. Self-heal path: `codeterm plugin verify --repair` (or implicit
+   on launch when a system plugin fails to parse) re-extracts that
+   id from `include_dir!` embedded fallback, overwriting the bad
+   copy. Hash matches again → system status restored.
+3. UI exposes the same button: "Re-install from embedded source".
+
+Acceptance: `evals/plugin-repair/` covers both the
+parse-fail-auto-repair path and the manual `--repair` invocation.
+
+### Case K — Permissions change between versions
+
+`corp-llm` v1 declared `permissions.network: false`. v2 declares
+`permissions.network: ["api.corp.local"]`.
+
+1. `plugin update corp-llm` sees the manifest delta in permissions.
+2. UI surfaces a one-time "approve new permissions" dialog before
+   activating the new version. Old version keeps running until
+   approved.
+3. CLI variant: `plugin update --all` skips plugins with pending
+   permission deltas; lists them at the end. `plugin approve corp-llm`
+   acknowledges and applies.
+4. System plugins (claude/codex/opencode) skip this — the binary
+   owns them, their permissions are implicit.
+5. The plugin overrides file tracks each plugin's last-approved
+   permission set so subsequent identical updates pass through.
+
+Acceptance: `evals/plugin-perms/` flips a fixture plugin's
+permissions between two installs, checks the prompt fires +
+approval persists.
+
+## Parked (out of scope this rev, listed so we don't pretend we forgot)
+
+- **Bundle integrity beyond top-level hash.** Right now we hash the
+  bundle directory canonically — covers tampering but not "channel
+  shipped a half-bundle". A `files` field in `plugin.json` listing
+  every shipped file + per-file sha would close the last 1%. Defer
+  until we see a bad-bundle bug in the wild.
+- **Plugin rename / `replaces: [oldId]` migration.** Useful when a
+  community plugin rebrands. Park behind seeing the first rename in
+  practice.
+- **Mesh peer plugin sync.** Each machine manages its own plugin set
+  today. Cross-peer "install the same plugins as my laptop" would be
+  a nice ergonomic feature but is a different problem from
+  marketplace and should not pollute the core flow.
+- **Audit log of `host.*` calls per plugin.** Useful security-review
+  surface once third-party plugins are common. Wire when the third
+  community plugin lands — earlier than that, premature.
+- **Bandwidth-bound channel refresh + telemetry.** Today every
+  `marketplace refresh` does a full `git pull`. Once we have many
+  channels with many plugins, a manifest-only fetch (just
+  `channel.json` HEAD) is the obvious optimisation. Park.
 
 ## Open questions
 
