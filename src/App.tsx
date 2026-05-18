@@ -5,13 +5,13 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
 import { NotificationToastContainer } from "./components/Notifications/NotificationToast";
 import { SettingsPanel, type SectionId } from "./components/Settings/SettingsPanel";
-import { Onboarding } from "./components/Onboarding/Onboarding";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
+import { CrashReportToast } from "./components/CrashReportToast";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useConfig } from "./hooks/useConfig";
 import { useAgentProviders } from "./hooks/useAgentProviders";
@@ -23,6 +23,7 @@ import type { ThemeConfig } from "./lib/types";
 import { matchesBinding, isMac } from "./lib/keybindings";
 import { blendColor, deriveColor } from "./lib/colors";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { pasteToPane } from "./lib/panePasteRegistry";
 // TODO: Agent Swarm Visualization — future feature
 // import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
@@ -99,9 +100,8 @@ function AppInner() {
       return open ? "mesh" : "workspace";
     });
   }, []);
-  const [showOnboarding, setShowOnboarding] = useState(false);
   // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
-  const { config, updateConfig, theme, loading } = useConfig();
+  const { config, updateConfig, theme } = useConfig();
 
   // Resolve usage-tracking toggle once per config change so every pane's
   // UsageBubble can read it via prop instead of subscribing to config
@@ -114,36 +114,6 @@ function AppInner() {
     }
     return out;
   }, [config.agents]);
-
-  // Show onboarding only after config loads from backend (not from defaults)
-  useEffect(() => {
-    if (!loading && config && !config.onboarding_completed) {
-      setShowOnboarding(true);
-    }
-  }, [loading, config?.onboarding_completed]);
-
-  const handleOnboardingComplete = useCallback(
-    (newConfig: typeof config) => {
-      setShowOnboarding(false);
-      updateConfig(newConfig);
-    },
-    [updateConfig],
-  );
-
-  // Debug menu: Ctrl+Shift+F12 to reset onboarding (dev builds only)
-  useEffect(() => {
-    const handleDebug = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && e.key === "F12") {
-        e.preventDefault();
-        if (confirm("Debug: Reset onboarding?")) {
-          updateConfig({ ...config, onboarding_completed: false });
-          setShowOnboarding(true);
-        }
-      }
-    };
-    window.addEventListener("keydown", handleDebug);
-    return () => window.removeEventListener("keydown", handleDebug);
-  }, [config, updateConfig]);
 
   const {
     state,
@@ -306,16 +276,40 @@ function AppInner() {
         if (sel) navigator.clipboard.writeText(sel).catch(() => {});
         return;
       }
-      if (matchesBinding(e, kb.paste)) {
-        e.preventDefault();
-        const focusedId = stateRef.current.focused_pane_id;
-        if (focusedId) {
-          const focusedPane = stateRef.current.panes[focusedId];
-          if (focusedPane?.pty_id) {
-            navigator.clipboard.readText().then((text) => {
-              if (text) invoke("write_pty_string", { ptyId: focusedPane.pty_id!, data: text });
-            }).catch(() => {});
-          }
+      // App-wide paste: works when the CodeTerm window is focused regardless
+      // of where the inner focus is (titlebar, sidebar, document body, an
+      // unfocused pane). Matches plain Cmd+V / Ctrl+V AND the configured
+      // kb.paste (default Ctrl+Shift+V).
+      //
+      // Skips when an actual editable element owns focus — xterm helper
+      // textarea has its own attachCustomKeyEventHandler that calls
+      // routeClipboardToTerm directly, and real <input>/<textarea>/
+      // contenteditable elements should keep native browser paste. Both
+      // cases would otherwise double-paste against this fallback.
+      const plainPaste = e.code === "KeyV" && !e.shiftKey && !e.altKey
+        && (isMac ? e.metaKey : e.ctrlKey);
+      if (plainPaste || matchesBinding(e, kb.paste)) {
+        const active = document.activeElement;
+        const isXtermFocused = active?.classList.contains("xterm-helper-textarea");
+        const isInputFocused = !isXtermFocused && (
+          active?.tagName === "INPUT"
+          || active?.tagName === "TEXTAREA"
+          || active?.getAttribute("contenteditable") === "true"
+        );
+        if (isXtermFocused || isInputFocused) return;
+
+        // Target the ACTIVE TAB'S pane, not the global focused_pane_id.
+        // focused_pane_id can stay set on a pane from a previous tab even
+        // after the user switched tabs — pasting there means the text
+        // lands in an invisible terminal. The active tab's pane is what
+        // the user perceives as "the selected one" they're looking at.
+        const st = stateRef.current;
+        const ws = st.workspaces.find((w) => w.id === st.active_workspace_id);
+        const tab = ws?.tabs.find((t) => t.id === ws.active_tab_id);
+        const targetId = tab?.pane_id;
+        if (!targetId) return;
+        if (pasteToPane(targetId)) {
+          e.preventDefault();
         }
         return;
       }
@@ -637,14 +631,6 @@ function AppInner() {
         </div>
       </div>
 
-      {showOnboarding && config && (
-        <Onboarding
-          config={config}
-          theme={theme}
-          onComplete={handleOnboardingComplete}
-        />
-      )}
-
       <NotificationToastContainer
         toasts={state.toasts}
         onDismiss={dismissToast}
@@ -652,6 +638,8 @@ function AppInner() {
       />
 
       <CommandPalette commands={paletteCommands} />
+
+      <CrashReportToast />
 
       <NavigationBackBar onBack={handleBackToMemory} />
     </div>

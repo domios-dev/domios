@@ -121,8 +121,8 @@ mod tests {
     }
 
     /// Mirrors the real codex-cli >= 0.128 event_msg/token_count shape.
-    /// Verified against /Users/rollacode/.codex/sessions/2025/09/20/
-    /// rollout-2025-09-20T11-44-19-... — 108 events, final total 366721.
+    /// Verified against ~/.codex/sessions/YYYY/MM/DD/
+    /// rollout-...jsonl — last event_msg carries the cumulative total.
     #[test]
     fn takes_last_event_total_not_sum() {
         let dir = TempDir::new().unwrap();

@@ -343,6 +343,15 @@ fn dispatch(
                 ]
             }));
         }
+        #[cfg(debug_assertions)]
+        "debug.crash" => {
+            let kind = get_string_param(&params, "kind")?;
+            crate::crash::trigger_test_crash(&kind).map_err(|e| JsonRpcError {
+                code: -32602,
+                message: e,
+            })?;
+            return Ok(serde_json::json!({"ok": true, "kind": kind}));
+        }
         _ => {}
     }
 

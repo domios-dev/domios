@@ -4,6 +4,7 @@ use crate::mesh_cli::MeshAction;
 
 use super::agent::AgentAction;
 use super::cron::CronAction;
+use super::debug::DebugAction;
 use super::mem::MemAction;
 use super::service::ServiceAction;
 use super::misc::{
@@ -227,5 +228,14 @@ pub enum Commands {
     Docs {
         /// Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs.
         name: Option<String>,
+    },
+
+    /// Internal diagnostics — verify crash reporter, etc. Dev-only;
+    /// hidden from --help because the matching daemon endpoint is gated to
+    /// debug builds. Calling against a prod daemon returns Method-not-found.
+    #[command(hide = true)]
+    Debug {
+        #[command(subcommand)]
+        action: DebugAction,
     },
 }

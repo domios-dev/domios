@@ -18,6 +18,9 @@ export function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Capture phase so the listener fires before any inner stopPropagation
+    // (xterm's canvas, child components) can swallow the event. Left + right
+    // mousedown both close — `mousedown` covers right-click outside too.
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
@@ -25,20 +28,15 @@ export function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
     };
 
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
+      if (e.key === "Escape") onClose();
     };
 
-    // Delay attaching to avoid the same right-click closing it immediately
-    requestAnimationFrame(() => {
-      document.addEventListener("mousedown", handleClickOutside);
-      document.addEventListener("keydown", handleEscape);
-    });
+    document.addEventListener("mousedown", handleClickOutside, true);
+    document.addEventListener("keydown", handleEscape, true);
 
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("mousedown", handleClickOutside, true);
+      document.removeEventListener("keydown", handleEscape, true);
     };
   }, [onClose]);
 
