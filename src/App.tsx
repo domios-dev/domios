@@ -298,9 +298,17 @@ function AppInner() {
         );
         if (isXtermFocused || isInputFocused) return;
 
-        const focusedId = stateRef.current.focused_pane_id;
-        if (!focusedId) return;
-        if (pasteToPane(focusedId)) {
+        // Target the ACTIVE TAB'S pane, not the global focused_pane_id.
+        // focused_pane_id can stay set on a pane from a previous tab even
+        // after the user switched tabs — pasting there means the text
+        // lands in an invisible terminal. The active tab's pane is what
+        // the user perceives as "the selected one" they're looking at.
+        const st = stateRef.current;
+        const ws = st.workspaces.find((w) => w.id === st.active_workspace_id);
+        const tab = ws?.tabs.find((t) => t.id === ws.active_tab_id);
+        const targetId = tab?.pane_id;
+        if (!targetId) return;
+        if (pasteToPane(targetId)) {
           e.preventDefault();
         }
         return;
