@@ -77,6 +77,86 @@ fn migration_is_idempotent() {
     crate::migrations::run(&conn).unwrap();
 }
 
+#[test]
+fn migration_dedups_active_relations_and_adds_partial_unique_index() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    conn.execute_batch(
+        "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
+            VALUES ('a','X','global','{}','2026-01-01','2026-01-01'),
+                   ('b','X','global','{}','2026-01-01','2026-01-01');
+         INSERT INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
+            VALUES ('a','r','b','global','2026-05-08T14:06:27Z',NULL,1.0,'{}','2026-05-08T14:06:27Z'),
+                   ('a','r','b','global','2026-05-09T03:12:00Z',NULL,1.0,'{}','2026-05-09T03:12:00Z'),
+                   ('a','r','b','global','2026-05-14T03:53:07Z',NULL,1.0,'{}','2026-05-14T03:53:07Z'),
+                   ('a','r','b','global','2025-01-01',           '2025-06-01',1.0,'{}','2025-01-01'),
+                   ('a','r','b','global','2025-07-01',           '2025-12-01',1.0,'{}','2025-07-01');"
+    ).unwrap();
+
+    let before_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
+        [], |r| r.get(0)).unwrap();
+    assert_eq!(before_active, 3, "fixture pre-condition: 3 active dup rows");
+
+    crate::migrations::run(&conn).unwrap();
+
+    let after_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
+        [], |r| r.get(0)).unwrap();
+    assert_eq!(after_active, 1, "migration keeps exactly one active row per (from,rel,to,scope)");
+
+    let history: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NOT NULL",
+        [], |r| r.get(0)).unwrap();
+    assert_eq!(history, 2, "historical (invalidated) rows are preserved as edge history");
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let inserted = conn.execute(
+        "INSERT OR IGNORE INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
+         VALUES ('a','r','b','global',?1,NULL,1.0,'{}',?1)",
+        rusqlite::params![now],
+    ).unwrap();
+    assert_eq!(inserted, 0, "INSERT OR IGNORE must no-op when an active row for the same key already exists");
+    let still_one_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
+        [], |r| r.get(0)).unwrap();
+    assert_eq!(still_one_active, 1);
+}
+
+#[test]
+fn introduce_topic_repeated_call_does_not_duplicate_edges() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
+            VALUES ('anchor','Hub','global','{}','2026-01-01','2026-01-01'),
+                   ('s1','Source','global','{}','2026-01-01','2026-01-01');
+         INSERT INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
+            VALUES ('s1','about','anchor','global','2026-01-01',NULL,1.0,'{}','2026-01-01');"
+    ).unwrap();
+
+    let opts = || crate::graph::IntroduceTopicOptions {
+        topic_id: "topic_x".into(), entity_type: "Topic".into(),
+        sources: vec!["s1".into()], anchor: "anchor".into(),
+        rel_source: "about".into(), rel_anchor: "about".into(),
+        reason: Some("dreamer-recluster".into()),
+    };
+    crate::graph::introduce_topic(&conn, opts()).unwrap();
+    crate::graph::introduce_topic(&conn, opts()).unwrap();
+    crate::graph::introduce_topic(&conn, opts()).unwrap();
+
+    let s1_to_topic_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='s1' AND relation_type='about' AND to_id='topic_x' AND valid_to IS NULL",
+        [], |r| r.get(0)).unwrap();
+    assert_eq!(s1_to_topic_active, 1, "repeated reclusters must not stack dup s1->topic edges");
+
+    let topic_to_anchor_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='topic_x' AND relation_type='about' AND to_id='anchor' AND valid_to IS NULL",
+        [], |r| r.get(0)).unwrap();
+    assert_eq!(topic_to_anchor_active, 1, "repeated reclusters must not stack dup topic->anchor edges");
+}
+
 fn seed_two_invalidated_one_active(conn: &Connection) {
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)

@@ -3,9 +3,12 @@ use crate::mem::graph::{insert_relation, Relation};
 use crate::mem::store::init_schema;
 use super::*;
 
+// Repair primitives target legacy/dirty data that pre-dates the active-row unique index.
+// Tests intentionally drop the index so fixtures can seed the very dups these primitives clean up.
 fn fresh_conn() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     init_schema(&conn).unwrap();
+    conn.execute_batch("DROP INDEX IF EXISTS idx_relations_active_unique;").unwrap();
     conn
 }
 
