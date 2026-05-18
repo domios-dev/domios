@@ -430,6 +430,8 @@ pub fn run() {
                 let keep_all_native = keep_native.contains("all");
                 for p in providers {
                     let id = p.id().to_string();
+                    let trust = p.trust();
+                    log::info!("[js-plugin] {id} trust={:?}", trust);
                     if keep_all_native || keep_native.contains(&id) {
                         if !agent_registry.register_provider_if_absent(Box::new(p)) {
                             log::info!(

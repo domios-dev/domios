@@ -414,10 +414,28 @@ pub struct ProviderDescriptor {
     /// a Stop button on the pane that POSTs to `/api/panes/:id/stop`.
     #[serde(default)]
     pub supports_stop: bool,
+    /// Trust status of the bundle backing this provider. `system` =
+    /// shipped by CodeTerm, hash matched the build-time table.
+    /// `unverified` = same id as a system plugin but the bundle on
+    /// disk has a different hash (user-modified or tampered).
+    /// `third_party` = plugin id not in the system table.
+    /// `unknown` = native (Rust-side) provider, no hash to check.
+    #[serde(default)]
+    pub trust: ProviderTrust,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderTrust {
+    System,
+    Unverified,
+    ThirdParty,
+    #[default]
+    Unknown,
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 3;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 4;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 pub trait AgentProvider: Send + Sync {
@@ -811,7 +829,16 @@ pub trait AgentProvider: Send + Sync {
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
             supports_stop: self.stop_keystroke().is_some(),
+            trust: self.trust(),
         }
+    }
+
+    /// Bundle trust status. Default impl returns `Unknown` (native
+    /// providers — no hash to check). JS-backed providers override
+    /// to return System/Unverified/ThirdParty based on the
+    /// build-time hash table.
+    fn trust(&self) -> ProviderTrust {
+        ProviderTrust::Unknown
     }
 }
 
@@ -936,6 +963,7 @@ mod tests {
             cli_binary: Some("testcli".into()),
             install_command: Some("npm i -g testcli".into()),
             supports_stop: true,
+            trust: ProviderTrust::System,
         };
 
         let json = serde_json::to_string(&original).expect("serialize");

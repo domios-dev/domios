@@ -105,7 +105,42 @@ pub fn load_one(manifest_path: &Path) -> Result<JsProvider, String> {
         .map_err(|e| format!("serialize manifest for {}: {e}", manifest.id))?;
     let vm = PluginVm::load_with_manifest(&manifest.id, &entry, manifest_json)
         .map_err(|e| format!("VM init for {}: {e}", manifest.id))?;
-    Ok(JsProvider::new(manifest, Arc::new(vm)))
+
+    // Trust check: compute the bundle hash and compare against the
+    // build-time SYSTEM_PLUGIN_HASHES table. CODETERM_DEV=1 bypasses
+    // — every plugin is treated as third-party in dev so live edits
+    // don't trip the verifier.
+    let bundle_dir = manifest_path
+        .parent()
+        .ok_or_else(|| "manifest has no parent dir".to_string())?;
+    let trust = compute_trust(&manifest.id, bundle_dir);
+
+    Ok(JsProvider::new_with_trust(manifest, Arc::new(vm), trust))
+}
+
+fn compute_trust(id: &str, bundle_dir: &Path) -> crate::agent::provider::ProviderTrust {
+    use crate::agent::provider::ProviderTrust;
+    use crate::plugin::{bundle_hash, system_plugins};
+
+    if std::env::var("CODETERM_DEV").as_deref() == Ok("1") {
+        return ProviderTrust::ThirdParty;
+    }
+    let Some(expected) = system_plugins::lookup(id) else {
+        return ProviderTrust::ThirdParty;
+    };
+    match bundle_hash::hash_bundle(bundle_dir) {
+        Ok(actual) if actual == expected => ProviderTrust::System,
+        Ok(actual) => {
+            log::warn!(
+                "[plugin/{id}] hash mismatch: expected {expected:?}, got {actual:?} — marking unverified"
+            );
+            ProviderTrust::Unverified
+        }
+        Err(e) => {
+            log::warn!("[plugin/{id}] hash computation failed: {e} — marking unverified");
+            ProviderTrust::Unverified
+        }
+    }
 }
 
 /// Standard discovery roots for a running CodeTerm instance. Order
@@ -281,5 +316,62 @@ mod tests {
         write(&dir.join("plugin.js"), &min_plugin_js("direct"));
         let p = load_one(&dir.join("plugin.json")).unwrap();
         assert_eq!(p.id(), "direct");
+    }
+
+    /// Trust matrix: unknown id → ThirdParty, tampered system id →
+    /// Unverified, CODETERM_DEV=1 → always ThirdParty.
+    ///
+    /// One sequential test because cargo runs `#[test]`s in parallel
+    /// and CODETERM_DEV is process-global — running these as
+    /// separate tests gives flaky cross-test interference.
+    #[test]
+    fn trust_matrix() {
+        use crate::agent::provider::ProviderTrust;
+
+        let prev_dev = std::env::var("CODETERM_DEV").ok();
+
+        // Case 1: unknown id, no dev mode → ThirdParty.
+        unsafe { std::env::remove_var("CODETERM_DEV") };
+        {
+            let root = tempfile::tempdir().unwrap();
+            let dir = root.path().join("nobody-knows-this");
+            write(&dir.join("plugin.json"), &min_manifest("nobody-knows-this"));
+            write(&dir.join("plugin.js"), &min_plugin_js("x"));
+            let p = load_one(&dir.join("plugin.json")).unwrap();
+            assert_eq!(p.trust(), ProviderTrust::ThirdParty, "case 1");
+        }
+
+        // Case 2: system id with custom content → Unverified. Skipped
+        // if the table is empty (cargo-publish edge case).
+        if let Some((sys_id, _)) =
+            crate::plugin::system_plugins::SYSTEM_PLUGIN_HASHES.first()
+        {
+            let root = tempfile::tempdir().unwrap();
+            let dir = root.path().join(*sys_id);
+            write(&dir.join("plugin.json"), &min_manifest(sys_id));
+            write(&dir.join("plugin.js"), "module.exports.default = { tampered: true };");
+            let p = load_one(&dir.join("plugin.json")).unwrap();
+            assert_eq!(p.trust(), ProviderTrust::Unverified, "case 2");
+        }
+
+        // Case 3: CODETERM_DEV=1 forces ThirdParty even for system id.
+        unsafe { std::env::set_var("CODETERM_DEV", "1") };
+        if let Some((sys_id, _)) =
+            crate::plugin::system_plugins::SYSTEM_PLUGIN_HASHES.first()
+        {
+            let root = tempfile::tempdir().unwrap();
+            let dir = root.path().join(*sys_id);
+            write(&dir.join("plugin.json"), &min_manifest(sys_id));
+            write(&dir.join("plugin.js"), "module.exports.default = {};");
+            let p = load_one(&dir.join("plugin.json")).unwrap();
+            assert_eq!(p.trust(), ProviderTrust::ThirdParty, "case 3");
+        }
+
+        unsafe {
+            match prev_dev {
+                Some(v) => std::env::set_var("CODETERM_DEV", v),
+                None => std::env::remove_var("CODETERM_DEV"),
+            }
+        }
     }
 }

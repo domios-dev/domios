@@ -83,8 +83,9 @@ impl From<SerdeSessionMessage> for SessionMessage {
 }
 
 use crate::agent::provider::{
-    self, AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, SessionIdInjection,
-    SessionMessage, SessionMetadata, SettingField, TaskDelivery, VerifySubmitStrategy,
+    self, AgentLaunchParams, AgentProvider, ModelInfo, ProviderTrust, ReadinessStrategy,
+    SessionIdInjection, SessionMessage, SessionMetadata, SettingField, TaskDelivery,
+    VerifySubmitStrategy,
 };
 
 use super::{call_json, manifest_settings_sections, PluginManifest, PluginVm, VmError};
@@ -93,10 +94,19 @@ use super::{call_json, manifest_settings_sections, PluginManifest, PluginVm, VmE
 pub struct JsProvider {
     vm: Arc<PluginVm>,
     manifest: PluginManifest,
+    trust: ProviderTrust,
 }
 
 impl JsProvider {
     pub fn new(manifest: PluginManifest, vm: Arc<PluginVm>) -> Self {
+        Self::new_with_trust(manifest, vm, ProviderTrust::ThirdParty)
+    }
+
+    pub fn new_with_trust(
+        manifest: PluginManifest,
+        vm: Arc<PluginVm>,
+        trust: ProviderTrust,
+    ) -> Self {
         // Register the plugin's models with the catalog so settings UI
         // and `default_model()` resolve through the same plumbing as
         // native providers.
@@ -109,7 +119,7 @@ impl JsProvider {
                 },
             );
         }
-        Self { vm, manifest }
+        Self { vm, manifest, trust }
     }
 
     pub fn manifest(&self) -> &PluginManifest {
@@ -548,6 +558,10 @@ impl AgentProvider for JsProvider {
 
     fn stop_keystroke(&self) -> Option<&str> {
         self.manifest.commands.stop_key.as_deref()
+    }
+
+    fn trust(&self) -> ProviderTrust {
+        self.trust
     }
 
     fn model_switch_command(&self, model: &str) -> Option<String> {
