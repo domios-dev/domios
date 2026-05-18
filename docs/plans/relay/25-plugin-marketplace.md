@@ -1,6 +1,6 @@
 # Plugin marketplace + delivery
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
 
 Closes the gap left by **20-provider-plugins-ts** — provider plugins are
 already TS bundles, but they only reach a running daemon if the user
@@ -286,6 +286,191 @@ Outcome: fresh `codeterm install` ships with working claude/codex/opencode.
 
 Phase 1 alone unblocks the install story. Phases 2–4 are independent and
 can land in any order; 5 should land before any community plugins ship.
+
+## Cases — end-to-end walkthroughs
+
+The plan is "done" when each of these flows works exactly as
+described. They double as the acceptance suite for the rollout.
+
+### Case A — CodeTerm team publishes a system-plugin update
+
+We bump `claude` from 0.1.0 to 0.2.0 because Anthropic changed a
+flag.
+
+1. Edit `plugins/provider-claude/plugin.js` + `plugin.json` on a
+   branch. Bump `"version": "0.2.0"`.
+2. PR review, merge to `master`.
+3. CI runs `cargo build --release`. `build.rs` walks
+   `plugins/provider-claude/`, computes canonical SHA-256, writes the
+   pair into `src-tauri/src/plugin/system_plugins.rs::SYSTEM_PLUGIN_HASHES`.
+   The new binary is now the only one that recognises the 0.2.0
+   bundle as system.
+4. CI also updates `plugins/channel.json` — bumps `"version": "0.2.0"`
+   for `claude` — and tags the release on the default-channel git ref.
+5. End users who already have CodeTerm 1.3.x installed (matching
+   `engines.codeterm`):
+   - Either auto-update CodeTerm (Tauri updater pulls 1.4.0 binary
+     with the new hash table + embedded fallback) — on next launch
+     the bootstrap detects channel `claude` 0.2.0 > installed 0.1.0,
+     fetches it, validates hash → matches new table → installs into
+     `~/.codeterm/plugins/claude/`. Hot-reload watcher reloads.
+   - Or stay on 1.3.x and run `codeterm plugin update claude` — same
+     install flow, but **hash check fails** because their binary still
+     has the 0.1.0 hash. Plugin loads as **unverified**; UI shows the
+     "unverified" badge until they update the app. Force-uninstall
+     stays unlocked. They're not stranded, just notified.
+6. No user data loss. `~/.claude/projects/...` untouched. Pane
+   metadata (agent_session_id, model) survives via the existing
+   restore path tested in P24.
+
+Acceptance: a release where (4) is committed and (5) is reproducible
+on a clean Windows / macOS / Linux install. Both update paths (with
+and without app bump) verified by a `evals/plugin-update/` bench.
+
+### Case B — Third-party developer publishes a brand-new plugin
+
+A community dev writes `provider-gemini` and wants users to install
+it from their own channel.
+
+1. Dev creates a repo `https://github.com/community-dev/codeterm-plugins`
+   with:
+   ```
+   /channel.json
+   /provider-gemini/plugin.json     (id: "gemini", version: "0.1.0",
+                                     contributes.providers, etc.)
+   /provider-gemini/plugin.js
+   ```
+   `channel.json` lists `gemini` with `path: "provider-gemini"`,
+   `version: "0.1.0"`.
+2. Dev pushes. No CodeTerm-team approval, no central registry PR.
+3. End user adds the channel:
+   ```bash
+   codeterm plugin marketplace add community \
+       https://github.com/community-dev/codeterm-plugins
+   ```
+   CodeTerm clones to `~/.codeterm/marketplace-cache/community/`,
+   reads `channel.json`, indexes available plugins.
+4. User browses:
+   ```bash
+   codeterm plugin marketplace plugins community
+   # gemini  0.1.0  — Google Gemini provider
+   ```
+5. User installs:
+   ```bash
+   codeterm plugin install gemini --channel community
+   ```
+   - Bundle copied to `~/.codeterm/plugins/gemini/`.
+   - Loader computes hash, looks up `gemini` in `SYSTEM_PLUGIN_HASHES`
+     — not present → loaded as **third-party** (no system lock, no
+     verified badge, uninstallable from UI).
+   - Hot-reload watcher picks it up. `gemini` appears in
+     `/api/agents/providers`, "New Gemini Session" appears in the
+     workspace 3-dot menu, etc.
+6. Dev later ships 0.2.0. Bumps `version` in `provider-gemini/plugin.json`
+   AND in `channel.json`. Pushes.
+7. User runs `codeterm plugin update --all` or `update gemini`:
+   - `git pull` on `~/.codeterm/marketplace-cache/community/`.
+   - Diff: installed 0.1.0 vs channel 0.2.0 → install.
+   - Same hot-reload reload.
+
+Acceptance: a "third-party plugin walkthrough" doc in the repo
+walks a dev through these exact six steps, and an integration test
+under `evals/plugin-third-party/` runs them against a local file://
+channel.
+
+### Case C — End user removes a plugin
+
+User decides they don't need OpenCode anymore.
+
+```bash
+codeterm plugin uninstall opencode
+# Refusing: 'opencode' is a system plugin (shipped with CodeTerm).
+#   Use --force to remove anyway; it will be re-installed on next update.
+codeterm plugin uninstall opencode --force
+# Removed ~/.codeterm/plugins/opencode/
+# Provider 'opencode' unregistered from the live daemon.
+```
+
+Hot-reload watcher detects the directory gone, unregisters the
+provider, panes that had `agent_type=opencode` keep their metadata
+but the provider trait calls become no-ops (status badges go grey,
+existing sessions become read-only). UI hides the "New OpenCode
+Session" menu entry.
+
+On next `codeterm plugin update` (or next app restart with default
+channel fetched), opencode reinstalls because it's a system plugin
+the binary owns. To keep it out permanently, user adds an
+override:
+
+```bash
+codeterm plugin pin opencode --disabled
+# (writes ~/.codeterm/plugin-overrides.json — read by the bootstrap)
+```
+
+Same flow for third-party plugins, minus the `--force` gate and the
+reinstall — uninstall sticks until the user explicitly reinstalls.
+
+Acceptance: uninstall flow tested for both system + third-party cases
+in `evals/plugin-uninstall/`. The pin/disable mechanism is part of
+Phase 2's CLI surface.
+
+### Case D — Fresh install on a new machine
+
+User downloads `codeterm.exe` (or `.dmg`, or `.AppImage`) and launches
+for the first time. Network is up.
+
+1. Bootstrap: `~/.codeterm/plugins/` empty.
+2. Bootstrap auto-adds default channel `codeterm-core`
+   (`https://github.com/codeterm/plugins.git` — or whatever URL the
+   binary was built with).
+3. Tries `git clone` → success → reads `channel.json` → finds
+   `claude`, `codex`, `opencode`.
+4. For each: copies into `~/.codeterm/plugins/<id>/`, validates hash
+   against `SYSTEM_PLUGIN_HASHES`, marks system.
+5. App finishes booting. Settings → Agents shows three system
+   providers, all verified.
+
+Same machine, **offline** first launch:
+
+1–2. Same.
+3. `git clone` fails (no network).
+4. Bootstrap falls back to `include_dir!`-embedded bundle baked into
+   the binary at build time — extracts the same three plugin folders
+   into `~/.codeterm/plugins/<id>/`. Hash still matches because the
+   embedded bundle is the same one CI hashed.
+5. App boots with the three providers. UI shows "offline" status on
+   the channel, no community channel available yet.
+6. When network returns, `codeterm plugin marketplace refresh` (or
+   the next launch) pulls the channel and unblocks updates.
+
+Acceptance: smoke test on Windows + macOS + Linux installer with
+network on; same with network off. Both paths land the user in the
+same place.
+
+### Case E — User adds a community channel after running for months
+
+User has been on stock CodeTerm. Friend points them at a community
+plugin.
+
+1. `codeterm plugin marketplace add internal-team \
+      git@github.com:my-org/internal-plugins.git`
+   Private repo — uses user's existing SSH/git creds, no codeterm-
+   specific auth.
+2. `codeterm plugin marketplace refresh internal-team` (or done
+   automatically on add).
+3. `codeterm plugin marketplace plugins internal-team` lists what's
+   available.
+4. `codeterm plugin install corp-llm --channel internal-team`.
+5. `codeterm plugin update --all` from then on includes that channel
+   in the pull cycle.
+6. If two channels offer the same `id`, install errors with `id
+   conflict: claude in [codeterm-core, sketchy-channel] — specify
+   --channel`. System ids (claude/codex/opencode) always resolve to
+   the system source regardless of `--channel` — no shadow override.
+
+Acceptance: dual-channel scenario covered in
+`evals/plugin-channels/`, including the conflict error path and the
+system-id protection.
 
 ## Open questions
 
