@@ -50,6 +50,28 @@ const PLUGIN_PREAMBLE: &str = r#"
     quote:    host.shellQuote,
     quoteFor: host.shellQuoteFor,
   };
+  // Cross-platform path helpers. Plugins doing session detection get
+  // burned by slash/case mismatches between "what the CLI wrote" (often
+  // OS-native form) and "what codeterm passes" (usually forward-slash).
+  // Use these instead of comparing strings directly:
+  //   host.path.equal(metaCwd, paneCwd)         // semantic eq
+  //   host.path.normalize(p)                    // canonical key form
+  //   host.md5(host.path.toNative(paneCwd))     // hash like the IDE does
+  host.path = {
+    isWindows: host.platform() === "windows",
+    toForwardSlash: function (p) { return String(p || "").replace(/\\/g, "/"); },
+    toNative: function (p) {
+      var s = String(p || "");
+      return host.path.isWindows ? s.replace(/\//g, "\\") : s.replace(/\\/g, "/");
+    },
+    normalize: function (p) {
+      var s = String(p || "").replace(/\\/g, "/");
+      return host.path.isWindows ? s.toLowerCase() : s;
+    },
+    equal: function (a, b) {
+      return host.path.normalize(a) === host.path.normalize(b);
+    },
+  };
   host.manifest = function () { return parseJson(host.manifestJson()); };
 })();
 "#;

@@ -152,10 +152,10 @@ module.exports.default = {
       if (cutoff !== null && f.modifiedMs !== null && f.modifiedMs < cutoff) continue;
       var meta = readSessionMeta(f.path);
       if (!meta) continue;
-      // codex writes cwd in native (backslash on Windows) form; codeterm
-      // hands us forward-slash form. Compare both normalised to '/' so
-      // the same dir on Windows resolves identically.
-      if (meta.cwd && normalizeCwd(meta.cwd) !== normalizeCwd(cwd)) continue;
+      // codex writes cwd in OS-native form; codeterm passes forward-slash.
+      // host.path.equal normalises both sides so the slash convention
+      // can drift without breaking detection.
+      if (meta.cwd && !host.path.equal(meta.cwd, cwd)) continue;
       var stem = f.name.substring(0, f.name.length - 6);
       var sid = meta.sessionId || extractSessionUuid(stem);
       if (!sid) continue;
@@ -265,13 +265,6 @@ module.exports.default = {
 var endsWith = function (s, suffix) {
   return s.length >= suffix.length
     && s.substring(s.length - suffix.length) === suffix;
-};
-
-// Normalise path separators + case (Windows fs is case-insensitive) so
-// codex's `C:\Users\...` and codeterm's `C:/Users/...` resolve equal.
-var normalizeCwd = function (p) {
-  var s = String(p || "").replace(/\\/g, "/");
-  return host.platform() === "windows" ? s.toLowerCase() : s;
 };
 
 var codexSessionsRoot = function () {
