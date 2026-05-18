@@ -343,6 +343,49 @@ pub fn run() {
             }
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
 
+            // First-launch bootstrap: extract the embedded system-plugin
+            // bundles into ~/.codeterm/plugins/<id>/ when missing. This
+            // is the offline fallback — a fresh prod binary without
+            // network still ships working providers because the bundles
+            // are baked into the executable via include_dir!. Channel
+            // infra (Phase 2 of the channels plan) will overlay/update
+            // on top of this, but the floor stays the embedded bundle.
+            //
+            // Skipped in dev mode (CODETERM_DEV=1) so that live edits
+            // to <repo>/plugins/<id>/ aren't shadowed by a stale extract
+            // in the user dir. In dev, the workspace IS the source.
+            if std::env::var("CODETERM_DEV").as_deref() != Ok("1") {
+                if let Some(home) = dirs::home_dir() {
+                    let user_plugins = home.join(".codeterm").join("plugins");
+                    match plugin::embedded::bootstrap_into(&user_plugins) {
+                        Ok(written) if !written.is_empty() => {
+                            log::info!(
+                                "[plugin/bootstrap] extracted embedded plugins {written:?} → {}",
+                                user_plugins.display()
+                            );
+                        }
+                        Ok(_) => {
+                            log::debug!(
+                                "[plugin/bootstrap] {} already has all system plugins",
+                                user_plugins.display()
+                            );
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "[plugin/bootstrap] failed to extract embedded plugins to {}: {e}",
+                                user_plugins.display()
+                            );
+                        }
+                    }
+                } else {
+                    log::warn!(
+                        "[plugin/bootstrap] dirs::home_dir() returned None; cannot extract embedded plugins"
+                    );
+                }
+            } else {
+                log::info!("[plugin/bootstrap] CODETERM_DEV=1 — skipping embedded extract, workspace plugins are authoritative");
+            }
+
             // Discover and register JS-runtime plugins. Scans the bundled
             // workspace (`<repo>/plugins/`, only present in dev/source
             // builds) and the per-user drop-in dir (`~/.codeterm/plugins/`).
