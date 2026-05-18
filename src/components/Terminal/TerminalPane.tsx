@@ -44,7 +44,7 @@ export function TerminalPane({
   const containerRef = useRef<HTMLDivElement>(null);
   const connectedPtyRef = useRef<string | null>(null);
 
-  const { state, updatePaneStatus, closePane } = useMultiplexer();
+  const { updatePaneStatus } = useMultiplexer();
 
   // --- Terminal lifecycle ---
   const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
@@ -102,7 +102,7 @@ export function TerminalPane({
   const showDropOverlay = (isFileDragOver || isTextDragOver) && termReady;
 
   // --- Input handling ---
-  const { copySelection, pasteFromClipboard, clearTerminal } = useTerminalInput({
+  const { copySelection, pasteFromClipboard } = useTerminalInput({
     termRef, connectedPtyRef, containerRef, termReady,
     onTabKey: completion.handleTab,
     onNonTabKey: completion.dismissCompletions,
@@ -158,19 +158,9 @@ export function TerminalPane({
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
-  const isProtected = state.panes[paneId]?.protected;
   const contextMenuActions: ContextMenuAction[] = [
     { label: "Copy", shortcut: "Ctrl+Shift+C", onClick: copySelection },
     { label: "Paste", shortcut: "Ctrl+Shift+V", onClick: pasteFromClipboard },
-    { label: "Clear", onClick: clearTerminal, separator: true },
-    ...(!isProtected ? [
-      {
-        label: "Close Pane",
-        shortcut: "Ctrl+Shift+Q",
-        onClick: () => closePane(paneId),
-        separator: true,
-      },
-    ] as ContextMenuAction[] : []),
   ];
 
   // --- Style ---

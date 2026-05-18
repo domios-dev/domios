@@ -17,7 +17,6 @@ export interface UseTerminalInputOptions {
 export interface UseTerminalInputReturn {
   copySelection: () => void;
   pasteFromClipboard: () => void;
-  clearTerminal: () => void;
 }
 
 export function useTerminalInput({
@@ -40,10 +39,6 @@ export function useTerminalInput({
   const pasteFromClipboard = useCallback(() => {
     const term = termRef.current;
     if (term) void routeClipboardToTerm(term);
-  }, [termRef]);
-
-  const clearTerminal = useCallback(() => {
-    termRef.current?.clear();
   }, [termRef]);
 
   useEffect(() => {
@@ -122,5 +117,5 @@ export function useTerminalInput({
     };
   }, [termReady, termRef, connectedPtyRef, containerRef, onTabKey, onNonTabKey, onInputData]);
 
-  return { copySelection, pasteFromClipboard, clearTerminal };
+  return { copySelection, pasteFromClipboard };
 }
