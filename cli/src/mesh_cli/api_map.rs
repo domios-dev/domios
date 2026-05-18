@@ -97,6 +97,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 // locally so the response shape stays the same as `pane list`.
                 ("GET".into(), "/api/panes".into(), None)
             }
+            crate::PaneAction::Stop { pane } => {
+                let p = pane.as_deref().unwrap_or("general");
+                ("POST".into(), format!("/api/panes/{}/stop", p), Some("{}".into()))
+            }
         },
         Commands::Paste { action } => match action {
             crate::PasteAction::Put { body, from_file, from_stdin, ttl, content_type, pop } => {
