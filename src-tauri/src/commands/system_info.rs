@@ -162,6 +162,23 @@ pub fn suggest_install_pwsh(
     Ok(pane_id)
 }
 
+/// Frontend reports WebGL renderer health here. Goes into the daemon
+/// log so rendering health is observable without opening the WebView
+/// devtools. Called from useXterm.ts on every TerminalPane mount.
+///
+/// state: "loaded" — WebGL addon attached successfully
+///        "context_lost" — GPU context dropped (xterm will fall back)
+///        "failed" — WebGL addon constructor threw
+#[tauri::command]
+pub fn report_webgl_status(state: String, detail: Option<String>) {
+    match state.as_str() {
+        "loaded" => log::info!("[webgl] addon loaded"),
+        "context_lost" => log::warn!("[webgl] GPU context lost — DOM fallback engaged"),
+        "failed" => log::warn!("[webgl] addon failed to load: {}", detail.as_deref().unwrap_or("<no detail>")),
+        other => log::warn!("[webgl] unknown state from FE: {other}"),
+    }
+}
+
 #[tauri::command]
 pub fn generate_api_token(
     state: tauri::State<'_, crate::config::ConfigState>,

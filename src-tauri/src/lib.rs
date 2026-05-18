@@ -155,6 +155,7 @@ pub fn run() {
             commands::restart_general_agent,
             commands::get_network_info,
             commands::generate_api_token,
+            commands::report_webgl_status,
             commands::save_clipboard_image,
             commands::save_clipboard_file,
             clipboard_files::read_clipboard_files,

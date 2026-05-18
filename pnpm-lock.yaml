@@ -11,6 +11,9 @@ importers:
       '@codeterm/provider-claude':
         specifier: workspace:*
         version: link:plugins/provider-claude
+      '@codeterm/provider-codex':
+        specifier: workspace:*
+        version: link:plugins/provider-codex
       '@codeterm/provider-opencode':
         specifier: workspace:*
         version: link:plugins/provider-opencode
@@ -95,6 +98,12 @@ importers:
         version: 8.0.0(jiti@2.6.1)
 
   plugins/provider-claude:
+    dependencies:
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+
+  plugins/provider-codex:
     dependencies:
       react:
         specifier: ^19.0.0
