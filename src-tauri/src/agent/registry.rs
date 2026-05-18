@@ -387,29 +387,26 @@ mod tests {
 
     #[test]
     fn list_descriptors_with_two_providers() {
-        use crate::plugin::agent_codex::CodexProvider;
+        use crate::plugin::agent_opencode::OpenCodeProvider;
         let reg = AgentRegistry::new();
         reg.register_provider(Box::new(ClaudeProvider::new()));
-        reg.register_provider(Box::new(CodexProvider::new()));
+        reg.register_provider(Box::new(OpenCodeProvider::new()));
         let descs = reg.list_descriptors();
         assert_eq!(descs.len(), 2);
         let ids: std::collections::HashSet<&str> =
             descs.iter().map(|d| d.id.as_str()).collect();
         assert!(ids.contains("claude"));
-        assert!(ids.contains("codex"));
+        assert!(ids.contains("opencode"));
     }
 
     #[test]
     fn restore_dispatch_builds_resume_for_every_provider() {
-        use crate::plugin::agent_codex::CodexProvider;
         use crate::plugin::agent_opencode::OpenCodeProvider;
         let reg = AgentRegistry::new();
         reg.register_provider(Box::new(ClaudeProvider::new()));
-        reg.register_provider(Box::new(CodexProvider::new()));
         reg.register_provider(Box::new(OpenCodeProvider::new()));
         for (id, sid) in [
             ("claude", "f00fc0dd-be1c-4d43-bb1d-212c923b75c1"),
-            ("codex", "019e15cd-1527-7e21-9477-2631a52e499a"),
             ("opencode", "ses_1ea31e6d2ffe8WrqZl6g4mc6l2"),
         ] {
             let cmd = reg.with_provider(id, |p| p.build_resume_command(sid, true))
@@ -422,13 +419,11 @@ mod tests {
     #[test]
     fn restore_dispatch_falls_back_to_fresh_launch_when_no_resume() {
         use crate::agent::provider::AgentLaunchParams;
-        use crate::plugin::agent_codex::CodexProvider;
         use crate::plugin::agent_opencode::OpenCodeProvider;
         let reg = AgentRegistry::new();
         reg.register_provider(Box::new(ClaudeProvider::new()));
-        reg.register_provider(Box::new(CodexProvider::new()));
         reg.register_provider(Box::new(OpenCodeProvider::new()));
-        for id in ["claude", "codex", "opencode"] {
+        for id in ["claude", "opencode"] {
             let cmd = reg.with_provider(id, |p| p.build_launch_command(&AgentLaunchParams {
                 skip_permissions: true,
                 ..Default::default()
