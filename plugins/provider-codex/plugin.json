@@ -39,6 +39,7 @@
   "commands": {
     "compact": "/compact",
     "exit": "/exit",
+    "modelSwitchFormat": "/model {model}",
     "autoApproveFlags": ["--dangerously-bypass-approvals-and-sandbox"],
     "modelLaunchArgsFormat": ["-m", "{model}"]
   }
