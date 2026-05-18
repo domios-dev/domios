@@ -307,6 +307,18 @@ function AppInner() {
         return;
       }
       if (matchesBinding(e, kb.paste)) {
+        // Skip when xterm or any input/textarea/contenteditable owns the
+        // focus — those have their own paste handlers (TerminalPane via
+        // pasteClipboardToPty, native onPaste on inputs). Without this gate
+        // a paste binding that overlaps with the OS Ctrl+V triggers BOTH
+        // the focused element's paste AND this window-level handler =
+        // double paste. This branch is the fallback for "no focused input"
+        // — e.g. paste while a non-input pane has focus.
+        const active = document.activeElement;
+        const isXtermFocused = active?.classList.contains("xterm-helper-textarea");
+        const isInputFocused = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || active?.getAttribute("contenteditable") === "true";
+        if (isXtermFocused || isInputFocused) return;
+
         e.preventDefault();
         const focusedId = stateRef.current.focused_pane_id;
         if (focusedId) {

@@ -64,9 +64,15 @@ export function useTerminalInput({
       if (isMac && e.ctrlKey && e.metaKey) return true;
 
       // Paste — Ctrl+V, Cmd+V, Ctrl+Shift+V all funnel through the same
-      // file/image/path-aware pipeline. Old code returned true here and
-      // hoped xterm.js would handle it; in Tauri WebView nothing did.
+      // file/image/path-aware pipeline. preventDefault + stopPropagation
+      // are mandatory: without them WebView2 still fires the native `paste`
+      // event on the textarea (xterm.js handles it via its own listener and
+      // emits a SECOND bracketed-paste through onData → double paste), and
+      // the window-level keydown listener in App.tsx (kb.paste) would also
+      // fire and write the clipboard a third time.
       if (e.code === "KeyV") {
+        e.preventDefault();
+        e.stopPropagation();
         const ptyId = connectedPtyRef.current;
         if (ptyId) {
           pasteClipboardToPty(ptyId).catch(() => {});
@@ -81,6 +87,8 @@ export function useTerminalInput({
       if (e.code === "KeyC") {
         const sel = term.getSelection();
         if (sel) {
+          e.preventDefault();
+          e.stopPropagation();
           navigator.clipboard.writeText(sel).catch(() => {});
           term.clearSelection();
           return false;
