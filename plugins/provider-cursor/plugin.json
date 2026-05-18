@@ -1,0 +1,44 @@
+{
+  "id": "cursor",
+  "version": "0.1.0",
+  "displayName": "Cursor",
+  "binaryName": "cursor-agent",
+  "cliBinary": "cursor-agent",
+  "iconHint": "✻",
+  "iconColor": "#7aa2ff",
+  "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M12 2 2 7v10l10 5 10-5V7L12 2zm0 2.3 7.5 3.75-7.5 3.75-7.5-3.75L12 4.3zM4 9.4l7 3.5v7.7l-7-3.5V9.4zm9 11.2v-7.7l7-3.5v7.7l-7 3.5z\"/></svg>",
+  "entry": "plugin.js",
+  "spawn": {
+    "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
+    "taskDelivery": "pty_input",
+    "taskInputWarmupMs": 3000,
+    "verifySubmit": {
+      "kind": "tui_input_drained",
+      "timeoutSecs": 15,
+      "idleAfterDrainMs": 800
+    },
+    "sessionIdInjection": "none",
+    "statusBarRows": 1,
+    "preservesContextOnResume": true,
+    "supportsLazySkills": false,
+    "hasHooks": false
+  },
+  "models": [
+    { "id": "auto", "displayName": "Auto", "description": "Cursor picks the best model for the task." },
+    { "id": "claude-4.7-sonnet", "displayName": "Claude Sonnet 4.7", "description": "Anthropic Sonnet via Cursor." },
+    { "id": "claude-4.7-opus", "displayName": "Claude Opus 4.7", "description": "Anthropic Opus via Cursor." },
+    { "id": "gpt-5.5", "displayName": "GPT-5.5", "description": "OpenAI frontier via Cursor." }
+  ],
+  "defaultModel": "auto",
+  "installer": {
+    "macos": "curl https://cursor.com/install -fsSL | bash",
+    "linux": "curl https://cursor.com/install -fsSL | bash",
+    "windows": "wsl bash -c 'curl https://cursor.com/install -fsSL | bash'"
+  },
+  "commands": {
+    "exit": "/exit",
+    "modelSwitchFormat": "/model {model}",
+    "autoApproveFlags": ["--force"],
+    "modelLaunchArgsFormat": ["--model", "{model}"]
+  }
+}
