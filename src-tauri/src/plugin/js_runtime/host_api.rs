@@ -106,6 +106,20 @@ pub(super) fn install(ctx: &Ctx<'_>, manifest_json: Option<&str>) -> Result<(), 
             write_temp_file(&contents, suffix.as_deref())
         });
 
+    // ── Crypto helpers ──────────────────────────────────────────────
+    // MD5 hex digest of a string. Use case: cursor stores chats under
+    // `~/.cursor/chats/<md5(cwd)>/...`, so the plugin needs MD5 to
+    // resolve which chat dir belongs to the current pane's cwd.
+    bind!("md5", |s: String| -> String {
+        use md5::{Digest, Md5};
+        let mut h = Md5::new();
+        h.update(s.as_bytes());
+        let digest = h.finalize();
+        let mut out = String::with_capacity(32);
+        for b in digest { out.push_str(&format!("{b:02x}")); }
+        out
+    });
+
     // ── Sqlite (read-only) ──────────────────────────────────────────
     bind!("sqliteQueryAllJson",
         |db: String, sql: String, params_json: Option<String>| -> Option<String> {
