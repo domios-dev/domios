@@ -12,6 +12,7 @@ import {
   useTauriFileDrop,
 } from "../../hooks/terminal";
 import { quotePathForPaste, routeClipboardToTerm } from "../../lib/clipboardPaste";
+import { registerPanePaste } from "../../lib/panePasteRegistry";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
@@ -139,20 +140,16 @@ export function TerminalPane({
   }, [paneId]);
 
   // --- App-wide paste routing ---
-  // App.tsx dispatches this when Ctrl+V / Cmd+V (or kb.paste) fires and the
-  // user's inner focus isn't on an editable element. We pick it up if this
-  // is the focused pane and route through the same paste pipeline as
-  // keyboard-on-textarea — bracketed-mode-aware, file-aware, single point
-  // of truth in `routeClipboardToTerm`.
+  // Register this pane's paste fn in the global registry so App.tsx's
+  // window-level Ctrl+V handler can target whichever pane is currently
+  // focused, regardless of where the inner DOM focus is. Synchronous
+  // function-call lookup — no event bus race, no remount window where
+  // the dispatch falls into a void.
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.paneId !== paneId) return;
+    return registerPanePaste(paneId, () => {
       const term = termRef.current;
       if (term) void routeClipboardToTerm(term);
-    };
-    window.addEventListener("codeterm-paste-to-pane", handler);
-    return () => window.removeEventListener("codeterm-paste-to-pane", handler);
+    });
   }, [paneId, termRef]);
 
   // --- Context menu ---

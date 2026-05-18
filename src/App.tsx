@@ -23,6 +23,7 @@ import type { ThemeConfig } from "./lib/types";
 import { matchesBinding, isMac } from "./lib/keybindings";
 import { blendColor, deriveColor } from "./lib/colors";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { pasteToPane } from "./lib/panePasteRegistry";
 // TODO: Agent Swarm Visualization — future feature
 // import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
@@ -299,10 +300,9 @@ function AppInner() {
 
         const focusedId = stateRef.current.focused_pane_id;
         if (!focusedId) return;
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent("codeterm-paste-to-pane", {
-          detail: { paneId: focusedId },
-        }));
+        if (pasteToPane(focusedId)) {
+          e.preventDefault();
+        }
         return;
       }
       if (matchesBinding(e, kb.search)) {
