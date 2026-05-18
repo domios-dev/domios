@@ -136,9 +136,12 @@ impl MultiplexerState {
 
     /// Sidebar label for a pane — tab.title, falling back to pane.title, then short id.
     pub fn display_label_for_pane(&self, pane_id: &str) -> String {
-        let pane_title = self.get_pane(pane_id).map(|p| p.title.clone()).unwrap_or_default();
+        // Callers may pass a short id / alias — resolve first so the
+        // tab-title lookup (which compares full ids) actually matches.
+        let resolved = self.resolve_pane_id(pane_id).unwrap_or_else(|| pane_id.to_string());
+        let pane_title = self.get_pane(&resolved).map(|p| p.title.clone()).unwrap_or_default();
         for ws in &self.workspaces {
-            if let Some(tab) = ws.tabs.iter().find(|t| t.pane_id == pane_id) {
+            if let Some(tab) = ws.tabs.iter().find(|t| t.pane_id == resolved) {
                 let t = tab.title.trim();
                 if !t.is_empty() && t != pane_title.trim() {
                     return t.to_string();
@@ -149,7 +152,7 @@ impl MultiplexerState {
         if !pane_title.trim().is_empty() {
             pane_title
         } else {
-            pane_id.chars().take(8).collect()
+            resolved.chars().take(8).collect()
         }
     }
 
