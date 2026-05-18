@@ -19,7 +19,6 @@ import {
   Mouse,
   Power,
   Keyboard,
-  Wrench,
   FileText,
   type LucideIcon,
 } from "lucide-react";
@@ -531,25 +530,6 @@ export function SettingsPanel({
                     <AboutLink href="https://rollacode.org" label="Website" Icon={ExternalLink} />
                     <AboutLink href="https://www.linkedin.com/in/rollacode" label="LinkedIn" Icon={ExternalLink} />
                   </div>
-                </SettingsCard>
-
-                <SettingsCard
-                  icon={<Wrench size={16} />}
-                  title="Setup"
-                  description="Re-run the setup wizard on next launch."
-                >
-                  <button
-                    onClick={() => {
-                      const next = { ...localConfig, onboarding_completed: false };
-                      onUpdateConfig(next).then(() => {
-                        setLocalConfig(next);
-                        window.location.reload();
-                      }).catch(() => {});
-                    }}
-                    className="px-3 py-1.5 text-[11px] rounded bg-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-muted)] transition-colors self-start"
-                  >
-                    Reset Onboarding
-                  </button>
                 </SettingsCard>
 
                 <div className="text-center pt-2">
