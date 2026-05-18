@@ -325,6 +325,17 @@ fn main() {
         return;
     }
 
+    // `docs` reads embedded markdown bundled at compile time — no daemon
+    // dependency. Short-circuit so agents can read references even when the
+    // daemon is wedged or restarting.
+    if matches!(cli.command, Commands::Docs { .. }) {
+        match cli.command {
+            Commands::Docs { name } => cmd::docs::handle(name),
+            _ => unreachable!(),
+        }
+        return;
+    }
+
     let socket_path = match discover_socket() {
         Ok(p) => p,
         Err(e) => {
@@ -652,6 +663,30 @@ fn main() {
         Commands::System { action } => {
             cmd::system::handle_system(cli.json, action);
             return;
+        }
+        Commands::Debug { action } => {
+            use args::debug::DebugAction;
+            match action {
+                DebugAction::Crash { kind } => {
+                    let res = client.call(
+                        "debug.crash",
+                        Some(serde_json::json!({ "kind": kind.as_str() })),
+                    );
+                    match res {
+                        Ok(_) => {
+                            eprintln!(
+                                "[debug.crash] trigger dispatched (kind={}). For segv/abort the daemon will die; check ~/.codeterm[-dev]/crashes/ for the report.",
+                                kind.as_str()
+                            );
+                        }
+                        Err(e) => {
+                            // Expected for segv/abort — connection drops mid-call.
+                            eprintln!("[debug.crash] dispatch returned error (expected for segv/abort): {}", e);
+                        }
+                    }
+                    return;
+                }
+            }
         }
     };
 

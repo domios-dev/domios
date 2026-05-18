@@ -102,13 +102,10 @@ export function useXterm({
       console.warn("[useXterm] WebGL renderer unavailable, falling back to DOM:", e);
     }
 
-    // Copy on select
-    term.onSelectionChange(() => {
-      const selection = term.getSelection();
-      if (selection) {
-        navigator.clipboard.writeText(selection).catch(() => {});
-      }
-    });
+    // Copy-on-select removed: silently writing the clipboard every time
+    // the user highlights text is surprising and clobbers whatever they
+    // had copied moments earlier. Ctrl+Shift+C / Cmd+C with a selection
+    // and the right-click "Copy" item both still work.
 
     // Visual bell
     term.onBell(() => {

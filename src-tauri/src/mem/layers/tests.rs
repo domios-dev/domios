@@ -17,7 +17,7 @@ fn wake_up_includes_l0_l1() {
     insert(&conn, &NewMemItem {
         kind: MemKind::Preference, scope: MemScope::Global,
         title: "identity".into(), summary: None, area: None, tags: vec![],
-        body: "I am Rollo, the GA on this machine.".into(),
+        body: "I am Alice, the GA on this machine.".into(),
         source: None, importance: 5.0, source_path: None, pinned: false,
     }, &blobs).unwrap();
     insert(&conn, &NewMemItem {
@@ -28,14 +28,14 @@ fn wake_up_includes_l0_l1() {
     }, &blobs).unwrap();
     insert(&conn, &NewMemItem {
         kind: MemKind::Peer, scope: MemScope::Global,
-        title: "ainyiva-bot".into(), summary: Some("mac mini, paired".into()), area: None,
-        tags: vec![], body: "ainyiva-bot is the Mac mini peer".into(),
+        title: "test-peer".into(), summary: Some("mac mini, paired".into()), area: None,
+        tags: vec![], body: "test-peer is the Mac mini peer".into(),
         source: None, importance: 4.0, source_path: None, pinned: false,
     }, &blobs).unwrap();
 
     let out = generate(&conn, &WakeUpOptions::default(), &blobs).unwrap();
     assert!(out.contains("L0 — Identity"));
-    assert!(out.contains("Rollo"));
+    assert!(out.contains("Alice"));
     assert!(out.contains("L1 — Critical context"));
     assert!(out.contains("Rules"));
     assert!(out.contains("never edit autogen"));

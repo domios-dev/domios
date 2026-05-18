@@ -8,6 +8,7 @@ pub fn run(conn: &Connection) -> MemStoreResult<()> {
     add_promotion_threshold(conn)?;
     create_lesson_audit(conn)?;
     add_pin_column(conn)?;
+    add_active_relations_unique_index(conn)?;
     Ok(())
 }
 
@@ -90,5 +91,36 @@ fn create_graph_purge_log(conn: &Connection) -> MemStoreResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_purge_at ON graph_purge_log(purged_at DESC);"#,
     )?;
+    Ok(())
+}
+
+// Dedup active edges + add a partial UNIQUE index so future INSERT OR IGNORE no-ops.
+// Pre-existing UNIQUE(from_id, relation_type, to_id, valid_from) never fires because
+// valid_from is a fresh timestamp on each write (issue #116). Historical (valid_to NOT NULL)
+// rows are preserved as edge-history.
+fn add_active_relations_unique_index(conn: &Connection) -> MemStoreResult<()> {
+    let already: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master \
+         WHERE type='index' AND name='idx_relations_active_unique'",
+        [],
+        |r| r.get(0),
+    )?;
+    if already > 0 {
+        return Ok(());
+    }
+
+    let tx = conn.unchecked_transaction()?;
+    tx.execute_batch(
+        "DELETE FROM relations \
+         WHERE valid_to IS NULL AND rowid NOT IN ( \
+             SELECT MIN(rowid) FROM relations \
+             WHERE valid_to IS NULL \
+             GROUP BY from_id, relation_type, to_id, scope \
+         ); \
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_relations_active_unique \
+           ON relations(from_id, relation_type, to_id, scope) \
+           WHERE valid_to IS NULL;",
+    )?;
+    tx.commit()?;
     Ok(())
 }

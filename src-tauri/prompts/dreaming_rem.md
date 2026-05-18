@@ -460,8 +460,8 @@ an existing entity (city, role, summary text) AND the source is grounded
 in a mem_item, augment the entity:
 
     codeterm mem graph augment-entity \
-        --id person_andrey \
-        --patch '{"city":"Riga","role":"Senior iOS dev"}' \
+        --id person_alice \
+        --patch '{"city":"Berlin","role":"Backend engineer"}' \
         --actor dreamer
 
 Rules:
@@ -536,7 +536,7 @@ partner who just spent the night reading the user's notes and wants to
 share what came up.
 
 Bad: "PATTERN: User has 14 auth-related learnings. CONNECTION: tech_jwt
-links to person_andrey." (status report)
+links to person_alice." (status report)
 
 Good: "Walking through the auth area I kept tripping over the same
 pattern — a learning from January about JWT kid headers turned up next

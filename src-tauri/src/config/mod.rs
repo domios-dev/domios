@@ -397,7 +397,7 @@ pub async fn update_config(
     // Detect rename so we can sync mesh state + push the new name to peers
     // immediately instead of waiting for the next periodic announce. Without
     // this, paired peers stay on the old instance_name forever (the
-    // alias-propagation bug ROG hit on the Mac-Air rename).
+    // alias-propagation bug seen after an instance rename).
     let prev_name = state.lock().mesh.instance_name.clone();
     let new_name = resolved.mesh.instance_name.clone();
     let renamed = !new_name.is_empty() && new_name != prev_name;

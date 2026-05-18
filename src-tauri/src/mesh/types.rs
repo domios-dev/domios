@@ -373,7 +373,7 @@ mod tests {
     #[test]
     fn tailscale_cgnat_recognized() {
         assert!(is_tailscale_ip("100.64.0.1"));
-        assert!(is_tailscale_ip("100.84.159.37"));
+        assert!(is_tailscale_ip("100.65.0.10"));
         assert!(is_tailscale_ip("100.127.255.254"));
         assert!(!is_tailscale_ip("100.63.255.255"));
         assert!(!is_tailscale_ip("100.128.0.0"));
@@ -389,12 +389,12 @@ mod tests {
         assert!(!is_lan_private_ip("172.15.0.1"));
         assert!(!is_lan_private_ip("172.32.0.1"));
         assert!(!is_lan_private_ip("8.8.8.8"));
-        assert!(!is_lan_private_ip("100.84.0.1")); // tailscale not LAN
+        assert!(!is_lan_private_ip("100.65.0.20")); // tailscale not LAN
     }
 
     #[test]
     fn address_tier_orders_tailscale_first_then_lan_then_public() {
-        let ts = PeerAddress { ip: "100.84.1.2".into(), is_tailscale: true };
+        let ts = PeerAddress { ip: "100.65.0.30".into(), is_tailscale: true };
         let lan = PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false };
         let pub_ip = PeerAddress { ip: "8.8.8.8".into(), is_tailscale: false };
         assert!(address_tier(&ts) < address_tier(&lan));
@@ -406,16 +406,16 @@ mod tests {
         let addrs = vec![
             PeerAddress { ip: "8.8.8.8".into(), is_tailscale: false },
             PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false },
-            PeerAddress { ip: "100.84.1.2".into(), is_tailscale: true },
+            PeerAddress { ip: "100.65.0.30".into(), is_tailscale: true },
         ];
         let pick = addrs.iter().min_by_key(|a| address_tier(a)).unwrap();
-        assert_eq!(pick.ip, "100.84.1.2");
+        assert_eq!(pick.ip, "100.65.0.30");
     }
 
     #[test]
     fn sanitize_addresses_passes_clean_ips_through() {
         let addrs = vec![
-            PeerAddress { ip: "100.84.1.2".into(), is_tailscale: true },
+            PeerAddress { ip: "100.65.0.30".into(), is_tailscale: true },
             PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false },
             PeerAddress { ip: "::1".into(), is_tailscale: false },
         ];
@@ -440,14 +440,14 @@ mod tests {
     #[test]
     fn sanitize_addresses_preserves_clean_drops_poisoned_in_mixed_list() {
         let mixed = vec![
-            PeerAddress { ip: "100.84.1.2".into(), is_tailscale: true },
+            PeerAddress { ip: "100.65.0.30".into(), is_tailscale: true },
             PeerAddress { ip: "Tailscale daemon is not running.".into(), is_tailscale: false },
             PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false },
             PeerAddress { ip: "garbage".into(), is_tailscale: false },
         ];
         let out = sanitize_addresses(&mixed);
         assert_eq!(out.len(), 2);
-        assert_eq!(out[0].ip, "100.84.1.2");
+        assert_eq!(out[0].ip, "100.65.0.30");
         assert_eq!(out[1].ip, "192.168.1.2");
     }
 
