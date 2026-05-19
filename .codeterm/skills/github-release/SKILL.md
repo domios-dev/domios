@@ -69,8 +69,8 @@ Stored in Bitwarden vault (retrieve via `codeterm mem secret get --name <slug>` 
   ```
   Note the env var is `APPLE_APP_SPECIFIC_PASSWORD`, NOT `APPLE_PASSWORD`.
 - `gh` logged in as `rollacode`: `gh auth status`.
-- Windows builder mesh peer paired and online: `codeterm mesh peers`. Default = **ROG** (primary, Windows 11, `100.125.250.76`, codeterm workspace at `C:\Users\amigo\Developer\codeterm`, workspace id `28fa3d8d`). Fallback = BLACKSTAR.
-- **Windows builder prereqs** (verify on ROG before spawning the agent):
+- Windows builder mesh peer paired and online: `codeterm mesh peers`. Default = **BLACKSTAR** (Windows 11, has its own minisign key copy since 2026-05-18, workspace at `C:\Developer\codeterm`). Fallback = **ROG** (primary workstation, Windows 11, `100.125.250.76`, codeterm workspace at `C:\Users\amigo\Developer\codeterm`, workspace id `28fa3d8d`).
+- **Windows builder prereqs** (verify on the chosen peer before invoking `win-release.sh`):
   - `gh auth status` shows `rollacode (keyring)` as **valid**, not just `r0llac0de (work)` as the active account. The work account has happened to retain push access to `rollacode/codeterm` (so uploads can succeed even when rollacode keyring is stale), but this is fragile — refresh via `gh auth login` if rollacode is invalid. *(v1.2.1 caught: rollacode keyring expired silently; r0llac0de was the actual writer.)*
   - `node --version` ≥ 22.12 (Vite 8 hard requirement). If lower, `nvm use 22.22.0` (or whichever 22.12+ is installed). nvm-windows shim is usually not on PATH by default — prepend the version dir manually if `nvm use` doesn't work.
   - Windows SDK matches what `build.sh` expects (default `SDK_VER=10.0.22621.0`). Check `ls "/c/Program Files (x86)/Windows Kits/10/Include"`. On ROG only `10.0.26100.0` is installed → build.sh has a local stash with the override; restore via `git stash pop` after `git checkout v$VER`. A clean ROG without that stash dead-ends on `sqlite-sys: malloc.h not found`.
@@ -362,7 +362,9 @@ Alternative paths (debugging tactics, not normal flow):
 # Private source repo:
 gh release edit v$VER --draft=false --latest
 gh release view v$VER --json assets --jq '.assets[] | "\(.name)  \(.size)B"'
-# Expect 3 assets here: aarch64.dmg, x64.dmg, x64-setup.exe.
+# Expect 4-5 assets on the source repo: aarch64.dmg, x64.dmg, x64-setup.exe + the
+# Linux artifacts (`amd64.deb`, `amd64.AppImage`) when CI shipped them via release-linux.yml.
+# The mirror (codeterm-releases) holds the same set plus `.app.tar.gz`, `.nsis.zip`, and `latest.json`.
 
 # Public mirror — once Windows .exe arrives, also update its sig in latest.json
 # and re-upload --clobber. Verify GUI updater can resolve anonymously:
