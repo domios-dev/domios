@@ -1,10 +1,16 @@
-//! Native clipboard file reference reading.
+//! Native clipboard reading via the OS pasteboard.
 //!
-//! Web Clipboard API exposes only text and image data. File references
-//! (e.g. "Copy file in Explorer/Finder") use OS-specific formats:
-//! - Windows: CF_HDROP
-//! - macOS: NSPasteboardTypeFileURL
-//! - Linux: text/uri-list (TODO)
+//! Bypasses the WebView's `navigator.clipboard` API entirely, which on macOS
+//! WebKit is gated to "must be called inside a paste-event handler" — every
+//! keydown / right-click / programmatic path we route from `routeClipboardToTerm`
+//! is OUTSIDE that gate, so readText() silently returns nothing (and in
+//! macOS Sequoia briefly shows a permission toast). Reading the system
+//! pasteboard directly from Rust avoids the gate and matches what
+//! `pbpaste` / any native app does.
+//!
+//! Text:  Windows CF_UNICODETEXT / macOS NSPasteboardTypeString
+//! Files: Windows CF_HDROP / macOS NSPasteboardTypeFileURL
+//! Linux: text/uri-list (TODO)
 
 #[tauri::command]
 pub async fn read_clipboard_files(
@@ -24,6 +30,63 @@ pub async fn read_clipboard_files(
     let paths: Vec<String> = Vec::new();
 
     Ok(paths.into_iter().map(sanitize_path).collect())
+}
+
+/// Read plain text from the OS pasteboard. Returns `None` when there is no
+/// text on the pasteboard (caller falls back to the web clipboard / file
+/// paths). Used as the primary text source on macOS where WebKit blocks
+/// `navigator.clipboard.readText()` outside paste-event handlers.
+#[tauri::command]
+pub async fn read_clipboard_text(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    let _ = &app;
+
+    #[cfg(target_os = "windows")]
+    let text = read_windows_text();
+    #[cfg(target_os = "macos")]
+    let text = read_macos_text_on_main(&app)?;
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    let text: Option<String> = None;
+
+    Ok(text)
+}
+
+#[cfg(target_os = "macos")]
+fn read_macos_text_on_main(app: &tauri::AppHandle) -> Result<Option<String>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(read_macos_text());
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv().map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn read_macos_text() -> Option<String> {
+    use objc2_app_kit::{NSPasteboard, NSPasteboardTypeString};
+    let pb = NSPasteboard::generalPasteboard();
+    let s = unsafe { pb.stringForType(&NSPasteboardTypeString) }?;
+    let out = s.to_string();
+    log::info!("[clipboard] text (mac) → {} chars", out.chars().count());
+    Some(out)
+}
+
+#[cfg(target_os = "windows")]
+fn read_windows_text() -> Option<String> {
+    use clipboard_win::formats::Unicode;
+    use clipboard_win::get_clipboard;
+    match get_clipboard::<String, _>(Unicode) {
+        Ok(s) if !s.is_empty() => {
+            log::info!("[clipboard] text (win) → {} chars", s.chars().count());
+            Some(s)
+        }
+        Ok(_) => None,
+        Err(e) => {
+            log::info!("[clipboard] text (win) err: {:?}", e);
+            None
+        }
+    }
 }
 
 /// Hop to main thread before touching NSPasteboard — AppKit pasteboard APIs
