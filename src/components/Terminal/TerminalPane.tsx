@@ -44,10 +44,11 @@ export function TerminalPane({
   const connectedPtyRef = useRef<string | null>(null);
 
   const { state, updatePaneStatus, closePane } = useMultiplexer();
+  const agentType = state.panes[paneId]?.agent_type ?? null;
 
   // --- Terminal lifecycle ---
   const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
-    containerRef, theme, fontConfig, terminalConfig,
+    containerRef, theme, fontConfig, terminalConfig, agentType,
   });
 
   // --- Resize handling ---
