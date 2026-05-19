@@ -14,17 +14,6 @@ export interface UseXtermOptions {
   theme?: ThemeConfig;
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
-  /**
-   * Pane's agent_type. When set, the host cursor goes idle (no blink,
-   * no inactive draw) and is recoloured to match the terminal
-   * background so it becomes effectively invisible. TUI agents
-   * (claude/codex/opencode/cursor) render their own input cursor
-   * inside their input widget — the host xterm cursor on top of that
-   * just produces visible flicker as the TUI reposition-loop runs
-   * (see openai/codex#9081, #11063 — the codex side has elected not
-   * to fix this on their end).
-   */
-  agentType?: string | null;
 }
 
 export interface UseXtermReturn {
@@ -40,7 +29,6 @@ export function useXterm({
   theme,
   fontConfig,
   terminalConfig,
-  agentType,
 }: UseXtermOptions): UseXtermReturn {
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -139,10 +127,6 @@ export function useXterm({
     termRef.current = term;
     fitAddonRef.current = fitAddon;
     setTermReady(true);
-    // Apply agent-type cursor masking now in case the prop is already
-    // set on first mount (re-mount after pane restore). The reactive
-    // useEffect below handles subsequent changes.
-    applyAgentCursorMasking(term, agentType, theme);
 
     return () => {
       term.dispose();
@@ -169,39 +153,11 @@ export function useXterm({
     if (navigator.platform.startsWith("Win")) {
       term.options.windowsPty = { backend: "conpty", buildNumber: winBuildNumber };
     }
-    // Re-apply agent masking after theme reload (theme contains
-    // cursor/background which the masking overrides).
-    applyAgentCursorMasking(term, agentType, theme);
 
     requestAnimationFrame(() => {
       try { fitAddonRef.current?.fit(); } catch { /* ignore */ }
     });
-  }, [theme, fontConfig, terminalConfig, winBuildNumber, agentType]);
+  }, [theme, fontConfig, terminalConfig, winBuildNumber]);
 
   return { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady };
-}
-
-/**
- * When a pane runs an interactive TUI agent (codex/claude/opencode/
- * cursor), the agent draws its own input cursor inside its input
- * widget. xterm's host cursor on top of that just flickers as the
- * TUI's redraw loop repositions the cursor between status rows and
- * the input area (codex specifically: openai/codex#9081 — closed
- * "not planned" — and #11063). Mask the host cursor by killing the
- * blink animation and recolouring it to match the terminal
- * background; restore on agent removal.
- */
-function applyAgentCursorMasking(
-  term: Terminal,
-  agentType: string | null | undefined,
-  theme: ThemeConfig | undefined,
-) {
-  const base = buildXtermTheme(theme);
-  if (agentType && agentType.length > 0) {
-    term.options.cursorBlink = false;
-    term.options.cursorInactiveStyle = "none";
-    term.options.theme = { ...base, cursor: base.background, cursorAccent: base.background };
-  } else {
-    term.options.theme = base;
-  }
 }
