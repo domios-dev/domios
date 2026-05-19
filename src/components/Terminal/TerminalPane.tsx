@@ -11,7 +11,8 @@ import {
   useAgentDetection,
   useTauriFileDrop,
 } from "../../hooks/terminal";
-import { quotePathForPaste } from "../../lib/clipboardPaste";
+import { quotePathForPaste, routeClipboardToTerm } from "../../lib/clipboardPaste";
+import { registerPanePaste } from "../../lib/panePasteRegistry";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
@@ -43,7 +44,7 @@ export function TerminalPane({
   const containerRef = useRef<HTMLDivElement>(null);
   const connectedPtyRef = useRef<string | null>(null);
 
-  const { state, updatePaneStatus, closePane } = useMultiplexer();
+  const { state, updatePaneStatus } = useMultiplexer();
   const agentType = state.panes[paneId]?.agent_type ?? null;
 
   // --- Terminal lifecycle ---
@@ -102,7 +103,7 @@ export function TerminalPane({
   const showDropOverlay = (isFileDragOver || isTextDragOver) && termReady;
 
   // --- Input handling ---
-  const { copySelection, pasteFromClipboard, clearTerminal } = useTerminalInput({
+  const { copySelection, pasteFromClipboard } = useTerminalInput({
     termRef, connectedPtyRef, containerRef, termReady,
     onTabKey: completion.handleTab,
     onNonTabKey: completion.dismissCompletions,
@@ -139,25 +140,28 @@ export function TerminalPane({
     return () => window.removeEventListener("codeterm-toggle-search", handler);
   }, [paneId]);
 
+  // --- App-wide paste routing ---
+  // Register this pane's paste fn in the global registry so App.tsx's
+  // window-level Ctrl+V handler can target whichever pane is currently
+  // focused, regardless of where the inner DOM focus is. Synchronous
+  // function-call lookup — no event bus race, no remount window where
+  // the dispatch falls into a void.
+  useEffect(() => {
+    return registerPanePaste(paneId, () => {
+      const term = termRef.current;
+      if (term) void routeClipboardToTerm(term);
+    });
+  }, [paneId, termRef]);
+
   // --- Context menu ---
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
-  const isProtected = state.panes[paneId]?.protected;
   const contextMenuActions: ContextMenuAction[] = [
     { label: "Copy", shortcut: "Ctrl+Shift+C", onClick: copySelection },
     { label: "Paste", shortcut: "Ctrl+Shift+V", onClick: pasteFromClipboard },
-    { label: "Clear", onClick: clearTerminal, separator: true },
-    ...(!isProtected ? [
-      {
-        label: "Close Pane",
-        shortcut: "Ctrl+Shift+Q",
-        onClick: () => closePane(paneId),
-        separator: true,
-      },
-    ] as ContextMenuAction[] : []),
   ];
 
   // --- Style ---
