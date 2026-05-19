@@ -423,7 +423,6 @@ export interface AppConfig {
   integrations: IntegrationsConfig;
   mesh: MeshConfig;
   ui?: UiConfig;
-  onboarding_completed: boolean;
 }
 
 // ── Plugin self-presentation wire types (Chunk B) ──────────────────

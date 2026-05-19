@@ -57,7 +57,7 @@ export function deriveColor(hex: string, amount: number): string {
   return `#${nr.toString(16).padStart(2, "0")}${ng.toString(16).padStart(2, "0")}${nb.toString(16).padStart(2, "0")}`;
 }
 
-/** Simple RGB brightness adjust (no hue preservation). Used by Onboarding. */
+/** Simple RGB brightness adjust (no hue preservation). */
 export function adjustBrightness(hex: string, amount: number): string {
   const [r, g, b] = parseHex(hex);
   const dir = (r + g + b) / 3 > 128 ? -1 : 1;
