@@ -79,17 +79,51 @@ impl Drop for PsuedoCon {
 impl PsuedoCon {
     pub fn new(size: COORD, input: FileDescriptor, output: FileDescriptor) -> Result<Self, Error> {
         let mut con: HPCON = INVALID_HANDLE_VALUE;
-        let result = unsafe {
+        // PSEUDOCONSOLE_PASSTHROUGH_MODE (0x8) relays VT sequences from
+        // the child unmodified — without it, ConPTY re-renders the
+        // child's screen using its own VT processor, which silently
+        // strips 24-bit truecolor backgrounds and reorders cursor
+        // moves relative to palette changes. Symptoms with ratatui
+        // TUIs (codex, claude, opencode): cursor visibly jumps and
+        // input-box backgrounds disappear (microsoft/terminal#8698).
+        //
+        // Supported on Windows 11 22H2+ (build 22621+). On older
+        // builds the call returns E_INVALIDARG; retry without the
+        // flag.
+        let base_flags = PSUEDOCONSOLE_INHERIT_CURSOR
+            | PSEUDOCONSOLE_RESIZE_QUIRK
+            | PSEUDOCONSOLE_WIN32_INPUT_MODE;
+        let input_handle = input.as_raw_handle();
+        let output_handle = output.as_raw_handle();
+        let mut result = unsafe {
             (CONPTY.CreatePseudoConsole)(
                 size,
-                input.as_raw_handle() as _,
-                output.as_raw_handle() as _,
-                PSUEDOCONSOLE_INHERIT_CURSOR
-                    | PSEUDOCONSOLE_RESIZE_QUIRK
-                    | PSEUDOCONSOLE_WIN32_INPUT_MODE,
+                input_handle as _,
+                output_handle as _,
+                base_flags | PSEUDOCONSOLE_PASSTHROUGH_MODE,
                 &mut con,
             )
         };
+        let passthrough_engaged = result == S_OK;
+        if result != S_OK {
+            // Retry without passthrough flag (Windows 10 / pre-22H2).
+            result = unsafe {
+                (CONPTY.CreatePseudoConsole)(
+                    size,
+                    input_handle as _,
+                    output_handle as _,
+                    base_flags,
+                    &mut con,
+                )
+            };
+        }
+        // One-line diag so the daemon log shows whether VT passthrough
+        // is in effect for ratatui TUIs.
+        eprintln!(
+            "[conpty] CreatePseudoConsole flags=0x{:x} HRESULT=0x{:08x}",
+            base_flags | if passthrough_engaged { PSEUDOCONSOLE_PASSTHROUGH_MODE } else { 0 },
+            result as u32,
+        );
         ensure!(
             result == S_OK,
             "failed to create psuedo console: HRESULT {}",
