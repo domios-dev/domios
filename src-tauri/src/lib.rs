@@ -158,6 +158,7 @@ pub fn run() {
             commands::save_clipboard_image,
             commands::save_clipboard_file,
             clipboard_files::read_clipboard_files,
+            clipboard_files::read_clipboard_text,
             commands::save_temp_file,
             commands::copy_image_to_clipboard,
             commands::install_project_rules,
