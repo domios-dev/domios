@@ -5,46 +5,37 @@
 //! provider's JSONL packs into one entry: text, thinking, tool_use,
 //! tool_result. The chat UI renders each block kind on its own; codeterm
 //! core doesn't interpret block payloads, it just shuttles them.
+//!
+//! Deliberately minimal: `role`, `ts`, and an array of opaque blocks.
+//! Anything provider-specific (claude's `isMeta`, codex's reasoning
+//! tags, custom display hints) goes INSIDE a block's `data` field, so
+//! the wire contract doesn't grow per-provider knobs.
 
 use serde::{Deserialize, Serialize};
 
-/// A single content block inside a chat message. Polymorphic — claude's
-/// JSONL packs `text`, `thinking`, `tool_use`, `tool_result` into the
-/// same `message.content[]` array, each with its own shape. We carry
-/// the raw `data` JSON so the frontend can render whatever is in it
-/// without locking a schema across providers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageBlock {
-    /// "text" | "thinking" | "tool_use" | "tool_result"
+    /// "text" | "thinking" | "tool_use" | "tool_result" | ...
+    /// Plugin-defined string; the frontend renderer dispatches on it.
     pub kind: String,
-    /// Block-specific payload. For "text"/"thinking" it's the string in
-    /// `{text: "..."}`. For "tool_use" it's `{id, name, input}`. For
-    /// "tool_result" it's `{tool_use_id, content, is_error}`.
+    /// Block-specific payload. For "text"/"thinking" it's `{text: "..."}`.
+    /// For "tool_use" it's `{id, name, input}`. For "tool_result" it's
+    /// `{tool_use_id, content, is_error}`. Codeterm core treats this as
+    /// opaque — plugins decide structure.
     #[serde(default)]
     pub data: serde_json::Value,
 }
 
-/// One chat message (one JSONL line that's a user/assistant entry).
-/// Richer than `SessionMessage` — keeps tool calls + thinking blocks
-/// so the chat UI can render them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RichMessage {
-    /// "user" | "assistant"
+    /// Free-form role string. Common values: "user", "assistant",
+    /// "system". Plugin chooses; frontend renderer maps to styling.
     pub role: String,
     #[serde(default)]
     pub blocks: Vec<MessageBlock>,
-    /// Unix seconds — null if JSONL lacked a timestamp.
+    /// Unix seconds — null if the source row lacked a timestamp.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub ts: Option<i64>,
-    /// Provider session id (claude's `session_id` / `sessionId` field on
-    /// the entry). Lets the UI cross-reference with codeterm's pane
-    /// session id when those diverge.
-    #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none", default)]
-    pub session_id: Option<String>,
-    /// True for system-meta entries (e.g. claude's `isMeta: true`).
-    /// UI may collapse them.
-    #[serde(default, rename = "isMeta")]
-    pub is_meta: bool,
 }
 
 /// Result of a single delta read on a session JSONL. `new_offset` is the
