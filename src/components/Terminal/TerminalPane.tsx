@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMultiplexer } from "../../store/multiplexer";
 import {
@@ -117,6 +118,31 @@ export function TerminalPane({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
 
+  // Force xterm refit + repaint + PTY resize on return-from-chat. Belt-
+  // and-suspenders on top of visibility:hidden — if anything (a stale
+  // ResizeObserver tick, a layout race) left xterm with the wrong
+  // dimensions while it was off-screen, this restores them and
+  // re-renders the visible region. Triggered on the *transition* into
+  // terminal mode only, not on every render.
+  useEffect(() => {
+    if (uiMode !== "terminal" || !termReady) return;
+    const raf = requestAnimationFrame(() => {
+      const term = termRef.current;
+      const fit = fitAddonRef.current;
+      if (!term || !fit) return;
+      try {
+        fit.fit();
+        term.refresh(0, term.rows - 1);
+        const ptyId = connectedPtyRef.current;
+        if (ptyId && term.cols > 0 && term.rows > 0) {
+          void invoke("resize_pty", { ptyId, cols: term.cols, rows: term.rows });
+        }
+      } catch { /* ignore */ }
+      termRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [uiMode, termReady, termRef, fitAddonRef, connectedPtyRef]);
+
   const handleClick = useCallback(() => {
     onFocus?.(paneId);
     termRef.current?.focus();
@@ -227,23 +253,29 @@ export function TerminalPane({
         />
       )}
 
-      {/* xterm container — always mounted so the addon stays attached and
-          scrollback survives a toggle into chat. Hidden via display: none
-          when in chat mode (a conditional unmount/remount would tear down
-          the WebGL/canvas addon and force a costly reattach + lose state). */}
+      {/* xterm container — always mounted at full size so the FitAddon
+          never sees a 0×0 box (display:none triggers ResizeObserver with
+          clientWidth=0 → fit() reshapes to 1 column → garbled buffer on
+          return). visibility:hidden preserves layout dimensions so xterm
+          stays correctly sized while the chat view is on top. */}
       <div
         ref={containerRef}
-        className="w-full h-full"
+        className="absolute inset-0"
         style={{
           padding: 8,
           opacity: shell.overlayVisible ? 0 : 1,
           transition: "opacity 0.3s ease-in",
-          display: uiMode === "terminal" ? "block" : "none",
+          visibility: uiMode === "terminal" ? "visible" : "hidden",
+          pointerEvents: uiMode === "terminal" ? "auto" : "none",
+          zIndex: uiMode === "terminal" ? 1 : 0,
         }}
         onClick={() => termRef.current?.focus()}
       />
+      {/* Chat is conditionally mounted so the per-pane tailer thread on
+          the backend only starts when the user actually flipped into
+          chat mode — not for every pane in the workspace. */}
       {uiMode === "chat" && (
-        <div className="absolute inset-0">
+        <div className="absolute inset-0" style={{ zIndex: 2 }}>
           <PaneSessionChat
             paneId={paneId}
             onError={() => setUiMode("terminal")}
