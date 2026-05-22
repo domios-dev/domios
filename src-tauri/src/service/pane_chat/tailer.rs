@@ -20,6 +20,13 @@ pub trait DeltaSink: Send + Sync {
     fn emit(&self, pane_id: &str, messages: Vec<RichMessage>);
 }
 
+/// Sink for raw JSONL text deltas. The chat UI uses this — frontend
+/// parses with the TS-side `parseJsonlSession`. The parallel
+/// [`DeltaSink`] stays for any future Rust-side consumer.
+pub trait RawTextSink: Send + Sync {
+    fn emit(&self, pane_id: &str, text: String);
+}
+
 pub struct TailerHandle {
     stop_flag: Arc<AtomicBool>,
     offset: Arc<AtomicU64>,
@@ -39,6 +46,20 @@ impl TailerHandle {
         self.stop_flag.store(true, Ordering::Release);
         if let Some(j) = self.join.lock().take() {
             let _ = j.join();
+        }
+    }
+
+    /// Construct a handle from its parts. Used by the raw-text tailer
+    /// which lives outside this file's primary `spawn_tailer` builder.
+    pub fn new(
+        stop_flag: Arc<AtomicBool>,
+        offset: Arc<AtomicU64>,
+        join: thread::JoinHandle<()>,
+    ) -> Self {
+        Self {
+            stop_flag,
+            offset,
+            join: Mutex::new(Some(join)),
         }
     }
 }
@@ -145,4 +166,71 @@ pub fn spawn_tailer(
         offset,
         join: Mutex::new(Some(join)),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Raw-text tailer — emits the raw bytes since last poll. The frontend
+// parses with the TS plugin's `parseJsonlSession`. Parses on the JS side
+// keep parser ownership in the plugin bundle (one source of truth).
+// ---------------------------------------------------------------------------
+
+pub struct RawTailConfig {
+    pub pane_id: String,
+    pub path: std::path::PathBuf,
+    pub start_offset: u64,
+    pub poll_interval: Duration,
+}
+
+pub fn spawn_raw_tailer(
+    cfg: RawTailConfig,
+    sink: Arc<dyn RawTextSink>,
+) -> TailerHandle {
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let offset = Arc::new(AtomicU64::new(cfg.start_offset));
+
+    let stop = stop_flag.clone();
+    let off = offset.clone();
+    let join = thread::spawn(move || {
+        let mut missing_streak = 0u32;
+        loop {
+            if stop.load(Ordering::Acquire) { return; }
+            if !cfg.path.exists() {
+                missing_streak += 1;
+                if missing_streak > 10 {
+                    log::info!("[pane_chat.raw] giving up on {:?}", cfg.path);
+                    return;
+                }
+                thread::sleep(cfg.poll_interval);
+                continue;
+            }
+            missing_streak = 0;
+            let from = off.load(Ordering::Acquire);
+            let bytes = match std::fs::read(&cfg.path) {
+                Ok(b) => b,
+                Err(_) => { thread::sleep(cfg.poll_interval); continue; }
+            };
+            let total = bytes.len() as u64;
+            if total > from {
+                let slice = &bytes[from as usize..];
+                let last_nl = slice.iter().rposition(|&b| b == b'\n');
+                if let Some(idx) = last_nl {
+                    let consumed = (idx + 1) as u64;
+                    let text = String::from_utf8_lossy(&slice[..consumed as usize]).to_string();
+                    off.store(from + consumed, Ordering::Release);
+                    sink.emit(&cfg.pane_id, text);
+                }
+            } else if total < from {
+                // File rotated/truncated. Reset to beginning so the next poll
+                // re-streams from byte 0 rather than spinning past EOF.
+                log::info!(
+                    "[pane_chat.raw] file shrank ({} → {}); resetting offset",
+                    from, total
+                );
+                off.store(0, Ordering::Release);
+            }
+            thread::sleep(cfg.poll_interval);
+        }
+    });
+
+    TailerHandle::new(stop_flag, offset, join)
 }

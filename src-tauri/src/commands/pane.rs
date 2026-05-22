@@ -1,9 +1,12 @@
-use crate::agent::chat_types::{RichMessage, SessionDelta};
 use crate::agent::git_info::{self, GitInfo};
 use crate::multiplexer::commands::MuxState;
-use crate::service::pane_chat::{spawn_tailer, TailConfig};
 use crate::service::ServiceState;
 use crate::ScreenStateHandle;
+
+// NOTE: `crate::agent::chat_types::{RichMessage, SessionDelta}` and the
+// parallel `spawn_tailer` / `DeltaSink` path are reserved for future
+// non-UI consumers (mem worker, mesh log shipping, etc.). The chat UI
+// uses the raw-text tailer below — the TS plugin owns parsing.
 
 #[tauri::command]
 pub async fn get_pane_output(
@@ -208,7 +211,10 @@ pub fn read_session_jsonl(
 
 #[derive(serde::Serialize)]
 pub struct ChatStartResult {
-    pub snapshot: Vec<RichMessage>,
+    /// Raw JSONL text from the recent window — frontend parses via the
+    /// claude TS plugin's `parseJsonlSession`. The window is anchored to
+    /// a `\n` boundary so the parser never sees a partial first line.
+    pub text: String,
     pub offset: u64,
 }
 
@@ -231,31 +237,42 @@ pub async fn chat_start(
         .flatten()
         .ok_or("provider has no JSONL")?;
 
-    let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-    let start_offset = file_size.saturating_sub(256 * 1024);
-    let snapshot = svc.agent_registry
-        .with_provider(&provider_id, |p| p.parse_session_delta(&path, start_offset))
-        .unwrap_or(SessionDelta { new_offset: file_size, messages: vec![] });
+    // Read the tail (~512KB) so toggle reveals plenty of context. The TS
+    // parser is fast even at 1MB — no need for a smaller window.
+    let snapshot_window: u64 = 512 * 1024;
+    let bytes = std::fs::read(&path).map_err(|e| format!("read jsonl: {e}"))?;
+    let total = bytes.len() as u64;
+    let start = total.saturating_sub(snapshot_window) as usize;
+    // Align start to a line boundary — handing the parser a partial
+    // first line forces it to discard data that would otherwise render.
+    let aligned_start = if start == 0 {
+        0
+    } else {
+        bytes[start..]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map(|i| start + i + 1)
+            .unwrap_or(start)
+    };
+    let text = String::from_utf8_lossy(&bytes[aligned_start..]).to_string();
 
-    let sink = crate::service::pane_chat::tauri_sink::make_sink(svc.app_handle.clone());
-    let handle = spawn_tailer(
-        TailConfig {
+    // Stop any prior tailer for this pane before installing the new one —
+    // idempotent re-entry (toggle off/on) must replace, not skip.
+    svc.chat_registry.stop(&pane_id);
+
+    let sink = crate::service::pane_chat::raw_text_sink::make_sink(svc.app_handle.clone());
+    let handle = crate::service::pane_chat::spawn_raw_tailer(
+        crate::service::pane_chat::RawTailConfig {
             pane_id: pane_id.clone(),
-            provider_id,
-            cwd,
-            session_id,
-            start_offset: snapshot.new_offset,
+            path: path.clone(),
+            start_offset: total,
             poll_interval: std::time::Duration::from_millis(500),
         },
-        svc.agent_registry.clone(),
         sink,
     );
     svc.chat_registry.insert(pane_id, handle);
 
-    Ok(ChatStartResult {
-        snapshot: snapshot.messages,
-        offset: snapshot.new_offset,
-    })
+    Ok(ChatStartResult { text, offset: total })
 }
 
 #[tauri::command]
@@ -269,7 +286,7 @@ pub async fn chat_stop(
 
 #[derive(serde::Serialize)]
 pub struct ChatBackfillResult {
-    pub messages: Vec<RichMessage>,
+    pub text: String,
     pub start_offset: u64,
     pub end_offset: u64,
 }
@@ -295,7 +312,7 @@ pub async fn chat_backfill(
         .flatten()
         .ok_or("no JSONL")?;
 
-    let max_bytes = max_bytes.unwrap_or(64 * 1024);
+    let max_bytes = max_bytes.unwrap_or(128 * 1024);
     let start = before_offset.saturating_sub(max_bytes);
 
     let bytes = std::fs::read(&path).map_err(|e| format!("read jsonl: {e}"))?;
@@ -303,23 +320,32 @@ pub async fn chat_backfill(
     let clamped_end = before_offset.min(total) as usize;
     let clamped_start = (start as usize).min(clamped_end);
     let window = &bytes[clamped_start..clamped_end];
-    let last_nl = window.iter().rposition(|&b| b == b'\n');
-    let messages = if let Some(idx) = last_nl {
-        let complete = &window[..=idx];
-        let tmp_path = std::env::temp_dir().join(format!("codeterm-backfill-{}.jsonl", uuid::Uuid::new_v4()));
-        std::fs::write(&tmp_path, complete).map_err(|e| format!("tmp write: {e}"))?;
-        let delta = svc.agent_registry
-            .with_provider(&provider_id, |p| p.parse_session_delta(&tmp_path, 0))
-            .unwrap_or(SessionDelta { new_offset: 0, messages: vec![] });
-        let _ = std::fs::remove_file(&tmp_path);
-        delta.messages
+    // Align to the first \n so the parser doesn't see a partial first line.
+    let aligned_offset = if clamped_start == 0 {
+        0usize
     } else {
-        vec![]
+        window
+            .iter()
+            .position(|&b| b == b'\n')
+            .map(|i| i + 1)
+            .unwrap_or(0)
     };
+    let text = String::from_utf8_lossy(&window[aligned_offset..]).to_string();
 
     Ok(ChatBackfillResult {
-        messages,
-        start_offset: start,
+        text,
+        start_offset: clamped_start as u64 + aligned_offset as u64,
         end_offset: before_offset,
     })
+}
+
+#[tauri::command]
+pub async fn chat_send_text(
+    svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+    text: String,
+    enter: Option<bool>,
+) -> Result<(), String> {
+    let enter = enter.unwrap_or(true);
+    svc.send_text(&pane_id, &text, enter)
 }

@@ -10,12 +10,16 @@
 //! it) lives in plugins — this module only orchestrates
 //! start/stop and shuttles the bytes through.
 
+pub mod raw_text_sink;
 pub mod registry;
 pub mod tailer;
 pub mod tauri_sink;
 
 pub use registry::ChatRegistry;
-pub use tailer::{spawn_tailer, DeltaSink, TailConfig, TailerHandle};
+pub use tailer::{
+    spawn_raw_tailer, spawn_tailer, DeltaSink, RawTailConfig, RawTextSink, TailConfig,
+    TailerHandle,
+};
 
 #[cfg(test)]
 mod tailer_tests;

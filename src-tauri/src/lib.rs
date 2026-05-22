@@ -193,6 +193,7 @@ pub fn run() {
             commands::chat_start,
             commands::chat_stop,
             commands::chat_backfill,
+            commands::chat_send_text,
             commands::check_cli_installed,
             commands::install_provider_in_pane,
             multiplexer::commands::build_agent_launch_command,

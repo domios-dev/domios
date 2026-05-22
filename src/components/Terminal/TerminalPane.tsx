@@ -227,18 +227,28 @@ export function TerminalPane({
         />
       )}
 
-      {uiMode === "chat" ? (
-        <PaneSessionChat
-          paneId={paneId}
-          onError={() => setUiMode("terminal")}
-        />
-      ) : (
-        <div
-          ref={containerRef}
-          className="w-full h-full"
-          style={{ padding: 8, opacity: shell.overlayVisible ? 0 : 1, transition: "opacity 0.3s ease-in" }}
-          onClick={() => termRef.current?.focus()}
-        />
+      {/* xterm container — always mounted so the addon stays attached and
+          scrollback survives a toggle into chat. Hidden via display: none
+          when in chat mode (a conditional unmount/remount would tear down
+          the WebGL/canvas addon and force a costly reattach + lose state). */}
+      <div
+        ref={containerRef}
+        className="w-full h-full"
+        style={{
+          padding: 8,
+          opacity: shell.overlayVisible ? 0 : 1,
+          transition: "opacity 0.3s ease-in",
+          display: uiMode === "terminal" ? "block" : "none",
+        }}
+        onClick={() => termRef.current?.focus()}
+      />
+      {uiMode === "chat" && (
+        <div className="absolute inset-0">
+          <PaneSessionChat
+            paneId={paneId}
+            onError={() => setUiMode("terminal")}
+          />
+        </div>
       )}
 
       <UIModeToggle
