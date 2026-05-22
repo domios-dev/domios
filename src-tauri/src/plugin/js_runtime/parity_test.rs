@@ -619,6 +619,46 @@ mod claude {
         assert_eq!(delta.messages[0].role, "assistant");
         assert_eq!(delta.new_offset, jsonl.len() as u64);
     }
+
+    #[test]
+    fn parse_session_delta_handles_non_ascii_offset_correctly() {
+        if !ws_exists() { return; }
+        let j = load_js("claude");
+        // Each line ends in \n. Contains emoji (4 bytes UTF-8 each) so
+        // byte counts diverge from char counts.
+        let line1 = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hello 🚀 мир 你好\"}}";
+        let line2 = "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"reply 🎉\"}}";
+        let jsonl = format!("{}\n{}\n", line1, line2);
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), &jsonl).unwrap();
+        // First read consumes the whole file. new_offset must equal
+        // the BYTE length of jsonl, not a code-unit count.
+        let delta = j.parse_session_delta(tmp.path(), 0);
+        assert_eq!(delta.new_offset, jsonl.as_bytes().len() as u64,
+            "new_offset must be byte-accurate even with non-ASCII content");
+        assert_eq!(delta.messages.len(), 2);
+        // Second read from the previous new_offset must return nothing.
+        let delta2 = j.parse_session_delta(tmp.path(), delta.new_offset);
+        assert_eq!(delta2.messages.len(), 0);
+        assert_eq!(delta2.new_offset, jsonl.as_bytes().len() as u64);
+    }
+
+    #[test]
+    fn parse_session_delta_advances_offset_when_plugin_blows_up() {
+        // Defensive: feed the plugin malformed JSONL bytes. Plugin
+        // catch-blocks each line, but the test asserts the tailer
+        // doesn't get stuck at the same offset.
+        if !ws_exists() { return; }
+        let j = load_js("claude");
+        let bad = "this is not json at all\nnot json either\n";
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), bad).unwrap();
+        let delta = j.parse_session_delta(tmp.path(), 0);
+        // No valid messages — but offset must advance to file end so
+        // we don't busy-loop on the same bytes.
+        assert_eq!(delta.messages.len(), 0);
+        assert_eq!(delta.new_offset, bad.as_bytes().len() as u64);
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────

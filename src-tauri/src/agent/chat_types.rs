@@ -20,6 +20,7 @@ pub struct MessageBlock {
     /// Block-specific payload. For "text"/"thinking" it's the string in
     /// `{text: "..."}`. For "tool_use" it's `{id, name, input}`. For
     /// "tool_result" it's `{tool_use_id, content, is_error}`.
+    #[serde(default)]
     pub data: serde_json::Value,
 }
 
@@ -30,14 +31,15 @@ pub struct MessageBlock {
 pub struct RichMessage {
     /// "user" | "assistant"
     pub role: String,
+    #[serde(default)]
     pub blocks: Vec<MessageBlock>,
     /// Unix seconds — null if JSONL lacked a timestamp.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub ts: Option<i64>,
     /// Provider session id (claude's `session_id` / `sessionId` field on
     /// the entry). Lets the UI cross-reference with codeterm's pane
     /// session id when those diverge.
-    #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none", default)]
     pub session_id: Option<String>,
     /// True for system-meta entries (e.g. claude's `isMeta: true`).
     /// UI may collapse them.
