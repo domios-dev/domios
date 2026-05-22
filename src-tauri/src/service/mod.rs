@@ -27,6 +27,7 @@ pub mod general_agent;
 pub mod sync_watcher;
 pub mod agent_restart;
 pub mod input_parser;
+pub mod pane_chat;
 #[cfg(test)]
 mod tests;
 
