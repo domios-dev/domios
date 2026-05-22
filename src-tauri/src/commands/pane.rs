@@ -1,5 +1,7 @@
+use crate::agent::chat_types::{RichMessage, SessionDelta};
 use crate::agent::git_info::{self, GitInfo};
 use crate::multiplexer::commands::MuxState;
+use crate::service::pane_chat::{spawn_tailer, TailConfig};
 use crate::service::ServiceState;
 use crate::ScreenStateHandle;
 
@@ -198,4 +200,126 @@ pub fn read_session_jsonl(
         file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
         Ok(buf)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Chat UI mode — thin Tauri wrappers over the pane_chat service.
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Serialize)]
+pub struct ChatStartResult {
+    pub snapshot: Vec<RichMessage>,
+    pub offset: u64,
+}
+
+#[tauri::command]
+pub async fn chat_start(
+    svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+) -> Result<ChatStartResult, String> {
+    let (provider_id, cwd, session_id) = {
+        let m = svc.mux.lock();
+        let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
+        let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
+        let cwd = pane.cwd.clone().unwrap_or_default();
+        let sid = pane.agent_session_id.clone().ok_or("pane has no session_id yet")?;
+        (provider, cwd, sid)
+    };
+
+    let path = svc.agent_registry
+        .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
+        .flatten()
+        .ok_or("provider has no JSONL")?;
+
+    let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let start_offset = file_size.saturating_sub(256 * 1024);
+    let snapshot = svc.agent_registry
+        .with_provider(&provider_id, |p| p.parse_session_delta(&path, start_offset))
+        .unwrap_or(SessionDelta { new_offset: file_size, messages: vec![] });
+
+    let sink = crate::service::pane_chat::tauri_sink::make_sink(svc.app_handle.clone());
+    let handle = spawn_tailer(
+        TailConfig {
+            pane_id: pane_id.clone(),
+            provider_id,
+            cwd,
+            session_id,
+            start_offset: snapshot.new_offset,
+            poll_interval: std::time::Duration::from_millis(500),
+        },
+        svc.agent_registry.clone(),
+        sink,
+    );
+    svc.chat_registry.insert(pane_id, handle);
+
+    Ok(ChatStartResult {
+        snapshot: snapshot.messages,
+        offset: snapshot.new_offset,
+    })
+}
+
+#[tauri::command]
+pub async fn chat_stop(
+    svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+) -> Result<(), String> {
+    svc.chat_registry.stop(&pane_id);
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+pub struct ChatBackfillResult {
+    pub messages: Vec<RichMessage>,
+    pub start_offset: u64,
+    pub end_offset: u64,
+}
+
+#[tauri::command]
+pub async fn chat_backfill(
+    svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+    before_offset: u64,
+    max_bytes: Option<u64>,
+) -> Result<ChatBackfillResult, String> {
+    let (provider_id, cwd, session_id) = {
+        let m = svc.mux.lock();
+        let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
+        (
+            pane.agent_type.clone().ok_or("no agent_type")?,
+            pane.cwd.clone().unwrap_or_default(),
+            pane.agent_session_id.clone().ok_or("no session_id")?,
+        )
+    };
+    let path = svc.agent_registry
+        .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
+        .flatten()
+        .ok_or("no JSONL")?;
+
+    let max_bytes = max_bytes.unwrap_or(64 * 1024);
+    let start = before_offset.saturating_sub(max_bytes);
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("read jsonl: {e}"))?;
+    let total = bytes.len() as u64;
+    let clamped_end = before_offset.min(total) as usize;
+    let clamped_start = (start as usize).min(clamped_end);
+    let window = &bytes[clamped_start..clamped_end];
+    let last_nl = window.iter().rposition(|&b| b == b'\n');
+    let messages = if let Some(idx) = last_nl {
+        let complete = &window[..=idx];
+        let tmp_path = std::env::temp_dir().join(format!("codeterm-backfill-{}.jsonl", uuid::Uuid::new_v4()));
+        std::fs::write(&tmp_path, complete).map_err(|e| format!("tmp write: {e}"))?;
+        let delta = svc.agent_registry
+            .with_provider(&provider_id, |p| p.parse_session_delta(&tmp_path, 0))
+            .unwrap_or(SessionDelta { new_offset: 0, messages: vec![] });
+        let _ = std::fs::remove_file(&tmp_path);
+        delta.messages
+    } else {
+        vec![]
+    };
+
+    Ok(ChatBackfillResult {
+        messages,
+        start_offset: start,
+        end_offset: before_offset,
+    })
 }

@@ -16,6 +16,8 @@ import { registerPanePaste } from "../../lib/panePasteRegistry";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
+import { PaneSessionChat } from "./PaneSessionChat";
+import { UIModeToggle } from "./UIModeToggle";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 
 interface TerminalPaneProps {
@@ -44,7 +46,8 @@ export function TerminalPane({
   const containerRef = useRef<HTMLDivElement>(null);
   const connectedPtyRef = useRef<string | null>(null);
 
-  const { updatePaneStatus } = useMultiplexer();
+  const { state, updatePaneStatus } = useMultiplexer();
+  const agentType = state.panes[paneId]?.agent_type;
 
   // --- Terminal lifecycle ---
   const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
@@ -110,6 +113,7 @@ export function TerminalPane({
   });
 
   // --- UI state ---
+  const [uiMode, setUiMode] = useState<"terminal" | "chat">("terminal");
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -223,11 +227,24 @@ export function TerminalPane({
         />
       )}
 
-      <div
-        ref={containerRef}
-        className="w-full h-full"
-        style={{ padding: 8, opacity: shell.overlayVisible ? 0 : 1, transition: "opacity 0.3s ease-in" }}
-        onClick={() => termRef.current?.focus()}
+      {uiMode === "chat" ? (
+        <PaneSessionChat
+          paneId={paneId}
+          onError={() => setUiMode("terminal")}
+        />
+      ) : (
+        <div
+          ref={containerRef}
+          className="w-full h-full"
+          style={{ padding: 8, opacity: shell.overlayVisible ? 0 : 1, transition: "opacity 0.3s ease-in" }}
+          onClick={() => termRef.current?.focus()}
+        />
+      )}
+
+      <UIModeToggle
+        uiMode={uiMode}
+        agentType={agentType}
+        onToggle={() => setUiMode(uiMode === "terminal" ? "chat" : "terminal")}
       />
 
       {/* Drop-target overlay — fades in while a file or text drag is
