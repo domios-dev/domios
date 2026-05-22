@@ -15,3 +15,6 @@ pub mod tailer;
 
 pub use registry::ChatRegistry;
 pub use tailer::{spawn_tailer, DeltaSink, TailConfig, TailerHandle};
+
+#[cfg(test)]
+mod tailer_tests;
