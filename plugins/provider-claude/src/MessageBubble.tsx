@@ -1,23 +1,48 @@
 import React, { useState, useMemo, useCallback } from "react";
 import type { ChatMessage, ImageAttachment } from "./parser";
-import { ChevronDown, File, Image, Download } from "lucide-react";
+import type { ChatOrigin, SlashCommand } from "../../../src/lib/chatPrefixes";
+import {
+  ChevronDown, File, Image, Download,
+  // Tool icons
+  Terminal,        // Bash
+  FileText,        // Read
+  Pencil,          // Write
+  Wrench,          // Edit
+  Bot,             // Agent / Task
+  Search,          // Grep, ToolSearch
+  Folder,          // Glob
+  Sparkles,        // Skill
+  RefreshCw,       // Update
+  // Origin icons
+  ArrowRight,      // pane -> pane
+  Send,            // generic chat (telegram / service)
+  Network,         // mesh
+  ChevronsRight,   // slash-command chip
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 
-const TOOL_ICONS: Record<string, string> = {
-  Bash: "\u26A1",
-  Read: "\uD83D\uDCC4",
-  Write: "\u270F\uFE0F",
-  Edit: "\uD83D\uDD27",
-  Agent: "\uD83E\uDD16",
-  Grep: "\uD83D\uDD0D",
-  Glob: "\uD83D\uDCC2",
-  Skill: "\u2B50",
-  Update: "\uD83D\uDD04",
-  ToolSearch: "\uD83D\uDD0D",
+const TOOL_ICONS: Record<string, LucideIcon> = {
+  Bash: Terminal,
+  Read: FileText,
+  Write: Pencil,
+  Edit: Wrench,
+  Agent: Bot,
+  Task: Bot,
+  Grep: Search,
+  Glob: Folder,
+  Skill: Sparkles,
+  Update: RefreshCw,
+  ToolSearch: Search,
 };
+
+function ToolIcon({ name }: { name: string }) {
+  const Icon = TOOL_ICONS[name] ?? Wrench;
+  return <Icon size={12} className="inline opacity-70" style={{ verticalAlign: "-2px" }} />;
+}
 
 /**
  * Real markdown renderer for assistant text.
@@ -276,7 +301,58 @@ function ImageBadge() {
   );
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message }: { message: ChatMessage }) {
+/** Renders slash-command blocks (name chip, optional args/stdout). */
+function CommandBody({ commands, body }: { commands: SlashCommand[]; body: string }) {
+  return (
+    <div className="space-y-2">
+      {commands.map((c, i) => (
+        <div key={i} className="space-y-1">
+          <div className="flex items-center gap-2">
+            <code
+              className="px-2 py-0.5 rounded text-xs font-mono"
+              style={{
+                background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)",
+                color: "var(--ct-accent, #58a6ff)",
+              }}
+            >
+              {c.name}
+            </code>
+            {c.args && (
+              <span className="text-xs opacity-70 font-mono">{c.args}</span>
+            )}
+          </div>
+          {c.stdout && (
+            <pre
+              className="text-xs font-mono px-2 py-1.5 rounded whitespace-pre-wrap"
+              style={{
+                background: "color-mix(in srgb, var(--ct-bg, #0d1117) 70%, black 5%)",
+                color: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 80%, transparent)",
+                borderLeft: "2px solid color-mix(in srgb, var(--ct-muted-fg) 40%, transparent)",
+              }}
+            >
+              {c.stdout}
+            </pre>
+          )}
+        </div>
+      ))}
+      {body.trim() && (
+        <div className="text-sm opacity-70">{body}</div>
+      )}
+    </div>
+  );
+}
+
+interface MessageBubbleProps {
+  message: ChatMessage;
+  /** When set, this user message arrived via a codeterm channel (cross-pane,
+   *  telegram, mesh, slash-command) and should render as a typed header
+   *  instead of the default right-aligned "user" styling. */
+  origin?: ChatOrigin;
+  /** When set, clicking the origin header focuses the source pane. */
+  onOriginClick?: () => void;
+}
+
+export const MessageBubble = React.memo(function MessageBubble({ message, origin, onOriginClick }: MessageBubbleProps) {
   const [expanded, setExpanded] = useState(false);
   const [codeExpanded, setCodeExpanded] = useState(false);
   const [viewingImage, setViewingImage] = useState<ImageAttachment | null>(null);
@@ -301,67 +377,119 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: { me
     );
   }
 
-  // User message — right-aligned, subtle accent bubble
+  // User message — right-aligned by default; left-aligned with origin header for injected messages
   if (message.type === "user") {
     const attachments = message.attachments;
-    return (
-      <div className="flex justify-end mb-3 max-w-4xl mx-auto">
-        <div
-          className="max-w-[75%] rounded-2xl rounded-br-sm px-4 py-2 text-sm select-text cursor-text border"
+
+    // Origin header rendered above the bubble when the message came from a
+    // codeterm channel (cross-pane, telegram, mesh) or wraps slash-commands.
+    const originHeader = origin ? (() => {
+      const OriginIcon =
+        origin.kind === "pane"    ? ArrowRight :
+        origin.kind === "mesh"    ? Network :
+        origin.kind === "command" ? ChevronsRight :
+        Send;
+      const label =
+        origin.kind === "pane"    ? `from ${origin.title}` :
+        origin.kind === "telegram"? `Telegram · ${origin.userId.slice(0, 12)}` :
+        origin.kind === "mesh"    ? `Mesh · ${origin.peerId.slice(0, 10)}` :
+        origin.kind === "command" ? (
+          origin.commands.length === 1
+            ? origin.commands[0].name
+            : `${origin.commands.length} commands`
+        ) :
+        `${origin.service} · ${origin.userId.slice(0, 12)}`;
+      return (
+        <button
+          type="button"
+          onClick={onOriginClick}
+          disabled={!onOriginClick}
+          className="flex items-center gap-1.5 text-xs mb-1 uppercase tracking-wider opacity-80"
           style={{
-            background: "color-mix(in srgb, var(--ct-accent) 10%, transparent)",
-            borderColor: "color-mix(in srgb, var(--ct-accent) 20%, transparent)",
-            color: "var(--ct-fg)",
+            color: "var(--ct-accent, #58a6ff)",
+            cursor: onOriginClick ? "pointer" : "default",
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            textTransform: "uppercase",
           }}
+          title={onOriginClick ? "Click to focus source pane" : undefined}
         >
-          {renderUserContent(message.content)}
-          {attachments && attachments.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
-              {attachments.map((att) => (
-                <button
-                  key={att.id}
-                  onClick={() => handleImageClick(att)}
-                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors hover:brightness-125"
-                  style={{
-                    background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)",
-                    color: "var(--ct-muted-fg)",
-                  }}
-                  title={att.data ? "Click to preview" : "Image (not loaded)"}
-                >
-                  <Image size={12} strokeWidth={2} />
-                  {att.mimeType.replace("image/", "").toUpperCase()}
-                </button>
-              ))}
-            </div>
-          )}
-          {/* Inline image preview */}
-          {viewingImage && viewingImage.data && (
-            <div className="mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
-              <img
-                src={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
-                alt="Attached image"
-                className="max-w-full max-h-[300px] object-contain rounded-lg"
-              />
-              <div className="flex items-center gap-2 mt-1.5">
-                <a
-                  href={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
-                  download={`image.${viewingImage.mimeType.replace("image/", "")}`}
-                  className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
-                  style={{ color: "var(--ct-muted-fg)", background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
-                >
-                  <Download size={11} strokeWidth={2} />
-                  Save
-                </a>
-                <button
-                  onClick={() => setViewingImage(null)}
-                  className="text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
-                  style={{ color: "var(--ct-muted-fg)" }}
-                >
-                  Hide
-                </button>
+          <OriginIcon size={12} />
+          <span>{label}</span>
+        </button>
+      );
+    })() : null;
+
+    return (
+      <div className={`flex mb-3 max-w-4xl mx-auto ${origin ? "justify-start" : "justify-end"}`}>
+        <div className={origin ? "max-w-[75%]" : "max-w-[75%]"}>
+          {originHeader}
+          <div
+            className="rounded-2xl rounded-br-sm px-4 py-2 text-sm select-text cursor-text border"
+            style={{
+              background: origin
+                ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 6%, var(--ct-surface, #161b22) 94%)"
+                : "color-mix(in srgb, var(--ct-accent) 10%, transparent)",
+              borderColor: origin
+                ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 25%, transparent)"
+                : "color-mix(in srgb, var(--ct-accent) 20%, transparent)",
+              color: "var(--ct-fg)",
+            }}
+          >
+            {origin?.kind === "command" ? (
+              <CommandBody commands={origin.commands} body={message.content} />
+            ) : (
+              renderUserContent(message.content)
+            )}
+            {attachments && attachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
+                {attachments.map((att) => (
+                  <button
+                    key={att.id}
+                    onClick={() => handleImageClick(att)}
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors hover:brightness-125"
+                    style={{
+                      background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)",
+                      color: "var(--ct-muted-fg)",
+                    }}
+                    title={att.data ? "Click to preview" : "Image (not loaded)"}
+                  >
+                    <Image size={12} strokeWidth={2} />
+                    {att.mimeType.replace("image/", "").toUpperCase()}
+                  </button>
+                ))}
               </div>
-            </div>
-          )}
+            )}
+            {/* Inline image preview */}
+            {viewingImage && viewingImage.data && (
+              <div className="mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
+                <img
+                  src={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
+                  alt="Attached image"
+                  className="max-w-full max-h-[300px] object-contain rounded-lg"
+                />
+                <div className="flex items-center gap-2 mt-1.5">
+                  <a
+                    href={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
+                    download={`image.${viewingImage.mimeType.replace("image/", "")}`}
+                    className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
+                    style={{ color: "var(--ct-muted-fg)", background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
+                  >
+                    <Download size={11} strokeWidth={2} />
+                    Save
+                  </a>
+                  <button
+                    onClick={() => setViewingImage(null)}
+                    className="text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
+                    style={{ color: "var(--ct-muted-fg)" }}
+                  >
+                    Hide
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -383,7 +511,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: { me
 
   // Tool call — compact pill/card
   if (message.type === "tool_call") {
-    const icon = TOOL_ICONS[message.toolName || ""] || "\u2699\uFE0F";
+    const toolName = message.toolName || "";
     const filePath = extractFilePath(message);
     const command = message.toolName === "Bash" ? extractCommand(message) : null;
     const hasToolContent = message.toolInput?.content != null;
@@ -432,7 +560,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: { me
               color: "var(--ct-muted-fg)",
             }}
           >
-            <span className="text-xs flex-shrink-0">{icon}</span>
+            <span className="flex-shrink-0"><ToolIcon name={toolName} /></span>
             <span className="font-medium" style={{ color: "var(--ct-fg)" }}>{message.toolName}</span>
             {summary && (
               <span className="truncate opacity-60 font-mono text-[11px]">{summary}</span>

@@ -6,6 +6,8 @@ import {
   parseJsonlSession,
   type ChatMessage,
 } from "@codeterm/provider-claude/src/parser";
+import { detectChatPrefix, type ChatOrigin } from "../../lib/chatPrefixes";
+import { useMultiplexer } from "../../store/multiplexer";
 
 // Optimistic messages auto-prune after this if the JSONL never echoes
 // them back — catches sends that silently dropped (claude in a permission
@@ -98,6 +100,20 @@ export function PaneSessionChat({ paneId, onError }: Props) {
     );
     return [...parsed, ...stillPending];
   }, [parsed, optimistic, matchesParsedUser]);
+
+  const { state: muxState, setFocusedPane } = useMultiplexer();
+
+  const enrichedMessages = useMemo(() => {
+    return allMessages.map((m) => {
+      if (m.type !== "user") return { msg: m, origin: undefined as ChatOrigin | undefined };
+      const prefix = detectChatPrefix(m.content);
+      if (!prefix) return { msg: m, origin: undefined };
+      return {
+        msg: { ...m, content: prefix.body },
+        origin: prefix.origin,
+      };
+    });
+  }, [allMessages]);
 
   // Garbage-collect optimistic state once a parsed user message contains
   // it, AND drop optimistic entries older than OPTIMISTIC_TTL_MS as a
@@ -211,20 +227,26 @@ export function PaneSessionChat({ paneId, onError }: Props) {
         }}
         className="flex-1 min-h-0 overflow-y-auto p-3"
       >
-        {allMessages.length === 0 && (
+        {enrichedMessages.length === 0 && (
           <div className="opacity-50 text-center py-8 text-sm">
             No messages yet.
           </div>
         )}
-        {allMessages.map((m) => {
-          const isPending = m.id.startsWith("opt-");
+        {enrichedMessages.map(({ msg, origin }) => {
+          const isPending = msg.id.startsWith("opt-");
+          let onOriginClick: (() => void) | undefined;
+          if (origin?.kind === "pane") {
+            const idShort = origin.paneIdShort;
+            const fullId = Object.keys(muxState.panes).find((id) => id.startsWith(idShort));
+            if (fullId) onOriginClick = () => setFocusedPane(fullId);
+          }
           return (
             <div
-              key={m.id}
+              key={msg.id}
               style={isPending ? { opacity: 0.55 } : undefined}
               title={isPending ? "sending… (echo expected within 60s)" : undefined}
             >
-              <MessageBubble message={m} />
+              <MessageBubble message={msg} origin={origin} onOriginClick={onOriginClick} />
             </div>
           );
         })}
