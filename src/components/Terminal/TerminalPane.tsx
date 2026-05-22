@@ -85,13 +85,19 @@ export function TerminalPane({
   // --- Agent detection ---
   useAgentDetection({ termRef, paneId, termReady });
 
+  // --- UI state ---
+  const [uiMode, setUiMode] = useState<"terminal" | "chat">("terminal");
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+
   // --- Tauri native drag-drop (provides real file paths, no byte copy) ---
   // Routes through term.paste so xterm wraps with bracketed-paste markers
   // only when the running app has enabled bracketed mode — same single
-  // pipeline as keyboard paste.
+  // pipeline as keyboard paste. Suppressed when chat is on top so drops
+  // fall into the composer instead.
   const { isDragOver: isFileDragOver } = useTauriFileDrop({
     containerRef,
-    enabled: termReady,
+    enabled: termReady && uiMode === "terminal",
     onPaths: (paths) => {
       const term = termRef.current;
       if (!term || paths.length === 0) return;
@@ -103,7 +109,7 @@ export function TerminalPane({
   // this pane". Tauri's drag-drop covers FILE drags, HTML dragenter covers
   // everything else (selected text from a browser, etc.). Combined visually.
   const [isTextDragOver, setIsTextDragOver] = useState(false);
-  const showDropOverlay = (isFileDragOver || isTextDragOver) && termReady;
+  const showDropOverlay = (isFileDragOver || isTextDragOver) && termReady && uiMode === "terminal";
 
   // --- Input handling ---
   const { copySelection, pasteFromClipboard } = useTerminalInput({
@@ -112,11 +118,6 @@ export function TerminalPane({
     onNonTabKey: completion.dismissCompletions,
     onInputData: completion.feedInput,
   });
-
-  // --- UI state ---
-  const [uiMode, setUiMode] = useState<"terminal" | "chat">("terminal");
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
 
   // Force xterm refit + repaint + PTY resize on return-from-chat. Belt-
   // and-suspenders on top of visibility:hidden — if anything (a stale

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { Paperclip, X } from "lucide-react";
 import { MessageBubble } from "@codeterm/provider-claude/src/MessageBubble";
 import {
   parseJsonlSession,
@@ -8,6 +9,8 @@ import {
 } from "@codeterm/provider-claude/src/parser";
 import { detectChatPrefix, type ChatOrigin } from "../../lib/chatPrefixes";
 import { useMultiplexer } from "../../store/multiplexer";
+import { quotePathForPaste } from "../../lib/clipboardPaste";
+import { useTauriFileDrop } from "../../hooks/terminal";
 
 // Optimistic messages auto-prune after this if the JSONL never echoes
 // them back — catches sends that silently dropped (claude in a permission
@@ -30,6 +33,32 @@ interface Props {
   onError?: (msg: string) => void;
 }
 
+function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void }) {
+  const name = path.split(/[\\/]/).pop() || path;
+  return (
+    <div
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono"
+      style={{
+        background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, transparent)",
+        color: "var(--ct-fg, #c9d1d9)",
+        border: "1px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 35%, transparent)",
+      }}
+    >
+      <Paperclip size={10} className="opacity-70" />
+      <span className="max-w-[200px] truncate" title={path}>{name}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="opacity-60 hover:opacity-100"
+        style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "inherit" }}
+        title="Remove"
+      >
+        <X size={10} />
+      </button>
+    </div>
+  );
+}
+
 export function PaneSessionChat({ paneId, onError }: Props) {
   const [rawText, setRawText] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -37,8 +66,27 @@ export function PaneSessionChat({ paneId, onError }: Props) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
+  const [attachments, setAttachments] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+
+  // Append paths to the attachment list, de-duping.
+  const addAttachments = useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    setAttachments((prev) => {
+      const seen = new Set(prev);
+      const next = [...prev];
+      for (const p of paths) {
+        if (!seen.has(p)) {
+          seen.add(p);
+          next.push(p);
+        }
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +120,12 @@ export function PaneSessionChat({ paneId, onError }: Props) {
       void invoke("chat_stop", { paneId }).catch(() => {});
     };
   }, [paneId, onError]);
+
+  // Focus the composer when chat opens.
+  useEffect(() => {
+    const id = setTimeout(() => textareaRef.current?.focus(), 0);
+    return () => clearTimeout(id);
+  }, []);
 
   const parsed = useMemo(() => parseJsonlSession(rawText), [rawText]);
 
@@ -166,16 +220,29 @@ export function PaneSessionChat({ paneId, onError }: Props) {
     return () => clearInterval(id);
   }, [optimistic.length]);
 
+  // Tauri-native file drag-drop scoped to the composer area.
+  useTauriFileDrop({
+    containerRef: composerRef as React.RefObject<HTMLElement | null>,
+    enabled: !loading && !error,
+    onPaths: (paths) => addAttachments(paths),
+  });
+
   async function send() {
     const text = input.trim();
-    if (!text || sending) return;
+    if ((!text && attachments.length === 0) || sending) return;
     setSending(true);
+    // Compose: text + each quoted path separated by spaces — same pipeline
+    // as useTauriFileDrop pasting into xterm.
+    const pathLines = attachments.map(quotePathForPaste).join(" ");
+    const composed = text && pathLines
+      ? `${text} ${pathLines}`
+      : text || pathLines;
     setOptimistic((prev) => [
       ...prev,
       {
         id: `opt-${Date.now()}`,
         type: "user",
-        content: text,
+        content: composed,
         // `timestamp` doubles as the optimistic-sentAt clock — we read
         // it back as a number for TTL pruning. ChatMessage.timestamp is
         // typed `string` so we stringify; the millis fit comfortably.
@@ -183,14 +250,66 @@ export function PaneSessionChat({ paneId, onError }: Props) {
       },
     ]);
     setInput("");
+    setAttachments([]);
     try {
-      await invoke("chat_send_text", { paneId, text, enter: true });
+      await invoke("chat_send_text", { paneId, text: composed, enter: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSending(false);
+      // Restore focus — user expects to keep typing without clicking back.
+      textareaRef.current?.focus();
     }
   }
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const cd = e.clipboardData;
+    if (!cd) return;
+
+    // 1. OS-native file references (Ctrl+V on a copied file in Explorer/Finder)
+    //    via the Tauri command that bridges CF_HDROP / NSPasteboardTypeFileURL.
+    try {
+      const paths = await invoke<string[]>("read_clipboard_files");
+      if (paths && paths.length > 0) {
+        e.preventDefault();
+        addAttachments(paths);
+        return;
+      }
+    } catch { /* fall through to image / text */ }
+
+    // 2. Image data (screenshots, "copy image" from browser).
+    const imageItem = Array.from(cd.items).find(
+      (it) => it.kind === "file" && it.type.startsWith("image/"),
+    );
+    if (imageItem) {
+      e.preventDefault();
+      const file = imageItem.getAsFile();
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const result = reader.result;
+        if (typeof result !== "string") return;
+        // result = "data:image/png;base64,iVBOR..." — strip the data: prefix.
+        const commaIdx = result.indexOf(",");
+        const b64 = commaIdx >= 0 ? result.slice(commaIdx + 1) : result;
+        const mime = file.type || "image/png";
+        const suffix = mime.split("/")[1] || "png";
+        try {
+          const path = await invoke<string>("save_temp_file", {
+            data: b64,
+            extension: suffix,
+          });
+          addAttachments([path]);
+        } catch (err) {
+          console.warn("[chat] paste-image failed:", err);
+        }
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    // 3. Otherwise — let the textarea's default paste behaviour handle text.
+  }, [addAttachments]);
 
   if (error) {
     return (
@@ -252,13 +371,28 @@ export function PaneSessionChat({ paneId, onError }: Props) {
         })}
       </div>
       <div
+        ref={composerRef}
         className="shrink-0 p-2 border-t"
         style={{
           borderColor:
             "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
         }}
       >
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-2">
+            {attachments.map((p) => (
+              <AttachmentChip
+                key={p}
+                path={p}
+                onRemove={() =>
+                  setAttachments((prev) => prev.filter((x) => x !== p))
+                }
+              />
+            ))}
+          </div>
+        )}
         <textarea
+          ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -267,7 +401,8 @@ export function PaneSessionChat({ paneId, onError }: Props) {
               void send();
             }
           }}
-          placeholder="Type a message…  (Enter to send, Shift+Enter for newline)"
+          onPaste={handlePaste}
+          placeholder="Type a message…  (Enter to send, Shift+Enter for newline. Drag files or paste images.)"
           rows={2}
           disabled={sending}
           className="w-full resize-none rounded p-2 text-sm font-mono outline-none"
