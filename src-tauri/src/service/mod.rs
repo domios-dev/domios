@@ -86,6 +86,8 @@ pub struct ServiceContext {
     pub bridge_supervisor: Arc<crate::bridge::supervisor::BridgeSupervisor>,
     /// Per-pane last-restart timestamp for `agent_restart` rate limiting.
     pub restart_tracker: agent_restart::RestartTracker,
+    /// Per-pane JSONL chat tailers — populated when a pane enters UI mode.
+    pub chat_registry: Arc<crate::service::pane_chat::ChatRegistry>,
     /// Active secret-store backend (mock in Phase 1; bitwarden lands in Phase 2).
     pub secrets: crate::secrets::SecretStoreState,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.

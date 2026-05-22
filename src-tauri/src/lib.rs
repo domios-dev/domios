@@ -533,6 +533,7 @@ pub fn run() {
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_supervisor: Arc::new(bridge::supervisor::BridgeSupervisor::new()),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
+                chat_registry: crate::service::pane_chat::ChatRegistry::new(),
                 secrets: {
                     let cfg_guard = states.config.lock();
                     let cfg = cfg_guard.integrations.secrets.clone();
