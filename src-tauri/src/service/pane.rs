@@ -4,6 +4,13 @@ use super::ServiceContext;
 
 impl ServiceContext {
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
+        // Tear down the chat tailer (if any) BEFORE pane state goes away —
+        // the tailer thread reads provider/cwd/session_id from the mux on
+        // its first iteration; once close_pane drops the entry, future
+        // polls would see Provider::None and bail anyway, but explicit
+        // stop joins the thread cleanly and frees the JSONL handle.
+        self.chat_registry.stop(pane_id);
+
         let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.lock().close_pane(pane_id)?;
         let post_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
