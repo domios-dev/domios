@@ -521,6 +521,14 @@ impl AgentProvider for JsProvider {
             .unwrap_or_default()
     }
 
+    fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<std::path::PathBuf> {
+        let s: Option<String> = self.try_call(
+            "sessionJsonlPath",
+            &[serde_json::json!(cwd), serde_json::json!(session_id)],
+        );
+        s.filter(|p| !p.is_empty()).map(std::path::PathBuf::from)
+    }
+
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
         self.try_call::<Option<String>>(
             "buildResumeCommand",
