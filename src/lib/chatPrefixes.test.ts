@@ -133,6 +133,84 @@ console.log("detectChatPrefix");
   }
 }
 
+// New claude format: inline /cmd line between caveat and stdout tags
+{
+  const c = `<local-command-caveat>Caveat: stuff</local-command-caveat>
+/model
+<local-command-stdout>Set model to Sonnet 4.6 for this session</local-command-stdout>`;
+  const r = detectChatPrefix(c);
+  assert(r?.origin.kind === "command", "new format: kind is command");
+  if (r?.origin.kind === "command") {
+    eq(r.origin.commands.length, 1, "new format: one command");
+    eq(
+      r.origin.commands[0],
+      { name: "/model", args: undefined, stdout: "Set model to Sonnet 4.6 for this session" },
+      "new format: command parsed correctly",
+    );
+  }
+  eq(r?.body, "", "new format: body is empty");
+}
+
+// Multiple stacked /cmd blocks
+{
+  const c = `<local-command-caveat>x</local-command-caveat>
+/model
+<local-command-stdout>Set model to Sonnet 4.6 for this session</local-command-stdout>
+<local-command-caveat>y</local-command-caveat>
+/add-dir
+<local-command-stdout>Did not add a working directory.</local-command-stdout>`;
+  const r = detectChatPrefix(c);
+  assert(r?.origin.kind === "command", "stacked cmds: kind is command");
+  if (r?.origin.kind === "command") {
+    assert(r.origin.commands.length === 2, "stacked cmds: count is 2");
+    eq(r.origin.commands[0].name, "/model", "stacked cmds: first name");
+    eq(r.origin.commands[1].name, "/add-dir", "stacked cmds: second name");
+    assert(
+      (r.origin.commands[0].stdout ?? "").includes("Sonnet"),
+      "stacked cmds: first stdout contains Sonnet",
+    );
+    assert(
+      (r.origin.commands[1].stdout ?? "").includes("Did not"),
+      "stacked cmds: second stdout contains Did not",
+    );
+  }
+}
+
+// "No response requested." noise is stripped
+{
+  const c = `<local-command-stdout>output</local-command-stdout>
+No response requested.
+/foo`;
+  const r = detectChatPrefix(c);
+  assert(r?.origin.kind === "command", "no-response noise: kind is command");
+  if (r?.origin.kind === "command") {
+    assert(
+      r.origin.commands.some((cm) => cm.name === "/foo"),
+      "no-response noise: /foo command survives",
+    );
+  }
+}
+
+// Orphan stdout (no /cmd line)
+{
+  const c = `<local-command-stdout>just output</local-command-stdout>`;
+  const r = detectChatPrefix(c);
+  assert(r?.origin.kind === "command", "orphan stdout: kind is command");
+  if (r?.origin.kind === "command") {
+    eq(
+      r.origin.commands,
+      [{ name: "(output)", stdout: "just output" }],
+      "orphan stdout: rendered as (output) entry",
+    );
+  }
+}
+
+// Plain text starting with / but no tags → plain message
+{
+  const r = detectChatPrefix("/home/foo/bar is a path");
+  eq(r, null, "plain /path message returns null (no tags, not a cmd-only line)");
+}
+
 // Summary
 console.log();
 if (failed === 0) {

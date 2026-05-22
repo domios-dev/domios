@@ -37,6 +37,9 @@ const BRIDGE_RE = /^\[([A-Z][a-zA-Z]+):\s+([^\s\]]+?)(?:\s+msg_id=([^\]]+))?\]\s
 const CMD_TAG_RE =
   /<(local-command-caveat|command-name|command-message|command-args|local-command-stdout)>([\s\S]*?)<\/\1>/g;
 
+// Matches a bare /command line (new claude JSONL format).
+const INLINE_CMD_RE = /^\/([\w-]+)\s*(.*)$/;
+
 /**
  * Inspect a user-message content string and return prefix metadata if
  * recognised. Returns null when the content is a plain user message.
@@ -72,41 +75,85 @@ export function detectChatPrefix(content: string): PrefixMatch | null {
 }
 
 function collectSlashCommands(content: string): PrefixMatch | null {
-  const tags: { kind: string; value: string }[] = [];
+  // Collect all known tag blocks in document order, preserving position.
+  type Tag = { kind: string; value: string; start: number };
+  const tags: Tag[] = [];
   CMD_TAG_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = CMD_TAG_RE.exec(content)) !== null) {
-    tags.push({ kind: m[1], value: m[2] });
+    tags.push({ kind: m[1], value: m[2], start: m.index });
   }
-  if (tags.length === 0) return null;
 
-  // Group tags into commands. Each command starts at a `command-name` tag;
-  // subsequent tags up to the next `command-name` (or end) belong to it.
-  // `local-command-caveat` and `command-message` are noise — dropped.
-  const commands: SlashCommand[] = [];
-  let current: Partial<SlashCommand> | null = null;
-  for (const t of tags) {
-    if (t.kind === "command-name") {
-      if (current?.name) commands.push(current as SlashCommand);
-      current = { name: t.value.trim() };
-    } else if (current) {
-      if (t.kind === "command-args") {
-        const v = t.value.trim();
-        if (v) current.args = v;
-      } else if (t.kind === "local-command-stdout") {
-        const v = t.value.trim();
-        if (v) current.stdout = v;
-      }
-      // command-message and local-command-caveat: intentionally dropped.
+  // If no tags AND no inline /cmd line → plain user message.
+  const hasInlineCmd = /^\s*\/[a-zA-Z][\w-]*(?:\s|$)/m.test(content);
+  if (tags.length === 0 && !hasInlineCmd) return null;
+
+  // Strip all known tags + the noise "No response requested." marker.
+  CMD_TAG_RE.lastIndex = 0;
+  const stripped = content
+    .replace(CMD_TAG_RE, "")
+    .replace(/^\s*No response requested\.\s*$/gm, "")
+    .trim();
+
+  // Separate remaining lines into /cmd lines vs body text.
+  const lines = stripped.split("\n").map((l) => l.trim()).filter(Boolean);
+  const inlineCommands: Array<{ name: string; args?: string }> = [];
+  const bodyParts: string[] = [];
+  for (const line of lines) {
+    const mc = INLINE_CMD_RE.exec(line);
+    if (mc) {
+      inlineCommands.push({
+        name: `/${mc[1]}`,
+        args: mc[2].trim() || undefined,
+      });
+    } else {
+      bodyParts.push(line);
     }
   }
-  if (current?.name) commands.push(current as SlashCommand);
-  if (commands.length === 0) return null;
 
-  // Body = whatever survives after stripping all known tags.
-  CMD_TAG_RE.lastIndex = 0;
-  const body = content.replace(CMD_TAG_RE, "").trim();
-  return { origin: { kind: "command", commands }, body };
+  // Extract structured tags from original scan.
+  const stdouts = tags
+    .filter((t) => t.kind === "local-command-stdout")
+    .map((t) => t.value.trim())
+    .filter(Boolean);
+  const cmdNameTags = tags
+    .filter((t) => t.kind === "command-name")
+    .map((t) => t.value.trim());
+  const argTags = tags
+    .filter((t) => t.kind === "command-args")
+    .map((t) => t.value.trim());
+
+  let commands: SlashCommand[];
+  if (inlineCommands.length > 0) {
+    // New format: /cmd lines outside any wrapper, paired with stdouts by order.
+    commands = inlineCommands.map((c, i) => ({
+      ...c,
+      stdout: stdouts[i] || undefined,
+    }));
+    // Trailing extra stdouts that had no /cmd line → surface as (output) entries.
+    for (let i = inlineCommands.length; i < stdouts.length; i++) {
+      commands.push({ name: "(output)", stdout: stdouts[i] });
+    }
+  } else if (cmdNameTags.length > 0) {
+    // Old format: tag-wrapped commands.
+    commands = cmdNameTags.map((name, i) => ({
+      name: name.startsWith("/") ? name : `/${name}`,
+      args: argTags[i] || undefined,
+      stdout: stdouts[i] || undefined,
+    }));
+  } else if (stdouts.length > 0) {
+    // Orphan stdouts with no command association.
+    commands = stdouts.map((s) => ({ name: "(output)", stdout: s }));
+  } else {
+    commands = [];
+  }
+
+  if (commands.length === 0 && bodyParts.length === 0) return null;
+
+  return {
+    origin: { kind: "command", commands },
+    body: bodyParts.join("\n"),
+  };
 }
 
 /**

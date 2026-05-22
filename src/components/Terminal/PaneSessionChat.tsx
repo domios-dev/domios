@@ -11,6 +11,10 @@ import { detectChatPrefix, type ChatOrigin } from "../../lib/chatPrefixes";
 import { useMultiplexer } from "../../store/multiplexer";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { useTauriFileDrop } from "../../hooks/terminal";
+import {
+  filterSlashCommands,
+  type SlashCommandSuggestion,
+} from "../../lib/slashCommands";
 
 // Optimistic messages auto-prune after this if the JSONL never echoes
 // them back — catches sends that silently dropped (claude in a permission
@@ -59,6 +63,48 @@ function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void
   );
 }
 
+function SlashPicker({
+  suggestions,
+  highlighted,
+  onPick,
+}: {
+  suggestions: SlashCommandSuggestion[];
+  highlighted: number;
+  onPick: (cmd: SlashCommandSuggestion) => void;
+}) {
+  if (suggestions.length === 0) return null;
+  return (
+    <div
+      className="absolute bottom-full left-0 right-0 mb-1 max-h-48 overflow-y-auto rounded"
+      style={{
+        background: "color-mix(in srgb, var(--ct-bg, #0d1117) 90%, black 10%)",
+        border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+        zIndex: 10,
+      }}
+    >
+      {suggestions.map((c, i) => (
+        <button
+          key={c.name}
+          type="button"
+          onClick={() => onPick(c)}
+          className="w-full flex items-center justify-between gap-2 px-2 py-1 text-xs font-mono text-left"
+          style={{
+            background: i === highlighted
+              ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 20%, transparent)"
+              : "transparent",
+            color: "var(--ct-fg, #c9d1d9)",
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
+          <span style={{ color: "var(--ct-accent, #58a6ff)" }}>{c.name}</span>
+          <span className="opacity-60 truncate">{c.description}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function PaneSessionChat({ paneId, onError }: Props) {
   const [rawText, setRawText] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -67,10 +113,25 @@ export function PaneSessionChat({ paneId, onError }: Props) {
   const [sending, setSending] = useState(false);
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerHighlight, setPickerHighlight] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const composerRef = useRef<HTMLDivElement>(null);
+  // chatRootRef scopes the drag-drop zone to the entire chat pane.
+  const chatRootRef = useRef<HTMLDivElement>(null);
+
+  const suggestions = useMemo(
+    () => filterSlashCommands(input.split("\n")[0] || ""),
+    [input],
+  );
+
+  // Open picker when first line starts with / and there are matches.
+  useEffect(() => {
+    const firstLine = input.split("\n")[0] || "";
+    setPickerOpen(firstLine.startsWith("/") && suggestions.length > 0);
+    setPickerHighlight(0);
+  }, [input, suggestions.length]);
 
   // Append paths to the attachment list, de-duping.
   const addAttachments = useCallback((paths: string[]) => {
@@ -220,9 +281,9 @@ export function PaneSessionChat({ paneId, onError }: Props) {
     return () => clearInterval(id);
   }, [optimistic.length]);
 
-  // Tauri-native file drag-drop scoped to the composer area.
+  // Bug 2: drag-drop scoped to the entire chat pane (chatRootRef).
   useTauriFileDrop({
-    containerRef: composerRef as React.RefObject<HTMLElement | null>,
+    containerRef: chatRootRef as React.RefObject<HTMLElement | null>,
     enabled: !loading && !error,
     onPaths: (paths) => addAttachments(paths),
   });
@@ -262,7 +323,9 @@ export function PaneSessionChat({ paneId, onError }: Props) {
     }
   }
 
-  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+  // Bug 3: shared paste handler callable from both textarea onPaste and
+  // the window-level listener. Uses plain ClipboardEvent (not React's).
+  const handlePasteEvent = useCallback(async (e: ClipboardEvent) => {
     const cd = e.clipboardData;
     if (!cd) return;
 
@@ -282,6 +345,7 @@ export function PaneSessionChat({ paneId, onError }: Props) {
       (it) => it.kind === "file" && it.type.startsWith("image/"),
     );
     if (imageItem) {
+      // Prevent default synchronously before any async work.
       e.preventDefault();
       const file = imageItem.getAsFile();
       if (!file) return;
@@ -311,6 +375,30 @@ export function PaneSessionChat({ paneId, onError }: Props) {
     // 3. Otherwise — let the textarea's default paste behaviour handle text.
   }, [addAttachments]);
 
+  // Bug 3: window-level paste listener so Ctrl+V works without textarea focus.
+  // Only fires when the active element is inside this chat root.
+  useEffect(() => {
+    const onWindowPaste = (e: ClipboardEvent) => {
+      if (
+        chatRootRef.current &&
+        !chatRootRef.current.contains(document.activeElement)
+      ) {
+        return;
+      }
+      void handlePasteEvent(e);
+    };
+    window.addEventListener("paste", onWindowPaste);
+    return () => window.removeEventListener("paste", onWindowPaste);
+  }, [handlePasteEvent]);
+
+  function pickSuggestion(cmd: SlashCommandSuggestion) {
+    const lines = input.split("\n");
+    lines[0] = cmd.name + " ";
+    setInput(lines.join("\n"));
+    setPickerOpen(false);
+    textareaRef.current?.focus();
+  }
+
   if (error) {
     return (
       <div
@@ -331,6 +419,7 @@ export function PaneSessionChat({ paneId, onError }: Props) {
 
   return (
     <div
+      ref={chatRootRef}
       className="w-full h-full flex flex-col"
       style={{
         background: "var(--ct-bg, #0d1117)",
@@ -371,7 +460,6 @@ export function PaneSessionChat({ paneId, onError }: Props) {
         })}
       </div>
       <div
-        ref={composerRef}
         className="shrink-0 p-2 border-t"
         style={{
           borderColor:
@@ -391,29 +479,60 @@ export function PaneSessionChat({ paneId, onError }: Props) {
             ))}
           </div>
         )}
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-          onPaste={handlePaste}
-          placeholder="Type a message…  (Enter to send, Shift+Enter for newline. Drag files or paste images.)"
-          rows={2}
-          disabled={sending}
-          className="w-full resize-none rounded p-2 text-sm font-mono outline-none"
-          style={{
-            background:
-              "color-mix(in srgb, var(--ct-bg, #0d1117) 80%, white 5%)",
-            color: "var(--ct-fg, #c9d1d9)",
-            border:
-              "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
-          }}
-        />
+        {/* Bug 4: relative wrapper so SlashPicker positions above textarea */}
+        <div className="relative">
+          <SlashPicker
+            suggestions={pickerOpen ? suggestions : []}
+            highlighted={pickerHighlight}
+            onPick={pickSuggestion}
+          />
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (pickerOpen) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setPickerHighlight((h) => Math.min(h + 1, suggestions.length - 1));
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setPickerHighlight((h) => Math.max(h - 1, 0));
+                  return;
+                }
+                if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+                  e.preventDefault();
+                  const cmd = suggestions[pickerHighlight];
+                  if (cmd) pickSuggestion(cmd);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setPickerOpen(false);
+                  return;
+                }
+              }
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+            onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
+            placeholder="Type a message…  (Enter to send, Shift+Enter for newline. Drag files or paste images.)"
+            rows={2}
+            disabled={sending}
+            className="w-full resize-none rounded p-2 text-sm font-mono outline-none"
+            style={{
+              background:
+                "color-mix(in srgb, var(--ct-bg, #0d1117) 80%, white 5%)",
+              color: "var(--ct-fg, #c9d1d9)",
+              border:
+                "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+            }}
+          />
+        </div>
       </div>
     </div>
   );
