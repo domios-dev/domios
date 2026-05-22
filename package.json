@@ -19,6 +19,7 @@
     "@tauri-apps/cli": "^2.10.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^6.0.1",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.9.3",
@@ -45,6 +46,9 @@
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "remark-gfm": "^4.0.1",
     "sigma": "^3.0.0"
   }
 }

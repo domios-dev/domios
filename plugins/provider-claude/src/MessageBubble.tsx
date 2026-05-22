@@ -1,6 +1,10 @@
 import React, { useState, useMemo, useCallback } from "react";
 import type { ChatMessage, ImageAttachment } from "./parser";
 import { ChevronDown, File, Image, Download } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 const TOOL_ICONS: Record<string, string> = {
   Bash: "\u26A1",
@@ -15,157 +19,129 @@ const TOOL_ICONS: Record<string, string> = {
   ToolSearch: "\uD83D\uDD0D",
 };
 
-/** Lightweight markdown-lite renderer for assistant text. */
-function renderMarkdownLite(text: string): React.ReactNode[] {
-  const lines = text.split("\n");
-  const nodes: React.ReactNode[] = [];
-  let inCodeBlock = false;
-  let codeBlockLines: string[] = [];
-  let codeBlockKey = 0;
-
-  function flushCodeBlock() {
-    if (codeBlockLines.length > 0) {
-      nodes.push(
-        <pre
-          key={`code-${codeBlockKey++}`}
-          className="bg-[var(--ct-bg)] rounded-md px-3 py-2 my-2 text-xs overflow-x-auto font-mono border border-[var(--ct-border)]"
-        >
-          {codeBlockLines.join("\n")}
-        </pre>,
-      );
-      codeBlockLines = [];
-    }
-  }
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // Fenced code block start/end
-    if (line.trimStart().startsWith("```")) {
-      if (inCodeBlock) {
-        flushCodeBlock();
-        inCodeBlock = false;
-      } else {
-        inCodeBlock = true;
-      }
-      continue;
-    }
-
-    if (inCodeBlock) {
-      codeBlockLines.push(line);
-      continue;
-    }
-
-    // Heading
-    const headingMatch = line.match(/^(#{1,3})\s+(.*)/);
-    if (headingMatch) {
-      const level = headingMatch[1].length;
-      const cls = level === 1
-        ? "text-base font-bold mt-3 mb-1"
-        : level === 2
-          ? "text-sm font-semibold mt-2 mb-1"
-          : "text-sm font-medium mt-1.5 mb-0.5";
-      nodes.push(
-        <div key={i} className={cls} style={{ color: "var(--ct-fg)" }}>
-          {renderInlineMarkdown(headingMatch[2])}
-        </div>,
-      );
-      continue;
-    }
-
-    // Bullet list item
-    if (/^\s*[-*]\s/.test(line)) {
-      const content = line.replace(/^\s*[-*]\s/, "");
-      nodes.push(
-        <div key={i} className="flex gap-1.5 ml-3">
-          <span className="text-[var(--ct-muted-fg)] select-none">&bull;</span>
-          <span>{renderInlineMarkdown(content)}</span>
-        </div>,
-      );
-      continue;
-    }
-
-    // Numbered list item
-    if (/^\s*\d+\.\s/.test(line)) {
-      const match = line.match(/^\s*(\d+)\.\s(.*)/);
-      if (match) {
-        nodes.push(
-          <div key={i} className="flex gap-1.5 ml-3">
-            <span className="text-[var(--ct-muted-fg)] select-none">{match[1]}.</span>
-            <span>{renderInlineMarkdown(match[2])}</span>
-          </div>,
-        );
-        continue;
-      }
-    }
-
-    // Empty line
-    if (!line.trim()) {
-      nodes.push(<div key={i} className="h-2" />);
-      continue;
-    }
-
-    // Regular text line
-    nodes.push(
-      <div key={i}>{renderInlineMarkdown(line)}</div>,
-    );
-  }
-
-  // Flush any unclosed code block
-  if (inCodeBlock) flushCodeBlock();
-
-  return nodes;
-}
-
-/** Render inline markdown: bold, inline code, links. */
-function renderInlineMarkdown(text: string): React.ReactNode {
-  const parts: React.ReactNode[] = [];
-  const re = /(\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\(([^)]+)\))/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = re.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-
-    if (match[2] !== undefined) {
-      parts.push(
-        <strong key={match.index} className="font-semibold">
-          {match[2]}
-        </strong>,
-      );
-    } else if (match[3] !== undefined) {
-      parts.push(
-        <code
-          key={match.index}
-          className="bg-[var(--ct-bg)] px-1 py-0.5 rounded text-[0.85em] font-mono border border-[var(--ct-border)]"
-        >
-          {match[3]}
-        </code>,
-      );
-    } else if (match[4] !== undefined && match[5] !== undefined) {
-      parts.push(
-        <a
-          key={match.index}
-          href={match[5]}
-          className="text-[var(--ct-blue)] underline"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {match[4]}
-        </a>,
-      );
-    }
-
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-
-  return parts.length === 1 ? parts[0] : <>{parts}</>;
+/**
+ * Real markdown renderer for assistant text.
+ * - GFM tables, task lists, strikethrough via remark-gfm
+ * - Syntax-highlighted fenced code blocks via react-syntax-highlighter
+ * - All inline elements themed with codeterm CSS vars
+ *
+ * Note: react-markdown v10 no longer passes `inline` to the code component.
+ * Block code is detected by the presence of a `language-*` className (set by
+ * remark on fenced blocks). Inline <code> never has that className.
+ */
+function RichMarkdown({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ node: _node, ...props }) => (
+          <h1 className="text-base font-bold mt-3 mb-1" style={{ color: "var(--ct-fg)" }} {...props} />
+        ),
+        h2: ({ node: _node, ...props }) => (
+          <h2 className="text-sm font-semibold mt-2 mb-1" style={{ color: "var(--ct-fg)" }} {...props} />
+        ),
+        h3: ({ node: _node, ...props }) => (
+          <h3 className="text-sm font-medium mt-1.5 mb-0.5" style={{ color: "var(--ct-fg)" }} {...props} />
+        ),
+        p: ({ node: _node, ...props }) => <p className="my-1" {...props} />,
+        ul: ({ node: _node, ...props }) => <ul className="list-disc ml-5 my-1" {...props} />,
+        ol: ({ node: _node, ...props }) => <ol className="list-decimal ml-5 my-1" {...props} />,
+        li: ({ node: _node, children, ...props }) => (
+          <li className="my-0.5" {...props}>{children}</li>
+        ),
+        table: ({ node: _node, ...props }) => (
+          <div className="overflow-x-auto my-2">
+            <table
+              className="text-xs border-collapse"
+              style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)" }}
+              {...props}
+            />
+          </div>
+        ),
+        thead: ({ node: _node, ...props }) => (
+          <thead style={{ background: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 8%, transparent)" }} {...props} />
+        ),
+        th: ({ node: _node, ...props }) => (
+          <th
+            className="px-2 py-1 text-left font-semibold border"
+            style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)" }}
+            {...props}
+          />
+        ),
+        td: ({ node: _node, ...props }) => (
+          <td
+            className="px-2 py-1 border align-top"
+            style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 20%, transparent)" }}
+            {...props}
+          />
+        ),
+        // Block code: SyntaxHighlighter. Inline code: styled span.
+        // Detection: fenced blocks always get a "language-*" className from remark.
+        code: ({ node: _node, className, children, ...props }: React.ComponentProps<"code"> & { node?: unknown }) => {
+          const match = /language-(\w+)/.exec(className || "");
+          if (!match) {
+            return (
+              <code
+                className="px-1 py-0.5 rounded text-xs font-mono"
+                style={{
+                  background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",
+                  color: "var(--ct-fg, #c9d1d9)",
+                }}
+                {...props}
+              >
+                {children}
+              </code>
+            );
+          }
+          return (
+            <SyntaxHighlighter
+              language={match[1]}
+              style={vscDarkPlus}
+              PreTag="div"
+              customStyle={{
+                margin: "0.5rem 0",
+                borderRadius: "0.375rem",
+                padding: "0.75rem",
+                fontSize: "0.75rem",
+                lineHeight: "1.4",
+                background: "color-mix(in srgb, var(--ct-bg, #0d1117) 80%, black 5%)",
+              }}
+              codeTagProps={{ style: { fontFamily: "inherit" } }}
+            >
+              {String(children).replace(/\n$/, "")}
+            </SyntaxHighlighter>
+          );
+        },
+        // Strip default <pre> wrapper — SyntaxHighlighter renders its own via PreTag
+        pre: ({ node: _node, children }) => <>{children}</>,
+        a: ({ node: _node, ...props }) => (
+          <a
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline"
+            style={{ color: "var(--ct-accent, #58a6ff)" }}
+            {...props}
+          />
+        ),
+        del: ({ node: _node, ...props }) => <del className="opacity-60" {...props} />,
+        blockquote: ({ node: _node, ...props }) => (
+          <blockquote
+            className="border-l-2 pl-3 my-2 italic opacity-80"
+            style={{ borderColor: "var(--ct-muted-fg, #8b949e)" }}
+            {...props}
+          />
+        ),
+        hr: () => (
+          <hr
+            className="my-2"
+            style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)" }}
+          />
+        ),
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
 }
 
 /** Extract file path from tool args or toolInput. */
@@ -307,7 +283,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: { me
 
   const renderedContent = useMemo(() => {
     if (message.type === "assistant") {
-      return renderMarkdownLite(message.content);
+      return <RichMarkdown text={message.content} />;
     }
     return null;
   }, [message.type, message.content]);
@@ -423,6 +399,25 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: { me
     } else if (message.toolArgs) {
       const firstLine = message.toolArgs.split("\n")[0].trim();
       summary = firstLine.length > 60 ? firstLine.slice(0, 60) + "..." : firstLine;
+    }
+
+    // TodoWrite — render checklist inline
+    if (message.toolName === "TodoWrite" && Array.isArray(message.toolInput?.todos)) {
+      const todos = message.toolInput!.todos as Array<{ content: string; status: string; id?: string }>;
+      const STATUS_ICON: Record<string, string> = { pending: "⏳", in_progress: "🚧", completed: "✅" };
+      return (
+        <div className="mb-1.5 max-w-4xl mx-auto">
+          <div className="inline-flex flex-col gap-0.5 rounded-md px-2.5 py-1.5" style={{ background: "var(--ct-surface)" }}>
+            <span className="text-[10px] font-medium mb-0.5" style={{ color: "var(--ct-muted-fg)" }}>TodoWrite</span>
+            {todos.map((t, i) => (
+              <div key={t.id ?? i} className="flex items-start gap-1.5 text-xs" style={{ color: "var(--ct-fg)" }}>
+                <span className="flex-shrink-0">{STATUS_ICON[t.status] ?? "⏳"}</span>
+                <span className={t.status === "completed" ? "opacity-50 line-through" : ""}>{t.content}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
     }
 
     return (
