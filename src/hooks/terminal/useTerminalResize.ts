@@ -42,12 +42,20 @@ export function useTerminalResize({
   useEffect(() => {
     if (!termReady || !containerRef.current) return;
 
-    // Debounced refit (150ms — prevents thrashing during split drag)
+    // Debounced refit (150ms — prevents thrashing during split drag).
+    // Skips when the container is currently hidden (clientWidth ≈ 0) —
+    // calling fit() against a 0-width box collapses xterm.cols to 1
+    // and corrupts the visible buffer when the container becomes
+    // visible again. The visibility:hidden trick in TerminalPane.tsx
+    // keeps clientWidth non-zero on toggle, but this guard catches any
+    // other path that ends up here while the element is collapsed.
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const safefit = () => {
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         resizeTimer = null;
+        const el = containerRef.current;
+        if (!el || el.clientWidth < 20 || el.clientHeight < 20) return;
         if (fitAddonRef.current) {
           try { fitAddonRef.current.fit(); } catch { /* teardown */ }
         }
