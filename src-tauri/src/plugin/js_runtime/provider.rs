@@ -529,6 +529,41 @@ impl AgentProvider for JsProvider {
         s.filter(|p| !p.is_empty()).map(std::path::PathBuf::from)
     }
 
+    fn parse_session_delta(
+        &self,
+        path: &std::path::Path,
+        from_offset: u64,
+    ) -> crate::agent::chat_types::SessionDelta {
+        use crate::agent::chat_types::SessionDelta;
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(_) => return SessionDelta { new_offset: from_offset, messages: vec![] },
+        };
+        let total = bytes.len() as u64;
+        if from_offset >= total {
+            return SessionDelta { new_offset: from_offset, messages: vec![] };
+        }
+        let slice = &bytes[from_offset as usize..];
+        let chunk = String::from_utf8_lossy(slice).to_string();
+        #[derive(serde::Deserialize)]
+        struct JsDelta {
+            #[serde(rename = "consumedBytes")]
+            consumed_bytes: u64,
+            messages: Vec<crate::agent::chat_types::RichMessage>,
+        }
+        let parsed: Option<JsDelta> = self.try_call(
+            "parseSessionDelta",
+            &[serde_json::json!(chunk)],
+        );
+        match parsed {
+            Some(d) => SessionDelta {
+                new_offset: from_offset + d.consumed_bytes,
+                messages: d.messages,
+            },
+            None => SessionDelta { new_offset: from_offset, messages: vec![] },
+        }
+    }
+
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
         self.try_call::<Option<String>>(
             "buildResumeCommand",

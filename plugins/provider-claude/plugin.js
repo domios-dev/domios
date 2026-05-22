@@ -308,6 +308,71 @@ module.exports.default = {
     return out;
   },
 
+  // Take a chunk of JSONL bytes (one or more lines, possibly with a
+  // partial trailing line if the poller landed mid-write) and return
+  // RichMessage[]. We hold back any partial trailing line — caller
+  // bookmarks at `consumedBytes` and picks it up on the next call.
+  //
+  // Each user/assistant entry maps to ONE RichMessage with its
+  // `message.content[]` blocks copied with the block's `type` lifted
+  // out as `kind` and the rest of the fields as `data`. Non-message
+  // entries (summary, file-history) are silently dropped.
+  parseSessionDelta: function (chunk) {
+    var s = String(chunk || "");
+    var lastNl = s.lastIndexOf("\n");
+    if (lastNl < 0) {
+      // No complete line — consume nothing, retry next poll.
+      return { consumedBytes: 0, messages: [] };
+    }
+    var consumed = lastNl + 1; // include the \n
+    var parseSlice = s.substring(0, consumed);
+    var out = [];
+    var lines = parseSlice.split("\n");
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (!line) continue;
+      var v;
+      try { v = JSON.parse(line); } catch (_) { continue; }
+      var t = v && v.type;
+      if (t !== "user" && t !== "assistant") continue;
+      var msg = v.message;
+      if (!msg) continue;
+      var content = msg.content;
+      var blocks = [];
+      if (typeof content === "string") {
+        if (content) blocks.push({ kind: "text", data: { text: content } });
+      } else if (Array.isArray(content)) {
+        for (var j = 0; j < content.length; j++) {
+          var b = content[j];
+          if (!b || typeof b.type !== "string") continue;
+          var data = {};
+          for (var k in b) {
+            if (Object.prototype.hasOwnProperty.call(b, k) && k !== "type") {
+              data[k] = b[k];
+            }
+          }
+          blocks.push({ kind: b.type, data: data });
+        }
+      } else {
+        continue;
+      }
+      if (!blocks.length) continue;
+      var ts = null;
+      if (typeof v.timestamp === "string") {
+        var d = Date.parse(v.timestamp);
+        if (!isNaN(d)) ts = Math.floor(d / 1000);
+      }
+      out.push({
+        role: t,
+        blocks: blocks,
+        ts: ts,
+        sessionId: v.sessionId || null,
+        isMeta: !!v.isMeta,
+      });
+    }
+    return { consumedBytes: consumed, messages: out };
+  },
+
   // Resolve the JSONL file path for (cwd, sessionId). Same convention
   // as `claudeSessionFilePath` below (the module-level helper); exposed
   // as a plugin method so the Rust `AgentProvider::session_jsonl_path`
