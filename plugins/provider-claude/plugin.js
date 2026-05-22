@@ -352,8 +352,6 @@ module.exports.default = {
         role: t,
         blocks: blocks,
         ts: ts,
-        sessionId: v.sessionId || null,
-        isMeta: !!v.isMeta,
       });
     }
     return { messages: out };
