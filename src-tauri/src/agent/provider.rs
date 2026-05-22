@@ -547,6 +547,28 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    /// Resolve the actual session JSONL file for `(cwd, session_id)`. The
+    /// chat tailer reads this file with byte-offset bookmarks. Returns
+    /// `None` when the provider doesn't store sessions as a single JSONL
+    /// (opencode is sqlite-backed — returns `None`; the UI will hide
+    /// the toggle for those providers).
+    fn session_jsonl_path(&self, _cwd: &str, _session_id: &str) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    /// Parse new messages from `path` starting at `from_offset` bytes,
+    /// returning the delta + new offset. Implementations must be
+    /// tolerant of partial last lines (a poll can land mid-write): if
+    /// trailing bytes don't terminate in `\n`, hold them back and return
+    /// `new_offset` pointing at the start of the incomplete line.
+    fn parse_session_delta(
+        &self,
+        _path: &std::path::Path,
+        _from_offset: u64,
+    ) -> crate::agent::chat_types::SessionDelta {
+        crate::agent::chat_types::SessionDelta { new_offset: _from_offset, messages: vec![] }
+    }
+
     /// Whether this agent supports hook-based detection (vs PTY parsing fallback).
     /// Agents with hooks get detected via API endpoints, not PTY output parsing.
     fn has_hooks(&self) -> bool { false }
