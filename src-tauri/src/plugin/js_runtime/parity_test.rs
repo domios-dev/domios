@@ -535,6 +535,90 @@ mod claude {
         assert!(j.session_jsonl_path("/proj", "").is_none(),
             "empty session id must return None");
     }
+
+    #[test]
+    fn parse_session_delta_handles_polymorphic_content() {
+        if !ws_exists() { return; }
+        let j = load_js("claude");
+
+        // Mixed JSONL: summary (drop), user text (1 block), assistant with
+        // text + thinking + tool_use (3 blocks), user tool_result (1 block),
+        // and a malformed line (drop).
+        let jsonl = concat!(
+            r#"{"type":"summary","x":1}"#, "\n",
+            r#"{"type":"user","message":{"role":"user","content":"hello"},"timestamp":"2026-05-20T10:00:00Z"}"#, "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"thinking","thinking":"hmm"},{"type":"tool_use","id":"u1","name":"Bash","input":{"command":"ls"}}]}}"#, "\n",
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"u1","content":"foo bar"}]}}"#, "\n",
+            "not-json-at-all\n",
+        );
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), jsonl).unwrap();
+
+        let delta = j.parse_session_delta(tmp.path(), 0);
+        assert_eq!(delta.new_offset, jsonl.len() as u64,
+            "should consume the entire file (last line ends in \\n)");
+        assert_eq!(delta.messages.len(), 3, "3 user/assistant entries");
+
+        let m0 = &delta.messages[0];
+        assert_eq!(m0.role, "user");
+        assert_eq!(m0.blocks.len(), 1);
+        assert_eq!(m0.blocks[0].kind, "text");
+
+        let m1 = &delta.messages[1];
+        assert_eq!(m1.role, "assistant");
+        assert_eq!(m1.blocks.len(), 3);
+        let kinds: Vec<&str> = m1.blocks.iter().map(|b| b.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["text", "thinking", "tool_use"]);
+        assert_eq!(
+            m1.blocks[2].data.get("name").and_then(|v| v.as_str()),
+            Some("Bash"),
+        );
+
+        let m2 = &delta.messages[2];
+        assert_eq!(m2.blocks[0].kind, "tool_result");
+        assert_eq!(
+            m2.blocks[0].data.get("tool_use_id").and_then(|v| v.as_str()),
+            Some("u1"),
+        );
+    }
+
+    #[test]
+    fn parse_session_delta_holds_back_partial_line() {
+        if !ws_exists() { return; }
+        let j = load_js("claude");
+
+        // One complete line + a truncated second line.
+        let jsonl = concat!(
+            r#"{"type":"user","message":{"role":"user","content":"first"},"timestamp":"2026-05-20T10:00:00Z"}"#, "\n",
+            r#"{"type":"user","message":{"role":"user","content":"sec"#,
+        );
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), jsonl).unwrap();
+        let delta = j.parse_session_delta(tmp.path(), 0);
+        assert_eq!(delta.messages.len(), 1, "partial line must be held back");
+        // new_offset = exactly the byte after the first \n
+        let first_line_end = (jsonl.find('\n').unwrap() + 1) as u64;
+        assert_eq!(delta.new_offset, first_line_end);
+    }
+
+    #[test]
+    fn parse_session_delta_from_nonzero_offset() {
+        if !ws_exists() { return; }
+        let j = load_js("claude");
+        // Two lines; we ask for the slice starting at line 2.
+        let line1 = r#"{"type":"user","message":{"role":"user","content":"first"}}"#;
+        let line2 = r#"{"type":"assistant","message":{"role":"assistant","content":"second"}}"#;
+        let jsonl = format!("{}\n{}\n", line1, line2);
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), &jsonl).unwrap();
+
+        let offset = (line1.len() + 1) as u64;
+        let delta = j.parse_session_delta(tmp.path(), offset);
+        assert_eq!(delta.messages.len(), 1);
+        assert_eq!(delta.messages[0].role, "assistant");
+        assert_eq!(delta.new_offset, jsonl.len() as u64);
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────
