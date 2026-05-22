@@ -14,6 +14,7 @@ pub mod mesh_routes;
 pub mod network_routes;
 pub mod notification_routes;
 pub mod os_notify;
+pub mod pane_chat_routes;
 pub mod pane_routes;
 pub mod pasteboard_routes;
 pub mod services_routes;
