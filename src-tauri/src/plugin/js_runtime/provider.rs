@@ -544,11 +544,25 @@ impl AgentProvider for JsProvider {
             return SessionDelta { new_offset: from_offset, messages: vec![] };
         }
         let slice = &bytes[from_offset as usize..];
-        let chunk = String::from_utf8_lossy(slice).to_string();
+        // Find the LAST '\n' byte in the slice — everything up to and
+        // including it is a guaranteed complete-line region; bytes after
+        // are a partial line we hold back for the next poll. The plugin
+        // never sees the partial part, so byte/code-unit mismatches in
+        // JS string indexing can't corrupt the offset.
+        let last_nl = match slice.iter().rposition(|&b| b == b'\n') {
+            Some(idx) => idx,
+            None => return SessionDelta { new_offset: from_offset, messages: vec![] },
+        };
+        let consumed_bytes = (last_nl + 1) as u64;
+        let complete_slice = &slice[..consumed_bytes as usize];
+        // UTF-8 decode for JS. lossy is OK here — by definition we
+        // only do it on a slice that ends on a \n byte boundary; any
+        // U+FFFD substitutions land inside line bodies, which the
+        // plugin's per-line JSON.parse will reject. Byte-count is no
+        // longer trusted from JS; we computed it above.
+        let chunk = String::from_utf8_lossy(complete_slice).to_string();
         #[derive(serde::Deserialize)]
         struct JsDelta {
-            #[serde(rename = "consumedBytes")]
-            consumed_bytes: u64,
             messages: Vec<crate::agent::chat_types::RichMessage>,
         }
         let parsed: Option<JsDelta> = self.try_call(
@@ -557,10 +571,24 @@ impl AgentProvider for JsProvider {
         );
         match parsed {
             Some(d) => SessionDelta {
-                new_offset: from_offset + d.consumed_bytes,
+                new_offset: from_offset + consumed_bytes,
                 messages: d.messages,
             },
-            None => SessionDelta { new_offset: from_offset, messages: vec![] },
+            None => {
+                // I4: surface plugin failures instead of busy-looping on
+                // the same broken bytes. Advance the offset past this
+                // chunk anyway — yes, we lose the messages, but the
+                // tailer escapes the infinite-retry trap. The warning
+                // from try_call is enough audit trail.
+                log::warn!(
+                    "[parse_session_delta] plugin '{}' returned no delta for {} bytes at offset {} — skipping window",
+                    self.manifest.id, consumed_bytes, from_offset
+                );
+                SessionDelta {
+                    new_offset: from_offset + consumed_bytes,
+                    messages: vec![],
+                }
+            }
         }
     }
 

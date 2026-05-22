@@ -66,23 +66,45 @@ pub fn spawn_tailer(
     let stop = stop_flag.clone();
     let off = offset.clone();
     let join = thread::spawn(move || {
-        let path: Option<PathBuf> = registry
-            .with_provider(&cfg.provider_id, |p| {
-                p.session_jsonl_path(&cfg.cwd, &cfg.session_id)
-            })
-            .flatten();
-        let path = match path {
-            Some(p) => p,
-            None => {
-                log::warn!(
-                    "[pane_chat] no JSONL path for pane={} provider={} sid={}",
-                    cfg.pane_id, cfg.provider_id, cfg.session_id
-                );
-                return;
-            }
-        };
         let mut missing_streak = 0u32;
+        let mut cached_path: Option<PathBuf> = None;
         while !stop.load(Ordering::Acquire) {
+            // Re-resolve the JSONL path each iteration. Cheap (plugin
+            // call + string concat) and lets the plugin transparently
+            // handle session-file rotation. The `cached_path` is only
+            // for logging — we always re-ask the plugin.
+            let path: Option<PathBuf> = registry
+                .with_provider(&cfg.provider_id, |p| {
+                    p.session_jsonl_path(&cfg.cwd, &cfg.session_id)
+                })
+                .flatten();
+            let path = match path {
+                Some(p) => p,
+                None => {
+                    if cached_path.is_some() {
+                        log::warn!(
+                            "[pane_chat] pane={} provider={} sid={} previously had a path but now returns None — stopping",
+                            cfg.pane_id, cfg.provider_id, cfg.session_id
+                        );
+                    } else {
+                        log::warn!(
+                            "[pane_chat] no JSONL path for pane={} provider={} sid={}",
+                            cfg.pane_id, cfg.provider_id, cfg.session_id
+                        );
+                    }
+                    return;
+                }
+            };
+            if cached_path.as_ref() != Some(&path) {
+                log::info!(
+                    "[pane_chat] pane={} tailing {}",
+                    cfg.pane_id, path.display()
+                );
+                cached_path = Some(path.clone());
+                // TODO: future improvement — also re-fetch pane.agent_session_id
+                // from mux so an opencode model-swap that mints a new session
+                // retargets the tailer. Today the session_id is fixed at spawn.
+            }
             if !path.exists() {
                 missing_streak += 1;
                 if missing_streak > 10 {
@@ -97,11 +119,14 @@ pub fn spawn_tailer(
             }
             missing_streak = 0;
             let from = off.load(Ordering::Acquire);
+            // I4: parse_session_delta is fault-tolerant — it advances
+            // offset past chunks the plugin couldn't handle, so we
+            // never busy-loop on broken bytes.
             let delta = registry
                 .with_provider(&cfg.provider_id, |p| {
                     p.parse_session_delta(&path, from)
                 })
-                .unwrap_or(crate::agent::chat_types::SessionDelta {
+                .unwrap_or_else(|| crate::agent::chat_types::SessionDelta {
                     new_offset: from,
                     messages: vec![],
                 });
