@@ -16,7 +16,7 @@ export function UIModeToggle({ uiMode, onToggle, agentType }: Props) {
         e.stopPropagation();
         onToggle();
       }}
-      className="absolute top-1 right-1 z-10 text-xs px-2 py-0.5 rounded"
+      className="absolute top-1 right-1 z-20 text-xs px-2 py-0.5 rounded"
       style={{
         background:
           "color-mix(in srgb, var(--ct-bg, #0d1117) 85%, transparent)",

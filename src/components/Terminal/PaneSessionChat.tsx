@@ -1,11 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type {
-  RichMessage,
-  ChatStartResult,
-  ChatDeltaEvent,
-} from "../../lib/paneChatTypes";
+import { MessageBubble } from "@codeterm/provider-claude/src/MessageBubble";
+import {
+  parseJsonlSession,
+  type ChatMessage,
+} from "@codeterm/provider-claude/src/parser";
+
+interface ChatStartResult {
+  text: string;
+  offset: number;
+}
+
+interface RawDeltaEvent {
+  pane_id: string;
+  text: string;
+}
 
 interface Props {
   paneId: string;
@@ -13,9 +23,12 @@ interface Props {
 }
 
 export function PaneSessionChat({ paneId, onError }: Props) {
-  const [msgs, setMsgs] = useState<RichMessage[]>([]);
+  const [rawText, setRawText] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
 
@@ -26,15 +39,15 @@ export function PaneSessionChat({ paneId, onError }: Props) {
       try {
         const res = await invoke<ChatStartResult>("chat_start", { paneId });
         if (cancelled) return;
-        setMsgs(res.snapshot || []);
+        setRawText(res.text || "");
         setLoading(false);
-        unlisten = await listen<ChatDeltaEvent>(
-          `pane-chat-${paneId}`,
+        unlisten = await listen<RawDeltaEvent>(
+          `pane-chat-raw-${paneId}`,
           (ev) => {
             if (cancelled) return;
-            const newMsgs = ev.payload.messages || [];
-            if (newMsgs.length === 0) return;
-            setMsgs((prev) => [...prev, ...newMsgs]);
+            const newText = ev.payload.text || "";
+            if (!newText) return;
+            setRawText((prev) => prev + newText);
           },
         );
       } catch (e) {
@@ -52,13 +65,64 @@ export function PaneSessionChat({ paneId, onError }: Props) {
     };
   }, [paneId, onError]);
 
-  // Auto-scroll to bottom when new messages arrive AND user was at bottom.
+  const parsed = useMemo(() => parseJsonlSession(rawText), [rawText]);
+
+  // Drop optimistic messages whose content already appears in the parsed
+  // stream. The user's typed text lands in the JSONL as a `user` message
+  // ~500ms-1s later — once it's there, the optimistic stand-in is
+  // redundant and would render as a duplicate.
+  const recentUserContents = useMemo(() => {
+    if (parsed.length === 0) return new Set<string>();
+    const tail = Math.max(optimistic.length * 3, 10);
+    return new Set(
+      parsed
+        .slice(-tail)
+        .filter((m) => m.type === "user")
+        .map((m) => m.content),
+    );
+  }, [parsed, optimistic.length]);
+
+  const allMessages = useMemo(() => {
+    if (optimistic.length === 0) return parsed;
+    const stillPending = optimistic.filter(
+      (m) => !recentUserContents.has(m.content),
+    );
+    return [...parsed, ...stillPending];
+  }, [parsed, optimistic, recentUserContents]);
+
+  // Garbage-collect optimistic state once the JSONL catches up — keeps
+  // the list bounded across many sends.
+  useEffect(() => {
+    if (optimistic.length === 0) return;
+    setOptimistic((prev) =>
+      prev.filter((m) => !recentUserContents.has(m.content)),
+    );
+  }, [recentUserContents, optimistic.length]);
+
   useEffect(() => {
     if (!scrollRef.current) return;
     if (atBottomRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [msgs]);
+  }, [allMessages]);
+
+  async function send() {
+    const text = input.trim();
+    if (!text || sending) return;
+    setSending(true);
+    setOptimistic((prev) => [
+      ...prev,
+      { id: `opt-${Date.now()}`, type: "user", content: text },
+    ]);
+    setInput("");
+    try {
+      await invoke("chat_send_text", { paneId, text, enter: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  }
 
   if (error) {
     return (
@@ -80,85 +144,59 @@ export function PaneSessionChat({ paneId, onError }: Props) {
 
   return (
     <div
-      ref={scrollRef}
-      onScroll={(e) => {
-        const el = e.currentTarget;
-        const distFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
-        atBottomRef.current = distFromBottom < 50;
+      className="w-full h-full flex flex-col"
+      style={{
+        background: "var(--ct-bg, #0d1117)",
+        color: "var(--ct-fg, #c9d1d9)",
       }}
-      className="w-full h-full overflow-y-auto p-3 text-sm font-mono"
-      style={{ background: "var(--ct-bg, #0d1117)", color: "var(--ct-fg, #c9d1d9)" }}
     >
-      {msgs.length === 0 && (
-        <div className="opacity-50 text-center py-8">No messages yet.</div>
-      )}
-      {msgs.map((m, i) => (
-        <MessageRow key={i} msg={m} />
-      ))}
-    </div>
-  );
-}
-
-function MessageRow({ msg }: { msg: RichMessage }) {
-  const roleStyle =
-    msg.role === "user"
-      ? { color: "var(--ct-accent, #58a6ff)" }
-      : { color: "var(--ct-fg, #c9d1d9)" };
-  return (
-    <div className="mb-3">
       <div
-        className="text-xs uppercase tracking-wider opacity-60 mb-1"
-        style={roleStyle}
+        ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          const dist = el.scrollHeight - (el.scrollTop + el.clientHeight);
+          atBottomRef.current = dist < 50;
+        }}
+        className="flex-1 min-h-0 overflow-y-auto p-3"
       >
-        {msg.role}
-      </div>
-      <div className="whitespace-pre-wrap break-words pl-2">
-        {msg.blocks.map((b, j) => (
-          <BlockRender key={j} block={b} />
+        {allMessages.length === 0 && (
+          <div className="opacity-50 text-center py-8 text-sm">
+            No messages yet.
+          </div>
+        )}
+        {allMessages.map((m) => (
+          <MessageBubble key={m.id} message={m} />
         ))}
       </div>
-    </div>
-  );
-}
-
-function BlockRender({
-  block,
-}: {
-  block: { kind: string; data: Record<string, unknown> };
-}) {
-  if (block.kind === "text") {
-    return <span>{String(block.data.text ?? "")}</span>;
-  }
-  if (block.kind === "thinking") {
-    return (
-      <details className="my-1 opacity-60">
-        <summary className="cursor-pointer text-xs">thinking…</summary>
-        <div className="text-xs pl-2 italic">
-          {String(block.data.thinking ?? "")}
-        </div>
-      </details>
-    );
-  }
-  if (block.kind === "tool_use") {
-    return (
-      <div className="my-1 text-xs opacity-70 italic">
-        → tool: {String(block.data.name ?? "?")}
+      <div
+        className="shrink-0 p-2 border-t"
+        style={{
+          borderColor:
+            "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+        }}
+      >
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+          placeholder="Type a message…  (Enter to send, Shift+Enter for newline)"
+          rows={2}
+          disabled={sending}
+          className="w-full resize-none rounded p-2 text-sm font-mono outline-none"
+          style={{
+            background:
+              "color-mix(in srgb, var(--ct-bg, #0d1117) 80%, white 5%)",
+            color: "var(--ct-fg, #c9d1d9)",
+            border:
+              "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+          }}
+        />
       </div>
-    );
-  }
-  if (block.kind === "tool_result") {
-    return (
-      <details className="my-1 text-xs opacity-70">
-        <summary className="cursor-pointer">tool result</summary>
-        <pre className="pl-2 whitespace-pre-wrap text-xs">
-          {typeof block.data.content === "string"
-            ? block.data.content
-            : JSON.stringify(block.data.content, null, 2)}
-        </pre>
-      </details>
-    );
-  }
-  return (
-    <div className="my-1 text-xs opacity-50 italic">[{block.kind}]</div>
+    </div>
   );
 }
