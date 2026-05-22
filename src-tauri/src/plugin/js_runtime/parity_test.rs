@@ -512,6 +512,29 @@ mod claude {
             assert!(!cmd.contains("should-not-appear"));
         }
     }
+
+    #[test]
+    fn session_jsonl_path_resolves_via_plugin() {
+        if !ws_exists() { return; }
+        let j = load_js("claude");
+        let p = j.session_jsonl_path("/Users/foo/work/proj", "sess-abc-123");
+        assert!(p.is_some(), "should return Some(path)");
+        let p = p.unwrap();
+        let s = p.to_string_lossy();
+        assert!(s.contains("sess-abc-123.jsonl"), "missing session id: {s}");
+        // Dash-encoded cwd — non-alphanumerics become '-'
+        assert!(s.contains("-Users-foo-work-proj"), "dash-encoded cwd missing: {s}");
+        assert!(s.contains(".claude") && s.contains("projects"),
+            "must hit ~/.claude/projects: {s}");
+    }
+
+    #[test]
+    fn session_jsonl_path_returns_none_for_empty_sid() {
+        if !ws_exists() { return; }
+        let j = load_js("claude");
+        assert!(j.session_jsonl_path("/proj", "").is_none(),
+            "empty session id must return None");
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────

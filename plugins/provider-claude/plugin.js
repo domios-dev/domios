@@ -308,6 +308,15 @@ module.exports.default = {
     return out;
   },
 
+  // Resolve the JSONL file path for (cwd, sessionId). Same convention
+  // as `claudeSessionFilePath` below (the module-level helper); exposed
+  // as a plugin method so the Rust `AgentProvider::session_jsonl_path`
+  // can ask the plugin instead of duplicating the encoding rule.
+  sessionJsonlPath: function (cwd, sessionId) {
+    if (!sessionId) return null;
+    return claudeSessionFilePath(cwd, sessionId);
+  },
+
   // Writes `~/.claude/rules/codeterm.md` (path declared in manifest.rule.path).
   // Pure plugin code — Rust only provides host.expandHome + host.writeFile.
   installBridgeRule: function (payload) {
