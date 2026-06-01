@@ -14,6 +14,7 @@ const DOCS: &[(&str, &str)] = &[
     ("TELEGRAM-SETUP", include_str!("../../../docs/TELEGRAM-SETUP.md")),
     ("SECRETS", include_str!("../../../docs/SECRETS.md")),
     ("TEXT-HOOKS", include_str!("../../../docs/TEXT-HOOKS.md")),
+    ("TRANSCRIBE", include_str!("../../../docs/TRANSCRIBE.md")),
 ];
 
 pub fn handle(name: Option<String>) {
