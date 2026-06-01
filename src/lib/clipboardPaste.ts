@@ -112,27 +112,39 @@ interface TermLike {
  * Ctrl+Shift+V, system context menu, DOM paste event). Routes through
  * xterm's `term.paste` so bracketed-paste-mode wrapping + line-ending
  * normalization happen exactly once and respect the terminal's live
- * state. Reads the OS clipboard directly (Tauri files + navigator.clipboard
- * APIs) — does NOT depend on `event.clipboardData`, which WebView2 fills
- * unreliably for keyboard-triggered pastes on Windows. */
+ * state.
+ *
+ * Reads via Rust/Tauri pasteboard APIs first (NSPasteboard on macOS,
+ * clipboard-win on Windows) — bypasses WebKit's `navigator.clipboard`
+ * permission gate that, on macOS WebKit, returns nothing AND shows a
+ * privacy toast when `readText()` is called outside a paste-event handler.
+ * Only falls back to `navigator.clipboard` / `clipboardData` for
+ * platforms without a native reader (Linux) or when both native sources
+ * are empty. */
 export async function routeClipboardToTerm(term: TermLike): Promise<boolean> {
+  // 1. Native pasteboard files (Finder copy / Explorer copy)
   const filePaths = await readNativeClipboardFiles();
   if (filePaths.length > 0) {
     term.paste(filePaths.map(quotePathForPaste).join(" "));
     return true;
   }
 
-  // readText() before read()+classifier: WebView2 truncates long blobs
-  // returned by ClipboardItem.getType("text/plain"); readText reliably
-  // delivers the full string.
+  // 2. Native pasteboard text — works on macOS without WebKit permission
+  const nativeText = await readNativeClipboardText();
+  if (nativeText) {
+    term.paste(nativeText);
+    return true;
+  }
+
+  // 3. Web Clipboard API fallback for platforms without native readers
+  //    (Linux) or edge cases where pasteboard didn't surface the text.
   const plain = await readPlainTextSafely();
   if (plain) {
     term.paste(plain);
     return true;
   }
 
-  // No plain text — classifier path: images get saved to a temp file and
-  // pasted as a shell-quoted path; HTML-only is handled the same way.
+  // 4. Image / HTML classifier — saves to a temp file and pastes the path.
   const web = await readWebClipboard();
   if (web.paths.length > 0) {
     term.paste(web.paths.map(quotePathForPaste).join(" "));
@@ -144,6 +156,15 @@ export async function routeClipboardToTerm(term: TermLike): Promise<boolean> {
   }
 
   return false;
+}
+
+async function readNativeClipboardText(): Promise<string | null> {
+  try {
+    const text = await invoke<string | null>("read_clipboard_text");
+    return text || null;
+  } catch {
+    return null;
+  }
 }
 
 async function readPlainTextSafely(): Promise<string | null> {
