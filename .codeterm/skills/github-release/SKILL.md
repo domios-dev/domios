@@ -331,9 +331,12 @@ What the script does internally (`scripts/win-bundle.sh` + `win-upload.sh`):
 
 1. `git -c core.autocrlf=false checkout v$VER` (CRLF phantom-dirt workaround on Windows is built in).
 2. `pnpm install --frozen-lockfile`.
-3. `./build.sh build` (NSIS bundler emits `.exe` + `.nsis.zip` since v1.3.3 thanks to `bundle.createUpdaterArtifacts: true` in tauri.conf.json — fallback `powershell Compress-Archive` only runs if the bundler still skips).
-4. Signs `.nsis.zip` via `node_modules/.bin/tauri signer sign` (NOT `npx --yes @tauri-apps/cli signer sign` — npx fails with "Unknown command" on Windows).
-5. Idempotent `gh release view || gh release create --draft` for both repos, then `gh release upload --clobber` for `.exe` + `.nsis.zip`.
+3. **Export `TAURI_SIGNING_PRIVATE_KEY` BEFORE `./build.sh build`.** Without this env var, the Tauri bundler silently SKIPS the `.nsis.zip` and we fall back to repacking — historically this trap shipped DEFLATE-compressed zips that tauri-updater rejects (`Compression method not supported`). Caught the project on v1.1.22 AND v1.3.2 because the env-export was only done at the sign step. As of 2026-05-20 `win-bundle.sh` exports both `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` at script entry, so the bundler emits a proper STORED-compressed updater bundle the first time.
+4. `./build.sh build` (NSIS bundler emits `.exe` + `.nsis.zip` natively when the key env is exported).
+5. If the bundler still skips the `.nsis.zip` (very old tauri-cli), fallback uses `python zipfile.ZIP_STORED` — NEVER `powershell Compress-Archive`, whose `-CompressionLevel Optimal` always writes DEFLATE.
+6. **Verify compression method bytes 8-9 of the local file header are `00 00` (STORED) before signing.** `win-bundle.sh` does this and exits with `BLOCKED:` on any other value. Manual check: `od -A x -t x1 -N 10 CodeTerm_*_x64-setup.nsis.zip` — bytes at offset 8-9 must be `00 00`. `08 00` = DEFLATE (broken), `09 00` = Deflate64 (broken).
+7. Signs `.nsis.zip` via `node_modules/.bin/tauri signer sign` (NOT `npx --yes @tauri-apps/cli signer sign` — npx fails with "Unknown command" on Windows).
+8. Idempotent `gh release view || gh release create --draft` for both repos, then `gh release upload --clobber` for `.exe` + `.nsis.zip`.
 
 Wall times (BLACKSTAR, cache-warm): ~3min build, +~30s install if `node_modules` cold, +~10s upload. Cold from a fresh `pnpm install`: ~5-7min total.
 
