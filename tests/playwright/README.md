@@ -73,11 +73,29 @@ the real LLM, trading mock determinism for real-system fidelity:
 - Auth: the claude provider uses the host's `claude` CLI login; no API
   key env var needed. codex/opencode agent tests are deferred until
   their CLI auth on the test machine is confirmed.
+- **Terminal DOM readability**: the app uses xterm's WebGL renderer —
+  the canvas has no readable text. `screenReaderMode: true` (enabled in
+  `useXterm.ts` for exactly this + real accessibility) maintains a
+  renderer-independent DOM mirror at `.xterm-accessibility`; fully-live
+  tests read agent responses from there and cross-check against
+  `/api/panes/{id}/text`.
+
+## Mesh peer simulator (testplan §4.2)
+
+`helpers/mesh-stub.ts` — in-process TS HTTP stub instead of the
+suggested Rust binary (consumer is this harness only; no build step, no
+child processes, instant mode switches). Modes: `happy` (answers all,
+advertises N services), `wedged` (TCP-accepts, never responds — the
+#130 scenario), `liar` (alive, but services/relay error). 04-mesh pairs
+it with the real daemon via add-manual → connect → pair-accept callback
+and asserts the full liveness cycle including the 2-miss hysteresis.
 
 ## Tags
 
-`@smoke` every commit (fast, no LLM, target < 5 min total) ·
-`@golden` PRs · `@edge` / `@failure` nightly ·
+`@smoke` every commit (fast; light real-LLM allowed if a test reliably
+stays under ~10s — Andrey's Q3: no CI runtime cap, exercise the real
+thing, stay parsimonious per test) · `@golden` PRs, no upper bound ·
+`@edge` / `@failure` nightly ·
 `@regression` locks a specific fix (named issue in the test title).
 
 ## Hard rules
