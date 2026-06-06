@@ -185,6 +185,54 @@ test("@golden themes list is a non-empty name array", async () => {
   expect(res.themes).toContain("github-dark");
 });
 
+// ── uploads (browser attachments / voice notes) ──────────────────────
+
+test("@golden upload round-trip: multipart in, exact bytes back via serve-file", async () => {
+  const content = `pw-upload-${Date.now()}`;
+  const form = new FormData();
+  form.append("file", new Blob([content], { type: "text/plain" }), "pw upload (тест).txt");
+  const res = await fetch(`${API_BASE}/api/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${readDevToken()}` },
+    body: form,
+    signal: AbortSignal.timeout(15_000),
+  });
+  expect(res.status).toBe(200);
+  const { path, size } = (await res.json()) as { path: string; size: number };
+  expect(size).toBe(content.length);
+  expect(path).toContain("uploads");
+  // Sanitizer: nothing shell-hostile survives in the stored name.
+  const stored = path.split(/[\\/]/).pop()!;
+  expect(stored).toMatch(/^[A-Za-z0-9._-]+$/);
+
+  // Uploads live inside the data dir, so serve-file can hand them back.
+  const back = await fetch(
+    `${API_BASE}/api/serve-file?path=${encodeURIComponent(path)}`,
+    { headers: { Authorization: `Bearer ${readDevToken()}` } },
+  );
+  expect(back.status).toBe(200);
+  expect(await back.text()).toBe(content);
+});
+
+test("@golden upload rejects a missing file field and missing auth", async () => {
+  const form = new FormData();
+  form.append("not-file", new Blob(["x"]), "x.txt");
+  const res = await fetch(`${API_BASE}/api/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${readDevToken()}` },
+    body: form,
+    signal: AbortSignal.timeout(15_000),
+  });
+  expect(res.status).toBe(400);
+
+  const unauth = await fetch(`${API_BASE}/api/upload`, {
+    method: "POST",
+    body: new FormData(),
+    signal: AbortSignal.timeout(15_000),
+  });
+  expect(unauth.status).toBe(401);
+});
+
 test("@golden sessions search answers with a hits array for any query", async () => {
   const res = await api.get<{ hits: unknown[] }>(
     "/sessions/search?q=pw-definitely-unmatched-term",

@@ -30,9 +30,12 @@ async function passTokenGate(page: Page): Promise<void> {
   await page.waitForSelector('[data-testid="web-token-input"]', { timeout: 15_000 });
   await page.fill('[data-testid="web-token-input"]', readDevToken());
   await page.click('[data-testid="web-token-submit"]');
-  // The peer picker lives in the titlebar — visible on every viewport
-  // (workspace items hide inside the collapsed mobile sidebar).
-  await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
+  // Past the gate: desktop boots with the sidebar open (peer picker in its
+  // web top block); phones boot collapsed and show the floating hamburger.
+  await page
+    .locator('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]')
+    .first()
+    .waitFor({ timeout: 20_000 });
 }
 
 test("@smoke /web serves the SPA; token gate authenticates; self is the default host", async () => {
@@ -167,20 +170,18 @@ test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker re
   const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(scrollW, "horizontal scroll on phone viewport").toBeLessThanOrEqual(375);
 
-  // Sidebar starts collapsed on phones — workspace items live in the
-  // overlay, which the hamburger opens.
-  // (passTokenGate waited for workspace-item: on mobile it may be in the
-  // initially-closed sidebar; tolerate either, then exercise the toggle.)
+  // Sidebar starts collapsed on phones — everything (peer picker,
+  // workspaces, nav) lives in the overlay the hamburger opens.
+  const burger = page.locator('[data-testid="web-sidebar-open"]');
+  if (await burger.isVisible()) {
+    await burger.click();
+  }
   const picker = page.locator('[data-testid="peer-picker-button"]');
-  await expect(picker).toBeVisible();
+  await expect(picker).toBeVisible({ timeout: 10_000 });
   const box = await picker.boundingBox();
   expect(box && box.height >= 40, `picker touch target ${box?.height}px`).toBe(true);
 
-  // Mesh tab is reachable: open sidebar if collapsed, then nav-mesh.
   const navMesh = page.locator('[data-testid="nav-mesh"]');
-  if (!(await navMesh.isVisible())) {
-    await page.locator('button[title="Toggle sidebar"]').click();
-  }
   await expect(navMesh).toBeVisible({ timeout: 5_000 });
   await navMesh.click();
   await expect(page.locator('[data-testid="mesh-tab-network"]')).toBeVisible({ timeout: 10_000 });
@@ -257,57 +258,143 @@ test("@golden share link: a bad token falls through to the gate error path", asy
   await page.context().close();
 });
 
+// ── web chrome strip + mobile viewport hardening ─────────────────────
+
+test("@golden web chrome: titlebar absent, sidebar hosts peer picker + keep-awake", async () => {
+  const page = await newWebPage();
+  await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
+
+  // The desktop titlebar row must NOT render in the browser (01-smoke
+  // asserts the inverse for the Tauri window).
+  await expect(page.locator('[data-testid="titlebar"]')).toHaveCount(0);
+  // Its tenants moved into the sidebar's web-only top block.
+  await expect(page.locator('[data-testid="keepawake-tray"]')).toBeVisible();
+
+  // Viewport is locked: no pinch zoom, notch-aware, keyboard resizes content.
+  const meta = await page.getAttribute('meta[name="viewport"]', "content");
+  for (const directive of [
+    "user-scalable=no",
+    "maximum-scale=1.0",
+    "viewport-fit=cover",
+    "interactive-widget=resizes-content",
+  ]) {
+    expect(meta, `viewport meta missing ${directive}`).toContain(directive);
+  }
+  await page.context().close();
+});
+
+test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", async () => {
+  const page = await newWebPage({ width: 375, height: 812 });
+  await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
+  // Phones boot with the sidebar collapsed — the floating hamburger is the
+  // only way in, so its absence bricks mobile navigation.
+  const burger = page.locator('[data-testid="web-sidebar-open"]');
+  await expect(burger).toBeVisible({ timeout: 20_000 });
+  await burger.click();
+  await expect(page.locator('[data-testid="peer-picker-button"]')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-testid="workspace-item"]').first()).toBeVisible({ timeout: 10_000 });
+  // Tapping the backdrop dismisses; the hamburger must come back.
+  await page.mouse.click(370, 400);
+  await expect(burger).toBeVisible({ timeout: 10_000 });
+  await page.context().close();
+});
+
 // ── chat view in the browser — the mirror's core demo path ──────────
 
-test("@golden web chat: history renders AND a live assistant reply streams in", async () => {
+test("@golden web chat: a live assistant reply streams in AND history survives a reload", async () => {
   // Regression for the 'No messages yet' bug: chat_start in web returned
   // the wrong shape (parsed snapshot instead of raw JSONL), and assistant
   // deltas (pane-chat-raw-{id}) were never mirrored to SSE.
+  //
+  // Hermetic by design: spawns its OWN claude pane. The GA pane belongs to
+  // the user — it may be mid-task (a marker prompt then queues behind real
+  // work and times out), and toggling its chat-view flips the desktop UI.
   test.setTimeout(300_000);
 
-  const panes = await api.panes();
-  const ga = panes.find((p) => p.agent_type === "claude" && p.protected);
-  test.skip(!ga, "no GA claude pane on this console");
-  // Right after a daemon cold start the GA pane has no session_id yet and
-  // chat-raw/start 409s — wait until the chat source is actually ready.
-  const ready = Date.now() + 120_000;
-  for (;;) {
-    try {
-      await api.post(`/panes/${ga!.id}/chat-raw/start`);
-      await api.post(`/panes/${ga!.id}/chat-raw/stop`);
-      break;
-    } catch (e) {
-      if (Date.now() > ready) throw new Error(`GA chat never became ready: ${e}`);
-      await new Promise((r) => setTimeout(r, 3_000));
-    }
-  }
-  await api.post(`/panes/${ga!.id}/chat-view`, { enabled: true });
-
+  const spawned = await api.post<{ pane_id: string }>("/agents/spawn", {
+    agent: "claude",
+    model: "sonnet",
+    title: "pw-web-chat",
+    skip_permissions: true,
+    activate: true,
+  });
+  const paneId = spawned.pane_id;
   const page = await newWebPage();
-  await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 30_000 });
+  try {
+    // The chat source is ready once the claude CLI has booted a session —
+    // until then chat-raw/start 409s.
+    const ready = Date.now() + 120_000;
+    for (;;) {
+      try {
+        await api.post(`/panes/${paneId}/chat-raw/start`);
+        await api.post(`/panes/${paneId}/chat-raw/stop`);
+        break;
+      } catch (e) {
+        if (Date.now() > ready) throw new Error(`spawned pane chat never became ready: ${e}`);
+        await new Promise((r) => setTimeout(r, 3_000));
+      }
+    }
+    await api.post(`/panes/${paneId}/chat-view`, { enabled: true });
 
-  // History from the JSONL window renders (was: empty chat).
-  await page.waitForSelector('[data-testid="chat-composer"]', { timeout: 30_000 });
-  await expect
-    .poll(async () => page.locator('[data-testid="chat-message"]').count(), {
-      timeout: 30_000,
-    })
-    .toBeGreaterThan(0);
+    await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 30_000 });
 
-  // Live round-trip: send through the real composer, read the assistant
-  // bubble that must stream back over SSE.
-  const marker = `CHATMARKER-${Date.now()}`;
-  await page.fill(
-    '[data-testid="chat-composer"]',
-    `Reply with a single line containing exactly ${marker} and nothing else.`,
-  );
-  await page.press('[data-testid="chat-composer"]', "Enter");
+    // Scope everything to the spawned pane's subtree — other panes (e.g.
+    // the user's GA) may have chat-view mounted too.
+    const pane = page.locator(`[data-pane-id="${paneId}"]`);
+    const composer = pane.locator('[data-testid="chat-composer"]');
+    await composer.waitFor({ timeout: 30_000 });
 
-  await expect(
-    page
+    // Live round-trip: send through the real composer, read the assistant
+    // bubble that must stream back over SSE.
+    const marker = `CHATMARKER-${Date.now()}`;
+    await composer.fill(
+      `Reply with a single line containing exactly ${marker} and nothing else.`,
+    );
+    // Send via the explicit button — the touch-screen path (Enter is
+    // covered by desktop usage daily; the button only exists here).
+    await pane.locator('[data-testid="composer-send-button"]').click();
+
+    // The optimistic user bubble proves the send handler actually fired.
+    await expect(
+      pane.locator('[data-testid="chat-message"]').filter({ hasText: marker }).first(),
+    ).toBeVisible({ timeout: 15_000 });
+
+    const reply = pane
       .locator('[data-testid="chat-message"][data-message-role="assistant"]')
-      .filter({ hasText: marker }),
-  ).toBeVisible({ timeout: 240_000 });
-  await page.context().close();
+      .filter({ hasText: marker });
+    const sendError = pane.locator('[data-testid="chat-composer-error"]');
+    await expect(reply.or(sendError).first()).toBeVisible({ timeout: 240_000 });
+    if (await sendError.isVisible()) {
+      throw new Error(`composer send failed: ${await sendError.textContent()}`);
+    }
+    await expect(reply).toBeVisible();
+
+    // History: reload drops all live SSE state — the same bubbles must
+    // re-render purely from the chat-raw JSONL window (was: empty chat).
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await composer.waitFor({ timeout: 30_000 });
+    await expect(
+      pane
+        .locator('[data-testid="chat-message"][data-message-role="assistant"]')
+        .filter({ hasText: marker }),
+    ).toBeVisible({ timeout: 30_000 });
+
+    // Attach pipeline (no LLM): a browser file uploads to the daemon and
+    // shows up as a chip with the SERVER-side filename.
+    await pane
+      .locator('[data-testid="composer-attach-input"]')
+      .setInputFiles({
+        name: "pw-attach.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("attach-pipeline-proof"),
+      });
+    const chip = pane.locator('[data-testid="attachment-chip"]');
+    await expect(chip).toBeVisible({ timeout: 15_000 });
+    await expect(chip).toContainText("pw-attach.txt");
+  } finally {
+    await api.closePane(paneId).catch(() => {});
+    await page.context().close();
+  }
 });
