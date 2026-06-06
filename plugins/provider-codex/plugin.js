@@ -173,6 +173,34 @@ module.exports.default = {
     return candidates[0].sid;
   },
 
+  detectActiveSession: function (cwd, currentSid) {
+    var root = codexSessionsRoot();
+    if (!root || !host.fs.fileExists(root)) return null;
+    var currentPath = this.sessionFilePath(cwd, currentSid);
+    var currentTs = 0;
+    var files = host.fs.walkDir(root, 5);
+    for (var i = 0; i < files.length; i++) {
+      if (files[i].path === currentPath) {
+        currentTs = files[i].modifiedMs || files[i].createdMs || 0;
+        break;
+      }
+    }
+    var best = null;
+    for (var j = 0; j < files.length; j++) {
+      var f = files[j];
+      if (!f.isFile || !endsWith(f.name, ".jsonl")) continue;
+      var meta = readSessionMeta(f.path);
+      if (!meta || (meta.cwd && !host.path.equal(meta.cwd, cwd))) continue;
+      var stem = f.name.substring(0, f.name.length - 6);
+      var sid = meta.sessionId || extractSessionUuid(stem);
+      if (!sid || sid === currentSid) continue;
+      var ts = f.modifiedMs || f.createdMs || 0;
+      if (ts <= currentTs) continue;
+      if (!best || ts > best.ts) best = { sid: sid, ts: ts };
+    }
+    return best ? best.sid : null;
+  },
+
   enumerateSessions: function () {
     var root = codexSessionsRoot();
     if (!root || !host.fs.fileExists(root)) return [];

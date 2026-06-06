@@ -30,6 +30,11 @@ impl CodexProvider {
 
     /// Root sessions directory: ~/.codex/sessions/
     fn sessions_root() -> Option<PathBuf> {
+        if let Ok(path) = std::env::var("CODETERM_CODEX_SESSIONS_ROOT") {
+            if !path.is_empty() {
+                return Some(PathBuf::from(path));
+            }
+        }
         let home = dirs::home_dir()?;
         Some(home.join(".codex").join("sessions"))
     }
@@ -323,6 +328,16 @@ impl AgentProvider for CodexProvider {
         sessions
             .first()
             .and_then(|(stem, _)| extract_session_uuid(stem).map(|s| s.to_string()))
+    }
+
+    fn detect_active_session(&self, cwd: &str, current_sid: &str) -> Option<String> {
+        let current_path = self.session_file_path(cwd, current_sid);
+        let current_ts = current_path
+            .as_ref()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .and_then(|m| m.modified().or_else(|_| m.created()).ok())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        latest_session_for_cwd(cwd, Some(current_sid), current_ts)
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
@@ -660,6 +675,49 @@ fn read_session_meta(path: &std::path::Path) -> Option<(Option<String>, Option<S
         .and_then(|s| s.as_str())
         .map(String::from);
     Some((id, cwd))
+}
+
+fn latest_session_for_cwd(
+    cwd: &str,
+    exclude_sid: Option<&str>,
+    after: std::time::SystemTime,
+) -> Option<String> {
+    let root = CodexProvider::sessions_root()?;
+    if !root.exists() {
+        return None;
+    }
+    let mut best: Option<(String, std::time::SystemTime)> = None;
+    walk_jsonl_recursive(&root, 0, &mut |path| {
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            return;
+        };
+        let (meta_sid, meta_cwd) = read_session_meta(path).unwrap_or((None, None));
+        let Some(recorded_cwd) = meta_cwd else {
+            return;
+        };
+        if !paths_equivalent(&recorded_cwd, cwd) {
+            return;
+        }
+        let sid = meta_sid.or_else(|| extract_session_uuid(stem).map(String::from));
+        let Some(sid) = sid else { return };
+        if exclude_sid == Some(sid.as_str()) {
+            return;
+        }
+        let Ok(meta) = std::fs::metadata(path) else {
+            return;
+        };
+        let ts = match meta.modified().or_else(|_| meta.created()) {
+            Ok(ts) => ts,
+            Err(_) => return,
+        };
+        if ts <= after {
+            return;
+        }
+        if best.as_ref().map(|(_, best_ts)| ts > *best_ts).unwrap_or(true) {
+            best = Some((sid, ts));
+        }
+    });
+    best.map(|(sid, _)| sid)
 }
 
 /// Tail-scan a codex jsonl for the latest `turn_context.payload.model`.

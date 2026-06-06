@@ -251,7 +251,7 @@ pub async fn chat_start(
 /// POST /api/panes/{id}/chat-raw/start — identical result shape, so the
 /// chat view renders the same in both shells.
 pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
-    let (provider_id, cwd, session_id) = {
+    let (provider_id, cwd, mut session_id) = {
         let m = svc.mux.lock();
         let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
         let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
@@ -264,9 +264,42 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     };
 
     // Chat view is a reader for the tab's saved conversation, not a session
-    // detector. Recency/cwd-based detection is unsafe here: a dev console or
-    // sibling pane can create a newer JSONL in the same project and would make
-    // this tab render the wrong chat.
+    // detector. A provider may still report that the live process has rolled
+    // to a newer backing session (Codex resume starts a fresh rollout). Only
+    // accept that provider-owned handoff when no sibling pane already owns it.
+    if let Some(active_sid) = svc
+        .agent_registry
+        .with_provider(&provider_id, |p| p.detect_active_session(&cwd, &session_id))
+        .flatten()
+    {
+        let claimed = {
+            let mut mux = svc.mux.lock();
+            if mux.other_session_ids(&pane_id).contains(&active_sid) {
+                false
+            } else if let Some(pane) = mux.get_pane_mut(&pane_id) {
+                if pane.agent_type.as_deref() == Some(provider_id.as_str()) {
+                    pane.agent_session_id = Some(active_sid.clone());
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+        if claimed {
+            log::info!(
+                "[chat_start] rolled pane {} from {} -> {} ({})",
+                pane_id,
+                session_id,
+                active_sid,
+                provider_id,
+            );
+            svc.emit_state_changed();
+            session_id = active_sid;
+        }
+    }
+
     let path = svc
         .agent_registry
         .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
