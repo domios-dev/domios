@@ -115,7 +115,7 @@ pub async fn mesh_introduce(
     let _ = mesh.save();
     drop(mesh);
 
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
 
     let mesh = state.mesh.lock();
     Ok(Json(serde_json::json!({

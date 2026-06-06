@@ -196,6 +196,17 @@ pub async fn auth_middleware(
         }
     }
 
+    // The /web static bundle is public by design: it is the same React
+    // code anyone can build from the repo. Every API call it makes is
+    // still token-gated. Exact /web redirects to /web/ so the bundle's
+    // relative asset URLs resolve under the mount.
+    if path == "/web" {
+        return axum::response::Redirect::permanent("/web/").into_response();
+    }
+    if path.starts_with("/web/") {
+        return next.run(req).await;
+    }
+
     if PUBLIC_PATHS.iter().any(|p| path == *p) || is_custom_auth(&path) {
         return next.run(req).await;
     }
