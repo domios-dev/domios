@@ -166,6 +166,7 @@ export function KeepAwakeTray() {
     <>
       <button
         ref={triggerRef}
+        data-testid="keepawake-tray"
         onClick={() => setOpen((v) => !v)}
         title={titleText}
         className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${

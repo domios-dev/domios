@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { open } from "@tauri-apps/plugin-dialog";
 import { IS_WEB } from "../../lib/webApi";
+import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
+import { KeepAwakeTray } from "../Titlebar/KeepAwakeTray";
 import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
 import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
@@ -298,6 +300,16 @@ export function Sidebar({
         className="shrink-0 bg-[var(--ct-sidebar-bg)] flex flex-col select-none overflow-hidden relative"
         style={{ width: sidebarWidth, boxShadow: "inset -0.5px 0 0 var(--ct-border-subtle)" }}
       >
+        {/* Web mirror: the titlebar is stripped, so the host picker (with
+            its online dot) and keep-awake live at the top of the sidebar. */}
+        {IS_WEB && (
+          <div className="flex items-center gap-2 px-2 pt-2 pb-1 border-b border-[var(--ct-border)]">
+            <WebPeerPicker />
+            <div className="ml-auto">
+              <KeepAwakeTray />
+            </div>
+          </div>
+        )}
         {/* Panes header with action icons */}
         <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
           {!isCompact && (
