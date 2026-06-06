@@ -4,7 +4,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use tower_http::cors::CorsLayer;
+use tower_http::{catch_panic::CatchPanicLayer, cors::CorsLayer};
 
 use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, health_routes, hook_routes,
@@ -488,7 +488,56 @@ pub fn create_router(state: AppState) -> Router {
             super::auth::auth_middleware,
         ))
         .layer(CorsLayer::permissive())
+        .layer(CatchPanicLayer::new())
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{body::Body, http::Request, routing::get, Router};
+    use tower::ServiceExt;
+    use tower_http::catch_panic::CatchPanicLayer;
+
+    #[tokio::test]
+    async fn catch_panic_layer_keeps_router_responsive_after_handler_panic() {
+        let app = Router::new()
+            .route(
+                "/panic",
+                get(|| async {
+                    panic!("synthetic handler panic");
+                    #[allow(unreachable_code)]
+                    "never"
+                }),
+            )
+            .route("/health", get(|| async { "ok" }))
+            .layer(CatchPanicLayer::new());
+
+        let panic_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/panic")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("panic should be converted to HTTP 500 response");
+        assert_eq!(
+            panic_response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+
+        let health_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("router must keep serving requests after a handler panic");
+        assert_eq!(health_response.status(), axum::http::StatusCode::OK);
+    }
 }
 
 /// Resolve a pane ID path parameter: supports both direct IDs and aliases.

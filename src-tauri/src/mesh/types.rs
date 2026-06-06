@@ -2,6 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
+fn default_true() -> bool {
+    true
+}
+
 // ── Identity ────────────────────────────────────────────────────────
 
 /// Persistent identity for this CodeTerm instance.
@@ -152,6 +156,8 @@ pub struct PeerAnnounce {
     pub instance_name: String,
     pub addresses: Vec<PeerAddress>,
     pub api_port: u16,
+    #[serde(default = "default_true")]
+    pub online: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
