@@ -89,9 +89,11 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
 
   async function start(): Promise<boolean> {
     if (!navigator.mediaDevices?.getUserMedia) {
-      // getUserMedia needs a secure context — plain-HTTP peers (e.g. a
-      // raw Tailscale IP) can't record; `tailscale serve` adds the TLS.
-      onError("Voice needs HTTPS (or localhost) — the mic API is unavailable here.");
+      onError(
+        IS_WEB
+          ? "Voice needs HTTPS (or localhost) — the mic API is unavailable here."
+          : "Microphone capture is unavailable in this CodeTerm window. Restart the app after updating microphone permissions.",
+      );
       return false;
     }
     try {
