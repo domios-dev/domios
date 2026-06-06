@@ -7,6 +7,20 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 
+/// Snapshot the multiplexer into the session store NOW. Durability is
+/// otherwise the 30s auto-save timer plus the close-to-tray hook — a
+/// force-killed daemon (taskkill, crash, e2e harness) loses anything
+/// younger than the last tick. Restart-persistence tests call this first.
+pub async fn save_session_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    crate::update::shutdown::persist_session(&state.svc.app_handle, &state.svc)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct SearchSessionsQuery {
     q: String,
