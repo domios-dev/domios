@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import { invoke } from "../../lib/bridge";
@@ -16,6 +16,7 @@ export interface UsePtyConnectionOptions {
   onShellReady: () => void;
   onOutputChunk: (text: string) => void;
   jiggleResize: (ptyId: string) => void;
+  localFitEnabled?: boolean;
 }
 
 export interface UsePtyConnectionReturn {
@@ -33,8 +34,14 @@ export function usePtyConnection({
   onShellReady,
   onOutputChunk,
   jiggleResize,
+  localFitEnabled = true,
 }: UsePtyConnectionOptions): UsePtyConnectionReturn {
   const { state } = useMultiplexer();
+  const localFitEnabledRef = useRef(localFitEnabled);
+
+  useEffect(() => {
+    localFitEnabledRef.current = localFitEnabled;
+  }, [localFitEnabled]);
 
   const writePty = useCallback((data: string) => {
     const id = connectedPtyRef.current;
@@ -90,6 +97,7 @@ export function usePtyConnection({
           }
         }
         requestAnimationFrame(() => {
+          if (!localFitEnabledRef.current) return;
           try {
             fitAddonRef.current?.fit();
             if (ptyId) jiggleResize(ptyId);
@@ -142,6 +150,7 @@ export function usePtyConnection({
               if (firstData) {
                 firstData = false;
                 requestAnimationFrame(() => {
+                  if (!localFitEnabledRef.current) return;
                   try { fitAddonRef.current?.fit(); } catch { /* ignore */ }
                 });
               }
@@ -223,6 +232,7 @@ export function usePtyConnection({
 
         // Sync PTY size with actual xterm dimensions
         requestAnimationFrame(() => {
+          if (!localFitEnabledRef.current) return;
           try {
             fitAddonRef.current?.fit();
             const actualCols = term.cols;

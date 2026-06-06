@@ -10,6 +10,7 @@ export interface UseTerminalResizeOptions {
   connectedPtyRef: React.MutableRefObject<string | null>;
   termReady: boolean;
   isFocused: boolean;
+  resizeEnabled?: boolean;
 }
 
 export interface UseTerminalResizeReturn {
@@ -23,6 +24,7 @@ export function useTerminalResize({
   connectedPtyRef,
   termReady,
   isFocused,
+  resizeEnabled = true,
 }: UseTerminalResizeOptions): UseTerminalResizeReturn {
   // ConPTY resize jiggle: shrink by 1 col then restore to force SIGWINCH
   const jigglePendingRef = useRef(false);
@@ -40,7 +42,7 @@ export function useTerminalResize({
 
   // ResizeObserver + debounce + self-heal + HMR + visibility
   useEffect(() => {
-    if (!termReady || !containerRef.current) return;
+    if (!termReady || !resizeEnabled || !containerRef.current) return;
 
     // Debounced refit (150ms — prevents thrashing during split drag).
     // Skips when the container is currently hidden (clientWidth ≈ 0) —
@@ -126,11 +128,11 @@ export function useTerminalResize({
       hmrCleanup?.();
       window.removeEventListener("codeterm-pane-resize", handlePaneResize);
     };
-  }, [termReady, containerRef, termRef, fitAddonRef, connectedPtyRef, jiggleResize]);
+  }, [termReady, resizeEnabled, containerRef, termRef, fitAddonRef, connectedPtyRef, jiggleResize]);
 
   // Refit + focus when pane becomes focused
   useEffect(() => {
-    if (isFocused && termReady) {
+    if (isFocused && termReady && resizeEnabled) {
       requestAnimationFrame(() => {
         try {
           fitAddonRef.current?.fit();
@@ -138,7 +140,7 @@ export function useTerminalResize({
         } catch { /* ignore */ }
       });
     }
-  }, [isFocused, termReady, fitAddonRef, termRef]);
+  }, [isFocused, termReady, resizeEnabled, fitAddonRef, termRef]);
 
   return { jiggleResize };
 }
