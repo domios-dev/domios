@@ -9,6 +9,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { mapCursorStyle, buildXtermTheme } from "../../components/Terminal/helpers";
 import type { ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 
+/** True only under the Playwright harness (vite launched with the env). */
+const E2E_TEST_MODE = import.meta.env.VITE_CODETERM_TEST === "1";
+
 export interface UseXtermOptions {
   containerRef: React.RefObject<HTMLDivElement | null>;
   theme?: ThemeConfig;
@@ -62,10 +65,12 @@ export function useXterm({
       theme: buildXtermTheme(theme),
       overviewRuler: { width: 4 },
       allowProposedApi: true,
-      // Renderer-independent DOM mirror of the viewport
-      // (.xterm-accessibility) — the WebGL canvas has no readable text,
-      // so this is what screen readers AND the e2e harness observe.
-      screenReaderMode: true,
+      // E2E-only DOM mirror of the viewport (.xterm-accessibility).
+      // NEVER enabled for users: screenReaderMode degrades the renderer
+      // (forces the reduced-color DOM path — black-and-white TUIs).
+      // The Playwright harness sets VITE_CODETERM_TEST=1 at dev-server
+      // launch; normal `build.sh dev` and prod builds never do.
+      screenReaderMode: E2E_TEST_MODE,
       windowsPty: {
         backend: "conpty",
         buildNumber: winBuildNumber,
@@ -101,6 +106,11 @@ export function useXterm({
     // We push the success/failure into the daemon log via
     // `report_webgl_status` so the rendering health is observable
     // without opening browser devtools.
+    if (E2E_TEST_MODE) {
+      // Harness runs read terminal text from the accessibility DOM; the
+      // WebGL renderer is skipped so it can't fight screenReaderMode.
+      invoke("report_webgl_status", { state: "skipped_test_mode", detail: null }).catch(() => {});
+    } else
     try {
       const webgl = new WebglAddon();
       webgl.onContextLoss(() => {
