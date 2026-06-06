@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { listen } from "../../lib/bridge";
+import { IS_WEB, listen } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
 import {
   useXterm,
@@ -63,6 +63,21 @@ export function TerminalPane({
   const agentType = pane?.agent_type;
   const chatSupported = isChatUiSupported(agentType);
   const sessionReadyForChat = Boolean(pane?.agent_session_id);
+  const [mobileWebDefaultChat, setMobileWebDefaultChat] = useState(() =>
+    IS_WEB && typeof window !== "undefined" && window.matchMedia("(max-width: 700px)").matches,
+  );
+
+  useEffect(() => {
+    if (!IS_WEB || typeof window === "undefined") return;
+    const query = window.matchMedia("(max-width: 700px)");
+    const update = () => setMobileWebDefaultChat(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  const shouldDefaultToChat =
+    shouldDefaultNewAgentPaneToChat(agentType) ||
+    (mobileWebDefaultChat && chatSupported);
 
   // --- Terminal lifecycle ---
   const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
@@ -103,7 +118,7 @@ export function TerminalPane({
   const [uiMode, setUiMode] = useState<PaneUiMode>(() => (
     chatSupported
       && sessionReadyForChat
-      && (getClientPaneUiMode(paneId) === "chat" || shouldDefaultNewAgentPaneToChat(agentType))
+      && (getClientPaneUiMode(paneId) === "chat" || shouldDefaultToChat)
       ? "chat"
       : "terminal"
   ));
@@ -121,12 +136,12 @@ export function TerminalPane({
   useEffect(() => {
     const defaultMode: PaneUiMode = chatSupported
       && sessionReadyForChat
-      && ((getClientPaneUiMode(paneId) ?? (shouldDefaultNewAgentPaneToChat(agentType) ? "chat" : "terminal")) === "chat")
+      && ((getClientPaneUiMode(paneId) ?? (shouldDefaultToChat ? "chat" : "terminal")) === "chat")
       ? "chat"
       : "terminal";
     const desiredMode = userModeOverrideRef.current ?? defaultMode;
     setUiMode((mode) => mode === desiredMode ? mode : desiredMode);
-  }, [agentType, chatSupported, sessionReadyForChat, paneId]);
+  }, [agentType, chatSupported, sessionReadyForChat, paneId, shouldDefaultToChat]);
 
   useEffect(() => listenClientPaneUiMode(paneId, (mode) => {
     userModeOverrideRef.current = mode;

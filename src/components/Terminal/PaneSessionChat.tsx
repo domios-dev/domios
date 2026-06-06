@@ -43,6 +43,7 @@ const CLI_FALLBACK_COMMANDS = new Set([
 
 function isMicrophonePermissionError(message: string): boolean {
   const normalized = message.toLowerCase();
+  if (normalized.includes("needs https")) return false;
   return (
     normalized.includes("microphone") ||
     normalized.includes("mic api") ||

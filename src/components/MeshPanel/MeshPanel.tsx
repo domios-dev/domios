@@ -88,13 +88,17 @@ function CollapsibleTablesDrawer({
 interface NetworkInfo {
   local_ip?: string | null;
   tailscale_ip?: string | null;
+  tailscale_https_url?: string | null;
   api_port?: number;
 }
 
 function buildWebUiLink(config: AppConfig, network: NetworkInfo | null): string {
   const port = network?.api_port ?? config.api.port;
-  const host = network?.tailscale_ip || network?.local_ip || "127.0.0.1";
   const token = config.api.token ? `#token=${encodeURIComponent(config.api.token)}` : "";
+  if (network?.tailscale_https_url) {
+    return `${network.tailscale_https_url}/web/${token}`;
+  }
+  const host = network?.tailscale_ip || network?.local_ip || "127.0.0.1";
   return `http://${host}:${port}/web/${token}`;
 }
 

@@ -34,6 +34,7 @@ const HTTP_MAP: Record<string, Mapper> = {
   // ── config ──
   get_config: () => webJson("GET", "/api/config"),
   update_config: (a) => webJson("POST", "/api/config", a.config),
+  get_network_info: () => webJson("GET", "/api/network"),
 
   // ── multiplexer ──
   mux_get_state: () => webJson("GET", "/api/mux/state"),
