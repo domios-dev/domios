@@ -84,9 +84,29 @@ export function TerminalPane({
     containerRef, theme, fontConfig, terminalConfig,
   });
 
+  // --- UI state ---
+  const [uiMode, setUiMode] = useState<PaneUiMode>(() => (
+    chatSupported
+      && sessionReadyForChat
+      && (getClientPaneUiMode(paneId) === "chat" || shouldDefaultToChat)
+      ? "chat"
+      : "terminal"
+  ));
+  const userModeOverrideRef = useRef<PaneUiMode | null>(null);
+  const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
+
   // --- Resize handling ---
   const { jiggleResize } = useTerminalResize({
-    containerRef, termRef, fitAddonRef, connectedPtyRef, termReady, isFocused,
+    containerRef,
+    termRef,
+    fitAddonRef,
+    connectedPtyRef,
+    termReady,
+    isFocused,
+    resizeEnabled: terminalVisible,
   });
 
   // --- Shell integration (readiness, CWD, pending commands) ---
@@ -109,23 +129,11 @@ export function TerminalPane({
       completion.feedOutput(text);
     },
     jiggleResize,
+    localFitEnabled: terminalVisible,
   });
 
   // --- Agent detection ---
   useAgentDetection({ termRef, paneId, termReady });
-
-  // --- UI state ---
-  const [uiMode, setUiMode] = useState<PaneUiMode>(() => (
-    chatSupported
-      && sessionReadyForChat
-      && (getClientPaneUiMode(paneId) === "chat" || shouldDefaultToChat)
-      ? "chat"
-      : "terminal"
-  ));
-  const userModeOverrideRef = useRef<PaneUiMode | null>(null);
-  const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     if (uiMode !== "chat") {
@@ -388,16 +396,20 @@ export function TerminalPane({
           transition: "opacity 0.3s ease-in",
           top: uiMode === "chat" && terminalFallbackOpen ? "auto" : 0,
           right: uiMode === "chat" && terminalFallbackOpen ? 12 : 0,
-          bottom: uiMode === "chat" && terminalFallbackOpen ? 104 : 0,
+          bottom: uiMode === "chat" && terminalFallbackOpen
+            ? "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))"
+            : 0,
           left: uiMode === "chat" && terminalFallbackOpen ? 12 : 0,
-          height: uiMode === "chat" && terminalFallbackOpen ? "min(42vh, 360px)" : "auto",
+          height: uiMode === "chat" && terminalFallbackOpen
+            ? "min(38dvh, 320px)"
+            : "auto",
           borderRadius: uiMode === "chat" && terminalFallbackOpen ? 6 : 0,
           border: uiMode === "chat" && terminalFallbackOpen
             ? "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)"
             : "none",
           background: "var(--ct-bg, #0d1117)",
-          visibility: uiMode === "terminal" || terminalFallbackOpen ? "visible" : "hidden",
-          pointerEvents: uiMode === "terminal" || terminalFallbackOpen ? "auto" : "none",
+          visibility: terminalVisible ? "visible" : "hidden",
+          pointerEvents: terminalVisible ? "auto" : "none",
           zIndex: terminalFallbackOpen ? 4 : uiMode === "terminal" ? 1 : 0,
         }}
         onClick={() => termRef.current?.focus()}
@@ -433,7 +445,8 @@ export function TerminalPane({
           <div
             className="absolute left-3 right-3 h-7 flex items-center justify-between px-2 rounded-t-md pointer-events-auto"
             style={{
-              bottom: "calc(104px + min(42vh, 360px))",
+              bottom:
+                "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem) + min(38dvh, 320px))",
               background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
               color: "var(--ct-fg, #c9d1d9)",
               border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
