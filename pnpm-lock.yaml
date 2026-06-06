@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@codeterm/chat-core':
+        specifier: workspace:*
+        version: link:packages/chat-core
+      '@codeterm/chat-ui':
+        specifier: workspace:*
+        version: link:packages/chat-ui
       '@codeterm/provider-claude':
         specifier: workspace:*
         version: link:plugins/provider-claude
@@ -109,14 +115,43 @@ importers:
         specifier: ^8.0.0
         version: 8.0.0(jiti@2.6.1)
 
+  packages/chat-core: {}
+
+  packages/chat-ui:
+    dependencies:
+      '@codeterm/chat-core':
+        specifier: workspace:*
+        version: link:../chat-core
+      lucide-react:
+        specifier: ^1.7.0
+        version: 1.7.0(react@19.2.4)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-markdown:
+        specifier: ^10.1.0
+        version: 10.1.0(@types/react@19.2.14)(react@19.2.4)
+      react-syntax-highlighter:
+        specifier: ^16.1.1
+        version: 16.1.1(react@19.2.4)
+      remark-gfm:
+        specifier: ^4.0.1
+        version: 4.0.1
+
   plugins/provider-claude:
     dependencies:
+      '@codeterm/chat-ui':
+        specifier: workspace:*
+        version: link:../../packages/chat-ui
       react:
         specifier: ^19.0.0
         version: 19.2.4
 
   plugins/provider-codex:
     dependencies:
+      '@codeterm/chat-core':
+        specifier: workspace:*
+        version: link:../../packages/chat-core
       react:
         specifier: ^19.0.0
         version: 19.2.4
