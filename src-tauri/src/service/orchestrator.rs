@@ -443,7 +443,19 @@ pub(crate) fn launch_agent_in_background(
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     let registry = svc.agent_registry.clone();
+    // A booting TUI silently swallows bracket-paste — gate sends
+    // (send_text_when_ready) until the background launch clears this.
+    // Set BEFORE the thread spawns: callers get the pane id immediately
+    // and may send right away.
+    if let Some(p) = svc.mux.lock().get_pane_mut(&pane_id) {
+        p.agent_booting = true;
+    }
     std::thread::spawn(move || {
+        let set_booting = |value: bool| {
+            if let Some(p) = svc.mux.lock().get_pane_mut(&pane_id) {
+                p.agent_booting = value;
+            }
+        };
         // 1. Wait for PTY (frontend creates it after mux-state-changed).
         //    If frontend doesn't create it (cron/headless tabs), spawn from backend.
         let frontend_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -514,6 +526,7 @@ pub(crate) fn launch_agent_in_background(
                         );
                         // Clean up the orphaned pane — it has no PTY and is unreachable
                         let _ = svc.close_tab(&ws_id, &tab_id);
+                        set_booting(false);
                         if let Some(tx) = ready_tx {
                             let _ = tx.send(Err(format!("backend PTY spawn failed: {}", e)));
                         }
@@ -573,6 +586,7 @@ pub(crate) fn launch_agent_in_background(
                 pty_id,
                 e
             );
+            set_booting(false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(format!("launch_cmd failed: {}", e)));
             }
@@ -616,6 +630,7 @@ pub(crate) fn launch_agent_in_background(
                         pty_id,
                         e
                     );
+                    set_booting(false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(format!("task delivery failed: {}", e)));
                     }
@@ -624,6 +639,7 @@ pub(crate) fn launch_agent_in_background(
             }
         }
 
+        set_booting(false);
         log::info!("launch_agent: agent ready in pane {}", pane_id);
         if let Some(tx) = ready_tx {
             let _ = tx.send(Ok(()));

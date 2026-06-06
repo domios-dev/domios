@@ -403,5 +403,5 @@ pub async fn chat_send_text(
     enter: Option<bool>,
 ) -> Result<(), String> {
     let enter = enter.unwrap_or(true);
-    svc.send_text(&pane_id, &text, enter)
+    svc.send_text_when_ready(&pane_id, &text, enter).await
 }
