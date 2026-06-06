@@ -7,10 +7,11 @@
 pub mod crown;
 pub mod discovered;
 pub mod discovery;
+pub mod health;
 pub mod identity;
 pub mod pairing;
+pub mod peer_services;
 pub mod peers;
-pub mod ping_scheduler;
 pub mod transport;
 pub mod types;
 
@@ -50,6 +51,8 @@ pub struct MeshManager {
     pub disk_persist: bool,
     /// Nonces seen within the last 310s — used to reject replayed signed requests.
     pub seen_nonces: HashMap<String, u64>,
+    /// Last-known services per paired peer — runtime-only, pruned on unpair.
+    pub peer_services: peer_services::PeerServicesCache,
 }
 
 impl MeshManager {
@@ -86,6 +89,7 @@ impl MeshManager {
             local_http_healthy: true,
             disk_persist: true,
             seen_nonces: HashMap::new(),
+            peer_services: peer_services::PeerServicesCache::default(),
         }
     }
 
@@ -205,6 +209,7 @@ impl MeshManager {
     pub fn unpair(&mut self, instance_id: &str) -> Option<PairedPeer> {
         let removed = self.paired_peers.remove(instance_id);
         if removed.is_some() {
+            self.peer_services.prune(instance_id);
             self.revocation_list.revoked.retain(|id| id != instance_id);
             log::info!("[mesh] Unpaired {}", instance_id);
             let _ = self.save();
@@ -219,6 +224,7 @@ impl MeshManager {
             .map(|p| (p.instance_id.clone(), p.addresses.clone(), p.api_port))
             .collect();
         self.paired_peers.clear();
+        self.peer_services.clear();
         let _ = self.save();
         log::info!("[mesh] Exited mesh — removed {} peers", peers.len());
         peers

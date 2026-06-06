@@ -510,44 +510,98 @@ pub fn mesh_set_access(
     Ok(())
 }
 
+/// Fetch a paired peer's services, walking all known addresses
+/// (Tailscale → LAN → public) and falling back to the last-known cache when
+/// the peer is unreachable. Always returns a `PeerServicesView` envelope —
+/// stale data is flagged, errors are surfaced, nothing collapses to a
+/// silent empty list (#119/#127).
 #[tauri::command]
 pub async fn mesh_peer_services_list(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     instance_id: String,
 ) -> Result<serde_json::Value, String> {
-    let (addr, port, token) = {
+    use crate::mesh::peer_services::{build_view, FetchOutcome};
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let (addresses, port, online, token, cache_fresh) = {
         let m = mesh.lock();
         let peer = m
             .paired_peers
             .get(&instance_id)
             .ok_or_else(|| format!("Peer {} not paired", instance_id))?;
-        let addr = peer
-            .addresses
-            .iter()
-            .min_by_key(|a| crate::mesh::types::address_tier(a))
-            .ok_or_else(|| "Peer has no addresses".to_string())?
-            .ip
-            .clone();
         let token = m
             .sign_request()
             .map_err(|e| format!("sign_request: {}", e))?;
-        (addr, peer.api_port, token)
+        (
+            crate::mesh::types::sanitize_addresses(&peer.addresses),
+            peer.api_port,
+            peer.online,
+            token,
+            m.peer_services.is_fresh(&instance_id, now),
+        )
     };
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| e.to_string())?;
-    let url = format!("http://{}:{}/api/services", addr, port);
-    let resp = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {}", token))
-        .send()
-        .await
-        .map_err(|e| format!("request: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
+
+    let outcome = if cache_fresh || !online {
+        FetchOutcome::Skipped
+    } else {
+        fetch_peer_services(&addresses, port, &token).await
+    };
+
+    let mut m = mesh.lock();
+    if let FetchOutcome::Fetched(ref services) = outcome {
+        m.peer_services.refresh(&instance_id, services.clone(), now);
     }
-    resp.json::<serde_json::Value>()
-        .await
-        .map_err(|e| format!("parse: {}", e))
+    let view = build_view(m.peer_services.get(&instance_id), online, outcome, now);
+    serde_json::to_value(&view).map_err(|e| e.to_string())
+}
+
+async fn fetch_peer_services(
+    addresses: &[crate::mesh::types::PeerAddress],
+    port: u16,
+    token: &str,
+) -> crate::mesh::peer_services::FetchOutcome {
+    use crate::mesh::peer_services::FetchOutcome;
+    use crate::mesh::transport::TryNext;
+
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => return FetchOutcome::Failed(e.to_string()),
+    };
+
+    let result = crate::mesh::transport::try_peer(addresses, |addr| {
+        let client = client.clone();
+        let url = format!("http://{}:{}/api/services", addr.ip, port);
+        let token = token.to_string();
+        async move {
+            let resp = match client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => return TryNext::Retry(format!("request: {}", e)),
+            };
+            if !resp.status().is_success() {
+                return TryNext::Stop(format!("HTTP {}", resp.status()));
+            }
+            match resp.json::<Vec<serde_json::Value>>().await {
+                Ok(services) => TryNext::Success(services),
+                Err(e) => TryNext::Stop(format!("parse: {}", e)),
+            }
+        }
+    })
+    .await;
+
+    match result {
+        Ok(services) => FetchOutcome::Fetched(services),
+        Err(e) => FetchOutcome::Failed(e),
+    }
 }
