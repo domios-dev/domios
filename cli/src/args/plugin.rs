@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub enum PluginAction {
     /// List installed plugins.
     List,
@@ -32,6 +33,7 @@ pub enum PluginAction {
     },
 }
 
+#[derive(Clone)]
 pub enum PluginChannelAction {
     /// Add a local path or git URL channel.
     Add {
@@ -44,8 +46,14 @@ pub enum PluginChannelAction {
     Refresh {
         name: Option<String>,
     },
+    /// Compare installed plugins against a channel without installing.
+    Diff {
+        name: Option<String>,
+    },
     /// Remove a channel cache and registry entry.
     Remove {
         name: String,
+        /// Allow removing the protected system channel registration.
+        force: bool,
     },
 }
