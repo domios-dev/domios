@@ -4,7 +4,7 @@
 //!
 //! * `<repo>/plugins/` — workspace plugins shipped with the source tree
 //!   (only useful in dev runs).
-//! * `~/.codeterm/plugins/` — user-installed plugins. This is where
+//! * `<data-dir>/plugins/` — user-installed plugins. This is where
 //!   third-party drop-ins live.
 //!
 //! For each `<root>/<plugin-id>/plugin.json` we parse the manifest, read
@@ -151,9 +151,7 @@ pub fn default_roots(workspace_root: Option<&Path>) -> Vec<PathBuf> {
     if let Some(ws) = workspace_root {
         out.push(ws.join("plugins"));
     }
-    if let Some(home) = dirs::home_dir() {
-        out.push(home.join(".codeterm").join("plugins"));
-    }
+    out.push(crate::paths::data_dir().join("plugins"));
     out
 }
 
@@ -301,11 +299,9 @@ mod tests {
             roots.iter().any(|p| p.ends_with("plugins")),
             "workspace root"
         );
-        if let Some(home) = dirs::home_dir() {
-            assert!(roots
-                .iter()
-                .any(|p| p == &home.join(".codeterm").join("plugins")));
-        }
+        assert!(roots
+            .iter()
+            .any(|p| p == &crate::paths::data_dir().join("plugins")));
     }
 
     #[test]

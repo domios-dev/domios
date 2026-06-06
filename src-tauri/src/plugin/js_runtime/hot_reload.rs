@@ -153,6 +153,7 @@ impl HotReloadRegistry {
         match load_one(manifest_path) {
             Ok(provider) => {
                 let id = provider.manifest().id.clone();
+                let version = provider.manifest().version.clone();
                 self.agent_registry.register_provider(Box::new(provider));
                 self.state.lock().insert(
                     id.clone(),
@@ -162,6 +163,7 @@ impl HotReloadRegistry {
                     },
                 );
                 log::info!("[plugin-watcher] registered {id}");
+                crate::plugin::audit::append_daemon_reloaded(&id, &version);
                 Some(id)
             }
             Err(e) => {
