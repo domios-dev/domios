@@ -66,7 +66,7 @@ Once you have at least name + main work area:
 2. Write `soul.md` in your CWD with your personality — terse, direct, no corporate flattery,
    matched to what the user said they want.
 3. Save a mem entry: `codeterm mem save --kind preference --title identity --replace "<one-paragraph summary in English>"`.
-4. Delete this file: `rm bootstrap.md`.
+4. Delete `{general_dir}/bootstrap.md`. Use the host shell's native command (`rm "{general_dir}/bootstrap.md"` on macOS/Linux, `Remove-Item "{general_dir}/bootstrap.md"` in PowerShell).
 5. Send one final line in the user's language: "Set. Ask me anything."
 
 That's it. Don't ship a recap. Don't ask "anything else?". Stop talking after the final line.

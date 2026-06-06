@@ -359,8 +359,8 @@ concept (e.g. `tech_<x>_cli`, `tech_<x>_app`, `tech_<x>_exe` — three
 entities, one tool). These pollute the graph.
 
     codeterm mem search "<root word>" --limit 20
-    # mem search returns BOTH mem_items AND graph entities. Entities show
-    # up with kind="entity:Person|Tech|Project|...". Filter by that prefix.
+    # mem search can return graph entities when they are indexed. Entity hits
+    # show up with kind="entity:Person|Tech|Project|...". Filter by that prefix.
 
 The Phase 1 normalize step ALREADY auto-merges entity pairs when their
 suffix-Levenshtein-ratio >= 0.85 AND degrees differ. Pairs that didn't

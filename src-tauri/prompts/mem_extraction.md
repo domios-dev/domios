@@ -59,14 +59,13 @@ TASK — execute each step as Bash tool calls, in order:
    variants of an existing one (e.g. `tech_<thing>_cli` + `tech_<thing>_app`
    + `tech_<thing>_exe` all mean the same tool — one entity already won).
 
-   For each entity you'd create, FIRST run a unified search to find close
-   matches across BOTH the entities table AND mem_items:
+   For each entity you'd create, FIRST run a unified search that can surface
+   close matches from graph entities as well as mem_items when they are indexed:
      codeterm mem search "<core_word>" --limit 10
-       # mem search returns BOTH mem_items AND graph entities (entities show
-       # up with kind="entity:Tech|Person|Project|...", area="_graph"). Catches
-       # `tech_<thing>_*` siblings when you'd be about to create a 4th. Catches
-       # Cyrillic names / emails / properties too — entities are embedded by
-       # id + type + flat properties.
+       # Entity hits show up with kind="entity:Tech|Person|Project|...",
+       # area="_graph". This catches many `tech_<thing>_*` siblings when you'd
+       # be about to create another. Search is not an exact-id guarantee, so
+       # always run the explicit graph get below too.
      codeterm mem graph get <type>_<exact-slug>     # exact-id check (404 = free to create)
 
    If a close-match entity exists (different slug, same concept):

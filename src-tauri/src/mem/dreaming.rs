@@ -686,7 +686,7 @@ const DREAMING_TASK: &str = "codeterm mem dream && codeterm agent report \"dream
 
 /// Create the bundled dreaming cron if it doesn't exist already.
 /// - Schedule: "0 6 * * *" (6 AM)
-/// - Jitter: ±30 minutes (1_800_000 ms) — fires anywhere 5:30–6:30 AM
+/// - Jitter: 0..30 minutes delay (1_800_000 ms) — fires between 6:00 and 6:30 AM
 /// - Task: runs `codeterm mem dream` in a fresh agent
 /// - Workspace: "general" (the GA workspace)
 ///
@@ -940,7 +940,11 @@ mod tests {
             .iter()
             .find(|j| j.name == DREAMING_CRON_NAME)
             .unwrap();
-        assert_eq!(job.jitter_max_ms, Some(1_800_000), "jitter must be ±30 min");
+        assert_eq!(
+            job.jitter_max_ms,
+            Some(1_800_000),
+            "jitter must be 0..30 min delay"
+        );
         assert!(job.enabled);
         assert_eq!(job.schedule, "0 6 * * *");
     }

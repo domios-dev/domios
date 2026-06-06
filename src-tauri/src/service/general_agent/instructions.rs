@@ -124,6 +124,11 @@ pub(super) fn render_wake_up_section(
     }
 }
 
+pub(super) fn render_bootstrap_instructions() -> String {
+    crate::prompts::BOOTSTRAP_INSTRUCTIONS_TEMPLATE
+        .replace("{general_dir}", &general_dir().to_string_lossy())
+}
+
 pub fn generate_instructions(
     provider_name: &str,
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
@@ -155,7 +160,7 @@ pub fn generate_instructions(
 
     let bootstrap = dir.join("bootstrap.md");
     if !bootstrap.exists() {
-        let _ = std::fs::write(&bootstrap, crate::prompts::BOOTSTRAP_INSTRUCTIONS_TEMPLATE);
+        let _ = std::fs::write(&bootstrap, render_bootstrap_instructions());
     }
 }
 
@@ -192,6 +197,24 @@ mod tests {
         assert!(
             template.contains("{wake_up}"),
             "general_agent.md template must declare {{wake_up}} placeholder"
+        );
+    }
+
+    #[test]
+    fn test_bootstrap_template_renders_general_dir() {
+        let rendered = render_bootstrap_instructions();
+
+        assert!(
+            !rendered.contains("{general_dir}"),
+            "bootstrap instructions must not leak the literal placeholder"
+        );
+        assert!(
+            rendered.contains("bootstrap.md"),
+            "bootstrap instructions should still tell the GA which file to delete"
+        );
+        assert!(
+            rendered.contains("Remove-Item") && rendered.contains("rm "),
+            "bootstrap cleanup must remain cross-platform"
         );
     }
 
