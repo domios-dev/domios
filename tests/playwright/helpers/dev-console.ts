@@ -52,6 +52,10 @@ function bash(args: string[], timeoutMs: number): void {
       // WebGL renderer. User-facing runs never set this — screenReader
       // mode degrades terminal colors (the bad56175 regression).
       VITE_CODETERM_TEST: "1",
+      // Debug builds run cron on a MockClock so 07-cron can time-travel
+      // via /api/debug/clock. Harmless elsewhere: only cron reads it, and
+      // it starts at the real current time.
+      CODETERM_TEST_CLOCK: "1",
     },
   });
 }

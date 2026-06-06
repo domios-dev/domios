@@ -1,7 +1,10 @@
 //! Background cron scheduler — fires cron jobs and spawns agents.
+//!
+//! Time comes exclusively from the store's injected Clock, never from
+//! SystemTime directly — that's what makes cron time-travel testable.
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use parking_lot::Mutex;
 use tauri::Emitter;
@@ -45,7 +48,7 @@ struct FireSpec {
 
 /// One scheduler tick: fire any overdue jobs, return ms until next fire.
 fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
-    let now_ms = now();
+    let now_ms = cron_state.lock().now_ms();
     let mut next_fire: Option<u64> = None;
     let mut to_fire: Vec<FireSpec> = Vec::new();
 
@@ -105,7 +108,7 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
     // Sleep duration: min of (next_fire - now, 60s)
     match next_fire {
         Some(nr) => {
-            let now_ms = now();
+            let now_ms = cron_state.lock().now_ms();
             if nr > now_ms {
                 (nr - now_ms).min(60_000)
             } else {
@@ -133,7 +136,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     // Record run as Running
     let run_info = CronRunInfo {
         run_id: run_id.clone(),
-        started_at: now(),
+        started_at: cron_state.lock().now_ms(),
         finished_at: None,
         status: CronRunStatus::Running,
         pane_id: None,
@@ -293,25 +296,19 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     }
 }
 
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
 // ── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cron::clock::{Clock, SystemClock};
     use crate::cron::store::{compute_next_run, CronCreateParams, CronStore};
 
     #[test]
     fn test_compute_next_fire_soonest() {
         // Test that compute_next_run returns a future time
         let next = compute_next_run("* * * * *").unwrap().unwrap();
-        let now_ms = now();
+        let now_ms = SystemClock.now_ms();
         assert!(next > now_ms);
         assert!(next - now_ms <= 60_000 + 1000);
     }
