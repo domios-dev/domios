@@ -296,8 +296,13 @@ export function PaneSessionChat({
   const terminalTextRef = useRef<string | null>(null);
   const terminalActiveTimerRef = useRef<number | null>(null);
   const sendInFlightRef = useRef(false);
+  const onErrorRef = useRef(onError);
   // chatRootRef scopes the drag-drop zone to the entire chat pane.
   const chatRootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
   const suggestions = useMemo(
     () => filterSlashCommands(input.split("\n")[0] || ""),
@@ -391,7 +396,7 @@ export function PaneSessionChat({
         const msg = e instanceof Error ? e.message : String(e);
         setError(msg);
         setLoading(false);
-        onError?.(msg);
+        onErrorRef.current?.(msg);
       }
     })();
     return () => {
@@ -399,7 +404,7 @@ export function PaneSessionChat({
       unlisten?.();
       void invoke("chat_stop", { paneId }).catch(() => {});
     };
-  }, [paneId, onError]);
+  }, [paneId]);
 
   useEffect(() => {
     if (error?.includes("chat_send_raw")) setError(null);
