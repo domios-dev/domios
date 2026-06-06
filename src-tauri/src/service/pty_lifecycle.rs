@@ -131,13 +131,10 @@ async fn backend_read_loop(
                 if now != prev {
                     let pane_id = svc.mux.lock().pane_id_for_pty(&pty_id);
                     if let Some(ref pid) = pane_id {
-                        let _ = svc.app_handle.emit(
-                            "pane-status-changed",
-                            serde_json::json!({
+                        crate::api::events::emit_everywhere(&svc.app_handle, "pane-status-changed", serde_json::json!({
                                 "pane_id": pid,
                                 "status": format!("{:?}", now),
-                            }),
-                        );
+                            }));
                     }
                 }
             }
@@ -171,13 +168,10 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
     svc.agent_tracker.lock().set_dead(pty_id);
 
     if let Some(ref pid) = pane_id {
-        let _ = svc.app_handle.emit(
-            "pane-status-changed",
-            serde_json::json!({
+        crate::api::events::emit_everywhere(&svc.app_handle, "pane-status-changed", serde_json::json!({
                 "pane_id": pid,
                 "status": "Dead",
-            }),
-        );
+            }));
 
         // Cron fallback: if agent died without calling cron complete, mark as failed.
         use tauri::Manager;

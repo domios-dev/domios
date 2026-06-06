@@ -24,7 +24,7 @@ pub async fn mesh_pair_request(
             .unwrap_or(false);
         (request_id, from_id, is_vouched)
     };
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     if is_vouched {
         log::info!(
             "[mesh] Auto-approving pair request from vouched peer {}",
@@ -167,7 +167,7 @@ pub async fn do_approve(
         let _ = m.save();
     }
 
-    let _ = app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&app_handle, "mesh-state-changed", serde_json::Value::Null);
     log::info!(
         "[mesh] Pairing complete (approver/auto) with {}",
         request.from_instance_id
@@ -262,7 +262,7 @@ pub async fn mesh_pair_accept(
     }
 
     log::info!("[mesh] Paired (requester) with {}", accept.from_instance_id);
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
 
     // Mirror of mesh_approve_peer: announce our full address list to the
     // newly-paired peer so their pair-time single-IP stub gets replaced
@@ -324,7 +324,7 @@ pub async fn mesh_pair_reject(
     }
     drop(mesh);
 
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -446,7 +446,7 @@ pub async fn mesh_unpair(
         }
     }
 
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

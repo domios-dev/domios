@@ -103,7 +103,7 @@ pub async fn mesh_connect_peer(
     }
 
     log::info!("[mesh/api] Pairing request sent to {}", instance_id);
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     Ok(Json(
         serde_json::json!({"ok": true, "request_id": request.request_id}),
     ))
@@ -168,7 +168,7 @@ pub async fn mesh_reject_peer(
     }
     drop(mesh);
 
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -310,7 +310,7 @@ pub async fn mesh_disconnect_peer(
         }
     }
 
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     log::info!("[mesh/api] Disconnected from {}", instance_id);
     Ok(Json(serde_json::json!({"ok": true})))
 }
