@@ -24,7 +24,11 @@ pub async fn mesh_pair_request(
             .unwrap_or(false);
         (request_id, from_id, is_vouched)
     };
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     if is_vouched {
         log::info!(
             "[mesh] Auto-approving pair request from vouched peer {}",
@@ -138,11 +142,13 @@ pub async fn do_approve(
     if let Err(e) = result {
         // try_peer flattens Stop and all-failed into one error string; an
         // authoritative HTTP rejection contains the peer's body verbatim.
-        return Err(if e.contains("all addresses failed") || e == "no addresses" {
-            ApproveError::Network(e)
-        } else {
-            ApproveError::Rejected(e)
-        });
+        return Err(
+            if e.contains("all addresses failed") || e == "no addresses" {
+                ApproveError::Network(e)
+            } else {
+                ApproveError::Rejected(e)
+            },
+        );
     }
 
     {
@@ -262,7 +268,11 @@ pub async fn mesh_pair_accept(
     }
 
     log::info!("[mesh] Paired (requester) with {}", accept.from_instance_id);
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
 
     // Mirror of mesh_approve_peer: announce our full address list to the
     // newly-paired peer so their pair-time single-IP stub gets replaced
@@ -324,7 +334,11 @@ pub async fn mesh_pair_reject(
     }
     drop(mesh);
 
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -446,7 +460,11 @@ pub async fn mesh_unpair(
         }
     }
 
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

@@ -143,7 +143,6 @@ impl ServiceContext {
             title: pane.title.clone(),
         })
     }
-
 }
 
 /// Storage key used when a report cannot be routed to any specific pane

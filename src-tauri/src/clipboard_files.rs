@@ -35,9 +35,7 @@ pub async fn read_clipboard_files(app: tauri::AppHandle) -> Result<Vec<String>, 
 /// paths). Used as the primary text source on macOS where WebKit blocks
 /// `navigator.clipboard.readText()` outside paste-event handlers.
 #[tauri::command]
-pub async fn read_clipboard_text(
-    app: tauri::AppHandle,
-) -> Result<Option<String>, String> {
+pub async fn read_clipboard_text(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let _ = &app;
 
     #[cfg(target_os = "windows")]

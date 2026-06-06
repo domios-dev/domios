@@ -99,7 +99,11 @@ pub async fn patch_config_api(
             }
             m.discovered_peers.clear();
         }
-        crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+        crate::api::events::emit_everywhere(
+            &state.svc.app_handle,
+            "mesh-state-changed",
+            serde_json::Value::Null,
+        );
     }
 
     if renamed {

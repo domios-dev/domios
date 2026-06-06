@@ -183,7 +183,11 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                         peers.iter().map(|p| p.instance_id.clone()).collect();
                     last_sync_secs.retain(|id, _| paired_ids.contains(id));
                     if changed {
-                        crate::api::events::emit_everywhere(&app_h, "mesh-state-changed", serde_json::Value::Null);
+                        crate::api::events::emit_everywhere(
+                            &app_h,
+                            "mesh-state-changed",
+                            serde_json::Value::Null,
+                        );
                     }
 
                     // Auto-pair: for any vouched discovered peer not yet paired,
@@ -274,7 +278,11 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                             match client.post(&url).json(&request).send().await {
                                 Ok(r) if r.status().is_success() => {
                                     log::info!("[mesh] Auto-pair request sent to {}", target_id);
-                                    crate::api::events::emit_everywhere(&app_h2, "mesh-state-changed", serde_json::Value::Null);
+                                    crate::api::events::emit_everywhere(
+                                        &app_h2,
+                                        "mesh-state-changed",
+                                        serde_json::Value::Null,
+                                    );
                                 }
                                 Ok(r) => {
                                     log::warn!(
@@ -456,10 +464,14 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                             status,
                             pid
                         );
-                        crate::api::events::emit_everywhere(&app_handle, "pane-status-changed", serde_json::json!({
+                        crate::api::events::emit_everywhere(
+                            &app_handle,
+                            "pane-status-changed",
+                            serde_json::json!({
                                 "pane_id": pid,
                                 "status": format!("{:?}", status),
-                            }));
+                            }),
+                        );
 
                         // Agent exit detection is handled solely in output.rs (on PTY output).
                         // Removed from idle-poll to avoid race conditions during agent startup.

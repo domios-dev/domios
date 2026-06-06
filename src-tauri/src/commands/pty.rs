@@ -446,10 +446,14 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
             if now != prev {
                 let pane_id = mux.lock().pane_id_for_pty(&pty_id);
                 if let Some(ref pid) = pane_id {
-                    crate::api::events::emit_everywhere(&app, "pane-status-changed", serde_json::json!({
+                    crate::api::events::emit_everywhere(
+                        &app,
+                        "pane-status-changed",
+                        serde_json::json!({
                             "pane_id": pid,
                             "status": format!("{:?}", now),
-                        }));
+                        }),
+                    );
                 }
             }
 
@@ -460,10 +464,14 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
             tracker.lock().set_dead(&pty_id);
             let pane_id = mux.lock().pane_id_for_pty(&pty_id);
             if let Some(ref pid) = pane_id {
-                crate::api::events::emit_everywhere(&app, "pane-status-changed", serde_json::json!({
+                crate::api::events::emit_everywhere(
+                    &app,
+                    "pane-status-changed",
+                    serde_json::json!({
                         "pane_id": pid,
                         "status": "Dead",
-                    }));
+                    }),
+                );
 
                 // Cron fallback: if agent died without calling cron complete, mark as failed
                 use tauri::Manager;
