@@ -28,6 +28,18 @@ pnpm test:pw                 # whole suite
 pnpm test:pw --grep @smoke   # smoke only
 ```
 
+**There is no CI for this suite — by decision, not omission** (hosted
+runners lack the claude CLI auth and a verified WebView2 desktop; a
+self-hosted runner was considered and rejected). The contract:
+
+> **Run the suite locally before opening a PR.** `@smoke` minimum for
+> any change; the full suite (`pnpm test:pw`, ~3 min, a handful of
+> trivial sonnet calls) for changes touching the daemon API,
+> multiplexer, mesh, mem, agents, or the frontend shell.
+
+Windows is required for the UI-driving tests (CDP/WebView2 — see the
+tooling section); on macOS/Linux run what applies and say so in the PR.
+
 `pnpm test:pw` resolves to `playwright test -c tests/playwright`. If your
 shell wraps test runners and compresses output (rtk does), get raw
 per-test output with:
