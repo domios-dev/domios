@@ -339,7 +339,7 @@ fn main() {
     // daemon is wedged or restarting.
     if matches!(cli.command, Commands::Docs { .. }) {
         match cli.command {
-            Commands::Docs { name } => cmd::docs::handle(name),
+            Commands::Docs { name, full, head } => cmd::docs::handle(name, full, head),
             _ => unreachable!(),
         }
         return;
@@ -619,8 +619,8 @@ fn main() {
             return;
         }
 
-        Commands::Docs { name } => {
-            cmd::docs::handle(name);
+        Commands::Docs { name, full, head } => {
+            cmd::docs::handle(name, full, head);
             return;
         }
 
