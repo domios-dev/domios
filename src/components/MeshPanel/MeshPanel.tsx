@@ -107,7 +107,7 @@ function WebUiModal({
 }) {
   const [link, setLink] = useState(() => buildWebUiLink(config, null));
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"link" | "token" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -143,12 +143,13 @@ function WebUiModal({
     };
   }, [link]);
 
-  const copyLink = useCallback(async () => {
+  const copyText = useCallback(async (text: string, kind: "link" | "token") => {
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(link);
+      await navigator.clipboard.writeText(text);
     } catch {
       const el = document.createElement("textarea");
-      el.value = link;
+      el.value = text;
       el.style.position = "fixed";
       el.style.left = "-9999px";
       document.body.appendChild(el);
@@ -157,9 +158,9 @@ function WebUiModal({
       document.execCommand("copy");
       document.body.removeChild(el);
     }
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
-  }, [link]);
+    setCopied(kind);
+    window.setTimeout(() => setCopied(null), 1200);
+  }, []);
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/45 px-4">
@@ -194,7 +195,7 @@ function WebUiModal({
           <div className="w-full truncate rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-2 py-1.5 text-[10px] font-mono text-[var(--ct-muted-fg)]">
             {link}
           </div>
-          <div className="grid w-full grid-cols-2 gap-2">
+          <div className="grid w-full grid-cols-3 gap-2">
             <button
               type="button"
               data-testid="web-ui-open"
@@ -207,11 +208,21 @@ function WebUiModal({
             <button
               type="button"
               data-testid="web-ui-copy"
-              onClick={() => void copyLink()}
+              onClick={() => void copyText(link, "link")}
               className="inline-flex h-9 items-center justify-center gap-1.5 rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] text-xs text-[var(--ct-fg)] hover:border-[var(--ct-accent)]"
             >
               <Copy size={14} />
-              {copied ? "Copied" : "Copy link"}
+              {copied === "link" ? "Copied" : "Copy link"}
+            </button>
+            <button
+              type="button"
+              data-testid="web-ui-copy-token"
+              onClick={() => void copyText(config.api.token ?? "", "token")}
+              disabled={!config.api.token}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] text-xs text-[var(--ct-fg)] hover:border-[var(--ct-accent)] disabled:opacity-40"
+            >
+              <Copy size={14} />
+              {copied === "token" ? "Copied" : "Copy token"}
             </button>
           </div>
         </div>
