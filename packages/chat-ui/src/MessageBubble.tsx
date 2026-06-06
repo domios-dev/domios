@@ -48,6 +48,9 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   ToolSearch: Search,
 };
 
+const PRE_WRAP_CLASS = "whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
+const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
+
 function ToolIcon({ name }: { name: string }) {
   const Icon = TOOL_ICONS[name] ?? Wrench;
   return <Icon size={12} className="inline opacity-70" style={{ verticalAlign: "-2px" }} />;
@@ -77,7 +80,7 @@ function RichMarkdown({ text }: { text: string }) {
         h3: ({ node: _node, ...props }) => (
           <h3 className="text-sm font-medium mt-1.5 mb-0.5" style={{ color: "var(--ct-fg)" }} {...props} />
         ),
-        p: ({ node: _node, ...props }) => <p className="my-1" {...props} />,
+        p: ({ node: _node, ...props }) => <p className={`my-1 ${TEXT_WRAP_CLASS}`} {...props} />,
         ul: ({ node: _node, ...props }) => <ul className="list-disc ml-5 my-1" {...props} />,
         ol: ({ node: _node, ...props }) => <ol className="list-decimal ml-5 my-1" {...props} />,
         li: ({ node: _node, children, ...props }) => (
@@ -120,6 +123,8 @@ function RichMarkdown({ text }: { text: string }) {
                 style={{
                   background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",
                   color: "var(--ct-fg, #c9d1d9)",
+                  overflowWrap: "anywhere",
+                  wordBreak: "break-word",
                 }}
                 {...props}
               >
@@ -139,8 +144,17 @@ function RichMarkdown({ text }: { text: string }) {
                 fontSize: "0.75rem",
                 lineHeight: "1.4",
                 background: "color-mix(in srgb, var(--ct-bg, #0d1117) 80%, black 5%)",
+                maxWidth: "100%",
+                overflowWrap: "anywhere",
+                wordBreak: "break-word",
               }}
-              codeTagProps={{ style: { fontFamily: "inherit" } }}
+              codeTagProps={{
+                style: {
+                  fontFamily: "inherit",
+                  overflowWrap: "anywhere",
+                  wordBreak: "break-word",
+                },
+              }}
             >
               {String(children).replace(/\n$/, "")}
             </SyntaxHighlighter>
@@ -295,8 +309,17 @@ function CodeBlock({
           fontSize: "0.75rem",
           lineHeight: "1.4",
           background: "var(--ct-bg)",
+          maxWidth: "100%",
+          overflowWrap: "anywhere",
+          wordBreak: "break-word",
         }}
-        codeTagProps={{ style: { fontFamily: "inherit" } }}
+        codeTagProps={{
+          style: {
+            fontFamily: "inherit",
+            overflowWrap: "anywhere",
+            wordBreak: "break-word",
+          },
+        }}
         wrapLongLines
       >
         {text.replace(/\n$/, "")}
@@ -343,7 +366,7 @@ function renderUserContent(content: string): React.ReactNode {
     // Text before the match
     const before = content.slice(lastIndex, match.index).trim();
     if (before) {
-      parts.push(<pre key={key++} className="whitespace-pre-wrap font-[inherit] m-0 select-text">{before}</pre>);
+      parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{before}</pre>);
     }
     // File badge — group 1 = new marker, group 2 = legacy format
     const filePath = (match[1] || match[2]).trim();
@@ -370,12 +393,12 @@ function renderUserContent(content: string): React.ReactNode {
   // Remaining text
   const rest = content.slice(lastIndex).trim();
   if (rest) {
-    parts.push(<pre key={key++} className="whitespace-pre-wrap font-[inherit] m-0 select-text">{rest}</pre>);
+    parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{rest}</pre>);
   }
 
   // No attachments found — plain text
   if (parts.length === 0) {
-    return <pre className="whitespace-pre-wrap font-[inherit] m-0 select-text">{content}</pre>;
+    return <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{content}</pre>;
   }
 
   return <>{parts}</>;
@@ -416,7 +439,7 @@ function CommandBody({ commands, body }: { commands: SlashCommand[]; body: strin
           </div>
           {c.stdout && (
             <pre
-              className="text-xs font-mono px-2 py-1.5 rounded whitespace-pre-wrap"
+              className={`text-xs font-mono px-2 py-1.5 rounded ${PRE_WRAP_CLASS}`}
               style={{
                 background: "color-mix(in srgb, var(--ct-bg, #0d1117) 70%, black 5%)",
                 color: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 80%, transparent)",
@@ -524,10 +547,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
     return (
       <div className={`flex mb-3 max-w-4xl mx-auto ${origin ? "justify-start" : "justify-end"}`}>
-        <div className={origin ? "max-w-[75%]" : "max-w-[75%]"}>
+        <div className="min-w-0 max-w-[75%]">
           {originHeader}
           <div
-            className="rounded-2xl rounded-br-sm px-4 py-2 text-sm select-text cursor-text border"
+            className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 text-sm select-text cursor-text border ${TEXT_WRAP_CLASS}`}
             style={{
               background: origin
                 ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 6%, var(--ct-surface, #161b22) 94%)"
@@ -601,7 +624,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     return (
       <div className="mb-3 max-w-4xl mx-auto">
         <div
-          className="text-sm leading-relaxed select-text cursor-text"
+          className={`text-sm leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
           style={{ color: "var(--ct-fg)" }}
         >
           {renderedContent}
@@ -635,7 +658,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             {label}
           </span>
           {message.content && (
-            <pre className="whitespace-pre-wrap font-mono m-0 select-text" style={{ color: "var(--ct-fg)" }}>
+            <pre className={`${PRE_WRAP_CLASS} font-mono m-0 select-text`} style={{ color: "var(--ct-fg)" }}>
               {message.content}
             </pre>
           )}
@@ -734,7 +757,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                 <CodeBlock text={toolContent} language={codeLanguage} maxHeight="24rem" />
               ) : (
                 <pre
-                  className="whitespace-pre-wrap m-0 font-mono"
+                  className={`${PRE_WRAP_CLASS} m-0 font-mono`}
                   style={{ color: "var(--ct-fg)" }}
                 >
                   {detailText}
@@ -788,7 +811,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             className="mt-1 ml-4 rounded-md px-3 py-2 text-xs font-mono overflow-x-auto max-h-48 overflow-y-auto border border-[var(--ct-border)]"
             style={{ background: "var(--ct-bg)", color: "var(--ct-fg)" }}
           >
-            <pre className="whitespace-pre-wrap m-0">{message.content}</pre>
+            <pre className={`${PRE_WRAP_CLASS} m-0`}>{message.content}</pre>
           </div>
         )}
       </div>
@@ -818,7 +841,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               color: "var(--ct-muted-fg)",
             }}
           >
-            <pre className="whitespace-pre-wrap m-0 font-[inherit]">
+            <pre className={`${PRE_WRAP_CLASS} m-0 font-[inherit]`}>
               {message.content}
             </pre>
           </div>
