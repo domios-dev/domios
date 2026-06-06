@@ -244,6 +244,13 @@ pub async fn chat_start(
     svc: tauri::State<'_, ServiceState>,
     pane_id: String,
 ) -> Result<ChatStartResult, String> {
+    chat_start_core(&svc, pane_id)
+}
+
+/// Shared by the Tauri command and the web mirror's
+/// POST /api/panes/{id}/chat-raw/start — identical result shape, so the
+/// chat view renders the same in both shells.
+pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
     let (provider_id, cwd, session_id) = {
         let m = svc.mux.lock();
         let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
@@ -331,6 +338,17 @@ pub struct ChatBackfillResult {
 #[tauri::command]
 pub async fn chat_backfill(
     svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+    before_offset: u64,
+    max_bytes: Option<u64>,
+) -> Result<ChatBackfillResult, String> {
+    chat_backfill_core(&svc, pane_id, before_offset, max_bytes)
+}
+
+/// Shared by the Tauri command and the web mirror's
+/// POST /api/panes/{id}/chat-raw/backfill.
+pub fn chat_backfill_core(
+    svc: &ServiceState,
     pane_id: String,
     before_offset: u64,
     max_bytes: Option<u64>,

@@ -34,9 +34,13 @@ impl DeltaSink for TauriDeltaSink {
             pane_id,
             messages: &messages,
         };
-        if let Err(e) = self.app.emit(&event, &payload) {
-            log::warn!("[pane_chat] emit {} failed: {}", event, e);
-        }
+        // emit_everywhere: webview + SSE bus, so the web mirror's chat
+        // streams assistant deltas too.
+        crate::api::events::emit_everywhere(
+            &self.app,
+            &event,
+            serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
+        );
     }
 }
 

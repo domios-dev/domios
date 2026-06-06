@@ -89,11 +89,17 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/text?formatted=${a.formatted ? "true" : "false"}`),
   get_pane_output: (a) => webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/output`),
 
-  // ── chat ──
-  chat_start: (a) => webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat/start`, a),
-  chat_stop: (a) => webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat/stop`),
+  // ── chat (raw-JSONL window + tailer — matches the Tauri command shapes,
+  //     NOT the parsed-snapshot /chat/* routes other consumers use) ──
+  chat_start: (a) =>
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/start`),
+  chat_stop: (a) =>
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/stop`),
   chat_backfill: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat/backfill`, a),
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/backfill`, {
+      before_offset: a.beforeOffset,
+      max_bytes: a.maxBytes,
+    }),
   chat_send_text: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/send`, {
       text: a.text,

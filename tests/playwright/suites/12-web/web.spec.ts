@@ -256,3 +256,58 @@ test("@golden share link: a bad token falls through to the gate error path", asy
   expect(page.url()).not.toContain("token=");
   await page.context().close();
 });
+
+// ── chat view in the browser — the mirror's core demo path ──────────
+
+test("@golden web chat: history renders AND a live assistant reply streams in", async () => {
+  // Regression for the 'No messages yet' bug: chat_start in web returned
+  // the wrong shape (parsed snapshot instead of raw JSONL), and assistant
+  // deltas (pane-chat-raw-{id}) were never mirrored to SSE.
+  test.setTimeout(300_000);
+
+  const panes = await api.panes();
+  const ga = panes.find((p) => p.agent_type === "claude" && p.protected);
+  test.skip(!ga, "no GA claude pane on this console");
+  // Right after a daemon cold start the GA pane has no session_id yet and
+  // chat-raw/start 409s — wait until the chat source is actually ready.
+  const ready = Date.now() + 120_000;
+  for (;;) {
+    try {
+      await api.post(`/panes/${ga!.id}/chat-raw/start`);
+      await api.post(`/panes/${ga!.id}/chat-raw/stop`);
+      break;
+    } catch (e) {
+      if (Date.now() > ready) throw new Error(`GA chat never became ready: ${e}`);
+      await new Promise((r) => setTimeout(r, 3_000));
+    }
+  }
+  await api.post(`/panes/${ga!.id}/chat-view`, { enabled: true });
+
+  const page = await newWebPage();
+  await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 30_000 });
+
+  // History from the JSONL window renders (was: empty chat).
+  await page.waitForSelector('[data-testid="chat-composer"]', { timeout: 30_000 });
+  await expect
+    .poll(async () => page.locator('[data-testid="chat-message"]').count(), {
+      timeout: 30_000,
+    })
+    .toBeGreaterThan(0);
+
+  // Live round-trip: send through the real composer, read the assistant
+  // bubble that must stream back over SSE.
+  const marker = `CHATMARKER-${Date.now()}`;
+  await page.fill(
+    '[data-testid="chat-composer"]',
+    `Reply with a single line containing exactly ${marker} and nothing else.`,
+  );
+  await page.press('[data-testid="chat-composer"]', "Enter");
+
+  await expect(
+    page
+      .locator('[data-testid="chat-message"][data-message-role="assistant"]')
+      .filter({ hasText: marker }),
+  ).toBeVisible({ timeout: 240_000 });
+  await page.context().close();
+});

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { open } from "@tauri-apps/plugin-dialog";
+import { IS_WEB } from "../../lib/webApi";
 import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
 import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
@@ -101,15 +102,23 @@ export function Sidebar({
     let folder: string | null = workspaceCwd;
     if (!folder) {
       const provider = getAgentProvider(agentId);
-      try {
-        folder = await open({
-          directory: true,
-          multiple: false,
-          title: `Choose project folder for ${provider?.displayName ?? agentId}`,
-        });
-      } catch (err) {
-        console.error(`[agent-spawn] folder picker failed:`, err);
-        return;
+      if (IS_WEB) {
+        // Native folder picker is Tauri-only — ask for the path directly.
+        folder =
+          window
+            .prompt(`Project folder for ${provider?.displayName ?? agentId} (on the CodeTerm machine):`, "")
+            ?.trim() || null;
+      } else {
+        try {
+          folder = await open({
+            directory: true,
+            multiple: false,
+            title: `Choose project folder for ${provider?.displayName ?? agentId}`,
+          });
+        } catch (err) {
+          console.error(`[agent-spawn] folder picker failed:`, err);
+          return;
+        }
       }
       if (!folder) return;
     }
@@ -155,10 +164,20 @@ export function Sidebar({
 
   const handleNewWorkspace = useCallback(async () => {
     let folder: string | null;
-    try {
-      folder = await open({ directory: true, multiple: false, title: "Choose workspace folder" });
-    } catch {
-      return;
+    if (IS_WEB) {
+      // The native folder picker is a Tauri dialog — a browser can't
+      // browse the daemon's filesystem, so ask for the path directly.
+      folder = window.prompt(
+        "Workspace folder path on the CodeTerm machine:",
+        "",
+      );
+      folder = folder?.trim() || null;
+    } else {
+      try {
+        folder = await open({ directory: true, multiple: false, title: "Choose workspace folder" });
+      } catch {
+        return;
+      }
     }
     if (!folder) return;
     const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
