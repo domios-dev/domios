@@ -14,6 +14,9 @@
   "scripts": {
     "test": "vitest run"
   },
+  "dependencies": {
+    "@codeterm/chat-ui": "workspace:*"
+  },
   "peerDependencies": {
     "react": "^19.0.0"
   }

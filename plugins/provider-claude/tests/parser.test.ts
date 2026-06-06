@@ -109,7 +109,7 @@ console.log("\n--- parseJsonlSession ---\n");
   eq(msgs[0].toolArgs, "git status && git diff --stat", "6. Bash tool_use: toolArgs");
 }
 
-// 7. Tool result -- verify parsing and truncation at 500 chars
+// 7. Tool result -- preserve full content so UI can attach output to tool cards
 {
   const longResult = "X".repeat(600);
   const input = `{"type":"assistant","uuid":"a5","message":{"role":"assistant","content":[{"type":"tool_result","tool_use_id":"toolu_b1","content":"${longResult}"}]}}`;
@@ -117,8 +117,8 @@ console.log("\n--- parseJsonlSession ---\n");
   eq(msgs.length, 1, "7. tool_result: one message");
   eq(msgs[0].type, "tool_result", "7. tool_result: type");
   eq(msgs[0].toolId, "toolu_b1", "7. tool_result: toolId");
-  eq(msgs[0].content.length, 503, "7. tool_result: truncated to 500 + '...'");
-  assert(msgs[0].content.endsWith("..."), "7. tool_result: ends with ellipsis");
+  eq(msgs[0].content.length, longResult.length, "7. tool_result: full content preserved");
+  assert(!msgs[0].content.endsWith("..."), "7. tool_result: no parser ellipsis");
   eq(msgs[0].collapsed, true, "7. tool_result: collapsed");
 }
 
@@ -128,6 +128,41 @@ console.log("\n--- parseJsonlSession ---\n");
   const msgs = parseJsonlSession(input);
   eq(msgs[0].content, "short output", "7b. tool_result short: no truncation");
   assert(!msgs[0].content.endsWith("..."), "7b. tool_result short: no ellipsis");
+}
+
+// 7c. Tool result in a USER message -- the real Claude Code pattern: the
+// assistant emits tool_use, the result arrives as a tool_result block in
+// the following user-role message. Must still parse + carry tool_use_id so
+// the UI can attach output to the matching tool card.
+{
+  const input = `{"type":"user","uuid":"u_tr","timestamp":"2025-01-01T00:00:05Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_b1","content":"line one\\nline two\\nfinal line"}]}}`;
+  const msgs = parseJsonlSession(input);
+  eq(msgs.length, 1, "7c. user tool_result: one message");
+  eq(msgs[0].type, "tool_result", "7c. user tool_result: type");
+  eq(msgs[0].toolId, "toolu_b1", "7c. user tool_result: toolId from tool_use_id");
+  eq(msgs[0].content, "line one\nline two\nfinal line", "7c. user tool_result: full content");
+  eq(msgs[0].collapsed, true, "7c. user tool_result: collapsed");
+}
+
+// 7d. Tool result in USER message with array content (text blocks)
+{
+  const input = `{"type":"user","uuid":"u_tr2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_b2","content":[{"type":"text","text":"stdout chunk"}]}]}}`;
+  const msgs = parseJsonlSession(input);
+  eq(msgs.length, 1, "7d. user tool_result array: one message");
+  eq(msgs[0].type, "tool_result", "7d. user tool_result array: type");
+  eq(msgs[0].toolId, "toolu_b2", "7d. user tool_result array: toolId");
+  eq(msgs[0].content, "stdout chunk", "7d. user tool_result array: text extracted");
+}
+
+// 7e. User message mixing tool_result and user text still surfaces both
+{
+  const input = `{"type":"user","uuid":"u_tr3","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_b3","content":"result here"},{"type":"text","text":"follow-up question"}]}}`;
+  const msgs = parseJsonlSession(input);
+  eq(msgs.length, 2, "7e. mixed user: two messages");
+  eq(msgs[0].type, "tool_result", "7e. mixed user: tool_result first");
+  eq(msgs[0].toolId, "toolu_b3", "7e. mixed user: tool_result toolId");
+  eq(msgs[1].type, "user", "7e. mixed user: user text second");
+  eq(msgs[1].content, "follow-up question", "7e. mixed user: user text content");
 }
 
 // 8. Thinking block -- verify truncation at 200 chars
@@ -212,20 +247,50 @@ console.log("\n--- parseJsonlSession ---\n");
   eq(msgs[0].content, "after blanks", "14b. empty lines: correct content");
 }
 
+// 14c. Claude local-command caveat is metadata, not a user bubble
+{
+  const input = `{"type":"user","uuid":"lc1","timestamp":"2026-05-22T20:25:37.531Z","message":{"role":"user","content":"<local-command-caveat>Caveat: local commands</local-command-caveat>"},"isMeta":true}`;
+  const msgs = parseJsonlSession(input);
+  eq(msgs.length, 1, "14c. local caveat: one message");
+  eq(msgs[0].type, "system", "14c. local caveat: system type");
+  eq(msgs[0].tagName, "local-command-caveat", "14c. local caveat: tag preserved");
+  eq(msgs[0].content, "Caveat: local commands", "14c. local caveat: content stripped");
+}
+
+// 14d. Claude local-command stdout keeps the real wrapper tag and strips ANSI
+{
+  const input = `{"type":"user","uuid":"lc2","message":{"role":"user","content":"<local-command-stdout>Set model to \\u001b[1mSonnet 4.6\\u001b[22m for this session</local-command-stdout>"}}`;
+  const msgs = parseJsonlSession(input);
+  eq(msgs.length, 1, "14d. local stdout: one message");
+  eq(msgs[0].type, "local_command", "14d. local stdout: local_command type");
+  eq(msgs[0].tagName, "local-command-stdout", "14d. local stdout: tag preserved");
+  eq(msgs[0].content, "Set model to Sonnet 4.6 for this session", "14d. local stdout: ANSI stripped");
+}
+
+// 14e. New Claude system/local_command entries parse the same way
+{
+  const input = `{"type":"system","subtype":"local_command","content":"<local-command-stdout>Kept model as \\u001b[1mSonnet 4.6\\u001b[22m</local-command-stdout>","uuid":"lc3"}`;
+  const msgs = parseJsonlSession(input);
+  eq(msgs.length, 1, "14e. system local_command: one message");
+  eq(msgs[0].type, "local_command", "14e. system local_command: type");
+  eq(msgs[0].tagName, "local-command-stdout", "14e. system local_command: tag");
+  eq(msgs[0].systemSubtype, "local_command", "14e. system local_command: subtype");
+}
+
 // ---------------------------------------------------------------------------
 // type:"message" entries (role-based dispatch)
 // ---------------------------------------------------------------------------
 
 console.log("\n--- type:message entries ---\n");
 
-// 14c. type:"message" with role:"user"
+// 14f. type:"message" with role:"user"
 {
   const input = `{"type":"message","uuid":"mu1","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":[{"type":"text","text":"hello from message type"}]}}`;
   const msgs = parseJsonlSession(input);
-  eq(msgs.length, 1, "14c. message/user: one message");
-  eq(msgs[0].type, "user", "14c. message/user: type is user");
-  eq(msgs[0].content, "hello from message type", "14c. message/user: content");
-  eq(msgs[0].timestamp, "2026-01-01T00:00:00Z", "14c. message/user: timestamp");
+  eq(msgs.length, 1, "14f. message/user: one message");
+  eq(msgs[0].type, "user", "14f. message/user: type is user");
+  eq(msgs[0].content, "hello from message type", "14f. message/user: content");
+  eq(msgs[0].timestamp, "2026-01-01T00:00:00Z", "14f. message/user: timestamp");
 }
 
 // 14d. type:"message" with role:"assistant" — text block
