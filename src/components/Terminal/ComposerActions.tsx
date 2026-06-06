@@ -9,8 +9,15 @@
  * has no transcriber it will say so — the capability is the composer's
  * job, transcription is the pane's.
  */
-import { useEffect, useRef, useState, type DragEvent } from "react";
-import { Mic, Paperclip, SendHorizontal, Square } from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
+import { Mic, Paperclip, SendHorizontal } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { IS_WEB, webUpload } from "../../lib/webApi";
 
@@ -56,14 +63,13 @@ export async function storeBlob(blob: Blob, filename: string): Promise<string> {
   });
 }
 
-export function useVoiceRecorder(
-  onAttach: (paths: string[]) => void,
-  onError: (msg: string) => void,
-) {
+export function useVoiceRecorder(onError: (msg: string) => void) {
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const stopResolveRef = useRef<((paths: string[]) => void) | null>(null);
 
   useEffect(() => {
     if (!recording) return;
@@ -72,7 +78,13 @@ export function useVoiceRecorder(
     return () => window.clearInterval(t);
   }, [recording]);
 
-  useEffect(() => () => recRef.current?.stop(), []);
+  useEffect(
+    () => () => {
+      recRef.current?.stop();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    },
+    [],
+  );
 
   async function start() {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -85,18 +97,30 @@ export function useVoiceRecorder(
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mime = pickAudioMime();
       const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      streamRef.current = stream;
       chunksRef.current = [];
       rec.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       rec.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
         const type = rec.mimeType || mime || "audio/webm";
         const blob = new Blob(chunksRef.current, { type });
-        if (blob.size === 0) return;
+        if (blob.size === 0) {
+          stopResolveRef.current?.([]);
+          stopResolveRef.current = null;
+          return;
+        }
         void storeBlob(blob, `voice-note-${Date.now()}.${audioExt(type)}`)
-          .then((path) => onAttach([path]))
-          .catch((e) => onError(e instanceof Error ? e.message : String(e)));
+          .then((path) => stopResolveRef.current?.([path]))
+          .catch((e) => {
+            onError(e instanceof Error ? e.message : String(e));
+            stopResolveRef.current?.([]);
+          })
+          .finally(() => {
+            stopResolveRef.current = null;
+          });
       };
       rec.start();
       recRef.current = rec;
@@ -106,10 +130,18 @@ export function useVoiceRecorder(
     }
   }
 
-  function stop() {
-    recRef.current?.stop();
-    recRef.current = null;
-    setRecording(false);
+  function stop(): Promise<string[]> {
+    const rec = recRef.current;
+    if (!rec || rec.state === "inactive") {
+      setRecording(false);
+      return Promise.resolve([]);
+    }
+    return new Promise((resolve) => {
+      stopResolveRef.current = resolve;
+      rec.stop();
+      recRef.current = null;
+      setRecording(false);
+    });
   }
 
   return { recording, elapsed, start, stop };
@@ -169,17 +201,76 @@ export function useWebFileDrop(
 interface Props {
   onAttach: (paths: string[]) => void;
   onSend: () => void;
+  onSendWithAttachments: (paths: string[]) => void;
   onError: (msg: string) => void;
   sendDisabled: boolean;
+  hasText: boolean;
+  children: ReactNode;
 }
 
 const btnBase =
-  "flex items-center justify-center w-9 h-9 shrink-0 rounded-md border transition-colors";
+  "flex items-center justify-center w-9 h-9 shrink-0 rounded-md border transition-all duration-150";
 
-export function ComposerActions({ onAttach, onSend, onError, sendDisabled }: Props) {
+export function ComposerActions({
+  onAttach,
+  onSend,
+  onSendWithAttachments,
+  onError,
+  sendDisabled,
+  hasText,
+  children,
+}: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const voice = useVoiceRecorder(onAttach, onError);
+  const [voiceMode, setVoiceMode] = useState<"hold" | "locked" | null>(null);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const voice = useVoiceRecorder(onError);
+
+  async function finishVoice(sendAfter: boolean) {
+    if (!voice.recording || voiceBusy) return;
+    setVoiceBusy(true);
+    const paths = await voice.stop();
+    setVoiceMode(null);
+    setVoiceBusy(false);
+    if (paths.length === 0) return;
+    if (sendAfter) {
+      onSendWithAttachments(paths);
+    } else {
+      onAttach(paths);
+    }
+  }
+
+  async function startVoice(e: PointerEvent<HTMLButtonElement>) {
+    if (hasText) {
+      onSend();
+      return;
+    }
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setVoiceMode("hold");
+    await voice.start();
+  }
+
+  function releaseVoice(e: PointerEvent<HTMLButtonElement>) {
+    if (!voice.recording || voiceMode !== "hold") return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const inside =
+      e.clientX >= rect.left &&
+      e.clientX <= rect.right &&
+      e.clientY >= rect.top &&
+      e.clientY <= rect.bottom;
+    if (inside) {
+      void finishVoice(true);
+    } else {
+      setVoiceMode("locked");
+    }
+  }
+
+  const mainIsSend = hasText || voiceMode === "locked";
+  const mainTitle = mainIsSend
+    ? voiceMode === "locked"
+      ? "Stop, attach, and send voice note"
+      : "Send"
+    : "Hold to record voice note";
 
   return (
     <>
@@ -209,34 +300,57 @@ export function ComposerActions({ onAttach, onSend, onError, sendDisabled }: Pro
       >
         <Paperclip size={16} className={uploading ? "animate-pulse" : undefined} />
       </button>
+      {children}
       <button
         type="button"
-        data-testid="composer-voice-button"
-        title={voice.recording ? "Stop and attach voice note" : "Record voice note"}
-        onClick={() => (voice.recording ? voice.stop() : void voice.start())}
+        data-testid={mainIsSend ? "composer-send-button" : "composer-voice-button"}
+        title={mainTitle}
+        onPointerDown={(e) => {
+          if (mainIsSend) return;
+          void startVoice(e);
+        }}
+        onPointerUp={(e) => {
+          if (!mainIsSend) {
+            releaseVoice(e);
+            return;
+          }
+          if (voiceMode === "locked") {
+            void finishVoice(true);
+          } else {
+            onSend();
+          }
+        }}
+        onPointerCancel={() => {
+          if (voice.recording && voiceMode === "hold") setVoiceMode("locked");
+        }}
+        onClick={(e) => e.preventDefault()}
         className={`${btnBase} ${
           voice.recording
-            ? "border-[var(--ct-red,#f85149)] text-[var(--ct-red,#f85149)] animate-pulse"
-            : "border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
-        }`}
+            ? "border-[var(--ct-red,#f85149)] text-[var(--ct-red,#f85149)]"
+            : mainIsSend
+              ? "border-[var(--ct-accent,#58a6ff)] text-[var(--ct-accent,#58a6ff)] hover:bg-[var(--ct-hover)]"
+              : "border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
+        } ${voiceMode === "hold" ? "scale-[2.75] rounded-full shadow-2xl z-20" : ""} disabled:opacity-40`}
+        style={
+          voice.recording
+            ? {
+                background:
+                  "color-mix(in srgb, var(--ct-red, #f85149) 12%, transparent)",
+              }
+            : undefined
+        }
+        disabled={voiceBusy || (hasText && sendDisabled)}
       >
-        {voice.recording ? <Square size={14} /> : <Mic size={16} />}
+        {mainIsSend ? <SendHorizontal size={16} /> : <Mic size={16} />}
       </button>
       {voice.recording && (
-        <span className="text-[11px] font-mono text-[var(--ct-red,#f85149)] shrink-0">
+        <span
+          data-testid="composer-voice-elapsed"
+          className="text-[11px] font-mono text-[var(--ct-red,#f85149)] shrink-0"
+        >
           {Math.floor(voice.elapsed / 60)}:{String(voice.elapsed % 60).padStart(2, "0")}
         </span>
       )}
-      <button
-        type="button"
-        data-testid="composer-send-button"
-        title="Send"
-        disabled={sendDisabled}
-        onClick={onSend}
-        className={`${btnBase} border-[var(--ct-accent,#58a6ff)] text-[var(--ct-accent,#58a6ff)] hover:bg-[var(--ct-hover)] disabled:opacity-40`}
-      >
-        <SendHorizontal size={16} />
-      </button>
     </>
   );
 }

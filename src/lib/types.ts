@@ -498,4 +498,8 @@ export interface ProviderDescriptor {
   /// Shell command that installs the CLI for the current platform. Used by
   /// the Install card on the per-provider Settings screen.
   install_command?: string | null;
+  /// Provider-declared in-agent model switch template. `{model}` is replaced
+  /// with the selected ModelInfo id. Missing means the provider does not
+  /// support arg-based live model switching.
+  model_switch_format?: string | null;
 }

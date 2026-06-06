@@ -416,6 +416,12 @@ pub struct ProviderDescriptor {
     /// pipes it into a fresh terminal pane when the user clicks Install.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_command: Option<String>,
+    /// Provider-declared in-agent model switch command template. `{model}` is
+    /// replaced by the frontend with the selected `ModelInfo.id`. Absent means
+    /// the provider may publish models for launch/config surfaces but does not
+    /// support an arg-based live session switch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_switch_format: Option<String>,
     /// `true` when this provider declares a stop_keystroke — UI shows
     /// a Stop button on the pane that POSTs to `/api/panes/:id/stop`.
     #[serde(default)]
@@ -685,6 +691,14 @@ pub trait AgentProvider: Send + Sync {
 
     /// In-agent command that switches the underlying model, if supported.
     fn model_switch_command(&self, _model: &str) -> Option<String> {
+        self.model_switch_format()
+            .map(|fmt| fmt.replace("{model}", _model))
+    }
+
+    /// In-agent model switch command template. Frontend consumers use the
+    /// template to render provider-agnostic model pickers without hardcoding
+    /// provider slash commands.
+    fn model_switch_format(&self) -> Option<&str> {
         None
     }
 
@@ -874,6 +888,7 @@ pub trait AgentProvider: Send + Sync {
             preserves_context_on_resume: self.preserves_context_on_resume(),
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
+            model_switch_format: self.model_switch_format().map(|s| s.to_string()),
             supports_stop: self.stop_keystroke().is_some(),
             trust: self.trust(),
         }
@@ -1008,6 +1023,7 @@ mod tests {
             preserves_context_on_resume: true,
             cli_binary: Some("testcli".into()),
             install_command: Some("npm i -g testcli".into()),
+            model_switch_format: Some("/model {model}".into()),
             supports_stop: true,
             trust: ProviderTrust::System,
         };
@@ -1031,6 +1047,7 @@ mod tests {
             "supports_lazy_skills": false,
             "has_hooks": false,
             "preserves_context_on_resume": true,
+            "model_switch_format": "/model {model}",
             "extra_unknown_field": "boom"
         }"#;
         let result: Result<ProviderDescriptor, _> = serde_json::from_str(bad);

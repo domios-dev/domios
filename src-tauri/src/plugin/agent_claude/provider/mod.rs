@@ -182,8 +182,8 @@ impl AgentProvider for ClaudeProvider {
         Some("/compact")
     }
 
-    fn model_switch_command(&self, model: &str) -> Option<String> {
-        Some(format!("/model {}", model))
+    fn model_switch_format(&self) -> Option<&str> {
+        Some("/model {model}")
     }
 
     fn exit_command(&self) -> Option<&str> {

@@ -40,11 +40,6 @@ const CLI_FALLBACK_COMMANDS = new Set([
   "/permissions",
   "/help",
 ]);
-const FALLBACK_CLAUDE_MODELS: ModelInfo[] = [
-  { id: "opus", display_name: "Claude Opus 4.7 (1M context)", description: "Most capable for complex work." },
-  { id: "sonnet", display_name: "Claude Sonnet 4.6", description: "Best for everyday tasks." },
-  { id: "haiku", display_name: "Claude Haiku 4.5", description: "Fastest for quick answers." },
-];
 const LIVE_TERMINAL_LINES = 10;
 const LIVE_TERMINAL_MAX_CHARS = 1800;
 // Temporarily off: the live terminal preview popping above the composer on
@@ -92,6 +87,62 @@ function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void
       >
         <X size={10} />
       </button>
+    </div>
+  );
+}
+
+function ComposerBubbleRow({
+  attachments,
+  onRemove,
+  onToggleTerminalFallback,
+}: {
+  attachments: string[];
+  onRemove: (path: string) => void;
+  onToggleTerminalFallback?: () => void;
+}) {
+  if (attachments.length === 0 && !onToggleTerminalFallback) return null;
+  const visible = attachments.slice(0, 4);
+  const overflow = attachments.length - visible.length;
+  return (
+    <div
+      data-testid="composer-bubble-row"
+      className="mb-2 flex max-h-[3.6rem] flex-wrap items-center gap-1 overflow-hidden"
+    >
+      {onToggleTerminalFallback && (
+        <button
+          type="button"
+          data-testid="terminal-fallback-bubble"
+          data-terminal-fallback-toggle="true"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onToggleTerminalFallback()}
+          className="inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs font-mono hover:brightness-110"
+          style={{
+            background: "color-mix(in srgb, var(--ct-bg, #0d1117) 88%, white 5%)",
+            borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 28%, transparent)",
+            color: "var(--ct-muted-fg)",
+          }}
+          title="Toggle terminal fallback"
+        >
+          <Terminal size={12} />
+          <span>terminal</span>
+        </button>
+      )}
+      {visible.map((p) => (
+        <AttachmentChip key={p} path={p} onRemove={() => onRemove(p)} />
+      ))}
+      {overflow > 0 && (
+        <span
+          data-testid="attachment-overflow-bubble"
+          className="inline-flex h-7 items-center rounded-full border px-2 text-xs font-mono"
+          style={{
+            background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 10%, transparent)",
+            borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
+            color: "var(--ct-muted-fg)",
+          }}
+        >
+          and {overflow} more
+        </span>
+      )}
     </div>
   );
 }
@@ -181,6 +232,12 @@ function terminalPreview(text: string): string {
     : tail;
 }
 
+function formatModelSwitch(format: string, modelId: string): string {
+  return format.includes("{model}")
+    ? format.replaceAll("{model}", modelId)
+    : `${format} ${modelId}`;
+}
+
 export function PaneSessionChat({
   paneId,
   onError,
@@ -201,7 +258,8 @@ export function PaneSessionChat({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [modelOptions, setModelOptions] = useState<ModelInfo[]>(FALLBACK_CLAUDE_MODELS);
+  const [providerDescriptor, setProviderDescriptor] = useState<ProviderDescriptor | null>(null);
+  const [modelOptions, setModelOptions] = useState<ModelInfo[]>([]);
   const [modelHighlight, setModelHighlight] = useState(0);
   const [liveTerminal, setLiveTerminal] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -216,7 +274,7 @@ export function PaneSessionChat({
     [input],
   );
   const { state: muxState, setFocusedPane } = useMultiplexer();
-  const paneProvider = muxState.panes[paneId]?.agent_type ?? "claude";
+  const paneProvider = muxState.panes[paneId]?.agent_type ?? null;
 
   const refocusComposer = useCallback(() => {
     requestAnimationFrame(() => textareaRef.current?.focus());
@@ -235,20 +293,24 @@ export function PaneSessionChat({
     invoke<ProviderDescriptor[]>("list_agent_providers")
       .then((providers) => {
         if (cancelled) return;
-        const claude = providers.find((provider) => provider.id === "claude");
-        if (claude?.available_models?.length) {
-          setModelOptions(claude.available_models);
-          const defaultIndex = claude.default_model
-            ? claude.available_models.findIndex((model) => model.id === claude.default_model)
+        const provider = providers.find((candidate) => candidate.id === paneProvider) ?? null;
+        setProviderDescriptor(provider);
+        const models = provider?.available_models ?? [];
+        setModelOptions(models);
+        if (models.length) {
+          const defaultIndex = provider?.default_model
+            ? models.findIndex((model) => model.id === provider.default_model)
             : -1;
           setModelHighlight(defaultIndex >= 0 ? defaultIndex : 0);
+        } else {
+          setModelHighlight(0);
         }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [paneProvider]);
 
   // Append paths to the attachment list, de-duping.
   const addAttachments = useCallback((paths: string[]) => {
@@ -478,21 +540,35 @@ export function PaneSessionChat({
     (msg) => setComposerError(msg),
   );
 
-  async function send() {
+  async function send(extraAttachments: string[] = []) {
     const text = input.trim();
-    if ((!text && attachments.length === 0) || sending || sendInFlightRef.current) return;
+    const allAttachments = [...attachments];
+    for (const p of extraAttachments) {
+      if (!allAttachments.includes(p)) allAttachments.push(p);
+    }
+    if ((!text && allAttachments.length === 0) || sending || sendInFlightRef.current) return;
     sendInFlightRef.current = true;
     setSending(true);
     setComposerError(null);
     // Compose: text + each quoted path separated by spaces — same pipeline
     // as useTauriFileDrop pasting into xterm.
-    const pathLines = attachments.map(quotePathForPaste).join(" ");
+    const pathLines = allAttachments.map(quotePathForPaste).join(" ");
     const composed = text && pathLines
       ? `${text} ${pathLines}`
       : text || pathLines;
-    if (attachments.length === 0 && composed.trim() === "/model") {
+    if (allAttachments.length === 0 && composed.trim() === "/model") {
       setInput("");
-      setModelPickerOpen(true);
+      if (modelOptions.length === 0 || !providerDescriptor?.model_switch_format) {
+        setComposerError(
+          providerDescriptor && modelOptions.length === 0
+            ? `${providerDescriptor.display_name} does not publish switchable models.`
+            : providerDescriptor
+              ? `${providerDescriptor.display_name} does not support live model switching.`
+              : "This provider does not publish switchable models.",
+        );
+      } else {
+        setModelPickerOpen(true);
+      }
       setPickerOpen(false);
       sendInFlightRef.current = false;
       setSending(false);
@@ -515,7 +591,7 @@ export function PaneSessionChat({
     setAttachments([]);
     refocusComposer();
     try {
-      const fallbackCommand = attachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
+      const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
       if (fallbackCommand) {
         if (!currentPtyId) throw new Error("Pane has no PTY");
         onOpenTerminalFallback?.();
@@ -622,14 +698,22 @@ export function PaneSessionChat({
       setModelPickerOpen(false);
       setInput("");
       try {
-        await sendRawToPty(`/model ${model.id}\r`);
+        const format = providerDescriptor?.model_switch_format;
+        if (!format) {
+          throw new Error(
+            providerDescriptor
+              ? `${providerDescriptor.display_name} does not support live model switching.`
+              : "This provider does not support live model switching.",
+          );
+        }
+        await sendRawToPty(`${formatModelSwitch(format, model.id)}\r`);
       } catch (e) {
         setComposerError(e instanceof Error ? e.message : String(e));
       } finally {
         refocusComposer();
       }
     },
-    [refocusComposer, sendRawToPty],
+    [providerDescriptor, refocusComposer, sendRawToPty],
   );
 
   if (error) {
@@ -785,7 +869,7 @@ export function PaneSessionChat({
           >
             <div className="flex items-center justify-between gap-2 mb-2">
               <div className="text-xs font-medium truncate" style={{ color: "var(--ct-fg)" }}>
-                Select Claude model
+                Select {providerDescriptor?.display_name ?? "provider"} model
               </div>
               <button
                 type="button"
@@ -830,19 +914,11 @@ export function PaneSessionChat({
             </div>
           </div>
         )}
-        {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-2">
-            {attachments.map((p) => (
-              <AttachmentChip
-                key={p}
-                path={p}
-                onRemove={() =>
-                  setAttachments((prev) => prev.filter((x) => x !== p))
-                }
-              />
-            ))}
-          </div>
-        )}
+        <ComposerBubbleRow
+          attachments={attachments}
+          onRemove={(p) => setAttachments((prev) => prev.filter((x) => x !== p))}
+          onToggleTerminalFallback={onToggleTerminalFallback}
+        />
         {composerError && (
           <div
             data-testid="chat-composer-error"
@@ -884,102 +960,105 @@ export function PaneSessionChat({
         )}
         {/* Bug 4: relative wrapper so SlashPicker positions above textarea */}
         <div data-testid="composer-row" className="relative flex items-end gap-1.5">
-          <SlashPicker
-            suggestions={pickerOpen ? suggestions : []}
-            highlighted={pickerHighlight}
-            onPick={pickSuggestion}
-          />
-          <textarea
-            data-testid="chat-composer"
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (modelPickerOpen) {
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setModelHighlight((h) => Math.min(h + 1, modelOptions.length - 1));
-                  return;
-                }
-                if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setModelHighlight((h) => Math.max(h - 1, 0));
-                  return;
-                }
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  const model = modelOptions[modelHighlight];
-                  if (model) void chooseModel(model);
-                  return;
-                }
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  setModelPickerOpen(false);
-                  return;
-                }
-              }
-              if (pickerOpen) {
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setPickerHighlight((h) => Math.min(h + 1, suggestions.length - 1));
-                  return;
-                }
-                if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setPickerHighlight((h) => Math.max(h - 1, 0));
-                  return;
-                }
-                if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-                  e.preventDefault();
-                  if (e.key === "Enter" && cliFallbackCommandPayload(input)) {
-                    void send();
-                    return;
-                  }
-                  const cmd = suggestions[pickerHighlight];
-                  if (cmd) pickSuggestion(cmd);
-                  return;
-                }
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  setPickerOpen(false);
-                  return;
-                }
-              }
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
-            onFocus={(e) => {
-              // Mobile: the on-screen keyboard can leave the composer below
-              // the fold; nudge it back into the visible viewport.
-              window.setTimeout(
-                () =>
-                  e.target.scrollIntoView({ block: "end", behavior: "smooth" }),
-                50,
-              );
-            }}
-            placeholder={pendingPrompt
-              ? "Agent may be waiting in the terminal."
-              : "Type a message…  (Enter to send, Shift+Enter for newline. Drag files or paste images.)"}
-            rows={2}
-            disabled={sending}
-            className="w-full flex-1 min-w-0 resize-none rounded p-2 text-sm font-mono outline-none"
-            style={{
-              background:
-                "color-mix(in srgb, var(--ct-bg, #0d1117) 80%, white 5%)",
-              color: "var(--ct-fg, #c9d1d9)",
-              border:
-                "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
-            }}
-          />
           <ComposerActions
             onAttach={addAttachments}
             onSend={() => void send()}
+            onSendWithAttachments={(paths) => void send(paths)}
             onError={(msg) => setComposerError(msg)}
             sendDisabled={sending || (!input.trim() && attachments.length === 0)}
-          />
+            hasText={input.trim().length > 0 || attachments.length > 0}
+          >
+            <SlashPicker
+              suggestions={pickerOpen ? suggestions : []}
+              highlighted={pickerHighlight}
+              onPick={pickSuggestion}
+            />
+            <textarea
+              data-testid="chat-composer"
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (modelPickerOpen) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setModelHighlight((h) => Math.min(h + 1, modelOptions.length - 1));
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setModelHighlight((h) => Math.max(h - 1, 0));
+                    return;
+                  }
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    const model = modelOptions[modelHighlight];
+                    if (model) void chooseModel(model);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setModelPickerOpen(false);
+                    return;
+                  }
+                }
+                if (pickerOpen) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setPickerHighlight((h) => Math.min(h + 1, suggestions.length - 1));
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setPickerHighlight((h) => Math.max(h - 1, 0));
+                    return;
+                  }
+                  if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+                    e.preventDefault();
+                    if (e.key === "Enter" && cliFallbackCommandPayload(input)) {
+                      void send();
+                      return;
+                    }
+                    const cmd = suggestions[pickerHighlight];
+                    if (cmd) pickSuggestion(cmd);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setPickerOpen(false);
+                    return;
+                  }
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+              onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
+              onFocus={(e) => {
+                // Mobile: the on-screen keyboard can leave the composer below
+                // the fold; nudge it back into the visible viewport.
+                window.setTimeout(
+                  () =>
+                    e.target.scrollIntoView({ block: "end", behavior: "smooth" }),
+                  50,
+                );
+              }}
+              placeholder={pendingPrompt
+                ? "Agent may be waiting in the terminal."
+                : "Type a message…  (Enter to send, Shift+Enter for newline. Drag files or paste images.)"}
+              rows={2}
+              disabled={sending}
+              className="w-full flex-1 min-w-0 resize-none rounded p-2 text-sm font-mono outline-none"
+              style={{
+                background:
+                  "color-mix(in srgb, var(--ct-bg, #0d1117) 80%, white 5%)",
+                color: "var(--ct-fg, #c9d1d9)",
+                border:
+                  "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+              }}
+            />
+          </ComposerActions>
         </div>
       </div>
     </div>
