@@ -53,8 +53,6 @@ fn main() {
 /// fails the build — the hash table is load-bearing for the system-
 /// plugin trust model.
 fn generate_system_plugin_hashes() {
-    use std::path::Path;
-
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     // src-tauri/.. = repo root.
     let plugins_root = manifest_dir

@@ -33,6 +33,7 @@ interface Props {
   onAddPeerClick?: () => void;
   meshEnabled?: boolean;
   onGoOnline?: () => void;
+  onOpenWebUi?: () => void;
 }
 
 const VOLUME_WINDOW_MS = 60 * 1000;
@@ -57,6 +58,7 @@ export function MeshCanvas({
   onAddPeerClick,
   meshEnabled = true,
   onGoOnline,
+  onOpenWebUi,
 }: Props) {
   const showGhost = peers.length === 0 && !!onAddPeerClick;
   const layout = useMemo<PeerLayout[]>(() => {
@@ -99,12 +101,26 @@ export function MeshCanvas({
     }
     return items;
   }, [thisMachine, peers, width, height, showGhost]);
+  const layoutFitKey = useMemo(
+    () =>
+      [
+        `${Math.round(width)}x${Math.round(height)}`,
+        `${thisMachine.name}@${thisMachine.ip}`,
+        showGhost ? "ghost" : "no-ghost",
+        peers
+          .map((p) => `${p.name}@${p.ip}:${p.access_level ?? ""}`)
+          .sort()
+          .join("|"),
+      ].join("::"),
+    [width, height, thisMachine.name, thisMachine.ip, showGhost, peers],
+  );
 
   const local = layout[0];
   const now = Date.now();
 
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
+  const lastAutoFitKeyRef = useRef<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -131,10 +147,11 @@ export function MeshCanvas({
   }, [layout, width, height]);
 
   useEffect(() => {
-    if (layout.length > 0 && width > 0 && height > 0) {
-      fitToView();
-    }
-  }, [fitToView, layout.length, width, height]);
+    if (layout.length === 0 || width <= 0 || height <= 0) return;
+    if (lastAutoFitKeyRef.current === layoutFitKey) return;
+    lastAutoFitKeyRef.current = layoutFitKey;
+    fitToView();
+  }, [fitToView, layout.length, layoutFitKey, width, height]);
 
   const onMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest("[data-peer-card]")) return;
@@ -201,6 +218,17 @@ export function MeshCanvas({
         userSelect: "none",
       }}
     >
+      {onOpenWebUi && (
+        <div className="absolute top-2 left-2 z-10">
+          <button
+            onClick={onOpenWebUi}
+            className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2.5 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)] text-[9px] uppercase tracking-wide"
+            title="Open Web UI"
+          >
+            Web UI
+          </button>
+        </div>
+      )}
       <div className="absolute top-2 right-2 z-10 flex gap-1 text-[10px]">
         <button
           onClick={() => setTransform((t) => ({ ...t, scale: Math.min(MAX_SCALE, t.scale + ZOOM_STEP) }))}
