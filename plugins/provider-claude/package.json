@@ -12,7 +12,7 @@
     "./src/MessageBubble": "./src/MessageBubble.tsx"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "bash ../../scripts/plugin-tests.sh provider-claude"
   },
   "dependencies": {
     "@codeterm/chat-ui": "workspace:*"
