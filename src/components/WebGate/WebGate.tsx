@@ -38,7 +38,32 @@ export function WebGate({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (IS_WEB) void validate();
+    if (!IS_WEB) return;
+    // Share-link auto-consume: `codeterm web link` emits /web/#token=…
+    // Fragment is the SECURE default — fragments never leave the browser,
+    // so they can't land in the daemon's access log, proxies, or Referer
+    // headers. ?token=… is also accepted as the more familiar/typeable
+    // form, with exactly those exposure tradeoffs (the CLI only emits it
+    // under an explicit --query). Parse order: fragment wins over query.
+    // Whichever is found is consumed once, stored under the per-host key
+    // (it authenticates THIS host only — switching peers still asks for
+    // that peer's own token), and the URL is redacted via replaceState so
+    // the secret doesn't linger in history, bookmarks, or screenshots.
+    // A bad token falls through to validate() → the normal gate error.
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const query = new URLSearchParams(window.location.search);
+    const urlToken = (hash.get("token") ?? query.get("token"))?.trim();
+    if (urlToken) {
+      setTokenFor(apiHost(), urlToken);
+      query.delete("token");
+      const qs = query.toString();
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + (qs ? `?${qs}` : ""),
+      );
+    }
+    void validate();
   }, [validate]);
 
   const submit = useCallback(async () => {
