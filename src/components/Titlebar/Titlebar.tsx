@@ -36,6 +36,7 @@ export function Titlebar({
 
   return (
     <div
+      data-testid="titlebar"
       className="flex items-center h-9 bg-[var(--ct-titlebar-bg)] select-none shrink-0"
       style={{ boxShadow: "inset 0 -0.5px 0 var(--ct-border-subtle)" }}
       data-tauri-drag-region

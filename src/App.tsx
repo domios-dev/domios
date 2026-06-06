@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "./lib/bridge";
+import { IS_WEB } from "./lib/webApi";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
@@ -14,6 +15,7 @@ import { CommandPalette, buildDefaultCommands } from "./components/CommandPalett
 import { CrashReportToast } from "./components/CrashReportToast";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useConfig } from "./hooks/useConfig";
+import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useAgentProviders } from "./hooks/useAgentProviders";
 import {
   MultiplexerProvider,
@@ -71,6 +73,7 @@ function AppInner() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 640,
   );
+  const keyboardInset = useKeyboardInset();
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh">("workspace");
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
@@ -499,21 +502,40 @@ function AppInner() {
 
   return (
     <div
-      className={`flex flex-col w-screen h-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
+      className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
       style={{
         ...themeStyles,
         backgroundColor: theme.background,
         color: theme.foreground,
+        // dvh tracks the REAL visible viewport on mobile (shrinks when
+        // browser chrome / keyboard appear); vh does not. Desktop equal.
+        // keyboardInset covers iOS Safari, where the keyboard shrinks only
+        // the VISUAL viewport and dvh stays put (see useKeyboardInset).
+        height: keyboardInset ? `calc(100dvh - ${keyboardInset}px)` : "100dvh",
       } as React.CSSProperties}
     >
-      <Titlebar
-        onToggleSidebar={() => setSidebarOpen((v) => !v)}
-        onNewTab={handleNewTab}
-        workspaceName={activeWs?.name}
-        tabTitle={activeTab?.title}
-        theme={theme}
-        onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
-      />
+      {/* Web mirror strips the chrome: no titlebar row — the sidebar is
+          the whole shell (host picker + keep-awake live there). */}
+      {!IS_WEB && (
+        <Titlebar
+          onToggleSidebar={() => setSidebarOpen((v) => !v)}
+          onNewTab={handleNewTab}
+          workspaceName={activeWs?.name}
+          tabTitle={activeTab?.title}
+          theme={theme}
+          onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
+        />
+      )}
+      {IS_WEB && !sidebarOpen && (
+        <button
+          data-testid="web-sidebar-open"
+          onClick={() => setSidebarOpen(true)}
+          className="fixed top-2 left-2 z-50 flex items-center justify-center w-11 h-11 rounded-md bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)]"
+          title="Open sidebar"
+        >
+          ☰
+        </button>
+      )}
 
       <div className="flex flex-1 min-h-0 relative">
         {sidebarOpen && (

@@ -158,6 +158,15 @@ const HTTP_MAP: Record<string, Mapper> = {
       rows: a.rows,
     }),
 
+  // ── keepawake (sidebar toggle in web) ──
+  keepawake_status: () => webJson("GET", "/api/keepawake"),
+  keepawake_start: (a) =>
+    webJson("POST", "/api/keepawake/start", {
+      duration_secs: a.durationSecs,
+      display: a.display,
+    }),
+  keepawake_stop: () => webJson("POST", "/api/keepawake/stop"),
+
   // ── misc with real endpoints ──
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
   save_session: () => webJson("POST", "/api/session/save"),
@@ -175,9 +184,6 @@ const CANNED: Record<string, unknown> = {
   get_shell_diagnostics: {},
   get_themes_dir: "",
   get_config_path: "",
-  keepawake_status: { active: false },
-  keepawake_start: null,
-  keepawake_stop: null,
   mux_update_pane_cwd: null,
   usage_refresh: null,
   open_folder: null,
