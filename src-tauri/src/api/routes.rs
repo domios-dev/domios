@@ -204,6 +204,18 @@ pub fn create_router(state: AppState) -> Router {
             get(web_routes::peer_services),
         )
         .route("/api/events/stream", get(web_routes::events_stream))
+        .route(
+            "/api/panes/{id}/chat-raw/start",
+            post(web_routes::chat_raw_start),
+        )
+        .route(
+            "/api/panes/{id}/chat-raw/stop",
+            post(web_routes::chat_raw_stop),
+        )
+        .route(
+            "/api/panes/{id}/chat-raw/backfill",
+            post(web_routes::chat_raw_backfill),
+        )
         .route("/api/pty/{id}/read", get(web_routes::pty_read))
         .route("/api/pty/{id}/write", post(web_routes::pty_write))
         .route("/api/pty/{id}/resize", post(web_routes::pty_resize))

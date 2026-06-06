@@ -696,6 +696,8 @@ export function PaneSessionChat({
           return (
             <div
               key={msg.id}
+              data-testid="chat-message"
+              data-message-role={msg.type}
               style={isPending ? { opacity: 0.55 } : undefined}
               title={isPending ? "sending… (echo expected within 60s)" : undefined}
             >
@@ -864,6 +866,7 @@ export function PaneSessionChat({
             onPick={pickSuggestion}
           />
           <textarea
+            data-testid="chat-composer"
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}

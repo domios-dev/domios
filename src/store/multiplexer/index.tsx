@@ -7,6 +7,7 @@ import {
 } from "react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
+import { IS_WEB, webJson } from "../../lib/webApi";
 import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
 import { shouldDefaultNewAgentPaneToChat } from "../../lib/chatUiMode";
@@ -304,6 +305,24 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const spawnAgentTab = useCallback(async (workspaceId: string, agentId: string, skipPermissions: boolean, cwd?: string) => {
     try {
+      // Web mirror: the desktop flow launches the agent CLIENT-side (tab +
+      // pending command + spawn_pty), which a browser can't do. The daemon
+      // already knows how to spawn a complete agent pane server-side — the
+      // same path crons and orchestrators use.
+      if (IS_WEB) {
+        const spawned = await webJson<{ pane_id: string }>("POST", "/api/agents/spawn", {
+          agent: agentId,
+          workspace_id: workspaceId,
+          cwd,
+          skip_permissions: skipPermissions,
+          activate: true,
+        });
+        if (shouldDefaultNewAgentPaneToChat(agentId)) {
+          invoke("mux_set_chat_view", { paneId: spawned.pane_id, enabled: true }).catch(() => {});
+        }
+        refreshFromBackend();
+        return;
+      }
       invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId, activate: true });
