@@ -561,6 +561,7 @@ export function Sidebar({
           )}
           {(config?.ui?.mesh_tab_enabled ?? true) && (
             <button
+              data-testid="nav-mesh"
               onClick={onOpenMesh}
               className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
                 mainView === "mesh"
