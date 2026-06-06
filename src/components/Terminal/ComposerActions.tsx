@@ -35,6 +35,18 @@ function audioExt(mime: string): string {
   return "webm";
 }
 
+function microphoneErrorMessage(error: unknown): string {
+  if (error instanceof DOMException) {
+    if (error.name === "NotAllowedError" || error.name === "SecurityError") {
+      return "Microphone permission is blocked for CodeTerm.";
+    }
+    if (error.name === "NotFoundError") {
+      return "No microphone was found for CodeTerm.";
+    }
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -137,7 +149,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       setRecording(true);
       return true;
     } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
+      onError(microphoneErrorMessage(e));
       return false;
     }
   }

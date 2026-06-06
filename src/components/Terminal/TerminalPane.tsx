@@ -134,6 +134,10 @@ export function TerminalPane({
   }), [paneId, chatSupported, sessionReadyForChat]);
 
   useEffect(() => {
+    setClientPaneUiMode(paneId, uiMode);
+  }, [paneId, uiMode]);
+
+  useEffect(() => {
     const handler = (event: Event) => {
       if (!isPaneUiModeEvent(event)) return;
       if (event.detail.paneId !== paneId) return;
