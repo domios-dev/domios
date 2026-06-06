@@ -347,6 +347,37 @@ fn revive_broken_is_idempotent() {
 }
 
 #[test]
+fn revive_broken_skips_closed_dup_when_active_twin_exists() {
+    // Regression for #129/#116: reviving a closed relation that already has an
+    // active twin for the same (from, rel, to, scope) would create a second
+    // active row and violate idx_relations_active_unique — crashing the dreamer
+    // normalize phase. The revive must skip it instead.
+    let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
+            VALUES ('a','X','global','{}','2026-01-01','2026-01-01'),
+                   ('b','X','global','{}','2026-01-01','2026-01-01');
+         INSERT INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
+            VALUES ('a','knows','b','global','2026-01-01',NULL,1.0,'{}','2026-01-01'),
+                   ('a','knows','b','global','2025-12-01','2026-02-01',1.0,'{}','2025-12-01');"
+    ).unwrap();
+
+    // Must not error on the active-unique index.
+    let report = crate::graph::revive_broken(&conn, crate::graph::ReviveBrokenOptions {
+        since: None, dry_run: false,
+    }).unwrap();
+    assert_eq!(report.revived, 0, "closed dup with an active twin must not be revived");
+
+    let active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations \
+         WHERE from_id='a' AND relation_type='knows' AND to_id='b' AND valid_to IS NULL",
+        [], |r| r.get(0)).unwrap();
+    assert_eq!(active, 1, "the active twin must stay single");
+}
+
+#[test]
 fn introduce_topic_creates_topic_routes_sources_invalidates_direct() {
     let conn = Connection::open_in_memory().unwrap();
     init_v1_22_schema(&conn);

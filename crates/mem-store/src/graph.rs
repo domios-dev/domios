@@ -159,6 +159,17 @@ pub fn revive_broken(conn: &Connection, opts: ReviveBrokenOptions) -> MemStoreRe
         sql.push_str(&format!(" AND datetime(valid_to) >= datetime(?{})", binds.len() + 1));
         binds.push(s.clone());
     }
+    // Never revive a closed relation when an active twin already exists for the
+    // same (from, rel, to, scope): re-opening it (valid_to = NULL) would create
+    // a second active row and violate the `idx_relations_active_unique` partial
+    // index, crashing the dreamer normalize phase (#129/#116). One predicate,
+    // shared by the COUNT and the UPDATE below, so the dry-run preview and the
+    // real run always agree.
+    sql.push_str(
+        " AND NOT EXISTS (SELECT 1 FROM relations a WHERE a.valid_to IS NULL \
+          AND a.from_id = relations.from_id AND a.relation_type = relations.relation_type \
+          AND a.to_id = relations.to_id AND a.scope = relations.scope)",
+    );
 
     let count_sql = format!("SELECT COUNT(*) FROM relations WHERE {}", sql);
     let count: u64 = {
