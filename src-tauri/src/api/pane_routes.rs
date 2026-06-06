@@ -131,6 +131,11 @@ pub async fn send_text(
     }
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
+    state
+        .svc
+        .ensure_pane_pty_for_send(&pane_id)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+
     if !await_pty_link(&state, &pane_id).await {
         return Err((
             StatusCode::NOT_FOUND,

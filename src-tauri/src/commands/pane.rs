@@ -251,7 +251,9 @@ pub async fn chat_start(
 /// POST /api/panes/{id}/chat-raw/start — identical result shape, so the
 /// chat view renders the same in both shells.
 pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
-    let (provider_id, cwd, mut session_id) = {
+    let started = std::time::Instant::now();
+    let (provider_id, cwd, mut session_id, mux_ms) = {
+        let t = std::time::Instant::now();
         let m = svc.mux.lock();
         let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
         let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
@@ -260,13 +262,14 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             .agent_session_id
             .clone()
             .ok_or("pane has no session_id yet")?;
-        (provider, cwd, sid)
+        (provider, cwd, sid, t.elapsed().as_millis())
     };
 
     // Chat view is a reader for the tab's saved conversation, not a session
     // detector. A provider may still report that the live process has rolled
     // to a newer backing session (Codex resume starts a fresh rollout). Only
     // accept that provider-owned handoff when no sibling pane already owns it.
+    let detect_started = std::time::Instant::now();
     if let Some(active_sid) = svc
         .agent_registry
         .with_provider(&provider_id, |p| p.detect_active_session(&cwd, &session_id))
@@ -299,7 +302,9 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             session_id = active_sid;
         }
     }
+    let detect_ms = detect_started.elapsed().as_millis();
 
+    let path_started = std::time::Instant::now();
     let path = svc
         .agent_registry
         .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
@@ -312,10 +317,12 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             path.display()
         ));
     }
+    let path_ms = path_started.elapsed().as_millis();
 
     // Read the tail (~512KB) so toggle reveals plenty of context. The TS
     // parser is fast even at 1MB — no need for a smaller window.
     let snapshot_window: u64 = 512 * 1024;
+    let read_started = std::time::Instant::now();
     let bytes = std::fs::read(&path).map_err(|e| format!("read jsonl: {e}"))?;
     let total = bytes.len() as u64;
     let start = total.saturating_sub(snapshot_window) as usize;
@@ -331,10 +338,12 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             .unwrap_or(start)
     };
     let text = String::from_utf8_lossy(&bytes[aligned_start..]).to_string();
+    let read_ms = read_started.elapsed().as_millis();
 
     // Multiple webviews can attach to the same pane. The tailer is per pane,
     // but subscriptions are per client; share the existing worker when one is
     // already running so one client's stop() cannot kill another's stream.
+    let tailer_started = std::time::Instant::now();
     if !svc.chat_registry.acquire(&pane_id) {
         let sink = crate::service::pane_chat::raw_text_sink::make_sink(svc.app_handle.clone());
         let handle = crate::service::pane_chat::spawn_raw_tailer(
@@ -346,7 +355,24 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             },
             sink,
         );
-        svc.chat_registry.insert(pane_id, handle);
+        svc.chat_registry.insert(pane_id.clone(), handle);
+    }
+    let tailer_ms = tailer_started.elapsed().as_millis();
+    let total_ms = started.elapsed().as_millis();
+    if total_ms > 250 {
+        log::warn!(
+            "[chat_start.slow] pane={} provider={} total_ms={} mux={} detect={} path={} read={} tailer={} total_bytes={} returned={}",
+            pane_id,
+            provider_id,
+            total_ms,
+            mux_ms,
+            detect_ms,
+            path_ms,
+            read_ms,
+            tailer_ms,
+            total,
+            text.len()
+        );
     }
 
     Ok(ChatStartResult {
