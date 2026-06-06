@@ -50,6 +50,11 @@ Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-d
 
 Full testing guide (3 layers, remote E2E, fixtures): `docs/TESTING.md`.
 
+**Cargo tests on Windows — never lose 10 min to a hang:**
+- Run via **PowerShell foreground**, NOT Bash. Bash auto-backgrounds long commands; shell wrapper exits, cargo runs orphan and holds `target/debug/.cargo-lock`, every next `cargo test` then waits forever on that lock. PowerShell tool keeps cargo in the foreground so the timeout actually fires.
+- Always narrow first (`cargo test plugin::js_runtime::hot_reload`, not the whole `--lib`) and cap timeout at **90s**. If it hangs past 60s, that's almost always a deadlock in **your own code** (parking_lot is non-reentrant — never call `.lock()` on a Mutex while a previous guard on it is still alive on this thread), not a "linker is slow" infra problem. Incremental cargo on a warm cache compiles and links in seconds.
+- Stuck cargo? `Get-Process cargo,rustc,link | Stop-Process -Force` + delete `target/debug/.cargo-lock` + re-run. Always.
+
 ## Bench safety: NEVER call raw `codeterm` against dev — use the lib
 
 When iterating on behaviour benches under `evals/<name>/`, the
@@ -131,11 +136,10 @@ Verify on macOS, Windows, Linux. Never add platform-specific code without handli
 
 ## Agent roles (top of mind)
 
-CodeTerm has a 4-level hierarchy: **Orchestrator → Lead → Worker → SubWorker**. Your role comes from `$CODETERM_ROLE` or the spawn task prompt. **No role = Orchestrator.**
+CodeTerm has a 2-level hierarchy: **Orchestrator → Worker**. Your role comes from `$CODETERM_ROLE` or the spawn task prompt. **No role = Orchestrator.**
 
-- **Orchestrator** — top of the chain. Delegates by spawning generic claude agents with explicit role prompts (see below).
-- **Lead** — has a bounded sub-task, may decompose and spawn Workers.
-- **Worker / SubWorker** — does ONE concrete task, runs `codeterm agent report`, exits. **NEVER spawns other agents.** If decomposition needed → report blocked.
+- **Orchestrator** — top of the chain, no parent. Delegates by spawning generic claude agents with explicit role prompts (see below).
+- **Worker** — does ONE concrete task, runs `codeterm agent report`, exits. **NEVER spawns other agents.** If decomposition is needed → report blocked, and the Orchestrator splits it further or spins up a separate Orchestrator in its own workspace.
 
 ### We dogfood our own `codeterm mem` instead of `.claude/agents/`
 

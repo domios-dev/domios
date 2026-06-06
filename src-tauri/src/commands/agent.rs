@@ -1,10 +1,6 @@
 use tauri::State;
 
-use crate::prompts::CODETERM_RULE;
 use crate::service::ServiceState;
-
-use super::skills::extract_revision;
-use super::RuleStatus;
 
 /// Result of `install_provider_in_pane` — the new tab/pane the install
 /// command was queued in. Frontend uses these to switch focus.
@@ -30,7 +26,12 @@ pub fn install_provider_in_pane(
         .agent_registry
         .with_provider(&provider_id, |p| p.install_command(platform))
         .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
-        .ok_or_else(|| format!("Provider '{}' has no install command for {}", provider_id, platform))?;
+        .ok_or_else(|| {
+            format!(
+                "Provider '{}' has no install command for {}",
+                provider_id, platform
+            )
+        })?;
 
     // 2. Resolve workspace — prefer active, fall back to first.
     let ws_id = {
@@ -65,7 +66,10 @@ pub fn install_provider_in_pane(
                 break pid;
             }
             if std::time::Instant::now() > frontend_deadline {
-                log::warn!("install_provider_in_pane: PTY didn't appear for pane {}", pane_id_clone);
+                log::warn!(
+                    "install_provider_in_pane: PTY didn't appear for pane {}",
+                    pane_id_clone
+                );
                 return;
             }
             std::thread::sleep(std::time::Duration::from_millis(300));
@@ -96,20 +100,14 @@ pub fn restart_general_agent(
     let config = (*config).clone();
     std::thread::spawn(move || {
         crate::service::general_agent::restart_general_agent(
-            &svc, &mux, &pty, &screen_state, &config, &app,
+            &svc,
+            &mux,
+            &pty,
+            &screen_state,
+            &config,
+            &app,
         );
     });
-    Ok(())
-}
-
-#[tauri::command]
-pub fn install_project_rules() -> Result<(), String> {
-    let dest = dirs::home_dir()
-        .ok_or("Cannot find home directory")?
-        .join(".claude")
-        .join("rules");
-    std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
-    std::fs::write(dest.join("codeterm.md"), CODETERM_RULE).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -126,47 +124,43 @@ pub fn check_cli_installed(binary: String) -> Result<bool, String> {
     // Reject anything that looks like a shell metacharacter — `binary` comes
     // from a frontend-supplied provider id and we don't want it interpreted
     // as a path traversal or compound command.
-    if binary.chars().any(|c| matches!(c, '/' | '\\' | ' ' | ';' | '|' | '&' | '$' | '`' | '<' | '>' | '\n')) {
+    if binary.chars().any(|c| {
+        matches!(
+            c,
+            '/' | '\\' | ' ' | ';' | '|' | '&' | '$' | '`' | '<' | '>' | '\n'
+        )
+    }) {
         return Ok(false);
     }
-    let cmd_name = if cfg!(target_os = "windows") { "where" } else { "which" };
+    let cmd_name = if cfg!(target_os = "windows") {
+        "where"
+    } else {
+        "which"
+    };
     let mut cmd = std::process::Command::new(cmd_name);
     cmd.arg(&binary);
     crate::process_util::no_window_std(&mut cmd);
     let output = cmd.output();
-    match output {
-        Ok(out) if out.status.success() && !out.stdout.is_empty() => Ok(true),
-        Ok(_) => Ok(false),
-        // PATH probe failed at the OS level (e.g. `which` itself missing) —
-        // surface as "not installed" so the UI offers Install rather than
-        // hanging on an error toast.
-        Err(_) => Ok(false),
+    let on_path = matches!(output, Ok(ref out) if out.status.success() && !out.stdout.is_empty());
+    if on_path {
+        return Ok(true);
     }
-}
 
-#[tauri::command]
-pub fn check_rule_installed() -> Result<RuleStatus, String> {
-    let path = dirs::home_dir()
-        .ok_or("Cannot find home directory")?
-        .join(".claude")
-        .join("rules")
-        .join("codeterm.md");
-    let bundled_revision = extract_revision(CODETERM_RULE);
-    if path.exists() {
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
-        let installed_revision = extract_revision(&content);
-        Ok(RuleStatus {
-            installed: true,
-            update_available: installed_revision < bundled_revision,
-            revision: bundled_revision,
-            installed_revision,
-        })
-    } else {
-        Ok(RuleStatus {
-            installed: false,
-            update_available: false,
-            revision: bundled_revision,
-            installed_revision: 0,
-        })
+    // Windows fallback: some agent CLIs (Cursor) only ship a Linux binary, so
+    // users install them inside WSL. Probe `wsl which <binary>` so the
+    // Settings card reports "installed" once the user has the binary
+    // available in their default WSL distro. Skips silently when WSL itself
+    // is missing — keeps the "not installed" answer authoritative.
+    #[cfg(target_os = "windows")]
+    {
+        let mut wsl = std::process::Command::new("wsl");
+        wsl.args(["which", &binary]);
+        crate::process_util::no_window_std(&mut wsl);
+        if let Ok(out) = wsl.output() {
+            if out.status.success() && !out.stdout.is_empty() {
+                return Ok(true);
+            }
+        }
     }
+    Ok(false)
 }

@@ -1,7 +1,7 @@
 //! Agent spawn & batch command orchestration.
 
-use serde::{Deserialize, Serialize};
 use super::{json_str, resolve_refs, ServiceContext};
+use serde::{Deserialize, Serialize};
 
 // ── Batch ───────────────────────────────────────────────────────────
 
@@ -16,8 +16,7 @@ pub struct BatchOp {
 impl ServiceContext {
     /// Execute a batch of commands sequentially. Supports $ref resolution.
     pub async fn batch(&self, commands: Vec<BatchOp>) -> Vec<serde_json::Value> {
-        let mut refs: std::collections::HashMap<String, String> =
-            std::collections::HashMap::new();
+        let mut refs: std::collections::HashMap<String, String> = std::collections::HashMap::new();
         let mut results: Vec<serde_json::Value> = Vec::new();
 
         for cmd in &commands {
@@ -173,14 +172,11 @@ impl SpawnAgentParams {
         Ok(Self {
             agent: json_str(params, "agent"),
             agent_name: json_str(params, "agent_name"),
-            args: params
-                .get("args")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect()
-                }),
+            args: params.get("args").and_then(|v| v.as_array()).map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            }),
             cwd: json_str(params, "cwd"),
             title: json_str(params, "title"),
             role: json_str(params, "role"),
@@ -238,9 +234,13 @@ impl ServiceContext {
             s.trim_end_matches('/').to_string()
         };
         #[cfg(target_os = "windows")]
-        { norm(a).eq_ignore_ascii_case(&norm(b)) }
+        {
+            norm(a).eq_ignore_ascii_case(&norm(b))
+        }
         #[cfg(not(target_os = "windows"))]
-        { norm(a) == norm(b) }
+        {
+            norm(a) == norm(b)
+        }
     }
 
     /// Legacy wrapper for callers still on `SpawnAgentParams` (CLI/REST/batch/cron/socket).
@@ -255,7 +255,10 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
         let role = params.role.clone();
-        let agent = params.agent.clone().unwrap_or_else(crate::config::default_agent_provider);
+        let agent = params
+            .agent
+            .clone()
+            .unwrap_or_else(crate::config::default_agent_provider);
         let title = params
             .title
             .clone()
@@ -302,7 +305,9 @@ impl ServiceContext {
         // 1. Find workspace — lock once, resolve everything
         let (ws_id, ws_cwd) = {
             let mux = self.mux.lock();
-            let from_parent = params.parent_pane_id.as_ref()
+            let from_parent = params
+                .parent_pane_id
+                .as_ref()
                 .and_then(|pid| mux.find_workspace_for_pane(pid));
             let id = from_parent
                 .or_else(|| params.workspace_id.clone())
@@ -392,16 +397,23 @@ impl ServiceContext {
         }
 
         // 5. Launch agent in background thread
-        let bg_task = params.task.as_ref().map(|t| {
-            match params.role.as_deref() {
-                Some("Worker") => format!("{}{}", t, crate::prompts::WORKER_SUFFIX),
-                Some("Lead") => format!("{}{}", t, crate::prompts::LEAD_SUFFIX),
-                Some("Orchestrator") => format!("{}{}", t, crate::prompts::ORCHESTRATOR_SUFFIX),
-                _ => t.clone(),
-            }
+        let bg_task = params.task.as_ref().map(|t| match params.role.as_deref() {
+            Some("Worker") => format!("{}{}", t, crate::prompts::WORKER_SUFFIX),
+            Some("Orchestrator") => format!("{}{}", t, crate::prompts::ORCHESTRATOR_SUFFIX),
+            _ => t.clone(),
         });
-        let launch_cmd = build_agent_command(agent_cmd, &params, bg_task.as_deref(), &self.agent_registry);
-        launch_agent_in_background(self.clone(), pane_id.clone(), tab_id.clone(), ws_id.clone(), launch_cmd, agent_cmd.to_string(), bg_task, ready_tx);
+        let launch_cmd =
+            build_agent_command(agent_cmd, &params, bg_task.as_deref(), &self.agent_registry);
+        launch_agent_in_background(
+            self.clone(),
+            pane_id.clone(),
+            tab_id.clone(),
+            ws_id.clone(),
+            launch_cmd,
+            agent_cmd.to_string(),
+            bg_task,
+            ready_tx,
+        );
 
         Ok(SpawnResult {
             pane_id,
@@ -436,20 +448,38 @@ pub(crate) fn launch_agent_in_background(
         //    If frontend doesn't create it (cron/headless tabs), spawn from backend.
         let frontend_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let pty_id = loop {
-            if let Some(pid) = svc.mux.try_lock()
-                .and_then(|m| m.get_pane(&pane_id).and_then(|p| p.pty_id.clone())) {
+            if let Some(pid) = svc
+                .mux
+                .try_lock()
+                .and_then(|m| m.get_pane(&pane_id).and_then(|p| p.pty_id.clone()))
+            {
                 break pid;
             }
             if std::time::Instant::now() > frontend_deadline {
                 // Frontend didn't create PTY — spawn from backend (cron/headless)
                 log::info!("launch_agent: backend PTY spawn for {}", pane_id);
-                let cwd = svc.mux.lock().get_pane(&pane_id).and_then(|p| p.cwd.clone());
-                let mut env_vars: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                let cwd = svc
+                    .mux
+                    .lock()
+                    .get_pane(&pane_id)
+                    .and_then(|p| p.cwd.clone());
+                let mut env_vars: std::collections::HashMap<String, String> =
+                    std::collections::HashMap::new();
                 env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
-                env_vars.insert("CODETERM_SOCKET_PATH".into(), crate::socket::server::socket_display_path());
+                env_vars.insert(
+                    "CODETERM_SOCKET_PATH".into(),
+                    crate::socket::server::socket_display_path(),
+                );
                 let api_cfg = crate::config::load_config().api;
-                let host = if api_cfg.host == "0.0.0.0" { "127.0.0.1".to_string() } else { api_cfg.host.clone() };
-                env_vars.insert("CODETERM_API_URL".into(), format!("http://{}:{}", host, api_cfg.port));
+                let host = if api_cfg.host == "0.0.0.0" {
+                    "127.0.0.1".to_string()
+                } else {
+                    api_cfg.host.clone()
+                };
+                env_vars.insert(
+                    "CODETERM_API_URL".into(),
+                    format!("http://{}:{}", host, api_cfg.port),
+                );
                 if let Some(ref tok) = api_cfg.token {
                     env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
                 }
@@ -463,9 +493,13 @@ pub(crate) fn launch_agent_in_background(
                         let pid2 = pid.clone();
                         std::thread::spawn(move || {
                             let rt = tokio::runtime::Builder::new_current_thread()
-                                .enable_all().build().expect("backend reader runtime");
+                                .enable_all()
+                                .build()
+                                .expect("backend reader runtime");
                             rt.block_on(async {
-                                if let Ok(h) = crate::service::pty_lifecycle::start_backend_reader(&svc_arc, &pid2) {
+                                if let Ok(h) = crate::service::pty_lifecycle::start_backend_reader(
+                                    &svc_arc, &pid2,
+                                ) {
                                     let _ = h.await;
                                 }
                             });
@@ -473,7 +507,11 @@ pub(crate) fn launch_agent_in_background(
                         break pid;
                     }
                     Err(e) => {
-                        log::error!("launch_agent: backend PTY spawn failed for pane {}: {}", pane_id, e);
+                        log::error!(
+                            "launch_agent: backend PTY spawn failed for pane {}: {}",
+                            pane_id,
+                            e
+                        );
                         // Clean up the orphaned pane — it has no PTY and is unreachable
                         let _ = svc.close_tab(&ws_id, &tab_id);
                         if let Some(tx) = ready_tx {
@@ -487,20 +525,18 @@ pub(crate) fn launch_agent_in_background(
         };
 
         // 2. Wait for readiness using provider strategy
-        let (readiness, delivery) = registry.with_provider(&agent_cmd, |p| {
-            (p.readiness_strategy(), p.task_delivery())
-        }).unwrap_or((
-            ReadinessStrategy::FixedDelay { duration: std::time::Duration::from_secs(2) },
-            TaskDelivery::PtyInput,
-        ));
+        let (readiness, delivery) = registry
+            .with_provider(&agent_cmd, |p| (p.readiness_strategy(), p.task_delivery()))
+            .unwrap_or((
+                ReadinessStrategy::FixedDelay {
+                    duration: std::time::Duration::from_secs(2),
+                },
+                TaskDelivery::PtyInput,
+            ));
 
         match readiness {
             ReadinessStrategy::PollShellPrompt { timeout } => {
-                crate::service::pty_io::poll_shell_prompt(
-                    &svc.screen_state,
-                    &pty_id,
-                    timeout,
-                );
+                crate::service::pty_io::poll_shell_prompt(&svc.screen_state, &pty_id, timeout);
             }
             ReadinessStrategy::FixedDelay { duration } => {
                 std::thread::sleep(duration);
@@ -528,10 +564,14 @@ pub(crate) fn launch_agent_in_background(
         // Use shell dispatch (bash script on Unix, bracketed paste on Windows) so
         // bash 3.2 hosts (macOS Intel system shell) never see raw ESC markers
         // (#93 — keeps shell-level launch off the bracketed-paste path).
-        if let Err(e) = svc.send_shell_spawn_verified(&pty_id, &launch_cmd, launch_strategy, launch_opts) {
+        if let Err(e) =
+            svc.send_shell_spawn_verified(&pty_id, &launch_cmd, launch_strategy, launch_opts)
+        {
             log::error!(
                 "launch_agent: launch_cmd failed for pane {} (pty {}): {}",
-                pane_id, pty_id, e
+                pane_id,
+                pty_id,
+                e
             );
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(format!("launch_cmd failed: {}", e)));
@@ -563,10 +603,18 @@ pub(crate) fn launch_agent_in_background(
                     echo_timeout: std::time::Duration::from_secs(3),
                     submit_timeout: std::time::Duration::from_secs(15),
                 };
-                if let Err(e) = svc.send_text_verified(&pty_id, task_text, true, provider_submit_strategy, task_opts) {
+                if let Err(e) = svc.send_text_verified(
+                    &pty_id,
+                    task_text,
+                    true,
+                    provider_submit_strategy,
+                    task_opts,
+                ) {
                     log::error!(
                         "launch_agent: task delivery failed for pane {} (pty {}): {}",
-                        pane_id, pty_id, e
+                        pane_id,
+                        pty_id,
+                        e
                     );
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(format!("task delivery failed: {}", e)));
@@ -583,10 +631,14 @@ pub(crate) fn launch_agent_in_background(
     });
 }
 
-
 /// Build a single shell command that launches the agent.
 /// Uses the AgentRegistry for known providers; falls back to simple command for unknown agents.
-pub(crate) fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<&str>, registry: &AgentRegistry) -> String {
+pub(crate) fn build_agent_command(
+    agent_cmd: &str,
+    params: &SpawnAgentParams,
+    task: Option<&str>,
+    registry: &AgentRegistry,
+) -> String {
     if let Some(ref sid) = params.resume_session_id {
         let skip = params.skip_permissions.unwrap_or(true);
         if let Some(cmd) = registry
@@ -610,19 +662,29 @@ pub(crate) fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, ta
     let launch_params = AgentLaunchParams {
         agent_name: params.agent_name.clone(),
         task: task.map(|t| t.to_string()),
-        args: if args.is_empty() { None } else { Some(args.clone()) },
+        args: if args.is_empty() {
+            None
+        } else {
+            Some(args.clone())
+        },
         skip_permissions: params.skip_permissions.unwrap_or(true),
         headless: false,
         session_id: None,
     };
-    let cmd = registry.with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
+    let cmd = registry
+        .with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
         .unwrap_or_else(|| {
             let mut parts: Vec<String> = vec![agent_cmd.to_string()];
             parts.extend(args.iter().cloned());
             parts.join(" ")
         });
-    log::info!("[spawn] build_agent_command provider={} model={:?} resume={:?} cmd={}",
-        agent_cmd, params.model, params.resume_session_id, cmd);
+    log::info!(
+        "[spawn] build_agent_command provider={} model={:?} resume={:?} cmd={}",
+        agent_cmd,
+        params.model,
+        params.resume_session_id,
+        cmd
+    );
     cmd
 }
 
@@ -685,7 +747,10 @@ mod tests {
             assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
             assert!(cmd.ends_with(" claude --dangerously-skip-permissions"));
         } else {
-            assert_eq!(cmd, "unset CLAUDECODE && claude --dangerously-skip-permissions");
+            assert_eq!(
+                cmd,
+                "unset CLAUDECODE && claude --dangerously-skip-permissions"
+            );
         }
     }
 
@@ -711,7 +776,10 @@ mod tests {
     #[test]
     fn test_shell_quote() {
         assert_eq!(ShellSyntax::quote("hello"), "'hello'");
-        assert_eq!(ShellSyntax::quote("count *.tsx files"), "'count *.tsx files'");
+        assert_eq!(
+            ShellSyntax::quote("count *.tsx files"),
+            "'count *.tsx files'"
+        );
         if cfg!(target_os = "windows") {
             assert_eq!(ShellSyntax::quote("it's"), "'it''s'");
         } else {
@@ -727,7 +795,10 @@ mod tests {
         let params = make_params("claude", Some("line1\nline2\nline3"));
         let cmd = build_agent_command("claude", &params, Some("line1\nline2\nline3"), &reg);
         // Task goes through temp file, so newlines are preserved in the file
-        assert!(cmd.contains(".ct-task-"), "task with newlines still uses temp file");
+        assert!(
+            cmd.contains(".ct-task-"),
+            "task with newlines still uses temp file"
+        );
         assert!(cmd.contains("--dangerously-skip-permissions"));
     }
 
@@ -758,7 +829,10 @@ mod tests {
         let cmd = build_agent_command("claude", &params, Some(task), &reg);
         // Should not contain raw special chars in the command itself — they're in the temp file
         assert!(cmd.contains(".ct-task-"));
-        assert!(!cmd.contains("$HOME"), "shell vars should be in temp file, not in command");
+        assert!(
+            !cmd.contains("$HOME"),
+            "shell vars should be in temp file, not in command"
+        );
     }
 
     #[test]
@@ -798,22 +872,36 @@ mod tests {
         let reg = AgentRegistry::new();
         reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
         reg.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
-        reg.register_provider(Box::new(crate::plugin::agent_opencode::OpenCodeProvider::new()));
+        reg.register_provider(Box::new(
+            crate::plugin::agent_opencode::OpenCodeProvider::new(),
+        ));
 
         let mut p = make_params("claude", None);
         p.model = Some("opus".into());
         let cmd = build_agent_command("claude", &p, None, &reg);
-        assert!(cmd.contains("--model opus"), "claude expected --model X: {}", cmd);
+        assert!(
+            cmd.contains("--model opus"),
+            "claude expected --model X: {}",
+            cmd
+        );
 
         let mut p = make_params("codex", None);
         p.model = Some("gpt-5.4-mini".into());
         let cmd = build_agent_command("codex", &p, None, &reg);
-        assert!(cmd.contains("-m gpt-5.4-mini"), "codex expected -m X: {}", cmd);
+        assert!(
+            cmd.contains("-m gpt-5.4-mini"),
+            "codex expected -m X: {}",
+            cmd
+        );
 
         let mut p = make_params("opencode", None);
         p.model = Some("github-copilot/claude-haiku-4.5".into());
         let cmd = build_agent_command("opencode", &p, None, &reg);
-        assert!(cmd.contains("-m github-copilot/claude-haiku-4.5"), "opencode expected -m X: {}", cmd);
+        assert!(
+            cmd.contains("-m github-copilot/claude-haiku-4.5"),
+            "opencode expected -m X: {}",
+            cmd
+        );
     }
 
     #[test]
@@ -821,18 +909,32 @@ mod tests {
         let reg = AgentRegistry::new();
         reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
         reg.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
-        reg.register_provider(Box::new(crate::plugin::agent_opencode::OpenCodeProvider::new()));
+        reg.register_provider(Box::new(
+            crate::plugin::agent_opencode::OpenCodeProvider::new(),
+        ));
 
         let mut p = make_params("claude", None);
         p.resume_session_id = Some("abc-123".into());
         let cmd = build_agent_command("claude", &p, None, &reg);
-        assert!(cmd.contains("--resume") && cmd.contains("abc-123"), "claude resume: {}", cmd);
+        assert!(
+            cmd.contains("--resume") && cmd.contains("abc-123"),
+            "claude resume: {}",
+            cmd
+        );
 
         let mut p = make_params("codex", None);
         p.resume_session_id = Some("019df64f-d798-78c3-967a-d5deeb4896d9".into());
         let cmd = build_agent_command("codex", &p, None, &reg);
-        assert!(cmd.starts_with("codex resume"), "codex resume must start `codex resume`: {}", cmd);
-        assert!(cmd.contains("019df64f-d798-78c3-967a-d5deeb4896d9"), "codex resume must include uuid: {}", cmd);
+        assert!(
+            cmd.starts_with("codex resume"),
+            "codex resume must start `codex resume`: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains("019df64f-d798-78c3-967a-d5deeb4896d9"),
+            "codex resume must include uuid: {}",
+            cmd
+        );
     }
 
     #[test]

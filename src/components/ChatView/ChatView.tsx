@@ -4,8 +4,9 @@ import { listen } from "@tauri-apps/api/event";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { useTauriFileDrop } from "../../hooks/terminal";
 import { extractFilePathsFromClipboard } from "../../lib/clipboardPaste";
-import { MessageBubble } from "./MessageBubble";
-import type { ChatMessage } from "./parser";
+import { usePersistentDraft } from "../../lib/usePersistentDraft";
+import { MessageBubble } from "@codeterm/chat-ui";
+import type { ChatMessage } from "@codeterm/provider-claude/src/parser";
 import { AlertTriangle, File } from "lucide-react";
 import { SendIcon, ChevronUpIcon } from "../Icons";
 
@@ -66,7 +67,7 @@ function mimeFromPath(p: string): string {
 export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: ChatViewProps) {
   const provider = getAgentProvider(agentType);
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
+  const [input, setInput] = usePersistentDraft(`chat-view:${paneId}`);
   const [isLoading, _setIsLoading] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
   const [waitingForReply, setWaitingForReply] = useState(false);
@@ -347,6 +348,15 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       return !prev;
     });
   }, []);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el || inputExpanded) return;
+    el.style.height = "0";
+    const newH = Math.min(el.scrollHeight, 120);
+    el.style.height = newH + "px";
+    setInputAtMax(newH >= 120);
+  }, [input, inputExpanded]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

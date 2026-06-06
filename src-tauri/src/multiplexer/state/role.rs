@@ -28,30 +28,14 @@ impl MultiplexerState {
                 pane.can_spawn = true;
                 pane.depth = 1;
             }
-            AgentRole::Lead => {
-                let parent_id = parent_pane_id
-                    .ok_or("Lead requires a parent_pane_id")?;
-                let parent = self.panes.get(parent_id)
+            AgentRole::Worker => {
+                let parent_id = parent_pane_id.ok_or("Worker requires a parent_pane_id")?;
+                let parent = self
+                    .panes
+                    .get(parent_id)
                     .ok_or(format!("Parent pane {} not found", parent_id))?;
                 if parent.role != Some(AgentRole::Orchestrator) {
-                    return Err("Lead's parent must be an Orchestrator".to_string());
-                }
-                if !parent.can_spawn {
-                    return Err("Parent does not allow spawning".to_string());
-                }
-                let pane = self.panes.get_mut(pane_id).unwrap();
-                pane.role = Some(AgentRole::Lead);
-                pane.parent_pane_id = Some(parent_id.to_string());
-                pane.can_spawn = true;
-                pane.depth = 2;
-            }
-            AgentRole::Worker => {
-                let parent_id = parent_pane_id
-                    .ok_or("Worker requires a parent_pane_id")?;
-                let parent = self.panes.get(parent_id)
-                    .ok_or(format!("Parent pane {} not found", parent_id))?;
-                if parent.role != Some(AgentRole::Orchestrator) && parent.role != Some(AgentRole::Lead) {
-                    return Err("Worker's parent must be an Orchestrator or Lead".to_string());
+                    return Err("Worker's parent must be an Orchestrator".to_string());
                 }
                 if !parent.can_spawn {
                     return Err("Parent does not allow spawning".to_string());
@@ -68,15 +52,15 @@ impl MultiplexerState {
         Ok(())
     }
 
-    /// Clear a pane's orchestration role and orphan its children.
-    /// Workers/SubWorkers with a parent cannot unlink themselves.
+    /// Clear a pane's orchestration role. Detaches a Worker from its
+    /// Orchestrator (clears parent) or, for an Orchestrator, orphans its
+    /// Workers. Works on any pane — `unlink` should be able to unlink the
+    /// thing that's actually linked.
     pub fn clear_pane_role(&mut self, pane_id: &str) -> Result<(), String> {
-        let pane = self.panes.get(pane_id)
+        let pane = self
+            .panes
+            .get_mut(pane_id)
             .ok_or(format!("Pane {} not found", pane_id))?;
-        if pane.parent_pane_id.is_some() {
-            return Err("Cannot unlink — this pane is a worker in a hierarchy".to_string());
-        }
-        let pane = self.panes.get_mut(pane_id).unwrap();
         pane.role = None;
         pane.parent_pane_id = None;
         pane.can_spawn = false;
@@ -87,17 +71,19 @@ impl MultiplexerState {
 
     /// Set whether a pane can spawn child agents.
     pub fn set_can_spawn(&mut self, pane_id: &str, can_spawn: bool) -> Result<(), String> {
-        let pane = self.panes.get_mut(pane_id)
+        let pane = self
+            .panes
+            .get_mut(pane_id)
             .ok_or(format!("Pane {} not found", pane_id))?;
         if pane.role.is_none() {
             return Err("Pane has no role".to_string());
         }
         match pane.role {
-            Some(AgentRole::Orchestrator) | Some(AgentRole::Lead) => {
+            Some(AgentRole::Orchestrator) => {
                 pane.can_spawn = can_spawn;
                 Ok(())
             }
-            _ => Err("Only Orchestrator or Lead can spawn children".to_string()),
+            _ => Err("Only Orchestrator can spawn children".to_string()),
         }
     }
 
@@ -105,7 +91,9 @@ impl MultiplexerState {
     /// Independent of `parent_pane_id` — Orchestrators clear `parent_pane_id`
     /// but still need a route back to the agent that asked for them.
     pub fn set_spawned_by(&mut self, pane_id: &str, spawned_by: &str) -> Result<(), String> {
-        let pane = self.panes.get_mut(pane_id)
+        let pane = self
+            .panes
+            .get_mut(pane_id)
             .ok_or(format!("Pane {} not found", pane_id))?;
         pane.spawned_by_pane_id = Some(spawned_by.to_string());
         Ok(())
@@ -113,7 +101,8 @@ impl MultiplexerState {
 
     /// Get IDs of direct children of a pane.
     pub fn get_children_ids(&self, pane_id: &str) -> Vec<String> {
-        self.panes.values()
+        self.panes
+            .values()
             .filter(|p| p.parent_pane_id.as_deref() == Some(pane_id))
             .map(|p| p.id.clone())
             .collect()
@@ -168,19 +157,6 @@ mod tests {
     }
 
     #[test]
-    fn lead_defaults_can_spawn_true_under_orchestrator() {
-        let (mut mux, root) = fresh();
-        mux.set_pane_role(&root, AgentRole::Orchestrator, None)
-            .unwrap();
-        let lead = mux.create_pane();
-        mux.set_pane_role(&lead, AgentRole::Lead, Some(&root))
-            .expect("Lead under Orchestrator");
-        let p = mux.get_pane(&lead).unwrap();
-        assert_eq!(p.role, Some(AgentRole::Lead));
-        assert!(p.can_spawn, "Lead must default to can_spawn=true");
-    }
-
-    #[test]
     fn worker_defaults_can_spawn_false() {
         let (mut mux, root) = fresh();
         mux.set_pane_role(&root, AgentRole::Orchestrator, None)
@@ -218,6 +194,6 @@ mod tests {
         mux.set_pane_role(&worker, AgentRole::Worker, Some(&root))
             .unwrap();
         let err = mux.set_can_spawn(&worker, true).unwrap_err();
-        assert!(err.contains("Only Orchestrator or Lead"));
+        assert!(err.contains("Only Orchestrator"));
     }
 }

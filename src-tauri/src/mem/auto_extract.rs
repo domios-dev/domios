@@ -26,7 +26,9 @@ fn build_extraction_prompt(
 ) -> String {
     let truncated = if body.len() > 50_000 {
         let mut end = 50_000;
-        while !body.is_char_boundary(end) { end -= 1; }
+        while !body.is_char_boundary(end) {
+            end -= 1;
+        }
         &body[..end]
     } else {
         body
@@ -155,7 +157,8 @@ pub fn spawn_extraction_worker(
         Ok(worker_id) => {
             log::info!(
                 "[auto-extract] headless worker {} for {}",
-                worker_id, mem_item_id
+                worker_id,
+                mem_item_id
             );
             Some(worker_id)
         }
@@ -178,8 +181,9 @@ pub fn find_pending_items(
         // "Pending" = eligible item with zero graph relations either direction.
         // Any relation (uses/mentions/applies_to/extracted_from/…) means a worker
         // has already run against it — we don't need to re-queue.
-        let mut stmt = conn.prepare(
-            r#"SELECT m.id, m.kind, m.title, COALESCE(m.body_inline, '')
+        let mut stmt = conn
+            .prepare(
+                r#"SELECT m.id, m.kind, m.title, COALESCE(m.body_inline, '')
                FROM mem_items m
                WHERE m.kind IN ('conversation','note','daily','learning','fact')
                  AND m.tags_json NOT LIKE '%auto-extracted%'
@@ -189,23 +193,26 @@ pub fn find_pending_items(
                  )
                ORDER BY m.created_at DESC
                LIMIT ?1"#,
-        ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
 
-        let rows = stmt.query_map([limit as i64], |r| {
-            let id: String = r.get(0)?;
-            let kind_str: String = r.get(1)?;
-            let title: String = r.get(2)?;
-            let body: String = r.get(3)?;
-            let kind = match kind_str.as_str() {
-                "conversation" => Conversation,
-                "note" => Note,
-                "daily" => Daily,
-                "learning" => Learning,
-                "fact" => Fact,
-                _ => Note,
-            };
-            Ok((id, title, body, kind))
-        }).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([limit as i64], |r| {
+                let id: String = r.get(0)?;
+                let kind_str: String = r.get(1)?;
+                let title: String = r.get(2)?;
+                let body: String = r.get(3)?;
+                let kind = match kind_str.as_str() {
+                    "conversation" => Conversation,
+                    "note" => Note,
+                    "daily" => Daily,
+                    "learning" => Learning,
+                    "fact" => Fact,
+                    _ => Note,
+                };
+                Ok((id, title, body, kind))
+            })
+            .map_err(|e| e.to_string())?;
 
         let mut out = Vec::new();
         for row in rows {
@@ -230,7 +237,10 @@ pub fn run_extract_pending(svc: Arc<ServiceContext>, limit: usize) -> usize {
     };
 
     let count = pending.len();
-    log::info!("[auto-extract] queued {} pending items for extraction", count);
+    log::info!(
+        "[auto-extract] queued {} pending items for extraction",
+        count
+    );
 
     let mem = svc.mem.clone();
     let fut = async move {
@@ -241,7 +251,9 @@ pub fn run_extract_pending(svc: Arc<ServiceContext>, limit: usize) -> usize {
         }
     };
     match tokio::runtime::Handle::try_current() {
-        Ok(h) => { h.spawn(fut); }
+        Ok(h) => {
+            h.spawn(fut);
+        }
         Err(_) => {
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Builder::new_current_thread()
@@ -285,7 +297,11 @@ impl InjectedItem {
     pub fn new(mem_id: String, kind: MemKind, body: &str) -> Self {
         let mut sig: String = body.chars().take(512).collect();
         sig.make_ascii_lowercase();
-        Self { mem_id, kind, body_signature: sig }
+        Self {
+            mem_id,
+            kind,
+            body_signature: sig,
+        }
     }
 }
 
@@ -298,12 +314,16 @@ pub struct EvolutionObserver {
 
 impl Default for EvolutionObserver {
     fn default() -> Self {
-        Self { by_scope: Mutex::new(HashMap::new()) }
+        Self {
+            by_scope: Mutex::new(HashMap::new()),
+        }
     }
 }
 
 impl EvolutionObserver {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Record that `items` were injected into `scope`'s context. Replaces any
     /// previous batch for the scope — only the most-recent set is in flight.
@@ -347,7 +367,8 @@ impl EvolutionObserver {
                 Err(e) => {
                     log::warn!(
                         "[evolution-observer] bump failed for {}: {}",
-                        item.mem_id, e
+                        item.mem_id,
+                        e
                     );
                 }
             }
@@ -408,7 +429,8 @@ mod tests {
             "SELECT evidence_count FROM mem_items WHERE id = ?1",
             rusqlite::params![id],
             |r| r.get(0),
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     #[test]
@@ -416,13 +438,25 @@ mod tests {
         let conn = open_test_conn();
         insert_skill(&conn, "skill_a", "follow these steps to refresh tokens");
         let obs = EvolutionObserver::new();
-        obs.record_injection("pane1", vec![InjectedItem::new(
-            "skill_a".into(), MemKind::Skill, "follow these steps to refresh tokens",
-        )]);
-        let bumped = obs.observe(&conn, "pane1", "Done. Token refreshed and request returned 200 OK.");
+        obs.record_injection(
+            "pane1",
+            vec![InjectedItem::new(
+                "skill_a".into(),
+                MemKind::Skill,
+                "follow these steps to refresh tokens",
+            )],
+        );
+        let bumped = obs.observe(
+            &conn,
+            "pane1",
+            "Done. Token refreshed and request returned 200 OK.",
+        );
         assert_eq!(bumped, vec!["skill_a".to_string()]);
         assert_eq!(evidence_count(&conn, "skill_a"), 2);
-        assert!(obs.pending("pane1").is_empty(), "scope cleared after observe");
+        assert!(
+            obs.pending("pane1").is_empty(),
+            "scope cleared after observe"
+        );
     }
 
     #[test]
@@ -430,12 +464,21 @@ mod tests {
         let conn = open_test_conn();
         insert_skill(&conn, "skill_b", "follow these steps");
         let obs = EvolutionObserver::new();
-        obs.record_injection("pane1", vec![InjectedItem::new(
-            "skill_b".into(), MemKind::Skill, "follow these steps",
-        )]);
+        obs.record_injection(
+            "pane1",
+            vec![InjectedItem::new(
+                "skill_b".into(),
+                MemKind::Skill,
+                "follow these steps",
+            )],
+        );
         let bumped = obs.observe(&conn, "pane1", "Error: command failed with exit code 1");
         assert!(bumped.is_empty());
-        assert_eq!(evidence_count(&conn, "skill_b"), 1, "no bump on error-shaped observation");
+        assert_eq!(
+            evidence_count(&conn, "skill_b"),
+            1,
+            "no bump on error-shaped observation"
+        );
     }
 
     #[test]
@@ -444,12 +487,19 @@ mod tests {
         let body = "When refreshing JWT tokens always include the kid header read from the JWKS endpoint, otherwise Auth0 returns 401 with realm=api.example.com";
         insert_skill(&conn, "skill_c", body);
         let obs = EvolutionObserver::new();
-        obs.record_injection("pane1", vec![InjectedItem::new(
-            "skill_c".into(), MemKind::Skill, body,
-        )]);
-        let echo = format!("Working on it. Following the rule: {}. Should succeed shortly.", body);
+        obs.record_injection(
+            "pane1",
+            vec![InjectedItem::new("skill_c".into(), MemKind::Skill, body)],
+        );
+        let echo = format!(
+            "Working on it. Following the rule: {}. Should succeed shortly.",
+            body
+        );
         let bumped = obs.observe(&conn, "pane1", &echo);
-        assert!(bumped.is_empty(), "echo of body must not count as independent evidence");
+        assert!(
+            bumped.is_empty(),
+            "echo of body must not count as independent evidence"
+        );
         assert_eq!(evidence_count(&conn, "skill_c"), 1);
     }
 
@@ -467,15 +517,29 @@ mod tests {
         insert_skill(&conn, "skill_x", "x body");
         insert_skill(&conn, "skill_y", "y body");
         let obs = EvolutionObserver::new();
-        obs.record_injection("pane1", vec![InjectedItem::new(
-            "skill_x".into(), MemKind::Skill, "x body",
-        )]);
-        obs.record_injection("pane1", vec![InjectedItem::new(
-            "skill_y".into(), MemKind::Skill, "y body",
-        )]);
+        obs.record_injection(
+            "pane1",
+            vec![InjectedItem::new(
+                "skill_x".into(),
+                MemKind::Skill,
+                "x body",
+            )],
+        );
+        obs.record_injection(
+            "pane1",
+            vec![InjectedItem::new(
+                "skill_y".into(),
+                MemKind::Skill,
+                "y body",
+            )],
+        );
         let bumped = obs.observe(&conn, "pane1", "ok");
         assert_eq!(bumped, vec!["skill_y".to_string()]);
-        assert_eq!(evidence_count(&conn, "skill_x"), 1, "x not in tracked batch when observe ran");
+        assert_eq!(
+            evidence_count(&conn, "skill_x"),
+            1,
+            "x not in tracked batch when observe ran"
+        );
         assert_eq!(evidence_count(&conn, "skill_y"), 2);
     }
 
@@ -483,9 +547,14 @@ mod tests {
     fn observer_handles_missing_row_gracefully() {
         let conn = open_test_conn();
         let obs = EvolutionObserver::new();
-        obs.record_injection("pane1", vec![InjectedItem::new(
-            "ghost".into(), MemKind::Skill, "vanished",
-        )]);
+        obs.record_injection(
+            "pane1",
+            vec![InjectedItem::new(
+                "ghost".into(),
+                MemKind::Skill,
+                "vanished",
+            )],
+        );
         let bumped = obs.observe(&conn, "pane1", "ok");
         assert!(bumped.is_empty(), "missing row → no bump reported");
     }

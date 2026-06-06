@@ -101,11 +101,14 @@ fn send_exit_to_agents(svc: &ServiceState, agents: &[AgentPaneInfo]) {
         match pty.write(&agent.pty_id, payload.as_bytes()) {
             Ok(()) => log::info!(
                 "[updater] sent {:?} to pane {} (provider={})",
-                cmd, agent.pane_id, agent.provider_id
+                cmd,
+                agent.pane_id,
+                agent.provider_id
             ),
             Err(e) => log::warn!(
                 "[updater] failed to send exit to pane {}: {}",
-                agent.pane_id, e
+                agent.pane_id,
+                e
             ),
         }
     }
@@ -127,7 +130,8 @@ async fn wait_or_kill_one(pty: crate::PtyState, agent: AgentPaneInfo) {
     if poll_until_exit(&pty, &agent.pty_id, PER_PANE_GRACE).await {
         log::info!(
             "[updater] pane {} exited gracefully (provider={})",
-            agent.pane_id, agent.provider_id
+            agent.pane_id,
+            agent.provider_id
         );
         let _ = pty.lock().kill(&agent.pty_id);
         return;
@@ -135,20 +139,19 @@ async fn wait_or_kill_one(pty: crate::PtyState, agent: AgentPaneInfo) {
 
     log::warn!(
         "[updater] pane {} did not exit within {:?}; sending SIGTERM via Child::kill()",
-        agent.pane_id, PER_PANE_GRACE
+        agent.pane_id,
+        PER_PANE_GRACE
     );
     if let Err(e) = soft_kill(&pty, &agent.pty_id) {
         log::warn!(
             "[updater] soft_kill failed for pane {}: {}",
-            agent.pane_id, e
+            agent.pane_id,
+            e
         );
     }
 
     if poll_until_exit(&pty, &agent.pty_id, SIGTERM_GRACE).await {
-        log::info!(
-            "[updater] pane {} exited after SIGTERM",
-            agent.pane_id
-        );
+        log::info!("[updater] pane {} exited after SIGTERM", agent.pane_id);
         let _ = pty.lock().kill(&agent.pty_id);
         return;
     }
@@ -239,9 +242,9 @@ mod tests {
         // must agree with our compile-time fallback. If a provider rewords
         // /exit to something else, both this test and the fallback must
         // change together.
+        use crate::agent::provider::AgentProvider;
         use crate::plugin::agent_claude::ClaudeProvider;
         use crate::plugin::agent_codex::CodexProvider;
-        use crate::agent::provider::AgentProvider;
 
         let claude = ClaudeProvider::new();
         assert_eq!(claude.exit_command(), Some("/exit"));

@@ -5,7 +5,13 @@ edition = "2021"
 default-run = "codeterm"
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "test"] }
+# Embedded JavaScript runtime for plugin code (provider TS bundles run
+# here when called from headless / background Rust code paths). See
+# docs/plans/relay/20-provider-plugins-ts.md. Features chosen to keep
+# binary size minimal — no parallel/multi-context, no async, just the
+# core eval surface + ES modules.
+rquickjs = { version = "0.11", features = ["loader", "macro", "parallel"] }
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
@@ -23,6 +29,11 @@ parking_lot = "0.12"
 base64 = "0.22"
 interprocess = "2"
 sha2 = "0.10"
+# Embedded bundled-plugin bytes for the first-launch bootstrap. The
+# Dir struct is built at compile time from <repo>/plugins/ so a fresh
+# binary on an air-gapped machine still has working providers.
+include_dir = "0.7"
+md-5 = "0.10"
 toml = "0.8"
 dirs = "6"
 axum = "0.8"
@@ -91,9 +102,11 @@ clipboard-win = "5"
 [dev-dependencies]
 tempfile = "3"
 mockito = "1"
+filetime = "0.2.29"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+sha2 = "0.10"
 
 [lib]
 name = "codeterm_lib"

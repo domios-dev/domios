@@ -189,7 +189,7 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                         eprintln!("Service not found: {}", id);
                         std::process::exit(1);
                     } else {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        print!("{}", render_service_terse(&val));
                     }
                 }
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
@@ -245,5 +245,104 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                 std::process::exit(1);
             }
         }
+    }
+}
+
+/// Compact human render of a single service. Skips empty/null fields so an
+/// agent reading `service show` doesn't pay for a full pretty-printed JSON
+/// dump (use --json for that). Returns the block (trailing newline included).
+fn render_service_terse(val: &serde_json::Value) -> String {
+    use std::fmt::Write;
+    let s = |k: &str| val.get(k).and_then(|v| v.as_str());
+    let mut out = String::new();
+    let id = s("id").unwrap_or("?");
+    let name = s("name").unwrap_or("?");
+    let kind = s("kind").unwrap_or("?");
+    let status = if val.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+        "enabled"
+    } else {
+        "disabled"
+    };
+    let _ = writeln!(out, "{} {} [{}] kind={}", id, name, status, kind);
+
+    if let Some(d) = s("description") {
+        let _ = writeln!(out, "  {}", d);
+    }
+
+    let endpoint = if let Some(u) = s("url") {
+        Some(u.to_string())
+    } else {
+        s("host").map(|h| match val.get("port").and_then(|v| v.as_u64()) {
+            Some(p) => format!("{}:{}", h, p),
+            None => h.to_string(),
+        })
+    };
+    if let Some(ep) = endpoint {
+        match s("health_path") {
+            Some(hp) => { let _ = writeln!(out, "  endpoint: {} (health {})", ep, hp); }
+            None => { let _ = writeln!(out, "  endpoint: {}", ep); }
+        }
+    }
+
+    if let Some(hstatus) = val.get("health").and_then(|h| h.get("status")).and_then(|v| v.as_str()) {
+        let mode = s("health_mode").unwrap_or("?");
+        match val.get("health").and_then(|h| h.get("latency_ms")).and_then(|v| v.as_u64()) {
+            Some(lat) => { let _ = writeln!(out, "  health: {} (mode={}, {}ms)", hstatus, mode, lat); }
+            None => { let _ = writeln!(out, "  health: {} (mode={})", hstatus, mode); }
+        }
+    }
+
+    if kind == "cron" {
+        if let Some(sch) = s("schedule") {
+            let last = s("last_run_status").unwrap_or("-");
+            match val.get("next_run").and_then(|v| v.as_i64()) {
+                Some(n) => { let _ = writeln!(out, "  schedule: {}  next={}  last={}", sch, n, last); }
+                None => { let _ = writeln!(out, "  schedule: {}  last={}", sch, last); }
+            }
+        }
+    }
+
+    if val.get("push_enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let _ = writeln!(out, "  push: enabled");
+    }
+    out
+}
+
+#[cfg(test)]
+mod terse_tests {
+    use super::render_service_terse;
+
+    #[test]
+    fn daemon_show_is_compact_and_skips_empty_fields() {
+        let val = serde_json::json!({
+            "id": "svc_abc", "name": "API", "kind": "daemon", "enabled": true,
+            "url": "http://localhost:8080", "health_path": "/health",
+            "health_mode": "http", "push_enabled": true,
+            "health": { "status": "healthy", "latency_ms": 42 },
+            // noise that must NOT appear in terse output:
+            "registered_at": 1700000000, "updated_at": 1700000001, "health_ttl": 30
+        });
+        let out = render_service_terse(&val);
+        assert!(out.starts_with("svc_abc API [enabled] kind=daemon\n"), "got: {out}");
+        assert!(out.contains("endpoint: http://localhost:8080 (health /health)"));
+        assert!(out.contains("health: healthy (mode=http, 42ms)"));
+        assert!(out.contains("push: enabled"));
+        // terse view must not leak raw timestamps / ttl
+        assert!(!out.contains("registered_at"));
+        assert!(!out.contains("1700000000"));
+        assert!(!out.contains("health_ttl"));
+        // a disabled-only cron line shouldn't show for a daemon
+        assert!(!out.contains("schedule:"));
+    }
+
+    #[test]
+    fn cron_show_includes_schedule_disabled_when_off() {
+        let val = serde_json::json!({
+            "id": "cron_x", "name": "Nightly", "kind": "cron", "enabled": false,
+            "schedule": "0 3 * * *", "last_run_status": "ok",
+        });
+        let out = render_service_terse(&val);
+        assert!(out.starts_with("cron_x Nightly [disabled] kind=cron\n"), "got: {out}");
+        assert!(out.contains("schedule: 0 3 * * *  last=ok"));
     }
 }

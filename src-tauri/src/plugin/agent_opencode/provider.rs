@@ -1,19 +1,22 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::agent::provider::{
-    self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy, SessionMessage,
-    SessionMetadata, SettingField, TaskDelivery, UsageSnapshot, VerifySubmitStrategy,
-};
 use super::usage as opencode_usage;
-use crate::shell::ShellSyntax;
+use crate::agent::provider::{
+    self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy,
+    SessionMessage, SessionMetadata, SettingField, TaskDelivery, UsageSnapshot,
+    VerifySubmitStrategy,
+};
 use crate::plugin::common::is_codeterm_injection;
+use crate::shell::ShellSyntax;
 
 #[path = "models.rs"]
 mod models;
-use models::{cached_opencode_models, fallback_models, fetch_opencode_models, store_opencode_models};
 #[cfg(test)]
 use models::prettify_model_id;
+use models::{
+    cached_opencode_models, fallback_models, fetch_opencode_models, store_opencode_models,
+};
 
 /// OpenCode (sst/opencode) agent provider.
 ///
@@ -69,7 +72,11 @@ impl OpenCodeProvider {
     fn db_path() -> Option<PathBuf> {
         let base = data_dir()?;
         let p = base.join("opencode").join("opencode.db");
-        if p.exists() { Some(p) } else { None }
+        if p.exists() {
+            Some(p)
+        } else {
+            None
+        }
     }
 
     /// Query the sqlite store for the most recent non-archived session
@@ -141,16 +148,22 @@ impl OpenCodeProvider {
         let conn = rusqlite::Connection::open_with_flags(
             &path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        ).ok()?;
+        )
+        .ok()?;
         let cwd_fwd = cwd.replace('\\', "/");
         let cwd_bwd = cwd.replace('/', "\\");
-        let mut stmt = conn.prepare(
-            "SELECT m.session_id FROM message m \
+        let mut stmt = conn
+            .prepare(
+                "SELECT m.session_id FROM message m \
              JOIN session s ON s.id = m.session_id \
              WHERE (s.directory = ?1 OR s.directory = ?2) AND s.time_archived IS NULL \
              ORDER BY m.time_created DESC LIMIT 1",
-        ).ok()?;
-        stmt.query_row(rusqlite::params![cwd_fwd, cwd_bwd], |row| row.get::<_, String>(0)).ok()
+            )
+            .ok()?;
+        stmt.query_row(rusqlite::params![cwd_fwd, cwd_bwd], |row| {
+            row.get::<_, String>(0)
+        })
+        .ok()
     }
 
     /// modelID of the most recent assistant message for this pane's session.
@@ -163,7 +176,8 @@ impl OpenCodeProvider {
         let conn = rusqlite::Connection::open_with_flags(
             &path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        ).ok()?;
+        )
+        .ok()?;
         if !session_id.is_empty() {
             if let Some(model) = Self::scan_messages(
                 &conn,
@@ -193,10 +207,16 @@ impl OpenCodeProvider {
         let mut stmt = conn.prepare(sql).ok()?;
         let rows = stmt.query_map(params, |row| row.get::<_, String>(0)).ok()?;
         for raw in rows.flatten() {
-            let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
-            if v.get("role").and_then(|r| r.as_str()) != Some("assistant") { continue }
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                continue;
+            };
+            if v.get("role").and_then(|r| r.as_str()) != Some("assistant") {
+                continue;
+            }
             if let Some(m) = v.get("modelID").and_then(|m| m.as_str()) {
-                if !m.is_empty() { return Some(m.to_string()); }
+                if !m.is_empty() {
+                    return Some(m.to_string());
+                }
             }
         }
         None
@@ -222,14 +242,20 @@ impl OpenCodeProvider {
             .flatten()
             .filter_map(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
             .collect();
-        if out.is_empty() { None } else { Some(out) }
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
+        }
     }
 
     /// Check the sqlite store for an exact session id. Used by
     /// `session_exists` to validate before resume — if the user wiped the
     /// db between runs the old id stops being resumable.
     fn db_session_exists(session_id: &str) -> bool {
-        let Some(path) = Self::db_path() else { return false };
+        let Some(path) = Self::db_path() else {
+            return false;
+        };
         let Ok(conn) = rusqlite::Connection::open_with_flags(
             &path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -310,9 +336,8 @@ impl AgentProvider for OpenCodeProvider {
         // "opencode" or the TUI's box characters to avoid cross-firing with
         // claude. "approve" is excluded — overlaps codex's "approve network
         // access" prompts.
-        let has_marker = text.contains("opencode")
-            || text.contains("OpenCode")
-            || text.contains("OpenCode Zen");
+        let has_marker =
+            text.contains("opencode") || text.contains("OpenCode") || text.contains("OpenCode Zen");
         has_marker
             && (text.contains("Permission required")
                 || text.contains("Allow this tool call")
@@ -361,7 +386,11 @@ impl AgentProvider for OpenCodeProvider {
         // newer than anything the pane's current_sid has produced, hand back
         // that newer sid so the focused-poller can claim it.
         let latest = Self::db_newest_session_for_cwd(cwd)?;
-        if latest == current_sid { None } else { Some(latest) }
+        if latest == current_sid {
+            None
+        } else {
+            Some(latest)
+        }
     }
 
     fn read_usage(&self, _cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
@@ -376,16 +405,22 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
-        let Some(root) = Self::sessions_root() else { return Vec::new(); };
+        let Some(root) = Self::sessions_root() else {
+            return Vec::new();
+        };
         let mut out = Vec::new();
-        let Ok(project_dirs) = std::fs::read_dir(&root) else { return out };
+        let Ok(project_dirs) = std::fs::read_dir(&root) else {
+            return out;
+        };
 
         for entry in project_dirs.filter_map(|e| e.ok()) {
             let Ok(ft) = entry.file_type() else { continue };
             if !ft.is_dir() {
                 continue;
             }
-            let Ok(files) = std::fs::read_dir(entry.path()) else { continue };
+            let Ok(files) = std::fs::read_dir(entry.path()) else {
+                continue;
+            };
             for f in files.filter_map(|e| e.ok()) {
                 let path = f.path();
                 let name = match path.file_name().and_then(|s| s.to_str()) {
@@ -403,14 +438,14 @@ impl AgentProvider for OpenCodeProvider {
                 };
 
                 let meta = std::fs::metadata(&path).ok();
-                let created_ts = info
-                    .created_ms
-                    .map(|ms| ms / 1000)
-                    .or_else(|| meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.created().ok())));
-                let modified_ts = info
-                    .updated_ms
-                    .map(|ms| ms / 1000)
-                    .or_else(|| meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.modified().ok())));
+                let created_ts = info.created_ms.map(|ms| ms / 1000).or_else(|| {
+                    meta.as_ref()
+                        .and_then(|m| provider::fs_time_to_unix(m.created().ok()))
+                });
+                let modified_ts = info.updated_ms.map(|ms| ms / 1000).or_else(|| {
+                    meta.as_ref()
+                        .and_then(|m| provider::fs_time_to_unix(m.modified().ok()))
+                });
 
                 out.push(SessionMetadata {
                     session_id,
@@ -436,11 +471,17 @@ impl AgentProvider for OpenCodeProvider {
             None => return Vec::new(),
         };
 
-        let Some(messages_root) = Self::messages_root() else { return Vec::new() };
-        let Some(parts_root) = Self::parts_root() else { return Vec::new() };
+        let Some(messages_root) = Self::messages_root() else {
+            return Vec::new();
+        };
+        let Some(parts_root) = Self::parts_root() else {
+            return Vec::new();
+        };
 
         let msg_dir = messages_root.join(session_id);
-        let Ok(entries) = std::fs::read_dir(&msg_dir) else { return Vec::new() };
+        let Ok(entries) = std::fs::read_dir(&msg_dir) else {
+            return Vec::new();
+        };
 
         let mut out: Vec<(SessionMessage, Option<i64>)> = Vec::new();
         for entry in entries.filter_map(|e| e.ok()) {
@@ -454,8 +495,12 @@ impl AgentProvider for OpenCodeProvider {
             }
             let msg_id = name.trim_end_matches(".json").to_string();
 
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
-            let Ok(info) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(info) = serde_json::from_str::<serde_json::Value>(&text) else {
+                continue;
+            };
 
             let role = match info.get("role").and_then(|r| r.as_str()) {
                 Some("user") => "user".to_string(),
@@ -476,8 +521,12 @@ impl AgentProvider for OpenCodeProvider {
                     if !pname.starts_with("prt_") || !pname.ends_with(".json") {
                         continue;
                     }
-                    let Ok(pt) = std::fs::read_to_string(&pp) else { continue };
-                    let Ok(pv) = serde_json::from_str::<serde_json::Value>(&pt) else { continue };
+                    let Ok(pt) = std::fs::read_to_string(&pp) else {
+                        continue;
+                    };
+                    let Ok(pv) = serde_json::from_str::<serde_json::Value>(&pt) else {
+                        continue;
+                    };
                     if pv.get("type").and_then(|t| t.as_str()) != Some("text") {
                         continue;
                     }
@@ -554,13 +603,17 @@ impl AgentProvider for OpenCodeProvider {
         let recency_limit = max_age.unwrap_or_else(|| Duration::from_secs(300));
         let mut candidates: Vec<(String, std::time::SystemTime)> = Vec::new();
 
-        let Ok(project_dirs) = std::fs::read_dir(&root) else { return None };
+        let Ok(project_dirs) = std::fs::read_dir(&root) else {
+            return None;
+        };
         for entry in project_dirs.filter_map(|e| e.ok()) {
             let Ok(ft) = entry.file_type() else { continue };
             if !ft.is_dir() {
                 continue;
             }
-            let Ok(files) = std::fs::read_dir(entry.path()) else { continue };
+            let Ok(files) = std::fs::read_dir(entry.path()) else {
+                continue;
+            };
             for f in files.filter_map(|e| e.ok()) {
                 let path = f.path();
                 let name = match path.file_name().and_then(|s| s.to_str()) {
@@ -585,7 +638,9 @@ impl AgentProvider for OpenCodeProvider {
                 }
 
                 let Ok(meta) = path.metadata() else { continue };
-                let Ok(modified) = meta.modified() else { continue };
+                let Ok(modified) = meta.modified() else {
+                    continue;
+                };
                 if let Ok(age) = now.duration_since(modified) {
                     if age > recency_limit {
                         continue;
@@ -690,9 +745,7 @@ impl AgentProvider for OpenCodeProvider {
         match platform {
             // The official one-liner from opencode.ai/install — works on macOS
             // and Linux. Pulls a static binary into ~/.opencode/bin/.
-            "macos" | "linux" => {
-                Some("curl -fsSL https://opencode.ai/install | bash".into())
-            }
+            "macos" | "linux" => Some("curl -fsSL https://opencode.ai/install | bash".into()),
             // Upstream removed the .ps1 installer; the canonical npm package
             // works on stock Windows + Node and matches the claude/codex flow.
             "windows" => Some("npm install -g opencode-ai".into()),
@@ -757,25 +810,9 @@ impl AgentProvider for OpenCodeProvider {
         ]
     }
 
-    fn notifications_schema(&self) -> Vec<SettingField> {
-        use crate::agent::provider::{BadgeStyle, BadgeVariant};
-        vec![SettingField::Section {
-            title: "Opencode Notifications".into(),
-            description: Some(
-                "Notifications fire when Opencode needs your input or finishes a task. \
-                 Powered by CodeTerm's pane-output detection — no setup required."
-                    .into(),
-            ),
-            fields: vec![SettingField::Badge {
-                query_command: "check_pty_status_available".into(),
-                variants: vec![BadgeVariant {
-                    id: "ok".into(),
-                    label: "auto-enabled".into(),
-                    style: BadgeStyle::Green,
-                }],
-            }],
-        }]
-    }
+    // No notifications_schema — Opencode notifications fire via the PTY
+    // event pipeline without any per-user configuration, so surfacing
+    // a status card was just noise.
 }
 
 // ── Internal helpers ────────────────────────────────────────────────
@@ -786,16 +823,21 @@ impl AgentProvider for OpenCodeProvider {
 fn opencode_short_label(model_id: &str) -> String {
     let m = model_id.to_ascii_lowercase();
     for fam in [
-        "opus", "sonnet", "haiku",
-        "codex", "gemini", "gpt",
-        "deepseek", "qwen", "llama", "mistral", "grok",
+        "opus", "sonnet", "haiku", "codex", "gemini", "gpt", "deepseek", "qwen", "llama",
+        "mistral", "grok",
     ] {
-        if m.contains(fam) { return capitalize_family(fam); }
+        if m.contains(fam) {
+            return capitalize_family(fam);
+        }
     }
     // opencode-zen codenames (big-pickle, small-cucumber, …): keep first
     // two segments at most so the badge stays compact.
     let trimmed: String = model_id.split('-').take(2).collect::<Vec<_>>().join("-");
-    if trimmed.len() <= 14 { trimmed } else { model_id.split('-').next().unwrap_or(model_id).to_string() }
+    if trimmed.len() <= 14 {
+        trimmed
+    } else {
+        model_id.split('-').next().unwrap_or(model_id).to_string()
+    }
 }
 
 fn capitalize_family(s: &str) -> String {
@@ -857,9 +899,7 @@ fn find_file_by_name(dir: &Path, target: &str, depth: u8) -> Option<PathBuf> {
     let entries = std::fs::read_dir(dir).ok()?;
     for entry in entries.filter_map(|e| e.ok()) {
         let ft = entry.file_type().ok()?;
-        if ft.is_file()
-            && entry.file_name().to_string_lossy() == target
-        {
+        if ft.is_file() && entry.file_name().to_string_lossy() == target {
             return Some(entry.path());
         }
         if ft.is_dir() {
@@ -870,7 +910,6 @@ fn find_file_by_name(dir: &Path, target: &str, depth: u8) -> Option<PathBuf> {
     }
     None
 }
-
 
 #[cfg(test)]
 #[path = "provider_tests.rs"]

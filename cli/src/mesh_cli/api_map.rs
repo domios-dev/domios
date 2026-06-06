@@ -9,6 +9,14 @@ use crate::{Commands, ServiceAction, UpdateAction};
 use super::{parse_ip_port, MeshAction, MeshPeerAction};
 use super::update::resolve_update_action;
 
+/// Sentinel `method` returned by [`cli_command_to_api`] for commands that have
+/// no meaningful remote form (PTY scrollback, local subprocess, on-disk skill
+/// folders, OS keychain). The mesh dispatcher turns this into a hard error
+/// instead of issuing a misleading fallback request; the `path` field carries
+/// the human-readable reason. Kept as a const so the dispatcher and the map
+/// agree on one token.
+pub const UNSUPPORTED_OVER_MESH: &str = "UNSUPPORTED";
+
 /// Map a CLI command to its corresponding API call.
 pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
     match cmd {
@@ -58,7 +66,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             _ => ("GET".into(), "/api/workspaces".into(), None),
         },
         Commands::Pane { action } => match action {
-            crate::PaneAction::List => ("GET".into(), "/api/panes".into(), None),
+            crate::PaneAction::List { .. } => ("GET".into(), "/api/panes".into(), None),
             crate::PaneAction::Current { .. } => ("GET".into(), "/api/panes".into(), None),
             crate::PaneAction::New { workspace, cwd, title, cmd: _ } => {
                 let mut body = serde_json::json!({});
@@ -96,6 +104,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 // mesh just relays the list. The fuzzy ranking happens
                 // locally so the response shape stays the same as `pane list`.
                 ("GET".into(), "/api/panes".into(), None)
+            }
+            crate::PaneAction::Stop { pane } => {
+                let p = pane.as_deref().unwrap_or("general");
+                ("POST".into(), format!("/api/panes/{}/stop", p), Some("{}".into()))
             }
         },
         Commands::Paste { action } => match action {
@@ -153,8 +165,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             crate::PasteAction::Rm { id } => ("DELETE".into(), format!("/api/pasteboard/{}", id), None),
         },
         Commands::Agent { action } => match action {
-            crate::AgentAction::List => ("GET".into(), "/api/agents".into(), None),
-            crate::AgentAction::Hierarchy => ("GET".into(), "/api/agents/hierarchy".into(), None),
             crate::AgentAction::Spawn { agent, title, task, role, parent, workspace, can_spawn, cwd, args, model } => {
                 let agent_name = agent.as_str();
                 let mut body = serde_json::json!({
@@ -171,7 +181,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 if let Some(m) = model { body["model"] = serde_json::json!(m); }
                 ("POST".into(), "/api/agents/spawn".into(), Some(body.to_string()))
             }
-            _ => ("GET".into(), "/api/agents".into(), None),
+            crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
+                ("GET".into(), "/api/agents/providers".into(), None)
+            }
+            _ => ("GET".into(), "/api/panes".into(), None),
         },
         Commands::Notifications { unread, .. } => {
             let qs = if *unread { "?unread=true" } else { "" };
@@ -179,12 +192,17 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         }
         Commands::Cron { action } => match action {
             crate::CronAction::List { .. } => ("GET".into(), "/api/crons".into(), None),
-            crate::CronAction::Create { name, schedule, task, workspace, agent, model, cwd, description, .. } => {
-                let mut body = serde_json::json!({"name": name, "schedule": schedule, "task": task, "agent": agent});
-                if let Some(m) = model { body["model"] = serde_json::json!(m); }
-                if let Some(w) = workspace { body["workspace_id"] = serde_json::json!(w); }
-                if let Some(c) = cwd { body["cwd"] = serde_json::json!(c); }
-                if let Some(d) = description { body["description"] = serde_json::json!(d); }
+            crate::CronAction::Create {
+                name, schedule, task, workspace, agent, model, cwd, description,
+                creator_pane, once, jitter_max_ms, tz, timeout_secs,
+            } => {
+                let body = crate::args::cron::cron_create_body(
+                    name, schedule, task,
+                    workspace.as_deref().unwrap_or(""),
+                    agent,
+                    model.as_deref(), cwd.as_deref(), description.as_deref(),
+                    creator_pane.as_deref(), *once, *jitter_max_ms, tz.as_deref(), *timeout_secs,
+                );
                 ("POST".into(), "/api/crons".into(), Some(body.to_string()))
             }
             crate::CronAction::Delete { id } => ("DELETE".into(), format!("/api/crons/{}", id), None),
@@ -544,7 +562,7 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
         MemAction::Graph { action } => match action {
             MemGraphAction::Create { id, entity_type, props, scope } => {
                 let props_val: serde_json::Value = serde_json::from_str(props).unwrap_or(json!({}));
-                let mut payload = json!({"id": id, "entity_type": entity_type, "props": props_val});
+                let mut payload = json!({"id": id, "type": entity_type, "properties": props_val});
                 if let Some(s) = scope { payload["scope"] = json!(s); }
                 ("POST".into(), "/api/mem/graph/entities".into(), Some(payload.to_string()))
             }
@@ -658,17 +676,21 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 ("GET".into(), "/api/mem/stats".into(), None)
             }
         },
-        // Local-only subcommands. Mesh relay falls through to /stats so callers
-        // always get a valid JSON response, but the operation itself never
-        // makes sense across the wire (PTY scrollback / subprocess /
-        // filesystem skill folders / env-coupled worker handles). `Secret` is
-        // already hard-rejected upstream in main.rs.
+        // Local-only subcommands: PTY scrollback / local subprocess / on-disk
+        // skill folders / env-coupled worker handles / OS keychain. None of
+        // these round-trip over the wire. Return an honest error rather than a
+        // misleading /stats fallback (which reads as success to the caller).
+        // `Secret` is also hard-rejected upstream in main.rs; kept here as
+        // defence in depth.
         MemAction::Flush { .. }
         | MemAction::RunWorker { .. }
         | MemAction::Skill { .. }
         | MemAction::Worker { .. }
-        | MemAction::Secret { .. }
-        | MemAction::Repair { .. } => ("GET".into(), "/api/mem/stats".into(), None),
+        | MemAction::Secret { .. } => (
+            UNSUPPORTED_OVER_MESH.into(),
+            "this mem subcommand is local-only (flush / run-worker / skill / worker / secret) and cannot run over --mesh".into(),
+            None,
+        ),
         MemAction::Reembed { scope } => (
             "POST".into(),
             format!("/api/mem/reembed?scope={}", enc(scope)),

@@ -1,8 +1,8 @@
 //! Single-worker embedding indexer — one sqlite writer, bounded queue.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::mpsc::{self, SyncSender, TrySendError};
+use std::sync::Arc;
 use std::thread;
 
 use tokio::sync::Semaphore;
@@ -125,9 +125,22 @@ mod tests {
     #[test]
     fn enqueue_accepts_jobs_up_to_capacity() {
         let (tx, rx) = std::sync::mpsc::sync_channel::<EmbedJob>(2);
-        assert!(tx.try_send(EmbedJob { id: "a".into(), text: "x".into() }).is_ok());
-        assert!(tx.try_send(EmbedJob { id: "b".into(), text: "y".into() }).is_ok());
-        let result = tx.try_send(EmbedJob { id: "c".into(), text: "z".into() });
+        assert!(tx
+            .try_send(EmbedJob {
+                id: "a".into(),
+                text: "x".into()
+            })
+            .is_ok());
+        assert!(tx
+            .try_send(EmbedJob {
+                id: "b".into(),
+                text: "y".into()
+            })
+            .is_ok());
+        let result = tx.try_send(EmbedJob {
+            id: "c".into(),
+            text: "z".into(),
+        });
         assert!(matches!(result, Err(TrySendError::Full(_))));
         drop(rx);
     }

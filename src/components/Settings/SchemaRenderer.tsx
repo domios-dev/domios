@@ -205,7 +205,13 @@ function FieldRenderer({
       return <PathLinkField label={field.label} path={field.path} />;
 
     case "badge":
-      return <BadgeField queryCommand={field.query_command} variants={field.variants} />;
+      return (
+        <BadgeField
+          queryCommand={field.query_command}
+          queryArgs={field.query_args}
+          variants={field.variants}
+        />
+      );
 
     case "action":
       if (hideActions) return null;
@@ -215,6 +221,7 @@ function FieldRenderer({
           label={field.label}
           command={field.command}
           stateQuery={field.state_query}
+          args={field.args}
           confirm={field.confirm}
         />
       );
@@ -359,16 +366,22 @@ function mapQueryResultToVariantId(result: unknown): string {
 
 function BadgeField({
   queryCommand,
+  queryArgs,
   variants,
 }: {
   queryCommand: string;
+  queryArgs?: Record<string, unknown>;
   variants: BadgeVariant[];
 }) {
   const [variant, setVariant] = useState<BadgeVariant | null>(null);
+  // Serialize args for stable dependency tracking. Plain object refs flip
+  // every render even when contents don't change.
+  const argsKey = JSON.stringify(queryArgs ?? null);
 
   useEffect(() => {
     let active = true;
-    invoke(queryCommand)
+    const args = argsKey === "null" ? undefined : (JSON.parse(argsKey) as Record<string, unknown>);
+    invoke(queryCommand, args)
       .then((result) => {
         if (!active) return;
         const id = mapQueryResultToVariantId(result);
@@ -381,7 +394,7 @@ function BadgeField({
     return () => {
       active = false;
     };
-  }, [queryCommand, variants]);
+  }, [queryCommand, argsKey, variants]);
 
   if (!variant) return null;
   return (
@@ -398,21 +411,25 @@ function ActionField({
   label,
   command,
   stateQuery,
+  args,
   confirm,
 }: {
   id: string;
   label: string;
   command: string;
   stateQuery?: string;
+  args?: Record<string, unknown>;
   confirm?: string;
 }) {
   const [state, setState] = useState<{ label: string; style: "primary" | "secondary" | "danger" } | null>(null);
   const [busy, setBusy] = useState(false);
   const [justDone, setJustDone] = useState(false);
+  const argsKey = JSON.stringify(args ?? null);
 
   const refreshState = useCallback(() => {
     if (!stateQuery) return;
-    invoke<unknown>(stateQuery)
+    const parsed = argsKey === "null" ? undefined : (JSON.parse(argsKey) as Record<string, unknown>);
+    invoke<unknown>(stateQuery, parsed)
       .then((result) => {
         // Map common state-query shapes into a button label/style.
         // Reuses the same variant-id mapping as Badge so the same backend
@@ -438,7 +455,7 @@ function ActionField({
         }
       })
       .catch(() => setState({ label, style: "primary" }));
-  }, [stateQuery, label]);
+  }, [stateQuery, argsKey, label]);
 
   useEffect(() => {
     if (stateQuery) refreshState();
@@ -454,7 +471,8 @@ function ActionField({
     if (confirm && !window.confirm(confirm)) return;
     setBusy(true);
     try {
-      await invoke(command);
+      const parsed = argsKey === "null" ? undefined : (JSON.parse(argsKey) as Record<string, unknown>);
+      await invoke(command, parsed);
       setJustDone(true);
       if (stateQuery) refreshState();
     } catch (e) {
@@ -462,7 +480,7 @@ function ActionField({
     } finally {
       setBusy(false);
     }
-  }, [command, confirm, stateQuery, refreshState]);
+  }, [command, argsKey, confirm, stateQuery, refreshState]);
 
   const effective = state ?? { label, style: "primary" as const };
   const klass = justDone

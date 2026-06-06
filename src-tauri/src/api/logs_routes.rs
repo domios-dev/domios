@@ -42,7 +42,9 @@ pub async fn list_logs(
     let rows = store
         .query(q.level.as_deref(), q.source.as_deref(), q.since, limit)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "logs query failed"))?;
-    Ok(Json(serde_json::to_value(rows).unwrap_or(serde_json::json!([]))))
+    Ok(Json(
+        serde_json::to_value(rows).unwrap_or(serde_json::json!([])),
+    ))
 }
 
 pub async fn delete_logs(

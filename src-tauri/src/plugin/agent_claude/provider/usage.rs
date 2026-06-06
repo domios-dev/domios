@@ -120,7 +120,10 @@ mod tests {
         assert_eq!(snap.output_tokens, 125);
         assert_eq!(snap.cache_creation_input_tokens, 30);
         assert_eq!(snap.cache_read_input_tokens, 20);
-        assert_eq!(snap.message_count, 2, "system_event line has no usage block");
+        assert_eq!(
+            snap.message_count, 2,
+            "system_event line has no usage block"
+        );
     }
 
     #[test]

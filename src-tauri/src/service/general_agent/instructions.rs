@@ -14,15 +14,27 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
     let dir = general_dir();
 
     let files: &[(&str, &str, &str, &[&str])] = &[
-        ("identity.md", "identity", "User identity — name, role, location, communication style", &["identity"]),
-        ("soul.md", "soul", "Agent personality — character, tone, behavior rules", &["soul"]),
+        (
+            "identity.md",
+            "identity",
+            "User identity — name, role, location, communication style",
+            &["identity"],
+        ),
+        (
+            "soul.md",
+            "soul",
+            "Agent personality — character, tone, behavior rules",
+            &["soul"],
+        ),
     ];
 
     for (filename, title, summary, tags) in files {
         let path = dir.join(filename);
         if let Ok(content) = std::fs::read_to_string(&path) {
             let trimmed = content.trim();
-            if trimmed.is_empty() { continue; }
+            if trimmed.is_empty() {
+                continue;
+            }
             let short: String = trimmed.chars().take(200).collect();
             let file_path = path.to_string_lossy().to_string();
             let source = format!("file:{}", &file_path);
@@ -48,9 +60,13 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
 /// {wake_up} substitution without hitting real disk paths.
 pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> String {
     let version = env!("CARGO_PKG_VERSION");
-    let platform = if cfg!(target_os = "windows") { "Windows" }
-        else if cfg!(target_os = "macos") { "macOS" }
-        else { "Linux" };
+    let platform = if cfg!(target_os = "windows") {
+        "Windows"
+    } else if cfg!(target_os = "macos") {
+        "macOS"
+    } else {
+        "Linux"
+    };
     let hostname = hostname::get()
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
@@ -79,7 +95,10 @@ pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> Str
         .replace("{provider_name}", provider_name)
         .replace("{general_dir}", &dir.to_string_lossy())
         .replace("{secrets_dir}", &secrets_dir().to_string_lossy())
-        .replace("{skills_dir}", &crate::paths::data_dir().join("skills").to_string_lossy())
+        .replace(
+            "{skills_dir}",
+            &crate::paths::data_dir().join("skills").to_string_lossy(),
+        )
         .replace("{identity}", &identity_section)
         .replace("{soul}", &soul_section)
         .replace("{wake_up}", wake_up_section)
@@ -89,12 +108,17 @@ pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> Str
 /// Render the L0+L1 wake-up payload as a markdown section, or empty when
 /// mem is unavailable / failed. On error we log and substitute empty so GA
 /// bootstrap never fails because of memory.
-pub(super) fn render_wake_up_section(mem: Option<&std::sync::Arc<crate::mem::MemManager>>) -> String {
+pub(super) fn render_wake_up_section(
+    mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
+) -> String {
     let Some(m) = mem else { return String::new() };
     match m.wake_up(&crate::mem::WakeUpOptions::default()) {
         Ok(text) => format!("\n## Live mem snapshot\n\n{}\n", text.trim()),
         Err(e) => {
-            log::warn!("[general-agent] wake-up render failed: {} — injecting empty section", e);
+            log::warn!(
+                "[general-agent] wake-up render failed: {} — injecting empty section",
+                e
+            );
             String::new()
         }
     }
@@ -165,7 +189,10 @@ mod tests {
     #[test]
     fn test_template_has_wake_up_placeholder() {
         let template = crate::prompts::GENERAL_AGENT_TEMPLATE;
-        assert!(template.contains("{wake_up}"), "general_agent.md template must declare {{wake_up}} placeholder");
+        assert!(
+            template.contains("{wake_up}"),
+            "general_agent.md template must declare {{wake_up}} placeholder"
+        );
     }
 
     #[test]
@@ -241,7 +268,8 @@ mod tests {
             importance: 5.0,
             source_path: None,
             pinned: false,
-        }).unwrap();
+        })
+        .unwrap();
         mem.save(crate::mem::NewMemItem {
             kind: crate::mem::MemKind::Rule,
             scope: crate::mem::MemScope::Global,
@@ -254,11 +282,20 @@ mod tests {
             importance: 5.0,
             source_path: None,
             pinned: false,
-        }).unwrap();
+        })
+        .unwrap();
 
         let section = render_wake_up_section(Some(&mem));
-        assert!(section.contains("## Live mem snapshot"), "section must have header: {}", section);
-        assert!(section.contains("Alice"), "section must contain identity body: {}", section);
+        assert!(
+            section.contains("## Live mem snapshot"),
+            "section must have header: {}",
+            section
+        );
+        assert!(
+            section.contains("Alice"),
+            "section must contain identity body: {}",
+            section
+        );
 
         let rendered = render_agent_md("claude", &section);
         assert!(rendered.contains("## Live mem snapshot"));

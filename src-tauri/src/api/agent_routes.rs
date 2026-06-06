@@ -59,7 +59,10 @@ pub async fn spawn_agent(
         resume_session_id: None,
         activate: body.activate,
     };
-    let result = state.svc.spawn_agent(params, None).await
+    let result = state
+        .svc
+        .spawn_agent(params, None)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     let mut resp = serde_json::json!({
@@ -97,9 +100,15 @@ pub async fn batch_commands(
     Json(body): Json<BatchBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let ops: Vec<crate::service::BatchOp> = body.commands.into_iter().map(|c| {
-        crate::service::BatchOp { method: c.method, params: c.params, id: c.id }
-    }).collect();
+    let ops: Vec<crate::service::BatchOp> = body
+        .commands
+        .into_iter()
+        .map(|c| crate::service::BatchOp {
+            method: c.method,
+            params: c.params,
+            id: c.id,
+        })
+        .collect();
     let results = state.svc.batch(ops).await;
     Ok(Json(serde_json::json!({"results": results})))
 }
@@ -118,7 +127,14 @@ pub async fn set_pane_role(
     Json(body): Json<SetRoleBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    state.svc.set_pane_role(&id, &body.role, body.parent_pane_id.as_deref(), body.can_spawn)
+    state
+        .svc
+        .set_pane_role(
+            &id,
+            &body.role,
+            body.parent_pane_id.as_deref(),
+            body.can_spawn,
+        )
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -129,7 +145,10 @@ pub async fn clear_pane_role(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    state.svc.clear_pane_role(&id).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    state
+        .svc
+        .clear_pane_role(&id)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -139,30 +158,11 @@ pub async fn get_pane_status(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let info = state.svc.get_pane_status(&id)
+    let info = state
+        .svc
+        .get_pane_status(&id)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(Json(serde_json::to_value(info).unwrap()))
-}
-
-pub async fn get_pane_children(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let mux = state.svc.mux.lock();
-    let child_ids = mux.get_children_ids(&id);
-    let children: Vec<serde_json::Value> = child_ids.iter().filter_map(|cid| {
-        let p = mux.get_pane(cid)?;
-        Some(serde_json::json!({
-            "pane_id": p.id,
-            "title": p.title,
-            "role": p.role,
-            "depth": p.depth,
-            "agent_type": p.agent_type,
-        }))
-    }).collect();
-    Ok(Json(serde_json::json!(children)))
 }
 
 #[derive(Deserialize)]
@@ -177,9 +177,13 @@ pub async fn submit_report(
     Json(body): Json<ReportBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let result = state.svc.submit_report(&id, &body.message)
+    let result = state
+        .svc
+        .submit_report(&id, &body.message)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    Ok(Json(serde_json::json!({"ok": true, "report_id": result.report_id})))
+    Ok(Json(
+        serde_json::json!({"ok": true, "report_id": result.report_id}),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -211,7 +215,9 @@ pub async fn set_can_spawn(
     Json(body): Json<CanSpawnBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    state.svc.set_can_spawn(&id, body.can_spawn)
+    state
+        .svc
+        .set_can_spawn(&id, body.can_spawn)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -247,7 +253,10 @@ pub async fn agent_restart_handler(
         grace_secs: default_grace_secs(),
     });
 
-    match state.svc.agent_restart(&pane_id, body.force, body.grace_secs) {
+    match state
+        .svc
+        .agent_restart(&pane_id, body.force, body.grace_secs)
+    {
         Ok(outcome) => (
             StatusCode::ACCEPTED,
             Json(serde_json::json!({
@@ -263,15 +272,14 @@ pub async fn agent_restart_handler(
         Err(crate::service::agent_restart::AgentRestartError::NotFound(m)) => {
             (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": m}))).into_response()
         }
-        Err(crate::service::agent_restart::AgentRestartError::BadRequest(m)) => {
-            (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": m}))).into_response()
-        }
+        Err(crate::service::agent_restart::AgentRestartError::BadRequest(m)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": m})),
+        )
+            .into_response(),
         Err(crate::service::agent_restart::AgentRestartError::RateLimited { retry_after_secs }) => {
             let mut h = HeaderMap::new();
-            h.insert(
-                "Retry-After",
-                retry_after_secs.to_string().parse().unwrap(),
-            );
+            h.insert("Retry-After", retry_after_secs.to_string().parse().unwrap());
             (
                 StatusCode::TOO_MANY_REQUESTS,
                 h,
@@ -297,13 +305,15 @@ pub async fn respond_prompt(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let pane_id = resolve_pane(&state, &raw_pane_id)
-        .map_err(|(s, m)| (s, m.to_string()))?;
-    let value = body.get("value")
+    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let value = body
+        .get("value")
         .and_then(|v| v.as_str())
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing 'value' field".to_string()))?
         .to_string();
-    state.svc.respond_prompt(&pane_id, &value)
+    state
+        .svc
+        .respond_prompt(&pane_id, &value)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -313,9 +323,10 @@ pub async fn clear_prompt(
     AxumState(state): AxumState<AppState>,
     Path(raw_pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let pane_id = resolve_pane(&state, &raw_pane_id)
-        .map_err(|(s, m)| (s, m.to_string()))?;
-    state.svc.clear_prompt(&pane_id)
+    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
+    state
+        .svc
+        .clear_prompt(&pane_id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -326,18 +337,13 @@ pub async fn set_agent_type(
     Path(pane_id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let agent_type = body.get("agent_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let agent_type = body
+        .get("agent_type")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     state.svc.set_pane_agent_type(&pane_id, agent_type);
     state.svc.emit_state_changed();
     Ok(Json(serde_json::json!({"ok": true})))
-}
-
-pub async fn list_agents(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    Ok(Json(serde_json::json!(state.svc.list_agents())))
 }
 
 /// List all registered agent providers as `ProviderDescriptor`s.
@@ -346,20 +352,9 @@ pub async fn list_agent_providers(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    crate::dispatch::dispatch(
-        &crate::dispatch::Command::ListAgentProviders,
-        &state.svc,
-    )
-    .map(|r| Json(r.into_json()))
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
-}
-
-pub async fn get_hierarchy(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    Ok(Json(serde_json::json!(state.svc.get_hierarchy())))
+    crate::dispatch::dispatch(&crate::dispatch::Command::ListAgentProviders, &state.svc)
+        .map(|r| Json(r.into_json()))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
 #[cfg(test)]

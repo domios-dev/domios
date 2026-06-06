@@ -17,7 +17,8 @@ pub async fn mesh_pair_request(
         let from_id = request.from_instance_id.clone();
         mesh.receive_pairing_request(request)
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        let is_vouched = mesh.discovered_peers
+        let is_vouched = mesh
+            .discovered_peers
             .get(&from_id)
             .map(|p| !p.vouched_by.is_empty())
             .unwrap_or(false);
@@ -25,7 +26,10 @@ pub async fn mesh_pair_request(
     };
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
     if is_vouched {
-        log::info!("[mesh] Auto-approving pair request from vouched peer {}", from_id);
+        log::info!(
+            "[mesh] Auto-approving pair request from vouched peer {}",
+            from_id
+        );
         let state2 = state.clone();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -41,12 +45,20 @@ pub async fn mesh_pair_request(
 pub async fn do_approve(state: AppState, request_id: String) -> Result<(), String> {
     let (request, our_pubkey, our_id, our_name) = {
         let m = state.mesh.lock();
-        let req = m.pending_requests.get(&request_id).cloned()
+        let req = m
+            .pending_requests
+            .get(&request_id)
+            .cloned()
             .ok_or("Request not found or already processed")?;
         if m.paired_peers.contains_key(&req.from_instance_id) {
             return Ok(()); // already paired, nothing to do
         }
-        let pk = m.ident.identity.public_key.clone().ok_or("No identity keypair")?;
+        let pk = m
+            .ident
+            .identity
+            .public_key
+            .clone()
+            .ok_or("No identity keypair")?;
         let id = m.ident.identity.instance_id.clone();
         let name = m.ident.instance_name.clone();
         (req, pk, id, name)
@@ -59,9 +71,18 @@ pub async fn do_approve(state: AppState, request_id: String) -> Result<(), Strin
         public_key: our_pubkey,
     };
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
-    let url = format!("http://{}:{}/api/mesh/pair/accept", request.from_address, request.from_port);
-    let resp = client.post(&url).json(&accept).send().await
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_default();
+    let url = format!(
+        "http://{}:{}/api/mesh/pair/accept",
+        request.from_address, request.from_port
+    );
+    let resp = client
+        .post(&url)
+        .json(&accept)
+        .send()
+        .await
         .map_err(|e| format!("Network error: {}", e))?;
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
@@ -73,25 +94,35 @@ pub async fn do_approve(state: AppState, request_id: String) -> Result<(), Strin
         let peer = crate::mesh::types::PairedPeer {
             instance_id: request.from_instance_id.clone(),
             instance_name: request.from_instance_name.clone(),
-            addresses: vec![crate::mesh::types::PeerAddress::from_ip(&request.from_address)],
+            addresses: vec![crate::mesh::types::PeerAddress::from_ip(
+                &request.from_address,
+            )],
             api_port: request.from_port,
             public_key: request.public_key.clone(),
             paired_at: chrono::Utc::now().to_rfc3339(),
             last_seen: Some(chrono::Utc::now().to_rfc3339()),
-            online: true, is_primary: false,
+            online: true,
+            is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
             version: None,
             consecutive_misses: 0,
         };
-        m.paired_peers.insert(request.from_instance_id.clone(), peer);
+        m.paired_peers
+            .insert(request.from_instance_id.clone(), peer);
         m.pending_requests.remove(&request_id);
         let _ = m.save();
     }
 
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
-    log::info!("[mesh] Pairing complete (approver/auto) with {}", request.from_instance_id);
+    log::info!(
+        "[mesh] Pairing complete (approver/auto) with {}",
+        request.from_instance_id
+    );
 
-    let intro_data = state.mesh.lock().prepare_introductions(&request.from_instance_id);
+    let intro_data = state
+        .mesh
+        .lock()
+        .prepare_introductions(&request.from_instance_id);
     if let Some((new_peer, existing, our_id, token)) = intro_data {
         crate::mesh::broadcast_introductions(new_peer, existing, our_id, token).await;
     }
@@ -119,15 +150,23 @@ pub async fn mesh_pair_accept(
     if accept.from_instance_id != b_instance_id {
         log::warn!(
             "[mesh/pair_accept] Identity mismatch: expected {}, got {}",
-            b_instance_id, accept.from_instance_id
+            b_instance_id,
+            accept.from_instance_id
         );
-        return Err((StatusCode::FORBIDDEN,
-            format!("Identity mismatch: expected {}, got {}", b_instance_id, accept.from_instance_id)));
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!(
+                "Identity mismatch: expected {}, got {}",
+                b_instance_id, accept.from_instance_id
+            ),
+        ));
     }
 
     {
         let mut mesh = state.mesh.lock();
-        let discovered_name = mesh.discovered_peers.get(&b_instance_id)
+        let discovered_name = mesh
+            .discovered_peers
+            .get(&b_instance_id)
             .map(|p| p.instance_name.clone());
         let b_name = match discovered_name {
             Some(n) if !n.contains(':') => n,
@@ -141,12 +180,14 @@ pub async fn mesh_pair_accept(
             public_key: accept.public_key.clone(),
             paired_at: chrono::Utc::now().to_rfc3339(),
             last_seen: Some(chrono::Utc::now().to_rfc3339()),
-            online: true, is_primary: false,
+            online: true,
+            is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
             version: None,
             consecutive_misses: 0,
         };
-        mesh.paired_peers.insert(accept.from_instance_id.clone(), peer);
+        mesh.paired_peers
+            .insert(accept.from_instance_id.clone(), peer);
         mesh.pending_requests.remove(&accept.request_id);
         mesh.pairing_targets.remove(&accept.request_id);
         let _ = mesh.save();
@@ -170,7 +211,10 @@ pub async fn mesh_pair_accept(
     }
 
     // Delayed introductions — wait for approver to finish storing us in paired_peers
-    let intro_data = state.mesh.lock().prepare_introductions(&accept.from_instance_id);
+    let intro_data = state
+        .mesh
+        .lock()
+        .prepare_introductions(&accept.from_instance_id);
     if let Some((new_peer, existing, our_id, token)) = intro_data {
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -192,7 +236,8 @@ pub async fn mesh_pair_reject(
     AxumState(state): AxumState<AppState>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let request_id = body["request_id"].as_str()
+    let request_id = body["request_id"]
+        .as_str()
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing request_id".to_string()))?
         .to_string();
 
@@ -200,7 +245,9 @@ pub async fn mesh_pair_reject(
     let block_id = if let Some(req) = mesh.pending_requests.get_mut(&request_id) {
         req.status = crate::mesh::types::PairingStatus::Rejected;
         Some(req.from_instance_id.clone())
-    } else { None };
+    } else {
+        None
+    };
     if let Some(id) = block_id {
         if !mesh.revocation_list.blocked.contains(&id) {
             mesh.revocation_list.blocked.push(id);
@@ -218,7 +265,10 @@ pub async fn mesh_unpair(
     headers: HeaderMap,
     Path(instance_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
+    let auth = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     let token = auth.strip_prefix("Bearer ").unwrap_or("");
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
@@ -239,16 +289,26 @@ pub async fn mesh_unpair(
         }
     }
 
-    log::info!("[mesh/unpair] sender={} removing {}", sender_id, instance_id);
+    log::info!(
+        "[mesh/unpair] sender={} removing {}",
+        sender_id,
+        instance_id
+    );
     if sender_id != our_id && sender_id != instance_id {
         let mesh_guard = state.mesh.lock();
         let is_paired = mesh_guard.paired_peers.contains_key(&sender_id);
         drop(mesh_guard);
         if !is_paired {
-            return Err((StatusCode::FORBIDDEN,
-                format!("Unknown peer {} cannot remove {}", sender_id, instance_id)));
+            return Err((
+                StatusCode::FORBIDDEN,
+                format!("Unknown peer {} cannot remove {}", sender_id, instance_id),
+            ));
         }
-        log::info!("[mesh] Peer {} requested removal of {} from our mesh", sender_id, instance_id);
+        log::info!(
+            "[mesh] Peer {} requested removal of {} from our mesh",
+            sender_id,
+            instance_id
+        );
     }
 
     let target_peer = state.mesh.lock().paired_peers.get(&instance_id).cloned();
@@ -267,30 +327,51 @@ pub async fn mesh_unpair(
         if let (Some(peer), Some(token)) = (target_peer, signed_token) {
             if !peer.addresses.is_empty() {
                 let client = reqwest::Client::builder()
-                    .timeout(std::time::Duration::from_secs(3)).build().unwrap_or_default();
+                    .timeout(std::time::Duration::from_secs(3))
+                    .build()
+                    .unwrap_or_default();
                 let api_port = peer.api_port;
                 let addresses = peer.addresses.clone();
                 let target = instance_id.clone();
                 let our_id_for_call = our_id.clone();
                 tokio::spawn(async move {
                     let result = crate::mesh::transport::try_peer(&addresses, |addr| {
-                        let url = format!("http://{}:{}/api/mesh/peers/{}", addr.ip, api_port, our_id_for_call);
+                        let url = format!(
+                            "http://{}:{}/api/mesh/peers/{}",
+                            addr.ip, api_port, our_id_for_call
+                        );
                         let client = client.clone();
                         let token = token.clone();
                         async move {
-                            match client.delete(&url)
+                            match client
+                                .delete(&url)
                                 .header("Authorization", format!("Bearer {}", token))
-                                .send().await
+                                .send()
+                                .await
                             {
-                                Ok(resp) if resp.status().is_success() => crate::mesh::transport::TryNext::Success(()),
-                                Ok(resp) => crate::mesh::transport::TryNext::Stop(format!("HTTP {}", resp.status())),
+                                Ok(resp) if resp.status().is_success() => {
+                                    crate::mesh::transport::TryNext::Success(())
+                                }
+                                Ok(resp) => crate::mesh::transport::TryNext::Stop(format!(
+                                    "HTTP {}",
+                                    resp.status()
+                                )),
                                 Err(e) => crate::mesh::transport::TryNext::Retry(e.to_string()),
                             }
                         }
-                    }).await;
+                    })
+                    .await;
                     match result {
-                        Ok(()) => log::info!("[mesh/cascade] Notified {} to remove us ({})", target, our_id_for_call),
-                        Err(e) => log::debug!("[mesh/cascade] Could not notify {} about removal: {}", target, e),
+                        Ok(()) => log::info!(
+                            "[mesh/cascade] Notified {} to remove us ({})",
+                            target,
+                            our_id_for_call
+                        ),
+                        Err(e) => log::debug!(
+                            "[mesh/cascade] Could not notify {} about removal: {}",
+                            target,
+                            e
+                        ),
                     }
                 });
             }

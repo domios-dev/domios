@@ -39,8 +39,11 @@ pub async fn create_notification(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let id = state.svc.create_notification_ext(
-        body.title, body.body, body.level.as_deref(),
-        body.actions, body.sticky,
+        body.title,
+        body.body,
+        body.level.as_deref(),
+        body.actions,
+        body.sticky,
     );
     Ok(Json(serde_json::json!({"id": id})))
 }

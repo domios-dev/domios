@@ -8,7 +8,9 @@ pub fn cron_id_to_service_id(cron_id: &str) -> String {
 }
 
 pub fn service_id_to_cron_id(service_id: &str) -> &str {
-    service_id.strip_prefix(CRON_ID_PREFIX).unwrap_or(service_id)
+    service_id
+        .strip_prefix(CRON_ID_PREFIX)
+        .unwrap_or(service_id)
 }
 
 pub fn cron_to_service(job: &CronJob) -> Service {

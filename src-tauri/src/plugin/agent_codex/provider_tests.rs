@@ -139,7 +139,9 @@ fn codex_launch_headless_without_task_falls_back_to_tui() {
 #[test]
 fn codex_resume_command_with_uuid() {
     let p = CodexProvider::new();
-    let cmd = p.build_resume_command("019d6240-e61f-7463-9d7d-6d5afa4e7f93", true).unwrap();
+    let cmd = p
+        .build_resume_command("019d6240-e61f-7463-9d7d-6d5afa4e7f93", true)
+        .unwrap();
     assert!(cmd.contains("codex resume"));
     assert!(cmd.contains("--dangerously-bypass-approvals-and-sandbox"));
     assert!(cmd.contains("019d6240-e61f-7463-9d7d-6d5afa4e7f93"));
@@ -148,7 +150,12 @@ fn codex_resume_command_with_uuid() {
 #[test]
 fn codex_resume_command_extracts_uuid_from_stem() {
     let p = CodexProvider::new();
-    let cmd = p.build_resume_command("rollout-2026-04-06T13-05-13-019d6240-e61f-7463-9d7d-6d5afa4e7f93", true).unwrap();
+    let cmd = p
+        .build_resume_command(
+            "rollout-2026-04-06T13-05-13-019d6240-e61f-7463-9d7d-6d5afa4e7f93",
+            true,
+        )
+        .unwrap();
     assert!(cmd.contains("019d6240-e61f-7463-9d7d-6d5afa4e7f93"));
     assert!(!cmd.contains("rollout-"));
 }
@@ -176,7 +183,10 @@ fn codex_event_detection() {
     let p = CodexProvider::new();
     let events = p.detect_events("Would you like to run the following command?\n$ ls -la");
     assert_eq!(events.len(), 1);
-    assert!(matches!(events[0], crate::agent::detector::AgentEvent::PermissionRequest));
+    assert!(matches!(
+        events[0],
+        crate::agent::detector::AgentEvent::PermissionRequest
+    ));
 
     let events = p.detect_events("Hello, how can I help?");
     assert!(events.is_empty());
@@ -252,29 +262,13 @@ fn codex_settings_schema_round_trips_as_json() {
 }
 
 #[test]
-fn codex_notifications_schema_present() {
-    // Codex has no hook file system, but PTY-output detection always runs.
-    // The schema surfaces that as a read-only "auto-enabled" badge so the
-    // Notifications tab lists Codex alongside Claude.
+fn codex_does_not_contribute_notifications_card() {
+    // Codex notifications fire automatically via the PTY event pipeline
+    // — no user-facing setting to render. Keeping the Notifications tab
+    // free of "auto-enabled, no setup required" cards keeps the UI honest.
     let p = CodexProvider::new();
-    let schema = p.notifications_schema();
-    assert!(!schema.is_empty(), "Codex must contribute notifications");
-    match &schema[0] {
-        crate::agent::provider::SettingField::Section { title, fields, .. } => {
-            assert_eq!(title, "Codex Notifications");
-            let mut saw_badge = false;
-            for f in fields {
-                if let crate::agent::provider::SettingField::Badge { query_command, .. } = f {
-                    if query_command == "check_pty_status_available" {
-                        saw_badge = true;
-                    }
-                }
-            }
-            assert!(saw_badge, "expected Badge wired to check_pty_status_available");
-        }
-        _ => panic!("expected Section as top-level notifications field"),
-    }
-    assert!(!p.describe().notifications_schema.is_empty());
+    assert!(p.notifications_schema().is_empty());
+    assert!(p.describe().notifications_schema.is_empty());
 }
 
 // Meta filter — these strings are injections CodeTerm writes to a codex
@@ -282,12 +276,22 @@ fn codex_notifications_schema_present() {
 // don't pollute results with our own bootstrap noise.
 #[test]
 fn is_codeterm_injection_matches_known_boot_prompts() {
-    assert!(is_codeterm_injection("# AGENTS.md instructions for /Users/x/proj"));
+    assert!(is_codeterm_injection(
+        "# AGENTS.md instructions for /Users/x/proj"
+    ));
     assert!(is_codeterm_injection("<INSTRUCTIONS>\nYou are..."));
-    assert!(is_codeterm_injection("<environment_context>\n  <cwd>/x</cwd>\n</environment_context>"));
-    assert!(is_codeterm_injection("<permissions instructions>\nFilesystem sandboxing..."));
-    assert!(is_codeterm_injection("You are a Graph Worker for the CodeTerm memory system."));
-    assert!(is_codeterm_injection("You are the General Agent — the always-on system brain"));
+    assert!(is_codeterm_injection(
+        "<environment_context>\n  <cwd>/x</cwd>\n</environment_context>"
+    ));
+    assert!(is_codeterm_injection(
+        "<permissions instructions>\nFilesystem sandboxing..."
+    ));
+    assert!(is_codeterm_injection(
+        "You are a Graph Worker for the CodeTerm memory system."
+    ));
+    assert!(is_codeterm_injection(
+        "You are the General Agent — the always-on system brain"
+    ));
     // Leading whitespace is ok — real codex payloads don't trim.
     assert!(is_codeterm_injection("   \n<INSTRUCTIONS>payload"));
 }
@@ -299,7 +303,9 @@ fn is_codeterm_injection_leaves_real_user_messages_alone() {
     assert!(!is_codeterm_injection("# TODO list\n- ship v2"));
     // User could paste the literal strings inside a question — that's
     // legitimate. Strict `starts_with` keeps false positives low.
-    assert!(!is_codeterm_injection("looking at <INSTRUCTIONS> — what does it mean"));
+    assert!(!is_codeterm_injection(
+        "looking at <INSTRUCTIONS> — what does it mean"
+    ));
 }
 
 #[test]

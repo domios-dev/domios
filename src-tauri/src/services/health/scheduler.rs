@@ -7,7 +7,9 @@ use rusqlite::{params, Connection};
 use tauri::Emitter;
 
 use crate::services::activity::{ActivityEvent, ActivityWriter};
-use crate::services::store::{HealthMode, HealthSnapshot, HealthStatus, ServiceKind, ServicesStore};
+use crate::services::store::{
+    HealthMode, HealthSnapshot, HealthStatus, ServiceKind, ServicesStore,
+};
 
 const TICK_SECS: u64 = 30;
 const HTTP_TIMEOUT_MS: u64 = 5_000;
@@ -24,7 +26,11 @@ struct DebounceState {
 
 pub fn start(store: Arc<ServicesStore>, activity: ActivityWriter, app_handle: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
-        log::info!("[services] health scheduler started (tick {}s, debounce {} ticks)", TICK_SECS, TRANSITION_DEBOUNCE_TICKS);
+        log::info!(
+            "[services] health scheduler started (tick {}s, debounce {} ticks)",
+            TICK_SECS,
+            TRANSITION_DEBOUNCE_TICKS
+        );
         let mut state: HashMap<String, DebounceState> = HashMap::new();
         loop {
             run_tick(&store, &activity, &app_handle, &mut state).await;

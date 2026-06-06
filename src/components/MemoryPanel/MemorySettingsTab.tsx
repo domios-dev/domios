@@ -61,7 +61,26 @@ function relativeFromNow(target: number): string {
 }
 
 export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
-  const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_agent: "", dreaming_model: "haiku", worker_model: "haiku", worker_timeout_seconds: 1800, file_sync_enabled: true, file_sync_interval_minutes: 60, dedup_threshold: 0.15 };
+  const { providers } = useAgentProviders();
+  const inputClass = "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
+
+  // Pick default model from the first registered provider's descriptor —
+  // avoids hardcoding "haiku" (a Claude-specific id) and keeps the
+  // defaults useful for whichever provider is the user's primary.
+  const defaultProvider = config.general_agent?.agent_provider || providers[0]?.id || "";
+  const defaultModel = providers.find(p => p.id === defaultProvider)?.default_model ?? "";
+  const defaultMem = {
+    extraction_agent: "",
+    extraction_model: defaultModel,
+    auto_extract: true,
+    dreaming_agent: "",
+    dreaming_model: defaultModel,
+    worker_model: defaultModel,
+    worker_timeout_seconds: 1800,
+    file_sync_enabled: true,
+    file_sync_interval_minutes: 60,
+    dedup_threshold: 0.15,
+  };
   const rawMem = { ...defaultMem, ...(config.memory ?? {}) };
   const mem = {
     ...rawMem,
@@ -69,10 +88,6 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
     dreaming_model: canonicalizeShort(rawMem.dreaming_model),
     worker_model: canonicalizeShort(rawMem.worker_model),
   };
-  const { providers } = useAgentProviders();
-  const inputClass = "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
-
-  const defaultProvider = config.general_agent?.agent_provider || "claude";
 
   const extractionProvider = mem.extraction_agent || defaultProvider;
   const extractionModels = providers.find(p => p.id === extractionProvider)?.available_models ?? [];

@@ -18,15 +18,21 @@ pub fn strip_ansi_codes(s: &str) -> String {
                     chars.next();
                     while let Some(&ch) = chars.peek() {
                         chars.next();
-                        if ch.is_ascii_alphabetic() || ch == '~' { break; }
+                        if ch.is_ascii_alphabetic() || ch == '~' {
+                            break;
+                        }
                     }
                 } else if next == ']' {
                     chars.next();
                     while let Some(&ch) = chars.peek() {
                         chars.next();
-                        if ch == '\x07' { break; }
+                        if ch == '\x07' {
+                            break;
+                        }
                         if ch == '\x1b' {
-                            if chars.peek() == Some(&'\\') { chars.next(); }
+                            if chars.peek() == Some(&'\\') {
+                                chars.next();
+                            }
                             break;
                         }
                     }
@@ -63,21 +69,32 @@ pub fn strip_ansi(raw: &str) -> String {
                     chars.next();
                     while let Some(&nc) = chars.peek() {
                         chars.next();
-                        if nc.is_ascii_alphabetic() || nc == '@' || nc == '~' { break; }
+                        if nc.is_ascii_alphabetic() || nc == '@' || nc == '~' {
+                            break;
+                        }
                     }
                 }
                 Some(']') => {
                     chars.next();
                     while let Some(nc) = chars.next() {
-                        if nc == '\x07' { break; }
+                        if nc == '\x07' {
+                            break;
+                        }
                         if nc == '\x1b' {
-                            if chars.peek() == Some(&'\\') { chars.next(); }
+                            if chars.peek() == Some(&'\\') {
+                                chars.next();
+                            }
                             break;
                         }
                     }
                 }
-                Some('(' | ')') => { chars.next(); chars.next(); }
-                _ => { chars.next(); }
+                Some('(' | ')') => {
+                    chars.next();
+                    chars.next();
+                }
+                _ => {
+                    chars.next();
+                }
             }
         } else if c == '\r' {
             // Skip CR, keep LF

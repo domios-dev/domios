@@ -100,7 +100,9 @@ impl FileIndexStorage {
     }
 
     pub fn default_path() -> PathBuf {
-        crate::paths::data_dir().join("secrets").join("local-index.json")
+        crate::paths::data_dir()
+            .join("secrets")
+            .join("local-index.json")
     }
 }
 
@@ -175,9 +177,8 @@ impl LocalStore {
     /// Production constructor: real OS keychain + real on-disk index.
     pub fn detect_and_build() -> Self {
         let keychain = Keychain::new(KEYCHAIN_SERVICE);
-        let index: Box<dyn IndexStorage> = Box::new(FileIndexStorage::new(
-            FileIndexStorage::default_path(),
-        ));
+        let index: Box<dyn IndexStorage> =
+            Box::new(FileIndexStorage::new(FileIndexStorage::default_path()));
         let unavailable = if keychain.is_available() {
             None
         } else {
@@ -237,11 +238,7 @@ impl LocalStore {
         }
     }
 
-    fn lookup_by_id<'a>(
-        &self,
-        index: &'a LocalIndex,
-        id_or_name: &str,
-    ) -> Option<&'a IndexEntry> {
+    fn lookup_by_id<'a>(&self, index: &'a LocalIndex, id_or_name: &str) -> Option<&'a IndexEntry> {
         let key = id_or_name.to_lowercase();
         if let Some(direct) = index.entries.get(&key) {
             return Some(direct);
@@ -456,11 +453,7 @@ fn hostname_label() -> Option<String> {
     std::env::var("HOSTNAME")
         .ok()
         .or_else(|| std::env::var("COMPUTERNAME").ok())
-        .or_else(|| {
-            hostname::get()
-                .ok()
-                .and_then(|os| os.into_string().ok())
-        })
+        .or_else(|| hostname::get().ok().and_then(|os| os.into_string().ok()))
 }
 
 #[cfg(test)]

@@ -26,7 +26,9 @@ pub fn get_windows_build_number() -> u32 {
             19041
         }
         #[cfg(not(target_os = "windows"))]
-        { 0 }
+        {
+            0
+        }
     })
 }
 
@@ -42,7 +44,8 @@ pub fn get_network_info(
     state: tauri::State<'_, crate::config::ConfigState>,
     mesh: tauri::State<'_, crate::MeshStateHandle>,
 ) -> Result<serde_json::Value, String> {
-    let local_ip = crate::api::routes::local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
+    let local_ip =
+        crate::api::routes::local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
     // Single source of truth: read the cached value populated by
     // `mesh::discovery::detect_tailscale` from the periodic refresh loop.
     // Avoids duplicating the probe logic (which lacked IP validation,
@@ -79,7 +82,9 @@ pub async fn get_shell_diagnostics() -> serde_json::Value {
             fn exists_on_path(name: &str) -> Option<String> {
                 let path = std::env::var("PATH").ok()?;
                 for dir in path.split(';') {
-                    if dir.is_empty() { continue; }
+                    if dir.is_empty() {
+                        continue;
+                    }
                     let p = std::path::Path::new(dir).join(name);
                     if p.is_file() {
                         return Some(p.to_string_lossy().into_owned());
@@ -89,7 +94,9 @@ pub async fn get_shell_diagnostics() -> serde_json::Value {
             }
             let pwsh = exists_on_path("pwsh.exe");
             let ps5 = exists_on_path("powershell.exe");
-            let current = pwsh.clone().or(ps5.clone())
+            let current = pwsh
+                .clone()
+                .or(ps5.clone())
                 .unwrap_or_else(|| std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into()));
             serde_json::json!({
                 "platform": platform,
@@ -100,11 +107,13 @@ pub async fn get_shell_diagnostics() -> serde_json::Value {
             })
         })
         .await
-        .unwrap_or_else(|_| serde_json::json!({
-            "platform": platform,
-            "pwsh_installed": true,
-            "current_shell": "unknown",
-        }))
+        .unwrap_or_else(|_| {
+            serde_json::json!({
+                "platform": platform,
+                "pwsh_installed": true,
+                "current_shell": "unknown",
+            })
+        })
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -137,7 +146,10 @@ pub fn suggest_install_pwsh(
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
         loop {
             if std::time::Instant::now() > deadline {
-                log::warn!("[suggest_install_pwsh] gave up waiting for PTY on {}", pane_id_bg);
+                log::warn!(
+                    "[suggest_install_pwsh] gave up waiting for PTY on {}",
+                    pane_id_bg
+                );
                 return;
             }
             let pty_id = svc_arc
@@ -160,6 +172,26 @@ pub fn suggest_install_pwsh(
         }
     });
     Ok(pane_id)
+}
+
+/// Frontend reports WebGL renderer health here. Goes into the daemon
+/// log so rendering health is observable without opening the WebView
+/// devtools. Called from useXterm.ts on every TerminalPane mount.
+///
+/// state: "loaded" — WebGL addon attached successfully
+///        "context_lost" — GPU context dropped (xterm will fall back)
+///        "failed" — WebGL addon constructor threw
+#[tauri::command]
+pub fn report_webgl_status(state: String, detail: Option<String>) {
+    match state.as_str() {
+        "loaded" => log::info!("[webgl] addon loaded"),
+        "context_lost" => log::warn!("[webgl] GPU context lost — DOM fallback engaged"),
+        "failed" => log::warn!(
+            "[webgl] addon failed to load: {}",
+            detail.as_deref().unwrap_or("<no detail>")
+        ),
+        other => log::warn!("[webgl] unknown state from FE: {other}"),
+    }
 }
 
 #[tauri::command]

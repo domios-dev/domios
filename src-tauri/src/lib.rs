@@ -1,16 +1,17 @@
 pub mod agent;
 mod api;
-mod crash;
 pub mod attachments;
 mod autostart;
 pub mod bridge;
 mod clipboard_files;
 mod commands;
-pub mod dispatch;
 mod commands_mesh;
-mod keepawake;
 mod config;
+mod crash;
 pub mod cron;
+pub mod dispatch;
+mod keepawake;
+pub mod logs;
 pub mod mem;
 pub mod mesh;
 pub mod multiplexer;
@@ -18,17 +19,16 @@ mod notification;
 pub mod pasteboard;
 pub mod paths;
 pub mod plugin;
-pub mod prompts;
 pub mod process_util;
+pub mod prompts;
 pub mod pty;
 pub mod secrets;
 pub mod service;
 pub mod services;
-pub mod shell;
 pub mod session;
+pub mod shell;
 mod socket;
 mod startup;
-pub mod logs;
 pub mod update;
 pub mod usage;
 
@@ -155,14 +155,13 @@ pub fn run() {
             commands::restart_general_agent,
             commands::get_network_info,
             commands::generate_api_token,
+            commands::report_webgl_status,
             commands::save_clipboard_image,
             commands::save_clipboard_file,
             clipboard_files::read_clipboard_files,
             clipboard_files::read_clipboard_text,
             commands::save_temp_file,
             commands::copy_image_to_clipboard,
-            commands::install_project_rules,
-            commands::check_rule_installed,
             commands::check_for_update,
             commands::install_app_update,
             commands::open_folder,
@@ -192,6 +191,10 @@ pub fn run() {
             multiplexer::commands::detect_claude_session_id,
             multiplexer::commands::detect_pane_session_id,
             multiplexer::commands::mux_set_claude_session_id,
+            commands::chat_start,
+            commands::chat_stop,
+            commands::chat_backfill,
+            commands::chat_send_text,
             commands::check_cli_installed,
             commands::install_provider_in_pane,
             multiplexer::commands::build_agent_launch_command,
@@ -216,11 +219,12 @@ pub fn run() {
             config::get_themes_dir,
             // Directory completion
             commands::list_dir_completions,
-            // Claude hooks commands
-            commands::check_claude_hooks,
-            commands::install_claude_hooks,
-            commands::uninstall_claude_hooks,
-            commands::check_pty_status_available,
+            // Provider integration (hooks/callbacks) — generic dispatchers
+            commands::check_provider_integration,
+            commands::install_provider_integration,
+            commands::uninstall_provider_integration,
+            commands::check_provider_rule,
+            commands::install_provider_rule,
             // Session commands
             session::save_session,
             session::save_session_named,
@@ -345,6 +349,131 @@ pub fn run() {
             }
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
 
+            // First-launch bootstrap: extract the embedded system-plugin
+            // bundles into ~/.codeterm/plugins/<id>/ when missing. This
+            // is the offline fallback — a fresh prod binary without
+            // network still ships working providers because the bundles
+            // are baked into the executable via include_dir!. Channel
+            // infra (Phase 2 of the channels plan) will overlay/update
+            // on top of this, but the floor stays the embedded bundle.
+            //
+            // Skipped in dev mode (CODETERM_DEV=1) so that live edits
+            // to <repo>/plugins/<id>/ aren't shadowed by a stale extract
+            // in the user dir. In dev, the workspace IS the source.
+            if std::env::var("CODETERM_DEV").as_deref() != Ok("1") {
+                if let Some(home) = dirs::home_dir() {
+                    let user_plugins = home.join(".codeterm").join("plugins");
+                    match plugin::embedded::bootstrap_into(&user_plugins) {
+                        Ok(written) if !written.is_empty() => {
+                            log::info!(
+                                "[plugin/bootstrap] extracted embedded plugins {written:?} → {}",
+                                user_plugins.display()
+                            );
+                        }
+                        Ok(_) => {
+                            log::debug!(
+                                "[plugin/bootstrap] {} already has all system plugins",
+                                user_plugins.display()
+                            );
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "[plugin/bootstrap] failed to extract embedded plugins to {}: {e}",
+                                user_plugins.display()
+                            );
+                        }
+                    }
+                } else {
+                    log::warn!(
+                        "[plugin/bootstrap] dirs::home_dir() returned None; cannot extract embedded plugins"
+                    );
+                }
+            } else {
+                log::info!("[plugin/bootstrap] CODETERM_DEV=1 — skipping embedded extract, workspace plugins are authoritative");
+            }
+
+            // Discover and register JS-runtime plugins. Scans the bundled
+            // workspace (`<repo>/plugins/`, only present in dev/source
+            // builds) and the per-user drop-in dir (`~/.codeterm/plugins/`).
+            //
+            // Collision rule (current default): **JS plugins are
+            // authoritative** — they overwrite the native bundled provider
+            // when both define the same id. Native code stays in the
+            // binary as an emergency rollback: set
+            // `CODETERM_NATIVE_PROVIDERS=<id>[,id]|all` to pin the native
+            // impl for one or more providers.
+            {
+                use crate::agent::provider::AgentProvider;
+                use std::collections::HashSet;
+                use std::path::PathBuf;
+                let workspace_root: Option<PathBuf> = Some(PathBuf::from(
+                    concat!(env!("CARGO_MANIFEST_DIR"), "/..")
+                ));
+                let roots = plugin::js_runtime::default_roots(workspace_root.as_deref());
+                let (providers, report) = plugin::js_runtime::scan_roots(&roots);
+                for outcome in &report {
+                    match outcome {
+                        plugin::js_runtime::LoadOutcome::Loaded { plugin_id, manifest_path } => {
+                            log::info!(
+                                "[js-plugin] loaded {plugin_id} from {}",
+                                manifest_path.display()
+                            );
+                        }
+                        plugin::js_runtime::LoadOutcome::Skipped { path, reason } => {
+                            log::warn!(
+                                "[js-plugin] skipped {}: {reason}",
+                                path.display()
+                            );
+                        }
+                    }
+                }
+                let keep_native: HashSet<String> = std::env::var("CODETERM_NATIVE_PROVIDERS")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim().to_lowercase())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                let keep_all_native = keep_native.contains("all");
+                for p in providers {
+                    let id = p.id().to_string();
+                    let trust = p.trust();
+                    log::info!("[js-plugin] {id} trust={:?}", trust);
+                    if keep_all_native || keep_native.contains(&id) {
+                        if !agent_registry.register_provider_if_absent(Box::new(p)) {
+                            log::info!(
+                                "[js-plugin] {id} held back — \
+                                CODETERM_NATIVE_PROVIDERS pins the native impl"
+                            );
+                        }
+                    } else {
+                        log::info!(
+                            "[js-plugin] {id} registered as authoritative \
+                            (set CODETERM_NATIVE_PROVIDERS={id} to rollback)"
+                        );
+                        agent_registry.register_provider(Box::new(p));
+                    }
+                }
+
+                // Hot-reload watcher: polls the same roots every 2s and
+                // (a) discovers new plugin folders dropped into
+                // ~/.codeterm/plugins/, (b) reloads existing plugin VMs
+                // when their plugin.js changes, (c) unregisters plugins
+                // whose folder vanished. The initial state above is the
+                // current registry; from here on the watcher owns it.
+                let watcher = plugin::js_runtime::HotReloadRegistry::new(
+                    roots.clone(),
+                    agent_registry.clone(),
+                );
+                // Seed tracked-state for already-registered plugins so the
+                // first tick doesn't re-register them.
+                watcher.tick();
+                watcher.start();
+                log::info!(
+                    "[js-plugin] hot-reload watcher started on {} roots",
+                    roots.len()
+                );
+            }
+
             // All providers have called `model_catalog::register(...)` in their
             // constructors by now — refresh the `<provider>.example.toml`
             // files so users always see the current build's defaults.
@@ -367,10 +496,12 @@ pub fn run() {
             // Re-index any items missing vectors (catches failed bg indexing)
             mem.reindex_missing();
 
-            // Auto-install Claude hooks (Notification, Stop, PreCompact).
-            // PreCompact is critical for mem — it flushes pane scrollback
-            // before Claude summarizes the context window.
-            commands::ensure_claude_hooks_installed();
+            // Auto-install each provider's CodeTerm integration (hooks /
+            // callbacks). Providers without an integration no-op via the
+            // AgentProvider trait default. For Claude this installs the
+            // Notification / Stop / PreCompact / SessionStart hooks that
+            // POST events back into our HTTP API.
+            commands::ensure_integrations_for_all(&agent_registry);
 
             let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
                 crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),
@@ -407,6 +538,7 @@ pub fn run() {
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_supervisor: Arc::new(bridge::supervisor::BridgeSupervisor::new()),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
+                chat_registry: crate::service::pane_chat::ChatRegistry::new(),
                 secrets: {
                     let cfg_guard = states.config.lock();
                     let cfg = cfg_guard.integrations.secrets.clone();

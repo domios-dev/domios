@@ -6,9 +6,6 @@
 /// Appended to Worker tasks — tells them how to report back.
 pub const WORKER_SUFFIX: &str = include_str!("../prompts/worker_suffix.md");
 
-/// Appended to Lead tasks — spawn instructions + no-sleep rule.
-pub const LEAD_SUFFIX: &str = include_str!("../prompts/lead_suffix.md");
-
 /// Appended to Orchestrator tasks — no-sleep rule.
 pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
 
@@ -33,7 +30,8 @@ pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../prompts/general_agent.
 pub const CODETERM_CLI: &str = include_str!("../prompts/codeterm_cli.md");
 
 /// Bootstrap instructions template — becomes the agent's personal config file after first run.
-pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str = include_str!("../prompts/bootstrap_instructions.md");
+pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str =
+    include_str!("../prompts/bootstrap_instructions.md");
 
 /// Wrapper applied to every headless memory worker task. Placeholders: `{intent}`, `{worker_id}`, `{task}`.
 pub const WORKER_TASK_PREAMBLE: &str = include_str!("../prompts/worker_task_preamble.md");

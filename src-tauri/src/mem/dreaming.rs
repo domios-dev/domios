@@ -8,7 +8,8 @@
 //! top of this baseline in later phases as needed.
 
 use rusqlite::params;
-#[cfg(test)] use rusqlite::Connection;
+#[cfg(test)]
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use super::MemManager;
@@ -116,9 +117,7 @@ fn light_promote_one(
         .as_ref()
         .and_then(|a| chrono::DateTime::parse_from_rfc3339(a).ok())
         .map(|a| {
-            let days = (now_ts - a.with_timezone(&chrono::Utc))
-                .num_hours()
-                .max(0) as f64 / 24.0;
+            let days = (now_ts - a.with_timezone(&chrono::Utc)).num_hours().max(0) as f64 / 24.0;
             (-days * 0.693 / 14.0).exp() // ln(2)/14 ≈ 0.0495
         })
         .unwrap_or(0.0);
@@ -128,9 +127,7 @@ fn light_promote_one(
     let age = chrono::DateTime::parse_from_rfc3339(created_at)
         .ok()
         .map(|c| {
-            let days = (now_ts - c.with_timezone(&chrono::Utc))
-                .num_hours()
-                .max(0) as f64 / 24.0;
+            let days = (now_ts - c.with_timezone(&chrono::Utc)).num_hours().max(0) as f64 / 24.0;
             (days / 7.0).min(1.0)
         })
         .unwrap_or(0.5);
@@ -268,8 +265,12 @@ fn lev(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
     let (n, m) = (a.len(), b.len());
-    if n == 0 { return m; }
-    if m == 0 { return n; }
+    if n == 0 {
+        return m;
+    }
+    if m == 0 {
+        return n;
+    }
     let mut prev: Vec<usize> = (0..=m).collect();
     let mut curr = vec![0usize; m + 1];
     for i in 1..=n {
@@ -286,7 +287,9 @@ fn lev(a: &str, b: &str) -> usize {
 #[cfg(test)]
 fn lev_ratio(a: &str, b: &str) -> f64 {
     let max = a.chars().count().max(b.chars().count());
-    if max == 0 { return 1.0; }
+    if max == 0 {
+        return 1.0;
+    }
     1.0 - (lev(a, b) as f64 / max as f64)
 }
 
@@ -315,9 +318,9 @@ fn normalize_run(conn: &Connection) -> Result<NormalizeReport, String> {
     let mut report = NormalizeReport::default();
     let now = chrono::Utc::now().to_rfc3339();
 
-    report.relations_canonicalized = codeterm_mem_store::graph::canonicalize_relation_types(
-        conn, NORMALIZE_SYNONYMS,
-    ).map_err(|e| format!("canonicalize: {}", e))?;
+    report.relations_canonicalized =
+        codeterm_mem_store::graph::canonicalize_relation_types(conn, NORMALIZE_SYNONYMS)
+            .map_err(|e| format!("canonicalize: {}", e))?;
 
     let entities = codeterm_mem_store::graph::list_entities_with_degree(conn)
         .map_err(|e| format!("list entities: {}", e))?;
@@ -350,24 +353,32 @@ fn normalize_run(conn: &Connection) -> Result<NormalizeReport, String> {
                     } else {
                         (b_id.clone(), a_id.clone())
                     };
-                    if codeterm_mem_store::graph::add_alias_with_rewire(conn, &alias, &canonical).is_ok() {
+                    if codeterm_mem_store::graph::add_alias_with_rewire(conn, &alias, &canonical)
+                        .is_ok()
+                    {
                         report.merged += 1;
                     }
                 } else {
-                    report.flagged_pairs.push((a_id.clone(), b_id.clone(), ratio));
+                    report
+                        .flagged_pairs
+                        .push((a_id.clone(), b_id.clone(), ratio));
                 }
             }
         }
     }
 
-    let cutoff = (chrono::Utc::now() - chrono::Duration::days(NORMALIZE_ORPHAN_AGE_DAYS)).to_rfc3339();
+    let cutoff =
+        (chrono::Utc::now() - chrono::Duration::days(NORMALIZE_ORPHAN_AGE_DAYS)).to_rfc3339();
     report.orphans_deleted = codeterm_mem_store::graph::cleanup_orphan_entities(
-        conn, NORMALIZE_PROTECTED_TYPES, &cutoff,
-    ).map_err(|e| format!("orphan cleanup: {}", e))?;
+        conn,
+        NORMALIZE_PROTECTED_TYPES,
+        &cutoff,
+    )
+    .map_err(|e| format!("orphan cleanup: {}", e))?;
 
-    report.broken_relations_invalidated = codeterm_mem_store::graph::invalidate_broken_relations(
-        conn, &now,
-    ).map_err(|e| format!("broken invalidate: {}", e))?;
+    report.broken_relations_invalidated =
+        codeterm_mem_store::graph::invalidate_broken_relations(conn, &now)
+            .map_err(|e| format!("broken invalidate: {}", e))?;
 
     Ok(report)
 }
@@ -380,9 +391,9 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
     let mut lines = Vec::new();
 
     // 1. Unclassified items (no area)
-    let mut stmt = conn.prepare(
-        "SELECT id, kind, title FROM mem_items WHERE (area IS NULL OR area = '') LIMIT 20"
-    ).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT id, kind, title FROM mem_items WHERE (area IS NULL OR area = '') LIMIT 20")
+        .map_err(|e| e.to_string())?;
     let unclassified: Vec<(String, String, String)> = stmt
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
         .map_err(|e| e.to_string())?
@@ -396,47 +407,85 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
     }
 
     // 2. Potential duplicates — same kind, similar titles (first 6 chars match)
-    let mut stmt = conn.prepare(
-        r#"SELECT a.id, b.id, a.kind, a.title, b.title, a.importance, b.importance
+    let mut stmt = conn
+        .prepare(
+            r#"SELECT a.id, b.id, a.kind, a.title, b.title, a.importance, b.importance
            FROM mem_items a
            JOIN mem_items b ON a.kind = b.kind
              AND a.id < b.id
              AND substr(a.title, 1, 12) = substr(b.title, 1, 12)
              AND a.title != b.title
-           LIMIT 20"#
-    ).map_err(|e| e.to_string())?;
+           LIMIT 20"#,
+        )
+        .map_err(|e| e.to_string())?;
     let dupes: Vec<(String, String, String, String, String, f64, f64)> = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))
+        .query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+            ))
+        })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
     if !dupes.is_empty() {
         lines.push(format!("\nPOTENTIAL DUPLICATES ({}):", dupes.len()));
         for (a_id, b_id, kind, a_title, b_title, a_imp, b_imp) in &dupes {
-            lines.push(format!("  [{}] \"{}\" (imp={}) vs \"{}\" (imp={})", kind, a_title, a_imp, b_title, b_imp));
+            lines.push(format!(
+                "  [{}] \"{}\" (imp={}) vs \"{}\" (imp={})",
+                kind, a_title, a_imp, b_title, b_imp
+            ));
             lines.push(format!("    ids: {} vs {}", a_id, b_id));
         }
     }
 
     // 3. Recent high-access items (last 7 days, for pattern finding)
     let week_ago = (chrono::Utc::now() - chrono::Duration::days(7)).to_rfc3339();
-    let mut stmt = conn.prepare(
-        r#"SELECT id, kind, title, area, access_count, recurrence_count
+    let mut stmt = conn
+        .prepare(
+            r#"SELECT id, kind, title, area, access_count, recurrence_count
            FROM mem_items
            WHERE updated_at > ?1 AND access_count >= 2
            ORDER BY access_count DESC
-           LIMIT 15"#
-    ).map_err(|e| e.to_string())?;
+           LIMIT 15"#,
+        )
+        .map_err(|e| e.to_string())?;
     let hot: Vec<(String, String, String, Option<String>, i64, i64)> = stmt
-        .query_map(params![&week_ago], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
+        .query_map(params![&week_ago], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
+        })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
     if !hot.is_empty() {
         lines.push(format!("\nHOT ITEMS last 7d ({}):", hot.len()));
         for (id, kind, title, area, ac, rc) in &hot {
-            let recur = if *rc > 0 { format!(" recur={}", rc) } else { String::new() };
-            lines.push(format!("  {} [{}] area={} access={}{} {}", id, kind, area.as_deref().unwrap_or("?"), ac, recur, title));
+            let recur = if *rc > 0 {
+                format!(" recur={}", rc)
+            } else {
+                String::new()
+            };
+            lines.push(format!(
+                "  {} [{}] area={} access={}{} {}",
+                id,
+                kind,
+                area.as_deref().unwrap_or("?"),
+                ac,
+                recur,
+                title
+            ));
         }
     }
 
@@ -455,59 +504,103 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
     }
 
     // 5. Recurring items (recurrence_count > 0 — system flagged as saved multiple times)
-    let mut stmt = conn.prepare(
-        r#"SELECT id, kind, title, area, recurrence_count, importance
+    let mut stmt = conn
+        .prepare(
+            r#"SELECT id, kind, title, area, recurrence_count, importance
            FROM mem_items
            WHERE recurrence_count > 0
            ORDER BY recurrence_count DESC
-           LIMIT 15"#
-    ).map_err(|e| e.to_string())?;
+           LIMIT 15"#,
+        )
+        .map_err(|e| e.to_string())?;
     let recurring: Vec<(String, String, String, Option<String>, i64, f64)> = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
+        .query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
+        })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
     if !recurring.is_empty() {
         lines.push(format!("\nRECURRING ITEMS ({}):", recurring.len()));
         for (id, kind, title, area, rc, imp) in &recurring {
-            lines.push(format!("  {} [{}] area={} recur={} imp={} {}", id, kind, area.as_deref().unwrap_or("?"), rc, imp, title));
+            lines.push(format!(
+                "  {} [{}] area={} recur={} imp={} {}",
+                id,
+                kind,
+                area.as_deref().unwrap_or("?"),
+                rc,
+                imp,
+                title
+            ));
         }
     }
 
     // 6. Stale learnings (>30 days, low access — candidates for promotion or archival)
     let month_ago = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
-    let mut stmt = conn.prepare(
-        r#"SELECT id, title, access_count, importance, created_at
+    let mut stmt = conn
+        .prepare(
+            r#"SELECT id, title, access_count, importance, created_at
            FROM mem_items
            WHERE kind = 'learning' AND created_at < ?1
            ORDER BY access_count DESC, importance DESC
-           LIMIT 20"#
-    ).map_err(|e| e.to_string())?;
+           LIMIT 20"#,
+        )
+        .map_err(|e| e.to_string())?;
     let stale_learnings: Vec<(String, String, i64, f64, String)> = stmt
-        .query_map(params![&month_ago], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+        .query_map(params![&month_ago], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
     if !stale_learnings.is_empty() {
-        lines.push(format!("\nLEARNINGS >30d ({}) — promote or archive?:", stale_learnings.len()));
+        lines.push(format!(
+            "\nLEARNINGS >30d ({}) — promote or archive?:",
+            stale_learnings.len()
+        ));
         for (id, title, ac, imp, created) in &stale_learnings {
-            lines.push(format!("  {} access={} imp={} created={} {}", id, ac, imp, &created[..10], title));
+            lines.push(format!(
+                "  {} access={} imp={} created={} {}",
+                id,
+                ac,
+                imp,
+                &created[..10],
+                title
+            ));
         }
     }
 
     // 7. Graph stats
-    let entity_count: i64 = conn.query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0)).unwrap_or(0);
-    let relation_count: i64 = conn.query_row("SELECT COUNT(*) FROM relations WHERE valid_to IS NULL", [], |r| r.get(0)).unwrap_or(0);
+    let entity_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0))
+        .unwrap_or(0);
+    let relation_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE valid_to IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
     let orphan_entities: i64 = conn.query_row(
         "SELECT COUNT(*) FROM entities WHERE id NOT IN (SELECT from_id FROM relations) AND id NOT IN (SELECT to_id FROM relations)",
         [], |r| r.get(0),
     ).unwrap_or(0);
-    lines.push(format!("\nGRAPH: {} entities, {} active relations, {} orphan entities", entity_count, relation_count, orphan_entities));
+    lines.push(format!(
+        "\nGRAPH: {} entities, {} active relations, {} orphan entities",
+        entity_count, relation_count, orphan_entities
+    ));
 
     // 8. Kind distribution
-    let mut stmt = conn.prepare(
-        "SELECT kind, COUNT(*) FROM mem_items GROUP BY kind ORDER BY COUNT(*) DESC"
-    ).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT kind, COUNT(*) FROM mem_items GROUP BY kind ORDER BY COUNT(*) DESC")
+        .map_err(|e| e.to_string())?;
     let kinds: Vec<(String, i64)> = stmt
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
         .map_err(|e| e.to_string())?
@@ -598,10 +691,16 @@ const DREAMING_TASK: &str = "codeterm mem dream && codeterm agent report \"dream
 /// - Workspace: "general" (the GA workspace)
 ///
 /// Returns true if a new cron was created, false if one already existed.
-pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> Result<bool, String> {
+pub fn ensure_dreaming_cron(
+    cron_store: &mut crate::cron::store::CronStore,
+) -> Result<bool, String> {
     let mem_cfg = crate::config::memory_config();
 
-    if let Some(job) = cron_store.list().iter().find(|j| j.name == DREAMING_CRON_NAME) {
+    if let Some(job) = cron_store
+        .list()
+        .iter()
+        .find(|j| j.name == DREAMING_CRON_NAME)
+    {
         let desired_agent = if mem_cfg.dreaming_agent.is_empty() {
             crate::config::default_agent_provider()
         } else {
@@ -614,9 +713,15 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
         if agent_changed || legacy_schedule_match || legacy_jitter_match {
             let job_id = job.id.clone();
             if let Some(j) = cron_store.get_mut(&job_id) {
-                if agent_changed { j.agent = desired_agent; }
-                if legacy_schedule_match { j.schedule = "0 6 * * *".into(); }
-                if legacy_jitter_match { j.jitter_max_ms = Some(1_800_000); }
+                if agent_changed {
+                    j.agent = desired_agent;
+                }
+                if legacy_schedule_match {
+                    j.schedule = "0 6 * * *".into();
+                }
+                if legacy_jitter_match {
+                    j.jitter_max_ms = Some(1_800_000);
+                }
                 // Issue #96: recompute next_run after schedule/jitter migration.
                 // Without this, the on-disk next_run still reflects the legacy
                 // "0 3 * * *" + 90-min-jitter window, which is in the past
@@ -639,12 +744,14 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
                         Ok(None) => log::warn!(
                             "[dreaming] schedule {:?} has no upcoming occurrence; \
                              leaving next_run={:?} unchanged",
-                            j.schedule, j.next_run,
+                            j.schedule,
+                            j.next_run,
                         ),
                         Err(e) => log::warn!(
                             "[dreaming] recompute next_run after migration failed: {}; \
                              leaving next_run={:?} unchanged",
-                            e, j.next_run,
+                            e,
+                            j.next_run,
                         ),
                     }
                 }
@@ -690,7 +797,11 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
         timeout_seconds: Some(mem_cfg.dreaming_timeout_seconds),
     })?;
     // Mark as protected after creation
-    if let Some(job) = cron_store.list().iter().find(|j| j.name == DREAMING_CRON_NAME) {
+    if let Some(job) = cron_store
+        .list()
+        .iter()
+        .find(|j| j.name == DREAMING_CRON_NAME)
+    {
         let job_id = job.id.clone();
         if let Some(j) = cron_store.get_mut(&job_id) {
             j.protected = true;
@@ -706,7 +817,11 @@ pub const LIBRARIAN_CRON_NAME: &str = "mem-librarian-auto";
 /// installs. The librarian now runs as a CLI subprocess via the supervisor;
 /// kept as a migration step.
 pub fn remove_legacy_librarian_cron(cron_store: &mut crate::cron::store::CronStore) -> bool {
-    let existing = cron_store.list().iter().find(|j| j.name == LIBRARIAN_CRON_NAME).map(|j| j.id.clone());
+    let existing = cron_store
+        .list()
+        .iter()
+        .find(|j| j.name == LIBRARIAN_CRON_NAME)
+        .map(|j| j.id.clone());
     if let Some(id) = existing {
         if let Some(job) = cron_store.get_mut(&id) {
             job.protected = false;
@@ -820,7 +935,11 @@ mod tests {
             .count();
         assert_eq!(count, 1, "exactly one auto-cron must exist");
 
-        let job = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap();
+        let job = store
+            .list()
+            .iter()
+            .find(|j| j.name == DREAMING_CRON_NAME)
+            .unwrap();
         assert_eq!(job.jitter_max_ms, Some(1_800_000), "jitter must be ±30 min");
         assert!(job.enabled);
         assert_eq!(job.schedule, "0 6 * * *");
@@ -834,7 +953,13 @@ mod tests {
         let mut store = crate::cron::store::CronStore::new_with_path(path);
 
         ensure_dreaming_cron(&mut store).unwrap();
-        let id = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap().id.clone();
+        let id = store
+            .list()
+            .iter()
+            .find(|j| j.name == DREAMING_CRON_NAME)
+            .unwrap()
+            .id
+            .clone();
         if let Some(j) = store.get_mut(&id) {
             j.jitter_max_ms = Some(5_400_000);
         }
@@ -842,8 +967,16 @@ mod tests {
 
         ensure_dreaming_cron(&mut store).unwrap();
 
-        let job = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap();
-        assert_eq!(job.jitter_max_ms, Some(1_800_000), "legacy 90min must be auto-migrated to 30min");
+        let job = store
+            .list()
+            .iter()
+            .find(|j| j.name == DREAMING_CRON_NAME)
+            .unwrap();
+        assert_eq!(
+            job.jitter_max_ms,
+            Some(1_800_000),
+            "legacy 90min must be auto-migrated to 30min"
+        );
     }
 
     #[test]
@@ -854,7 +987,13 @@ mod tests {
         let mut store = crate::cron::store::CronStore::new_with_path(path);
 
         ensure_dreaming_cron(&mut store).unwrap();
-        let id = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap().id.clone();
+        let id = store
+            .list()
+            .iter()
+            .find(|j| j.name == DREAMING_CRON_NAME)
+            .unwrap()
+            .id
+            .clone();
         if let Some(j) = store.get_mut(&id) {
             j.schedule = "0 3 * * *".into();
         }
@@ -862,8 +1001,15 @@ mod tests {
 
         ensure_dreaming_cron(&mut store).unwrap();
 
-        let job = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap();
-        assert_eq!(job.schedule, "0 6 * * *", "legacy 3am must be auto-migrated to 6am");
+        let job = store
+            .list()
+            .iter()
+            .find(|j| j.name == DREAMING_CRON_NAME)
+            .unwrap();
+        assert_eq!(
+            job.schedule, "0 6 * * *",
+            "legacy 3am must be auto-migrated to 6am"
+        );
     }
 
     #[test]
@@ -918,12 +1064,19 @@ mod tests {
         let mut store = crate::cron::store::CronStore::new_with_path(path);
 
         ensure_dreaming_cron(&mut store).unwrap();
-        let id = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap().id.clone();
+        let id = store
+            .list()
+            .iter()
+            .find(|j| j.name == DREAMING_CRON_NAME)
+            .unwrap()
+            .id
+            .clone();
 
         // Simulate legacy state: stale next_run from the old "0 3 * * *" cadence.
-        let stale_legacy_next = crate::cron::store::compute_next_run_jittered_in(
-            "0 3 * * *", Some(5_400_000), None,
-        ).unwrap().unwrap();
+        let stale_legacy_next =
+            crate::cron::store::compute_next_run_jittered_in("0 3 * * *", Some(5_400_000), None)
+                .unwrap()
+                .unwrap();
         if let Some(j) = store.get_mut(&id) {
             j.schedule = "0 3 * * *".into();
             j.jitter_max_ms = Some(5_400_000);
@@ -933,7 +1086,11 @@ mod tests {
 
         ensure_dreaming_cron(&mut store).unwrap();
 
-        let job = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap();
+        let job = store
+            .list()
+            .iter()
+            .find(|j| j.name == DREAMING_CRON_NAME)
+            .unwrap();
         assert_eq!(job.schedule, "0 6 * * *");
         assert_eq!(job.jitter_max_ms, Some(1_800_000));
         // next_run must have moved off the legacy schedule.
@@ -944,7 +1101,8 @@ mod tests {
         );
         // And the new value must fit the new "0 6 * * *" cadence: minute-of-hour=0
         // plus 0..30min jitter window relative to UTC.
-        let new_dt = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(new_next as i64).unwrap();
+        let new_dt =
+            chrono::DateTime::<chrono::Utc>::from_timestamp_millis(new_next as i64).unwrap();
         let minute = new_dt.minute();
         assert!(
             minute <= 30,
@@ -960,7 +1118,13 @@ mod tests {
         let mut store = crate::cron::store::CronStore::new_with_path(path);
 
         ensure_dreaming_cron(&mut store).unwrap();
-        let id = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap().id.clone();
+        let id = store
+            .list()
+            .iter()
+            .find(|j| j.name == DREAMING_CRON_NAME)
+            .unwrap()
+            .id
+            .clone();
         if let Some(j) = store.get_mut(&id) {
             j.schedule = "30 12 * * *".into();
         }
@@ -968,8 +1132,15 @@ mod tests {
 
         ensure_dreaming_cron(&mut store).unwrap();
 
-        let job = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap();
-        assert_eq!(job.schedule, "30 12 * * *", "user-customised schedule must NOT be overwritten");
+        let job = store
+            .list()
+            .iter()
+            .find(|j| j.name == DREAMING_CRON_NAME)
+            .unwrap();
+        assert_eq!(
+            job.schedule, "30 12 * * *",
+            "user-customised schedule must NOT be overwritten"
+        );
     }
 
     #[test]
@@ -992,43 +1163,61 @@ mod tests {
             store.list().iter().find(|j| j.id == id).unwrap().enabled
         };
 
-        assert!(enabled_now(&store, &id), "fresh dreaming cron must be enabled");
+        assert!(
+            enabled_now(&store, &id),
+            "fresh dreaming cron must be enabled"
+        );
 
         store.set_enabled(&id, false).unwrap();
-        assert!(!enabled_now(&store, &id), "disable must persist through store API");
+        assert!(
+            !enabled_now(&store, &id),
+            "disable must persist through store API"
+        );
 
         store.set_enabled(&id, true).unwrap();
-        assert!(enabled_now(&store, &id), "re-enable must persist through store API");
+        assert!(
+            enabled_now(&store, &id),
+            "re-enable must persist through store API"
+        );
     }
 
     fn insert_entity(conn: &Connection, id: &str, etype: &str, age_days: i64) {
         let ts = (chrono::Utc::now() - chrono::Duration::days(age_days)).to_rfc3339();
-        crate::mem::graph::insert_entity(conn, &crate::mem::graph::Entity {
-            id: id.into(),
-            entity_type: etype.into(),
-            scope: "global".into(),
-            properties: serde_json::json!({}),
-        }).unwrap();
+        crate::mem::graph::insert_entity(
+            conn,
+            &crate::mem::graph::Entity {
+                id: id.into(),
+                entity_type: etype.into(),
+                scope: "global".into(),
+                properties: serde_json::json!({}),
+            },
+        )
+        .unwrap();
         // Backdate so orphan-cleanup tests have an aged entity.
         conn.execute(
             "UPDATE entities SET created_at = ?1, updated_at = ?1 WHERE id = ?2",
             params![&ts, id],
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     fn insert_relation(conn: &Connection, from: &str, rel: &str, to: &str) {
         let now = chrono::Utc::now().to_rfc3339();
-        crate::mem::graph::insert_relation(conn, &crate::mem::graph::Relation {
-            from_id: from.into(),
-            relation_type: rel.into(),
-            to_id: to.into(),
-            scope: "global".into(),
-            valid_from: now,
-            valid_to: None,
-            confidence: 1.0,
-            properties: serde_json::json!({}),
-            reason: None,
-        }).unwrap();
+        crate::mem::graph::insert_relation(
+            conn,
+            &crate::mem::graph::Relation {
+                from_id: from.into(),
+                relation_type: rel.into(),
+                to_id: to.into(),
+                scope: "global".into(),
+                valid_from: now,
+                valid_to: None,
+                confidence: 1.0,
+                properties: serde_json::json!({}),
+                reason: None,
+            },
+        )
+        .unwrap();
     }
 
     #[tokio::test]
@@ -1040,7 +1229,11 @@ mod tests {
             let c = mem.conn();
             let c = c.lock();
             for id in ["person_robert", "person_robertt", "x", "y", "z"] {
-                let etype = if id.starts_with("person") { "person" } else { "thing" };
+                let etype = if id.starts_with("person") {
+                    "person"
+                } else {
+                    "thing"
+                };
                 insert_entity(&c, id, etype, 0);
             }
             insert_relation(&c, "person_robertt", "mentions", "x");
@@ -1052,10 +1245,15 @@ mod tests {
         let report = normalize_phase(&mem).await.unwrap();
         assert_eq!(report.promoted, 1, "exactly one merge expected");
 
-        let canonical: String = mem.conn().lock().query_row(
-            "SELECT canonical_id FROM entity_aliases WHERE alias_id = 'person_robertt'",
-            [], |r| r.get(0),
-        ).unwrap();
+        let canonical: String = mem
+            .conn()
+            .lock()
+            .query_row(
+                "SELECT canonical_id FROM entity_aliases WHERE alias_id = 'person_robertt'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(canonical, "person_robert");
     }
 
@@ -1071,9 +1269,11 @@ mod tests {
             insert_entity(&c, "person_timofey", "person", 0);
         }
         normalize_phase(&mem).await.unwrap();
-        let aliases: i64 = mem.conn().lock().query_row(
-            "SELECT COUNT(*) FROM entity_aliases", [], |r| r.get(0),
-        ).unwrap();
+        let aliases: i64 = mem
+            .conn()
+            .lock()
+            .query_row("SELECT COUNT(*) FROM entity_aliases", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(aliases, 0, "nickname-class pair must not be auto-merged");
     }
 
@@ -1089,10 +1289,15 @@ mod tests {
         }
 
         normalize_phase(&mem).await.unwrap();
-        let kind: String = mem.conn().lock().query_row(
-            "SELECT relation_type FROM relations WHERE from_id='e_a' AND to_id='e_b'",
-            [], |r| r.get(0),
-        ).unwrap();
+        let kind: String = mem
+            .conn()
+            .lock()
+            .query_row(
+                "SELECT relation_type FROM relations WHERE from_id='e_a' AND to_id='e_b'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(kind, "mentions");
     }
 
@@ -1107,12 +1312,24 @@ mod tests {
         }
 
         normalize_phase(&mem).await.unwrap();
-        let exists_orphan: i64 = mem.conn().lock().query_row(
-            "SELECT COUNT(*) FROM entities WHERE id='orphan_1'", [], |r| r.get(0),
-        ).unwrap();
-        let exists_kind: i64 = mem.conn().lock().query_row(
-            "SELECT COUNT(*) FROM entities WHERE id='kind_protected'", [], |r| r.get(0),
-        ).unwrap();
+        let exists_orphan: i64 = mem
+            .conn()
+            .lock()
+            .query_row(
+                "SELECT COUNT(*) FROM entities WHERE id='orphan_1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let exists_kind: i64 = mem
+            .conn()
+            .lock()
+            .query_row(
+                "SELECT COUNT(*) FROM entities WHERE id='kind_protected'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(exists_orphan, 0, "orphan must be deleted");
         assert_eq!(exists_kind, 1, "protected entity_type must survive");
     }
@@ -1129,62 +1346,112 @@ mod tests {
         }
 
         normalize_phase(&mem).await.unwrap();
-        let valid_to: Option<String> = mem.conn().lock().query_row(
-            "SELECT valid_to FROM relations WHERE from_id='e_a' AND to_id='ghost'",
-            [], |r| r.get(0),
-        ).unwrap();
+        let valid_to: Option<String> = mem
+            .conn()
+            .lock()
+            .query_row(
+                "SELECT valid_to FROM relations WHERE from_id='e_a' AND to_id='ghost'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert!(valid_to.is_some(), "broken relation must be invalidated");
     }
 
     #[tokio::test]
     async fn normalize_preserves_relations_anchored_in_mem_items() {
         let mem = MemManager::open_in_memory().unwrap();
-        let fact_id = mem.save(NewMemItem {
-            kind: MemKind::Fact, scope: MemScope::Global,
-            title: "rust borrow checker".into(), summary: None, area: None,
-            tags: vec![], body: "x".into(), source: None,
-            importance: 3.0, source_path: None, pinned: false,
-        }).unwrap();
+        let fact_id = mem
+            .save(NewMemItem {
+                kind: MemKind::Fact,
+                scope: MemScope::Global,
+                title: "rust borrow checker".into(),
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: "x".into(),
+                source: None,
+                importance: 3.0,
+                source_path: None,
+                pinned: false,
+            })
+            .unwrap();
         {
-            let c = mem.conn(); let c = c.lock();
+            let c = mem.conn();
+            let c = c.lock();
             insert_entity(&c, "tech_rust", "tech", 0);
             insert_relation(&c, &fact_id, "mentions", "tech_rust");
         }
 
         normalize_phase(&mem).await.unwrap();
-        let valid_to: Option<String> = mem.conn().lock().query_row(
-            "SELECT valid_to FROM relations WHERE to_id='tech_rust'",
-            [], |r| r.get(0),
-        ).unwrap();
-        assert!(valid_to.is_none(), "fact_*→entity relation must survive normalize");
+        let valid_to: Option<String> = mem
+            .conn()
+            .lock()
+            .query_row(
+                "SELECT valid_to FROM relations WHERE to_id='tech_rust'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            valid_to.is_none(),
+            "fact_*→entity relation must survive normalize"
+        );
     }
 
     #[tokio::test]
     async fn normalize_preserves_mem_item_to_mem_item_relations() {
         let mem = MemManager::open_in_memory().unwrap();
-        let parent = mem.save(NewMemItem {
-            kind: MemKind::Conversation, scope: MemScope::Global,
-            title: "parent".into(), summary: None, area: None,
-            tags: vec![], body: "x".into(), source: None,
-            importance: 3.0, source_path: None, pinned: false,
-        }).unwrap();
-        let child = mem.save(NewMemItem {
-            kind: MemKind::Fact, scope: MemScope::Global,
-            title: "child".into(), summary: None, area: None,
-            tags: vec![], body: "x".into(), source: None,
-            importance: 3.0, source_path: None, pinned: false,
-        }).unwrap();
+        let parent = mem
+            .save(NewMemItem {
+                kind: MemKind::Conversation,
+                scope: MemScope::Global,
+                title: "parent".into(),
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: "x".into(),
+                source: None,
+                importance: 3.0,
+                source_path: None,
+                pinned: false,
+            })
+            .unwrap();
+        let child = mem
+            .save(NewMemItem {
+                kind: MemKind::Fact,
+                scope: MemScope::Global,
+                title: "child".into(),
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: "x".into(),
+                source: None,
+                importance: 3.0,
+                source_path: None,
+                pinned: false,
+            })
+            .unwrap();
         {
-            let c = mem.conn(); let c = c.lock();
+            let c = mem.conn();
+            let c = c.lock();
             insert_relation(&c, &child, "extracted_from", &parent);
         }
 
         normalize_phase(&mem).await.unwrap();
-        let valid_to: Option<String> = mem.conn().lock().query_row(
-            "SELECT valid_to FROM relations WHERE from_id=?1 AND to_id=?2",
-            params![&child, &parent], |r| r.get(0),
-        ).unwrap();
-        assert!(valid_to.is_none(), "mem_item→mem_item relation must survive normalize");
+        let valid_to: Option<String> = mem
+            .conn()
+            .lock()
+            .query_row(
+                "SELECT valid_to FROM relations WHERE from_id=?1 AND to_id=?2",
+                params![&child, &parent],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            valid_to.is_none(),
+            "mem_item→mem_item relation must survive normalize"
+        );
     }
 
     #[tokio::test]
@@ -1202,7 +1469,10 @@ mod tests {
             "SELECT COUNT(*) FROM entity_aliases WHERE alias_id IN ('person_anya','person_anna')",
             [], |r| r.get(0),
         ).unwrap();
-        assert_eq!(aliases, 0, "borderline pair (ratio < 0.92) must not be auto-merged");
+        assert_eq!(
+            aliases, 0,
+            "borderline pair (ratio < 0.92) must not be auto-merged"
+        );
     }
 
     #[tokio::test]

@@ -10,8 +10,14 @@ fn parses_fixture_v2_1() {
     assert_eq!(snap.provider, "claude");
     assert_eq!(snap.session_pct, Some(43.0), "session pct");
     assert_eq!(snap.weekly_pct, Some(23.0), "weekly all-models pct");
-    assert!(snap.session_resets_at_ms.is_some(), "session resets_at parsed");
-    assert!(snap.weekly_resets_at_ms.is_some(), "weekly resets_at parsed");
+    assert!(
+        snap.session_resets_at_ms.is_some(),
+        "session resets_at parsed"
+    );
+    assert!(
+        snap.weekly_resets_at_ms.is_some(),
+        "weekly resets_at parsed"
+    );
 }
 
 #[test]

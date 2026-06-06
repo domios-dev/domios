@@ -61,8 +61,12 @@ pub async fn mem_dream(
 
     let mut reports = Vec::new();
     for kind in &phases {
-        let report = state.svc.mem_supervisor.run(*kind).await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", kind.as_arg(), e)))?;
+        let report = state.svc.mem_supervisor.run(*kind).await.map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", kind.as_arg(), e),
+            )
+        })?;
         reports.push(report);
     }
 
@@ -79,11 +83,24 @@ pub async fn mem_dream(
             })
         })
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("calibration join: {}", e)))?
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("calibration: {}", e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("calibration join: {}", e),
+            )
+        })?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("calibration: {}", e),
+            )
+        })?;
         let mut tagged = calib;
         if let Some(obj) = tagged.as_object_mut() {
-            obj.insert("phase".into(), serde_json::Value::String("calibration".into()));
+            obj.insert(
+                "phase".into(),
+                serde_json::Value::String("calibration".into()),
+            );
         }
         reports.push(tagged);
     }
@@ -126,7 +143,9 @@ async fn run_recluster_inline(
     let report = run_recluster_phase_with_lock(conn_mutex, &model, &plan_dir, &caller).await;
 
     match report {
-        Ok(r) => Ok(Json(serde_json::json!({ "phase": "recluster", "report": r }))),
+        Ok(r) => Ok(Json(
+            serde_json::json!({ "phase": "recluster", "report": r }),
+        )),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
 }

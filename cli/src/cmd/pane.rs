@@ -4,18 +4,27 @@ use crate::{build_http, read_api_config, resolve_pane, PaneAction};
 
 pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
     match action {
-        PaneAction::List => {
-            let result = client.call("pane.list", None);
-            match result {
-                Ok(value) if !json => {
-                    if let Some(arr) = value.as_array() {
-                        if arr.is_empty() {
-                            println!("(no panes)");
-                        } else {
-                            for p in arr { println!("{}", format_pane_row(p)); }
-                        }
+        PaneAction::List { agents } => {
+            match client.call("pane.list", None) {
+                Ok(value) => {
+                    let Some(arr) = value.as_array() else {
+                        handle_result(json, Ok(value));
+                        return;
+                    };
+                    let mut list = arr.clone();
+                    if agents {
+                        list.retain(|p| {
+                            p.get("agent_type")
+                                .and_then(|v| v.as_str())
+                                .map_or(false, |s| !s.is_empty())
+                        });
+                    }
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&list).unwrap());
+                    } else if list.is_empty() {
+                        println!("(no panes)");
                     } else {
-                        handle_result(false, Ok(value));
+                        print!("{}", render_pane_tree(&list));
                     }
                 }
                 other => handle_result(json, other),
@@ -210,6 +219,39 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 Err(e) => { eprintln!("Status request failed: {}", e); std::process::exit(1); }
             }
         }
+        PaneAction::Stop { pane } => {
+            let pane_id = resolve_pane(client, pane);
+            let (api_url, api_token) = read_api_config();
+            let http = match build_http(&api_token) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            match http
+                .post(format!("{}/api/panes/{}/stop", api_url, pane_id))
+                .header("Content-Type", "application/json")
+                .body("{}")
+                .send()
+            {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let body: serde_json::Value = resp.json().unwrap_or_else(|_| serde_json::json!({}));
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&body).unwrap());
+                    } else if !status.is_success() {
+                        eprintln!("Stop failed: HTTP {}", status);
+                        std::process::exit(1);
+                    } else if body.get("stopped").and_then(|v| v.as_bool()).unwrap_or(false) {
+                        println!("Stopped pane {}", pane_id);
+                    } else {
+                        println!("Pane {} has no stop keystroke declared", pane_id);
+                    }
+                }
+                Err(e) => { eprintln!("Stop request failed: {}", e); std::process::exit(1); }
+            }
+        }
     }
 }
 
@@ -292,6 +334,11 @@ fn field(v: &serde_json::Value, key: &str) -> String {
     v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_lowercase()
 }
 
+/// Like `field` but preserves case — for display, not fuzzy matching.
+fn sfield<'a>(v: &'a serde_json::Value, key: &str) -> &'a str {
+    v.get(key).and_then(|x| x.as_str()).unwrap_or("")
+}
+
 fn strip_separators(s: &str) -> String {
     // Apostrophes get inserted by `deunicode` for Cyrillic soft signs
     // (Дальтон → Dal'ton); strip them so the compact match still hits a
@@ -343,6 +390,94 @@ pub fn format_pane_row(p: &serde_json::Value) -> String {
     format!("{}  {} [{}{}]{}", id, label, agent, model_part, ws_part)
 }
 
+/// Human `pane list`: workspaces as headers, panes as `<id> <name> <model>`
+/// rows, sub-agents nested under their parent by `parent_pane_id`. Compact
+/// on purpose — this output is read by agents too, so every line costs tokens.
+pub fn render_pane_tree(panes: &[serde_json::Value]) -> String {
+    struct Row {
+        id: String,
+        label: String,
+        model: String,
+        parent: Option<String>,
+    }
+    // Group by workspace. BTreeMap keeps a stable (name, id) ordering so the
+    // output doesn't reshuffle between calls (panes arrive HashMap-unordered).
+    let mut groups: std::collections::BTreeMap<(String, String), Vec<Row>> =
+        std::collections::BTreeMap::new();
+    for p in panes {
+        let id = sfield(p, "id").to_string();
+        if id.is_empty() {
+            continue;
+        }
+        let tab_title = sfield(p, "tab_title");
+        let label = if !tab_title.is_empty() { tab_title } else { sfield(p, "title") }.to_string();
+        let model_raw = sfield(p, "agent_session_model");
+        let model = if !model_raw.is_empty() { model_raw } else { sfield(p, "agent_type") }.to_string();
+        let parent = p
+            .get("parent_pane_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let ws_name = sfield(p, "workspace_name").to_string();
+        let ws_id = sfield(p, "workspace_id").to_string();
+        groups
+            .entry((ws_name, ws_id))
+            .or_default()
+            .push(Row { id, label, model, parent });
+    }
+
+    let mut out = String::new();
+    for (gi, ((ws_name, ws_id), rows)) in groups.iter().enumerate() {
+        if gi > 0 {
+            out.push('\n');
+        }
+        let name = if ws_name.is_empty() { "(detached)" } else { ws_name.as_str() };
+        if ws_id.is_empty() {
+            out.push_str(&format!("{}\n", name));
+        } else {
+            out.push_str(&format!("{}  {}\n", name, ws_id));
+        }
+
+        // Nest by parent within the workspace. A pane whose parent lives in
+        // another workspace (or has none) is a root here.
+        let ids: std::collections::HashSet<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+        let mut children: std::collections::HashMap<&str, Vec<usize>> =
+            std::collections::HashMap::new();
+        let mut roots: Vec<usize> = Vec::new();
+        for (i, r) in rows.iter().enumerate() {
+            match &r.parent {
+                Some(par) if ids.contains(par.as_str()) => {
+                    children.entry(par.as_str()).or_default().push(i);
+                }
+                _ => roots.push(i),
+            }
+        }
+        let label_w = rows.iter().map(|r| r.label.chars().count()).max().unwrap_or(0).min(24);
+        let by_label = |a: &usize, b: &usize| rows[*a].label.cmp(&rows[*b].label);
+        roots.sort_by(by_label);
+
+        // Iterative DFS so deep nesting can't blow the stack.
+        let mut stack: Vec<(usize, usize)> = roots.iter().rev().map(|&i| (i, 0usize)).collect();
+        while let Some((i, depth)) = stack.pop() {
+            let r = &rows[i];
+            let indent = "  ".repeat(depth + 1);
+            if r.model.is_empty() {
+                out.push_str(&format!("{}{} {}\n", indent, r.id, r.label));
+            } else {
+                out.push_str(&format!("{}{} {:<w$} {}\n", indent, r.id, r.label, r.model, w = label_w));
+            }
+            if let Some(kids) = children.get(r.id.as_str()) {
+                let mut kids = kids.clone();
+                kids.sort_by(by_label);
+                for &k in kids.iter().rev() {
+                    stack.push((k, depth + 1));
+                }
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,6 +495,40 @@ mod tests {
             .into_iter()
             .map(|(_, p)| p.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string())
             .collect()
+    }
+
+    #[test]
+    fn render_tree_groups_by_workspace_and_nests_children() {
+        let panes = vec![
+            json!({"id":"aaaa","tab_title":"MainX","agent_session_model":"Sonnet","workspace_name":"General","workspace_id":"ws1"}),
+            json!({"id":"bbbb","tab_title":"Torvalds","agent_session_model":"Opus","workspace_name":"General","workspace_id":"ws1"}),
+            json!({"id":"cccc","tab_title":"scout","agent_session_model":"Sonnet","workspace_name":"General","workspace_id":"ws1","parent_pane_id":"bbbb"}),
+            json!({"id":"dddd","tab_title":"devbox","agent_session_model":"Sonnet","workspace_name":"codeterm","workspace_id":"ws2"}),
+        ];
+        let out = render_pane_tree(&panes);
+        assert!(out.contains("General  ws1"), "workspace header shows name + ws id:\n{}", out);
+        assert!(out.contains("codeterm  ws2"), "second workspace header:\n{}", out);
+
+        let lines: Vec<&str> = out.lines().collect();
+        let torvalds = lines.iter().position(|l| l.contains("Torvalds")).unwrap();
+        let scout = lines.iter().position(|l| l.contains("scout")).unwrap();
+        assert_eq!(scout, torvalds + 1, "child renders directly under its parent:\n{}", out);
+        let indent = |l: &str| l.len() - l.trim_start().len();
+        assert!(indent(lines[scout]) > indent(lines[torvalds]), "child indented deeper:\n{}", out);
+        assert!(lines[torvalds].trim_start().starts_with("bbbb"), "id comes first: {}", lines[torvalds]);
+    }
+
+    #[test]
+    fn render_tree_falls_back_to_agent_type_without_model() {
+        let panes = vec![
+            json!({"id":"eeee","tab_title":"plain","workspace_name":"W","workspace_id":"w"}),
+            json!({"id":"ffff","tab_title":"coder","agent_type":"claude","workspace_name":"W","workspace_id":"w"}),
+        ];
+        let out = render_pane_tree(&panes);
+        // No model + no agent_type → bare id + name (no trailing junk).
+        assert!(out.contains("eeee plain\n"), "plain pane is id + name only:\n{}", out);
+        // agent_type fills in when the session model is absent.
+        assert!(out.contains("claude"), "agent_type shown when model missing:\n{}", out);
     }
 
     #[test]
@@ -444,7 +613,8 @@ mod tests {
         });
         let row = format_pane_row(&p);
         assert!(row.contains("Dalton"), "row missing tab_title: {}", row);
-        assert!(row.contains("(claude-with-text)"), "row missing pane.title: {}", row);
+        // One label only: tab_title wins, so the raw pane.title must NOT leak in.
+        assert!(!row.contains("claude-with-text"), "tab_title should win over pane.title: {}", row);
         assert!(row.contains("claude"), "row missing agent: {}", row);
         assert!(row.contains("Sonnet"), "row missing model: {}", row);
         assert!(row.contains("ws=WS-claude-renamed"), "row missing workspace: {}", row);

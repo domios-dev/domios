@@ -165,7 +165,8 @@ pub fn detect_install_method() -> InstallMethod {
         if path_lower.contains(r"\scoop\apps\") {
             return InstallMethod::Scoop;
         }
-        if path_lower.contains(r"\program files\") || path_lower.contains(r"\program files (x86)\") {
+        if path_lower.contains(r"\program files\") || path_lower.contains(r"\program files (x86)\")
+        {
             return InstallMethod::Msi;
         }
         return InstallMethod::Nsis;

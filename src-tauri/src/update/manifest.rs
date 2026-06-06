@@ -68,14 +68,14 @@ pub async fn fetch(url: &str) -> Result<Manifest, String> {
 }
 
 fn is_loopback_http(url: &str) -> bool {
-    let stripped = match url.strip_prefix("http://").or_else(|| url.strip_prefix("HTTP://")) {
+    let stripped = match url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("HTTP://"))
+    {
         Some(s) => s,
         None => return false,
     };
-    let host = stripped
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or("");
+    let host = stripped.split(['/', '?', '#']).next().unwrap_or("");
     let host_only = host.split(':').next().unwrap_or("");
     host_only == "127.0.0.1" || host_only == "localhost"
 }

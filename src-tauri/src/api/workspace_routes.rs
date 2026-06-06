@@ -13,7 +13,12 @@ pub async fn list_workspaces(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let result = crate::dispatch::dispatch(&crate::dispatch::Command::WorkspaceList, &state.svc)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list workspaces"))?;
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to list workspaces",
+            )
+        })?;
     Ok(Json(result.into_json()))
 }
 
@@ -37,8 +42,12 @@ pub async fn create_workspace(
         cwd: body.cwd,
         activate: body.activate,
     };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create workspace"))?;
+    let result = crate::dispatch::dispatch(&cmd, &state.svc).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to create workspace",
+        )
+    })?;
     Ok(Json(result.into_json()))
 }
 
@@ -48,7 +57,9 @@ pub async fn focus_workspace(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.focus_workspace(&id)
+    state
+        .svc
+        .focus_workspace(&id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -65,7 +76,10 @@ pub async fn rename_workspace(
     Json(body): Json<RenameWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let cmd = crate::dispatch::Command::WorkspaceRename { workspace_id: id, name: body.name };
+    let cmd = crate::dispatch::Command::WorkspaceRename {
+        workspace_id: id,
+        name: body.name,
+    };
     let result = crate::dispatch::dispatch(&cmd, &state.svc)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
     Ok(Json(result.into_json()))
@@ -95,7 +109,9 @@ pub async fn move_tab(
     Json(body): Json<MoveTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.move_tab(&tab_id, &workspace_id, &body.to_workspace_id)
+    state
+        .svc
+        .move_tab(&tab_id, &workspace_id, &body.to_workspace_id)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to move tab"))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -112,7 +128,9 @@ pub async fn rename_tab(
     Json(body): Json<RenameTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.rename_tab(&workspace_id, &tab_id, &body.title)
+    state
+        .svc
+        .rename_tab(&workspace_id, &tab_id, &body.title)
         .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found"))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -123,9 +141,13 @@ pub async fn create_tab(
     Path(workspace_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let (tab_id, pane_id) = state.svc.create_tab_with_activate(&workspace_id, false)
+    let (tab_id, pane_id) = state
+        .svc
+        .create_tab_with_activate(&workspace_id, false)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
-    let _ = state.svc.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
+    let _ = state
+        .svc
+        .set_pane_role(&pane_id, "Orchestrator", None, Some(true));
     Ok(Json(serde_json::json!({
         "tab_id": tab_id,
         "pane_id": pane_id

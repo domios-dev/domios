@@ -54,25 +54,16 @@ impl Args {
         while let Some(arg) = it.next() {
             match arg.as_str() {
                 "--fixture" => {
-                    fixture = it
-                        .next()
-                        .ok_or("--fixture needs value")?
-                        .into();
+                    fixture = it.next().ok_or("--fixture needs value")?.into();
                 }
                 "--db" => {
                     db = Some(it.next().ok_or("--db needs value")?.into());
                 }
                 "--output-dir" => {
-                    output_dir = it
-                        .next()
-                        .ok_or("--output-dir needs value")?
-                        .into();
+                    output_dir = it.next().ok_or("--output-dir needs value")?.into();
                 }
                 "--report-dir" => {
-                    report_dir = it
-                        .next()
-                        .ok_or("--report-dir needs value")?
-                        .into();
+                    report_dir = it.next().ok_or("--report-dir needs value")?.into();
                 }
                 "--baseline" => {
                     baseline = Some(it.next().ok_or("--baseline needs value")?.into());
@@ -239,8 +230,8 @@ fn run() -> Result<(), String> {
     // 1. Load fixture
     let fixture_raw = fs::read_to_string(&args.fixture)
         .map_err(|e| format!("read fixture {}: {}", args.fixture.display(), e))?;
-    let fixture: Fixture = serde_json::from_str(&fixture_raw)
-        .map_err(|e| format!("parse fixture: {}", e))?;
+    let fixture: Fixture =
+        serde_json::from_str(&fixture_raw).map_err(|e| format!("parse fixture: {}", e))?;
 
     // 2. Set up offline mem store
     let db_dir = match args.db.as_ref() {
@@ -251,8 +242,7 @@ fn run() -> Result<(), String> {
         )),
     };
     // If db points to a file path, we use its parent. Easier: treat it as a dir.
-    let mem = MemManager::open_offline(&db_dir)
-        .map_err(|e| format!("open_offline: {}", e))?;
+    let mem = MemManager::open_offline(&db_dir).map_err(|e| format!("open_offline: {}", e))?;
 
     // 3. Seed — exercise the normal insert path. Keep a map from the
     //    engine-generated id back to the fixture id so we can score
@@ -302,7 +292,9 @@ fn run() -> Result<(), String> {
             limit: Some(args.top_k),
         };
         let t0 = Instant::now();
-        let hits = mem.recall(&q).map_err(|e| format!("recall {}: {}", tc.id, e))?;
+        let hits = mem
+            .recall(&q)
+            .map_err(|e| format!("recall {}: {}", tc.id, e))?;
         let latency_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
         // Translate engine ids -> fixture ids. Any hit not in the map
@@ -350,11 +342,10 @@ fn run() -> Result<(), String> {
     };
 
     // 7. Write JSON
-    fs::create_dir_all(&args.output_dir)
-        .map_err(|e| format!("create output dir: {}", e))?;
+    fs::create_dir_all(&args.output_dir).map_err(|e| format!("create output dir: {}", e))?;
     let json_path = args.output_dir.join(format!("{}.json", timestamp));
-    let json_body = serde_json::to_string_pretty(&report)
-        .map_err(|e| format!("serialize report: {}", e))?;
+    let json_body =
+        serde_json::to_string_pretty(&report).map_err(|e| format!("serialize report: {}", e))?;
     fs::write(&json_path, &json_body)
         .map_err(|e| format!("write {}: {}", json_path.display(), e))?;
     println!("wrote {}", json_path.display());
@@ -364,20 +355,18 @@ fn run() -> Result<(), String> {
         Some(p) => {
             let raw = fs::read_to_string(p)
                 .map_err(|e| format!("read baseline {}: {}", p.display(), e))?;
-            let br: BenchReport = serde_json::from_str(&raw)
-                .map_err(|e| format!("parse baseline: {}", e))?;
+            let br: BenchReport =
+                serde_json::from_str(&raw).map_err(|e| format!("parse baseline: {}", e))?;
             Some(br)
         }
         None => None,
     };
 
     // 9. Write HTML report
-    fs::create_dir_all(&args.report_dir)
-        .map_err(|e| format!("create report dir: {}", e))?;
+    fs::create_dir_all(&args.report_dir).map_err(|e| format!("create report dir: {}", e))?;
     let html_path = args.report_dir.join(format!("{}.html", timestamp));
     let html = render_html(&report, baseline.as_ref());
-    fs::write(&html_path, html)
-        .map_err(|e| format!("write {}: {}", html_path.display(), e))?;
+    fs::write(&html_path, html).map_err(|e| format!("write {}: {}", html_path.display(), e))?;
     println!("wrote {}", html_path.display());
 
     // 10. Save baseline copy
@@ -387,12 +376,10 @@ fn run() -> Result<(), String> {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join("baselines");
-        fs::create_dir_all(&baselines_dir)
-            .map_err(|e| format!("create baselines dir: {}", e))?;
+        fs::create_dir_all(&baselines_dir).map_err(|e| format!("create baselines dir: {}", e))?;
         let short = commit.chars().take(8).collect::<String>();
         let baseline_path = baselines_dir.join(format!("baseline-{}.json", short));
-        fs::write(&baseline_path, &json_body)
-            .map_err(|e| format!("write baseline copy: {}", e))?;
+        fs::write(&baseline_path, &json_body).map_err(|e| format!("write baseline copy: {}", e))?;
         println!("wrote {}", baseline_path.display());
     }
 
@@ -572,17 +559,33 @@ fn render_html(report: &BenchReport, baseline: Option<&BenchReport>) -> String {
     out.push_str("</tr></thead><tbody>");
     for r in &report.per_query {
         let row_cls = if r.hit { "hit" } else { "miss" };
-        out.push_str(&format!("<tr class=\"{}\"><td>{}</td>", row_cls, html_escape(&r.test_id)));
+        out.push_str(&format!(
+            "<tr class=\"{}\"><td>{}</td>",
+            row_cls,
+            html_escape(&r.test_id)
+        ));
         out.push_str(&format!("<td>{}</td>", html_escape(&r.category)));
         out.push_str(&format!("<td>{}</td>", html_escape(&r.query)));
-        out.push_str(&format!("<td><code>{}</code></td>", html_escape(&r.expected.join(", "))));
+        out.push_str(&format!(
+            "<td><code>{}</code></td>",
+            html_escape(&r.expected.join(", "))
+        ));
         let got_html = r
             .got_top_k
             .iter()
             .enumerate()
             .map(|(i, id)| {
-                let cls = if r.expected.contains(id) { "got-hit" } else { "" };
-                format!("<span class=\"{}\">{}. {}</span>", cls, i + 1, html_escape(id))
+                let cls = if r.expected.contains(id) {
+                    "got-hit"
+                } else {
+                    ""
+                };
+                format!(
+                    "<span class=\"{}\">{}. {}</span>",
+                    cls,
+                    i + 1,
+                    html_escape(id)
+                )
             })
             .collect::<Vec<_>>()
             .join("<br>");
@@ -605,8 +608,11 @@ fn render_html(report: &BenchReport, baseline: Option<&BenchReport>) -> String {
             html_escape(&b.timestamp)
         ));
         out.push_str("<table class=\"queries\"><thead><tr><th>id</th><th>was</th><th>now</th><th>delta</th></tr></thead><tbody>");
-        let base_map: HashMap<&str, &QueryResult> =
-            b.per_query.iter().map(|r| (r.test_id.as_str(), r)).collect();
+        let base_map: HashMap<&str, &QueryResult> = b
+            .per_query
+            .iter()
+            .map(|r| (r.test_id.as_str(), r))
+            .collect();
         for r in &report.per_query {
             let was = base_map
                 .get(r.test_id.as_str())
@@ -624,7 +630,10 @@ fn render_html(report: &BenchReport, baseline: Option<&BenchReport>) -> String {
                 "MISS".to_string()
             };
             let delta_cls = match (
-                base_map.get(r.test_id.as_str()).map(|p| p.hit).unwrap_or(false),
+                base_map
+                    .get(r.test_id.as_str())
+                    .map(|p| p.hit)
+                    .unwrap_or(false),
                 r.hit,
             ) {
                 (true, false) => "down",

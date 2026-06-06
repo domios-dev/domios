@@ -49,19 +49,15 @@ const BASELINE_CACHE_TTL_S: i64 = 6 * 60 * 60;
 // remaining hour instead of stretching activity through midnight.
 const DEFAULT_HOURLY_WEEKDAY: [f64; 24] = [
     // 0  1   2   3   4   5   6
-    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    // 7  8    9    10   11   12   13
-    0.0, 0.6, 1.3, 1.5, 1.5, 1.0, 0.8,
-    // 14   15   16   17   18  19
-    1.3, 1.4, 1.3, 1.0, 0.7, 0.3,
-    // 20 21 22 23
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // 7  8    9    10   11   12   13
+    0.0, 0.6, 1.3, 1.5, 1.5, 1.0, 0.8, // 14   15   16   17   18  19
+    1.3, 1.4, 1.3, 1.0, 0.7, 0.3, // 20 21 22 23
     0.0, 0.0, 0.0, 0.0,
 ];
 // Weekend: shorter window, peak around lunch, done by 18.
 const DEFAULT_HOURLY_WEEKEND: [f64; 24] = [
-    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    0.0, 0.3, 0.6, 0.8, 0.8, 0.6, 0.4, 0.3, 0.2, 0.1,
-    0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.6, 0.8, 0.8, 0.6, 0.4, 0.3, 0.2, 0.1, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0,
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,7 +191,11 @@ fn compute_session(
             .map_err(|e| format!("prepare latest: {}", e))?;
         let latest: Option<(i64, f64, i64)> = stmt
             .query_row(params![provider, account_id, now_ms], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?, r.get::<_, i64>(2)?))
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, f64>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
             })
             .ok();
         let (_, current_pct, resets_at) = match latest {
@@ -259,7 +259,14 @@ fn compute_weekly(
     };
     let baseline = baseline_for(store, provider, account_id, now_ms)?;
     let rate_per_min = recent_rate(store, provider, account_id, now_ms)?;
-    let today_so_far = today_delta(store, provider, account_id, now_ms, current_pct, cycle_end_ms)?;
+    let today_so_far = today_delta(
+        store,
+        provider,
+        account_id,
+        now_ms,
+        current_pct,
+        cycle_end_ms,
+    )?;
 
     let now_local = local_from_ms(now_ms);
     let today_dow = now_local.weekday().num_days_from_sunday();
@@ -353,9 +360,8 @@ fn compute_weekly(
     let est_we_total = (dow_estimate(0) + dow_estimate(6)) / 2.0;
     let dow_estimates: [f64; 7] = std::array::from_fn(|d| dow_estimate(d));
 
-    let day_actuals = compute_day_actuals(
-        store, provider, account_id, today_start_ms, cycle_end_ms,
-    )?;
+    let day_actuals =
+        compute_day_actuals(store, provider, account_id, today_start_ms, cycle_end_ms)?;
 
     Ok(Some(WeeklyProjection {
         end_of_today_pct: end_of_today.min(200.0),
@@ -418,7 +424,13 @@ fn day_delta_for_window(
         let samples: Vec<(i64, f64, Option<i64>)> = stmt
             .query_map(
                 params![provider, account_id, day_start_ms, day_end_ms],
-                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?, r.get::<_, Option<i64>>(2)?)),
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, f64>(1)?,
+                        r.get::<_, Option<i64>>(2)?,
+                    ))
+                },
             )
             .map_err(|e| format!("query day samples: {}", e))?
             .filter_map(Result::ok)
@@ -441,7 +453,13 @@ fn day_delta_for_window(
             .map_err(|e| format!("prepare yest: {}", e))?
             .query_row(
                 params![provider, account_id, day_start_ms, cycle_end_ms],
-                |r| Ok((r.get::<_, f64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)),
+                |r| {
+                    Ok((
+                        r.get::<_, f64>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, i64>(2)?,
+                    ))
+                },
             )
             .ok();
 
@@ -487,10 +505,11 @@ fn compute_day_actuals(
         } else {
             cursor + DAY_MS
         };
-        let pct = day_delta_for_window(
-            store, provider, account_id, cursor, day_end, cycle_end_ms,
-        )?;
-        out.push(DayActual { day_start_ms: cursor, pct });
+        let pct = day_delta_for_window(store, provider, account_id, cursor, day_end, cycle_end_ms)?;
+        out.push(DayActual {
+            day_start_ms: cursor,
+            pct,
+        });
         cursor += DAY_MS;
     }
     Ok(out)

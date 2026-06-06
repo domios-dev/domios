@@ -23,7 +23,9 @@ pub async fn cron_get(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let job = state.svc.cron_get(&state.cron, &id)
+    let job = state
+        .svc
+        .cron_get(&state.cron, &id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
     Ok(Json(serde_json::to_value(job).unwrap()))
 }
@@ -34,7 +36,9 @@ pub async fn cron_create(
     Json(body): Json<crate::cron::store::CronCreateParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let job = state.svc.cron_create(&state.cron, &state.cron_wake, body)
+    let job = state
+        .svc
+        .cron_create(&state.cron, &state.cron_wake, body)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to create cron job"))?;
     Ok(Json(serde_json::to_value(job).unwrap()))
 }
@@ -46,7 +50,9 @@ pub async fn cron_update(
     Json(body): Json<crate::cron::store::CronUpdateParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let job = state.svc.cron_update(&state.cron, &state.cron_wake, &id, body)
+    let job = state
+        .svc
+        .cron_update(&state.cron, &state.cron_wake, &id, body)
         .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
     Ok(Json(serde_json::to_value(job).unwrap()))
 }
@@ -57,7 +63,9 @@ pub async fn cron_delete(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.cron_delete(&state.cron, &state.cron_wake, &id)
+    state
+        .svc
+        .cron_delete(&state.cron, &state.cron_wake, &id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -68,7 +76,9 @@ pub async fn cron_enable(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let job = state.svc.cron_enable(&state.cron, &state.cron_wake, &id, true)
+    let job = state
+        .svc
+        .cron_enable(&state.cron, &state.cron_wake, &id, true)
         .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
     Ok(Json(serde_json::to_value(job).unwrap()))
 }
@@ -79,7 +89,9 @@ pub async fn cron_disable(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let job = state.svc.cron_enable(&state.cron, &state.cron_wake, &id, false)
+    let job = state
+        .svc
+        .cron_enable(&state.cron, &state.cron_wake, &id, false)
         .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
     Ok(Json(serde_json::to_value(job).unwrap()))
 }

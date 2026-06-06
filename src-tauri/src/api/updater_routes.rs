@@ -43,7 +43,10 @@ pub async fn check_update(
         Ok(i) => i,
         Err(e) => {
             log::error!("[updater] check failed: {}", e);
-            state.update_state.lock().set_error(format!("check failed: {}", e));
+            state
+                .update_state
+                .lock()
+                .set_error(format!("check failed: {}", e));
             return Err((StatusCode::BAD_GATEWAY, "Failed to check for updates"));
         }
     };
@@ -122,7 +125,10 @@ pub async fn install_update(
             us.clear_error();
         }
         std::thread::spawn(move || {
-            let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
                 Ok(rt) => rt,
                 Err(e) => {
                     let msg = format!("tokio runtime build failed: {}", e);
@@ -132,7 +138,10 @@ pub async fn install_update(
                 }
             };
             rt.block_on(async {
-                let opts = ApplyOptions { channel, manifest_url };
+                let opts = ApplyOptions {
+                    channel,
+                    manifest_url,
+                };
                 match check_and_apply(&app, opts.clone(), update_state.clone()).await {
                     Ok(applied) => {
                         if applied {
@@ -178,10 +187,7 @@ pub async fn install_update(
             "message": format!("Run: {}", cmd)
         }))),
         None => {
-            let url = info
-                .download_url
-                .as_deref()
-                .unwrap_or(&info.release_url);
+            let url = info.download_url.as_deref().unwrap_or(&info.release_url);
             let _ = crate::commands::open_url(url.to_string());
             Ok(Json(serde_json::json!({
                 "status": "browser_opened",
@@ -227,5 +233,7 @@ pub async fn set_channel(
     }
     state.update_state.lock().channel = parsed;
 
-    Ok(Json(serde_json::json!({ "ok": true, "channel": parsed.to_string() })))
+    Ok(Json(
+        serde_json::json!({ "ok": true, "channel": parsed.to_string() }),
+    ))
 }

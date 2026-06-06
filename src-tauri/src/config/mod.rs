@@ -93,11 +93,7 @@ pub fn memory_config() -> schema::MemoryConfig {
 /// the actual provider id of the pane.
 pub fn provider_config(provider_id: &str) -> schema::ProviderConfig {
     let cfg = load_config();
-    let mut out = cfg
-        .agents
-        .get(provider_id)
-        .cloned()
-        .unwrap_or_default();
+    let mut out = cfg.agents.get(provider_id).cloned().unwrap_or_default();
     // Back-compat: fall through to global [agent] for any field not set
     // in the per-provider section. Lets existing configs keep working
     // without an explicit [agents.<id>] block.
@@ -146,12 +142,20 @@ pub fn load_config() -> AppConfig {
                     ensure_api_token(config, Some(&path))
                 }
                 Err(e) => {
-                    log::error!("Failed to parse config at {}: {}. Using defaults.", path.display(), e);
+                    log::error!(
+                        "Failed to parse config at {}: {}. Using defaults.",
+                        path.display(),
+                        e
+                    );
                     AppConfig::default()
                 }
             },
             Err(e) => {
-                log::error!("Failed to read config at {}: {}. Using defaults.", path.display(), e);
+                log::error!(
+                    "Failed to read config at {}: {}. Using defaults.",
+                    path.display(),
+                    e
+                );
                 AppConfig::default()
             }
         }
@@ -326,9 +330,7 @@ size = 16
         let toml_str = toml::to_string_pretty(&config).unwrap();
         std::fs::write(&path, &toml_str).unwrap();
 
-        let loaded: AppConfig = toml::from_str(
-            &std::fs::read_to_string(&path).unwrap()
-        ).unwrap();
+        let loaded: AppConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(loaded.font.size, 18);
         assert_eq!(loaded.api.port, 9999);
     }
@@ -356,8 +358,7 @@ fn save_config(config: &AppConfig) -> Result<(), String> {
     }
     let toml_str =
         toml::to_string_pretty(config).map_err(|e| format!("Failed to serialize config: {}", e))?;
-    std::fs::write(&path, toml_str)
-        .map_err(|e| format!("Failed to write config: {}", e))?;
+    std::fs::write(&path, toml_str).map_err(|e| format!("Failed to write config: {}", e))?;
     log::info!("Config saved to {}", path.display());
     Ok(())
 }
@@ -413,13 +414,17 @@ pub async fn update_config(
         }
         log::info!(
             "[mesh] instance renamed: {:?} -> {}, broadcasting announce",
-            prev_name, new_name
+            prev_name,
+            new_name
         );
         tauri::async_runtime::spawn(async move {
             let report = crate::mesh::broadcast_announce(&mesh_arc, None).await;
             log::info!(
                 "[mesh] post-rename announce sent={} ok={} stale={} errors={}",
-                report.sent, report.ok, report.stale_peers.len(), report.errors.len()
+                report.sent,
+                report.ok,
+                report.stale_peers.len(),
+                report.errors.len()
             );
         });
     }
@@ -448,14 +453,13 @@ pub async fn get_config_path() -> Result<String, String> {
 /// Save a custom theme TOML file to the user themes directory.
 #[tauri::command]
 pub async fn save_custom_theme(theme_id: String, toml_content: String) -> Result<(), String> {
-    let dir = schema::user_themes_dir()
-        .ok_or_else(|| "Cannot determine themes directory".to_string())?;
+    let dir =
+        schema::user_themes_dir().ok_or_else(|| "Cannot determine themes directory".to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create themes dir: {}", e))?;
     let path = dir.join(format!("{}.toml", theme_id));
     // Validate the TOML parses as a theme before saving
     schema::parse_builtin_theme(&toml_content)?;
-    std::fs::write(&path, &toml_content)
-        .map_err(|e| format!("Failed to write theme: {}", e))?;
+    std::fs::write(&path, &toml_content).map_err(|e| format!("Failed to write theme: {}", e))?;
     log::info!("Custom theme saved: {} at {:?}", theme_id, path);
     Ok(())
 }
@@ -463,12 +467,11 @@ pub async fn save_custom_theme(theme_id: String, toml_content: String) -> Result
 /// Delete a custom theme.
 #[tauri::command]
 pub async fn delete_custom_theme(theme_id: String) -> Result<(), String> {
-    let dir = schema::user_themes_dir()
-        .ok_or_else(|| "Cannot determine themes directory".to_string())?;
+    let dir =
+        schema::user_themes_dir().ok_or_else(|| "Cannot determine themes directory".to_string())?;
     let path = dir.join(format!("{}.toml", theme_id));
     if path.exists() {
-        std::fs::remove_file(&path)
-            .map_err(|e| format!("Failed to delete theme: {}", e))?;
+        std::fs::remove_file(&path).map_err(|e| format!("Failed to delete theme: {}", e))?;
     }
     Ok(())
 }

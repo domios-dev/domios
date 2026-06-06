@@ -44,8 +44,13 @@ pub enum WorkspaceAction {
 
 #[derive(Subcommand)]
 pub enum PaneAction {
-    /// List all panes
-    List,
+    /// List all panes as a workspace-grouped tree. `--agents` filters to
+    /// agent panes only (replaces the old `agent list`).
+    List {
+        /// Show only panes running an agent (have an agent_type).
+        #[arg(long)]
+        agents: bool,
+    },
     /// Plain shell pane. For an AI pane use `codeterm agent spawn` instead.
     New {
         /// Target workspace id (default: current focused)
@@ -120,6 +125,16 @@ pub enum PaneAction {
     Search {
         /// Substring or short pattern to match
         pattern: String,
+    },
+    /// Interrupt the agent's current generation (NOT a clean exit). Sends the
+    /// provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode,
+    /// Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key).
+    /// Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge
+    /// and have it map straight here.
+    Stop {
+        /// Pane ID (default: current focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
     },
 }
 

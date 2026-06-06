@@ -7,11 +7,13 @@ pub fn list_pinned_positions(conn: &Connection) -> Result<Vec<PinnedPosition>, S
         .prepare("SELECT mem_id, x, y FROM graph_pinned_positions ORDER BY updated_at DESC")
         .map_err(|e| format!("prepare list_pinned: {}", e))?;
     let rows = stmt
-        .query_map([], |r| Ok(PinnedPosition {
-            mem_id: r.get(0)?,
-            x: r.get(1)?,
-            y: r.get(2)?,
-        }))
+        .query_map([], |r| {
+            Ok(PinnedPosition {
+                mem_id: r.get(0)?,
+                x: r.get(1)?,
+                y: r.get(2)?,
+            })
+        })
         .map_err(|e| format!("query list_pinned: {}", e))?;
     rows.filter_map(|r| r.ok()).map(Ok).collect()
 }

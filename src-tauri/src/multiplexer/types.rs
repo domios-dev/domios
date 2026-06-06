@@ -32,11 +32,9 @@ pub enum Orientation {
 /// Agent role in the orchestration hierarchy.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum AgentRole {
-    /// Top-level orchestrator (depth 1). Can spawn Leads and Workers.
+    /// Top-level orchestrator (depth 1). Can spawn Workers.
     Orchestrator,
-    /// Lead spawned by orchestrator (depth 2). Can spawn Workers.
-    Lead,
-    /// Worker (depth 2 or 3). Executes tasks, reports back. Cannot spawn.
+    /// Worker (depth 2). Executes tasks, reports back. Cannot spawn.
     Worker,
 }
 
@@ -45,8 +43,7 @@ impl AgentRole {
     pub fn from_str_compat(s: &str) -> Option<Self> {
         match s {
             "Orchestrator" | "Conductor" => Some(Self::Orchestrator),
-            "Lead" => Some(Self::Lead),
-            "Worker" | "SubWorker" => Some(Self::Worker),
+            "Worker" => Some(Self::Worker),
             _ => None,
         }
     }
@@ -92,7 +89,11 @@ pub struct Pane {
     #[serde(skip, default)]
     pub agent_set_at: Option<std::time::Instant>,
     /// Agent session ID for resume (e.g. Claude Code session).
-    #[serde(skip_serializing_if = "Option::is_none", default, alias = "claude_session_id")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default,
+        alias = "claude_session_id"
+    )]
     pub agent_session_id: Option<String>,
     /// Human-readable session name emitted by the agent's TUI (e.g. Claude
     /// Code's "vivid-bhabha-1234" handle). Captured once per agent run via
@@ -162,7 +163,9 @@ pub struct Pane {
     pub restored_from_snapshot: bool,
 }
 
-fn default_show_in_tabbar() -> bool { true }
+fn default_show_in_tabbar() -> bool {
+    true
+}
 
 /// Title priority: higher levels cannot be overwritten by lower ones.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -178,7 +181,9 @@ pub enum TitleLevel {
 }
 
 impl Default for TitleLevel {
-    fn default() -> Self { Self::Default }
+    fn default() -> Self {
+        Self::Default
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

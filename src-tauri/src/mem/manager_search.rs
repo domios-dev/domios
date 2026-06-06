@@ -1,6 +1,8 @@
 //! Mem search and recall operations.
 
-use super::{embeddings, layers, rerank, search, MemManager, SearchHit, SearchQuery, WakeUpOptions};
+use super::{
+    embeddings, layers, rerank, search, MemManager, SearchHit, SearchQuery, WakeUpOptions,
+};
 
 impl MemManager {
     /// Hybrid recall: RRF fusion of FTS5 + vector ANN results.
@@ -35,11 +37,7 @@ impl MemManager {
     /// Bulk re-embed mem_items and/or graph entities. Used after embedder
     /// model swap, or to backfill entities that pre-date the auto-embed-on-
     /// create wiring (everything before v1.1.23 if the bug fix landed there).
-    pub fn reembed_bulk(
-        &self,
-        do_items: bool,
-        do_entities: bool,
-    ) -> Result<ReembedReport, String> {
+    pub fn reembed_bulk(&self, do_items: bool, do_entities: bool) -> Result<ReembedReport, String> {
         let conn = self.conn.lock();
         let mut report = ReembedReport::default();
 

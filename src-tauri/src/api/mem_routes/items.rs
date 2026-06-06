@@ -29,7 +29,9 @@ pub async fn mem_activity_recent(
     Query(p): Query<ActivityRecentParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let since = p.since_ms.unwrap_or_else(|| now_ms().saturating_sub(60_000));
+    let since = p
+        .since_ms
+        .unwrap_or_else(|| now_ms().saturating_sub(60_000));
     let events = state.svc.activity.recent(since);
     Ok(Json(serde_json::json!({ "events": events })))
 }
@@ -78,7 +80,10 @@ pub async fn mem_search(
             api_key_env: None,
             model: None,
         };
-        state.svc.mem.search_with_rerank(&q, &cfg)
+        state
+            .svc
+            .mem
+            .search_with_rerank(&q, &cfg)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
     } else {
         let mut sc = SearchConfig::default();
@@ -93,11 +98,17 @@ pub async fn mem_search(
         }
         if let Some(w) = p.weight {
             if !(0.0..=1.0).contains(&w) {
-                return Err((StatusCode::BAD_REQUEST, format!("weight must be 0.0..=1.0, got {}", w)));
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("weight must be 0.0..=1.0, got {}", w),
+                ));
             }
             sc.vector_rerank_weight = w;
         }
-        state.svc.mem.recall_with_config(&q, &sc)
+        state
+            .svc
+            .mem
+            .recall_with_config(&q, &sc)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
     };
     Ok(Json(serde_json::json!({ "hits": hits })))
@@ -109,14 +120,21 @@ pub async fn mem_get(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let item = state.svc.mem.get(&id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let item = state
+        .svc
+        .mem
+        .get(&id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     match item {
         Some(item) => {
             emit_activity(&state, &headers, "read", vec![id.clone()]);
             // Skip evidence bump on worker-driven reads (extraction/dreamer sweeps would poison the signal).
             let is_worker_call = headers.get(WORKER_ID_HEADER).is_some();
             if !is_worker_call {
-                state.svc.mem.with_conn(|conn| bump_on_get(conn, &item.kind, &id));
+                state
+                    .svc
+                    .mem
+                    .with_conn(|conn| bump_on_get(conn, &item.kind, &id));
             }
             Ok(Json(serde_json::to_value(item).unwrap_or_default()))
         }
@@ -171,7 +189,8 @@ mod tests {
             "INSERT INTO mem_items (id, uid, kind, scope, title, tags_json, created_at, updated_at)
              VALUES (?1, ?1, ?2, 'global', 't', '[]', '2026-01-01', '2026-01-01')",
             rusqlite::params![id, kind],
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     fn evidence(conn: &Connection, id: &str) -> i64 {
@@ -179,7 +198,8 @@ mod tests {
             "SELECT evidence_count FROM mem_items WHERE id = ?1",
             rusqlite::params![id],
             |r| r.get(0),
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     #[test]
@@ -290,7 +310,10 @@ mod tests {
             explain: None,
             workspace: None,
         });
-        assert_eq!(opts.l1_budget_tokens, crate::config::schema::MemoryConfig::default().l1_budget_tokens);
+        assert_eq!(
+            opts.l1_budget_tokens,
+            crate::config::schema::MemoryConfig::default().l1_budget_tokens
+        );
     }
 
     #[test]
@@ -339,13 +362,27 @@ pub async fn mem_save(
     Json(body): Json<SaveBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    validate_item_fields(&body.title, &body.body, &body.area, &body.tags, body.importance)?;
-    let kind = MemKind::from_str(&body.kind)
-        .ok_or((StatusCode::BAD_REQUEST, format!("unknown kind: {}", body.kind)))?;
-    let scope = body.scope.map(|s| MemScope::from_str(&s)).unwrap_or(MemScope::Global);
+    validate_item_fields(
+        &body.title,
+        &body.body,
+        &body.area,
+        &body.tags,
+        body.importance,
+    )?;
+    let kind = MemKind::from_str(&body.kind).ok_or((
+        StatusCode::BAD_REQUEST,
+        format!("unknown kind: {}", body.kind),
+    ))?;
+    let scope = body
+        .scope
+        .map(|s| MemScope::from_str(&s))
+        .unwrap_or(MemScope::Global);
     // Check BEFORE moving fields — prevents extraction cascade
     let is_auto_extracted = body.tags.iter().any(|t| t == "auto-extracted")
-        || body.source.as_deref().map_or(false, |s| s.starts_with("extracted_from:"));
+        || body
+            .source
+            .as_deref()
+            .map_or(false, |s| s.starts_with("extracted_from:"));
 
     let item = NewMemItem {
         kind,
@@ -370,13 +407,12 @@ pub async fn mem_save(
         } else {
             state.svc.mem.save(item)
         }
-    }).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    })
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "write", vec![id.clone()]);
 
     let auto_extract_enabled = crate::config::memory_config().auto_extract;
-    let should_extract = !body.skip_extract
-        && !is_auto_extracted
-        && auto_extract_enabled;
+    let should_extract = !body.skip_extract && !is_auto_extracted && auto_extract_enabled;
     if should_extract {
         let svc = state.svc.clone();
         let id_for_extract = id.clone();
@@ -401,10 +437,8 @@ pub async fn mem_delete(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let changed_by = changed_by_from_headers(&headers);
-    let removed = crate::mem::store::with_changed_by(&changed_by, || {
-        state.svc.mem.delete(&id)
-    })
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let removed = crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.delete(&id))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "delete", vec![id.clone()]);
     Ok(Json(serde_json::json!({ "deleted": removed })))
 }
@@ -415,7 +449,10 @@ pub async fn mem_forget_area(
     Path(area): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let count = state.svc.mem.delete_by_area(&area)
+    let count = state
+        .svc
+        .mem
+        .delete_by_area(&area)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "delete", vec![format!("area:{}", area)]);
     Ok(Json(serde_json::json!({ "deleted": count, "area": area })))
@@ -458,7 +495,12 @@ pub async fn mem_update(
         }
     }
     if let Some(ref a) = body.area {
-        if !a.is_empty() && (a.len() > 64 || !a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
+        if !a.is_empty()
+            && (a.len() > 64
+                || !a
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+        {
             return Err((StatusCode::BAD_REQUEST, format!("invalid area: `{}`", a)));
         }
     }
@@ -474,7 +516,10 @@ pub async fn mem_update(
     }
     if let Some(i) = body.importance {
         if !(0.0..=5.0).contains(&i) {
-            return Err((StatusCode::BAD_REQUEST, format!("importance must be 0..5, got {}", i)));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("importance must be 0..5, got {}", i),
+            ));
         }
     }
     let patch = MemUpdate {
@@ -488,10 +533,9 @@ pub async fn mem_update(
         pinned: body.pinned,
     };
     let changed_by = changed_by_from_headers(&headers);
-    let updated = crate::mem::store::with_changed_by(&changed_by, || {
-        state.svc.mem.update(&id, patch)
-    })
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let updated =
+        crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.update(&id, patch))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     if !updated {
         return Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id)));
     }
@@ -520,7 +564,11 @@ pub async fn mem_wake_up(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let opts = wake_up_options_from_params(&p);
-    let text = state.svc.mem.wake_up(&opts).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let text = state
+        .svc
+        .mem
+        .wake_up(&opts)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "text": text })))
 }
 
@@ -564,7 +612,11 @@ pub async fn mem_stats(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let stats = state.svc.mem.stats().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let stats = state
+        .svc
+        .mem
+        .stats()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::to_value(stats).unwrap_or_default()))
 }
 
@@ -663,7 +715,9 @@ pub async fn mem_flush(
         mux.resolve_pane_id(&b.pane)
             .ok_or((StatusCode::NOT_FOUND, format!("pane not found: {}", b.pane)))?
     };
-    let pty_id_for_buffer = state.svc.resolve_pty_id(&pty_id)
+    let pty_id_for_buffer = state
+        .svc
+        .resolve_pty_id(&pty_id)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     let body = {
         let buf = state.svc.output_buf.lock();
@@ -701,16 +755,30 @@ pub async fn mem_check_duplicate(
     }
     let threshold = b.threshold.unwrap_or(0.85).clamp(0.0, 1.0);
 
-    let raw = state.svc.mem.vector_recall(&b.body, 20)
+    let raw = state
+        .svc
+        .mem
+        .vector_recall(&b.body, 20)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    let matches: Vec<serde_json::Value> = raw.into_iter()
+    let matches: Vec<serde_json::Value> = raw
+        .into_iter()
         .filter_map(|(id, dist)| {
             let item = state.svc.mem.get(&id).ok()??;
-            if let Some(ref k) = b.kind { if item.kind.as_str() != k.as_str() { return None; } }
-            if let Some(ref a) = b.area { if item.area.as_deref() != Some(a) { return None; } }
+            if let Some(ref k) = b.kind {
+                if item.kind.as_str() != k.as_str() {
+                    return None;
+                }
+            }
+            if let Some(ref a) = b.area {
+                if item.area.as_deref() != Some(a) {
+                    return None;
+                }
+            }
             let similarity = (1.0 - (dist * dist) / 2.0).clamp(0.0, 1.0);
-            if similarity < threshold { return None; }
+            if similarity < threshold {
+                return None;
+            }
             Some(serde_json::json!({
                 "id": item.id,
                 "title": item.title,

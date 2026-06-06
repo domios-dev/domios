@@ -47,7 +47,12 @@ fn on_crash(ctx: &crash_handler::CrashContext) {
     let _ = writeln!(s);
     let _ = writeln!(s, "Signal/Exception: {}", describe_ctx(ctx));
     let _ = writeln!(s);
-    let _ = writeln!(s, "Minidump: {} ({})", dmp_path.display(), if dmp_ok { "ok" } else { "failed" });
+    let _ = writeln!(
+        s,
+        "Minidump: {} ({})",
+        dmp_path.display(),
+        if dmp_ok { "ok" } else { "failed" }
+    );
     let _ = writeln!(s);
     let _ = writeln!(s, "Recent log tail (last 200 lines):");
     let _ = writeln!(s, "---");
@@ -60,7 +65,9 @@ fn on_crash(ctx: &crash_handler::CrashContext) {
 #[cfg(target_os = "macos")]
 fn write_minidump(ctx: &crash_handler::CrashContext, path: &std::path::Path) -> bool {
     use minidump_writer::minidump_writer::MinidumpWriter;
-    let Ok(mut file) = std::fs::File::create(path) else { return false };
+    let Ok(mut file) = std::fs::File::create(path) else {
+        return false;
+    };
     // Rebuild the context (it's not Clone) into a value-owned form for the writer.
     let owned = crash_context::CrashContext {
         task: ctx.task,
@@ -68,34 +75,43 @@ fn write_minidump(ctx: &crash_handler::CrashContext, path: &std::path::Path) -> 
         handler_thread: ctx.handler_thread,
         exception: ctx.exception,
     };
-    MinidumpWriter::with_crash_context(owned).dump(&mut file).is_ok()
+    MinidumpWriter::with_crash_context(owned)
+        .dump(&mut file)
+        .is_ok()
 }
 
 #[cfg(target_os = "windows")]
 fn write_minidump(ctx: &crash_handler::CrashContext, path: &std::path::Path) -> bool {
     use minidump_writer::minidump_writer::MinidumpWriter;
-    let Ok(mut file) = std::fs::File::create(path) else { return false };
-    // MinidumpWriter::dump_local_context dumps the current process using the
-    // provided exception pointers from crash-handler.
-    MinidumpWriter::dump_local_context(
-        Some(ctx.exception_code as i32),
-        None,
-        None,
-        &mut file,
-    ).is_ok()
+    let Ok(mut file) = std::fs::File::create(path) else {
+        return false;
+    };
+    // dump_local_context(exception_code, thread_id, minidump_type, dest).
+    // None for thread_id = current; None for type = default MinidumpNormal.
+    // The exception pointers are read internally from the OS — no need to
+    // thread them through this API.
+    MinidumpWriter::dump_local_context(Some(ctx.exception_code as i32), None, None, &mut file)
+        .is_ok()
 }
 
 #[cfg(target_os = "linux")]
 fn write_minidump(ctx: &crash_handler::CrashContext, path: &std::path::Path) -> bool {
     use minidump_writer::minidump_writer::MinidumpWriter;
-    let Ok(mut file) = std::fs::File::create(path) else { return false };
-    MinidumpWriter::new(ctx.pid, ctx.tid).dump(&mut file).is_ok()
+    let Ok(mut file) = std::fs::File::create(path) else {
+        return false;
+    };
+    MinidumpWriter::new(ctx.pid, ctx.tid)
+        .dump(&mut file)
+        .is_ok()
 }
 
 #[cfg(target_os = "macos")]
 fn describe_ctx(ctx: &crash_handler::CrashContext) -> String {
     match ctx.exception {
-        Some(e) => format!("kind=0x{:x} code=0x{:x} subcode={:?}", e.kind, e.code, e.subcode),
+        Some(e) => format!(
+            "kind=0x{:x} code=0x{:x} subcode={:?}",
+            e.kind, e.code, e.subcode
+        ),
         None => "<no exception info>".to_string(),
     }
 }
@@ -107,5 +123,8 @@ fn describe_ctx(ctx: &crash_handler::CrashContext) -> String {
 
 #[cfg(target_os = "linux")]
 fn describe_ctx(ctx: &crash_handler::CrashContext) -> String {
-    format!("siginfo.si_signo={} si_code={}", ctx.siginfo.ssi_signo, ctx.siginfo.ssi_code)
+    format!(
+        "siginfo.si_signo={} si_code={}",
+        ctx.siginfo.ssi_signo, ctx.siginfo.ssi_code
+    )
 }

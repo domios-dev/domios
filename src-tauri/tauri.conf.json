@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "bash scripts/dev-prep.sh",
+    "beforeDevCommand": "node scripts/dev-prep.mjs",
     "beforeBuildCommand": "pnpm build && node scripts/touch-cli-main.js && cargo build --release --manifest-path cli/Cargo.toml && node scripts/bundle-cli.js && node scripts/prepare-embed-stub.js && cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed && node scripts/bundle-embed.js"
   },
   "app": {

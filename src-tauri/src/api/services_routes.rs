@@ -106,7 +106,9 @@ pub async fn create_service(
             StatusCode::INTERNAL_SERVER_ERROR,
             "service vanished after create".into(),
         ))?;
-    Ok(Json(serde_json::json!({"service": service, "token": token})))
+    Ok(Json(
+        serde_json::json!({"service": service, "token": token}),
+    ))
 }
 
 pub async fn get_service(
@@ -174,9 +176,14 @@ pub async fn regenerate_token(
         .tokens
         .generate(&id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let _ = state
-        .svc
-        .services_store
-        .update(&id, ServiceUpdate { push_enabled: Some(true), ..Default::default() });
-    Ok(Json(serde_json::json!({"token": token, "push_enabled": true})))
+    let _ = state.svc.services_store.update(
+        &id,
+        ServiceUpdate {
+            push_enabled: Some(true),
+            ..Default::default()
+        },
+    );
+    Ok(Json(
+        serde_json::json!({"token": token, "push_enabled": true}),
+    ))
 }

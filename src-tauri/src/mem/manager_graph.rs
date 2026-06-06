@@ -1,9 +1,9 @@
 //! Mem graph operations + learning promotion.
 
 use super::graph_repair::{
-    augment_entity, delete_relations_by_rowids, find_duplicate_entities,
-    find_duplicate_relations, merge_relations, DuplicateEntityGroup, DuplicateRelationGroup,
-    EntitySimilarityStrategy, MergeReport, RelationColumn,
+    augment_entity, delete_relations_by_rowids, find_duplicate_entities, find_duplicate_relations,
+    merge_relations, DuplicateEntityGroup, DuplicateRelationGroup, EntitySimilarityStrategy,
+    MergeReport, RelationColumn,
 };
 use super::{graph, store, Entity, MemManager, Relation};
 
@@ -58,7 +58,14 @@ impl MemManager {
         include_invalidated: bool,
     ) -> Result<graph::TraversalResult, String> {
         let conn = self.conn.lock();
-        graph::traverse(&conn, start, max_hops, max_nodes, as_of, include_invalidated)
+        graph::traverse(
+            &conn,
+            start,
+            max_hops,
+            max_nodes,
+            as_of,
+            include_invalidated,
+        )
     }
 
     /// Shortest path between two entities (BFS).
@@ -73,7 +80,10 @@ impl MemManager {
         graph::shortest_path(&conn, from, to, max_hops, include_invalidated)
     }
 
-    pub fn graph_tunnels(&self, include_invalidated: bool) -> Result<Vec<serde_json::Value>, String> {
+    pub fn graph_tunnels(
+        &self,
+        include_invalidated: bool,
+    ) -> Result<Vec<serde_json::Value>, String> {
         let conn = self.conn.lock();
         graph::tunnels(&conn, include_invalidated)
     }
@@ -96,7 +106,10 @@ impl MemManager {
     pub fn promote_learning(&self, id: &str) -> Result<(), String> {
         let item = self.get(id)?.ok_or_else(|| format!("not found: {}", id))?;
         if item.kind != "learning" {
-            return Err(format!("can only promote kind=learning, got kind={}", item.kind));
+            return Err(format!(
+                "can only promote kind=learning, got kind={}",
+                item.kind
+            ));
         }
         let old_importance = item.importance;
         let new_importance = old_importance.max(4.0);
