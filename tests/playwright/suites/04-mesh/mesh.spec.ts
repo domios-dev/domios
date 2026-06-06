@@ -5,11 +5,13 @@
  * scenario) flips offline only after the 2-miss hysteresis → recovers to
  * online when the peer answers again.
  *
- * API-level only in V1 — Mesh-tab UI assertions follow after the
- * data-testid pass gives the canvas stable selectors.
+ * Asserted in BOTH the API and the rendered Mesh-tab UI (data-testid
+ * selectors): peer dot online state, and the T3 #119 behavior — an
+ * unreachable peer's services stay listed with the 'cached' badge.
  */
 import { expect, test } from "@playwright/test";
 import { ApiClient } from "../../helpers/api-client";
+import { connectUi, type UiSession } from "../../helpers/dev-console";
 import { MeshStub } from "../../helpers/mesh-stub";
 
 const api = new ApiClient();
@@ -44,9 +46,10 @@ async function pollUntil<T>(
   }
 }
 
-test("@golden stub peer: pair → online → wedged → offline (hysteresis) → recovered", async () => {
+test("@golden stub peer: pair → online → wedged → offline (hysteresis) → recovered, in API and Mesh-tab UI", async () => {
   // Liveness transitions ride the 15s health loop with a 2-miss threshold;
-  // the full cycle needs several loop rounds.
+  // the full cycle needs several loop rounds. The Mesh tab polls every 5s,
+  // so UI assertions piggyback on the same waits.
   test.setTimeout(420_000);
 
   const mesh = await api.get<{ enabled: boolean }>("/mesh/status");
@@ -54,6 +57,7 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
 
   const stub = new MeshStub({ services: 3 });
   let peerId: string | undefined;
+  let ui: UiSession | undefined;
 
   try {
     await stub.start("happy");
@@ -87,6 +91,23 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
       "daemon never pinged the stub",
     ).toBe(true);
 
+    // Open the Mesh tab: peer row online, the stub's 3 services rendered
+    // fresh (not stale) in the services drawer.
+    ui = await connectUi();
+    await ui.page.locator('[data-testid="nav-mesh"]').click();
+    await ui.page.locator('[data-testid="mesh-tab-network"]').click();
+    const peerRow = ui.page.locator(`[data-testid="mesh-peer"][data-peer-id="${peerId}"]`);
+    await expect(peerRow).toBeVisible({ timeout: 15_000 });
+    await expect(peerRow).toHaveAttribute("data-online", "true", { timeout: 15_000 });
+
+    await ui.page.locator('[data-testid="mesh-tab-map"]').click();
+    await ui.page.locator('[data-testid="mesh-services-toggle"]').click();
+    const stubServices = ui.page.locator(
+      `[data-testid="service-row"][data-source-peer="${stub.instanceName}"]`,
+    );
+    await expect(stubServices).toHaveCount(3, { timeout: 20_000 });
+    await expect(stubServices.first()).toHaveAttribute("data-stale", "false");
+
     // Wedge: TCP accepts, nothing answers — the #130 scenario. The flag
     // must flip offline (2 consecutive missed rounds ≈ 30-45s), and must
     // do so without wedging the daemon itself.
@@ -99,12 +120,35 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
     const health = await api.health();
     expect(health.status).toBe("ok");
 
-    // Recovery: answering again brings it back online on the next round.
+    // T3 #119 in the rendered UI: the unreachable peer's services must NOT
+    // vanish — still listed, flagged stale, cached badge visible.
+    await expect(stubServices).toHaveCount(3, { timeout: 30_000 });
+    await expect(stubServices.first()).toHaveAttribute("data-stale", "true", {
+      timeout: 30_000,
+    });
+    await expect(
+      stubServices.first().locator('[data-testid="service-stale-badge"]'),
+    ).toBeVisible();
+
+    // Recovery: answering again brings it back online — and staleness
+    // clears in the UI.
     stub.mode = "happy";
     await pollUntil("recovered peer flips back online", 120_000, 3_000, async () =>
       (await pairedPeer(peerId!))?.online === true ? true : undefined,
     );
+    await expect(stubServices.first()).toHaveAttribute("data-stale", "false", {
+      timeout: 30_000,
+    });
   } finally {
+    // Leave the UI on the workspace view so later suites see terminals.
+    if (ui) {
+      await ui.page
+        .locator('[data-testid="workspace-item"]')
+        .first()
+        .click()
+        .catch(() => {});
+      await ui.browser.close().catch(() => {});
+    }
     if (peerId) {
       await api.post(`/mesh/peers/disconnect/${peerId}`).catch(() => {});
     }

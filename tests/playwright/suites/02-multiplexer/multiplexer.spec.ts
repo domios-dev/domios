@@ -41,8 +41,9 @@ test("@golden workspace create/focus/close round-trip, UI tracks it", async () =
   const ws = workspaces.find((w) => w.name === name);
   expect(ws, `workspace ${name} missing after create`).toBeDefined();
 
-  // UI renders the new workspace name reactively (no manual refresh).
-  await expect(ui.page.getByText(name).first()).toBeVisible();
+  // UI renders the new workspace reactively (no manual refresh).
+  const wsItem = ui.page.locator(`[data-testid="workspace-item"][data-workspace-name="${name}"]`);
+  await expect(wsItem).toBeVisible();
 
   await api.focusWorkspace(ws!.id);
   workspaces = await api.workspaces();
@@ -53,7 +54,7 @@ test("@golden workspace create/focus/close round-trip, UI tracks it", async () =
   expect(workspaces.some((w) => w.id === ws!.id)).toBe(false);
 
   // And it disappears from the UI.
-  await expect(ui.page.getByText(name)).toHaveCount(0);
+  await expect(wsItem).toHaveCount(0);
 });
 
 test("@golden pane create/focus/close round-trip", async () => {
@@ -118,7 +119,9 @@ test("@golden workspace + pane survive a daemon kill/restart", async () => {
   ).toBe(true);
 
   // UI shows the restored workspace too.
-  await expect(ui.page.getByText(name).first()).toBeVisible();
+  await expect(
+    ui.page.locator(`[data-testid="workspace-item"][data-workspace-name="${name}"]`),
+  ).toBeVisible();
 
   await api.closeWorkspace(restored!.id).catch(() => {});
 });
