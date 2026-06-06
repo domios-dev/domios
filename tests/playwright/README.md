@@ -57,9 +57,27 @@ tests/playwright/
     └── 02-multiplexer/     ws/pane lifecycle, #132 focus determinism (50x), kill/restart persistence
 ```
 
+## Real-LLM strategy (Andrey's ruling, supersedes testplan §4.1)
+
+There is **no mock provider and no HTTP intercept** — agent tests call
+the real LLM, trading mock determinism for real-system fidelity:
+
+- LLM-touching tests are `@golden`/`@nightly`, never `@smoke`; `@smoke`
+  agent coverage is LLM-free (spawn validation, report IPC via plain
+  shell panes wired with `/role`).
+- Assertions are **structural**, never exact-text: response/report
+  exists, contains a unique marker, pane has `agent_type`, tool/report
+  history shows the action — same rank-tolerance philosophy as 06-mem.
+- Be parsimonious: one LLM call per test, trivial prompts, cheap model
+  (`sonnet`), bounded timeouts (240s budget for spawn→report).
+- Auth: the claude provider uses the host's `claude` CLI login; no API
+  key env var needed. codex/opencode agent tests are deferred until
+  their CLI auth on the test machine is confirmed.
+
 ## Tags
 
-`@smoke` every commit · `@golden` PRs · `@edge` / `@failure` nightly ·
+`@smoke` every commit (fast, no LLM, target < 5 min total) ·
+`@golden` PRs · `@edge` / `@failure` nightly ·
 `@regression` locks a specific fix (named issue in the test title).
 
 ## Hard rules
