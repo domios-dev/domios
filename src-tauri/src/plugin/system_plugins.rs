@@ -38,7 +38,9 @@ mod tests {
             assert!(!id.is_empty(), "empty id in hash table");
             assert_eq!(h.len(), 64, "hash for {id:?} is not 64 hex chars");
             assert!(
-                h.chars().all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_lowercase())),
+                h.chars().all(
+                    |c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_lowercase())
+                ),
                 "hash for {id:?} contains non-lowercase-hex chars: {h:?}",
             );
         }

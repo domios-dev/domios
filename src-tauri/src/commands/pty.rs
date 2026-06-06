@@ -3,8 +3,8 @@ use std::io::Read;
 use tauri::{AppHandle, Emitter};
 
 use crate::multiplexer::commands::MuxState;
-use crate::service::ServiceState;
 use crate::service::pty_io::build_spawn_dispatch;
+use crate::service::ServiceState;
 use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
 
 #[tauri::command]
@@ -53,7 +53,8 @@ pub async fn spawn_pty(
             if alive {
                 log::info!(
                     "[spawn_pty] pane {} already has live pty {} — reusing",
-                    pid, existing,
+                    pid,
+                    existing,
                 );
                 return Ok(existing);
             }
@@ -61,10 +62,15 @@ pub async fn spawn_pty(
         if is_protected {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             loop {
-                if let Some(existing) = mux_state.lock().get_pane(pid).and_then(|p| p.pty_id.clone()) {
+                if let Some(existing) = mux_state
+                    .lock()
+                    .get_pane(pid)
+                    .and_then(|p| p.pty_id.clone())
+                {
                     log::info!(
                         "[spawn_pty] protected pane {} already has backend pty {} — reusing",
-                        pid, existing,
+                        pid,
+                        existing,
                     );
                     return Ok(existing);
                 }
@@ -147,9 +153,8 @@ pub async fn spawn_pty(
                 pane.and_then(|p| p.agent_type.clone()),
             )
         };
-        let mut should_fresh_launch = restored_from_snapshot
-            && !is_protected
-            && agent_type.is_some();
+        let mut should_fresh_launch =
+            restored_from_snapshot && !is_protected && agent_type.is_some();
         let agent_type_for_fresh = agent_type.clone();
 
         // Auto-resume in spawn_pty must ONLY fire when the pane was restored
@@ -171,11 +176,14 @@ pub async fn spawn_pty(
             // spam like "No conversation found with session ID: ..." which the
             // watchdog then retries forever. Clear and fall through so the
             // restored-from-snapshot branch can spawn a fresh agent if needed.
-            let session_valid = pane_cwd.as_deref().map(|cwd| {
-                svc.agent_registry.with_provider(&provider_id, |p| {
-                    p.session_exists(cwd, &session_id)
-                }).unwrap_or(false)
-            }).unwrap_or(false);
+            let session_valid = pane_cwd
+                .as_deref()
+                .map(|cwd| {
+                    svc.agent_registry
+                        .with_provider(&provider_id, |p| p.session_exists(cwd, &session_id))
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
 
             if !session_valid {
                 log::info!(
@@ -196,9 +204,12 @@ pub async fn spawn_pty(
                 let _ = config_state; // global lock no longer needed for these fields
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
                 let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
-                let resume_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
-                    p.build_resume_command(&session_id, skip_perms)
-                }).flatten();
+                let resume_cmd = svc
+                    .agent_registry
+                    .with_provider(&provider_id, |p| {
+                        p.build_resume_command(&session_id, skip_perms)
+                    })
+                    .flatten();
 
                 if let Some(cmd) = resume_cmd {
                     let pty_clone = state.inner().clone();
@@ -206,7 +217,9 @@ pub async fn spawn_pty(
                     let pty_id_for_write = pty_id.clone();
                     let screen_state_clone = screen_state.inner().clone();
                     tokio::spawn(async move {
-                        if !resume_enabled { return; }
+                        if !resume_enabled {
+                            return;
+                        }
 
                         // 60s is generous but matters under contention: at app
                         // restart dozens of panes spawn in parallel and shell
@@ -214,13 +227,19 @@ pub async fn spawn_pty(
                         // (observed 14-20s for Nth-pane zsh under load on macOS).
                         let ready = tokio::task::spawn_blocking(move || {
                             crate::service::pty_io::poll_shell_prompt(
-                                &screen_state_clone, &pty_id_for_poll,
+                                &screen_state_clone,
+                                &pty_id_for_poll,
                                 std::time::Duration::from_secs(60),
                             )
-                        }).await.unwrap_or(false);
+                        })
+                        .await
+                        .unwrap_or(false);
 
                         if !ready {
-                            log::warn!("[resume] shell not ready for session {}, skipping", session_id);
+                            log::warn!(
+                                "[resume] shell not ready for session {}, skipping",
+                                session_id
+                            );
                             return;
                         }
 
@@ -230,7 +249,10 @@ pub async fn spawn_pty(
                                 let _ = pty_clone.lock().write(&pty_id_for_write, &bytes);
                             }
                             Err(e) => {
-                                log::error!("[resume] spawn dispatch build failed: {} — skipping launch", e);
+                                log::error!(
+                                    "[resume] spawn dispatch build failed: {} — skipping launch",
+                                    e
+                                );
                             }
                         }
                     });
@@ -268,10 +290,13 @@ pub async fn spawn_pty(
                 tokio::spawn(async move {
                     let ready = tokio::task::spawn_blocking(move || {
                         crate::service::pty_io::poll_shell_prompt(
-                            &screen_state_clone, &pty_id_for_poll,
+                            &screen_state_clone,
+                            &pty_id_for_poll,
                             std::time::Duration::from_secs(60),
                         )
-                    }).await.unwrap_or(false);
+                    })
+                    .await
+                    .unwrap_or(false);
                     if !ready {
                         log::warn!(
                             "[restore-fresh] shell not ready for {} pane, skipping launch",
@@ -279,13 +304,20 @@ pub async fn spawn_pty(
                         );
                         return;
                     }
-                    log::info!("[restore-fresh] launching {} (no session): {}", provider_label, cmd);
+                    log::info!(
+                        "[restore-fresh] launching {} (no session): {}",
+                        provider_label,
+                        cmd
+                    );
                     match build_spawn_dispatch(&cmd) {
                         Ok(bytes) => {
                             let _ = pty_clone.lock().write(&pty_id_for_write, &bytes);
                         }
                         Err(e) => {
-                            log::error!("[restore-fresh] spawn dispatch build failed: {} — skipping launch", e);
+                            log::error!(
+                                "[restore-fresh] spawn dispatch build failed: {} — skipping launch",
+                                e
+                            );
                         }
                     }
                 });
@@ -309,7 +341,8 @@ pub async fn read_pty(
 ) -> Result<Vec<u8>, String> {
     let session = {
         let manager = state.lock();
-        manager.get_session(&pty_id)
+        manager
+            .get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
 
@@ -399,10 +432,13 @@ pub async fn read_pty(
             if now != prev {
                 let pane_id = mux.lock().pane_id_for_pty(&pty_id);
                 if let Some(ref pid) = pane_id {
-                    let _ = app.emit("pane-status-changed", serde_json::json!({
-                        "pane_id": pid,
-                        "status": format!("{:?}", now),
-                    }));
+                    let _ = app.emit(
+                        "pane-status-changed",
+                        serde_json::json!({
+                            "pane_id": pid,
+                            "status": format!("{:?}", now),
+                        }),
+                    );
                 }
             }
 
@@ -413,10 +449,13 @@ pub async fn read_pty(
             tracker.lock().set_dead(&pty_id);
             let pane_id = mux.lock().pane_id_for_pty(&pty_id);
             if let Some(ref pid) = pane_id {
-                let _ = app.emit("pane-status-changed", serde_json::json!({
-                    "pane_id": pid,
-                    "status": "Dead",
-                }));
+                let _ = app.emit(
+                    "pane-status-changed",
+                    serde_json::json!({
+                        "pane_id": pid,
+                        "status": "Dead",
+                    }),
+                );
 
                 // Cron fallback: if agent died without calling cron complete, mark as failed
                 use tauri::Manager;
@@ -429,7 +468,11 @@ pub async fn read_pty(
                             let text = output_buf.lock().get_text(&pty_id).unwrap_or_default();
                             let clean = crate::pty::ansi::clean_terminal_output(&text);
                             let _ = store.save_log(&job_id, &run_id, &clean);
-                            let _ = store.update_run_status(&job_id, &run_id, crate::cron::store::CronRunStatus::Failed);
+                            let _ = store.update_run_status(
+                                &job_id,
+                                &run_id,
+                                crate::cron::store::CronRunStatus::Failed,
+                            );
                         }
                         store.unregister_pane(pid);
                         log::info!("Cron pane exited: job={}, run={}", job_id, run_id);
@@ -438,7 +481,7 @@ pub async fn read_pty(
                 }
             }
             Err(e)
-        },
+        }
     }
 }
 
@@ -452,7 +495,8 @@ pub async fn write_pty_string(
 ) -> Result<(), String> {
     let session = {
         let manager = state.lock();
-        manager.get_session(&pty_id)
+        manager
+            .get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
     let bytes = data.into_bytes();
@@ -471,7 +515,8 @@ pub async fn write_pty(
 ) -> Result<(), String> {
     let session = {
         let manager = state.lock();
-        manager.get_session(&pty_id)
+        manager
+            .get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
     parse_pty_input(&svc, &mux_state, &pty_id, &data);
@@ -502,7 +547,8 @@ fn parse_pty_input(
     let (pane_id, locked) = {
         let m = mux.lock();
         let pid = m.pane_id_for_pty(pty_id);
-        let locked = pid.as_ref()
+        let locked = pid
+            .as_ref()
             .and_then(|id| m.get_pane(id))
             .map(|p| p.agent_type_locked)
             .unwrap_or(false);
@@ -516,7 +562,8 @@ fn parse_pty_input(
     if let Some(provider_id) = svc.input_parser.process(&pane_id, bytes) {
         log::info!(
             "[input-parser] detected '{}' launch in pane {} — locking agent_type",
-            provider_id, pane_id,
+            provider_id,
+            pane_id,
         );
         svc.set_and_lock_pane_agent_type(&pane_id, provider_id);
         svc.emit_state_changed();
@@ -532,14 +579,20 @@ pub async fn resize_pty(
 ) -> Result<(), String> {
     let session = {
         let manager = state.lock();
-        manager.get_session(&pty_id)
+        manager
+            .get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
 
     let pair = session.pair.lock().unwrap();
-    pair.master.resize(portable_pty::PtySize {
-        rows, cols, pixel_width: 0, pixel_height: 0,
-    }).map_err(|e| format!("Resize failed: {}", e))?;
+    pair.master
+        .resize(portable_pty::PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("Resize failed: {}", e))?;
     Ok(())
 }
 

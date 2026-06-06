@@ -17,8 +17,7 @@ pub mod tauri_sink;
 
 pub use registry::ChatRegistry;
 pub use tailer::{
-    spawn_raw_tailer, spawn_tailer, DeltaSink, RawTailConfig, RawTextSink, TailConfig,
-    TailerHandle,
+    spawn_raw_tailer, spawn_tailer, DeltaSink, RawTailConfig, RawTextSink, TailConfig, TailerHandle,
 };
 
 #[cfg(test)]

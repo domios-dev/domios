@@ -3,18 +3,23 @@
 //! into the binary via `include_str!`, matching the pattern used by all other
 //! prompt templates.
 
-use super::{MemKind, MemScope, NewMemItem, MemManager};
+use super::{MemKind, MemManager, MemScope, NewMemItem};
 
 const SEED_MARKER: &str = ".bundled-seeded-v1";
 
 const IDENTITY_BODY: &str = include_str!("../../prompts/seed/identity_placeholder.md");
 const RULE_NEVER_EDIT_AUTOGEN: &str = include_str!("../../prompts/seed/rule_never_edit_autogen.md");
 const RULE_SAVE_TO_MEM: &str = include_str!("../../prompts/seed/rule_save_to_mem.md");
-const RULE_SEARCH_BEFORE_ASKING: &str = include_str!("../../prompts/seed/rule_search_before_asking.md");
+const RULE_SEARCH_BEFORE_ASKING: &str =
+    include_str!("../../prompts/seed/rule_search_before_asking.md");
 const SKILL_CODETERM: &str = include_str!("../../prompts/seed/skill_codeterm.md");
 
 pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
-    let marker = mem.db_path().parent().unwrap_or(std::path::Path::new(".")).join(SEED_MARKER);
+    let marker = mem
+        .db_path()
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join(SEED_MARKER);
     if marker.exists() {
         return Ok(0);
     }
@@ -117,7 +122,9 @@ mod tests {
     fn seeded_identity_appears_in_wake_up() {
         let mem = MemManager::open_in_memory().unwrap();
         seed_bundled(&mem).unwrap();
-        let out = mem.wake_up(&super::super::WakeUpOptions::default()).unwrap();
+        let out = mem
+            .wake_up(&super::super::WakeUpOptions::default())
+            .unwrap();
         assert!(out.contains("L0 — Identity"));
         assert!(out.contains("L1 — Critical context"));
         assert!(out.contains("never edit autogen") || out.contains("Rules"));

@@ -1,7 +1,7 @@
 //! PTY I/O helpers: send text, batch send, resize, wait-for-pty.
 
-use serde::Deserialize;
 use super::ServiceContext;
+use serde::Deserialize;
 
 /// Build the byte sequence written to a freshly-attached pty to launch a
 /// shell-level command (agent spawn, mem worker spawn, anything that goes
@@ -61,7 +61,10 @@ impl ServiceContext {
     /// paste because Claude / Codex TUIs require it.
     pub fn send_shell_spawn(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
         let bytes = build_spawn_dispatch(cmd).map_err(|e| e.to_string())?;
-        self.pty.lock().write(pty_id, &bytes).map_err(|e| e.to_string())?;
+        self.pty
+            .lock()
+            .write(pty_id, &bytes)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -76,7 +79,10 @@ impl ServiceContext {
                 return Ok(pty_id);
             }
             if std::time::Instant::now() >= deadline {
-                return Err(format!("Pane {} not found or PTY did not start within {:?}", pane_id, timeout));
+                return Err(format!(
+                    "Pane {} not found or PTY did not start within {:?}",
+                    pane_id, timeout
+                ));
             }
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
@@ -138,11 +144,14 @@ impl ServiceContext {
         enter: bool,
         submit_strategy: crate::agent::provider::VerifySubmitStrategy,
         opts: crate::service::inject_verify::VerifyOpts,
-    ) -> Result<crate::service::inject_verify::InjectionResult, crate::service::inject_verify::InjectionError> {
+    ) -> Result<
+        crate::service::inject_verify::InjectionResult,
+        crate::service::inject_verify::InjectionError,
+    > {
         use crate::agent::provider::VerifySubmitStrategy;
         use crate::service::inject_verify::{
-            HelperErr, InjectionError, InjectionResult, snapshot_screen_hash, wait_for_echo,
-            wait_for_submit_shell, wait_for_submit_tui_drained,
+            snapshot_screen_hash, wait_for_echo, wait_for_submit_shell,
+            wait_for_submit_tui_drained, HelperErr, InjectionError, InjectionResult,
         };
 
         let started = std::time::Instant::now();
@@ -151,7 +160,9 @@ impl ServiceContext {
         if opts.require_prompt_first {
             let ready = poll_shell_prompt(&self.screen_state, pty_id, opts.prompt_timeout);
             if !ready {
-                return Err(InjectionError::PromptNeverReady { waited: started.elapsed() });
+                return Err(InjectionError::PromptNeverReady {
+                    waited: started.elapsed(),
+                });
             }
         }
 
@@ -163,14 +174,22 @@ impl ServiceContext {
         self.pty
             .lock()
             .write(pty_id, paste.as_bytes())
-            .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
+            .map_err(|_| InjectionError::PtyClosed {
+                pty_id: pty_id.to_string(),
+            })?;
         let bytes_written = paste.len();
 
         // Echo verify: informational only. Timeout means we couldn't confirm,
         // not that the paste failed. PtyUnknown is the only real failure here
         // and surfaces as PtyClosed.
         let echo_observed = if opts.verify_echo {
-            match wait_for_echo(&self.screen_state, pty_id, text, opts.echo_timeout, tail_rows) {
+            match wait_for_echo(
+                &self.screen_state,
+                pty_id,
+                text,
+                opts.echo_timeout,
+                tail_rows,
+            ) {
                 Ok(_) => true,
                 Err(HelperErr::PtyUnknown(id)) => {
                     return Err(InjectionError::PtyClosed { pty_id: id });
@@ -198,7 +217,9 @@ impl ServiceContext {
             self.pty
                 .lock()
                 .write(pty_id, b"\r")
-                .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
+                .map_err(|_| InjectionError::PtyClosed {
+                    pty_id: pty_id.to_string(),
+                })?;
 
             // Submit verify: also informational. Timeout no longer aborts.
             if opts.verify_submit {
@@ -210,16 +231,17 @@ impl ServiceContext {
                         timeout,
                         tail_rows,
                     ),
-                    VerifySubmitStrategy::TuiInputDrained { timeout, idle_after_drain } => {
-                        wait_for_submit_tui_drained(
-                            &self.screen_state,
-                            pty_id,
-                            text,
-                            timeout,
-                            idle_after_drain,
-                            tail_rows,
-                        )
-                    }
+                    VerifySubmitStrategy::TuiInputDrained {
+                        timeout,
+                        idle_after_drain,
+                    } => wait_for_submit_tui_drained(
+                        &self.screen_state,
+                        pty_id,
+                        text,
+                        timeout,
+                        idle_after_drain,
+                        tail_rows,
+                    ),
                     VerifySubmitStrategy::None => Ok(String::new()),
                 };
                 match res {
@@ -264,11 +286,13 @@ impl ServiceContext {
         cmd: &str,
         submit_strategy: crate::agent::provider::VerifySubmitStrategy,
         opts: crate::service::inject_verify::VerifyOpts,
-    ) -> Result<crate::service::inject_verify::InjectionResult, crate::service::inject_verify::InjectionError> {
+    ) -> Result<
+        crate::service::inject_verify::InjectionResult,
+        crate::service::inject_verify::InjectionError,
+    > {
         use crate::agent::provider::VerifySubmitStrategy;
         use crate::service::inject_verify::{
-            HelperErr, InjectionError, InjectionResult, snapshot_screen_hash,
-            wait_for_submit_shell,
+            snapshot_screen_hash, wait_for_submit_shell, HelperErr, InjectionError, InjectionResult,
         };
 
         let started = std::time::Instant::now();
@@ -280,12 +304,15 @@ impl ServiceContext {
         // Arm the agent signal BEFORE the write so we cannot miss an instant startup.
         let agent_signal = self.screen_state.lock().arm_agent_signal(pty_id);
 
-        let bytes = build_spawn_dispatch(cmd)
-            .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
+        let bytes = build_spawn_dispatch(cmd).map_err(|_| InjectionError::PtyClosed {
+            pty_id: pty_id.to_string(),
+        })?;
         self.pty
             .lock()
             .write(pty_id, &bytes)
-            .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
+            .map_err(|_| InjectionError::PtyClosed {
+                pty_id: pty_id.to_string(),
+            })?;
         let bytes_written = bytes.len();
 
         let submit_observed = if opts.verify_submit {
@@ -330,7 +357,10 @@ impl ServiceContext {
     /// Use for keystrokes that need TUI interpretation (vim j/k, arrow keys, etc).
     pub fn write_raw(&self, pane_id: &str, data: &[u8]) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(pane_id)?;
-        self.pty.lock().write(&pty_id, data).map_err(|e| e.to_string())
+        self.pty
+            .lock()
+            .write(&pty_id, data)
+            .map_err(|e| e.to_string())
     }
 
     /// Feed `send_text`-style payloads to the typed-launch input parser so the
@@ -340,7 +370,8 @@ impl ServiceContext {
         let (pane_id, locked) = {
             let m = self.mux.lock();
             let pid = m.pane_id_for_pty(pty_id);
-            let locked = pid.as_ref()
+            let locked = pid
+                .as_ref()
                 .and_then(|id| m.get_pane(id))
                 .map(|p| p.agent_type_locked)
                 .unwrap_or(false);
@@ -358,7 +389,8 @@ impl ServiceContext {
         if let Some(provider_id) = self.input_parser.process(&pane_id, &payload) {
             log::info!(
                 "[input-parser] detected '{}' send-text in pane {} — locking agent_type",
-                provider_id, pane_id,
+                provider_id,
+                pane_id,
             );
             self.set_and_lock_pane_agent_type(&pane_id, provider_id);
             self.emit_state_changed();
@@ -403,7 +435,8 @@ impl ServiceContext {
     /// Resolve pane_id (or alias) → pty_id.
     pub fn resolve_pty_id(&self, pane_id: &str) -> Result<String, String> {
         let mux = self.mux.lock();
-        let resolved = mux.resolve_pane_id(pane_id)
+        let resolved = mux
+            .resolve_pane_id(pane_id)
             .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
         mux.get_pane(&resolved)
             .and_then(|p| p.pty_id.clone())
@@ -432,30 +465,21 @@ impl ServiceContext {
     }
 
     /// Wait for output buffer to grow by at least `min_bytes`.
-    pub async fn wait_for_output_growth(
-        &self,
-        pty_id: &str,
-        min_bytes: usize,
-        timeout_secs: u64,
-    ) {
+    pub async fn wait_for_output_growth(&self, pty_id: &str, min_bytes: usize, timeout_secs: u64) {
         let ob = self.output_buf.clone();
         let pid = pty_id.to_string();
-        let _ = tokio::time::timeout(
-            tokio::time::Duration::from_secs(timeout_secs),
-            async move {
-                let start_len = ob.lock().get(&pid).map(|b| b.len()).unwrap_or(0);
-                loop {
-                    let cur_len = ob.lock().get(&pid).map(|b| b.len()).unwrap_or(0);
-                    if cur_len > start_len + min_bytes {
-                        return;
-                    }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let _ = tokio::time::timeout(tokio::time::Duration::from_secs(timeout_secs), async move {
+            let start_len = ob.lock().get(&pid).map(|b| b.len()).unwrap_or(0);
+            loop {
+                let cur_len = ob.lock().get(&pid).map(|b| b.len()).unwrap_or(0);
+                if cur_len > start_len + min_bytes {
+                    return;
                 }
-            },
-        )
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+        })
         .await;
     }
-
 }
 
 /// Wait (event-driven) for a shell prompt to appear on a PTY.
@@ -567,7 +591,10 @@ mod tests {
         let json = r#"{"text": "hello"}"#;
         let item: SendBatchItem = serde_json::from_str(json).unwrap();
         assert_eq!(item.text, "hello");
-        assert_eq!(item.enter, false, "SendBatchItem.enter defaults to false (serde default)");
+        assert_eq!(
+            item.enter, false,
+            "SendBatchItem.enter defaults to false (serde default)"
+        );
         assert!(item.delay_ms.is_none());
     }
 

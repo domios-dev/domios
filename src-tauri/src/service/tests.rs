@@ -13,10 +13,9 @@ fn test_parse_role() {
         ServiceContext::parse_role("Worker"),
         Ok(AgentRole::Worker)
     ));
-    assert!(matches!(
-        ServiceContext::parse_role("SubWorker"),
-        Ok(AgentRole::Worker)
-    ));
+    // Lead / SubWorker are gone — the hierarchy is 2-level (Orchestrator + Worker).
+    assert!(ServiceContext::parse_role("SubWorker").is_err());
+    assert!(ServiceContext::parse_role("Lead").is_err());
     assert!(ServiceContext::parse_role("invalid").is_err());
 }
 
@@ -40,11 +39,7 @@ fn test_resolve_refs_no_match() {
     let params = serde_json::json!({"parent_pane_id": "$nonexistent"});
     let resolved = resolve_refs(&params, &refs);
     assert_eq!(
-        resolved
-            .get("parent_pane_id")
-            .unwrap()
-            .as_str()
-            .unwrap(),
+        resolved.get("parent_pane_id").unwrap().as_str().unwrap(),
         "$nonexistent"
     );
 }

@@ -11,8 +11,13 @@ use crate::mesh::types::AccessLevel;
 #[derive(Clone, Debug)]
 pub enum CallerIdentity {
     Local,
-    ServicePush { service_id: String },
-    Peer { instance_id: String, access_level: AccessLevel },
+    ServicePush {
+        service_id: String,
+    },
+    Peer {
+        instance_id: String,
+        access_level: AccessLevel,
+    },
 }
 
 pub fn is_service_push_allowed(method: &str, path: &str) -> bool {
@@ -70,9 +75,13 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
     // back to deriving it from the private key on the fly — covers identities
     // serialized before public_key was added to MeshIdentity, which otherwise
     // 401 every CLI call from outside a PTY (issue #1 from 1.1.9 SMOKE).
-    let self_pubkey = mesh.ident.identity.public_key.clone()
-        .or_else(|| mesh.ident.identity.private_key.as_ref()
-            .and_then(|sk| crate::mesh::crown::public_key_from_private(sk).ok()));
+    let self_pubkey = mesh.ident.identity.public_key.clone().or_else(|| {
+        mesh.ident
+            .identity
+            .private_key
+            .as_ref()
+            .and_then(|sk| crate::mesh::crown::public_key_from_private(sk).ok())
+    });
     if let Some(pk) = self_pubkey {
         known_keys.insert(own_id.clone(), pk);
     }
@@ -86,7 +95,10 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
                 .get(&sender_id)
                 .map(|p| p.access_level.clone())
                 .unwrap_or(AccessLevel::ReadOnly);
-            Ok(CallerIdentity::Peer { instance_id: sender_id, access_level })
+            Ok(CallerIdentity::Peer {
+                instance_id: sender_id,
+                access_level,
+            })
         }
         Err(_) => Err(()),
     }
@@ -102,15 +114,19 @@ fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
             }
             // Agents need to send commands, exec, spawn, report
             let write_allowed = [
-                "/send", "/exec", "/report", "/reports",
-                "/respond", "/clear", "/can-spawn", "/agent-type",
+                "/send",
+                "/exec",
+                "/report",
+                "/reports",
+                "/respond",
+                "/clear",
+                "/can-spawn",
+                "/agent-type",
             ];
             if path.starts_with("/api/panes/") && write_allowed.iter().any(|s| path.ends_with(s)) {
                 return true;
             }
-            path == "/api/agents/spawn"
-                || path == "/api/batch"
-                || path == "/api/notifications"
+            path == "/api/agents/spawn" || path == "/api/batch" || path == "/api/notifications"
         }
         AccessLevel::Custom(perms) => {
             use crate::mesh::types::Permission;
@@ -140,7 +156,8 @@ fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
             if path.starts_with("/api/agents/") && perms.contains(&Permission::SpawnAgents) {
                 return true;
             }
-            if path.starts_with("/api/workspaces") && perms.contains(&Permission::ManageWorkspaces) {
+            if path.starts_with("/api/workspaces") && perms.contains(&Permission::ManageWorkspaces)
+            {
                 return true;
             }
             if path.starts_with("/api/crons") && perms.contains(&Permission::ManageCrons) {
@@ -166,8 +183,16 @@ pub async fn auth_middleware(
     if path.starts_with("/api/mesh/") && path != "/api/mesh/ping" {
         let mesh_enabled = state.config.lock().mesh.enabled;
         if !mesh_enabled {
-            log::warn!("[auth] Rejecting {} {} — mesh disabled in config", method, path);
-            return (StatusCode::SERVICE_UNAVAILABLE, "Mesh networking is disabled").into_response();
+            log::warn!(
+                "[auth] Rejecting {} {} — mesh disabled in config",
+                method,
+                path
+            );
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Mesh networking is disabled",
+            )
+                .into_response();
         }
     }
 
@@ -192,30 +217,48 @@ pub async fn auth_middleware(
                     "[auth] Service push token {} denied on {} {} — push tokens are scoped to POST /api/panes/<id>/send only",
                     service_id, method, path
                 );
-                (StatusCode::FORBIDDEN, "Service push tokens are scoped to POST /api/panes/<id>/send").into_response()
+                (
+                    StatusCode::FORBIDDEN,
+                    "Service push tokens are scoped to POST /api/panes/<id>/send",
+                )
+                    .into_response()
             }
         }
-        Ok(CallerIdentity::Peer { ref instance_id, ref access_level }) => {
+        Ok(CallerIdentity::Peer {
+            ref instance_id,
+            ref access_level,
+        }) => {
             if !state.config.lock().mesh.enabled {
                 log::warn!(
                     "[auth] Rejecting peer {} on {} {} — mesh disabled in config",
-                    instance_id, method, path
+                    instance_id,
+                    method,
+                    path
                 );
-                return (StatusCode::SERVICE_UNAVAILABLE, "Mesh networking is disabled").into_response();
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Mesh networking is disabled",
+                )
+                    .into_response();
             }
             if check_access(access_level, &method, &path) {
                 next.run(req).await
             } else {
                 log::warn!(
                     "[auth] Access denied for peer {} ({:?}) on {} {}",
-                    instance_id, access_level, method, path
+                    instance_id,
+                    access_level,
+                    method,
+                    path
                 );
-                (StatusCode::FORBIDDEN, "Access denied by access level policy").into_response()
+                (
+                    StatusCode::FORBIDDEN,
+                    "Access denied by access level policy",
+                )
+                    .into_response()
             }
         }
-        Err(()) => {
-            (StatusCode::UNAUTHORIZED, "Invalid or missing token").into_response()
-        }
+        Err(()) => (StatusCode::UNAUTHORIZED, "Invalid or missing token").into_response(),
     }
 }
 
@@ -225,17 +268,45 @@ mod tests {
 
     #[test]
     fn full_access_allows_everything() {
-        assert!(check_access(&AccessLevel::Full, &Method::GET, "/api/config"));
-        assert!(check_access(&AccessLevel::Full, &Method::POST, "/api/panes/abc/send"));
-        assert!(check_access(&AccessLevel::Full, &Method::DELETE, "/api/crons/123"));
+        assert!(check_access(
+            &AccessLevel::Full,
+            &Method::GET,
+            "/api/config"
+        ));
+        assert!(check_access(
+            &AccessLevel::Full,
+            &Method::POST,
+            "/api/panes/abc/send"
+        ));
+        assert!(check_access(
+            &AccessLevel::Full,
+            &Method::DELETE,
+            "/api/crons/123"
+        ));
     }
 
     #[test]
     fn read_only_blocks_writes() {
-        assert!(check_access(&AccessLevel::ReadOnly, &Method::GET, "/api/panes"));
-        assert!(check_access(&AccessLevel::ReadOnly, &Method::GET, "/api/config"));
-        assert!(!check_access(&AccessLevel::ReadOnly, &Method::POST, "/api/panes/abc/send"));
-        assert!(!check_access(&AccessLevel::ReadOnly, &Method::DELETE, "/api/crons/123"));
+        assert!(check_access(
+            &AccessLevel::ReadOnly,
+            &Method::GET,
+            "/api/panes"
+        ));
+        assert!(check_access(
+            &AccessLevel::ReadOnly,
+            &Method::GET,
+            "/api/config"
+        ));
+        assert!(!check_access(
+            &AccessLevel::ReadOnly,
+            &Method::POST,
+            "/api/panes/abc/send"
+        ));
+        assert!(!check_access(
+            &AccessLevel::ReadOnly,
+            &Method::DELETE,
+            "/api/crons/123"
+        ));
     }
 
     #[test]
@@ -249,7 +320,11 @@ mod tests {
         assert!(check_access(&level, &Method::POST, "/api/panes/abc/report"));
         assert!(!check_access(&level, &Method::POST, "/api/config"));
         assert!(!check_access(&level, &Method::DELETE, "/api/crons/123"));
-        assert!(!check_access(&level, &Method::POST, "/api/mesh/broadcast/start"));
+        assert!(!check_access(
+            &level,
+            &Method::POST,
+            "/api/mesh/broadcast/start"
+        ));
     }
 
     #[test]
@@ -288,7 +363,10 @@ mod tests {
     fn service_push_allowed_on_send() {
         assert!(is_service_push_allowed("POST", "/api/panes/abc123/send"));
         assert!(is_service_push_allowed("POST", "/api/panes/general/send"));
-        assert!(is_service_push_allowed("POST", "/api/panes/pane-with-dashes_and_underscores/send"));
+        assert!(is_service_push_allowed(
+            "POST",
+            "/api/panes/pane-with-dashes_and_underscores/send"
+        ));
     }
 
     #[test]
@@ -314,7 +392,10 @@ mod tests {
         assert!(!is_service_push_allowed("POST", "/api/panes/abc123/exec"));
         assert!(!is_service_push_allowed("POST", "/api/panes/abc123/clear"));
         assert!(!is_service_push_allowed("POST", "/api/panes//send"));
-        assert!(!is_service_push_allowed("POST", "/api/panes/abc/extra/send"));
+        assert!(!is_service_push_allowed(
+            "POST",
+            "/api/panes/abc/extra/send"
+        ));
         assert!(!is_service_push_allowed("POST", "/api/panes"));
     }
 }

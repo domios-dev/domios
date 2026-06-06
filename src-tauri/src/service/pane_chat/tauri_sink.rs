@@ -30,7 +30,10 @@ impl TauriDeltaSink {
 impl DeltaSink for TauriDeltaSink {
     fn emit(&self, pane_id: &str, messages: Vec<RichMessage>) {
         let event = format!("pane-chat-{}", pane_id);
-        let payload = DeltaEvent { pane_id, messages: &messages };
+        let payload = DeltaEvent {
+            pane_id,
+            messages: &messages,
+        };
         if let Err(e) = self.app.emit(&event, &payload) {
             log::warn!("[pane_chat] emit {} failed: {}", event, e);
         }

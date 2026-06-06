@@ -11,11 +11,7 @@ use crate::{api, cron, mem, mesh, service, socket, update, CronState, CronWake};
 use super::states::AppStates;
 
 /// Start socket server, REST API server, and cron scheduler.
-pub(crate) fn start_servers(
-    app: &tauri::App,
-    states: &AppStates,
-    service_state: &ServiceState,
-) {
+pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state: &ServiceState) {
     let app_handle = app.handle().clone();
 
     // Start socket server
@@ -155,7 +151,12 @@ pub(crate) fn start_servers(
                 std::thread::sleep(std::time::Duration::from_secs(2));
                 log::info!("[general-agent] Delayed start beginning...");
                 service::general_agent::start_general_agent(
-                    &svc, &mux, &pty, &screen_state, &config_state, &app_h,
+                    &svc,
+                    &mux,
+                    &pty,
+                    &screen_state,
+                    &config_state,
+                    &app_h,
                 );
             });
 

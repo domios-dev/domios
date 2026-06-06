@@ -175,7 +175,10 @@ fn has_tag(tags_json: &str, tag: &str) -> bool {
 /// Returns the action plus the new body content if the file was re-indexed
 /// (so the caller can enqueue an embed or delete the stale vector row).
 fn sync_one(conn: &Connection, item: &TrackedItem) -> Result<(SyncAction, Option<String>), String> {
-    let raw_path = item.source_path.strip_prefix("file:").unwrap_or(&item.source_path);
+    let raw_path = item
+        .source_path
+        .strip_prefix("file:")
+        .unwrap_or(&item.source_path);
     let path = Path::new(raw_path);
     let has_missing_tag = has_tag(&item.tags_json, "source-missing");
 
@@ -205,8 +208,8 @@ fn sync_one(conn: &Connection, item: &TrackedItem) -> Result<(SyncAction, Option
         return Ok((SyncAction::Unchanged, None));
     }
 
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("read {}: {}", item.source_path, e))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("read {}: {}", item.source_path, e))?;
 
     conn.execute(
         "UPDATE mem_items SET body_inline = ?1, body_blob_path = NULL, \
@@ -268,8 +271,7 @@ fn remove_tag(conn: &Connection, item_id: &str, tag: &str) -> Result<(), String>
         .map_err(|e| format!("read tags: {}", e))?;
     let mut tags: Vec<String> = serde_json::from_str(&current).unwrap_or_default();
     tags.retain(|t| t != tag);
-    let new_json =
-        serde_json::to_string(&tags).map_err(|e| format!("serialize tags: {}", e))?;
+    let new_json = serde_json::to_string(&tags).map_err(|e| format!("serialize tags: {}", e))?;
     conn.execute(
         "UPDATE mem_items SET tags_json = ?1, updated_at = ?2 WHERE id = ?3",
         rusqlite::params![&new_json, chrono::Utc::now().to_rfc3339(), item_id],

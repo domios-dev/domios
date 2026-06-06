@@ -1,7 +1,7 @@
 //! Notification creation with OS toast support.
 
-use crate::notification::store::NotificationLevel;
 use super::ServiceContext;
+use crate::notification::store::NotificationLevel;
 
 impl ServiceContext {
     pub fn create_notification(

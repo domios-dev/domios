@@ -58,11 +58,7 @@ pub fn insert_entity(conn: &Connection, e: &Entity) -> Result<(), String> {
             |r| r.get::<_, String>(0),
         )
         .unwrap_or_else(|_| props.clone());
-    let text = super::embeddings::embeddable_text_for_entity(
-        &e.id,
-        &e.entity_type,
-        &merged_props,
-    );
+    let text = super::embeddings::embeddable_text_for_entity(&e.id, &e.entity_type, &merged_props);
     if let Err(err) = super::embeddings::index(conn, &e.id, &text) {
         log::warn!("[graph.insert_entity] embed {} failed: {}", e.id, err);
     }
@@ -78,8 +74,16 @@ pub fn insert_relation(conn: &Connection, r: &Relation) -> Result<(), String> {
             confidence, properties_json, created_at, reason)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#,
         params![
-            &r.from_id, &r.relation_type, &r.to_id, &r.scope,
-            &r.valid_from, &r.valid_to, r.confidence, &props, &now, &r.reason,
+            &r.from_id,
+            &r.relation_type,
+            &r.to_id,
+            &r.scope,
+            &r.valid_from,
+            &r.valid_to,
+            r.confidence,
+            &props,
+            &now,
+            &r.reason,
         ],
     )
     .map_err(|e| format!("insert relation: {}", e))?;
@@ -99,7 +103,8 @@ pub fn upsert_relation(conn: &Connection, r: &Relation) -> Result<(), String> {
            WHERE from_id = ?2 AND relation_type = ?3 AND to_id = ?4
              AND valid_to IS NULL"#,
         params![&now, &r.from_id, &r.relation_type, &r.to_id],
-    ).map_err(|e| format!("close open relation: {}", e))?;
+    )
+    .map_err(|e| format!("close open relation: {}", e))?;
 
     // Insert new open relation
     insert_relation(conn, r)
@@ -114,14 +119,18 @@ pub fn invalidate_relation(
     to_id: &str,
     ended: Option<&str>,
 ) -> Result<bool, String> {
-    let when = ended.map(|s| s.to_string()).unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-    let n = conn.execute(
-        r#"UPDATE relations
+    let when = ended
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+    let n = conn
+        .execute(
+            r#"UPDATE relations
            SET valid_to = ?1
            WHERE from_id = ?2 AND relation_type = ?3 AND to_id = ?4
              AND valid_to IS NULL"#,
-        params![&when, from_id, relation_type, to_id],
-    ).map_err(|e| format!("invalidate: {}", e))?;
+            params![&when, from_id, relation_type, to_id],
+        )
+        .map_err(|e| format!("invalidate: {}", e))?;
     Ok(n > 0)
 }
 
@@ -146,20 +155,22 @@ pub fn timeline(
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let bind_refs: Vec<&dyn rusqlite::ToSql> =
         binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-    let rows = stmt.query_map(rusqlite::params_from_iter(bind_refs), |r| {
-        let props_json: String = r.get(7)?;
-        Ok(Relation {
-            from_id: r.get(0)?,
-            relation_type: r.get(1)?,
-            to_id: r.get(2)?,
-            scope: r.get(3)?,
-            valid_from: r.get(4)?,
-            valid_to: r.get(5)?,
-            confidence: r.get(6)?,
-            properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
-            reason: None,
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(bind_refs), |r| {
+            let props_json: String = r.get(7)?;
+            Ok(Relation {
+                from_id: r.get(0)?,
+                relation_type: r.get(1)?,
+                to_id: r.get(2)?,
+                scope: r.get(3)?,
+                valid_from: r.get(4)?,
+                valid_to: r.get(5)?,
+                confidence: r.get(6)?,
+                properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
+                reason: None,
+            })
         })
-    }).map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for row in rows {
         out.push(row.map_err(|e| e.to_string())?);
@@ -268,8 +279,12 @@ pub fn traverse(
     let mut hops_used = 0;
 
     while let Some((node, hop)) = frontier.pop_front() {
-        if hop >= max_hops { continue; }
-        if visited.len() >= max_nodes { break; }
+        if hop >= max_hops {
+            continue;
+        }
+        if visited.len() >= max_nodes {
+            break;
+        }
         hops_used = hops_used.max(hop + 1);
 
         let mut sql = String::from(
@@ -282,24 +297,30 @@ pub fn traverse(
         let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
         let bind_refs: Vec<&dyn rusqlite::ToSql> =
             binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-        let rows = stmt.query_map(rusqlite::params_from_iter(bind_refs), |r| {
-            let props_json: String = r.get(7)?;
-            Ok(Relation {
-                from_id: r.get(0)?,
-                relation_type: r.get(1)?,
-                to_id: r.get(2)?,
-                scope: r.get(3)?,
-                valid_from: r.get(4)?,
-                valid_to: r.get(5)?,
-                confidence: r.get(6)?,
-                properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
-                reason: None,
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(bind_refs), |r| {
+                let props_json: String = r.get(7)?;
+                Ok(Relation {
+                    from_id: r.get(0)?,
+                    relation_type: r.get(1)?,
+                    to_id: r.get(2)?,
+                    scope: r.get(3)?,
+                    valid_from: r.get(4)?,
+                    valid_to: r.get(5)?,
+                    confidence: r.get(6)?,
+                    properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
+                    reason: None,
+                })
             })
-        }).map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?;
 
         for row in rows {
             let rel = row.map_err(|e| e.to_string())?;
-            let neighbor = if rel.from_id == node { &rel.to_id } else { &rel.from_id };
+            let neighbor = if rel.from_id == node {
+                &rel.to_id
+            } else {
+                &rel.from_id
+            };
             if !visited.contains(neighbor) {
                 visited.insert(neighbor.clone());
                 frontier.push_back((neighbor.clone(), hop + 1));
@@ -326,14 +347,18 @@ pub fn shortest_path(
 ) -> Result<Option<Vec<Relation>>, String> {
     use std::collections::{HashMap, VecDeque};
 
-    if from == to { return Ok(Some(vec![])); }
+    if from == to {
+        return Ok(Some(vec![]));
+    }
 
     let mut visited: HashMap<String, (String, Relation)> = HashMap::new(); // node -> (prev_node, via_rel)
     let mut frontier: VecDeque<(String, usize)> = VecDeque::new();
     frontier.push_back((from.to_string(), 0));
 
     while let Some((node, hop)) = frontier.pop_front() {
-        if hop >= max_hops { continue; }
+        if hop >= max_hops {
+            continue;
+        }
 
         let mut sql = String::from(
             r#"SELECT from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json
@@ -344,25 +369,33 @@ pub fn shortest_path(
         let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
         let bind_refs: Vec<&dyn rusqlite::ToSql> =
             binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-        let rows = stmt.query_map(rusqlite::params_from_iter(bind_refs), |r| {
-            let props_json: String = r.get(7)?;
-            Ok(Relation {
-                from_id: r.get(0)?,
-                relation_type: r.get(1)?,
-                to_id: r.get(2)?,
-                scope: r.get(3)?,
-                valid_from: r.get(4)?,
-                valid_to: r.get(5)?,
-                confidence: r.get(6)?,
-                properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
-                reason: None,
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(bind_refs), |r| {
+                let props_json: String = r.get(7)?;
+                Ok(Relation {
+                    from_id: r.get(0)?,
+                    relation_type: r.get(1)?,
+                    to_id: r.get(2)?,
+                    scope: r.get(3)?,
+                    valid_from: r.get(4)?,
+                    valid_to: r.get(5)?,
+                    confidence: r.get(6)?,
+                    properties: serde_json::from_str(&props_json).unwrap_or(Value::Null),
+                    reason: None,
+                })
             })
-        }).map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?;
 
         for row in rows {
             let rel = row.map_err(|e| e.to_string())?;
-            let neighbor = if rel.from_id == node { rel.to_id.clone() } else { rel.from_id.clone() };
-            if visited.contains_key(&neighbor) || neighbor == from { continue; }
+            let neighbor = if rel.from_id == node {
+                rel.to_id.clone()
+            } else {
+                rel.from_id.clone()
+            };
+            if visited.contains_key(&neighbor) || neighbor == from {
+                continue;
+            }
             visited.insert(neighbor.clone(), (node.clone(), rel));
             if neighbor == to {
                 // Reconstruct path
@@ -370,7 +403,9 @@ pub fn shortest_path(
                 let mut cur = to.to_string();
                 while let Some((prev, via)) = visited.remove(&cur) {
                     path.push(via);
-                    if prev == from { break; }
+                    if prev == from {
+                        break;
+                    }
                     cur = prev;
                 }
                 path.reverse();
@@ -404,40 +439,58 @@ pub fn add_alias(conn: &Connection, alias_id: &str, canonical_id: &str) -> Resul
         return Err("alias cannot equal canonical".into());
     }
     let now = chrono::Utc::now().to_rfc3339();
-    let tx = conn.unchecked_transaction().map_err(|e| format!("add_alias transaction: {}", e))?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("add_alias transaction: {}", e))?;
     tx.execute(
         "INSERT OR REPLACE INTO entity_aliases (alias_id, canonical_id, created_at) VALUES (?1, ?2, ?3)",
         params![alias_id, canonical_id, &now],
     ).map_err(|e| format!("add_alias: {}", e))?;
 
-    let rewired_from = tx.execute(
-        "UPDATE OR IGNORE relations SET from_id = ?1 WHERE from_id = ?2",
-        params![canonical_id, alias_id],
-    ).map_err(|e| format!("rewire from: {}", e))? as u64;
-    let rewired_to = tx.execute(
-        "UPDATE OR IGNORE relations SET to_id = ?1 WHERE to_id = ?2",
-        params![canonical_id, alias_id],
-    ).map_err(|e| format!("rewire to: {}", e))? as u64;
+    let rewired_from = tx
+        .execute(
+            "UPDATE OR IGNORE relations SET from_id = ?1 WHERE from_id = ?2",
+            params![canonical_id, alias_id],
+        )
+        .map_err(|e| format!("rewire from: {}", e))? as u64;
+    let rewired_to = tx
+        .execute(
+            "UPDATE OR IGNORE relations SET to_id = ?1 WHERE to_id = ?2",
+            params![canonical_id, alias_id],
+        )
+        .map_err(|e| format!("rewire to: {}", e))? as u64;
 
-    let dropped_dupes = tx.execute(
-        "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
-        params![alias_id],
-    ).map_err(|e| format!("cleanup alias relations: {}", e))? as u64;
+    let dropped_dupes = tx
+        .execute(
+            "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
+            params![alias_id],
+        )
+        .map_err(|e| format!("cleanup alias relations: {}", e))? as u64;
 
     // Carryover: fold alias props into canonical (canonical wins on collision).
-    let alias_props: Option<String> = tx.query_row(
-        "SELECT properties_json FROM entities WHERE id = ?1",
-        params![alias_id], |r| r.get(0),
-    ).ok();
-    let canonical_props: Option<String> = tx.query_row(
-        "SELECT properties_json FROM entities WHERE id = ?1",
-        params![canonical_id], |r| r.get(0),
-    ).ok();
+    let alias_props: Option<String> = tx
+        .query_row(
+            "SELECT properties_json FROM entities WHERE id = ?1",
+            params![alias_id],
+            |r| r.get(0),
+        )
+        .ok();
+    let canonical_props: Option<String> = tx
+        .query_row(
+            "SELECT properties_json FROM entities WHERE id = ?1",
+            params![canonical_id],
+            |r| r.get(0),
+        )
+        .ok();
     if let (Some(a), Some(c)) = (alias_props, canonical_props) {
-        let alias_obj = serde_json::from_str::<Value>(&a).ok()
-            .and_then(|v| v.as_object().cloned()).unwrap_or_default();
-        let mut canon_obj = serde_json::from_str::<Value>(&c).ok()
-            .and_then(|v| v.as_object().cloned()).unwrap_or_default();
+        let alias_obj = serde_json::from_str::<Value>(&a)
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
+        let mut canon_obj = serde_json::from_str::<Value>(&c)
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
         for (k, v) in alias_obj {
             canon_obj.entry(k).or_insert(v);
         }
@@ -446,14 +499,13 @@ pub fn add_alias(conn: &Connection, alias_id: &str, canonical_id: &str) -> Resul
         tx.execute(
             "UPDATE entities SET properties_json = ?1, updated_at = ?2 WHERE id = ?3",
             params![merged, &now, canonical_id],
-        ).map_err(|e| format!("write merged props: {}", e))?;
+        )
+        .map_err(|e| format!("write merged props: {}", e))?;
     }
 
     // Remove the alias entity itself (keeping canonical)
-    tx.execute(
-        "DELETE FROM entities WHERE id = ?1",
-        params![alias_id],
-    ).map_err(|e| format!("delete alias entity: {}", e))?;
+    tx.execute("DELETE FROM entities WHERE id = ?1", params![alias_id])
+        .map_err(|e| format!("delete alias entity: {}", e))?;
 
     let _ = tx.execute(
         "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
@@ -467,23 +519,26 @@ pub fn add_alias(conn: &Connection, alias_id: &str, canonical_id: &str) -> Resul
         "rewired_from": rewired_from,
         "rewired_to": rewired_to,
         "dropped_duplicate_relations": dropped_dupes,
-    }).to_string();
+    })
+    .to_string();
     tx.execute(
         "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
          VALUES (?1, ?2, NULL, NULL, NULL, 'add_alias', ?3)",
         params![&now, (rewired_from + rewired_to + dropped_dupes) as i64, details],
     ).map_err(|e| format!("audit add_alias: {}", e))?;
 
-    tx.commit().map_err(|e| format!("add_alias commit: {}", e))?;
+    tx.commit()
+        .map_err(|e| format!("add_alias commit: {}", e))?;
     Ok(())
 }
 
 /// List all aliases for a canonical entity.
 pub fn list_aliases(conn: &Connection, canonical_id: &str) -> Result<Vec<String>, String> {
-    let mut stmt = conn.prepare(
-        "SELECT alias_id FROM entity_aliases WHERE canonical_id = ?1 ORDER BY alias_id",
-    ).map_err(|e| e.to_string())?;
-    let rows = stmt.query_map(params![canonical_id], |r| r.get::<_, String>(0))
+    let mut stmt = conn
+        .prepare("SELECT alias_id FROM entity_aliases WHERE canonical_id = ?1 ORDER BY alias_id")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![canonical_id], |r| r.get::<_, String>(0))
         .map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for row in rows {
@@ -495,8 +550,15 @@ pub fn list_aliases(conn: &Connection, canonical_id: &str) -> Result<Vec<String>
 /// Tunnels: entities that appear in 2+ distinct areas (cross-project bridges).
 /// Returns entities sorted by area count descending. Default: active relations
 /// only. Pass `include_invalidated = true` to walk historical edges.
-pub fn tunnels(conn: &Connection, include_invalidated: bool) -> Result<Vec<serde_json::Value>, String> {
-    let active_clause = if include_invalidated { "" } else { " AND r.valid_to IS NULL" };
+pub fn tunnels(
+    conn: &Connection,
+    include_invalidated: bool,
+) -> Result<Vec<serde_json::Value>, String> {
+    let active_clause = if include_invalidated {
+        ""
+    } else {
+        " AND r.valid_to IS NULL"
+    };
     let sql = format!(
         r#"SELECT e.id, e.entity_type, COUNT(DISTINCT m.area) AS area_count,
                   GROUP_CONCAT(DISTINCT m.area) AS areas
@@ -528,5 +590,5 @@ pub fn tunnels(conn: &Connection, include_invalidated: bool) -> Result<Vec<serde
     Ok(out)
 }
 
-
-#[cfg(test)] mod tests;
+#[cfg(test)]
+mod tests;

@@ -2,16 +2,12 @@ use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone};
 
 pub fn parse_today_clock(s: &str, now_ms: i64) -> Option<i64> {
     let (hh, mm, pm) = parse_h_mm_ampm(s)?;
-    let now = Local
-        .timestamp_millis_opt(now_ms)
-        .single()?;
+    let now = Local.timestamp_millis_opt(now_ms).single()?;
     let mut hour24 = hh % 12;
     if pm {
         hour24 += 12;
     }
-    let candidate_naive = now
-        .date_naive()
-        .and_hms_opt(hour24, mm, 0)?;
+    let candidate_naive = now.date_naive().and_hms_opt(hour24, mm, 0)?;
     let candidate = Local.from_local_datetime(&candidate_naive).single()?;
     let candidate = if candidate <= now {
         candidate + Duration::days(1)
@@ -96,4 +92,3 @@ fn parse_h_mm_ampm(s: &str) -> Option<(u32, u32, bool)> {
     }
     Some((hh, mm, pm))
 }
-

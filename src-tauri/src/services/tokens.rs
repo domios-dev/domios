@@ -28,7 +28,10 @@ impl TokenStore {
     pub fn generate(&self, service_id: &str) -> std::io::Result<String> {
         let mut bytes = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut bytes);
-        let token = bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        let token = bytes
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>();
         let path = self.token_path(service_id);
         fs::create_dir_all(path.parent().unwrap())?;
         let mut f = fs::File::create(&path)?;
@@ -44,7 +47,10 @@ impl TokenStore {
             return Ok(false);
         }
         let stored = fs::read_to_string(&path)?;
-        Ok(constant_time_eq(stored.trim().as_bytes(), candidate.as_bytes()))
+        Ok(constant_time_eq(
+            stored.trim().as_bytes(),
+            candidate.as_bytes(),
+        ))
     }
 
     pub fn lookup_service_id(&self, token: &str) -> std::io::Result<Option<String>> {

@@ -30,16 +30,15 @@ fn main() {
     {
         println!("cargo:rerun-if-changed=windows-app-manifest.xml");
         println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
-        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("windows-app-manifest.xml");
+        let manifest =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("windows-app-manifest.xml");
         println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest.display());
     }
 
     #[cfg(windows)]
     {
-        let attrs = tauri_build::Attributes::new().windows_attributes(
-            tauri_build::WindowsAttributes::new_without_app_manifest(),
-        );
+        let attrs = tauri_build::Attributes::new()
+            .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
         tauri_build::try_build(attrs).expect("failed to run tauri-build");
     }
     #[cfg(not(windows))]
@@ -70,18 +69,14 @@ fn generate_system_plugin_hashes() {
         return;
     }
 
-    let out_dir = std::path::PathBuf::from(
-        std::env::var("OUT_DIR").expect("OUT_DIR not set"),
-    );
+    let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR not set"));
     let embed_root = out_dir.join("bundled_plugins");
     // Wipe + recreate so removed files don't linger between builds.
     let _ = std::fs::remove_dir_all(&embed_root);
     std::fs::create_dir_all(&embed_root).expect("mkdir bundled_plugins");
 
     let mut entries: Vec<(String, String)> = Vec::new();
-    for child in std::fs::read_dir(&plugins_root)
-        .expect("read plugins dir")
-    {
+    for child in std::fs::read_dir(&plugins_root).expect("read plugins dir") {
         let child = child.expect("read plugins entry");
         let path = child.path();
         if !path.is_dir() {
@@ -165,7 +160,9 @@ fn verify_id_matches_folder(plugin_dir: &std::path::Path, expected_id: &str) {
     let Some(idx) = text.find(needle) else { return };
     let after = &text[idx + needle.len()..];
     let after = after.trim_start_matches(|c: char| c.is_whitespace() || c == ':');
-    let Some(rest) = after.strip_prefix('"') else { return };
+    let Some(rest) = after.strip_prefix('"') else {
+        return;
+    };
     let Some(end) = rest.find('"') else { return };
     let id = &rest[..end];
     if id != expected_id {
@@ -187,7 +184,9 @@ fn rerun_if_dir_changed(dir: &std::path::Path) {
 
 fn walkdir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
-    let Ok(read) = std::fs::read_dir(dir) else { return out };
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return out;
+    };
     for entry in read.flatten() {
         let p = entry.path();
         let name = entry.file_name();

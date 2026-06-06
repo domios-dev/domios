@@ -10,9 +10,9 @@ pub mod usage_tui;
 
 pub use provider::ClaudeProvider;
 
+use super::Plugin;
 use crate::agent::provider::AgentProvider;
 use crate::api::events::SystemEvent;
-use super::Plugin;
 
 pub const PLUGIN_ID: &str = "agent-claude";
 pub const PROVIDER_ID: &str = "claude";
@@ -33,8 +33,7 @@ impl AgentClaudePlugin {
             plugin: super::PluginMeta {
                 name: PLUGIN_ID.into(),
                 version: env!("CARGO_PKG_VERSION").into(),
-                description: "Claude Code agent provider — detection, sessions, TUI control"
-                    .into(),
+                description: "Claude Code agent provider — detection, sessions, TUI control".into(),
                 tier: super::PluginTier::Native,
                 entrypoint: None,
                 wasm_module: None,
@@ -43,10 +42,7 @@ impl AgentClaudePlugin {
             },
             capabilities: super::PluginCapabilities {
                 agent_providers: vec![PROVIDER_ID.into()],
-                hooks: vec![
-                    "mux-state-changed".into(),
-                    "pane-title-pinned".into(),
-                ],
+                hooks: vec!["mux-state-changed".into(), "pane-title-pinned".into()],
                 ..Default::default()
             },
             permissions: super::PluginPermissions::default(),

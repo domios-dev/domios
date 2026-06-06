@@ -107,11 +107,20 @@ impl ServicesStore {
                 mode_to_str(&input.health_mode),
                 input.health_path,
                 input.health_json_field,
-                input.health_ok_values.as_ref().map(|v| serde_json::to_string(v).unwrap()),
-                input.health_degraded_values.as_ref().map(|v| serde_json::to_string(v).unwrap()),
+                input
+                    .health_ok_values
+                    .as_ref()
+                    .map(|v| serde_json::to_string(v).unwrap()),
+                input
+                    .health_degraded_values
+                    .as_ref()
+                    .map(|v| serde_json::to_string(v).unwrap()),
                 input.health_interval.unwrap_or(30) as i64,
                 60_i64,
-                input.field_mapping.as_ref().map(|m| serde_json::to_string(m).unwrap()),
+                input
+                    .field_mapping
+                    .as_ref()
+                    .map(|m| serde_json::to_string(m).unwrap()),
                 input.push_enabled.unwrap_or(false),
                 now,
                 now,
@@ -299,8 +308,10 @@ fn row_to_service(row: &rusqlite::Row) -> rusqlite::Result<Service> {
     let health_json_field: Option<String> = row.get(18)?;
     let health_ok_raw: Option<String> = row.get(19)?;
     let health_degraded_raw: Option<String> = row.get(20)?;
-    let health_ok_values: Option<Vec<String>> = health_ok_raw.and_then(|s| serde_json::from_str(&s).ok());
-    let health_degraded_values: Option<Vec<String>> = health_degraded_raw.and_then(|s| serde_json::from_str(&s).ok());
+    let health_ok_values: Option<Vec<String>> =
+        health_ok_raw.and_then(|s| serde_json::from_str(&s).ok());
+    let health_degraded_values: Option<Vec<String>> =
+        health_degraded_raw.and_then(|s| serde_json::from_str(&s).ok());
 
     // health snapshot (21-24)
     let status_str: Option<String> = row.get(21).ok();
@@ -311,7 +322,10 @@ fn row_to_service(row: &rusqlite::Row) -> rusqlite::Result<Service> {
         .as_deref()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or(serde_json::Value::Null);
-    let version = extra_json.get("version").and_then(|v| v.as_str()).map(String::from);
+    let version = extra_json
+        .get("version")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     let uptime_secs = extra_json.get("uptime_secs").and_then(|v| v.as_u64());
     let health = HealthSnapshot {
         status: status_str.as_deref().map(parse_status).unwrap_or_default(),

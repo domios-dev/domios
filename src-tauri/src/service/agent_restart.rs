@@ -122,14 +122,20 @@ impl ServiceContext {
             .get_pane(&resolved)
             .ok_or_else(|| AgentRestartError::NotFound(format!("pane {} not found", pane_id)))?;
 
-        let provider = pane.agent_type.clone().ok_or_else(|| {
-            AgentRestartError::BadRequest("no agent in this pane".to_string())
-        })?;
-        let pty_id = pane.pty_id.clone().ok_or_else(|| {
-            AgentRestartError::BadRequest("pane has no PTY".to_string())
-        })?;
+        let provider = pane
+            .agent_type
+            .clone()
+            .ok_or_else(|| AgentRestartError::BadRequest("no agent in this pane".to_string()))?;
+        let pty_id = pane
+            .pty_id
+            .clone()
+            .ok_or_else(|| AgentRestartError::BadRequest("pane has no PTY".to_string()))?;
 
-        if self.agent_registry.with_provider(&provider, |_| ()).is_none() {
+        if self
+            .agent_registry
+            .with_provider(&provider, |_| ())
+            .is_none()
+        {
             return Err(AgentRestartError::BadRequest(format!(
                 "unknown agent provider: {}",
                 provider
@@ -442,7 +448,11 @@ mod tests {
             "stale-session fallback must not include --resume; got: {}",
             cmd
         );
-        assert!(cmd.contains("claude"), "expected claude in launch cmd; got: {}", cmd);
+        assert!(
+            cmd.contains("claude"),
+            "expected claude in launch cmd; got: {}",
+            cmd
+        );
     }
 
     #[test]
@@ -450,8 +460,16 @@ mod tests {
         let reg = registry_with_claude();
         let cmd = build_relaunch_command(&reg, "claude", Some("abc-123"), true, true)
             .expect("resume command");
-        assert!(cmd.contains("--resume"), "resume cmd should contain --resume; got: {}", cmd);
-        assert!(cmd.contains("abc-123"), "resume cmd should embed session id; got: {}", cmd);
+        assert!(
+            cmd.contains("--resume"),
+            "resume cmd should contain --resume; got: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains("abc-123"),
+            "resume cmd should embed session id; got: {}",
+            cmd
+        );
     }
 
     #[test]

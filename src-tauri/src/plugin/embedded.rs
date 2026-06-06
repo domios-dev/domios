@@ -9,8 +9,7 @@
 
 use include_dir::{include_dir, Dir};
 
-pub static EMBEDDED: Dir<'static> =
-    include_dir!("$OUT_DIR/bundled_plugins");
+pub static EMBEDDED: Dir<'static> = include_dir!("$OUT_DIR/bundled_plugins");
 
 /// List the plugin ids the binary ships with as an embedded fallback.
 /// Order is deterministic (alphabetical by directory name from
@@ -143,6 +142,9 @@ mod tests {
         assert_eq!(got, expected);
 
         let second = bootstrap_into(&dst).unwrap();
-        assert!(second.is_empty(), "second bootstrap should be a no-op, got {second:?}");
+        assert!(
+            second.is_empty(),
+            "second bootstrap should be a no-op, got {second:?}"
+        );
     }
 }

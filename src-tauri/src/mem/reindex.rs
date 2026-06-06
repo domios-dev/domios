@@ -46,7 +46,10 @@ fn query_missing_vectors(conn: &rusqlite::Connection) -> Vec<(String, String)> {
             let tags_json: String = r.get(4)?;
             let body: String = r.get(5)?;
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-            Ok((id, compose_embed_text(&kind, &title, area.as_deref(), &tags, &body)))
+            Ok((
+                id,
+                compose_embed_text(&kind, &title, area.as_deref(), &tags, &body),
+            ))
         }) {
             for row in rows.flatten() {
                 out.push(row);
@@ -66,15 +69,24 @@ impl MemManager {
         std::thread::spawn(move || {
             embeddings::ensure_extension_registered();
             let conn = match rusqlite::Connection::open(&db_path) {
-                Ok(c) => { let _ = c.busy_timeout(std::time::Duration::from_secs(5)); c }
-                Err(e) => { log::warn!("[mem] reindex catch-up: conn: {}", e); return; }
+                Ok(c) => {
+                    let _ = c.busy_timeout(std::time::Duration::from_secs(5));
+                    c
+                }
+                Err(e) => {
+                    log::warn!("[mem] reindex catch-up: conn: {}", e);
+                    return;
+                }
             };
             let missing = query_missing_vectors(&conn);
             if missing.is_empty() {
                 log::info!("[mem] reindex catch-up: nothing missing");
                 return;
             }
-            log::info!("[mem] reindex catch-up: DIRECT index for {} item(s)", missing.len());
+            log::info!(
+                "[mem] reindex catch-up: DIRECT index for {} item(s)",
+                missing.len()
+            );
             for (id, embed_text) in missing {
                 // embed_text already has title prefixed (from query_missing_vectors).
                 // If body was empty (blob storage), re-read blob and re-prefix title.
@@ -82,12 +94,18 @@ impl MemManager {
                     let row: Option<(String, Option<String>)> = conn
                         .query_row(
                             "SELECT title, body_blob_path FROM mem_items WHERE id = ?1",
-                            rusqlite::params![&id], |r| Ok((r.get(0)?, r.get(1)?)),
-                        ).ok();
-                    let Some((title, Some(rel))) = row else { continue };
+                            rusqlite::params![&id],
+                            |r| Ok((r.get(0)?, r.get(1)?)),
+                        )
+                        .ok();
+                    let Some((title, Some(rel))) = row else {
+                        continue;
+                    };
                     let body = std::fs::read_to_string(blobs_dir.join(rel)).unwrap_or_default();
                     format!("{}\n\n{}", title, body)
-                } else { embed_text };
+                } else {
+                    embed_text
+                };
                 match embeddings::index(&conn, &id, &actual_text) {
                     Ok(()) => log::info!("[mem] reindex direct: indexed {}", id),
                     Err(e) => log::warn!("[mem] reindex direct {}: {}", id, e),

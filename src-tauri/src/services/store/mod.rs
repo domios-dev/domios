@@ -1,5 +1,5 @@
-mod crud;
 mod cron_view;
+mod crud;
 mod schema;
 #[cfg(test)]
 mod tests;

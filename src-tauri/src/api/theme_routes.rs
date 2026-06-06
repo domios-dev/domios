@@ -28,15 +28,28 @@ pub async fn save_theme_api(
     Json(body): Json<SaveThemeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let dir = crate::config::schema::user_themes_dir()
-        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Cannot determine themes directory"))?;
-    std::fs::create_dir_all(&dir).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create themes dir"))?;
+    let dir = crate::config::schema::user_themes_dir().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Cannot determine themes directory",
+    ))?;
+    std::fs::create_dir_all(&dir).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to create themes dir",
+        )
+    })?;
     crate::config::schema::parse_builtin_theme(&body.toml)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid theme TOML"))?;
     let path = dir.join(format!("{}.toml", body.id));
-    std::fs::write(&path, &body.toml)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write theme file"))?;
-    Ok(Json(serde_json::json!({ "ok": true, "path": path.to_string_lossy() })))
+    std::fs::write(&path, &body.toml).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to write theme file",
+        )
+    })?;
+    Ok(Json(
+        serde_json::json!({ "ok": true, "path": path.to_string_lossy() }),
+    ))
 }
 
 pub async fn delete_theme_api(
@@ -99,7 +112,9 @@ pub async fn check_rules_api(
     axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let status = state.svc.agent_registry
+    let status = state
+        .svc
+        .agent_registry
         .with_provider(&q.provider, |p| p.check_rule_status())
         .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?;
     Ok(Json(status))
@@ -111,7 +126,9 @@ pub async fn install_rules_api(
     axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.agent_registry
+    state
+        .svc
+        .agent_registry
         .with_provider(&q.provider, |p| p.install_rule())
         .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to install rule"))?;
@@ -124,7 +141,9 @@ pub async fn check_hooks_api(
     axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let status = state.svc.agent_registry
+    let status = state
+        .svc
+        .agent_registry
         .with_provider(&q.provider, |p| p.check_integration())
         .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?;
     Ok(Json(status))
@@ -137,10 +156,17 @@ pub async fn install_hooks_api(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let port = state.api_port;
-    state.svc.agent_registry
+    state
+        .svc
+        .agent_registry
         .with_provider(&q.provider, |p| p.install_integration(port))
         .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to install integration"))?;
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to install integration",
+            )
+        })?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -150,9 +176,16 @@ pub async fn uninstall_hooks_api(
     axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.agent_registry
+    state
+        .svc
+        .agent_registry
         .with_provider(&q.provider, |p| p.uninstall_integration())
         .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to uninstall integration"))?;
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to uninstall integration",
+            )
+        })?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }

@@ -78,7 +78,12 @@ impl ActivityEvent {
         }
     }
 
-    pub fn peer_relay(peer_id: &str, peer_name: &str, target_pane: &str, body_preview: &str) -> Self {
+    pub fn peer_relay(
+        peer_id: &str,
+        peer_name: &str,
+        target_pane: &str,
+        body_preview: &str,
+    ) -> Self {
         Self {
             id: None,
             occurred_at: now_ms(),
@@ -259,10 +264,8 @@ impl ActivityWriter {
                      FROM activity WHERE source = ?1 AND occurred_at > ?2
                      ORDER BY occurred_at DESC LIMIT ?3",
                 )?;
-                let rows = stmt.query_map(
-                    params![source_to_str(&s), t, limit_val],
-                    row_to_event,
-                )?;
+                let rows =
+                    stmt.query_map(params![source_to_str(&s), t, limit_val], row_to_event)?;
                 rows.collect()
             }
             (Some(s), None) => {

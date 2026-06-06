@@ -50,7 +50,9 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
 
     let handle = tauri::async_runtime::spawn(async move {
         log::info!("[bridge] manager spawned");
-        manager.start(vec![Box::new(telegram)], rx, cancel, status).await;
+        manager
+            .start(vec![Box::new(telegram)], rx, cancel, status)
+            .await;
         log::info!("[bridge] manager exited");
     });
 
@@ -106,9 +108,7 @@ pub async fn start_telegram_bridge_for_test(
 
     let svc = bridge::telegram::TelegramService::with_base(token, api_base);
     let (tx, mut rx_inbound) = tokio::sync::mpsc::channel(8);
-    tokio::spawn(async move {
-        while rx_inbound.recv().await.is_some() {}
-    });
+    tokio::spawn(async move { while rx_inbound.recv().await.is_some() {} });
 
     use crate::bridge::traits::MessagingService;
     let svc_box: Box<dyn MessagingService> = Box::new(svc);

@@ -52,7 +52,11 @@ pub struct InlineButton {
     pub text: String,
     /// Callback data sent back when pressed.
     /// Accepts "data" from CLI/API input, serializes as "callback_data" for Telegram.
-    #[serde(alias = "data", rename = "callback_data", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        alias = "data",
+        rename = "callback_data",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub data: Option<String>,
     /// URL to open when pressed (instead of callback).
     #[serde(skip_serializing_if = "Option::is_none")]

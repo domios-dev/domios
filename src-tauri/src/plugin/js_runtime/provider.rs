@@ -47,7 +47,9 @@ impl SerdeSessionMetadata {
     fn into_session_metadata(self, fallback_provider: &str) -> SessionMetadata {
         SessionMetadata {
             session_id: self.session_id,
-            provider: self.provider.unwrap_or_else(|| fallback_provider.to_string()),
+            provider: self
+                .provider
+                .unwrap_or_else(|| fallback_provider.to_string()),
             project_path: self.project_path,
             title: self.title,
             summary: self.summary,
@@ -119,7 +121,11 @@ impl JsProvider {
                 },
             );
         }
-        Self { vm, manifest, trust }
+        Self {
+            vm,
+            manifest,
+            trust,
+        }
     }
 
     pub fn manifest(&self) -> &PluginManifest {
@@ -139,11 +145,7 @@ impl JsProvider {
             Err(VmError::MissingFunction(_)) => None,
             Err(VmError::Script(msg)) if msg.contains("not a function") => None,
             Err(e) => {
-                log::warn!(
-                    "[plugin {}] {} failed: {e}",
-                    self.manifest.id,
-                    method
-                );
+                log::warn!("[plugin {}] {} failed: {e}", self.manifest.id, method);
                 None
             }
         }
@@ -313,10 +315,9 @@ impl AgentProvider for JsProvider {
         // Plugin returns a list of base64-encoded byte strings, one per
         // PTY write step. Lets plugins emit vim j/k, arrow keys, escape
         // sequences — whatever the TUI expects.
-        if let Some(steps) = self.try_call::<Vec<String>>(
-            "buildPromptResponse",
-            &[json!(option_index)],
-        ) {
+        if let Some(steps) =
+            self.try_call::<Vec<String>>("buildPromptResponse", &[json!(option_index)])
+        {
             use base64::Engine;
             let engine = base64::engine::general_purpose::STANDARD;
             return steps
@@ -335,10 +336,9 @@ impl AgentProvider for JsProvider {
     }
 
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
-        if let Some(p) = self.try_call::<Option<String>>(
-            "sessionFilePath",
-            &[json!(cwd), json!(session_id)],
-        ) {
+        if let Some(p) =
+            self.try_call::<Option<String>>("sessionFilePath", &[json!(cwd), json!(session_id)])
+        {
             return p.map(PathBuf::from);
         }
         let cfg = self.manifest.sessions.as_ref()?;
@@ -347,10 +347,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn session_exists(&self, cwd: &str, session_id: &str) -> bool {
-        if let Some(b) = self.try_call::<bool>(
-            "sessionExists",
-            &[json!(cwd), json!(session_id)],
-        ) {
+        if let Some(b) = self.try_call::<bool>("sessionExists", &[json!(cwd), json!(session_id)]) {
             return b;
         }
         self.session_file_path(cwd, session_id)
@@ -359,19 +356,13 @@ impl AgentProvider for JsProvider {
     }
 
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
-        self.try_call::<Option<String>>(
-            "detectSessionModel",
-            &[json!(cwd), json!(session_id)],
-        )
-        .flatten()
+        self.try_call::<Option<String>>("detectSessionModel", &[json!(cwd), json!(session_id)])
+            .flatten()
     }
 
     fn detect_active_session(&self, cwd: &str, current_sid: &str) -> Option<String> {
-        self.try_call::<Option<String>>(
-            "detectActiveSession",
-            &[json!(cwd), json!(current_sid)],
-        )
-        .flatten()
+        self.try_call::<Option<String>>("detectActiveSession", &[json!(cwd), json!(current_sid)])
+            .flatten()
     }
 
     fn session_id_injection(&self) -> SessionIdInjection {
@@ -408,7 +399,9 @@ impl AgentProvider for JsProvider {
         let entries = std::fs::read_dir(&dir).ok()?;
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            let Some(stem) = name.strip_suffix(&dot_ext) else { continue };
+            let Some(stem) = name.strip_suffix(&dot_ext) else {
+                continue;
+            };
             // Heuristic: session ids look uuid-ish (>=32 chars with a dash).
             if stem.len() < 32 || !stem.contains('-') {
                 continue;
@@ -435,9 +428,7 @@ impl AgentProvider for JsProvider {
         // Plugin can enumerate via sqlite, recursive walk, network call,
         // whatever. Falls back to the manifest-driven single-level
         // listing when the plugin doesn't implement `enumerateSessions`.
-        if let Some(list) =
-            self.try_call::<Vec<SerdeSessionMetadata>>("enumerateSessions", &[])
-        {
+        if let Some(list) = self.try_call::<Vec<SerdeSessionMetadata>>("enumerateSessions", &[]) {
             return list
                 .into_iter()
                 .map(|m| m.into_session_metadata(&self.manifest.id))
@@ -460,10 +451,14 @@ impl AgentProvider for JsProvider {
                 continue;
             }
             let dir_path = entry.path();
-            let Ok(files) = std::fs::read_dir(&dir_path) else { continue };
+            let Ok(files) = std::fs::read_dir(&dir_path) else {
+                continue;
+            };
             for f in files.flatten() {
                 let name = f.file_name().to_string_lossy().to_string();
-                let Some(stem) = name.strip_suffix(&dot_ext) else { continue };
+                let Some(stem) = name.strip_suffix(&dot_ext) else {
+                    continue;
+                };
                 if stem.len() < 32 || !stem.contains('-') {
                     continue;
                 }
@@ -479,10 +474,8 @@ impl AgentProvider for JsProvider {
                 // the session file. We pass the path string — the plugin
                 // may choose to ignore (e.g. plain JSONL provider that
                 // only cares about per-line cwd via parse_session_messages).
-                let extra: Option<Value> = self.try_call(
-                    "describeSession",
-                    &[json!(file_path_buf.to_string_lossy())],
-                );
+                let extra: Option<Value> =
+                    self.try_call("describeSession", &[json!(file_path_buf.to_string_lossy())]);
                 let title = extra
                     .as_ref()
                     .and_then(|v| v.get("title"))
@@ -515,7 +508,9 @@ impl AgentProvider for JsProvider {
     }
 
     fn parse_session_messages(&self, file_path: &Path) -> Vec<SessionMessage> {
-        let Ok(text) = std::fs::read_to_string(file_path) else { return Vec::new() };
+        let Ok(text) = std::fs::read_to_string(file_path) else {
+            return Vec::new();
+        };
         self.try_call::<Vec<SerdeSessionMessage>>("parseSessionMessages", &[json!(text)])
             .map(|v| v.into_iter().map(SessionMessage::from).collect())
             .unwrap_or_default()
@@ -537,11 +532,19 @@ impl AgentProvider for JsProvider {
         use crate::agent::chat_types::SessionDelta;
         let bytes = match std::fs::read(path) {
             Ok(b) => b,
-            Err(_) => return SessionDelta { new_offset: from_offset, messages: vec![] },
+            Err(_) => {
+                return SessionDelta {
+                    new_offset: from_offset,
+                    messages: vec![],
+                }
+            }
         };
         let total = bytes.len() as u64;
         if from_offset >= total {
-            return SessionDelta { new_offset: from_offset, messages: vec![] };
+            return SessionDelta {
+                new_offset: from_offset,
+                messages: vec![],
+            };
         }
         let slice = &bytes[from_offset as usize..];
         // Find the LAST '\n' byte in the slice — everything up to and
@@ -551,7 +554,12 @@ impl AgentProvider for JsProvider {
         // JS string indexing can't corrupt the offset.
         let last_nl = match slice.iter().rposition(|&b| b == b'\n') {
             Some(idx) => idx,
-            None => return SessionDelta { new_offset: from_offset, messages: vec![] },
+            None => {
+                return SessionDelta {
+                    new_offset: from_offset,
+                    messages: vec![],
+                }
+            }
         };
         let consumed_bytes = (last_nl + 1) as u64;
         let complete_slice = &slice[..consumed_bytes as usize];
@@ -565,10 +573,8 @@ impl AgentProvider for JsProvider {
         struct JsDelta {
             messages: Vec<crate::agent::chat_types::RichMessage>,
         }
-        let parsed: Option<JsDelta> = self.try_call(
-            "parseSessionDelta",
-            &[serde_json::json!(chunk)],
-        );
+        let parsed: Option<JsDelta> =
+            self.try_call("parseSessionDelta", &[serde_json::json!(chunk)]);
         match parsed {
             Some(d) => SessionDelta {
                 new_offset: from_offset + consumed_bytes,
@@ -702,7 +708,9 @@ impl AgentProvider for JsProvider {
         if let Some(r) = self.try_call_result("installBridgeRule", &[json!(payload)]) {
             return r;
         }
-        let Some(rule) = self.manifest.rule.as_ref() else { return Ok(()) };
+        let Some(rule) = self.manifest.rule.as_ref() else {
+            return Ok(());
+        };
         let path = PluginManifest::expand_home(&rule.path)
             .ok_or_else(|| "rule.path: home dir not resolvable".to_string())?;
         if let Some(parent) = path.parent() {
@@ -716,8 +724,12 @@ impl AgentProvider for JsProvider {
         if let Some(r) = self.try_call_result("uninstallBridgeRule", &[]) {
             return r;
         }
-        let Some(rule) = self.manifest.rule.as_ref() else { return Ok(()) };
-        let Some(path) = PluginManifest::expand_home(&rule.path) else { return Ok(()) };
+        let Some(rule) = self.manifest.rule.as_ref() else {
+            return Ok(());
+        };
+        let Some(path) = PluginManifest::expand_home(&rule.path) else {
+            return Ok(());
+        };
         if !path.exists() {
             return Ok(());
         }
@@ -743,10 +755,7 @@ impl AgentProvider for JsProvider {
         // Plugin owns the dance if it implements `ensureIntegrationOnStartup`;
         // otherwise check-then-install. Either way, swallow errors — a
         // missing or failed hook install must not block startup.
-        if let Some(r) = self.try_call_result(
-            "ensureIntegrationOnStartup",
-            &[json!(api_port)],
-        ) {
+        if let Some(r) = self.try_call_result("ensureIntegrationOnStartup", &[json!(api_port)]) {
             let _ = r;
             return;
         }
@@ -785,8 +794,7 @@ mod tests {
     use serde_json::json;
 
     fn load(manifest_json: &str, plugin_js: &str) -> JsProvider {
-        let mut m: PluginManifest =
-            serde_json::from_str(manifest_json).expect("parse manifest");
+        let mut m: PluginManifest = serde_json::from_str(manifest_json).expect("parse manifest");
         m.source_path = Some(PathBuf::from("/tmp/test-plugin/plugin.json"));
         let vm = PluginVm::from_source(&m.id, plugin_js.to_string()).expect("vm");
         JsProvider::new(m, Arc::new(vm))
@@ -861,7 +869,10 @@ mod tests {
             }
         }"#;
         let p = load(json, "module.exports.default = {};");
-        assert_eq!(p.model_switch_command("opus").as_deref(), Some("/model opus"));
+        assert_eq!(
+            p.model_switch_command("opus").as_deref(),
+            Some("/model opus")
+        );
     }
 
     #[test]
@@ -916,7 +927,10 @@ mod tests {
             }
             _ => panic!(),
         }
-        assert!(matches!(p.verify_submit_strategy(), VerifySubmitStrategy::None));
+        assert!(matches!(
+            p.verify_submit_strategy(),
+            VerifySubmitStrategy::None
+        ));
     }
 
     #[test]
@@ -993,7 +1007,10 @@ mod tests {
         let p = load(MIN_MANIFEST, js);
         let (q, opts) = p.parse_prompt("anything").unwrap();
         assert_eq!(q, "Allow?");
-        assert_eq!(opts, vec![("y".into(), "Yes".into()), ("n".into(), "No".into())]);
+        assert_eq!(
+            opts,
+            vec![("y".into(), "Yes".into()), ("n".into(), "No".into())]
+        );
     }
 
     #[test]
@@ -1096,8 +1113,14 @@ mod tests {
             }
         }"#;
         let p = load(json, "module.exports.default = {};");
-        assert_eq!(p.install_command("macos").as_deref(), Some("brew install ic"));
-        assert_eq!(p.install_command("linux").as_deref(), Some("snap install ic"));
+        assert_eq!(
+            p.install_command("macos").as_deref(),
+            Some("brew install ic")
+        );
+        assert_eq!(
+            p.install_command("linux").as_deref(),
+            Some("snap install ic")
+        );
         assert_eq!(p.install_command("windows"), None);
     }
 

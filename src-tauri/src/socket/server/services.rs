@@ -90,7 +90,10 @@ pub(super) fn dispatch(
             let token = svc.tokens.generate(&id).map_err(internal_err)?;
             let _ = svc.services_store.update(
                 &id,
-                ServiceUpdate { push_enabled: Some(true), ..Default::default() },
+                ServiceUpdate {
+                    push_enabled: Some(true),
+                    ..Default::default()
+                },
             );
             Ok(serde_json::json!({ "token": token, "push_enabled": true }))
         }

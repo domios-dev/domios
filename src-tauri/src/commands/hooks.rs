@@ -17,9 +17,13 @@ use crate::service::ServiceState;
 
 fn default_api_port() -> u16 {
     #[cfg(debug_assertions)]
-    { 7686 }
+    {
+        7686
+    }
     #[cfg(not(debug_assertions))]
-    { 7685 }
+    {
+        7685
+    }
 }
 
 #[tauri::command]

@@ -32,12 +32,8 @@ use std::path::{Path, PathBuf};
 
 /// Extensions whose contents are line-ending-normalised before hashing.
 const TEXT_EXTENSIONS: &[&str] = &[
-    "js", "ts", "tsx", "jsx", "mjs", "cjs",
-    "json", "jsonc",
-    "md", "mdx", "txt",
-    "yml", "yaml",
-    "toml",
-    "svg", "html", "css",
+    "js", "ts", "tsx", "jsx", "mjs", "cjs", "json", "jsonc", "md", "mdx", "txt", "yml", "yaml",
+    "toml", "svg", "html", "css",
 ];
 
 /// Directory / file names skipped during the walk.
@@ -61,7 +57,11 @@ impl std::fmt::Display for HashError {
         match self {
             HashError::Io(e) => write!(f, "io error: {e}"),
             HashError::Symlink(p) => {
-                write!(f, "symlink not allowed inside plugin bundle: {}", p.display())
+                write!(
+                    f,
+                    "symlink not allowed inside plugin bundle: {}",
+                    p.display()
+                )
             }
             HashError::NotADirectory(p) => {
                 write!(f, "expected a directory, got: {}", p.display())
@@ -146,9 +146,11 @@ fn collect_entries(
             let rel = path
                 .strip_prefix(root)
                 .map_err(|_| {
-                    HashError::Io(io::Error::other(
-                        format!("path {} not inside root {}", path.display(), root.display()),
-                    ))
+                    HashError::Io(io::Error::other(format!(
+                        "path {} not inside root {}",
+                        path.display(),
+                        root.display()
+                    )))
                 })?
                 .to_string_lossy()
                 .replace('\\', "/");
@@ -229,7 +231,10 @@ mod tests {
         write(a.path(), "main.js", b"line1\r\nline2\r\n");
         let b = tempfile::tempdir().unwrap();
         write(b.path(), "main.js", b"line1\nline2\n");
-        assert_eq!(hash_bundle(a.path()).unwrap(), hash_bundle(b.path()).unwrap());
+        assert_eq!(
+            hash_bundle(a.path()).unwrap(),
+            hash_bundle(b.path()).unwrap()
+        );
     }
 
     #[test]
@@ -238,7 +243,10 @@ mod tests {
         write(a.path(), "main.js", b"line1\rline2\r");
         let b = tempfile::tempdir().unwrap();
         write(b.path(), "main.js", b"line1\nline2\n");
-        assert_eq!(hash_bundle(a.path()).unwrap(), hash_bundle(b.path()).unwrap());
+        assert_eq!(
+            hash_bundle(a.path()).unwrap(),
+            hash_bundle(b.path()).unwrap()
+        );
     }
 
     #[test]
@@ -249,7 +257,10 @@ mod tests {
         write(a.path(), "icon.png", b"\x89PNG\r\n\x1a\n");
         let b = tempfile::tempdir().unwrap();
         write(b.path(), "icon.png", b"\x89PNG\n\x1a\n");
-        assert_ne!(hash_bundle(a.path()).unwrap(), hash_bundle(b.path()).unwrap());
+        assert_ne!(
+            hash_bundle(a.path()).unwrap(),
+            hash_bundle(b.path()).unwrap()
+        );
     }
 
     #[test]
@@ -264,7 +275,10 @@ mod tests {
         write(b.path(), "node_modules/foo/index.js", b"console.log(1)\n");
         write(b.path(), "target/debug/x", b"compiled");
 
-        assert_eq!(hash_bundle(a.path()).unwrap(), hash_bundle(b.path()).unwrap());
+        assert_eq!(
+            hash_bundle(a.path()).unwrap(),
+            hash_bundle(b.path()).unwrap()
+        );
     }
 
     #[test]
@@ -279,7 +293,10 @@ mod tests {
         write(b.path(), "z/file.js", b"z\n");
         write(b.path(), "a/file.js", b"a\n");
 
-        assert_eq!(hash_bundle(a.path()).unwrap(), hash_bundle(b.path()).unwrap());
+        assert_eq!(
+            hash_bundle(a.path()).unwrap(),
+            hash_bundle(b.path()).unwrap()
+        );
     }
 
     #[test]
@@ -310,13 +327,19 @@ mod tests {
         write(a.path(), "main.js", b"a");
         let b = tempfile::tempdir().unwrap();
         write(b.path(), "main.js", b"b");
-        assert_ne!(hash_bundle(a.path()).unwrap(), hash_bundle(b.path()).unwrap());
+        assert_ne!(
+            hash_bundle(a.path()).unwrap(),
+            hash_bundle(b.path()).unwrap()
+        );
     }
 
     #[test]
     fn missing_dir_errors() {
         let path = std::env::temp_dir().join("does-not-exist-codeterm-test");
         let _ = fs::remove_dir_all(&path);
-        assert!(matches!(hash_bundle(&path), Err(HashError::NotADirectory(_))));
+        assert!(matches!(
+            hash_bundle(&path),
+            Err(HashError::NotADirectory(_))
+        ));
     }
 }

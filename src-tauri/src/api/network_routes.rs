@@ -7,9 +7,7 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 
-pub async fn network_info(
-    AxumState(state): AxumState<AppState>,
-) -> Json<serde_json::Value> {
+pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
     let local_ip = local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
     // Single source of truth: read the cached value populated by
     // `mesh::discovery::detect_tailscale` from the periodic refresh loop.
@@ -39,7 +37,9 @@ pub async fn keepawake_status_handler(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let st = crate::keepawake::status(&state.keepawake);
-    Ok(Json(serde_json::to_value(st).unwrap_or(serde_json::Value::Null)))
+    Ok(Json(
+        serde_json::to_value(st).unwrap_or(serde_json::Value::Null),
+    ))
 }
 
 pub async fn keepawake_start_handler(
@@ -56,7 +56,9 @@ pub async fn keepawake_start_handler(
         body.display,
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::to_value(st).unwrap_or(serde_json::Value::Null)))
+    Ok(Json(
+        serde_json::to_value(st).unwrap_or(serde_json::Value::Null),
+    ))
 }
 
 pub async fn keepawake_stop_handler(

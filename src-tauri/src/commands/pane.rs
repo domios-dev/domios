@@ -81,19 +81,19 @@ pub async fn get_pane_git_info(
         mux.get_pane(&pane_id).and_then(|p| p.cwd.clone())
     };
     let Some(cwd) = cwd else { return Ok(None) };
-    Ok(tokio::task::spawn_blocking(move || git_info::get_git_info(&cwd))
-        .await
-        .map_err(|e| format!("join: {}", e))?)
+    Ok(
+        tokio::task::spawn_blocking(move || git_info::get_git_info(&cwd))
+            .await
+            .map_err(|e| format!("join: {}", e))?,
+    )
 }
 
 #[tauri::command]
 pub async fn list_agent_providers(
     svc: tauri::State<'_, ServiceState>,
 ) -> Result<serde_json::Value, String> {
-    let result = crate::dispatch::dispatch(
-        &crate::dispatch::Command::ListAgentProviders,
-        svc.as_ref(),
-    )?;
+    let result =
+        crate::dispatch::dispatch(&crate::dispatch::Command::ListAgentProviders, svc.as_ref())?;
     Ok(result.into_json())
 }
 
@@ -131,42 +131,60 @@ pub fn read_session_jsonl(
     // 1. Get agent_session_id, agent_type, and cwd from pane
     let (mut session_id, cwd, agent_type) = {
         let m = mux.lock();
-        let pane = m.get_pane(&pane_id)
+        let pane = m
+            .get_pane(&pane_id)
             .ok_or_else(|| "Pane not found".to_string())?;
         let sid = pane.agent_session_id.clone();
-        let cwd = pane.cwd.clone()
+        let cwd = pane
+            .cwd
+            .clone()
             .ok_or_else(|| "Pane has no CWD".to_string())?;
-        let at = pane.agent_type.clone().unwrap_or_else(crate::config::default_agent_provider);
+        let at = pane
+            .agent_type
+            .clone()
+            .unwrap_or_else(crate::config::default_agent_provider);
         (sid, cwd, at)
     };
 
     let needs_detect = if session_id.is_none() {
         true
     } else if let Some(ref sid) = session_id {
-        svc.agent_registry.with_provider(&agent_type, |p| p.session_file_path(&cwd, sid))
+        svc.agent_registry
+            .with_provider(&agent_type, |p| p.session_file_path(&cwd, sid))
             .flatten()
             .map(|path| !path.exists())
             .unwrap_or(true)
-    } else { false };
+    } else {
+        false
+    };
 
     if needs_detect {
         let exclude = mux.lock().other_session_ids(&pane_id);
         let max_age = Some(std::time::Duration::from_secs(86400));
-        let detected = svc.agent_registry.with_provider(&agent_type, |p| {
-            p.detect_session_id(&cwd, &exclude, max_age)
-        }).flatten();
+        let detected = svc
+            .agent_registry
+            .with_provider(&agent_type, |p| {
+                p.detect_session_id(&cwd, &exclude, max_age)
+            })
+            .flatten();
         if let Some(detected) = detected {
-            log::info!("[read_session_jsonl] detected session {} for pane {}", detected, pane_id);
+            log::info!(
+                "[read_session_jsonl] detected session {} for pane {}",
+                detected,
+                pane_id
+            );
             svc.set_agent_session_id(&pane_id, Some(detected.clone()));
             svc.emit_state_changed();
             session_id = Some(detected);
         }
     }
 
-    let session_id = session_id
-        .ok_or_else(|| "No agent session linked to this pane".to_string())?;
+    let session_id =
+        session_id.ok_or_else(|| "No agent session linked to this pane".to_string())?;
 
-    let jsonl_path = svc.agent_registry.with_provider(&agent_type, |p| p.session_file_path(&cwd, &session_id))
+    let jsonl_path = svc
+        .agent_registry
+        .with_provider(&agent_type, |p| p.session_file_path(&cwd, &session_id))
         .flatten()
         .ok_or_else(|| format!("No session file path for agent type: {}", agent_type))?;
 
@@ -183,13 +201,15 @@ pub fn read_session_jsonl(
         if skip >= file_len {
             return Ok(String::new());
         }
-        file.seek(SeekFrom::Start(skip)).map_err(|e| e.to_string())?;
+        file.seek(SeekFrom::Start(skip))
+            .map_err(|e| e.to_string())?;
         let mut buf = String::new();
         file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
         Ok(buf)
     } else if let Some(tail) = tail_bytes {
         let start = if file_len > tail { file_len - tail } else { 0 };
-        file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+        file.seek(SeekFrom::Start(start))
+            .map_err(|e| e.to_string())?;
         let mut buf = String::new();
         file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
         if start > 0 {
@@ -215,6 +235,7 @@ pub struct ChatStartResult {
     /// claude TS plugin's `parseJsonlSession`. The window is anchored to
     /// a `\n` boundary so the parser never sees a partial first line.
     pub text: String,
+    pub start_offset: u64,
     pub offset: u64,
 }
 
@@ -228,14 +249,29 @@ pub async fn chat_start(
         let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
         let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
         let cwd = pane.cwd.clone().unwrap_or_default();
-        let sid = pane.agent_session_id.clone().ok_or("pane has no session_id yet")?;
+        let sid = pane
+            .agent_session_id
+            .clone()
+            .ok_or("pane has no session_id yet")?;
         (provider, cwd, sid)
     };
 
-    let path = svc.agent_registry
+    // Chat view is a reader for the tab's saved conversation, not a session
+    // detector. Recency/cwd-based detection is unsafe here: a dev console or
+    // sibling pane can create a newer JSONL in the same project and would make
+    // this tab render the wrong chat.
+    let path = svc
+        .agent_registry
         .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
         .flatten()
         .ok_or("provider has no JSONL")?;
+    if !path.exists() {
+        return Err(format!(
+            "JSONL not found for pane session {}: {}",
+            session_id,
+            path.display()
+        ));
+    }
 
     // Read the tail (~512KB) so toggle reveals plenty of context. The TS
     // parser is fast even at 1MB — no need for a smaller window.
@@ -272,14 +308,15 @@ pub async fn chat_start(
     );
     svc.chat_registry.insert(pane_id, handle);
 
-    Ok(ChatStartResult { text, offset: total })
+    Ok(ChatStartResult {
+        text,
+        start_offset: aligned_start as u64,
+        offset: total,
+    })
 }
 
 #[tauri::command]
-pub async fn chat_stop(
-    svc: tauri::State<'_, ServiceState>,
-    pane_id: String,
-) -> Result<(), String> {
+pub async fn chat_stop(svc: tauri::State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
     svc.chat_registry.stop(&pane_id);
     Ok(())
 }
@@ -307,7 +344,8 @@ pub async fn chat_backfill(
             pane.agent_session_id.clone().ok_or("no session_id")?,
         )
     };
-    let path = svc.agent_registry
+    let path = svc
+        .agent_registry
         .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
         .flatten()
         .ok_or("no JSONL")?;

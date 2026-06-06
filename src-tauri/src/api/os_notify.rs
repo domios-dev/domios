@@ -20,85 +20,89 @@ pub fn _send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&
     {
         use tauri_plugin_notification::NotificationExt;
         let mut notif = app.notification().builder().title(title);
-        if let Some(b) = body { notif = notif.body(b); }
-        if notif.show().is_ok() { return; }
+        if let Some(b) = body {
+            notif = notif.body(b);
+        }
+        if notif.show().is_ok() {
+            return;
+        }
     }
 
     // Fallback: custom WebviewWindow popup if the plugin path failed.
     #[allow(unreachable_code)]
     {
-    use tauri::Manager;
-    use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tauri::Manager;
 
-    static NOTIF_ACTIVE: AtomicBool = AtomicBool::new(false);
-    static LAST_MSG: parking_lot::Mutex<String> = parking_lot::Mutex::new(String::new());
+        static NOTIF_ACTIVE: AtomicBool = AtomicBool::new(false);
+        static LAST_MSG: parking_lot::Mutex<String> = parking_lot::Mutex::new(String::new());
 
-    let msg = format!("{}: {}", title, body.unwrap_or(""));
+        let msg = format!("{}: {}", title, body.unwrap_or(""));
 
-    {
-        let last = LAST_MSG.lock();
-        if *last == msg && NOTIF_ACTIVE.load(Ordering::Relaxed) {
-            return;
-        }
-    }
-    *LAST_MSG.lock() = msg.clone();
-
-    let title = title.to_string();
-    let body = body.unwrap_or("").to_string();
-    let app = app.clone();
-
-    if NOTIF_ACTIVE.load(Ordering::Relaxed) {
-        if let Some(win) = app.get_webview_window("codeterm-notif") {
-            let html = _build_notif_html(&title, &body);
-            let _ = win.eval(&format!(
-                "document.open();document.write({});document.close();",
-                serde_json::to_string(&html).unwrap_or_default()
-            ));
-            return;
-        }
-    }
-
-    NOTIF_ACTIVE.store(true, Ordering::Relaxed);
-
-    std::thread::spawn(move || {
-        let (wa_x, wa_y, wa_w, wa_h) = _get_workarea();
-        let win_w = 320.0;
-        let win_h = _calc_notif_height(&body, win_w);
-        let margin = 16.0;
-
-        let html = _build_notif_html(&title, &body);
-
-        if let Ok(win) = tauri::WebviewWindowBuilder::new(
-            &app,
-            "codeterm-notif",
-            tauri::WebviewUrl::App("about:blank".into()),
-        )
-        .title("")
-        .inner_size(win_w, win_h)
-        .position(wa_x + wa_w - win_w - margin, wa_y + wa_h - win_h - margin)
-        .decorations(false)
-        .resizable(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .build()
         {
-            let _ = win.eval(&format!(
-                "document.open();document.write({});document.close();",
-                serde_json::to_string(&html).unwrap_or_default()
-            ));
-
-            let app_clone = app.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(4));
-                if let Some(w) = app_clone.get_webview_window("codeterm-notif") {
-                    let _ = w.close();
-                }
-                NOTIF_ACTIVE.store(false, Ordering::Relaxed);
-            });
-        } else {
-            NOTIF_ACTIVE.store(false, Ordering::Relaxed);
+            let last = LAST_MSG.lock();
+            if *last == msg && NOTIF_ACTIVE.load(Ordering::Relaxed) {
+                return;
+            }
         }
-    });
+        *LAST_MSG.lock() = msg.clone();
+
+        let title = title.to_string();
+        let body = body.unwrap_or("").to_string();
+        let app = app.clone();
+
+        if NOTIF_ACTIVE.load(Ordering::Relaxed) {
+            if let Some(win) = app.get_webview_window("codeterm-notif") {
+                let html = _build_notif_html(&title, &body);
+                let _ = win.eval(&format!(
+                    "document.open();document.write({});document.close();",
+                    serde_json::to_string(&html).unwrap_or_default()
+                ));
+                return;
+            }
+        }
+
+        NOTIF_ACTIVE.store(true, Ordering::Relaxed);
+
+        std::thread::spawn(move || {
+            let (wa_x, wa_y, wa_w, wa_h) = _get_workarea();
+            let win_w = 320.0;
+            let win_h = _calc_notif_height(&body, win_w);
+            let margin = 16.0;
+
+            let html = _build_notif_html(&title, &body);
+
+            if let Ok(win) = tauri::WebviewWindowBuilder::new(
+                &app,
+                "codeterm-notif",
+                tauri::WebviewUrl::App("about:blank".into()),
+            )
+            .title("")
+            .inner_size(win_w, win_h)
+            .position(wa_x + wa_w - win_w - margin, wa_y + wa_h - win_h - margin)
+            .decorations(false)
+            .resizable(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .build()
+            {
+                let _ = win.eval(&format!(
+                    "document.open();document.write({});document.close();",
+                    serde_json::to_string(&html).unwrap_or_default()
+                ));
+
+                let app_clone = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(4));
+                    if let Some(w) = app_clone.get_webview_window("codeterm-notif") {
+                        let _ = w.close();
+                    }
+                    NOTIF_ACTIVE.store(false, Ordering::Relaxed);
+                });
+            } else {
+                NOTIF_ACTIVE.store(false, Ordering::Relaxed);
+            }
+        });
     }
 }
 
@@ -126,7 +130,11 @@ fn _build_notif_html(title: &str, body: &str) -> String {
 /// Estimate notification popup height based on body text length.
 fn _calc_notif_height(body: &str, win_w: f64) -> f64 {
     let chars_per_line = ((win_w - 60.0) / 7.0).max(1.0) as usize;
-    let lines = if body.is_empty() { 0 } else { (body.len() / chars_per_line).max(1) };
+    let lines = if body.is_empty() {
+        0
+    } else {
+        (body.len() / chars_per_line).max(1)
+    };
     let base = 50.0;
     let line_h = 16.0;
     (base + lines as f64 * line_h).max(60.0).min(200.0)
@@ -138,17 +146,34 @@ fn _get_workarea() -> (f64, f64, f64, f64) {
     #[cfg(target_os = "windows")]
     {
         #[repr(C)]
-        struct RECT { left: i32, top: i32, right: i32, bottom: i32 }
+        struct RECT {
+            left: i32,
+            top: i32,
+            right: i32,
+            bottom: i32,
+        }
         #[link(name = "user32")]
         extern "system" {
-            fn SystemParametersInfoW(action: u32, param: u32, pvparam: *mut RECT, winini: u32) -> i32;
+            fn SystemParametersInfoW(
+                action: u32,
+                param: u32,
+                pvparam: *mut RECT,
+                winini: u32,
+            ) -> i32;
         }
         unsafe {
-            let mut rect = RECT { left: 0, top: 0, right: 1920, bottom: 1080 };
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1080,
+            };
             SystemParametersInfoW(0x0030, 0, &mut rect, 0);
             let dpi = {
                 #[link(name = "user32")]
-                extern "system" { fn GetDpiForSystem() -> u32; }
+                extern "system" {
+                    fn GetDpiForSystem() -> u32;
+                }
                 GetDpiForSystem()
             };
             let scale = dpi as f64 / 96.0;

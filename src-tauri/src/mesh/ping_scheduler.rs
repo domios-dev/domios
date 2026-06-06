@@ -18,7 +18,10 @@ pub fn start(mesh: MeshStateHandle, config: ConfigState, app_handle: tauri::AppH
             .unwrap_or_default(),
     );
     tauri::async_runtime::spawn(async move {
-        log::info!("[mesh/ping] peer-ping scheduler started (interval {}s)", PING_INTERVAL_SECS);
+        log::info!(
+            "[mesh/ping] peer-ping scheduler started (interval {}s)",
+            PING_INTERVAL_SECS
+        );
         loop {
             tick(&mesh, &config, &app_handle, &client).await;
             tokio::time::sleep(Duration::from_secs(PING_INTERVAL_SECS)).await;
@@ -26,21 +29,37 @@ pub fn start(mesh: MeshStateHandle, config: ConfigState, app_handle: tauri::AppH
     });
 }
 
-async fn tick(mesh: &MeshStateHandle, config: &ConfigState, app_handle: &tauri::AppHandle, client: &reqwest::Client) {
+async fn tick(
+    mesh: &MeshStateHandle,
+    config: &ConfigState,
+    app_handle: &tauri::AppHandle,
+    client: &reqwest::Client,
+) {
     if !config.lock().mesh.enabled {
         return;
     }
     let targets: Vec<(String, String, u16, bool, u8)> = {
         let m = mesh.lock();
-        m.paired_peers.values()
+        m.paired_peers
+            .values()
             .filter_map(|p| {
-                let addr = p.addresses.iter()
+                let addr = p
+                    .addresses
+                    .iter()
                     .min_by_key(|a| crate::mesh::types::address_tier(a))?;
-                Some((p.instance_id.clone(), addr.ip.clone(), p.api_port, p.online, p.consecutive_misses))
+                Some((
+                    p.instance_id.clone(),
+                    addr.ip.clone(),
+                    p.api_port,
+                    p.online,
+                    p.consecutive_misses,
+                ))
             })
             .collect()
     };
-    if targets.is_empty() { return; }
+    if targets.is_empty() {
+        return;
+    }
 
     let mut changed = false;
     for (peer_id, ip, port, prev_online, misses) in targets {
@@ -63,7 +82,11 @@ async fn tick(mesh: &MeshStateHandle, config: &ConfigState, app_handle: &tauri::
                 if peer_should_flip_offline(prev_online, new_misses) {
                     peer.online = false;
                     changed = true;
-                    log::info!("[mesh/ping] peer {} online: true -> false (miss {})", peer_id, new_misses);
+                    log::info!(
+                        "[mesh/ping] peer {} online: true -> false (miss {})",
+                        peer_id,
+                        new_misses
+                    );
                 }
             }
         }

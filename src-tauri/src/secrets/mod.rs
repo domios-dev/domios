@@ -117,9 +117,7 @@ pub enum StoreStatus {
         endpoint: Option<String>,
     },
     /// Backend is selected but unusable — e.g. `bw` not on PATH.
-    Unavailable {
-        reason: String,
-    },
+    Unavailable { reason: String },
 }
 
 impl StoreStatus {
@@ -225,19 +223,13 @@ pub enum SecretError {
     /// No item matched the name / id.
     NotFound,
     /// Multiple items matched a name lookup; backend can't choose.
-    Ambiguous {
-        candidates: Vec<String>,
-    },
+    Ambiguous { candidates: Vec<String> },
     /// `save` with `overwrite: false` and the name already exists.
     AlreadyExists,
     /// Caller passed bad input (empty name, empty value when required, …).
-    BadRequest {
-        message: String,
-    },
+    BadRequest { message: String },
     /// Backend itself is unavailable — bw not on PATH, network down, etc.
-    Backend {
-        message: String,
-    },
+    Backend { message: String },
 }
 
 impl fmt::Display for SecretError {
@@ -404,9 +396,18 @@ mod tests {
 
     #[test]
     fn validate_name_rejects_pathological_input() {
-        assert!(matches!(validate_name(""), Err(SecretError::BadRequest { .. })));
-        assert!(matches!(validate_name(" leading"), Err(SecretError::BadRequest { .. })));
-        assert!(matches!(validate_name("trailing "), Err(SecretError::BadRequest { .. })));
+        assert!(matches!(
+            validate_name(""),
+            Err(SecretError::BadRequest { .. })
+        ));
+        assert!(matches!(
+            validate_name(" leading"),
+            Err(SecretError::BadRequest { .. })
+        ));
+        assert!(matches!(
+            validate_name("trailing "),
+            Err(SecretError::BadRequest { .. })
+        ));
         assert!(matches!(
             validate_name("contains\0nul"),
             Err(SecretError::BadRequest { .. })

@@ -128,7 +128,10 @@ pub fn init_mdns_daemon(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
 /// Register our mDNS service so other peers can discover us.
 pub fn register_mdns_service(mesh: &Arc<Mutex<MeshManager>>) -> Result<(), String> {
     let m = mesh.lock();
-    let daemon = m.mdns_daemon.as_ref().ok_or("mDNS daemon not initialized")?;
+    let daemon = m
+        .mdns_daemon
+        .as_ref()
+        .ok_or("mDNS daemon not initialized")?;
     let daemon = daemon.clone();
 
     let instance_id = m.ident.identity.instance_id.clone();
@@ -166,7 +169,10 @@ pub fn register_mdns_service(mesh: &Arc<Mutex<MeshManager>>) -> Result<(), Strin
 
     log::info!(
         "[mesh/mdns] Registering service: name={}, host={}, ip={}, port={}",
-        service_name, host_fqdn, bind_ip, api_port
+        service_name,
+        host_fqdn,
+        bind_ip,
+        api_port
     );
 
     let my_service = mdns_sd::ServiceInfo::new(
@@ -259,7 +265,8 @@ pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
                     {
                         log::info!(
                             "[mesh] Tailscale IP detected via launchctl asuser {}: {}",
-                            cmd, ip
+                            cmd,
+                            ip
                         );
                         mesh.lock().tailscale_ip = Some(ip);
                         return;
@@ -293,7 +300,10 @@ fn tailscale_peer_ips(mesh: &Arc<Mutex<MeshManager>>) -> Vec<String> {
 
 fn is_tailscale_ip(ip: &str) -> bool {
     ip.parse::<std::net::Ipv4Addr>()
-        .map(|a| { let o = a.octets(); o[0] == 100 && (64..=127).contains(&o[1]) })
+        .map(|a| {
+            let o = a.octets();
+            o[0] == 100 && (64..=127).contains(&o[1])
+        })
         .unwrap_or(false)
 }
 
@@ -311,9 +321,12 @@ fn tailscale_status_peer_ips() -> Vec<String> {
         let mut c = std::process::Command::new(cmd);
         c.args(["status", "--json"]);
         crate::process_util::no_window_std(&mut c);
-        let Some((true, raw)) = run_with_timeout(&mut c, std::time::Duration::from_secs(3))
-        else { continue };
-        let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
+        let Some((true, raw)) = run_with_timeout(&mut c, std::time::Duration::from_secs(3)) else {
+            continue;
+        };
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
         let peers = val.get("Peer").and_then(|v| v.as_object());
         let Some(peers) = peers else { return vec![] };
         return peers
@@ -409,13 +422,23 @@ fn try_tailscale_probe(cmd: &str, mode: ProbeMode) -> ProbeOutcome {
         log::warn!(
             "[mesh] {} ip -4 returned non-IP output (likely Tailscale GUI bridge error): {}",
             cmd,
-            raw.lines().next().unwrap_or("").chars().take(120).collect::<String>()
+            raw.lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(120)
+                .collect::<String>()
         );
     } else {
         log::debug!(
             "[mesh] launchctl asuser {} ip -4 still returned non-IP output: {}",
             cmd,
-            raw.lines().next().unwrap_or("").chars().take(120).collect::<String>()
+            raw.lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(120)
+                .collect::<String>()
         );
     }
     ProbeOutcome::GuiBridgeError
@@ -477,7 +500,11 @@ fn current_uid() -> Option<String> {
         return None;
     }
     let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if s.parse::<u32>().is_ok() { Some(s) } else { None }
+    if s.parse::<u32>().is_ok() {
+        Some(s)
+    } else {
+        None
+    }
 }
 
 pub fn detect_local_ip(mesh: &Arc<Mutex<MeshManager>>) {
@@ -588,7 +615,11 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
         let sock = match std::net::UdpSocket::bind(format!("0.0.0.0:{}", api_port)) {
             Ok(s) => s,
             Err(e) => {
-                log::error!("[mesh/udp] Failed to bind listener on port {}: {}", api_port, e);
+                log::error!(
+                    "[mesh/udp] Failed to bind listener on port {}: {}",
+                    api_port,
+                    e
+                );
                 return;
             }
         };
@@ -605,10 +636,11 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                     if &buf[..BROADCAST_MAGIC.len()] != BROADCAST_MAGIC {
                         continue;
                     }
-                    let beacon: Beacon = match serde_json::from_slice(&buf[BROADCAST_MAGIC.len()..len]) {
-                        Ok(b) => b,
-                        Err(_) => continue,
-                    };
+                    let beacon: Beacon =
+                        match serde_json::from_slice(&buf[BROADCAST_MAGIC.len()..len]) {
+                            Ok(b) => b,
+                            Err(_) => continue,
+                        };
                     if beacon.id == instance_id {
                         continue;
                     }
@@ -630,7 +662,9 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                     if is_new {
                         log::info!(
                             "[mesh/udp] Discovered peer: {} ({}) at {}",
-                            beacon.id, src_addr.ip(), beacon.port
+                            beacon.id,
+                            src_addr.ip(),
+                            beacon.port
                         );
                     }
                 }
@@ -663,10 +697,7 @@ pub fn start_listeners(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
 /// Start broadcasting (mDNS + UDP) for `duration_secs`.
 /// Listeners are started if not already running.
 /// After the duration, broadcasting stops automatically.
-pub fn start_broadcast(
-    mesh: Arc<Mutex<MeshManager>>,
-    duration_secs: u64,
-) -> Result<(), String> {
+pub fn start_broadcast(mesh: Arc<Mutex<MeshManager>>, duration_secs: u64) -> Result<(), String> {
     let expires_at = now_secs() + duration_secs;
     {
         let mut m = mesh.lock();
@@ -699,7 +730,8 @@ pub fn start_broadcast(
 
     log::info!(
         "[mesh] Broadcasting started for {}s (expires at {})",
-        duration_secs, expires_at
+        duration_secs,
+        expires_at
     );
     Ok(())
 }
@@ -744,8 +776,12 @@ pub fn send_immediate_beacon(mesh: &Arc<Mutex<MeshManager>>) {
         dev: cfg!(debug_assertions),
         mesh_id,
     };
-    let Ok(json) = serde_json::to_vec(&beacon) else { return };
-    let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") else { return };
+    let Ok(json) = serde_json::to_vec(&beacon) else {
+        return;
+    };
+    let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") else {
+        return;
+    };
     let _ = sock.set_broadcast(true);
     let mut packet = Vec::with_capacity(BROADCAST_MAGIC.len() + json.len());
     packet.extend_from_slice(BROADCAST_MAGIC);
@@ -757,7 +793,11 @@ pub fn send_immediate_beacon(mesh: &Arc<Mutex<MeshManager>>) {
     // Unicast to each Tailscale peer (broadcast doesn't cross VPN)
     for ip in &ts_ips {
         if let Err(e) = sock.send_to(&packet, format!("{}:{}", ip, api_port)) {
-            log::debug!("[mesh/udp] Immediate beacon unicast to {} failed: {}", ip, e);
+            log::debug!(
+                "[mesh/udp] Immediate beacon unicast to {} failed: {}",
+                ip,
+                e
+            );
         } else {
             log::debug!("[mesh/udp] Immediate beacon unicast → {}", ip);
         }
@@ -770,7 +810,10 @@ mod tests {
 
     #[test]
     fn parse_first_ip_happy_path() {
-        assert_eq!(parse_first_ip("100.65.0.40\n").as_deref(), Some("100.65.0.40"));
+        assert_eq!(
+            parse_first_ip("100.65.0.40\n").as_deref(),
+            Some("100.65.0.40")
+        );
     }
 
     #[test]

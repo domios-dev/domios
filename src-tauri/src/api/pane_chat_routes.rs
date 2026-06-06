@@ -162,9 +162,8 @@ pub async fn backfill(
     // past `before_offset`. parse_session_delta(path, from) reads to
     // EOF — that's the wrong semantics for backfill. Slice + temp
     // file gives us a hard upper bound without changing the trait.
-    let bytes = std::fs::read(&path).map_err(|_| {
-        (StatusCode::INTERNAL_SERVER_ERROR, "read jsonl failed")
-    })?;
+    let bytes = std::fs::read(&path)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "read jsonl failed"))?;
     let total = bytes.len() as u64;
     let clamped_end = end.min(total) as usize;
     let clamped_start = (start as usize).min(clamped_end);
@@ -177,17 +176,17 @@ pub async fn backfill(
         let complete = &window[..=idx];
         // Write bounded content to a temp file so parse_session_delta
         // can parse it via the plugin (trait takes a path, not bytes).
-        let tmp_path = std::env::temp_dir().join(format!(
-            "codeterm-backfill-{}.jsonl",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::write(&tmp_path, complete).map_err(|_| {
-            (StatusCode::INTERNAL_SERVER_ERROR, "tempfile write failed")
-        })?;
-        let delta = state.svc.agent_registry
+        let tmp_path =
+            std::env::temp_dir().join(format!("codeterm-backfill-{}.jsonl", uuid::Uuid::new_v4()));
+        std::fs::write(&tmp_path, complete)
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "tempfile write failed"))?;
+        let delta = state
+            .svc
+            .agent_registry
             .with_provider(&info.provider_id, |p| p.parse_session_delta(&tmp_path, 0))
             .unwrap_or(crate::agent::chat_types::SessionDelta {
-                new_offset: 0, messages: vec![],
+                new_offset: 0,
+                messages: vec![],
             });
         let _ = std::fs::remove_file(&tmp_path);
         delta.messages

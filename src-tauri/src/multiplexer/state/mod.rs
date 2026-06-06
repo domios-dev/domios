@@ -20,7 +20,10 @@ mod tests;
 fn short_id() -> String {
     let uuid = Uuid::new_v4();
     let bytes = uuid.as_bytes();
-    format!("{:02x}{:02x}{:02x}{:02x}", bytes[0], bytes[1], bytes[2], bytes[3])
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3]
+    )
 }
 
 /// Lightweight workspace summary for listing.

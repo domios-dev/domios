@@ -168,8 +168,7 @@ pub(super) fn uninstall_bridge_rule() -> Result<(), String> {
         .join("rules")
         .join("codeterm.md");
     if path.exists() {
-        std::fs::remove_file(&path)
-            .map_err(|e| format!("remove {}: {}", path.display(), e))?;
+        std::fs::remove_file(&path).map_err(|e| format!("remove {}: {}", path.display(), e))?;
         log::info!("[agent-claude] bridge rule removed from {}", path.display());
     }
     Ok(())
@@ -219,7 +218,12 @@ mod tests {
                 let mut saw_badge = false;
                 let mut saw_action = false;
                 for f in fields {
-                    if let SettingField::Badge { query_command, query_args, .. } = f {
+                    if let SettingField::Badge {
+                        query_command,
+                        query_args,
+                        ..
+                    } = f
+                    {
                         if query_command == "check_provider_integration"
                             && query_args
                                 .as_ref()
@@ -230,7 +234,13 @@ mod tests {
                             saw_badge = true;
                         }
                     }
-                    if let SettingField::Action { command, state_query, args, .. } = f {
+                    if let SettingField::Action {
+                        command,
+                        state_query,
+                        args,
+                        ..
+                    } = f
+                    {
                         if command == "install_provider_integration"
                             && state_query.as_deref() == Some("check_provider_integration")
                             && args
@@ -243,8 +253,14 @@ mod tests {
                         }
                     }
                 }
-                assert!(saw_badge, "expected Badge wired to check_provider_integration");
-                assert!(saw_action, "expected Action wired to install_provider_integration");
+                assert!(
+                    saw_badge,
+                    "expected Badge wired to check_provider_integration"
+                );
+                assert!(
+                    saw_action,
+                    "expected Action wired to install_provider_integration"
+                );
             }
             _ => panic!("expected Section as top-level notifications field"),
         }

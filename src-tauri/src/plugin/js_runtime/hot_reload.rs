@@ -69,7 +69,9 @@ impl HotReloadRegistry {
             if !root.exists() {
                 continue;
             }
-            let Ok(entries) = std::fs::read_dir(root) else { continue };
+            let Ok(entries) = std::fs::read_dir(root) else {
+                continue;
+            };
             for entry in entries.flatten() {
                 let path = entry.path();
                 let Ok(ft) = entry.file_type() else { continue };
@@ -108,10 +110,7 @@ impl HotReloadRegistry {
         let manifest = match PluginManifest::load(manifest_path) {
             Ok(m) => m,
             Err(e) => {
-                log::warn!(
-                    "[plugin-watcher] {} parse: {e}",
-                    manifest_path.display()
-                );
+                log::warn!("[plugin-watcher] {} parse: {e}", manifest_path.display());
                 return None;
             }
         };
@@ -157,7 +156,10 @@ impl HotReloadRegistry {
                 self.agent_registry.register_provider(Box::new(provider));
                 self.state.lock().insert(
                     id.clone(),
-                    Tracked { manifest_mtime, entry_mtime },
+                    Tracked {
+                        manifest_mtime,
+                        entry_mtime,
+                    },
                 );
                 log::info!("[plugin-watcher] registered {id}");
                 Some(id)
@@ -218,10 +220,7 @@ mod tests {
     fn tick_registers_new_plugins_added_after_start() {
         let root = tempfile::tempdir().unwrap();
         let registry = Arc::new(AgentRegistry::new());
-        let watcher = HotReloadRegistry::new(
-            vec![root.path().to_path_buf()],
-            registry.clone(),
-        );
+        let watcher = HotReloadRegistry::new(vec![root.path().to_path_buf()], registry.clone());
         // First tick: empty root, nothing to register.
         watcher.tick();
         assert!(watcher.tracked_ids().is_empty());
@@ -244,10 +243,7 @@ mod tests {
     fn tick_hot_reloads_plugin_js_changes() {
         let root = tempfile::tempdir().unwrap();
         let registry = Arc::new(AgentRegistry::new());
-        let watcher = HotReloadRegistry::new(
-            vec![root.path().to_path_buf()],
-            registry.clone(),
-        );
+        let watcher = HotReloadRegistry::new(vec![root.path().to_path_buf()], registry.clone());
         let dir = root.path().join("bar");
         write(&dir.join("plugin.json"), &manifest_for("bar"));
         write(&dir.join("plugin.js"), &plugin_for("v1"));
@@ -277,10 +273,7 @@ mod tests {
     fn tick_unregisters_plugins_after_folder_removal() {
         let root = tempfile::tempdir().unwrap();
         let registry = Arc::new(AgentRegistry::new());
-        let watcher = HotReloadRegistry::new(
-            vec![root.path().to_path_buf()],
-            registry.clone(),
-        );
+        let watcher = HotReloadRegistry::new(vec![root.path().to_path_buf()], registry.clone());
         let dir = root.path().join("baz");
         write(&dir.join("plugin.json"), &manifest_for("baz"));
         write(&dir.join("plugin.js"), &plugin_for("baz"));

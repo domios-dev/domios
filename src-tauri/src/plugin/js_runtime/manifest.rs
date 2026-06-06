@@ -112,7 +112,11 @@ pub struct SpawnConfig {
 /// Mirror of `crate::agent::provider::ReadinessStrategy` with snake_case
 /// serde shape suitable for plugin.json authors.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 #[allow(clippy::enum_variant_names)]
 pub enum SerdeReadinessStrategy {
     PollShellPrompt { timeout_secs: u64 },
@@ -128,11 +132,9 @@ impl Default for SerdeReadinessStrategy {
 impl From<&SerdeReadinessStrategy> for ReadinessStrategy {
     fn from(s: &SerdeReadinessStrategy) -> Self {
         match s {
-            SerdeReadinessStrategy::PollShellPrompt { timeout_secs } => {
-                Self::PollShellPrompt {
-                    timeout: std::time::Duration::from_secs(*timeout_secs),
-                }
-            }
+            SerdeReadinessStrategy::PollShellPrompt { timeout_secs } => Self::PollShellPrompt {
+                timeout: std::time::Duration::from_secs(*timeout_secs),
+            },
             SerdeReadinessStrategy::FixedDelay { duration_ms } => Self::FixedDelay {
                 duration: std::time::Duration::from_millis(*duration_ms),
             },
@@ -163,11 +165,20 @@ impl From<SerdeTaskDelivery> for TaskDelivery {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 #[allow(clippy::enum_variant_names)]
 pub enum SerdeVerifySubmit {
-    ShellPrompt { timeout_secs: u64 },
-    TuiInputDrained { timeout_secs: u64, idle_after_drain_ms: u64 },
+    ShellPrompt {
+        timeout_secs: u64,
+    },
+    TuiInputDrained {
+        timeout_secs: u64,
+        idle_after_drain_ms: u64,
+    },
     None,
 }
 
@@ -342,10 +353,10 @@ pub struct PermissionsConfig {
 impl PluginManifest {
     /// Parse a manifest from a `plugin.json` file on disk.
     pub fn load(path: &Path) -> Result<Self, String> {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| format!("read {}: {e}", path.display()))?;
-        let mut m: PluginManifest = serde_json::from_str(&text)
-            .map_err(|e| format!("parse {}: {e}", path.display()))?;
+        let text =
+            std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+        let mut m: PluginManifest =
+            serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))?;
         m.source_path = Some(path.to_path_buf());
         Ok(m)
     }
@@ -536,7 +547,10 @@ mod tests {
         };
         let v: VerifySubmitStrategy = (&s).into();
         match v {
-            VerifySubmitStrategy::TuiInputDrained { timeout, idle_after_drain } => {
+            VerifySubmitStrategy::TuiInputDrained {
+                timeout,
+                idle_after_drain,
+            } => {
                 assert_eq!(timeout.as_secs(), 15);
                 assert_eq!(idle_after_drain.as_millis(), 800);
             }
@@ -544,4 +558,3 @@ mod tests {
         }
     }
 }
-

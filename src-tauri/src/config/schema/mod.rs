@@ -322,7 +322,9 @@ impl Default for GeneralAgentConfig {
     }
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 fn default_worker_model() -> String {
     "haiku".to_string()
@@ -440,7 +442,10 @@ pub struct UiConfig {
 
 impl Default for UiConfig {
     fn default() -> Self {
-        Self { memory_tab_enabled: true, mesh_tab_enabled: true }
+        Self {
+            memory_tab_enabled: true,
+            mesh_tab_enabled: true,
+        }
     }
 }
 
@@ -553,10 +558,18 @@ impl Default for SecretsConfig {
     }
 }
 
-fn default_voice_daemon_url() -> String { "http://127.0.0.1:7891".to_string() }
-fn default_voice_timeout_ms() -> u64 { 60_000 }
-fn default_voice_health_ttl_secs() -> u64 { 60 }
-fn default_voice_fallback_raw() -> bool { true }
+fn default_voice_daemon_url() -> String {
+    "http://127.0.0.1:7891".to_string()
+}
+fn default_voice_timeout_ms() -> u64 {
+    60_000
+}
+fn default_voice_health_ttl_secs() -> u64 {
+    60
+}
+fn default_voice_fallback_raw() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -586,9 +599,15 @@ impl Default for VoiceTranscribeConfig {
     }
 }
 
-fn default_text_hooks_url() -> String { "http://127.0.0.1:7892".to_string() }
-fn default_text_hooks_timeout_ms() -> u64 { 2000 }
-fn default_text_hooks_fallback() -> String { "forward".to_string() }
+fn default_text_hooks_url() -> String {
+    "http://127.0.0.1:7892".to_string()
+}
+fn default_text_hooks_timeout_ms() -> u64 {
+    2000
+}
+fn default_text_hooks_fallback() -> String {
+    "forward".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -718,8 +737,12 @@ pub fn get_custom_theme(name: &str) -> Option<ThemeConfig> {
 
 /// List all custom theme IDs from the user themes directory.
 pub fn list_custom_theme_ids() -> Vec<String> {
-    let Some(dir) = user_themes_dir() else { return vec![] };
-    let Ok(entries) = std::fs::read_dir(&dir) else { return vec![] };
+    let Some(dir) = user_themes_dir() else {
+        return vec![];
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return vec![];
+    };
     entries
         .filter_map(|e| e.ok())
         .filter_map(|e| {

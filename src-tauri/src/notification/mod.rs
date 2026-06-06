@@ -44,10 +44,7 @@ pub fn list_notifications(
 
 /// Mark a single notification as read.
 #[tauri::command]
-pub fn mark_notification_read(
-    store: State<'_, NotifState>,
-    id: String,
-) -> Result<(), String> {
+pub fn mark_notification_read(store: State<'_, NotifState>, id: String) -> Result<(), String> {
     let mut s = store.lock();
     if s.mark_read(&id) {
         Ok(())
@@ -58,10 +55,7 @@ pub fn mark_notification_read(
 
 /// Clear one notification by ID, or all if no ID given.
 #[tauri::command]
-pub fn clear_notifications(
-    store: State<'_, NotifState>,
-    id: Option<String>,
-) -> Result<(), String> {
+pub fn clear_notifications(store: State<'_, NotifState>, id: Option<String>) -> Result<(), String> {
     let mut s = store.lock();
     s.clear(id.as_deref());
     Ok(())

@@ -47,16 +47,20 @@ pub(crate) fn init_states() -> AppStates {
     let session_state: SessionState = Arc::new(Mutex::new(SessionStore::new()));
     let output_buffer: OutputBufferState = Arc::new(Mutex::new(OutputBuffer::new(65536)));
     let screen_state: ScreenStateHandle = Arc::new(Mutex::new(ScreenState::new()));
-    let agent_tracker: AgentTrackerState = Arc::new(Mutex::new(agent::status::PaneStatusTracker::new()));
-    let report_store: ReportStoreState = Arc::new(Mutex::new(agent::reports::ReportStore::new(200)));
-    let event_broadcaster: api::events::EventBroadcasterState = Arc::new(api::events::EventBroadcaster::new());
+    let agent_tracker: AgentTrackerState =
+        Arc::new(Mutex::new(agent::status::PaneStatusTracker::new()));
+    let report_store: ReportStoreState =
+        Arc::new(Mutex::new(agent::reports::ReportStore::new(200)));
+    let event_broadcaster: api::events::EventBroadcasterState =
+        Arc::new(api::events::EventBroadcaster::new());
 
     // Initialize mesh state
     let mesh_config = config_state.lock().mesh.clone();
     let api_port = config_state.lock().api.port;
-    let mesh_state: MeshStateHandle = Arc::new(Mutex::new(
-        mesh::MeshManager::new(mesh_config.instance_name.clone(), api_port),
-    ));
+    let mesh_state: MeshStateHandle = Arc::new(Mutex::new(mesh::MeshManager::new(
+        mesh_config.instance_name.clone(),
+        api_port,
+    )));
 
     // Detect install method and init update state
     let install_method = update::detect_install_method();
@@ -78,19 +82,31 @@ pub(crate) fn init_states() -> AppStates {
         let last = session_state.lock().load_last();
         match last {
             Ok(Some(snapshot)) if !snapshot.workspaces.is_empty() => {
-                log::info!("Restoring session with {} workspaces, {} tabs total",
+                log::info!(
+                    "Restoring session with {} workspaces, {} tabs total",
                     snapshot.workspaces.len(),
-                    snapshot.workspaces.iter().map(|w| w.tabs.len()).sum::<usize>());
+                    snapshot
+                        .workspaces
+                        .iter()
+                        .map(|w| w.tabs.len())
+                        .sum::<usize>()
+                );
                 for ws in &snapshot.workspaces {
-                    log::info!("  Workspace '{}': {} tabs, active_tab={:?}",
-                        ws.name, ws.tabs.len(), ws.active_tab_id);
+                    log::info!(
+                        "  Workspace '{}': {} tabs, active_tab={:?}",
+                        ws.name,
+                        ws.tabs.len(),
+                        ws.active_tab_id
+                    );
                 }
                 MultiplexerState::from_session_snapshot(&snapshot)
             }
             _ => {
                 if ga_enabled {
                     // GA will create its own workspace — start empty
-                    log::info!("No saved session, GA enabled — starting empty (General will be created)");
+                    log::info!(
+                        "No saved session, GA enabled — starting empty (General will be created)"
+                    );
                     MultiplexerState::empty()
                 } else {
                     log::info!("No saved session, creating default workspace");

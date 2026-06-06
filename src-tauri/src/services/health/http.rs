@@ -53,10 +53,14 @@ pub async fn probe_http(
                             let upper = val.to_ascii_uppercase();
                             let is_ok = ok_values
                                 .map(|vs| vs.iter().any(|v| v.to_ascii_uppercase() == upper))
-                                .unwrap_or_else(|| matches!(upper.as_str(), "OK" | "HEALTHY" | "UP"));
+                                .unwrap_or_else(|| {
+                                    matches!(upper.as_str(), "OK" | "HEALTHY" | "UP")
+                                });
                             let is_deg = degraded_values
                                 .map(|vs| vs.iter().any(|v| v.to_ascii_uppercase() == upper))
-                                .unwrap_or_else(|| matches!(upper.as_str(), "DEGRADED" | "STARTING"));
+                                .unwrap_or_else(|| {
+                                    matches!(upper.as_str(), "DEGRADED" | "STARTING")
+                                });
                             if is_ok {
                                 HealthStatus::Healthy
                             } else if is_deg {
@@ -128,9 +132,15 @@ mod tests {
             .with_body(r#"{"status":"UP","version":"26.5.0"}"#)
             .create_async()
             .await;
-        let snap = probe_http(&format!("{}/api/system/status", server.url()), 5000, None, None, None)
-            .await
-            .unwrap();
+        let snap = probe_http(
+            &format!("{}/api/system/status", server.url()),
+            5000,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(snap.status, HealthStatus::Healthy);
     }
 
@@ -145,9 +155,15 @@ mod tests {
             .create_async()
             .await;
         let ok = vec!["running".to_string()];
-        let snap = probe_http(&format!("{}/health", server.url()), 5000, Some("state"), Some(&ok), None)
-            .await
-            .unwrap();
+        let snap = probe_http(
+            &format!("{}/health", server.url()),
+            5000,
+            Some("state"),
+            Some(&ok),
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(snap.status, HealthStatus::Healthy);
     }
 
@@ -230,7 +246,9 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_is_down() {
-        let snap = probe_http("http://192.0.2.1:1/healthz", 200, None, None, None).await.unwrap();
+        let snap = probe_http("http://192.0.2.1:1/healthz", 200, None, None, None)
+            .await
+            .unwrap();
         assert_eq!(snap.status, HealthStatus::Down);
     }
 }

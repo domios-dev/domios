@@ -12,27 +12,27 @@
 //! - `orchestrator` — agent spawn, batch commands
 //! - `notification` — create notification with OS toast
 
-mod workspace;
-mod pane;
-pub mod pty_io;
+pub mod agent_restart;
+pub mod cron;
+pub mod general_agent;
 mod hierarchy;
 pub mod inject_verify;
-mod orchestrator;
-pub mod spawn;
-pub mod notification;
-mod output;
-pub mod cron;
-pub mod pty_lifecycle;
-pub mod general_agent;
-pub mod sync_watcher;
-pub mod agent_restart;
 pub mod input_parser;
+pub mod notification;
+mod orchestrator;
+mod output;
+mod pane;
 pub mod pane_chat;
+pub mod pty_io;
+pub mod pty_lifecycle;
+pub mod spawn;
+pub mod sync_watcher;
 #[cfg(test)]
 mod tests;
+mod workspace;
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::Emitter;
@@ -41,13 +41,16 @@ use crate::agent::registry::AgentRegistry;
 use crate::api::events::EventBroadcaster;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::AgentRole;
-use crate::{AgentTrackerState, NotifState, OutputBufferState, PromptDetectorState, PtyState, ReportStoreState, ScreenStateHandle};
+use crate::{
+    AgentTrackerState, NotifState, OutputBufferState, PromptDetectorState, PtyState,
+    ReportStoreState, ScreenStateHandle,
+};
 
 // Re-export public types used by callers.
 pub use hierarchy::PaneStatusInfo;
 pub use inject_verify::{
-    InjectionError, InjectionResult, VerifyOpts, screen_contains_echo, snapshot_prompt_line,
-    wait_for_echo, wait_for_submit_shell, wait_for_submit_tui_drained,
+    screen_contains_echo, snapshot_prompt_line, wait_for_echo, wait_for_submit_shell,
+    wait_for_submit_tui_drained, InjectionError, InjectionResult, VerifyOpts,
 };
 pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
 
@@ -81,7 +84,11 @@ pub struct ServiceContext {
     /// Channel for outbound Telegram messages (CLI bridge.send command).
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
     /// Receiver half — taken when bridge starts. Replaced on restart with a new channel.
-    pub bridge_outbound_rx: Arc<parking_lot::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<crate::bridge::manager::OutboundMessage>>>>,
+    pub bridge_outbound_rx: Arc<
+        parking_lot::Mutex<
+            Option<tokio::sync::mpsc::UnboundedReceiver<crate::bridge::manager::OutboundMessage>>,
+        >,
+    >,
     /// Supervisor for the messaging bridge — owns task handle, cancel signal, runtime state.
     pub bridge_supervisor: Arc<crate::bridge::supervisor::BridgeSupervisor>,
     /// Per-pane last-restart timestamp for `agent_restart` rate limiting.
@@ -111,7 +118,8 @@ impl ServiceContext {
     // ── Event helpers (used by all sub-modules) ─────────────────────
 
     pub(crate) fn emit_state_changed(&self) {
-        self.events.publish(crate::api::events::SystemEvent::MuxStateChanged);
+        self.events
+            .publish(crate::api::events::SystemEvent::MuxStateChanged);
         // Coalesce frontend emits to ≤1/50ms — output.rs fires this 4× per PTY chunk.
         if self.mux_emit_pending.swap(true, Ordering::AcqRel) {
             return;
@@ -126,10 +134,11 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_pane_title_pinned(&self, pane_id: &str, title: &str) {
-        self.events.publish(crate::api::events::SystemEvent::PaneTitlePinned {
-            pane_id: pane_id.to_string(),
-            title: title.to_string(),
-        });
+        self.events
+            .publish(crate::api::events::SystemEvent::PaneTitlePinned {
+                pane_id: pane_id.to_string(),
+                title: title.to_string(),
+            });
         let handle = self.app_handle.clone();
         let payload = serde_json::json!({"pane_id": pane_id, "title": title});
         std::thread::spawn(move || {
@@ -143,9 +152,10 @@ impl ServiceContext {
     /// focus to (potentially newly created) panes. Frontend listener also has a
     /// short retry as defense-in-depth.
     pub(crate) fn emit_pane_focus_changed(&self, pane_id: &str) {
-        self.events.publish(crate::api::events::SystemEvent::PaneFocused {
-            pane_id: pane_id.to_string(),
-        });
+        self.events
+            .publish(crate::api::events::SystemEvent::PaneFocused {
+                pane_id: pane_id.to_string(),
+            });
         let handle = self.app_handle.clone();
         let payload = serde_json::json!({"pane_id": pane_id});
         std::thread::spawn(move || {
@@ -174,9 +184,11 @@ impl ServiceContext {
     pub(crate) fn parse_role(role_str: &str) -> Result<AgentRole, String> {
         match role_str {
             "Orchestrator" | "Conductor" => Ok(AgentRole::Orchestrator),
-            "Lead" => Ok(AgentRole::Lead),
-            "Worker" | "SubWorker" => Ok(AgentRole::Worker),
-            _ => Err(format!("Invalid role: {}. Use: Orchestrator, Lead, Worker", role_str)),
+            "Worker" => Ok(AgentRole::Worker),
+            _ => Err(format!(
+                "Invalid role: {}. Use: Orchestrator, Worker",
+                role_str
+            )),
         }
     }
 }

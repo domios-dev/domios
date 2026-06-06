@@ -300,15 +300,13 @@ impl GraphWorkerRegistry {
 /// Save worker PTY output to a log file. Returns the path on success.
 pub fn save_worker_log(worker_id: &str, output: &str) -> Result<PathBuf, String> {
     let dir = crate::paths::data_dir().join("mem").join("workers");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("create {}: {}", dir.display(), e))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {}", dir.display(), e))?;
     let path = dir.join(format!("{}.log", worker_id));
     // Use the VT100 parser with worker PTY dimensions (120x40) — matches the
     // actual terminal width so TUI elements (horizontal rules, status bars)
     // render at the correct column width.
     let clean = crate::pty::ansi::clean_terminal_output_sized(output, 500, 120);
-    std::fs::write(&path, clean)
-        .map_err(|e| format!("write {}: {}", path.display(), e))?;
+    std::fs::write(&path, clean).map_err(|e| format!("write {}: {}", path.display(), e))?;
     Ok(path)
 }
 
@@ -354,7 +352,11 @@ pub fn spawn_headless(
     model: String,
 ) -> Result<String, String> {
     if let Some(existing) = svc.workers.active_by_intent(&intent) {
-        log::info!("[worker] skip spawn for intent '{}': {} already running", intent, existing);
+        log::info!(
+            "[worker] skip spawn for intent '{}': {} already running",
+            intent,
+            existing
+        );
         return Ok(existing);
     }
 
@@ -379,7 +381,12 @@ pub fn spawn_headless(
     let worker_id_task = worker_id.clone();
     tauri::async_runtime::spawn(async move {
         let permit = svc_task.worker_pool.acquire(&agent_provider).await;
-        if svc_task.workers.get(&worker_id_task).map(|w| w.status.is_terminal()).unwrap_or(true) {
+        if svc_task
+            .workers
+            .get(&worker_id_task)
+            .map(|w| w.status.is_terminal())
+            .unwrap_or(true)
+        {
             drop(permit);
             return;
         }
@@ -396,7 +403,9 @@ pub fn spawn_headless(
         let intent_for_spawn = intent.clone();
         let intent_title = intent_for_spawn.clone();
         let spawn_result = tokio::task::spawn_blocking(move || {
-            use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
+            use crate::service::spawn::{
+                AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec,
+            };
             let spec = SpawnPaneSpec {
                 visibility: PaneVisibility::Hidden,
                 // Title carries the worker intent (e.g. "mem:dreaming:rem",
@@ -425,7 +434,12 @@ pub fn spawn_headless(
         let handle = match spawn_result {
             Ok(Ok(h)) => h,
             Ok(Err(e)) => {
-                log::error!("[worker] {}/{} spawn_pane failed: {}", intent_for_spawn, worker_id_task, e);
+                log::error!(
+                    "[worker] {}/{} spawn_pane failed: {}",
+                    intent_for_spawn,
+                    worker_id_task,
+                    e
+                );
                 let _ = svc_task
                     .workers
                     .update_status(&worker_id_task, WorkerStatus::Error);
@@ -433,7 +447,12 @@ pub fn spawn_headless(
                 return;
             }
             Err(e) => {
-                log::error!("[worker] {}/{} spawn_blocking panicked: {}", intent_for_spawn, worker_id_task, e);
+                log::error!(
+                    "[worker] {}/{} spawn_blocking panicked: {}",
+                    intent_for_spawn,
+                    worker_id_task,
+                    e
+                );
                 let _ = svc_task
                     .workers
                     .update_status(&worker_id_task, WorkerStatus::Error);
@@ -452,8 +471,7 @@ pub fn spawn_headless(
             handle.pty_id.as_deref().unwrap_or("?")
         );
 
-        let deadline =
-            tokio::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             let Some(current) = svc_task.workers.get(&worker_id_task) else {
@@ -570,7 +588,10 @@ mod tests {
         w1.status = WorkerStatus::Reading;
         reg.register(w1);
 
-        assert_eq!(reg.active_by_intent("dreaming:rem").as_deref(), Some("gw_run1"));
+        assert_eq!(
+            reg.active_by_intent("dreaming:rem").as_deref(),
+            Some("gw_run1")
+        );
         assert!(reg.active_by_intent("extract:note_a").is_none());
 
         let _ = reg.complete("gw_run1", "done".into());
@@ -580,6 +601,9 @@ mod tests {
         w2.intent = "extract:note_a".into();
         w2.status = WorkerStatus::Analyzing;
         reg.register(w2);
-        assert_eq!(reg.active_by_intent("extract:note_a").as_deref(), Some("gw_run2"));
+        assert_eq!(
+            reg.active_by_intent("extract:note_a").as_deref(),
+            Some("gw_run2")
+        );
     }
 }

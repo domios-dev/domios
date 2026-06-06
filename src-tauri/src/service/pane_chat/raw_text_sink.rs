@@ -20,7 +20,10 @@ pub struct TauriRawSink {
 impl RawTextSink for TauriRawSink {
     fn emit(&self, pane_id: &str, text: String) {
         let event = format!("pane-chat-raw-{}", pane_id);
-        let payload = RawDeltaEvent { pane_id, text: &text };
+        let payload = RawDeltaEvent {
+            pane_id,
+            text: &text,
+        };
         if let Err(e) = self.app.emit(&event, &payload) {
             log::warn!("[pane_chat.raw] emit {} failed: {}", event, e);
         }

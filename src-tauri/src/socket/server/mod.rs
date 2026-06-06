@@ -18,10 +18,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
-use interprocess::local_socket::{
-    prelude::*,
-    GenericNamespaced, ListenerOptions,
-};
+use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
 
 use crate::multiplexer::commands::MuxState;
 use crate::notification::NotifState;
@@ -130,7 +127,10 @@ impl SocketServer {
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                         let sock_prefix = format!("{}-", crate::paths::SOCKET_PREFIX);
                         if name.starts_with(&sock_prefix) && name.ends_with(".sock") {
-                            if let Some(pid_str) = name.strip_prefix(&sock_prefix).and_then(|s| s.strip_suffix(".sock")) {
+                            if let Some(pid_str) = name
+                                .strip_prefix(&sock_prefix)
+                                .and_then(|s| s.strip_suffix(".sock"))
+                            {
                                 if let Ok(pid) = pid_str.parse::<u32>() {
                                     let alive = std::process::Command::new("kill")
                                         .args(["-0", &pid.to_string()])
@@ -186,10 +186,7 @@ impl SocketServer {
             .create_sync()
             .map_err(|e| format!("Failed to create socket listener: {}", e))?;
 
-        log::info!(
-            "Socket server listening at {}",
-            socket_display_path()
-        );
+        log::info!("Socket server listening at {}", socket_display_path());
 
         std::thread::spawn(move || {
             for conn in listener.incoming() {
@@ -203,7 +200,15 @@ impl SocketServer {
                         let svc = svc_state.clone();
 
                         std::thread::spawn(move || {
-                            handle_connection(stream, &mux, &pty, &notif, &app_handle, &out_buf, &svc);
+                            handle_connection(
+                                stream,
+                                &mux,
+                                &pty,
+                                &notif,
+                                &app_handle,
+                                &out_buf,
+                                &svc,
+                            );
                         });
                     }
                     Err(e) => {
@@ -248,9 +253,19 @@ fn handle_connection(
                         // catch_unwind so a panic inside any dispatch handler does not
                         // silently drop the socket and leave the CLI with an "EOF while
                         // parsing" mystery. We surface a real JSON-RPC error instead.
-                        let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            dispatch(&req.method, req.params, mux, pty, notif, app, output_buf, svc)
-                        }));
+                        let dispatched =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                dispatch(
+                                    &req.method,
+                                    req.params,
+                                    mux,
+                                    pty,
+                                    notif,
+                                    app,
+                                    output_buf,
+                                    svc,
+                                )
+                            }));
                         match dispatched {
                             Ok(Ok(result)) => JsonRpcResponse::success(id, result),
                             Ok(Err(err)) => JsonRpcResponse::error(id, err.code, err.message),
@@ -275,11 +290,7 @@ fn handle_connection(
                             }
                         }
                     }
-                    Err(e) => JsonRpcResponse::error(
-                        None,
-                        -32700,
-                        format!("Parse error: {}", e),
-                    ),
+                    Err(e) => JsonRpcResponse::error(None, -32700, format!("Parse error: {}", e)),
                 };
 
                 if let Ok(json) = serde_json::to_string(&response) {

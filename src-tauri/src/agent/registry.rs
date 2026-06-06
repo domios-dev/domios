@@ -55,7 +55,10 @@ impl AgentRegistry {
         let id = provider.id().to_string();
         let mut guard = self.providers.write();
         if guard.contains_key(&id) {
-            log::info!("[agent-registry] skipping provider {}: already registered", id);
+            log::info!(
+                "[agent-registry] skipping provider {}: already registered",
+                id
+            );
             return false;
         }
         log::info!("[agent-registry] registered provider: {}", id);
@@ -89,14 +92,14 @@ impl AgentRegistry {
     /// Returns a reference valid for the lifetime of the read lock guard.
     /// For short-lived access patterns, prefer `with_provider()` which
     /// manages the lock scope automatically.
-    pub fn get<'a>(&'a self, id: &str) -> Option<impl std::ops::Deref<Target = dyn AgentProvider> + 'a> {
+    pub fn get<'a>(
+        &'a self,
+        id: &str,
+    ) -> Option<impl std::ops::Deref<Target = dyn AgentProvider> + 'a> {
         let guard = self.providers.read();
         // We need to return something that holds the guard alive.
         // Use a mapped guard via parking_lot's RwLockReadGuard::try_map.
-        parking_lot::RwLockReadGuard::try_map(guard, |map| {
-            map.get(id).map(|b| b.as_ref())
-        })
-        .ok()
+        parking_lot::RwLockReadGuard::try_map(guard, |map| map.get(id).map(|b| b.as_ref())).ok()
     }
 
     /// Detect agent provider from a pane/tab title.
@@ -140,12 +143,20 @@ impl AgentRegistry {
 
     pub fn has_event_markers(&self, agent_type: &str, chunk: &str) -> bool {
         let guard = self.providers.read();
-        guard.get(agent_type).map_or(false, |p| p.has_event_markers(chunk))
+        guard
+            .get(agent_type)
+            .map_or(false, |p| p.has_event_markers(chunk))
     }
 
-    pub fn detect_events(&self, agent_type: &str, text: &str) -> Vec<crate::agent::detector::AgentEvent> {
+    pub fn detect_events(
+        &self,
+        agent_type: &str,
+        text: &str,
+    ) -> Vec<crate::agent::detector::AgentEvent> {
         let guard = self.providers.read();
-        guard.get(agent_type).map_or_else(Vec::new, |p| p.detect_events(text))
+        guard
+            .get(agent_type)
+            .map_or_else(Vec::new, |p| p.detect_events(text))
     }
 
     pub fn status_bar_rows(&self, agent_type: &str) -> u16 {
@@ -153,19 +164,31 @@ impl AgentRegistry {
         guard.get(agent_type).map_or(0, |p| p.status_bar_rows())
     }
 
-    pub fn parse_prompt(&self, agent_type: &str, text: &str) -> Option<(String, Vec<(String, String)>)> {
+    pub fn parse_prompt(
+        &self,
+        agent_type: &str,
+        text: &str,
+    ) -> Option<(String, Vec<(String, String)>)> {
         let guard = self.providers.read();
         guard.get(agent_type).and_then(|p| p.parse_prompt(text))
     }
 
     pub fn is_output_noise(&self, agent_type: &str, text: &str) -> bool {
         let guard = self.providers.read();
-        guard.get(agent_type).map_or(false, |p| p.is_output_noise(text))
+        guard
+            .get(agent_type)
+            .map_or(false, |p| p.is_output_noise(text))
     }
 
-    pub fn build_prompt_response(&self, agent_type: &str, option_index: usize) -> Option<Vec<Vec<u8>>> {
+    pub fn build_prompt_response(
+        &self,
+        agent_type: &str,
+        option_index: usize,
+    ) -> Option<Vec<Vec<u8>>> {
         let guard = self.providers.read();
-        guard.get(agent_type).map(|p| p.build_prompt_response(option_index))
+        guard
+            .get(agent_type)
+            .map(|p| p.build_prompt_response(option_index))
     }
 
     /// Check if any providers are registered.
@@ -226,7 +249,11 @@ impl AgentRegistry {
         let lowered_terms: Vec<String> =
             opts.terms.iter().map(|t| t.to_ascii_lowercase()).collect();
         let limit = if opts.limit == 0 { 10 } else { opts.limit };
-        let max_snippets = if opts.max_snippets == 0 { 3 } else { opts.max_snippets };
+        let max_snippets = if opts.max_snippets == 0 {
+            3
+        } else {
+            opts.max_snippets
+        };
 
         let guard = self.providers.read();
         let mut hits: Vec<SessionSearchHit> = Vec::new();
@@ -242,7 +269,8 @@ impl AgentRegistry {
                         continue;
                     }
                 }
-                let messages = provider.parse_session_messages(std::path::Path::new(&meta.file_path));
+                let messages =
+                    provider.parse_session_messages(std::path::Path::new(&meta.file_path));
                 let mut matched_msgs = 0usize;
                 let mut snippets: Vec<SessionSnippet> = Vec::new();
                 for msg in &messages {
@@ -279,7 +307,11 @@ impl AgentRegistry {
                     }
                 }
                 if !snippets.is_empty() {
-                    hits.push(SessionSearchHit { meta, snippets, match_count: matched_msgs });
+                    hits.push(SessionSearchHit {
+                        meta,
+                        snippets,
+                        match_count: matched_msgs,
+                    });
                 }
             }
         }
@@ -335,7 +367,9 @@ mod tests {
     fn test_register_and_get() {
         let reg = registry_with_claude();
         assert!(!reg.is_empty());
-        assert!(reg.with_provider("claude", |p| p.id().to_string()).is_some());
+        assert!(reg
+            .with_provider("claude", |p| p.id().to_string())
+            .is_some());
     }
 
     #[test]
@@ -393,8 +427,7 @@ mod tests {
         reg.register_provider(Box::new(CodexProvider::new()));
         let descs = reg.list_descriptors();
         assert_eq!(descs.len(), 2);
-        let ids: std::collections::HashSet<&str> =
-            descs.iter().map(|d| d.id.as_str()).collect();
+        let ids: std::collections::HashSet<&str> = descs.iter().map(|d| d.id.as_str()).collect();
         assert!(ids.contains("claude"));
         assert!(ids.contains("codex"));
     }
@@ -412,10 +445,16 @@ mod tests {
             ("codex", "019e15cd-1527-7e21-9477-2631a52e499a"),
             ("opencode", "ses_1ea31e6d2ffe8WrqZl6g4mc6l2"),
         ] {
-            let cmd = reg.with_provider(id, |p| p.build_resume_command(sid, true))
+            let cmd = reg
+                .with_provider(id, |p| p.build_resume_command(sid, true))
                 .flatten()
                 .unwrap_or_else(|| panic!("provider {} returned no resume command", id));
-            assert!(cmd.contains(sid), "provider {} resume command missing sid: {}", id, cmd);
+            assert!(
+                cmd.contains(sid),
+                "provider {} resume command missing sid: {}",
+                id,
+                cmd
+            );
         }
     }
 
@@ -429,12 +468,18 @@ mod tests {
         reg.register_provider(Box::new(CodexProvider::new()));
         reg.register_provider(Box::new(OpenCodeProvider::new()));
         for id in ["claude", "codex", "opencode"] {
-            let cmd = reg.with_provider(id, |p| p.build_launch_command(&AgentLaunchParams {
-                skip_permissions: true,
-                ..Default::default()
-            }));
+            let cmd = reg.with_provider(id, |p| {
+                p.build_launch_command(&AgentLaunchParams {
+                    skip_permissions: true,
+                    ..Default::default()
+                })
+            });
             let cmd = cmd.unwrap_or_else(|| panic!("provider {} missing", id));
-            assert!(!cmd.is_empty(), "provider {} returned empty launch command", id);
+            assert!(
+                !cmd.is_empty(),
+                "provider {} returned empty launch command",
+                id
+            );
         }
     }
 
@@ -466,37 +511,73 @@ mod tests {
     }
 
     impl crate::agent::provider::AgentProvider for StubSearchProvider {
-        fn id(&self) -> &str { "stub" }
-        fn display_name(&self) -> &str { "Stub" }
-        fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String { String::new() }
+        fn id(&self) -> &str {
+            "stub"
+        }
+        fn display_name(&self) -> &str {
+            "Stub"
+        }
+        fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
+            String::new()
+        }
         fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
-            crate::agent::provider::ReadinessStrategy::FixedDelay { duration: std::time::Duration::from_secs(0) }
+            crate::agent::provider::ReadinessStrategy::FixedDelay {
+                duration: std::time::Duration::from_secs(0),
+            }
         }
         fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
             crate::agent::provider::TaskDelivery::PtyInput
         }
-        fn detect_from_title(&self, _: &str) -> bool { false }
-        fn detect_from_output(&self, _: &str) -> bool { false }
-        fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> { None }
-        fn detect_session_id(&self, _: &str, _: &[String], _: Option<std::time::Duration>) -> Option<String> { None }
-        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> { None }
-        fn enumerate_sessions(&self) -> Vec<SessionMetadata> { self.sessions.clone() }
-        fn parse_session_messages(&self, path: &std::path::Path) -> Vec<crate::agent::provider::SessionMessage> {
-            self.messages.get(path.to_str().unwrap_or("")).cloned().unwrap_or_default()
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
+            None
+        }
+        fn detect_session_id(
+            &self,
+            _: &str,
+            _: &[String],
+            _: Option<std::time::Duration>,
+        ) -> Option<String> {
+            None
+        }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
+        fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
+            self.sessions.clone()
+        }
+        fn parse_session_messages(
+            &self,
+            path: &std::path::Path,
+        ) -> Vec<crate::agent::provider::SessionMessage> {
+            self.messages
+                .get(path.to_str().unwrap_or(""))
+                .cloned()
+                .unwrap_or_default()
         }
     }
 
-    fn stub_registry(sessions: Vec<SessionMetadata>, msgs: Vec<(&str, Vec<(&str, &str)>)>) -> AgentRegistry {
+    fn stub_registry(
+        sessions: Vec<SessionMetadata>,
+        msgs: Vec<(&str, Vec<(&str, &str)>)>,
+    ) -> AgentRegistry {
         let mut messages = std::collections::HashMap::new();
         for (file, list) in msgs {
             messages.insert(
                 file.to_string(),
-                list.into_iter().map(|(role, text)| crate::agent::provider::SessionMessage {
-                    role: role.to_string(),
-                    text: text.to_string(),
-                    ts: None,
-                    is_meta: false,
-                }).collect(),
+                list.into_iter()
+                    .map(|(role, text)| crate::agent::provider::SessionMessage {
+                        role: role.to_string(),
+                        text: text.to_string(),
+                        ts: None,
+                        is_meta: false,
+                    })
+                    .collect(),
             );
         }
         let reg = AgentRegistry::new();
@@ -508,23 +589,48 @@ mod tests {
     fn search_sessions_all_terms_must_match_in_same_session() {
         let sessions = vec![
             SessionMetadata {
-                session_id: "s1".into(), provider: "stub".into(),
-                project_path: None, title: None, summary: None,
-                file_path: "f1".into(), created_ts: None, modified_ts: Some(2),
+                session_id: "s1".into(),
+                provider: "stub".into(),
+                project_path: None,
+                title: None,
+                summary: None,
+                file_path: "f1".into(),
+                created_ts: None,
+                modified_ts: Some(2),
             },
             SessionMetadata {
-                session_id: "s2".into(), provider: "stub".into(),
-                project_path: None, title: None, summary: None,
-                file_path: "f2".into(), created_ts: None, modified_ts: Some(1),
+                session_id: "s2".into(),
+                provider: "stub".into(),
+                project_path: None,
+                title: None,
+                summary: None,
+                file_path: "f2".into(),
+                created_ts: None,
+                modified_ts: Some(1),
             },
         ];
-        let reg = stub_registry(sessions, vec![
-            ("f1", vec![("user", "webpack config crashed"), ("assistant", "try HMR")]),
-            ("f2", vec![("user", "only webpack"), ("assistant", "no config talk here")]),
-        ]);
+        let reg = stub_registry(
+            sessions,
+            vec![
+                (
+                    "f1",
+                    vec![("user", "webpack config crashed"), ("assistant", "try HMR")],
+                ),
+                (
+                    "f2",
+                    vec![
+                        ("user", "only webpack"),
+                        ("assistant", "no config talk here"),
+                    ],
+                ),
+            ],
+        );
         let hits = reg.search_sessions(&SessionSearchOpts {
             terms: vec!["webpack".into(), "config".into()],
-            provider: None, project_path: None, limit: 10, max_snippets: 3,
+            provider: None,
+            project_path: None,
+            limit: 10,
+            max_snippets: 3,
         });
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].meta.session_id, "s1");
@@ -533,15 +639,24 @@ mod tests {
     #[test]
     fn search_sessions_utf8_snippet_does_not_panic() {
         let sessions = vec![SessionMetadata {
-            session_id: "s".into(), provider: "stub".into(),
-            project_path: None, title: None, summary: None,
-            file_path: "f".into(), created_ts: None, modified_ts: Some(1),
+            session_id: "s".into(),
+            provider: "stub".into(),
+            project_path: None,
+            title: None,
+            summary: None,
+            file_path: "f".into(),
+            created_ts: None,
+            modified_ts: Some(1),
         }];
-        let body = "Привет, пытаюсь починить webpack конфиг — всё валится на pnpm install у нас тут";
+        let body =
+            "Привет, пытаюсь починить webpack конфиг — всё валится на pnpm install у нас тут";
         let reg = stub_registry(sessions, vec![("f", vec![("user", body)])]);
         let hits = reg.search_sessions(&SessionSearchOpts {
             terms: vec!["webpack".into()],
-            provider: None, project_path: None, limit: 5, max_snippets: 1,
+            provider: None,
+            project_path: None,
+            limit: 5,
+            max_snippets: 1,
         });
         assert_eq!(hits.len(), 1);
         let snippet = &hits[0].snippets[0].text;
@@ -553,22 +668,31 @@ mod tests {
     #[test]
     fn search_sessions_respects_provider_filter() {
         let sessions = vec![SessionMetadata {
-            session_id: "s".into(), provider: "stub".into(),
-            project_path: None, title: None, summary: None,
-            file_path: "f".into(), created_ts: None, modified_ts: Some(1),
+            session_id: "s".into(),
+            provider: "stub".into(),
+            project_path: None,
+            title: None,
+            summary: None,
+            file_path: "f".into(),
+            created_ts: None,
+            modified_ts: Some(1),
         }];
         let reg = stub_registry(sessions, vec![("f", vec![("user", "needle in haystack")])]);
         let hits_other = reg.search_sessions(&SessionSearchOpts {
             terms: vec!["needle".into()],
             provider: Some("nonexistent".into()),
-            project_path: None, limit: 10, max_snippets: 3,
+            project_path: None,
+            limit: 10,
+            max_snippets: 3,
         });
         assert!(hits_other.is_empty());
 
         let hits_match = reg.search_sessions(&SessionSearchOpts {
             terms: vec!["needle".into()],
             provider: Some("stub".into()),
-            project_path: None, limit: 10, max_snippets: 3,
+            project_path: None,
+            limit: 10,
+            max_snippets: 3,
         });
         assert_eq!(hits_match.len(), 1);
     }

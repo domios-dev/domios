@@ -56,7 +56,10 @@ fn check_label(label: &str) -> HealthStatus {
     match out {
         Ok(o) => {
             let body = String::from_utf8_lossy(&o.stdout);
-            if body.lines().any(|line| windows_image_name_matches(line, label)) {
+            if body
+                .lines()
+                .any(|line| windows_image_name_matches(line, label))
+            {
                 HealthStatus::Healthy
             } else {
                 HealthStatus::Down
@@ -73,9 +76,14 @@ fn windows_image_name_matches(line: &str, label: &str) -> bool {
         return false;
     }
     let after_quote = &trimmed[1..];
-    let Some(end) = after_quote.find('"') else { return false; };
+    let Some(end) = after_quote.find('"') else {
+        return false;
+    };
     let image = &after_quote[..end];
-    let want = label.trim().trim_end_matches(".exe").trim_end_matches(".EXE");
+    let want = label
+        .trim()
+        .trim_end_matches(".exe")
+        .trim_end_matches(".EXE");
     let have = image.trim_end_matches(".exe").trim_end_matches(".EXE");
     have.eq_ignore_ascii_case(want)
 }

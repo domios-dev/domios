@@ -6,10 +6,7 @@ fn test_new_state_has_default_workspace() {
     let (state, initial_pane_id) = MultiplexerState::new();
     assert_eq!(state.list_workspaces().len(), 1);
     assert!(state.get_pane(&initial_pane_id).is_some());
-    assert_eq!(
-        state.list_workspaces()[0].name,
-        "Main"
-    );
+    assert_eq!(state.list_workspaces()[0].name, "Main");
     assert!(state.list_workspaces()[0].is_active);
 }
 
@@ -99,7 +96,9 @@ fn test_close_pane_preserves_active_tab_when_unrelated_single_leaf_tab_closes() 
     // User parks on tab 2 (the middle one). tab 3 is a hidden probe tab.
     state.set_active_tab(&ws_id, &tab2_id).unwrap();
     assert_eq!(
-        state.get_workspace(&ws_id).and_then(|w| w.active_tab_id.clone()),
+        state
+            .get_workspace(&ws_id)
+            .and_then(|w| w.active_tab_id.clone()),
         Some(tab2_id.clone())
     );
 
@@ -107,7 +106,9 @@ fn test_close_pane_preserves_active_tab_when_unrelated_single_leaf_tab_closes() 
     state.close_pane(&tab3_pane_id).unwrap();
 
     assert_eq!(
-        state.get_workspace(&ws_id).and_then(|w| w.active_tab_id.clone()),
+        state
+            .get_workspace(&ws_id)
+            .and_then(|w| w.active_tab_id.clone()),
         Some(tab2_id),
         "Closing an unrelated single-leaf tab must not move active_tab_id"
     );
@@ -359,21 +360,27 @@ fn test_worker_parent_must_allow_spawn() {
 }
 
 #[test]
-fn test_subworker_requires_worker_parent() {
-    // Lead under Orchestrator, Worker under Lead
+fn worker_under_orchestrator_is_depth_2_and_cannot_parent() {
+    // 2-level hierarchy: a Worker sits directly under the Orchestrator,
+    // and there is no third level — a Worker can't parent another Worker.
     let (mut state, orch_id) = MultiplexerState::new();
-    state.set_pane_role(&orch_id, AgentRole::Orchestrator, None).unwrap();
-
-    let lead_id = state.create_pane();
-    state.set_pane_role(&lead_id, AgentRole::Lead, Some(&orch_id)).unwrap();
+    state
+        .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
+        .unwrap();
 
     let worker_id = state.create_pane();
-    state.set_pane_role(&worker_id, AgentRole::Worker, Some(&lead_id)).unwrap();
+    state
+        .set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id))
+        .unwrap();
 
     let worker = state.get_pane(&worker_id).unwrap();
     assert_eq!(worker.role, Some(AgentRole::Worker));
-    assert_eq!(worker.depth, 3);
+    assert_eq!(worker.depth, 2);
     assert!(!worker.can_spawn);
+
+    let sub_id = state.create_pane();
+    let result = state.set_pane_role(&sub_id, AgentRole::Worker, Some(&worker_id));
+    assert!(result.is_err(), "a Worker must not be allowed to parent another Worker");
 }
 
 #[test]
@@ -468,7 +475,10 @@ fn test_set_can_spawn_on_orchestrator() {
 #[test]
 fn test_rename_pane_pins_title() {
     let (mut state, pane_id) = MultiplexerState::new();
-    assert_eq!(state.get_pane(&pane_id).unwrap().title_level, TitleLevel::Default);
+    assert_eq!(
+        state.get_pane(&pane_id).unwrap().title_level,
+        TitleLevel::Default
+    );
 
     state.rename_pane(&pane_id, "Custom").unwrap();
     let pane = state.get_pane(&pane_id).unwrap();
@@ -485,7 +495,10 @@ fn test_rename_pane_does_not_change_tab_title() {
     state.rename_pane(&pane_id, "My Pane").unwrap();
 
     let ws = state.get_workspace(&ws_id).unwrap();
-    assert_eq!(ws.tabs[0].title, original, "tab title must be stable across pane renames");
+    assert_eq!(
+        ws.tabs[0].title, original,
+        "tab title must be stable across pane renames"
+    );
 }
 
 #[test]
@@ -593,8 +606,25 @@ fn test_session_snapshot_preserves_agent_type_with_session_id() {
 }
 
 #[test]
+fn test_session_snapshot_preserves_chat_view() {
+    let (mut state, pane_id) = MultiplexerState::new();
+    if let Some(pane) = state.get_pane_mut(&pane_id) {
+        pane.agent_type = Some("codex".to_string());
+        pane.agent_session_id = Some("session-codex".to_string());
+        pane.chat_view = true;
+    }
+
+    let snap = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&snap);
+    let pane = restored.get_pane(&pane_id).unwrap();
+    assert!(pane.chat_view, "chat_view must survive snapshot roundtrip");
+}
+
+#[test]
 fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
-    use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
+    use crate::session::store::{
+        SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
+    };
 
     // Legacy snapshot path: agent_type is None (saved before reliable tracking),
     // but the title preserved when the snapshot was captured carries the
@@ -630,6 +660,7 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
                         parent_pane_id: None,
                         can_spawn: false,
                         depth: 0,
+                        chat_view: None,
                     },
                 }],
             }],
@@ -649,7 +680,9 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
 
 #[test]
 fn test_session_snapshot_no_agent_type_for_plain_title() {
-    use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
+    use crate::session::store::{
+        SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
+    };
 
     let snap = SessionSnapshot {
         version: "test".to_string(),
@@ -676,6 +709,7 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
                     parent_pane_id: None,
                     can_spawn: false,
                     depth: 0,
+                    chat_view: None,
                 },
             }],
         }],
@@ -700,7 +734,9 @@ fn test_session_snapshot_preserves_agent_type_locked() {
 
 #[test]
 fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
-    use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
+    use crate::session::store::{
+        SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
+    };
     // Snapshot saved BEFORE agent_type_locked existed: only agent_type populated.
     // Restore code must treat it as locked — pre-lock snapshots only persisted
     // agent_type via a real spawn or detection, both qualify as explicit intent.
@@ -729,6 +765,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
                     parent_pane_id: None,
                     can_spawn: false,
                     depth: 0,
+                    chat_view: None,
                 },
             }],
         }],

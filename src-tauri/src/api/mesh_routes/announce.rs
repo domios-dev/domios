@@ -59,7 +59,10 @@ pub async fn mesh_announce_inbound(
     headers: HeaderMap,
     Json(ann): Json<crate::mesh::types::PeerAnnounce>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
+    let auth = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     let token = auth.strip_prefix("Bearer ").unwrap_or("");
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
@@ -115,15 +118,20 @@ pub async fn mesh_set_peer_addr(
         if mesh.paired_peers.contains_key(&peer_id) {
             peer_id.clone()
         } else {
-            mesh.paired_peers.values()
+            mesh.paired_peers
+                .values()
                 .find(|p| p.instance_name == peer_id)
                 .map(|p| p.instance_id.clone())
-                .ok_or((StatusCode::NOT_FOUND, format!("Peer {} not paired", peer_id)))?
+                .ok_or((
+                    StatusCode::NOT_FOUND,
+                    format!("Peer {} not paired", peer_id),
+                ))?
         }
     };
 
     let mut mesh = state.mesh.lock();
-    let prev = mesh.set_peer_addr_override(&resolved_id, &body.ip, body.port)
+    let prev = mesh
+        .set_peer_addr_override(&resolved_id, &body.ip, body.port)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     log::info!(
         "[mesh/set-addr] peer={} override old={:?} new={}{}",

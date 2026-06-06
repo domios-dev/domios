@@ -24,26 +24,195 @@ use super::store::MemItem;
 
 const STOP_WORDS: &[&str] = &[
     // English
-    "what", "when", "where", "who", "how", "which", "did", "do", "does", "was", "were",
-    "have", "has", "had", "is", "are", "the", "a", "an", "my", "me", "i", "you", "your",
-    "their", "it", "its", "in", "on", "at", "to", "for", "of", "with", "by", "from",
-    "ago", "last", "that", "this", "there", "about", "get", "got", "give", "gave",
-    "buy", "bought", "made", "make", "can", "could", "would", "should", "will",
-    "am", "be", "been", "being", "or", "and", "but", "not", "no", "yes", "if",
-    "then", "else", "also", "just", "like", "so", "than", "some", "any", "all",
-    "they", "them", "we", "us", "our", "he", "she", "his", "her",
+    "what",
+    "when",
+    "where",
+    "who",
+    "how",
+    "which",
+    "did",
+    "do",
+    "does",
+    "was",
+    "were",
+    "have",
+    "has",
+    "had",
+    "is",
+    "are",
+    "the",
+    "a",
+    "an",
+    "my",
+    "me",
+    "i",
+    "you",
+    "your",
+    "their",
+    "it",
+    "its",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "with",
+    "by",
+    "from",
+    "ago",
+    "last",
+    "that",
+    "this",
+    "there",
+    "about",
+    "get",
+    "got",
+    "give",
+    "gave",
+    "buy",
+    "bought",
+    "made",
+    "make",
+    "can",
+    "could",
+    "would",
+    "should",
+    "will",
+    "am",
+    "be",
+    "been",
+    "being",
+    "or",
+    "and",
+    "but",
+    "not",
+    "no",
+    "yes",
+    "if",
+    "then",
+    "else",
+    "also",
+    "just",
+    "like",
+    "so",
+    "than",
+    "some",
+    "any",
+    "all",
+    "they",
+    "them",
+    "we",
+    "us",
+    "our",
+    "he",
+    "she",
+    "his",
+    "her",
     // Russian
-    "что", "как", "где", "когда", "кто", "какой", "какая", "какие", "какое",
-    "почему", "зачем", "куда", "откуда", "это", "этот", "эта", "эти", "тот",
-    "та", "те", "у", "в", "во", "на", "по", "за", "с", "со", "от", "до", "из",
-    "к", "о", "об", "про", "для", "при", "над", "под", "без", "через",
-    "я", "ты", "он", "она", "оно", "мы", "вы", "они", "меня", "тебя", "его",
-    "её", "нас", "вас", "их", "мой", "моя", "моё", "мои", "твой", "твоя",
-    "твоё", "твои", "наш", "наша", "наше", "наши", "ваш", "ваша", "ваше", "ваши",
-    "есть", "быть", "был", "была", "было", "были", "будет", "будут",
-    "и", "или", "но", "да", "нет", "не", "ни", "же", "ли", "бы", "ведь",
-    "уже", "ещё", "только", "также", "тоже", "очень", "так", "вот",
-    "делать", "делает", "сделать", "сделал",
+    "что",
+    "как",
+    "где",
+    "когда",
+    "кто",
+    "какой",
+    "какая",
+    "какие",
+    "какое",
+    "почему",
+    "зачем",
+    "куда",
+    "откуда",
+    "это",
+    "этот",
+    "эта",
+    "эти",
+    "тот",
+    "та",
+    "те",
+    "у",
+    "в",
+    "во",
+    "на",
+    "по",
+    "за",
+    "с",
+    "со",
+    "от",
+    "до",
+    "из",
+    "к",
+    "о",
+    "об",
+    "про",
+    "для",
+    "при",
+    "над",
+    "под",
+    "без",
+    "через",
+    "я",
+    "ты",
+    "он",
+    "она",
+    "оно",
+    "мы",
+    "вы",
+    "они",
+    "меня",
+    "тебя",
+    "его",
+    "её",
+    "нас",
+    "вас",
+    "их",
+    "мой",
+    "моя",
+    "моё",
+    "мои",
+    "твой",
+    "твоя",
+    "твоё",
+    "твои",
+    "наш",
+    "наша",
+    "наше",
+    "наши",
+    "ваш",
+    "ваша",
+    "ваше",
+    "ваши",
+    "есть",
+    "быть",
+    "был",
+    "была",
+    "было",
+    "были",
+    "будет",
+    "будут",
+    "и",
+    "или",
+    "но",
+    "да",
+    "нет",
+    "не",
+    "ни",
+    "же",
+    "ли",
+    "бы",
+    "ведь",
+    "уже",
+    "ещё",
+    "только",
+    "также",
+    "тоже",
+    "очень",
+    "так",
+    "вот",
+    "делать",
+    "делает",
+    "сделать",
+    "сделал",
 ];
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -148,11 +317,7 @@ pub struct SearchHit {
     pub score: f64,
 }
 
-pub fn run(
-    conn: &Connection,
-    q: &SearchQuery,
-    blobs_dir: &Path,
-) -> Result<Vec<SearchHit>, String> {
+pub fn run(conn: &Connection, q: &SearchQuery, blobs_dir: &Path) -> Result<Vec<SearchHit>, String> {
     run_with_config(conn, q, blobs_dir, &SearchConfig::default())
 }
 
@@ -213,23 +378,33 @@ pub fn run_with_config(
         };
         let overlap = keyword_overlap(&keywords, &item);
         let importance_boost = ((item.importance - 3.0) / 5.0).max(0.0) * 0.20;
-        let recurrence_boost = ((item.recurrence_count as f64) * cfg.recurrence_step).min(cfg.recurrence_cap);
+        let recurrence_boost =
+            ((item.recurrence_count as f64) * cfg.recurrence_step).min(cfg.recurrence_cap);
         let temporal_boost = match &temporal {
             Some(days_ago) => temporal_boost_for(&item, *days_ago, now),
             None => 0.0,
         };
-        let title_boost = if cfg.title_match_bonus > 0.0 && title_has_keyword(&keywords, &item.title) {
-            cfg.title_match_bonus
-        } else {
-            0.0
-        };
+        let title_boost =
+            if cfg.title_match_bonus > 0.0 && title_has_keyword(&keywords, &item.title) {
+                cfg.title_match_bonus
+            } else {
+                0.0
+            };
         let abs_bm = bm25.abs();
-        let fused =
-            abs_bm * (1.0 - cfg.keyword_overlap_weight * overlap) * (1.0 - temporal_boost) * (1.0 - importance_boost) * (1.0 - recurrence_boost) * (1.0 - title_boost);
+        let fused = abs_bm
+            * (1.0 - cfg.keyword_overlap_weight * overlap)
+            * (1.0 - temporal_boost)
+            * (1.0 - importance_boost)
+            * (1.0 - recurrence_boost)
+            * (1.0 - title_boost);
         hits.push(SearchHit { item, score: fused });
     }
 
-    hits.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+    hits.sort_by(|a, b| {
+        a.score
+            .partial_cmp(&b.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     hits.truncate(limit);
     Ok(hits)
 }
@@ -237,7 +412,13 @@ pub fn run_with_config(
 fn sanitize_fts_query(q: &str, drop_stopwords: bool) -> String {
     let cleaned: String = q
         .chars()
-        .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
+        .map(|c| {
+            if c.is_alphanumeric() || c.is_whitespace() {
+                c
+            } else {
+                ' '
+            }
+        })
         .collect();
     let stops: HashSet<&str> = STOP_WORDS.iter().copied().collect();
     let words: Vec<String> = cleaned
@@ -365,8 +546,8 @@ fn parse_temporal_offset(q: &str) -> Option<u32> {
         return Some(365);
     }
     // "N days/weeks/months ago"
-    let re = regex::Regex::new(r"(\d+)\s+(day|days|week|weeks|month|months|year|years)\s+ago")
-        .ok()?;
+    let re =
+        regex::Regex::new(r"(\d+)\s+(day|days|week|weeks|month|months|year|years)\s+ago").ok()?;
     let cap = re.captures(&lc)?;
     let n: u32 = cap.get(1)?.as_str().parse().ok()?;
     let unit = cap.get(2)?.as_str();
@@ -380,16 +561,14 @@ fn parse_temporal_offset(q: &str) -> Option<u32> {
     Some(n * mult)
 }
 
-fn temporal_boost_for(
-    item: &MemItem,
-    days_ago: u32,
-    now: chrono::DateTime<chrono::Utc>,
-) -> f64 {
+fn temporal_boost_for(item: &MemItem, days_ago: u32, now: chrono::DateTime<chrono::Utc>) -> f64 {
     let target = now - chrono::Duration::days(days_ago as i64);
     let Ok(created) = chrono::DateTime::parse_from_rfc3339(&item.created_at) else {
         return 0.0;
     };
-    let diff_days = (created.with_timezone(&chrono::Utc) - target).num_days().abs() as f64;
+    let diff_days = (created.with_timezone(&chrono::Utc) - target)
+        .num_days()
+        .abs() as f64;
     let window = (days_ago as f64 / 2.0).max(3.0);
     if diff_days >= window {
         0.0
@@ -432,9 +611,21 @@ pub fn hybrid_rrf_with_config(
         for (id, dist) in raw {
             if let Ok(Some(item)) = super::store::get_or_synthesize_entity(conn, &id, blobs_dir) {
                 // Filter by kind/scope/area if specified
-                if let Some(ref k) = q.kind { if item.kind != *k { continue; } }
-                if let Some(ref s) = q.scope { if item.scope != *s { continue; } }
-                if let Some(ref a) = q.area { if item.area.as_deref() != Some(a) { continue; } }
+                if let Some(ref k) = q.kind {
+                    if item.kind != *k {
+                        continue;
+                    }
+                }
+                if let Some(ref s) = q.scope {
+                    if item.scope != *s {
+                        continue;
+                    }
+                }
+                if let Some(ref a) = q.area {
+                    if item.area.as_deref() != Some(a) {
+                        continue;
+                    }
+                }
                 out.push(SearchHit { item, score: dist });
             }
         }
@@ -477,7 +668,8 @@ pub fn hybrid_rrf_with_config(
 
     // Graph-aware: items linked to entities whose id matches query keywords.
     let keywords = extract_keywords(&q.query);
-    let graph_boosted: HashSet<String> = if cfg.graph_entity_boost > 1.0 || cfg.graph_as_rrf_source {
+    let graph_boosted: HashSet<String> = if cfg.graph_entity_boost > 1.0 || cfg.graph_as_rrf_source
+    {
         find_graph_boosted_items(conn, &keywords).unwrap_or_default()
     } else {
         HashSet::new()
@@ -493,10 +685,24 @@ pub fn hybrid_rrf_with_config(
             let rrf = 1.0 / (cfg.rrf_k + rank as f64);
             if let Some(entry) = rrf_scores.get_mut(*gid) {
                 entry.0 += rrf;
-            } else if let Ok(Some(item)) = super::store::get_or_synthesize_entity(conn, gid, blobs_dir) {
-                if let Some(ref k) = q.kind { if item.kind != *k { continue; } }
-                if let Some(ref s) = q.scope { if item.scope != *s { continue; } }
-                if let Some(ref a) = q.area { if item.area.as_deref() != Some(a) { continue; } }
+            } else if let Ok(Some(item)) =
+                super::store::get_or_synthesize_entity(conn, gid, blobs_dir)
+            {
+                if let Some(ref k) = q.kind {
+                    if item.kind != *k {
+                        continue;
+                    }
+                }
+                if let Some(ref s) = q.scope {
+                    if item.scope != *s {
+                        continue;
+                    }
+                }
+                if let Some(ref a) = q.area {
+                    if item.area.as_deref() != Some(a) {
+                        continue;
+                    }
+                }
                 rrf_scores.insert((*gid).clone(), (rrf, item));
             }
         }
@@ -506,14 +712,30 @@ pub fn hybrid_rrf_with_config(
         .into_values()
         .map(|(rrf, item)| {
             let is_auto = item.tags.iter().any(|t| t == "auto-extracted");
-            let auto_mul = if is_auto { cfg.auto_extracted_penalty } else { 1.0 };
-            let rec_mul = 1.0 + ((item.recurrence_count as f64) * cfg.recurrence_step).min(cfg.recurrence_cap);
-            let graph_mul = if graph_boosted.contains(&item.id) { cfg.graph_entity_boost } else { 1.0 };
+            let auto_mul = if is_auto {
+                cfg.auto_extracted_penalty
+            } else {
+                1.0
+            };
+            let rec_mul = 1.0
+                + ((item.recurrence_count as f64) * cfg.recurrence_step).min(cfg.recurrence_cap);
+            let graph_mul = if graph_boosted.contains(&item.id) {
+                cfg.graph_entity_boost
+            } else {
+                1.0
+            };
             let adjusted = rrf * auto_mul * rec_mul * graph_mul;
-            SearchHit { item, score: -adjusted }
+            SearchHit {
+                item,
+                score: -adjusted,
+            }
         })
         .collect();
-    merged.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+    merged.sort_by(|a, b| {
+        a.score
+            .partial_cmp(&b.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     merged.truncate(limit);
     Ok(merged)
 }
@@ -562,10 +784,24 @@ pub fn run_vector_first(
 
     let mut hits: Vec<SearchHit> = Vec::with_capacity(raw.len());
     for (id, dist) in raw {
-        let Some(item) = super::store::get_or_synthesize_entity(conn, &id, blobs_dir)? else { continue };
-        if let Some(ref k) = q.kind { if item.kind != *k { continue; } }
-        if let Some(ref s) = q.scope { if item.scope != *s { continue; } }
-        if let Some(ref a) = q.area { if item.area.as_deref() != Some(a) { continue; } }
+        let Some(item) = super::store::get_or_synthesize_entity(conn, &id, blobs_dir)? else {
+            continue;
+        };
+        if let Some(ref k) = q.kind {
+            if item.kind != *k {
+                continue;
+            }
+        }
+        if let Some(ref s) = q.scope {
+            if item.scope != *s {
+                continue;
+            }
+        }
+        if let Some(ref a) = q.area {
+            if item.area.as_deref() != Some(a) {
+                continue;
+            }
+        }
 
         let overlap = keyword_overlap(&keywords, &item);
         let temporal_boost = match &temporal {
@@ -573,8 +809,8 @@ pub fn run_vector_first(
             None => 0.0,
         };
         let importance_boost = ((item.importance - 3.0) / 5.0).max(0.0) * 0.20;
-        let recurrence_boost = ((item.recurrence_count as f64) * cfg.recurrence_step)
-            .min(cfg.recurrence_cap);
+        let recurrence_boost =
+            ((item.recurrence_count as f64) * cfg.recurrence_step).min(cfg.recurrence_cap);
         let auto_penalty = if item.tags.iter().any(|t| t == "auto-extracted") {
             1.0 / cfg.auto_extracted_penalty.max(1e-6)
         } else {
@@ -591,7 +827,11 @@ pub fn run_vector_first(
         hits.push(SearchHit { item, score: fused });
     }
 
-    hits.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+    hits.sort_by(|a, b| {
+        a.score
+            .partial_cmp(&b.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     hits.truncate(limit);
     Ok(hits)
 }
@@ -614,22 +854,52 @@ mod tests {
     #[test]
     fn fts_basic_recall() {
         let (conn, blobs) = fresh();
-        insert(&conn, &NewMemItem {
-            kind: MemKind::Skill, scope: MemScope::Global,
-            title: "home assistant".into(), summary: None, area: Some("home".into()),
-            tags: vec!["automation".into()], body: "control HA entities, scenes, automations".into(),
-            source: None, importance: 3.0, source_path: None, pinned: false,
-        }, &blobs).unwrap();
-        insert(&conn, &NewMemItem {
-            kind: MemKind::Fact, scope: MemScope::Global,
-            title: "deploy pipeline".into(), summary: None, area: Some("deploy".into()),
-            tags: vec![], body: "uses ./build.sh build for production".into(),
-            source: None, importance: 3.0, source_path: None, pinned: false,
-        }, &blobs).unwrap();
+        insert(
+            &conn,
+            &NewMemItem {
+                kind: MemKind::Skill,
+                scope: MemScope::Global,
+                title: "home assistant".into(),
+                summary: None,
+                area: Some("home".into()),
+                tags: vec!["automation".into()],
+                body: "control HA entities, scenes, automations".into(),
+                source: None,
+                importance: 3.0,
+                source_path: None,
+                pinned: false,
+            },
+            &blobs,
+        )
+        .unwrap();
+        insert(
+            &conn,
+            &NewMemItem {
+                kind: MemKind::Fact,
+                scope: MemScope::Global,
+                title: "deploy pipeline".into(),
+                summary: None,
+                area: Some("deploy".into()),
+                tags: vec![],
+                body: "uses ./build.sh build for production".into(),
+                source: None,
+                importance: 3.0,
+                source_path: None,
+                pinned: false,
+            },
+            &blobs,
+        )
+        .unwrap();
 
-        let r = run(&conn, &SearchQuery {
-            query: "home automation".into(), ..Default::default()
-        }, &blobs).unwrap();
+        let r = run(
+            &conn,
+            &SearchQuery {
+                query: "home automation".into(),
+                ..Default::default()
+            },
+            &blobs,
+        )
+        .unwrap();
         assert!(!r.is_empty());
         assert_eq!(r[0].item.id, "skill_home_assistant");
     }
@@ -637,36 +907,80 @@ mod tests {
     #[test]
     fn kind_filter() {
         let (conn, blobs) = fresh();
-        insert(&conn, &NewMemItem {
-            kind: MemKind::Skill, scope: MemScope::Global,
-            title: "auth skill".into(), summary: None, area: None,
-            tags: vec![], body: "authentication helpers".into(),
-            source: None, importance: 3.0, source_path: None, pinned: false,
-        }, &blobs).unwrap();
-        insert(&conn, &NewMemItem {
-            kind: MemKind::Fact, scope: MemScope::Global,
-            title: "auth fact".into(), summary: None, area: None,
-            tags: vec![], body: "authentication broken on staging".into(),
-            source: None, importance: 3.0, source_path: None, pinned: false,
-        }, &blobs).unwrap();
+        insert(
+            &conn,
+            &NewMemItem {
+                kind: MemKind::Skill,
+                scope: MemScope::Global,
+                title: "auth skill".into(),
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: "authentication helpers".into(),
+                source: None,
+                importance: 3.0,
+                source_path: None,
+                pinned: false,
+            },
+            &blobs,
+        )
+        .unwrap();
+        insert(
+            &conn,
+            &NewMemItem {
+                kind: MemKind::Fact,
+                scope: MemScope::Global,
+                title: "auth fact".into(),
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: "authentication broken on staging".into(),
+                source: None,
+                importance: 3.0,
+                source_path: None,
+                pinned: false,
+            },
+            &blobs,
+        )
+        .unwrap();
 
-        let r = run(&conn, &SearchQuery {
-            query: "authentication".into(),
-            kind: Some("fact".into()),
-            ..Default::default()
-        }, &blobs).unwrap();
+        let r = run(
+            &conn,
+            &SearchQuery {
+                query: "authentication".into(),
+                kind: Some("fact".into()),
+                ..Default::default()
+            },
+            &blobs,
+        )
+        .unwrap();
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].item.kind, "fact");
     }
 
     #[test]
     fn keyword_overlap_boosts() {
-        let kw: HashSet<String> = ["postgres", "database"].iter().map(|s| s.to_string()).collect();
+        let kw: HashSet<String> = ["postgres", "database"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let item = MemItem {
-            id: "x".into(), uid: "u".into(), kind: "fact".into(), scope: "global".into(),
-            title: "Postgres notes".into(), summary: None, area: None, tags: vec![],
-            body: "Postgres database tuning".into(), source: None, importance: 3.0,
-            created_at: "".into(), updated_at: "".into(), accessed_at: None, access_count: 0, recurrence_count: 0,
+            id: "x".into(),
+            uid: "u".into(),
+            kind: "fact".into(),
+            scope: "global".into(),
+            title: "Postgres notes".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "Postgres database tuning".into(),
+            source: None,
+            importance: 3.0,
+            created_at: "".into(),
+            updated_at: "".into(),
+            accessed_at: None,
+            access_count: 0,
+            recurrence_count: 0,
         };
         assert!((keyword_overlap(&kw, &item) - 1.0).abs() < 0.01);
     }
@@ -697,30 +1011,62 @@ mod tests {
     #[test]
     fn vector_first_returns_empty_without_embeddings() {
         let (conn, blobs) = fresh();
-        insert(&conn, &NewMemItem {
-            kind: MemKind::Fact, scope: MemScope::Global,
-            title: "a".into(), summary: None, area: None, tags: vec![],
-            body: "b".into(), source: None, importance: 3.0, source_path: None, pinned: false,
-        }, &blobs).unwrap();
+        insert(
+            &conn,
+            &NewMemItem {
+                kind: MemKind::Fact,
+                scope: MemScope::Global,
+                title: "a".into(),
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: "b".into(),
+                source: None,
+                importance: 3.0,
+                source_path: None,
+                pinned: false,
+            },
+            &blobs,
+        )
+        .unwrap();
         let cfg = SearchConfig {
             mode: SearchMode::VectorFirstRerank,
             ..SearchConfig::default()
         };
-        let r = run_vector_first(&conn, &SearchQuery {
-            query: "anything".into(), ..Default::default()
-        }, &blobs, &cfg).unwrap();
+        let r = run_vector_first(
+            &conn,
+            &SearchQuery {
+                query: "anything".into(),
+                ..Default::default()
+            },
+            &blobs,
+            &cfg,
+        )
+        .unwrap();
         assert!(r.is_empty());
     }
 
     #[test]
     fn archived_items_excluded_from_search() {
         let (conn, blobs) = fresh();
-        insert(&conn, &NewMemItem {
-            kind: MemKind::Fact, scope: MemScope::Global,
-            title: "active deployment fact".into(), summary: None, area: None,
-            tags: vec![], body: "active deployment pipeline details".into(),
-            source: None, importance: 3.0, source_path: None, pinned: false,
-        }, &blobs).unwrap();
+        insert(
+            &conn,
+            &NewMemItem {
+                kind: MemKind::Fact,
+                scope: MemScope::Global,
+                title: "active deployment fact".into(),
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: "active deployment pipeline details".into(),
+                source: None,
+                importance: 3.0,
+                source_path: None,
+                pinned: false,
+            },
+            &blobs,
+        )
+        .unwrap();
         // Insert an archived item directly — bypasses the kind enum since 'archived'
         // is a runtime value written by the sweep, not a MemKind variant.
         conn.execute(
@@ -732,15 +1078,22 @@ mod tests {
                 datetime('now','-100 days'), datetime('now','-100 days'),
                 NULL, '[]', 0, 'archived deployment pipeline details')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO mem_fts (mem_id, title, summary, body, tags)
              VALUES ('fact_archived_deployment', 'archived deployment fact', '', 'archived deployment pipeline details', '')",
             [],
         ).unwrap();
-        let hits = run(&conn, &SearchQuery {
-            query: "deployment".into(), ..Default::default()
-        }, &blobs).unwrap();
+        let hits = run(
+            &conn,
+            &SearchQuery {
+                query: "deployment".into(),
+                ..Default::default()
+            },
+            &blobs,
+        )
+        .unwrap();
         let ids: Vec<&str> = hits.iter().map(|h| h.item.id.as_str()).collect();
         assert!(
             ids.iter().any(|id| id.contains("active")),
@@ -757,18 +1110,33 @@ mod tests {
     #[test]
     fn fts_path_unchanged_by_mode_flag() {
         let (conn, blobs) = fresh();
-        insert(&conn, &NewMemItem {
-            kind: MemKind::Skill, scope: MemScope::Global,
-            title: "home assistant".into(), summary: None, area: None,
-            tags: vec![], body: "scenes and automations".into(),
-            source: None, importance: 3.0, source_path: None, pinned: false,
-        }, &blobs).unwrap();
+        insert(
+            &conn,
+            &NewMemItem {
+                kind: MemKind::Skill,
+                scope: MemScope::Global,
+                title: "home assistant".into(),
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: "scenes and automations".into(),
+                source: None,
+                importance: 3.0,
+                source_path: None,
+                pinned: false,
+            },
+            &blobs,
+        )
+        .unwrap();
         let cfg_a = SearchConfig::default();
         let cfg_b = SearchConfig {
             mode: SearchMode::VectorFirstRerank,
             ..SearchConfig::default()
         };
-        let q = SearchQuery { query: "home automation".into(), ..Default::default() };
+        let q = SearchQuery {
+            query: "home automation".into(),
+            ..Default::default()
+        };
         let a = run_with_config(&conn, &q, &blobs, &cfg_a).unwrap();
         let b = run_with_config(&conn, &q, &blobs, &cfg_b).unwrap();
         assert_eq!(a.len(), b.len());
