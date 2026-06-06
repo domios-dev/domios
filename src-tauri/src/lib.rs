@@ -11,6 +11,7 @@ mod crash;
 pub mod cron;
 pub mod dispatch;
 mod keepawake;
+mod liveness;
 pub mod logs;
 pub mod mem;
 pub mod mesh;
@@ -634,6 +635,13 @@ pub fn run() {
 
             startup::install_bundled_cli(app);
             startup::start_servers(app, &states, &service_state);
+            if states.config.lock().api.enabled {
+                crate::liveness::start_api_liveness_watchdog(
+                    app_handle.clone(),
+                    states.mesh.clone(),
+                    states.config.lock().api.port,
+                );
+            }
             startup::build_system_tray(app)?;
 
             // After webview is ready, check for crash reports from a previous

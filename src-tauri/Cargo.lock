@@ -858,6 +858,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 0.8.2",
+ "tower",
  "tower-http",
  "ulid",
  "url",
@@ -7538,11 +7539,13 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
+ "http-body-util",
  "iri-string",
  "pin-project-lite",
  "tower",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]

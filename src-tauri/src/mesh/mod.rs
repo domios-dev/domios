@@ -42,6 +42,7 @@ pub struct MeshManager {
     pub mdns_daemon: Option<mdns_sd::ServiceDaemon>,
     pub mdns_service_fullname: Option<String>,
     pub udp_started: bool,
+    pub local_http_healthy: bool,
     /// When false, `save()` is a no-op. Used by unit tests that mutate state
     /// in-memory and would otherwise pollute the real `~/.codeterm/mesh/`
     /// directory. Production code never sets this.
@@ -81,6 +82,7 @@ impl MeshManager {
             mdns_daemon: None,
             mdns_service_fullname: None,
             udp_started: false,
+            local_http_healthy: true,
             disk_persist: true,
             seen_nonces: HashMap::new(),
         }
@@ -372,12 +374,24 @@ impl MeshManager {
 
     /// Build a PeerAnnounce describing this instance's current addressing.
     pub fn build_announce(&self) -> types::PeerAnnounce {
+        let online = self.local_http_healthy;
         types::PeerAnnounce {
             instance_id: self.ident.identity.instance_id.clone(),
             instance_name: self.ident.instance_name.clone(),
-            addresses: self.local_announce_addresses(),
+            addresses: if online {
+                self.local_announce_addresses()
+            } else {
+                Vec::new()
+            },
             api_port: self.api_port,
+            online,
         }
+    }
+
+    pub fn set_local_http_healthy(&mut self, healthy: bool) -> bool {
+        let changed = self.local_http_healthy != healthy;
+        self.local_http_healthy = healthy;
+        changed
     }
 
     /// Apply an incoming announce: replace `paired_peers[sender].addresses`
@@ -404,24 +418,26 @@ impl MeshManager {
         // fail to parse, treat as a no-op rather than blanking the cache —
         // we'd rather keep stale-but-valid addresses than commit nothing.
         let clean = types::sanitize_addresses(&ann.addresses);
-        if clean.is_empty() {
+        if clean.is_empty() && ann.online {
             return Ok(None);
         }
-        let prev = {
+        let (prev, online_changed) = {
             let peer = self
                 .paired_peers
                 .get_mut(&ann.instance_id)
                 .ok_or_else(|| format!("Peer {} not paired", ann.instance_id))?;
             let prev = peer.addresses.clone();
+            let online_changed = peer.online != ann.online;
             peer.addresses = clean.clone();
             peer.api_port = ann.api_port;
+            peer.online = ann.online;
             if !ann.instance_name.is_empty() {
                 peer.instance_name = ann.instance_name.clone();
             }
-            prev
+            (prev, online_changed)
         };
         let _ = self.save();
-        if prev_addrs_equal(&prev, &clean) {
+        if prev_addrs_equal(&prev, &clean) && !online_changed {
             Ok(None)
         } else {
             Ok(Some(prev))
@@ -447,6 +463,105 @@ impl MeshManager {
         }
         let _ = self.save();
         Ok(prev)
+    }
+}
+
+#[cfg(test)]
+mod liveness_tests {
+    use super::*;
+
+    fn paired_peer(id: &str) -> types::PairedPeer {
+        types::PairedPeer {
+            instance_id: id.into(),
+            instance_name: "peer".into(),
+            addresses: vec![types::PeerAddress::from_ip("100.64.1.9")],
+            api_port: 7685,
+            public_key: "pub".into(),
+            paired_at: "now".into(),
+            last_seen: None,
+            online: true,
+            is_primary: false,
+            access_level: types::AccessLevel::Full,
+            version: None,
+            consecutive_misses: 0,
+        }
+    }
+
+    #[test]
+    fn apply_offline_announce_clears_addresses_and_marks_peer_offline() {
+        let mut mesh = MeshManager::new("local".into(), 7685);
+        mesh.disk_persist = false;
+        mesh.paired_peers
+            .insert("peer-1".into(), paired_peer("peer-1"));
+
+        let prev = mesh
+            .apply_announce(
+                "peer-1",
+                &types::PeerAnnounce {
+                    instance_id: "peer-1".into(),
+                    instance_name: "peer".into(),
+                    addresses: Vec::new(),
+                    api_port: 7685,
+                    online: false,
+                },
+            )
+            .unwrap();
+        let peer = mesh.paired_peers.get("peer-1").unwrap();
+
+        assert!(prev.is_some());
+        assert!(peer.addresses.is_empty());
+        assert!(!peer.online);
+    }
+
+    #[test]
+    fn apply_online_empty_announce_keeps_existing_addresses() {
+        let mut mesh = MeshManager::new("local".into(), 7685);
+        mesh.disk_persist = false;
+        mesh.paired_peers
+            .insert("peer-1".into(), paired_peer("peer-1"));
+
+        let prev = mesh
+            .apply_announce(
+                "peer-1",
+                &types::PeerAnnounce {
+                    instance_id: "peer-1".into(),
+                    instance_name: "peer".into(),
+                    addresses: Vec::new(),
+                    api_port: 7685,
+                    online: true,
+                },
+            )
+            .unwrap();
+        let peer = mesh.paired_peers.get("peer-1").unwrap();
+
+        assert!(prev.is_none());
+        assert_eq!(peer.addresses.len(), 1);
+        assert!(peer.online);
+    }
+
+    #[test]
+    fn apply_offline_announce_reports_change_when_addresses_already_empty() {
+        let mut mesh = MeshManager::new("local".into(), 7685);
+        mesh.disk_persist = false;
+        let mut peer = paired_peer("peer-1");
+        peer.addresses.clear();
+        mesh.paired_peers.insert("peer-1".into(), peer);
+
+        let prev = mesh
+            .apply_announce(
+                "peer-1",
+                &types::PeerAnnounce {
+                    instance_id: "peer-1".into(),
+                    instance_name: "peer".into(),
+                    addresses: Vec::new(),
+                    api_port: 7685,
+                    online: false,
+                },
+            )
+            .unwrap();
+
+        assert!(prev.is_some());
+        assert!(!mesh.paired_peers.get("peer-1").unwrap().online);
     }
 }
 
@@ -846,6 +961,7 @@ mod tests {
             instance_name: "TestPeer".into(),
             addresses: vec![PeerAddress::from_ip("100.99.99.99")],
             api_port: 7777,
+            online: true,
         };
         let prev = m
             .apply_announce("peer-A", &ann)
@@ -866,6 +982,7 @@ mod tests {
             instance_name: "TestPeer".into(),
             addresses: vec![PeerAddress::from_ip("100.99.99.99")],
             api_port: 7685,
+            online: true,
         };
         // Sender token says "peer-B" but body says "peer-A" — reject.
         let err = m.apply_announce("peer-B", &ann).unwrap_err();
@@ -884,6 +1001,7 @@ mod tests {
             instance_name: "TestPeer".into(),
             addresses: vec![],
             api_port: 7685,
+            online: true,
         };
         let res = m.apply_announce("peer-A", &ann).expect("ok");
         assert!(res.is_none(), "empty list does not clear cache");
@@ -898,6 +1016,7 @@ mod tests {
             instance_name: "TestPeer".into(),
             addresses: vec![PeerAddress::from_ip("100.64.0.5")],
             api_port: 7685,
+            online: true,
         };
         let res = m.apply_announce("peer-A", &ann).expect("ok");
         assert!(res.is_none(), "identical list reports no change");
