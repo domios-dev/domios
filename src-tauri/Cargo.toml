@@ -37,7 +37,7 @@ md-5 = "0.10"
 toml = "0.8"
 dirs = "6"
 axum = "0.8"
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.6", features = ["catch-panic", "cors"] }
 git2 = { version = "0.19", features = ["vendored-openssl"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
 async-stream = "0.3"
@@ -103,6 +103,7 @@ clipboard-win = "5"
 tempfile = "3"
 mockito = "1"
 filetime = "0.2.29"
+tower = "0.5"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

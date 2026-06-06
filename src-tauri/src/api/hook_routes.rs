@@ -172,11 +172,7 @@ pub async fn hook_permission(
                     decision
                 } else {
                     let stripped = crate::pty::ansi::strip_ansi(&raw);
-                    let tail = if stripped.len() > 3000 {
-                        &stripped[stripped.len() - 3000..]
-                    } else {
-                        &stripped
-                    };
+                    let tail = crate::agent::prompt::utf8_tail(&stripped, 3000);
                     log::debug!(
                         "[hook_permission] fallback raw buffer len={}, tail_len={}",
                         raw.len(),
