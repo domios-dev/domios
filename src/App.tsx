@@ -81,6 +81,7 @@ function AppInner() {
   const [mountedSettings, setMountedSettings] = useState(false);
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
+  const [mountedTabIds, setMountedTabIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
@@ -181,6 +182,30 @@ function AppInner() {
     () => activeWs?.tabs.find((t) => t.id === activeWs.active_tab_id),
     [activeWs],
   );
+  useEffect(() => {
+    if (!activeTab?.id) return;
+    setMountedTabIds((prev) => {
+      if (prev.has(activeTab.id)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab.id);
+      return next;
+    });
+  }, [activeTab?.id]);
+  useEffect(() => {
+    const liveTabIds = new Set(state.workspaces.flatMap((ws) => ws.tabs.map((tab) => tab.id)));
+    setMountedTabIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (liveTabIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [state.workspaces]);
 
   const handleNewTab = useCallback(() => {
     if (!activeWs) return;
@@ -630,6 +655,8 @@ function AppInner() {
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
                 const isActiveTab = ws.id === state.active_workspace_id && tab.id === ws.active_tab_id;
+                const shouldMountTab = isActiveTab || mountedTabIds.has(tab.id);
+                if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && isActiveTab;
                 return (
               <div
