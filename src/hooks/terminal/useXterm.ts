@@ -62,6 +62,10 @@ export function useXterm({
       theme: buildXtermTheme(theme),
       overviewRuler: { width: 4 },
       allowProposedApi: true,
+      // Renderer-independent DOM mirror of the viewport
+      // (.xterm-accessibility) — the WebGL canvas has no readable text,
+      // so this is what screen readers AND the e2e harness observe.
+      screenReaderMode: true,
       windowsPty: {
         backend: "conpty",
         buildNumber: winBuildNumber,
