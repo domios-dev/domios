@@ -20,6 +20,14 @@ pub const UNSUPPORTED_OVER_MESH: &str = "UNSUPPORTED";
 /// Map a CLI command to its corresponding API call.
 pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
     match cmd {
+        // `web link` embeds the LOCAL machine's token — relaying it to a
+        // peer would emit a link with the wrong credentials. Local-only.
+        Commands::Web { .. } => (
+            UNSUPPORTED_OVER_MESH.into(),
+            "web link is local-only — each peer's link needs that peer's own token; run it there"
+                .into(),
+            None,
+        ),
         Commands::Identify => ("GET".into(), "/api/identify".into(), None),
         Commands::Capabilities => ("GET".into(), "/api/identify".into(), None),
         Commands::GetOutput { pane, lines } => {

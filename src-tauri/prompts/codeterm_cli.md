@@ -149,6 +149,17 @@ In-memory only, 20 entries max, TTL 1h default / 24h max, restart wipes. Not `me
 
 `paste get|pop|list|rm` — `--pop` reads + deletes. `--mesh PEER` works on every subcommand.
 
+## Web access link — `web link`
+
+When the user asks for "the web link" / "open me on the web" / "ссылку на веб":
+
+```bash
+codeterm web link            # http://<tailscale-ip>:<port>/web/#token=…  — paste-ready
+codeterm web link --json     # {"url": …, "host": …, "port": …}
+```
+
+Host auto-picks Tailscale > LAN > loopback (`--host`/`--port` override). The token rides the URL **fragment** so it never reaches server or proxy logs; `--query` emits `?token=` instead (more typeable, but loggable). The link authenticates THIS machine only — for another peer, run `web link` there (it's local-only over `--mesh` by design). Reply with the URL verbatim.
+
 ## Periodic tasks (cron)
 
 ```bash

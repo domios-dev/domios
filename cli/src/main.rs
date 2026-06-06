@@ -156,7 +156,7 @@ pub use args::cron::CronAction;
 pub use args::service::ServiceAction;
 pub use args::plugin::{PluginAction, PluginChannelAction};
 pub use args::update::UpdateAction;
-pub use args::misc::{WorkspaceAction, PaneAction, PasteAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction};
+pub use args::misc::{WorkspaceAction, PaneAction, PasteAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction, WebAction};
 
 /// Resolve pane ID: explicit arg > $CODETERM_PANE_ID env var > focused pane from server.
 ///
@@ -413,6 +413,11 @@ fn main() {
 
         Commands::Pane { action } => {
             cmd::pane::handle_pane(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Web { action } => {
+            cmd::web::handle_web(cli.json, action);
             return;
         }
 

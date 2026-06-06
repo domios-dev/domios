@@ -338,3 +338,19 @@ fn send_text_is_fire_and_forget_on_mesh() {
         "send-text must never carry verify — the flag has been removed (#101)"
     );
 }
+
+/// `web link` embeds the LOCAL token — relaying would mint a link with
+/// the wrong credentials, so it must refuse honestly over --mesh.
+#[test]
+fn web_link_is_local_only_over_mesh() {
+    let cmd = Commands::Web {
+        action: crate::args::misc::WebAction::Link {
+            host: None,
+            port: None,
+            query: false,
+        },
+    };
+    let (m, p, _) = cli_command_to_api(&cmd);
+    assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
+    assert!(p.contains("local-only"));
+}

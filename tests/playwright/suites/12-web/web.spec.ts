@@ -227,3 +227,32 @@ test("@golden fully live on mobile: General Agent responds, read from rendered t
     await page.context().close();
   }
 });
+
+// ── share-link token auto-consume ────────────────────────────────────
+
+test("@golden share link: #token= auto-enters and the URL is redacted", async () => {
+  const page = await newWebPage();
+  await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
+  // No manual gate — straight to the app.
+  await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
+  const url = page.url();
+  expect(url, "token leaked in the URL after consume").not.toContain("token=");
+  await page.context().close();
+});
+
+test("@golden share link: ?token= query form also works and is redacted", async () => {
+  const page = await newWebPage();
+  await page.goto(`${WEB_URL}?token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
+  expect(page.url()).not.toContain("token=");
+  await page.context().close();
+});
+
+test("@golden share link: a bad token falls through to the gate error path", async () => {
+  const page = await newWebPage();
+  await page.goto(`${WEB_URL}#token=definitely-bad-token`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector('[data-testid="web-token-input"]', { timeout: 20_000 });
+  await expect(page.locator('[data-testid="web-token-error"]')).toBeVisible({ timeout: 10_000 });
+  expect(page.url()).not.toContain("token=");
+  await page.context().close();
+});
