@@ -21,14 +21,17 @@ pub async fn mesh_connect_peer(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing instance_id".to_string()))?
         .to_string();
 
-    let (request, target_addr, target_port) = {
+    let (request, target_addr, target_port, instance_id) = {
         let m = state.mesh.lock();
-        let peer = m.discovered_peers.get(&instance_id).ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                "Peer not found in discovered list".to_string(),
-            )
-        })?;
+        let peer = crate::mesh::discovered::resolve_discovered(&m.discovered_peers, &instance_id)
+            .map_err(|e| {
+                let status = match e {
+                    crate::mesh::discovered::ResolveError::NotFound => StatusCode::NOT_FOUND,
+                    crate::mesh::discovered::ResolveError::Ambiguous(_) => StatusCode::CONFLICT,
+                };
+                (status, e.to_string())
+            })?;
+        let instance_id = peer.instance_id.clone();
         let addr = peer
             .addresses
             .iter()
@@ -58,12 +61,13 @@ pub async fn mesh_connect_peer(
             from_instance_name: m.ident.instance_name.clone(),
             from_address: local_addr,
             from_port: m.api_port,
+            from_addresses: m.local_announce_addresses(),
             public_key,
             timestamp: now,
             status: crate::mesh::types::PairingStatus::Pending,
             introduced_by: None,
         };
-        (request, addr.ip.clone(), peer.api_port)
+        (request, addr.ip.clone(), peer.api_port, instance_id)
     };
 
     {
@@ -117,93 +121,23 @@ pub async fn mesh_approve_peer(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing request_id".to_string()))?
         .to_string();
 
-    let (request, our_pubkey, our_id, our_name) = {
-        let m = state.mesh.lock();
-        let req = m
-            .pending_requests
-            .get(&request_id)
-            .cloned()
-            .ok_or_else(|| (StatusCode::NOT_FOUND, "Request not found".to_string()))?;
-        let pk = m.ident.identity.public_key.clone().ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "No identity keypair".to_string(),
-            )
-        })?;
-        let id = m.ident.identity.instance_id.clone();
-        let name = m.ident.instance_name.clone();
-        (req, pk, id, name)
-    };
-
-    let accept = crate::mesh::types::PairingAccept {
-        request_id: request_id.clone(),
-        from_instance_id: our_id.clone(),
-        from_instance_name: our_name,
-        public_key: our_pubkey,
-    };
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .unwrap_or_default();
-    let url = format!(
-        "http://{}:{}/api/mesh/pair/accept",
-        request.from_address, request.from_port
-    );
-    let resp = client
-        .post(&url)
-        .json(&accept)
-        .send()
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Network error: {}", e)))?;
-    if !resp.status().is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err((
-            StatusCode::BAD_GATEWAY,
-            format!("Accept rejected: {}", body),
-        ));
-    }
-
-    {
-        let mut m = state.mesh.lock();
-        let peer = crate::mesh::types::PairedPeer {
-            instance_id: request.from_instance_id.clone(),
-            instance_name: request.from_instance_name.clone(),
-            addresses: vec![crate::mesh::types::PeerAddress::from_ip(
-                &request.from_address,
-            )],
-            api_port: request.from_port,
-            public_key: request.public_key.clone(),
-            paired_at: chrono::Utc::now().to_rfc3339(),
-            last_seen: Some(chrono::Utc::now().to_rfc3339()),
-            online: true,
-            is_primary: false,
-            access_level: crate::mesh::types::AccessLevel::Full,
-            version: None,
-            consecutive_misses: 0,
+    use crate::api::mesh_routes::pairing::{do_approve, ApproveError};
+    do_approve(
+        state.mesh.clone(),
+        state.svc.app_handle.clone(),
+        request_id.clone(),
+    )
+    .await
+    .map_err(|e| {
+        let status = match &e {
+            ApproveError::NotFound => StatusCode::NOT_FOUND,
+            ApproveError::Expired => StatusCode::GONE,
+            ApproveError::NoKeypair => StatusCode::INTERNAL_SERVER_ERROR,
+            ApproveError::Network(_) | ApproveError::Rejected(_) => StatusCode::BAD_GATEWAY,
         };
-        m.paired_peers
-            .insert(request.from_instance_id.clone(), peer);
-        m.pending_requests.remove(&request_id);
-        let _ = m.save();
-    }
-
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+        (status, e.to_string())
+    })?;
     log::info!("[mesh/api] Pairing approved for request {}", request_id);
-
-    // Pair-time peer records on both sides only contain the single observed
-    // address from the request packet — that asymmetry persisted in
-    // peers.json on both ends until a third broadcast eventually realigned
-    // it (issue #9 from 1.1.9 SMOKE). Push our authoritative full address
-    // list to the new peer right away so apply_announce on their side
-    // replaces the single-address stub with the complete record.
-    let mesh_state = state.mesh.clone();
-    let new_peer_id = request.from_instance_id.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let _ = crate::mesh::broadcast_announce(&mesh_state, Some(&new_peer_id)).await;
-        crate::mesh::broadcast_sync(&mesh_state).await;
-    });
-
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

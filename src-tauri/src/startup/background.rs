@@ -95,21 +95,37 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                             }
                         })
                         .await;
-                        let (online, client) = match ping_result {
+                        let (ping_ok, client) = match ping_result {
                             Ok(c) => (true, Some(c)),
                             Err(_) => (false, None),
                         };
-                        let was_online = {
+                        let (online, was_online) = {
                             let mut m = mesh.lock();
                             if let Some(p) = m.paired_peers.get_mut(&peer.instance_id) {
                                 let was = p.online;
-                                if p.online != online {
-                                    p.online = online;
+                                let out = mesh::health::apply_ping_result(
+                                    p.online,
+                                    p.consecutive_misses,
+                                    ping_ok,
+                                );
+                                p.consecutive_misses = out.misses;
+                                if ping_ok {
+                                    p.last_seen = Some(chrono::Utc::now().to_rfc3339());
+                                }
+                                if p.online != out.online {
+                                    log::info!(
+                                        "[mesh/health] peer {} online: {} -> {} (misses {})",
+                                        peer.instance_id,
+                                        p.online,
+                                        out.online,
+                                        out.misses
+                                    );
+                                    p.online = out.online;
                                     changed = true;
                                 }
-                                was
+                                (out.online, was)
                             } else {
-                                false
+                                (false, false)
                             }
                         };
                         let now_secs = std::time::SystemTime::now()
@@ -140,43 +156,21 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                 let voucher = peer.instance_id.clone();
                                 let mut m = mesh.lock();
                                 for p in their_payload.peers {
-                                    if p.instance_id == m.ident.identity.instance_id {
-                                        continue;
-                                    }
                                     if m.paired_peers.contains_key(&p.instance_id) {
                                         continue;
                                     }
-                                    // Sanitize addresses on this 4th ingest path — sync-poll
-                                    // response from a paired peer can carry pre-fix poisoned
-                                    // entries (the v1.1.9 sanitize-on-ingest covered the
-                                    // mesh_sync inbound handler, mesh_introduce, and
-                                    // apply_announce, but missed this background-poll path).
-                                    // Same bug class as v1.1.9 issue #28 / commit f0ff692.
-                                    let clean_addrs = mesh::types::sanitize_addresses(&p.addresses);
-                                    // Merge transitive-trust voucher entry for the polled peer.
-                                    let mut vouched_by = m
-                                        .discovered_peers
-                                        .get(&p.instance_id)
-                                        .map(|dp| dp.vouched_by.clone())
-                                        .unwrap_or_default();
-                                    if !vouched_by.contains(&voucher) {
-                                        vouched_by.push(voucher.clone());
-                                    }
-                                    vouched_by.sort();
-                                    vouched_by.dedup();
-                                    m.discovered_peers.insert(
-                                        p.instance_id.clone(),
-                                        mesh::types::DiscoveredPeer {
+                                    m.upsert_discovered(
+                                        mesh::discovered::DiscoverySighting {
                                             instance_id: p.instance_id,
                                             instance_name: p.instance_name,
-                                            addresses: clean_addrs,
+                                            addresses: p.addresses,
                                             api_port: p.api_port,
-                                            discovery_method: mesh::types::DiscoveryMethod::Gossip,
-                                            last_seen: now_secs,
+                                            method: mesh::types::DiscoveryMethod::Gossip,
                                             dev: p.dev,
                                             mesh_id: None,
-                                            vouched_by,
+                                            voucher: Some(voucher.clone()),
                                         },
+                                        now_secs,
                                     );
                                 }
                                 changed = true;
@@ -253,6 +247,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                     from_instance_name: m.ident.instance_name.clone(),
                                     from_address: local_addr,
                                     from_port: m.api_port,
+                                    from_addresses: m.local_announce_addresses(),
                                     public_key: pk,
                                     timestamp: now,
                                     status: crate::mesh::types::PairingStatus::Pending,

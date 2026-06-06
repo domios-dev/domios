@@ -96,7 +96,7 @@ export function ServicesTable({
       </div>
       {filtered.map((s) => (
         <ServiceRow
-          key={s.id}
+          key={`${s.source_peer ?? "local"}:${s.id}`}
           service={s}
           host={s.source_peer ?? thisMachineName}
           onClick={() => onServiceClick(s)}
