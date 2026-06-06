@@ -40,12 +40,6 @@ const CLI_FALLBACK_COMMANDS = new Set([
   "/permissions",
   "/help",
 ]);
-const LIVE_TERMINAL_LINES = 10;
-const LIVE_TERMINAL_MAX_CHARS = 1800;
-// Temporarily off: the live terminal preview popping above the composer on
-// agent activity was distracting. Flip to re-enable (also re-enables polling).
-const LIVE_TERMINAL_PREVIEW_ENABLED = false;
-
 interface ChatStartResult {
   text: string;
   offset: number;
@@ -95,10 +89,14 @@ function ComposerBubbleRow({
   attachments,
   onRemove,
   onToggleTerminalFallback,
+  terminalActive,
+  pendingPrompt,
 }: {
   attachments: string[];
   onRemove: (path: string) => void;
   onToggleTerminalFallback?: () => void;
+  terminalActive: boolean;
+  pendingPrompt?: PendingPrompt | null;
 }) {
   if (attachments.length === 0 && !onToggleTerminalFallback) return null;
   const visible = attachments.slice(0, 4);
@@ -125,6 +123,23 @@ function ComposerBubbleRow({
         >
           <Terminal size={12} />
           <span>terminal</span>
+          {terminalActive && !pendingPrompt && (
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ background: "var(--ct-green, #3fb950)" }}
+            />
+          )}
+          {pendingPrompt && (
+            <span
+              className="ml-1 rounded px-1 py-0.5 text-[10px]"
+              style={{
+                background: "color-mix(in srgb, var(--ct-yellow, #d29922) 18%, transparent)",
+                color: "var(--ct-yellow, #d29922)",
+              }}
+            >
+              waiting
+            </span>
+          )}
         </button>
       )}
       {visible.map((p) => (
@@ -220,18 +235,6 @@ function groupToolResults(messages: ChatMessage[]): ChatMessage[] {
   return grouped;
 }
 
-function terminalPreview(text: string): string {
-  const lines = text
-    .replace(/\r/g, "")
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .filter((line) => line.trim().length > 0);
-  const tail = lines.slice(-LIVE_TERMINAL_LINES).join("\n");
-  return tail.length > LIVE_TERMINAL_MAX_CHARS
-    ? tail.slice(-LIVE_TERMINAL_MAX_CHARS)
-    : tail;
-}
-
 function formatModelSwitch(format: string, modelId: string): string {
   return format.includes("{model}")
     ? format.replaceAll("{model}", modelId)
@@ -261,10 +264,12 @@ export function PaneSessionChat({
   const [providerDescriptor, setProviderDescriptor] = useState<ProviderDescriptor | null>(null);
   const [modelOptions, setModelOptions] = useState<ModelInfo[]>([]);
   const [modelHighlight, setModelHighlight] = useState(0);
-  const [liveTerminal, setLiveTerminal] = useState("");
+  const [terminalActive, setTerminalActive] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const terminalTextRef = useRef<string | null>(null);
+  const terminalActiveTimerRef = useRef<number | null>(null);
   const sendInFlightRef = useRef(false);
   // chatRootRef scopes the drag-drop zone to the entire chat pane.
   const chatRootRef = useRef<HTMLDivElement>(null);
@@ -280,6 +285,14 @@ export function PaneSessionChat({
     requestAnimationFrame(() => textareaRef.current?.focus());
     window.setTimeout(() => textareaRef.current?.focus(), 0);
   }, []);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "0px";
+    const next = Math.min(Math.max(el.scrollHeight, 28), 150);
+    el.style.height = `${next}px`;
+  }, [input]);
 
   // Open picker when first line starts with / and there are matches.
   useEffect(() => {
@@ -402,15 +415,7 @@ export function PaneSessionChat({
 
   const currentPtyId = muxState.panes[paneId]?.pty_id ?? null;
   const pendingPrompt: PendingPrompt | null = muxState.panes[paneId]?.pending_prompt ?? null;
-  const paneStatus = muxState.paneStatuses[paneId];
-  const shouldPollTerminal = Boolean(
-    LIVE_TERMINAL_PREVIEW_ENABLED
-      && currentPtyId
-      && (paneStatus === "Working" || pendingPrompt || sending || optimistic.length > 0),
-  );
-  // Compact "agent is doing something" signal for the Terminal button —
-  // replaces the old live preview that popped above the composer.
-  const agentBusy = paneStatus === "Working" || sending;
+  const terminalHasAttention = terminalActive || Boolean(pendingPrompt);
 
   const enrichedMessages = useMemo(() => {
     return allMessages.slice(-visibleMessageCount).map((m) => {
@@ -454,26 +459,43 @@ export function PaneSessionChat({
   }, [earliestOffset, hiddenMessageCount, loadingOlder, paneId]);
 
   useEffect(() => {
-    if (!shouldPollTerminal) {
-      setLiveTerminal("");
+    if (!currentPtyId) {
+      terminalTextRef.current = null;
+      setTerminalActive(false);
       return;
     }
     let cancelled = false;
     const poll = async () => {
       try {
         const text = await invoke<string>("get_pane_text", { paneId, formatted: false });
-        if (!cancelled) setLiveTerminal(terminalPreview(text));
+        if (cancelled) return;
+        const previous = terminalTextRef.current;
+        terminalTextRef.current = text;
+        if (previous !== null && previous !== text) {
+          setTerminalActive(true);
+          if (terminalActiveTimerRef.current) {
+            window.clearTimeout(terminalActiveTimerRef.current);
+          }
+          terminalActiveTimerRef.current = window.setTimeout(() => {
+            setTerminalActive(false);
+            terminalActiveTimerRef.current = null;
+          }, 3_000);
+        }
       } catch {
-        if (!cancelled) setLiveTerminal("");
+        if (!cancelled) setTerminalActive(false);
       }
     };
     void poll();
-    const id = window.setInterval(() => void poll(), 900);
+    const id = window.setInterval(() => void poll(), 1_500);
     return () => {
       cancelled = true;
       window.clearInterval(id);
+      if (terminalActiveTimerRef.current) {
+        window.clearTimeout(terminalActiveTimerRef.current);
+        terminalActiveTimerRef.current = null;
+      }
     };
-  }, [paneId, shouldPollTerminal]);
+  }, [currentPtyId, paneId]);
 
   // Garbage-collect optimistic state once a parsed user message contains
   // it, AND drop optimistic entries older than OPTIMISTIC_TTL_MS as a
@@ -820,45 +842,6 @@ export function PaneSessionChat({
           paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom, 0px))",
         }}
       >
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <button
-            type="button"
-            data-terminal-fallback-toggle="true"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => (onToggleTerminalFallback ?? onOpenTerminalFallback)?.()}
-            className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-mono hover:brightness-125"
-            style={{
-              background: pendingPrompt
-                ? "color-mix(in srgb, var(--ct-yellow, #d29922) 12%, var(--ct-surface))"
-                : "var(--ct-surface)",
-              color: pendingPrompt ? "var(--ct-fg)" : "var(--ct-muted-fg)",
-              border: pendingPrompt
-                ? "1px solid color-mix(in srgb, var(--ct-yellow, #d29922) 42%, transparent)"
-                : "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 25%, transparent)",
-            }}
-            title={pendingPrompt ? pendingPrompt.question : "Open terminal fallback"}
-          >
-            <Terminal size={13} />
-            Terminal
-            {agentBusy && !pendingPrompt && (
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full animate-pulse"
-                style={{ background: "var(--ct-green, #3fb950)" }}
-              />
-            )}
-            {pendingPrompt && (
-              <span
-                className="ml-1 rounded px-1 py-0.5 text-[10px]"
-                style={{
-                  background: "color-mix(in srgb, var(--ct-yellow, #d29922) 18%, transparent)",
-                  color: "var(--ct-yellow, #d29922)",
-                }}
-              >
-                waiting input
-              </span>
-            )}
-          </button>
-        </div>
         {modelPickerOpen && (
           <div
             className="mb-2 rounded-md border p-2 shadow-lg"
@@ -918,6 +901,8 @@ export function PaneSessionChat({
           attachments={attachments}
           onRemove={(p) => setAttachments((prev) => prev.filter((x) => x !== p))}
           onToggleTerminalFallback={onToggleTerminalFallback}
+          terminalActive={terminalHasAttention}
+          pendingPrompt={pendingPrompt}
         />
         {composerError && (
           <div
@@ -932,34 +917,8 @@ export function PaneSessionChat({
             {composerError}
           </div>
         )}
-        {liveTerminal && (
-          <button
-            type="button"
-            data-terminal-fallback-toggle="true"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onOpenTerminalFallback?.()}
-            className="mb-2 block w-full rounded border px-2 py-1.5 text-left text-xs hover:brightness-110"
-            style={{
-              background: "color-mix(in srgb, var(--ct-bg, #0d1117) 88%, white 4%)",
-              borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
-              color: "var(--ct-muted-fg)",
-            }}
-            title="Open terminal fallback"
-          >
-            <div className="mb-1 flex items-center gap-1.5 font-mono text-[11px]">
-              <Terminal size={12} />
-              <span>Terminal activity</span>
-            </div>
-            <pre
-              className="m-0 max-h-28 overflow-hidden whitespace-pre-wrap font-mono leading-snug"
-              style={{ color: "var(--ct-fg)" }}
-            >
-              {liveTerminal}
-            </pre>
-          </button>
-        )}
         {/* Bug 4: relative wrapper so SlashPicker positions above textarea */}
-        <div data-testid="composer-row" className="relative flex items-end gap-1.5">
+        <div data-testid="composer-row" className="relative">
           <ComposerActions
             onAttach={addAttachments}
             onSend={() => void send()}
@@ -967,6 +926,7 @@ export function PaneSessionChat({
             onError={(msg) => setComposerError(msg)}
             sendDisabled={sending || (!input.trim() && attachments.length === 0)}
             hasText={input.trim().length > 0 || attachments.length > 0}
+            onToggleTerminalFallback={onToggleTerminalFallback}
           >
             <SlashPicker
               suggestions={pickerOpen ? suggestions : []}
@@ -1046,16 +1006,13 @@ export function PaneSessionChat({
               }}
               placeholder={pendingPrompt
                 ? "Agent may be waiting in the terminal."
-                : "Type a message…  (Enter to send, Shift+Enter for newline. Drag files or paste images.)"}
-              rows={2}
+                : "Message"}
+              rows={1}
               disabled={sending}
-              className="w-full flex-1 min-w-0 resize-none rounded p-2 text-sm font-mono outline-none"
+              className="w-full min-h-7 flex-1 resize-none bg-transparent py-0.5 pr-1 text-[15px] leading-6 outline-none placeholder:text-[var(--ct-muted-fg)]"
               style={{
-                background:
-                  "color-mix(in srgb, var(--ct-bg, #0d1117) 80%, white 5%)",
                 color: "var(--ct-fg, #c9d1d9)",
-                border:
-                  "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+                border: "none",
               }}
             />
           </ComposerActions>
