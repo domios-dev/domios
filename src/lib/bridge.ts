@@ -79,6 +79,12 @@ const HTTP_MAP: Record<string, Mapper> = {
   mux_close_pane: (a) => webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/close`),
   mux_respond_prompt: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/prompt/respond`, a),
+  mux_set_pane_agent_type: (a) =>
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/agent-type`, {
+      agent_type: a.agentType,
+    }),
+  mux_clear_pane_role: (a) =>
+    webJson("DELETE", `/api/panes/${enc(s(a, "paneId"))}/role`),
   mux_set_chat_view: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-view`, {
       enabled: a.chatView ?? a.enabled,
