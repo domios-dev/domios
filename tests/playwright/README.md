@@ -129,6 +129,14 @@ suites' CDP attach to the Tauri WebView. Key facts:
 - The daemon serves `/web` from `dist/` — run `pnpm build` after
   frontend changes or the suite tests a stale bundle.
 
+Known web-mode limitations (honest rejects, sweep-audited via
+`scripts/web-bridge-codemod.mjs`-era inventory): native clipboard image
+paste / temp-file save, `restart_app`, `mesh_exit` / `mesh_set_access`,
+provider install-in-pane, custom-theme delete, service probe/smart-add
+inspect, and `spawn_pty` for panes that have no server-side PTY (all
+server-spawned panes do). Each throws a clear
+"command not available in browser mode" instead of failing silently.
+
 ## Hard rules
 
 - **Prod guard**: `reset.ts` refuses to touch any path not under
