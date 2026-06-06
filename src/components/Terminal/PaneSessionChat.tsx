@@ -40,6 +40,31 @@ const CLI_FALLBACK_COMMANDS = new Set([
   "/permissions",
   "/help",
 ]);
+
+function isMicrophonePermissionError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("microphone") ||
+    normalized.includes("mic api") ||
+    normalized.includes("media device") ||
+    normalized.includes("getusermedia") ||
+    normalized.includes("notallowederror") ||
+    normalized.includes("denied permission") ||
+    normalized.includes("permission denied") ||
+    normalized.includes("not allowed by the user agent")
+  );
+}
+
+function openMicrophoneSettings() {
+  const platform = navigator.platform.toLowerCase();
+  const url = platform.includes("mac") || platform.includes("iphone") || platform.includes("ipad")
+    ? "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+    : platform.includes("win")
+      ? "ms-settings:privacy-microphone"
+      : "about:preferences#privacy";
+  void invoke("open_url", { url });
+}
+
 interface ChatStartResult {
   text: string;
   offset: number;
@@ -907,14 +932,29 @@ export function PaneSessionChat({
         {composerError && (
           <div
             data-testid="chat-composer-error"
-            className="mb-2 rounded border px-2 py-1 text-xs font-mono"
+            className="mb-2 flex items-center justify-between gap-2 rounded border px-2 py-1 text-xs font-mono"
             style={{
               background: "color-mix(in srgb, #f85149 14%, transparent)",
               borderColor: "color-mix(in srgb, #f85149 38%, transparent)",
               color: "var(--ct-fg, #c9d1d9)",
             }}
           >
-            {composerError}
+            <span className="min-w-0">{composerError}</span>
+            {isMicrophonePermissionError(composerError) && (
+              <button
+                type="button"
+                data-testid="chat-composer-open-mic-settings"
+                onClick={openMicrophoneSettings}
+                className="shrink-0 rounded border px-2 py-0.5 text-[11px] hover:brightness-110"
+                style={{
+                  background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)",
+                  borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 42%, transparent)",
+                  color: "var(--ct-fg, #c9d1d9)",
+                }}
+              >
+                Open Settings
+              </button>
+            )}
           </div>
         )}
         {/* Bug 4: relative wrapper so SlashPicker positions above textarea */}

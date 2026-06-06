@@ -245,6 +245,7 @@ pub fn build_session(
     cmd.env("CODETERM", "1");
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    cmd.env("CLICOLOR", "1");
     cmd.env("TERM_PROGRAM", "CodeTerm");
     cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
 
@@ -263,6 +264,7 @@ pub fn build_session(
     }
 
     cmd.env_remove("CLAUDECODE");
+    cmd.env_remove("NO_COLOR");
 
     let child = pair
         .slave

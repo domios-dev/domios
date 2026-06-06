@@ -67,12 +67,20 @@ pub async fn spawn_pty(
                     .get_pane(pid)
                     .and_then(|p| p.pty_id.clone())
                 {
-                    log::info!(
-                        "[spawn_pty] protected pane {} already has backend pty {} — reusing",
+                    let alive = state.lock().get_session(&existing).is_some();
+                    if alive {
+                        log::info!(
+                            "[spawn_pty] protected pane {} already has live backend pty {} — reusing",
+                            pid,
+                            existing,
+                        );
+                        return Ok(existing);
+                    }
+                    log::warn!(
+                        "[spawn_pty] protected pane {} has stale backend pty {} — waiting for relink",
                         pid,
                         existing,
                     );
-                    return Ok(existing);
                 }
                 if std::time::Instant::now() > deadline {
                     log::warn!(

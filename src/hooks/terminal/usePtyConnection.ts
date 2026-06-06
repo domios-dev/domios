@@ -100,6 +100,7 @@ export function usePtyConnection({
       // Read loop with flow control
       let reading = true;
       let firstData = true;
+      let staleRespawnStarted = false;
       const WRITE_HIGH_WATERMARK = 128 * 1024;
       let pendingBytes = 0;
       let readPaused = false;
@@ -145,9 +146,40 @@ export function usePtyConnection({
                 });
               }
             }
-          } catch {
+          } catch (e) {
             if (reading) {
-              term.writeln("\r\n\x1b[90m[Process exited]\x1b[0m");
+              const message = e instanceof Error ? e.message : String(e);
+              const stalePty =
+                !!ptyId && (message.includes("PTY not found") || message.includes("PTY closed"));
+
+              if (stalePty && !staleRespawnStarted && !disposed) {
+                staleRespawnStarted = true;
+                reading = false;
+                connectedPtyRef.current = null;
+                term.writeln("\r\n\x1b[90m[PTY disappeared, reconnecting...]\x1b[0m");
+
+                try {
+                  const cols = Math.max(term.cols, 80);
+                  const rows = Math.max(term.rows, 24);
+                  const paneData = state.panes[paneId];
+                  const cwd = consumePendingCwd(paneId) || paneData?.cwd || undefined;
+                  const spawnedId = await invoke<string>("spawn_pty", {
+                    cols,
+                    rows,
+                    cwd,
+                    paneId,
+                  });
+                  if (!disposed) {
+                    onPtySpawned?.(paneId, spawnedId);
+                    connectedPtyRef.current = null;
+                  }
+                } catch (respawnError) {
+                  console.warn("Failed to respawn stale PTY:", respawnError);
+                  term.writeln("\r\n\x1b[31m[Failed to reconnect PTY]\x1b[0m");
+                }
+              } else {
+                term.writeln("\r\n\x1b[90m[Process exited]\x1b[0m");
+              }
             }
             break;
           }
@@ -172,7 +204,10 @@ export function usePtyConnection({
           cols, rows, predictedId, cwd, paneId,
         });
         if (disposed) {
-          invoke("kill_pty", { ptyId: spawnedId }).catch(() => {});
+          // spawn_pty links the PTY to the pane before it resolves. If this
+          // component unmounts during a chat/terminal mode switch or tab
+          // remount, killing here leaves backend pane state pointing at a
+          // dead PTY. Pane/tab close paths own real teardown.
           return;
         }
         onPtySpawned?.(paneId, spawnedId);
