@@ -26,6 +26,10 @@ export function ServiceRow({ service, host, onClick }: Props) {
       : "Last known state — peer unreachable";
   return (
     <div
+      data-testid="service-row"
+      data-service-name={service.name}
+      data-source-peer={service.source_peer ?? "local"}
+      data-stale={String(!!service.stale)}
       onClick={onClick}
       className={`grid items-center px-4 py-1.5 border-b border-[var(--ct-border)] cursor-pointer hover:bg-[var(--ct-titlebar-bg)]${service.stale ? " opacity-60" : ""}`}
       style={{ gridTemplateColumns: GRID_COLS }}
@@ -35,6 +39,7 @@ export function ServiceRow({ service, host, onClick }: Props) {
         {service.name}
         {service.stale && (
           <span
+            data-testid="service-stale-badge"
             className="ml-1.5 text-[9px] uppercase text-[var(--ct-yellow)]"
             title={staleTitle}
           >

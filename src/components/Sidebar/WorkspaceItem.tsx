@@ -112,6 +112,9 @@ export function WorkspaceItem({
 
   return (
     <div
+      data-testid="workspace-item"
+      data-workspace-id={workspace.id}
+      data-workspace-name={workspace.name}
       className={`
         group flex items-center justify-between px-1 py-2 cursor-pointer transition-colors
         ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
