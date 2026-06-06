@@ -35,6 +35,7 @@ pub fn is_service_push_allowed(method: &str, path: &str) -> bool {
 
 const PUBLIC_PATHS: &[&str] = &[
     "/api/health",
+    "/api/providers",
     "/api/mesh/ping",
     "/api/mesh/pair/request",
     "/api/mesh/pair/accept",
@@ -358,6 +359,10 @@ mod tests {
         for p in PUBLIC_PATHS {
             assert!(PUBLIC_PATHS.iter().any(|pp| pp == p));
         }
+        assert!(
+            PUBLIC_PATHS.contains(&"/api/providers"),
+            "plugin verification needs unauthenticated provider liveness checks"
+        );
     }
 
     #[test]

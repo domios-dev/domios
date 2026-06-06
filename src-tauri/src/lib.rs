@@ -198,6 +198,8 @@ pub fn run() {
             commands::chat_send_text,
             commands::check_cli_installed,
             commands::install_provider_in_pane,
+            commands::plugin_manager_snapshot,
+            commands::plugin_manager_action,
             multiplexer::commands::build_agent_launch_command,
             multiplexer::commands::mux_set_pane_role,
             multiplexer::commands::mux_clear_pane_role,
@@ -363,32 +365,26 @@ pub fn run() {
             // to <repo>/plugins/<id>/ aren't shadowed by a stale extract
             // in the user dir. In dev, the workspace IS the source.
             if std::env::var("CODETERM_DEV").as_deref() != Ok("1") {
-                if let Some(home) = dirs::home_dir() {
-                    let user_plugins = home.join(".codeterm").join("plugins");
-                    match plugin::embedded::bootstrap_into(&user_plugins) {
-                        Ok(written) if !written.is_empty() => {
-                            log::info!(
-                                "[plugin/bootstrap] extracted embedded plugins {written:?} → {}",
-                                user_plugins.display()
-                            );
-                        }
-                        Ok(_) => {
-                            log::debug!(
-                                "[plugin/bootstrap] {} already has all system plugins",
-                                user_plugins.display()
-                            );
-                        }
-                        Err(e) => {
-                            log::warn!(
-                                "[plugin/bootstrap] failed to extract embedded plugins to {}: {e}",
-                                user_plugins.display()
-                            );
-                        }
+                let user_plugins = crate::paths::data_dir().join("plugins");
+                match plugin::embedded::bootstrap_into(&user_plugins) {
+                    Ok(written) if !written.is_empty() => {
+                        log::info!(
+                            "[plugin/bootstrap] extracted embedded plugins {written:?} → {}",
+                            user_plugins.display()
+                        );
                     }
-                } else {
-                    log::warn!(
-                        "[plugin/bootstrap] dirs::home_dir() returned None; cannot extract embedded plugins"
-                    );
+                    Ok(_) => {
+                        log::debug!(
+                            "[plugin/bootstrap] {} already has all system plugins",
+                            user_plugins.display()
+                        );
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "[plugin/bootstrap] failed to extract embedded plugins to {}: {e}",
+                            user_plugins.display()
+                        );
+                    }
                 }
             } else {
                 log::info!("[plugin/bootstrap] CODETERM_DEV=1 — skipping embedded extract, workspace plugins are authoritative");
@@ -438,6 +434,7 @@ pub fn run() {
                 let keep_all_native = keep_native.contains("all");
                 for p in providers {
                     let id = p.id().to_string();
+                    let version = p.manifest().version.clone();
                     let trust = p.trust();
                     log::info!("[js-plugin] {id} trust={:?}", trust);
                     if keep_all_native || keep_native.contains(&id) {
@@ -446,6 +443,8 @@ pub fn run() {
                                 "[js-plugin] {id} held back — \
                                 CODETERM_NATIVE_PROVIDERS pins the native impl"
                             );
+                        } else {
+                            plugin::audit::append_daemon_reloaded(&id, &version);
                         }
                     } else {
                         log::info!(
@@ -453,6 +452,7 @@ pub fn run() {
                             (set CODETERM_NATIVE_PROVIDERS={id} to rollback)"
                         );
                         agent_registry.register_provider(Box::new(p));
+                        plugin::audit::append_daemon_reloaded(&id, &version);
                     }
                 }
 

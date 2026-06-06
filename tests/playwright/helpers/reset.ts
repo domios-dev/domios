@@ -45,7 +45,16 @@ export async function apiReset(api: ApiClient): Promise<void> {
 }
 
 /** Mutable state dirs that may be wiped without losing the token or CLI. */
-const WIPEABLE = ["sessions", "workspaces", "session.json", "crons"];
+const WIPEABLE = [
+  "sessions",
+  "workspaces",
+  "session.json",
+  "crons",
+  "plugins",
+  "channels",
+  "plugin-channels.json",
+  "plugin-audit.jsonl",
+];
 
 export function wipeDevState(): void {
   killDevConsole();

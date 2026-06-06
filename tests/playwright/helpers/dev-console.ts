@@ -145,21 +145,37 @@ export interface UiSession {
  * shell has actually rendered — on a cold start the WebView is up while
  * Vite is still compiling, so the page can be blank for many seconds. */
 export async function connectUi(): Promise<UiSession> {
-  const browser = await chromium.connectOverCDP(CDP_BASE);
-  const pages = browser.contexts().flatMap((c) => c.pages());
-  const page =
-    pages.find((p) => /localhost|tauri/.test(p.url())) ??
-    pages[0] ??
-    (() => {
-      throw new Error("no page exposed over CDP — dev console window missing?");
-    })();
-  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-  // First terminal mounts after session restore + PTY spawn. A pane left in
-  // chat-view hides its xterm and shows the composer — both prove the shell
-  // is alive.
-  await page
-    .locator('.xterm:visible, [data-testid="chat-composer"]')
-    .first()
-    .waitFor({ state: "visible", timeout: 90_000 });
-  return { browser, page };
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    let browser: Browser | undefined;
+    try {
+      await ensureDevConsole();
+      browser = await chromium.connectOverCDP(CDP_BASE);
+      const pages = browser.contexts().flatMap((c) => c.pages()).filter((p) => !p.isClosed());
+      const page =
+        pages.find((p) => /localhost|tauri/.test(p.url())) ??
+        pages[0] ??
+        (() => {
+          throw new Error("no page exposed over CDP — dev console window missing?");
+        })();
+      await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+      // First terminal mounts after session restore + PTY spawn. A pane left in
+      // chat-view hides its xterm and shows the composer — both prove the shell
+      // is alive.
+      await page
+        .locator('.xterm:visible, [data-testid="chat-composer"]')
+        .first()
+        .waitFor({ state: "visible", timeout: 90_000 });
+      return { browser, page };
+    } catch (e) {
+      lastError = e;
+      await browser?.close().catch(() => {});
+      const msg = String(e);
+      if (!/Target page|context or browser has been closed|no page exposed/.test(msg) || attempt === 3) {
+        throw e;
+      }
+      killDevConsole();
+    }
+  }
+  throw lastError;
 }

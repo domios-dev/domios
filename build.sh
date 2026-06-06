@@ -147,9 +147,9 @@ case "$CMD" in
     if [ "$WAIT" -eq 1 ]; then
       LOG=/tmp/codeterm-dev.log
       : > "$LOG"
-      ( pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json >> "$LOG" 2>&1 ) &
+      nohup pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json \
+        </dev/null >> "$LOG" 2>&1 &
       DEV_PID=$!
-      disown "$DEV_PID" 2>/dev/null || true
       echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
       DEADLINE=$(( $(date +%s) + 300 ))
       while : ; do
@@ -168,6 +168,12 @@ case "$CMD" in
           SHA=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('build','')[:8])" 2>/dev/null || true)
           STATUS=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
           if [ "$STATUS" = "ok" ]; then
+            sleep 2
+            if ! kill -0 "$DEV_PID" 2>/dev/null; then
+              echo "Dev process exited immediately after reporting ready. Last log lines:"
+              tail -25 "$LOG"
+              exit 1
+            fi
             echo "Dev ready: build $SHA, pid $DEV_PID"
             exit 0
           fi

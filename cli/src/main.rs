@@ -57,11 +57,30 @@ pub fn data_dir_name() -> &'static str {
     ".codeterm"
 }
 
+/// Resolve the CodeTerm data root used by local filesystem commands.
+///
+/// `CODETERM_DATA_DIR` is an explicit test/dev harness override. It must be
+/// absolute so a typo cannot silently route plugin operations into a relative
+/// workspace path.
+pub fn data_root() -> std::path::PathBuf {
+    if let Ok(root) = std::env::var("CODETERM_DATA_DIR") {
+        if !root.trim().is_empty() {
+            let path = std::path::PathBuf::from(root);
+            if path.is_absolute() {
+                return path;
+            }
+        }
+    }
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(data_dir_name())
+}
+
 /// Read API config (host, port, token).
 /// Priority: $CODETERM_API_PORT env var (set by CodeTerm PTY) > config.toml.
 /// This ensures CLI works in both dev (7686) and prod (7685) when called from inside CodeTerm.
 pub fn read_api_config() -> (String, Option<String>) {
-    let config_dir = dirs::home_dir().unwrap_or_default().join(data_dir_name());
+    let config_dir = data_root();
     let config_path = config_dir.join("config.toml");
 
     let (mut host, mut port) = ("127.0.0.1".to_string(), 7685i64);
@@ -110,7 +129,7 @@ pub fn read_api_config() -> (String, Option<String>) {
 /// outbound mesh calls produces a silent 401 with a `text/plain` body that
 /// the JSON parser swallows.
 pub fn read_mesh_signed_token() -> Option<String> {
-    let config_dir = dirs::home_dir()?.join(data_dir_name());
+    let config_dir = data_root();
     let identity_path = config_dir.join("mesh").join("identity.json");
     let content = std::fs::read_to_string(&identity_path).ok()?;
     let id: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -813,7 +832,26 @@ fn parse_plugin_action(args: Vec<String>) -> Result<(bool, PluginAction), String
                 }
                 "list" => PluginChannelAction::List,
                 "refresh" => PluginChannelAction::Refresh { name: args.first().cloned() },
-                "remove" => PluginChannelAction::Remove { name: args.first().cloned().ok_or("plugin channel remove requires NAME")? },
+                "diff" => PluginChannelAction::Diff { name: args.first().cloned() },
+                "remove" => {
+                    let mut force = false;
+                    let mut name = None;
+                    for arg in args {
+                        if arg == "--force" {
+                            force = true;
+                        } else if arg.starts_with('-') {
+                            return Err(format!("unknown plugin channel remove flag: {arg}"));
+                        } else if name.is_none() {
+                            name = Some(arg);
+                        } else {
+                            return Err("plugin channel remove accepts one NAME".to_string());
+                        }
+                    }
+                    PluginChannelAction::Remove {
+                        name: name.ok_or("plugin channel remove requires NAME")?,
+                        force,
+                    }
+                }
                 other => return Err(format!("unknown plugin channel command: {other}")),
             };
             PluginAction::Channel { command }
@@ -833,7 +871,8 @@ fn plugin_help() -> String {
   codeterm plugin channel add URL_OR_PATH [--name NAME]
   codeterm plugin channel list
   codeterm plugin channel refresh [NAME]
-  codeterm plugin channel remove NAME"
+  codeterm plugin channel diff [NAME]
+  codeterm plugin channel remove NAME [--force]"
         .to_string()
 }
 
@@ -844,6 +883,19 @@ fn plugin_help() -> String {
 mod subcommand_contract_tests {
     use super::*;
     use clap::CommandFactory;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn restore_env(key: &str, value: Option<String>) {
+        match value {
+            Some(v) => std::env::set_var(key, v),
+            None => std::env::remove_var(key),
+        }
+    }
 
     fn mem_subcommand() -> clap::Command {
         Cli::command()
@@ -949,6 +1001,49 @@ mod subcommand_contract_tests {
             }
             _ => panic!("expected plugin channel add"),
         }
+
+        let (_, diff) = parse_plugin_action(vec![
+            "channel".to_string(),
+            "diff".to_string(),
+            "example".to_string(),
+        ]).expect("plugin channel diff parses");
+        assert!(matches!(
+            diff,
+            PluginAction::Channel { command: PluginChannelAction::Diff { name: Some(name) } }
+                if name == "example"
+        ));
+
+        let (_, remove) = parse_plugin_action(vec![
+            "channel".to_string(),
+            "remove".to_string(),
+            "codeterm-core".to_string(),
+            "--force".to_string(),
+        ]).expect("plugin channel remove --force parses");
+        assert!(matches!(
+            remove,
+            PluginAction::Channel {
+                command: PluginChannelAction::Remove { name, force: true }
+            } if name == "codeterm-core"
+        ));
+    }
+
+    #[test]
+    fn data_root_uses_absolute_env_override() {
+        let _guard = env_lock().lock().unwrap();
+        let prev = std::env::var("CODETERM_DATA_DIR").ok();
+        let root = std::env::temp_dir().join(format!("codeterm-data-root-{}", uuid::Uuid::new_v4()));
+        std::env::set_var("CODETERM_DATA_DIR", &root);
+        assert_eq!(data_root(), root);
+        restore_env("CODETERM_DATA_DIR", prev);
+    }
+
+    #[test]
+    fn data_root_ignores_relative_env_override() {
+        let _guard = env_lock().lock().unwrap();
+        let prev = std::env::var("CODETERM_DATA_DIR").ok();
+        std::env::set_var("CODETERM_DATA_DIR", "relative-data");
+        assert!(data_root().ends_with(data_dir_name()));
+        restore_env("CODETERM_DATA_DIR", prev);
     }
 
     #[test]

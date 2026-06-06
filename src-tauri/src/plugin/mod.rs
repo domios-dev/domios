@@ -12,6 +12,7 @@
 pub mod agent_claude;
 pub mod agent_codex;
 pub mod agent_opencode;
+pub mod audit;
 pub mod bundle_hash;
 pub mod common;
 pub mod embedded;
