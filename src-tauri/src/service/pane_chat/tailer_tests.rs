@@ -271,7 +271,9 @@ fn dropping_handle_stops_the_raw_tailer() {
     let path = dir.path().join("s.jsonl");
     std::fs::write(&path, b"line1\n").unwrap();
 
-    let counter = Arc::new(Counter { n: AtomicUsize::new(0) });
+    let counter = Arc::new(Counter {
+        n: AtomicUsize::new(0),
+    });
     let sink: Arc<dyn crate::service::pane_chat::RawTextSink> = counter.clone();
     let handle = crate::service::pane_chat::spawn_raw_tailer(
         crate::service::pane_chat::RawTailConfig {
@@ -295,7 +297,10 @@ fn dropping_handle_stops_the_raw_tailer() {
 
     // A live thread would pick this up; a stopped one won't.
     {
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         f.write_all(b"line2\n").unwrap();
     }
     std::thread::sleep(Duration::from_millis(200));

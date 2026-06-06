@@ -1008,7 +1008,10 @@ mod tests {
             .insert("r1".into(), ("192.168.1.2".into(), 7685, "peer-a".into()));
 
         m.cleanup_expired_requests_at(1000 + 301);
-        let r = m.pending_requests.get("r1").expect("retained for visibility");
+        let r = m
+            .pending_requests
+            .get("r1")
+            .expect("retained for visibility");
         assert_eq!(r.status, types::PairingStatus::Expired);
         assert!(m.pairing_targets.contains_key("r1"));
         assert_eq!(m.pending_request_count(), 0, "expired must not count");

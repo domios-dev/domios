@@ -380,7 +380,10 @@ fn worker_under_orchestrator_is_depth_2_and_cannot_parent() {
 
     let sub_id = state.create_pane();
     let result = state.set_pane_role(&sub_id, AgentRole::Worker, Some(&worker_id));
-    assert!(result.is_err(), "a Worker must not be allowed to parent another Worker");
+    assert!(
+        result.is_err(),
+        "a Worker must not be allowed to parent another Worker"
+    );
 }
 
 #[test]

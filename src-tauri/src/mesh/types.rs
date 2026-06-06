@@ -594,7 +594,10 @@ mod tests {
         assert!(!should_proactive_sync(true, true, 1000, Some(1000), 60));
     }
 
-    fn pairing_request_with(from_address: &str, from_addresses: Vec<PeerAddress>) -> PairingRequest {
+    fn pairing_request_with(
+        from_address: &str,
+        from_addresses: Vec<PeerAddress>,
+    ) -> PairingRequest {
         PairingRequest {
             request_id: "r1".into(),
             from_instance_id: "peer-a".into(),

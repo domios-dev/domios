@@ -795,11 +795,7 @@ mod tests {
             let panes = build_pane_list_json(&state.snapshot());
             let focused_ids: Vec<&str> = panes
                 .iter()
-                .filter(|p| {
-                    p.get("focused")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false)
-                })
+                .filter(|p| p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
                 .filter_map(|p| p.get("id").and_then(|v| v.as_str()))
                 .collect();
 

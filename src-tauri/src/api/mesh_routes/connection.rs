@@ -25,12 +25,12 @@ pub async fn mesh_connect_peer(
         let m = state.mesh.lock();
         let peer = crate::mesh::discovered::resolve_discovered(&m.discovered_peers, &instance_id)
             .map_err(|e| {
-                let status = match e {
-                    crate::mesh::discovered::ResolveError::NotFound => StatusCode::NOT_FOUND,
-                    crate::mesh::discovered::ResolveError::Ambiguous(_) => StatusCode::CONFLICT,
-                };
-                (status, e.to_string())
-            })?;
+            let status = match e {
+                crate::mesh::discovered::ResolveError::NotFound => StatusCode::NOT_FOUND,
+                crate::mesh::discovered::ResolveError::Ambiguous(_) => StatusCode::CONFLICT,
+            };
+            (status, e.to_string())
+        })?;
         let instance_id = peer.instance_id.clone();
         let addr = peer
             .addresses
@@ -103,7 +103,11 @@ pub async fn mesh_connect_peer(
     }
 
     log::info!("[mesh/api] Pairing request sent to {}", instance_id);
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     Ok(Json(
         serde_json::json!({"ok": true, "request_id": request.request_id}),
     ))
@@ -168,7 +172,11 @@ pub async fn mesh_reject_peer(
     }
     drop(mesh);
 
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -310,7 +318,11 @@ pub async fn mesh_disconnect_peer(
         }
     }
 
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     log::info!("[mesh/api] Disconnected from {}", instance_id);
     Ok(Json(serde_json::json!({"ok": true})))
 }
