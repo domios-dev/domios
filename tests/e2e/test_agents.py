@@ -62,17 +62,13 @@ def test_hierarchy(api: CodeTermAPI, fresh_pane: str):
     )
     worker_id = worker["pane_id"]
 
-    # Check hierarchy
-    hierarchy = api.get("/api/agents/hierarchy")
-    # hierarchy should be a tree/list containing our panes
-    hierarchy_str = str(hierarchy)
-    assert fresh_pane in hierarchy_str
-    assert worker_id in hierarchy_str
-
-    # Check children
-    children = api.get(f"/api/panes/{fresh_pane}/children")
-    child_ids = [c["pane_id"] for c in children]
-    assert worker_id in child_ids
+    # Hierarchy is derived from parent_pane_id now — the /api/agents/hierarchy
+    # and /api/panes/{id}/children endpoints were removed (tree is reconstructed
+    # client-side from the flat pane list).
+    panes = api.list_panes()
+    worker_pane = next((p for p in panes if p["id"] == worker_id), None)
+    assert worker_pane is not None
+    assert worker_pane.get("parent_pane_id") == fresh_pane
 
     # Cleanup
     api.close_pane(worker_id)
