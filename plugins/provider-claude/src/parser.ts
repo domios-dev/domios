@@ -12,6 +12,8 @@ export type MessageType =
   | "tool_result"
   | "thinking"
   | "status"
+  | "system"
+  | "local_command"
   | "image";
 
 export interface ImageAttachment {
@@ -31,6 +33,8 @@ export interface ChatMessage {
   timestamp?: string;
   collapsed?: boolean;
   duration?: string;
+  tagName?: string;
+  systemSubtype?: string;
   imageData?: string;      // base64 data (for standalone image messages)
   imageMimeType?: string;  // e.g. "image/png"
   attachments?: ImageAttachment[]; // images attached to user messages
@@ -52,6 +56,11 @@ export function parseJsonlSession(jsonlText: string): ChatMessage[] {
     try {
       const entry = JSON.parse(line);
 
+      if (entry.type === "system") {
+        parseSystemEntry(entry, messages);
+        continue;
+      }
+
       const role =
         entry.type === "user" || entry.type === "assistant"
           ? entry.type
@@ -64,7 +73,7 @@ export function parseJsonlSession(jsonlText: string): ChatMessage[] {
       } else if (role === "assistant") {
         parseAssistantBlocks(entry, messages);
       }
-      // Skip: system, progress, file-history-snapshot, queue-operation, last-prompt
+      // Skip: progress, file-history-snapshot, queue-operation, last-prompt
     } catch {
       // Skip malformed lines
     }
@@ -97,6 +106,11 @@ function parseUserEntry(
           mimeType,
           data: data && data.length < 100_000 ? data : undefined,
         });
+      } else if (block.type === "tool_result") {
+        // The real Claude Code pattern: bash/grep/read output arrives as a
+        // tool_result block in the user-role turn that follows the assistant's
+        // tool_use. Surface it so groupToolResults can attach it to the card.
+        messages.push(toolResultMessage(block, messages.length, timestamp));
       }
     }
     const content = textParts.join("\n");
@@ -112,6 +126,11 @@ function parseUserEntry(
   } else {
     const content = extractText(rawContent);
     if (content.trim()) {
+      const local = parseLocalCommandContent(content, uuid, timestamp, entry);
+      if (local) {
+        messages.push(local);
+        return;
+      }
       messages.push({
         id: (uuid as string) || `user-${messages.length}`,
         type: "user",
@@ -120,6 +139,55 @@ function parseUserEntry(
       });
     }
   }
+}
+
+function parseSystemEntry(
+  entry: Record<string, unknown>,
+  messages: ChatMessage[],
+): void {
+  const content = extractText(entry.content);
+  const uuid = entry.uuid as string | undefined;
+  const timestamp = entry.timestamp as string | undefined;
+  const local = parseLocalCommandContent(content, uuid, timestamp, entry);
+  if (local) {
+    messages.push(local);
+  } else if (content.trim()) {
+    messages.push({
+      id: uuid || `system-${messages.length}`,
+      type: "system",
+      content: content.trim(),
+      timestamp,
+      systemSubtype: entry.subtype as string | undefined,
+    });
+  }
+}
+
+function parseLocalCommandContent(
+  content: string,
+  uuid?: string,
+  timestamp?: string,
+  entry?: Record<string, unknown>,
+): ChatMessage | null {
+  const tagged = extractSingleXmlTag(content);
+  if (!tagged) return null;
+
+  const type = tagged.tag === "local-command-caveat" ? "system" : "local_command";
+  const body = stripAnsi(tagged.body).trim();
+  return {
+    id: uuid || `${tagged.tag}-${timestamp || body.slice(0, 32)}`,
+    type,
+    content: body,
+    timestamp,
+    tagName: tagged.tag,
+    systemSubtype: (entry?.subtype as string | undefined) || (entry?.isMeta ? "meta" : undefined),
+  };
+}
+
+function extractSingleXmlTag(content: string): { tag: string; body: string } | null {
+  const trimmed = content.trim();
+  const match = /^<(local-command-caveat|local-command-stdout|command-name|command-message|command-args)>([\s\S]*)<\/\1>$/.exec(trimmed);
+  if (!match) return null;
+  return { tag: match[1], body: match[2] };
 }
 
 function parseAssistantBlocks(
@@ -154,24 +222,7 @@ function parseAssistantBlocks(
         timestamp,
       });
     } else if (block.type === "tool_result") {
-      const resultText =
-        typeof block.content === "string"
-          ? block.content
-          : Array.isArray(block.content)
-            ? block.content
-                .map((c: Record<string, unknown>) => (c.text as string) || "")
-                .join("\n")
-            : JSON.stringify(block.content);
-      messages.push({
-        id: `result-${block.tool_use_id || messages.length}`,
-        type: "tool_result",
-        content:
-          resultText.slice(0, 500) +
-          (resultText.length > 500 ? "..." : ""),
-        toolId: block.tool_use_id,
-        collapsed: true,
-        timestamp,
-      });
+      messages.push(toolResultMessage(block, messages.length, timestamp));
     } else if (block.type === "image") {
       const imgMsg = parseImageBlock(block, uuid || "", messages.length, timestamp);
       if (imgMsg) messages.push(imgMsg);
@@ -246,6 +297,39 @@ function extractText(content: unknown): string {
       .join("\n");
   }
   return "";
+}
+
+/** A tool_result block's `content` is a string, an array of text blocks, or
+ *  an arbitrary object — normalize all three to plain text. */
+function extractToolResultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((c: Record<string, unknown>) => (c.text as string) || "")
+      .join("\n");
+  }
+  return JSON.stringify(content);
+}
+
+/** Build a tool_result chat message from a JSONL content block. */
+function toolResultMessage(
+  block: Record<string, unknown>,
+  fallbackIndex: number,
+  timestamp?: string,
+): ChatMessage {
+  const toolUseId = block.tool_use_id as string | undefined;
+  return {
+    id: `result-${toolUseId || fallbackIndex}`,
+    type: "tool_result",
+    content: extractToolResultText(block.content),
+    toolId: toolUseId,
+    collapsed: true,
+    timestamp,
+  };
+}
+
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
 }
 
 function summarizeInput(input: Record<string, unknown> | null | undefined): string {

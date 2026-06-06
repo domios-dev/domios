@@ -1,20 +1,15 @@
 /**
  * Codex CLI provider plugin — entry point.
  *
- * Codex doesn't have a JSONL session format we currently parse on the
- * frontend (the Rust side reads its `rollout-*.jsonl` files for
- * session search but the live chat just uses xterm). So this plugin
+ * Codex stores session turns in `rollout-*.jsonl`. This plugin
  * contributes:
  *   - title detection
  *   - PTY fingerprint detection
  *   - TUI noise patterns
- *   - no-op parseLine (returns no structured events)
+ *   - per-line JSONL parsing for the shared chat renderer
  *   - statusOf that ignores all events (status comes from PTY parser
  *     on the Rust side)
- *   - Renderer that falls back to raw xterm
- *
- * When we land a fancy Codex chat renderer we extend parseLine /
- * statusOf without touching the host.
+ *   - Renderer that falls back to raw xterm for non-chat hosts
  */
 
 import type {
@@ -22,6 +17,7 @@ import type {
   ProviderEvent,
   RendererProps,
 } from "../../../src/lib/plugins/types";
+import { parseJsonlSession } from "./parser";
 
 const titlePattern = /codex/i;
 const noisePatterns: RegExp[] = [/^[\s─━═]+$/];
@@ -42,7 +38,7 @@ const plugin: ProviderPlugin = {
     if (sample.bytes.includes("codex/")) return true;
     return false;
   },
-  parseLine: (_line: string): ProviderEvent[] => [],
+  parseLine,
   statusOf: () => null,
   Renderer,
   actions: [],
@@ -51,3 +47,33 @@ const plugin: ProviderPlugin = {
 };
 
 export default plugin;
+export * from "./parser";
+
+function parseLine(line: string): ProviderEvent[] {
+  if (!line.trim()) return [];
+  const messages = parseJsonlSession(line);
+  return messages.map((m) => ({
+    kind: chatMessageTypeToEventKind(m.type),
+    ts: m.timestamp ? Date.parse(m.timestamp) || undefined : undefined,
+    payload: m,
+  }));
+}
+
+function chatMessageTypeToEventKind(type: string): string {
+  switch (type) {
+    case "user":
+      return "user_message";
+    case "assistant":
+      return "assistant_text";
+    case "tool_call":
+      return "tool_call";
+    case "tool_result":
+      return "tool_result";
+    case "thinking":
+      return "thinking";
+    case "status":
+      return "status";
+    default:
+      return type;
+  }
+}

@@ -54,6 +54,10 @@ function chatMessageTypeToEventKind(type: string): string {
       return "thinking";
     case "status":
       return "status";
+    case "system":
+      return "system";
+    case "local_command":
+      return "local_command";
     case "image":
       return "assistant_image";
     default:

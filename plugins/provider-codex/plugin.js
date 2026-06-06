@@ -138,6 +138,12 @@ module.exports.default = {
     return hit;
   },
 
+  // Chat UI consumes the generic JSONL-session hook. Codex rollout
+  // files are already JSONL, so use the same lookup as sessionFilePath.
+  sessionJsonlPath: function (cwd, sessionId) {
+    return this.sessionFilePath(cwd, sessionId);
+  },
+
   detectSessionId: function (cwd, exclude, maxAgeMs) {
     var root = codexSessionsRoot();
     if (!root || !host.fs.fileExists(root)) return null;
