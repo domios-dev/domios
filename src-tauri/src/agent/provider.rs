@@ -22,7 +22,10 @@ pub enum VerifySubmitStrategy {
     /// from the bottom rows. Cheap heuristic: poll the last few rows; once
     /// the needle is gone, wait `idle_after_drain` of no-screen-change
     /// before declaring submitted.
-    TuiInputDrained { timeout: Duration, idle_after_drain: Duration },
+    TuiInputDrained {
+        timeout: Duration,
+        idle_after_drain: Duration,
+    },
     /// No verification — for providers where post-submit state is not
     /// observable from the PTY (session-id-injection, headless flag delivery, etc.).
     None,
@@ -96,7 +99,6 @@ pub struct SessionMessage {
     #[serde(default)]
     pub is_meta: bool,
 }
-
 
 // `ProviderDescriptor` is the wire format every plugin reports through
 // `AgentProvider::describe()`; the frontend renders Settings, Sidebar,
@@ -354,7 +356,11 @@ pub fn usage_tracking_section(probe_command: &str) -> SettingField {
 }
 
 /// Build the "Model" settings section from a provider's available models.
-pub fn model_select_section(description: &str, models: Vec<ModelInfo>, default: Option<&str>) -> SettingField {
+pub fn model_select_section(
+    description: &str,
+    models: Vec<ModelInfo>,
+    default: Option<&str>,
+) -> SettingField {
     SettingField::Section {
         title: "Model".into(),
         description: Some(description.into()),
@@ -475,7 +481,9 @@ pub trait AgentProvider: Send + Sync {
     /// shell-prompt polling — providers running TUIs or non-observable flows
     /// override (TuiInputDrained / None).
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
-        VerifySubmitStrategy::ShellPrompt { timeout: Duration::from_secs(5) }
+        VerifySubmitStrategy::ShellPrompt {
+            timeout: Duration::from_secs(5),
+        }
     }
 
     /// Detect this agent from the pane/tab title string.
@@ -497,7 +505,12 @@ pub trait AgentProvider: Send + Sync {
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf>;
 
     /// Detect the most recent session ID for the given working directory.
-    fn detect_session_id(&self, cwd: &str, exclude: &[String], max_age: Option<Duration>) -> Option<String>;
+    fn detect_session_id(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+    ) -> Option<String>;
 
     /// Whether a session id still has a backing file (JSONL / session store / whatever
     /// the provider keeps). Default implementation is `session_file_path(...).exists()`.
@@ -566,12 +579,17 @@ pub trait AgentProvider: Send + Sync {
         _path: &std::path::Path,
         _from_offset: u64,
     ) -> crate::agent::chat_types::SessionDelta {
-        crate::agent::chat_types::SessionDelta { new_offset: _from_offset, messages: vec![] }
+        crate::agent::chat_types::SessionDelta {
+            new_offset: _from_offset,
+            messages: vec![],
+        }
     }
 
     /// Whether this agent supports hook-based detection (vs PTY parsing fallback).
     /// Agents with hooks get detected via API endpoints, not PTY output parsing.
-    fn has_hooks(&self) -> bool { false }
+    fn has_hooks(&self) -> bool {
+        false
+    }
 
     /// Build raw bytes to navigate to and confirm a prompt option.
     /// `option_index` is 0-based (0 = first option, already selected).
@@ -611,17 +629,23 @@ pub trait AgentProvider: Send + Sync {
     }
 
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
-    fn is_output_noise(&self, text: &str) -> bool { let _ = text; false }
+    fn is_output_noise(&self, text: &str) -> bool {
+        let _ = text;
+        false
+    }
 
     /// Bottom rows occupied by status bar/chrome, excluded from idle detection hash.
-    fn status_bar_rows(&self) -> u16 { 0 }
-
+    fn status_bar_rows(&self) -> u16 {
+        0
+    }
 
     /// Quick pre-filter on raw PTY chunks (must be fast).
     /// If true, full detection runs on the VT100 screen content.
     fn has_event_markers(&self, chunk: &str) -> bool {
-        chunk.contains("❯") || chunk.contains("proceed")
-            || chunk.contains("Esc to cancel") || chunk.contains("Tab to amend")
+        chunk.contains("❯")
+            || chunk.contains("proceed")
+            || chunk.contains("Esc to cancel")
+            || chunk.contains("Tab to amend")
             || (chunk.contains("1.") && chunk.contains("2."))
     }
 
@@ -989,8 +1013,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&original).expect("serialize");
-        let decoded: ProviderDescriptor =
-            serde_json::from_str(&json).expect("deserialize");
+        let decoded: ProviderDescriptor = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(original, decoded, "round-trip must be lossless");
     }
 
@@ -1019,18 +1042,38 @@ mod tests {
     struct StubProvider;
 
     impl AgentProvider for StubProvider {
-        fn id(&self) -> &str { "stub" }
-        fn display_name(&self) -> &str { "Stub" }
-        fn build_launch_command(&self, _: &AgentLaunchParams) -> String { String::new() }
-        fn readiness_strategy(&self) -> ReadinessStrategy {
-            ReadinessStrategy::FixedDelay { duration: Duration::from_secs(0) }
+        fn id(&self) -> &str {
+            "stub"
         }
-        fn task_delivery(&self) -> TaskDelivery { TaskDelivery::PtyInput }
-        fn detect_from_title(&self, _: &str) -> bool { false }
-        fn detect_from_output(&self, _: &str) -> bool { false }
-        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> { None }
-        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> { None }
-        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> { None }
+        fn display_name(&self) -> &str {
+            "Stub"
+        }
+        fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+            String::new()
+        }
+        fn readiness_strategy(&self) -> ReadinessStrategy {
+            ReadinessStrategy::FixedDelay {
+                duration: Duration::from_secs(0),
+            }
+        }
+        fn task_delivery(&self) -> TaskDelivery {
+            TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+            None
+        }
+        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+            None
+        }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
     }
 
     #[test]
@@ -1042,8 +1085,8 @@ mod tests {
         assert_eq!(desc.display_name, "Stub");
         assert!(desc.available_models.is_empty());
         assert!(desc.settings_schema.is_empty());
-        assert!(desc.preserves_context_on_resume);  // default true
-        assert!(!desc.supports_lazy_skills);          // default false
-        assert!(!desc.has_hooks);                     // default false
+        assert!(desc.preserves_context_on_resume); // default true
+        assert!(!desc.supports_lazy_skills); // default false
+        assert!(!desc.has_hooks); // default false
     }
 }

@@ -19,9 +19,14 @@ fn write_panic_report(info: &std::panic::PanicHookInfo<'_>) {
     let mut s = report::header("panic");
     let _ = writeln!(s);
 
-    let _ = writeln!(s, "Thread: {}", std::thread::current().name().unwrap_or("<unnamed>"));
+    let _ = writeln!(
+        s,
+        "Thread: {}",
+        std::thread::current().name().unwrap_or("<unnamed>")
+    );
 
-    let location = info.location()
+    let location = info
+        .location()
         .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
         .unwrap_or_else(|| "<unknown>".into());
     let _ = writeln!(s, "Location: {}", location);

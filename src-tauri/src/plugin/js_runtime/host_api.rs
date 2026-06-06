@@ -58,22 +58,30 @@ pub(super) fn install(ctx: &Ctx<'_>, manifest_json: Option<&str>) -> Result<(), 
     }
 
     let manifest_owned: Option<String> = manifest_json.map(|s| s.to_string());
-    bind!("manifestJson", move || -> Option<String> { manifest_owned.clone() });
+    bind!("manifestJson", move || -> Option<String> {
+        manifest_owned.clone()
+    });
 
     // ── Identity / paths ────────────────────────────────────────────
-    bind!("platform", || -> String { std::env::consts::OS.to_string() });
+    bind!("platform", || -> String {
+        std::env::consts::OS.to_string()
+    });
     bind!("homeDir", || -> Option<String> {
         dirs::home_dir().map(|p| p.to_string_lossy().into_owned())
     });
     bind!("expandHome", |path: String| -> Option<String> {
         PluginManifest::expand_home(&path).map(|p| p.to_string_lossy().into_owned())
     });
-    bind!("envGet", |name: String| -> Option<String> { std::env::var(&name).ok() });
+    bind!("envGet", |name: String| -> Option<String> {
+        std::env::var(&name).ok()
+    });
     bind!("unixNow", || -> i64 { since_epoch().as_secs() as i64 });
     bind!("unixNowMs", || -> i64 { since_epoch().as_millis() as i64 });
 
     // ── Filesystem ──────────────────────────────────────────────────
-    bind!("fileExists", |path: String| -> bool { Path::new(&path).exists() });
+    bind!("fileExists", |path: String| -> bool {
+        Path::new(&path).exists()
+    });
     bind!("readFile", |path: String| -> Option<String> {
         std::fs::read_to_string(&path).ok()
     });
@@ -86,25 +94,36 @@ pub(super) fn install(ctx: &Ctx<'_>, manifest_json: Option<&str>) -> Result<(), 
         }
         std::fs::write(p, contents).is_ok()
     });
-    bind!("removeFile", |path: String| -> bool { std::fs::remove_file(&path).is_ok() });
-    bind!("makeDirs", |path: String| -> bool { std::fs::create_dir_all(&path).is_ok() });
-    bind!("readDirJson", |path: String| -> Option<String> { read_dir_json(&path) });
-    bind!("walkDirJson", |path: String, max_depth: i32| -> Option<String> {
+    bind!("removeFile", |path: String| -> bool {
+        std::fs::remove_file(&path).is_ok()
+    });
+    bind!("makeDirs", |path: String| -> bool {
+        std::fs::create_dir_all(&path).is_ok()
+    });
+    bind!("readDirJson", |path: String| -> Option<String> {
+        read_dir_json(&path)
+    });
+    bind!("walkDirJson", |path: String,
+                          max_depth: i32|
+     -> Option<String> {
         walk_dir_json(&path, max_depth.max(0) as usize)
     });
 
     // ── Shell / process help ────────────────────────────────────────
-    bind!("shellQuote", |s: String| -> String { posix_single_quote(&s) });
+    bind!("shellQuote", |s: String| -> String {
+        posix_single_quote(&s)
+    });
     bind!("shellQuoteFor", |s: String, platform: String| -> String {
         match platform.as_str() {
             "windows" => powershell_quote(&s),
             _ => posix_single_quote(&s),
         }
     });
-    bind!("writeTempFile",
-        |contents: String, suffix: Option<String>| -> Option<String> {
-            write_temp_file(&contents, suffix.as_deref())
-        });
+    bind!("writeTempFile", |contents: String,
+                            suffix: Option<String>|
+     -> Option<String> {
+        write_temp_file(&contents, suffix.as_deref())
+    });
 
     // ── Crypto helpers ──────────────────────────────────────────────
     // MD5 hex digest of a string. Use case: cursor stores chats under
@@ -116,15 +135,19 @@ pub(super) fn install(ctx: &Ctx<'_>, manifest_json: Option<&str>) -> Result<(), 
         h.update(s.as_bytes());
         let digest = h.finalize();
         let mut out = String::with_capacity(32);
-        for b in digest { out.push_str(&format!("{b:02x}")); }
+        for b in digest {
+            out.push_str(&format!("{b:02x}"));
+        }
         out
     });
 
     // ── Sqlite (read-only) ──────────────────────────────────────────
-    bind!("sqliteQueryAllJson",
-        |db: String, sql: String, params_json: Option<String>| -> Option<String> {
-            sqlite_query_all_json(&db, &sql, params_json.as_deref())
-        });
+    bind!("sqliteQueryAllJson", |db: String,
+                                 sql: String,
+                                 params_json: Option<String>|
+     -> Option<String> {
+        sqlite_query_all_json(&db, &sql, params_json.as_deref())
+    });
 
     // ── Logging ─────────────────────────────────────────────────────
     bind!("log", |level: String, msg: String| {
@@ -158,7 +181,10 @@ fn read_dir_json(path: &str) -> Option<String> {
     let entries = std::fs::read_dir(path).ok()?;
     let mut out: Vec<serde_json::Value> = Vec::new();
     for e in entries.flatten() {
-        out.push(dir_entry_to_json(&e.path(), &e.file_name().to_string_lossy()));
+        out.push(dir_entry_to_json(
+            &e.path(),
+            &e.file_name().to_string_lossy(),
+        ));
     }
     serde_json::to_string(&out).ok()
 }
@@ -169,16 +195,13 @@ fn walk_dir_json(path: &str, max_depth: usize) -> Option<String> {
     serde_json::to_string(&out).ok()
 }
 
-fn walk_recursive(
-    path: &Path,
-    depth: usize,
-    max_depth: usize,
-    out: &mut Vec<serde_json::Value>,
-) {
+fn walk_recursive(path: &Path, depth: usize, max_depth: usize, out: &mut Vec<serde_json::Value>) {
     if depth > max_depth {
         return;
     }
-    let Ok(entries) = std::fs::read_dir(path) else { return };
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return;
+    };
     for e in entries.flatten() {
         let p = e.path();
         let name = e.file_name().to_string_lossy().into_owned();
@@ -260,11 +283,7 @@ fn write_temp_file(contents: &str, suffix: Option<&str>) -> Option<String> {
     Some(path.to_string_lossy().into_owned())
 }
 
-fn sqlite_query_all_json(
-    db_path: &str,
-    sql: &str,
-    params_json: Option<&str>,
-) -> Option<String> {
+fn sqlite_query_all_json(db_path: &str, sql: &str, params_json: Option<&str>) -> Option<String> {
     let params: Vec<serde_json::Value> = match params_json {
         Some(j) => serde_json::from_str(j).ok()?,
         None => Vec::new(),
@@ -308,7 +327,8 @@ fn sqlite_query_all_json(
         .query_map(rusqlite::params_from_iter(bound_refs), |row| {
             let mut obj = serde_json::Map::with_capacity(col_count);
             for i in 0..col_count {
-                let val: rusqlite::types::Value = row.get(i).unwrap_or(rusqlite::types::Value::Null);
+                let val: rusqlite::types::Value =
+                    row.get(i).unwrap_or(rusqlite::types::Value::Null);
                 let jv = match val {
                     rusqlite::types::Value::Null => serde_json::Value::Null,
                     rusqlite::types::Value::Integer(i) => serde_json::Value::from(i),
@@ -371,7 +391,10 @@ mod tests {
         );
         let p: Option<String> =
             crate::plugin::js_runtime::vm::call_json(&vm, "getHome", &[]).unwrap();
-        assert_eq!(p, dirs::home_dir().map(|p| p.to_string_lossy().into_owned()));
+        assert_eq!(
+            p,
+            dirs::home_dir().map(|p| p.to_string_lossy().into_owned())
+        );
     }
 
     #[test]
@@ -384,8 +407,7 @@ mod tests {
         "#,
         );
         let p: Option<String> =
-            crate::plugin::js_runtime::vm::call_json(&vm, "expand", &[json!("~/foo/bar")])
-                .unwrap();
+            crate::plugin::js_runtime::vm::call_json(&vm, "expand", &[json!("~/foo/bar")]).unwrap();
         if let Some(home) = dirs::home_dir() {
             assert_eq!(p, Some(home.join("foo/bar").to_string_lossy().into_owned()));
         }
@@ -495,7 +517,10 @@ mod tests {
         // depth=1 should see "a", and immediate children ("b","x.txt").
         assert!(names1.contains(&"a".into()));
         assert!(names1.contains(&"x.txt".into()));
-        assert!(!names1.contains(&"z.txt".into()), "depth=1 must not reach z.txt");
+        assert!(
+            !names1.contains(&"z.txt".into()),
+            "depth=1 must not reach z.txt"
+        );
 
         let names_deep: Vec<String> =
             crate::plugin::js_runtime::vm::call_json(&vm, "walk", &[json!(path), json!(5)])
@@ -512,12 +537,8 @@ mod tests {
             };
         "#,
         );
-        let out: String = crate::plugin::js_runtime::vm::call_json(
-            &vm,
-            "q",
-            &[json!("don't")],
-        )
-        .unwrap();
+        let out: String =
+            crate::plugin::js_runtime::vm::call_json(&vm, "q", &[json!("don't")]).unwrap();
         assert_eq!(out, "'don'\\''t'");
     }
 
@@ -530,12 +551,8 @@ mod tests {
             };
         "#,
         );
-        let out: String = crate::plugin::js_runtime::vm::call_json(
-            &vm,
-            "q",
-            &[json!("can't")],
-        )
-        .unwrap();
+        let out: String =
+            crate::plugin::js_runtime::vm::call_json(&vm, "q", &[json!("can't")]).unwrap();
         assert_eq!(out, "'can''t'");
     }
 
@@ -548,12 +565,9 @@ mod tests {
             };
         "#,
         );
-        let path: Option<String> = crate::plugin::js_runtime::vm::call_json(
-            &vm,
-            "mk",
-            &[json!("payload payload")],
-        )
-        .unwrap();
+        let path: Option<String> =
+            crate::plugin::js_runtime::vm::call_json(&vm, "mk", &[json!("payload payload")])
+                .unwrap();
         let path = path.unwrap();
         assert!(path.ends_with(".task.txt"));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "payload payload");
@@ -629,8 +643,7 @@ mod tests {
             };
         "#,
         );
-        let r: Option<String> =
-            crate::plugin::js_runtime::vm::call_json(&vm, "run", &[]).unwrap();
+        let r: Option<String> = crate::plugin::js_runtime::vm::call_json(&vm, "run", &[]).unwrap();
         assert_eq!(r, None);
     }
 
@@ -644,9 +657,10 @@ mod tests {
         "#,
         );
         let p1: String = crate::plugin::js_runtime::vm::call_json(&vm, "go", &[]).unwrap();
-        vm.reload(r#"module.exports.default = { go() { return host.platform() + "!"; } };"#
-            .to_string())
-            .unwrap();
+        vm.reload(
+            r#"module.exports.default = { go() { return host.platform() + "!"; } };"#.to_string(),
+        )
+        .unwrap();
         let p2: String = crate::plugin::js_runtime::vm::call_json(&vm, "go", &[]).unwrap();
         assert_eq!(p2, format!("{p1}!"));
     }

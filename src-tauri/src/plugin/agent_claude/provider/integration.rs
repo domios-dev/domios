@@ -29,38 +29,48 @@ fn claude_rule_path() -> Result<std::path::PathBuf, String> {
 /// True when a hook entry was installed by CodeTerm at any version — used on
 /// install to REMOVE stale entries before writing the current ones.
 fn is_codeterm_hook(hook_entry: &Json) -> bool {
-    hook_entry.get("hooks").and_then(|hs| hs.as_array())
-        .map(|hs| hs.iter().any(|h| {
-            if let Some(source) = h.get("_source").and_then(|s| s.as_str()) {
-                if source.starts_with("codeterm-hook") || source == "codeterm" {
-                    return true;
+    hook_entry
+        .get("hooks")
+        .and_then(|hs| hs.as_array())
+        .map(|hs| {
+            hs.iter().any(|h| {
+                if let Some(source) = h.get("_source").and_then(|s| s.as_str()) {
+                    if source.starts_with("codeterm-hook") || source == "codeterm" {
+                        return true;
+                    }
                 }
-            }
-            h.get("command").and_then(|c| c.as_str())
-                .map(|cmd| {
-                    let is_codeterm_url = cmd.contains("7685") || cmd.contains("7686");
-                    let is_codeterm_path = cmd.contains("/api/notifications")
-                        || cmd.contains("/api/panes/")
-                        || cmd.contains("/hook/permission")
-                        || cmd.contains("/hook/stop")
-                        || cmd.contains("/hook/session_start")
-                        || cmd.contains("/api/mem/flush");
-                    is_codeterm_url && is_codeterm_path
-                })
-                .unwrap_or(false)
-        }))
+                h.get("command")
+                    .and_then(|c| c.as_str())
+                    .map(|cmd| {
+                        let is_codeterm_url = cmd.contains("7685") || cmd.contains("7686");
+                        let is_codeterm_path = cmd.contains("/api/notifications")
+                            || cmd.contains("/api/panes/")
+                            || cmd.contains("/hook/permission")
+                            || cmd.contains("/hook/stop")
+                            || cmd.contains("/hook/session_start")
+                            || cmd.contains("/api/mem/flush");
+                        is_codeterm_url && is_codeterm_path
+                    })
+                    .unwrap_or(false)
+            })
+        })
         .unwrap_or(false)
 }
 
 /// True only when the hook matches the CURRENT installer output. Drives
 /// the `hooks_installed` bit so we force-upgrade stale pre-v2 entries.
 fn is_current_codeterm_hook(hook_entry: &Json) -> bool {
-    hook_entry.get("hooks").and_then(|hs| hs.as_array())
-        .map(|hs| hs.iter().any(|h| {
-            h.get("_source").and_then(|s| s.as_str())
-                .map(|src| src == CODETERM_HOOK_MARKER)
-                .unwrap_or(false)
-        }))
+    hook_entry
+        .get("hooks")
+        .and_then(|hs| hs.as_array())
+        .map(|hs| {
+            hs.iter().any(|h| {
+                h.get("_source")
+                    .and_then(|s| s.as_str())
+                    .map(|src| src == CODETERM_HOOK_MARKER)
+                    .unwrap_or(false)
+            })
+        })
         .unwrap_or(false)
 }
 
@@ -96,19 +106,23 @@ pub fn check_integration() -> Json {
         return serde_json::json!({ "settings_exists": true, "hooks_installed": false });
     };
 
-    let notification_hook = json.pointer("/hooks/Notification")
+    let notification_hook = json
+        .pointer("/hooks/Notification")
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
-    let stop_hook = json.pointer("/hooks/Stop")
+    let stop_hook = json
+        .pointer("/hooks/Stop")
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
-    let precompact_hook = json.pointer("/hooks/PreCompact")
+    let precompact_hook = json
+        .pointer("/hooks/PreCompact")
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
-    let session_start_hook = json.pointer("/hooks/SessionStart")
+    let session_start_hook = json
+        .pointer("/hooks/SessionStart")
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
@@ -195,7 +209,8 @@ pub fn install_integration(api_port: u16) -> Result<(), String> {
         }]
     });
 
-    let hooks = json["hooks"].as_object_mut()
+    let hooks = json["hooks"]
+        .as_object_mut()
         .ok_or("hooks is not an object")?;
 
     for key in &["Notification", "Stop", "PreCompact", "SessionStart"] {
@@ -207,7 +222,10 @@ pub fn install_integration(api_port: u16) -> Result<(), String> {
     if !hooks.contains_key("Notification") {
         hooks.insert("Notification".into(), serde_json::json!([]));
     }
-    hooks["Notification"].as_array_mut().unwrap().push(notif_hook);
+    hooks["Notification"]
+        .as_array_mut()
+        .unwrap()
+        .push(notif_hook);
     if !hooks.contains_key("Stop") {
         hooks.insert("Stop".into(), serde_json::json!([]));
     }
@@ -215,11 +233,17 @@ pub fn install_integration(api_port: u16) -> Result<(), String> {
     if !hooks.contains_key("PreCompact") {
         hooks.insert("PreCompact".into(), serde_json::json!([]));
     }
-    hooks["PreCompact"].as_array_mut().unwrap().push(precompact_hook);
+    hooks["PreCompact"]
+        .as_array_mut()
+        .unwrap()
+        .push(precompact_hook);
     if !hooks.contains_key("SessionStart") {
         hooks.insert("SessionStart".into(), serde_json::json!([]));
     }
-    hooks["SessionStart"].as_array_mut().unwrap().push(session_start_hook);
+    hooks["SessionStart"]
+        .as_array_mut()
+        .unwrap()
+        .push(session_start_hook);
 
     let pretty = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
     std::fs::write(&path, pretty).map_err(|e| e.to_string())?;
@@ -229,7 +253,9 @@ pub fn install_integration(api_port: u16) -> Result<(), String> {
 
 pub fn uninstall_integration() -> Result<(), String> {
     let path = claude_settings_path()?;
-    if !path.exists() { return Ok(()); }
+    if !path.exists() {
+        return Ok(());
+    }
 
     let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let mut json: Json = serde_json::from_str(&content)
@@ -251,7 +277,10 @@ pub fn uninstall_integration() -> Result<(), String> {
 
 pub fn ensure_integration_on_startup(api_port: u16) {
     let status = check_integration();
-    let already = status.get("hooks_installed").and_then(|v| v.as_bool()).unwrap_or(false);
+    let already = status
+        .get("hooks_installed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if already {
         log::debug!("[agent-claude] hooks already installed");
         return;

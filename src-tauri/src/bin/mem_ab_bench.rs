@@ -10,8 +10,8 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use codeterm_lib::mem::{MemManager, SearchQuery};
 use codeterm_lib::mem::search::SearchConfig;
+use codeterm_lib::mem::{MemManager, SearchQuery};
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
@@ -72,8 +72,15 @@ fn load_cases() -> Vec<TestCase> {
 
 fn check_hit(item: &codeterm_lib::mem::MemItem, expect: &[String]) -> bool {
     let hay = format!("{} {}", item.title.to_lowercase(), item.body.to_lowercase());
-    let matches: usize = expect.iter().filter(|w| hay.contains(&w.to_lowercase())).count();
-    if expect.len() <= 2 { matches >= 1 } else { matches >= 2 }
+    let matches: usize = expect
+        .iter()
+        .filter(|w| hay.contains(&w.to_lowercase()))
+        .count();
+    if expect.len() <= 2 {
+        matches >= 1
+    } else {
+        matches >= 2
+    }
 }
 
 fn run_variant(name: &str, mgr: &MemManager, cases: &[TestCase], cfg: &SearchConfig) {
@@ -82,7 +89,8 @@ fn run_variant(name: &str, mgr: &MemManager, cases: &[TestCase], cfg: &SearchCon
     let mut hits_at_5 = 0;
     let mut mrr = 0.0;
     let mut latencies: Vec<u128> = Vec::new();
-    let mut cat_stats: std::collections::BTreeMap<String, (usize, usize)> = std::collections::BTreeMap::new();
+    let mut cat_stats: std::collections::BTreeMap<String, (usize, usize)> =
+        std::collections::BTreeMap::new();
 
     for tc in cases {
         let q = SearchQuery {
@@ -109,9 +117,15 @@ fn run_variant(name: &str, mgr: &MemManager, cases: &[TestCase], cfg: &SearchCon
         if let Some(r) = rank_hit {
             entry.0 += 1;
             mrr += 1.0 / r as f64;
-            if r == 1 { hits_at_1 += 1; }
-            if r <= 3 { hits_at_3 += 1; }
-            if r <= 5 { hits_at_5 += 1; }
+            if r == 1 {
+                hits_at_1 += 1;
+            }
+            if r <= 3 {
+                hits_at_3 += 1;
+            }
+            if r <= 5 {
+                hits_at_5 += 1;
+            }
         }
     }
 
@@ -119,12 +133,34 @@ fn run_variant(name: &str, mgr: &MemManager, cases: &[TestCase], cfg: &SearchCon
     let p50 = percentile(&latencies, 50);
     let p95 = percentile(&latencies, 95);
 
-    println!("┌─ {} ─────────────────────────────────────────────────", name);
-    println!("│ Recall@1  = {:.1}% ({}/{})", 100.0 * hits_at_1 as f64 / total, hits_at_1, cases.len());
-    println!("│ Recall@3  = {:.1}% ({}/{})", 100.0 * hits_at_3 as f64 / total, hits_at_3, cases.len());
-    println!("│ Recall@5  = {:.1}% ({}/{})", 100.0 * hits_at_5 as f64 / total, hits_at_5, cases.len());
+    println!(
+        "┌─ {} ─────────────────────────────────────────────────",
+        name
+    );
+    println!(
+        "│ Recall@1  = {:.1}% ({}/{})",
+        100.0 * hits_at_1 as f64 / total,
+        hits_at_1,
+        cases.len()
+    );
+    println!(
+        "│ Recall@3  = {:.1}% ({}/{})",
+        100.0 * hits_at_3 as f64 / total,
+        hits_at_3,
+        cases.len()
+    );
+    println!(
+        "│ Recall@5  = {:.1}% ({}/{})",
+        100.0 * hits_at_5 as f64 / total,
+        hits_at_5,
+        cases.len()
+    );
     println!("│ MRR       = {:.3}", mrr / total);
-    println!("│ p50/p95   = {:.1}ms / {:.1}ms", p50 as f64 / 1000.0, p95 as f64 / 1000.0);
+    println!(
+        "│ p50/p95   = {:.1}ms / {:.1}ms",
+        p50 as f64 / 1000.0,
+        p95 as f64 / 1000.0
+    );
     print!("│ by cat:");
     for (cat, (pass, total)) in &cat_stats {
         print!(" {}={}/{}", cat, pass, total);
@@ -134,7 +170,9 @@ fn run_variant(name: &str, mgr: &MemManager, cases: &[TestCase], cfg: &SearchCon
 }
 
 fn percentile(v: &[u128], p: usize) -> u128 {
-    if v.is_empty() { return 0; }
+    if v.is_empty() {
+        return 0;
+    }
     let mut s = v.to_vec();
     s.sort();
     let idx = (s.len() * p / 100).min(s.len() - 1);
@@ -152,44 +190,189 @@ fn main() {
         });
 
     println!("Loading mem from: {}", data_dir.display());
-    let mgr = MemManager::open_offline(&data_dir)
-        .expect("open mem manager");
+    let mgr = MemManager::open_offline(&data_dir).expect("open mem manager");
 
     let cases = load_cases();
     println!("Running {} queries across variants...\n", cases.len());
 
     let variants: Vec<(&str, SearchConfig)> = vec![
         ("BASELINE (current defaults)", SearchConfig::default()),
-        ("A: RRF k=20 (top-1 dominates more)", SearchConfig { rrf_k: 20.0, ..Default::default() }),
-        ("B: drop stop-words from FTS query", SearchConfig { fts_drop_stopwords: true, ..Default::default() }),
-        ("C: softer auto-extracted penalty (0.8)", SearchConfig { auto_extracted_penalty: 0.8, ..Default::default() }),
-        ("D: higher recurrence cap (0.5)", SearchConfig { recurrence_cap: 0.5, ..Default::default() }),
-        ("E: ALL COMBINED (k=20 + drop stops + 0.8 extracted + 0.5 recurrence)", SearchConfig {
-            rrf_k: 20.0,
-            auto_extracted_penalty: 0.8,
-            recurrence_cap: 0.5,
-            fts_drop_stopwords: true,
-            ..Default::default()
-        }),
-        ("F: stronger keyword overlap (0.5)", SearchConfig { keyword_overlap_weight: 0.5, ..Default::default() }),
-        ("G: title match bonus 0.2", SearchConfig { title_match_bonus: 0.2, ..Default::default() }),
-        ("H: title match bonus 0.4", SearchConfig { title_match_bonus: 0.4, ..Default::default() }),
-        ("I: title match bonus 0.6", SearchConfig { title_match_bonus: 0.6, ..Default::default() }),
-        ("I2: title match bonus 0.8", SearchConfig { title_match_bonus: 0.8, ..Default::default() }),
-        ("I2b: title match bonus 0.85", SearchConfig { title_match_bonus: 0.85, ..Default::default() }),
-        ("I2c: title match bonus 0.9", SearchConfig { title_match_bonus: 0.9, ..Default::default() }),
-        ("I2d: title match bonus 0.95", SearchConfig { title_match_bonus: 0.95, ..Default::default() }),
-        ("I3: title match bonus 1.0", SearchConfig { title_match_bonus: 1.0, ..Default::default() }),
-        ("J: k=20 + title bonus 0.6", SearchConfig { rrf_k: 20.0, title_match_bonus: 0.6, ..Default::default() }),
-        ("GR1: graph boost 1.3", SearchConfig { graph_entity_boost: 1.3, ..Default::default() }),
-        ("GR2: graph boost 1.5", SearchConfig { graph_entity_boost: 1.5, ..Default::default() }),
-        ("GR3: graph boost 2.0", SearchConfig { graph_entity_boost: 2.0, ..Default::default() }),
-        ("GR4: graph boost 3.0", SearchConfig { graph_entity_boost: 3.0, ..Default::default() }),
-        ("GR5: title=0 + graph 2.0 (graph-only)", SearchConfig { title_match_bonus: 0.0, graph_entity_boost: 2.0, ..Default::default() }),
-        ("GR6: title=0.6 + graph 1.5 (combined mild)", SearchConfig { title_match_bonus: 0.6, graph_entity_boost: 1.5, ..Default::default() }),
-        ("GR7: graph as RRF source (title=1.0)", SearchConfig { graph_as_rrf_source: true, ..Default::default() }),
-        ("GR8: graph as RRF source + title=0", SearchConfig { title_match_bonus: 0.0, graph_as_rrf_source: true, ..Default::default() }),
-        ("GR9: graph as RRF source + title=0.6", SearchConfig { title_match_bonus: 0.6, graph_as_rrf_source: true, ..Default::default() }),
+        (
+            "A: RRF k=20 (top-1 dominates more)",
+            SearchConfig {
+                rrf_k: 20.0,
+                ..Default::default()
+            },
+        ),
+        (
+            "B: drop stop-words from FTS query",
+            SearchConfig {
+                fts_drop_stopwords: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "C: softer auto-extracted penalty (0.8)",
+            SearchConfig {
+                auto_extracted_penalty: 0.8,
+                ..Default::default()
+            },
+        ),
+        (
+            "D: higher recurrence cap (0.5)",
+            SearchConfig {
+                recurrence_cap: 0.5,
+                ..Default::default()
+            },
+        ),
+        (
+            "E: ALL COMBINED (k=20 + drop stops + 0.8 extracted + 0.5 recurrence)",
+            SearchConfig {
+                rrf_k: 20.0,
+                auto_extracted_penalty: 0.8,
+                recurrence_cap: 0.5,
+                fts_drop_stopwords: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "F: stronger keyword overlap (0.5)",
+            SearchConfig {
+                keyword_overlap_weight: 0.5,
+                ..Default::default()
+            },
+        ),
+        (
+            "G: title match bonus 0.2",
+            SearchConfig {
+                title_match_bonus: 0.2,
+                ..Default::default()
+            },
+        ),
+        (
+            "H: title match bonus 0.4",
+            SearchConfig {
+                title_match_bonus: 0.4,
+                ..Default::default()
+            },
+        ),
+        (
+            "I: title match bonus 0.6",
+            SearchConfig {
+                title_match_bonus: 0.6,
+                ..Default::default()
+            },
+        ),
+        (
+            "I2: title match bonus 0.8",
+            SearchConfig {
+                title_match_bonus: 0.8,
+                ..Default::default()
+            },
+        ),
+        (
+            "I2b: title match bonus 0.85",
+            SearchConfig {
+                title_match_bonus: 0.85,
+                ..Default::default()
+            },
+        ),
+        (
+            "I2c: title match bonus 0.9",
+            SearchConfig {
+                title_match_bonus: 0.9,
+                ..Default::default()
+            },
+        ),
+        (
+            "I2d: title match bonus 0.95",
+            SearchConfig {
+                title_match_bonus: 0.95,
+                ..Default::default()
+            },
+        ),
+        (
+            "I3: title match bonus 1.0",
+            SearchConfig {
+                title_match_bonus: 1.0,
+                ..Default::default()
+            },
+        ),
+        (
+            "J: k=20 + title bonus 0.6",
+            SearchConfig {
+                rrf_k: 20.0,
+                title_match_bonus: 0.6,
+                ..Default::default()
+            },
+        ),
+        (
+            "GR1: graph boost 1.3",
+            SearchConfig {
+                graph_entity_boost: 1.3,
+                ..Default::default()
+            },
+        ),
+        (
+            "GR2: graph boost 1.5",
+            SearchConfig {
+                graph_entity_boost: 1.5,
+                ..Default::default()
+            },
+        ),
+        (
+            "GR3: graph boost 2.0",
+            SearchConfig {
+                graph_entity_boost: 2.0,
+                ..Default::default()
+            },
+        ),
+        (
+            "GR4: graph boost 3.0",
+            SearchConfig {
+                graph_entity_boost: 3.0,
+                ..Default::default()
+            },
+        ),
+        (
+            "GR5: title=0 + graph 2.0 (graph-only)",
+            SearchConfig {
+                title_match_bonus: 0.0,
+                graph_entity_boost: 2.0,
+                ..Default::default()
+            },
+        ),
+        (
+            "GR6: title=0.6 + graph 1.5 (combined mild)",
+            SearchConfig {
+                title_match_bonus: 0.6,
+                graph_entity_boost: 1.5,
+                ..Default::default()
+            },
+        ),
+        (
+            "GR7: graph as RRF source (title=1.0)",
+            SearchConfig {
+                graph_as_rrf_source: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "GR8: graph as RRF source + title=0",
+            SearchConfig {
+                title_match_bonus: 0.0,
+                graph_as_rrf_source: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "GR9: graph as RRF source + title=0.6",
+            SearchConfig {
+                title_match_bonus: 0.6,
+                graph_as_rrf_source: true,
+                ..Default::default()
+            },
+        ),
     ];
 
     for (name, cfg) in &variants {

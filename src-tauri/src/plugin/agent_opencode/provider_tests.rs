@@ -180,7 +180,10 @@ fn opencode_describe_assembles_full_descriptor() {
     assert_eq!(desc.id, "opencode");
     assert_eq!(desc.display_name, "OpenCode");
     assert_eq!(desc.icon_hint.as_deref(), Some("◇"));
-    assert_eq!(desc.default_model.as_deref(), Some("anthropic/claude-opus-4-7"));
+    assert_eq!(
+        desc.default_model.as_deref(),
+        Some("anthropic/claude-opus-4-7")
+    );
     assert!(desc.preserves_context_on_resume);
     assert!(!desc.has_hooks);
     assert!(!desc.settings_schema.is_empty());
@@ -193,11 +196,16 @@ fn opencode_describe_omits_usage_tracking_section() {
     // `usage_parser().is_some()`, so this test pins that contract.
     let p = OpenCodeProvider::new();
     let desc = p.describe();
-    let has = desc.settings_schema.iter().any(|f| matches!(
-        f,
-        crate::agent::provider::SettingField::Section { title, .. } if title == "Usage Tracking"
-    ));
-    assert!(!has, "OpenCode has no usage_parser — Usage Tracking section must not appear");
+    let has = desc.settings_schema.iter().any(|f| {
+        matches!(
+            f,
+            crate::agent::provider::SettingField::Section { title, .. } if title == "Usage Tracking"
+        )
+    });
+    assert!(
+        !has,
+        "OpenCode has no usage_parser — Usage Tracking section must not appear"
+    );
 }
 
 #[test]
@@ -239,7 +247,10 @@ fn opencode_does_not_contribute_notifications_card() {
 #[test]
 fn opencode_default_model_is_set() {
     let p = OpenCodeProvider::new();
-    assert_eq!(p.default_model().as_deref(), Some("anthropic/claude-opus-4-7"));
+    assert_eq!(
+        p.default_model().as_deref(),
+        Some("anthropic/claude-opus-4-7")
+    );
 }
 
 #[test]
@@ -252,7 +263,11 @@ fn opencode_models_returns_non_empty_list_via_live_or_fallback() {
     assert!(!models.is_empty(), "available_models must never be empty");
     // Every entry must be a proper provider/model pair.
     for m in &models {
-        assert!(m.id.contains('/'), "model id without provider prefix: {}", m.id);
+        assert!(
+            m.id.contains('/'),
+            "model id without provider prefix: {}",
+            m.id
+        );
     }
 }
 
@@ -275,19 +290,31 @@ fn prettify_model_id_humanises_known_providers() {
         prettify_model_id("github-copilot/gpt-5-mini"),
         "GitHub Copilot · Gpt 5 Mini"
     );
-    assert_eq!(prettify_model_id("opencode/big-pickle"), "OpenCode · Big Pickle");
+    assert_eq!(
+        prettify_model_id("opencode/big-pickle"),
+        "OpenCode · Big Pickle"
+    );
     // Unknown provider — keep the raw segment so we don't lose info.
-    assert_eq!(prettify_model_id("zoinks/super-fast"), "zoinks · Super Fast");
+    assert_eq!(
+        prettify_model_id("zoinks/super-fast"),
+        "zoinks · Super Fast"
+    );
     // Bare id without slash — return as-is, capitalised.
     assert_eq!(prettify_model_id("just-a-name"), "Just A Name");
 }
 
 #[test]
 fn opencode_meta_filter_known_injections() {
-    assert!(is_codeterm_injection("# AGENTS.md instructions for /Users/x"));
+    assert!(is_codeterm_injection(
+        "# AGENTS.md instructions for /Users/x"
+    ));
     assert!(is_codeterm_injection("<INSTRUCTIONS>\nYou are..."));
-    assert!(is_codeterm_injection("<environment_context>\n  <cwd>/x</cwd>"));
-    assert!(is_codeterm_injection("You are the General Agent — the always-on system brain"));
+    assert!(is_codeterm_injection(
+        "<environment_context>\n  <cwd>/x</cwd>"
+    ));
+    assert!(is_codeterm_injection(
+        "You are the General Agent — the always-on system brain"
+    ));
     assert!(!is_codeterm_injection("fix the bug in parser.rs"));
     assert!(!is_codeterm_injection("# TODO\n- ship v2"));
 }
@@ -310,7 +337,9 @@ fn opencode_does_not_claim_codex_permission_output() {
     let p = OpenCodeProvider::new();
     // Codex permission prompts — must NOT be claimed by opencode.
     assert!(!p.detect_from_output("Would you like to run the following command?\n$ ls -la"));
-    assert!(!p.detect_from_output("Would you like to make the following edits?\ndiff --git a/x b/x"));
+    assert!(
+        !p.detect_from_output("Would you like to make the following edits?\ndiff --git a/x b/x")
+    );
     assert!(!p.detect_from_output("Would you like to grant these permissions?\n  codex>"));
 }
 
@@ -336,8 +365,10 @@ fn opencode_approve_alone_does_not_fire() {
     let mixed = "opencode v0.3.0\nDo you want to approve network access to api.example.com?";
     // This used to fire opencode (via "approve" clause) AND codex simultaneously,
     // causing non-deterministic tab labeling. opencode must not claim this.
-    assert!(!p.detect_from_output(mixed),
-        "opencode must not claim 'approve network access' — that is codex's phrase");
+    assert!(
+        !p.detect_from_output(mixed),
+        "opencode must not claim 'approve network access' — that is codex's phrase"
+    );
 }
 
 #[test]

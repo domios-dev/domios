@@ -257,10 +257,7 @@ mod tests {
         write(&d2.join("plugin.json"), &min_manifest("shared"));
         write(&d2.join("plugin.js"), &min_plugin_js("v2"));
 
-        let (providers, _) = scan_roots(&[
-            r1.path().to_path_buf(),
-            r2.path().to_path_buf(),
-        ]);
+        let (providers, _) = scan_roots(&[r1.path().to_path_buf(), r2.path().to_path_buf()]);
         assert_eq!(providers.len(), 1);
         assert!(
             providers[0].detect_from_title("v2 something"),
@@ -300,7 +297,10 @@ mod tests {
     #[test]
     fn default_roots_includes_user_dir() {
         let roots = default_roots(Some(Path::new("/repo")));
-        assert!(roots.iter().any(|p| p.ends_with("plugins")), "workspace root");
+        assert!(
+            roots.iter().any(|p| p.ends_with("plugins")),
+            "workspace root"
+        );
         if let Some(home) = dirs::home_dir() {
             assert!(roots
                 .iter()
@@ -343,22 +343,21 @@ mod tests {
 
         // Case 2: system id with custom content → Unverified. Skipped
         // if the table is empty (cargo-publish edge case).
-        if let Some((sys_id, _)) =
-            crate::plugin::system_plugins::SYSTEM_PLUGIN_HASHES.first()
-        {
+        if let Some((sys_id, _)) = crate::plugin::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
             let root = tempfile::tempdir().unwrap();
             let dir = root.path().join(*sys_id);
             write(&dir.join("plugin.json"), &min_manifest(sys_id));
-            write(&dir.join("plugin.js"), "module.exports.default = { tampered: true };");
+            write(
+                &dir.join("plugin.js"),
+                "module.exports.default = { tampered: true };",
+            );
             let p = load_one(&dir.join("plugin.json")).unwrap();
             assert_eq!(p.trust(), ProviderTrust::Unverified, "case 2");
         }
 
         // Case 3: CODETERM_DEV=1 forces ThirdParty even for system id.
         unsafe { std::env::set_var("CODETERM_DEV", "1") };
-        if let Some((sys_id, _)) =
-            crate::plugin::system_plugins::SYSTEM_PLUGIN_HASHES.first()
-        {
+        if let Some((sys_id, _)) = crate::plugin::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
             let root = tempfile::tempdir().unwrap();
             let dir = root.path().join(*sys_id);
             write(&dir.join("plugin.json"), &min_manifest(sys_id));

@@ -34,7 +34,9 @@ impl DeltaSink for Collector {
 fn wait_until<F: Fn() -> bool>(deadline_ms: u64, f: F) -> bool {
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_millis(deadline_ms) {
-        if f() { return true; }
+        if f() {
+            return true;
+        }
         std::thread::sleep(Duration::from_millis(50));
     }
     false
@@ -77,8 +79,7 @@ fn registry_with_claude_at(sessions_root_dir: &std::path::Path) -> Arc<AgentRegi
     );
 
     let manifest: crate::plugin::js_runtime::PluginManifest =
-        serde_json::from_str(&manifest_json)
-            .expect("parse synthetic claude manifest");
+        serde_json::from_str(&manifest_json).expect("parse synthetic claude manifest");
 
     let vm = crate::plugin::js_runtime::PluginVm::from_source_with(
         "claude",
@@ -87,10 +88,7 @@ fn registry_with_claude_at(sessions_root_dir: &std::path::Path) -> Arc<AgentRegi
     )
     .expect("init claude VM for tailer test");
 
-    let provider = crate::plugin::js_runtime::JsProvider::new(
-        manifest,
-        Arc::new(vm),
-    );
+    let provider = crate::plugin::js_runtime::JsProvider::new(manifest, Arc::new(vm));
 
     let reg = AgentRegistry::new();
     reg.register_provider(Box::new(provider));
@@ -125,7 +123,9 @@ fn tailer_streams_new_messages_as_file_grows() {
 
     // Build registry with sessions.rootDir pointing at our tempdir.
     let registry = registry_with_claude_at(tmp.path());
-    let sink = Arc::new(Collector { msgs: Mutex::new(vec![]) });
+    let sink = Arc::new(Collector {
+        msgs: Mutex::new(vec![]),
+    });
     let handle = spawn_tailer(
         TailConfig {
             pane_id: "p1".into(),
@@ -175,17 +175,22 @@ fn tailer_streams_new_messages_as_file_grows() {
 fn tailer_skips_when_provider_returns_no_jsonl_path() {
     // Register a noop provider that doesn't implement session_jsonl_path.
     // The tailer thread should bail out cleanly without panicking.
-    use crate::agent::provider::{AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery};
+    use crate::agent::provider::{
+        AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,
+    };
 
     struct NoopProv;
     impl AgentProvider for NoopProv {
-        fn id(&self) -> &str { "noop" }
-        fn display_name(&self) -> &str { "Noop" }
-        fn binary_name(&self) -> &str { "noop" }
-        fn build_launch_command(
-            &self,
-            _: &AgentLaunchParams,
-        ) -> String {
+        fn id(&self) -> &str {
+            "noop"
+        }
+        fn display_name(&self) -> &str {
+            "Noop"
+        }
+        fn binary_name(&self) -> &str {
+            "noop"
+        }
+        fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
             String::new()
         }
         fn readiness_strategy(&self) -> ReadinessStrategy {
@@ -196,18 +201,21 @@ fn tailer_skips_when_provider_returns_no_jsonl_path() {
         fn task_delivery(&self) -> TaskDelivery {
             TaskDelivery::PtyInput
         }
-        fn detect_from_title(&self, _: &str) -> bool { false }
-        fn detect_from_output(&self, _: &str) -> bool { false }
-        fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> { None }
-        fn detect_session_id(
-            &self,
-            _: &str,
-            _: &[String],
-            _: Option<Duration>,
-        ) -> Option<String> {
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
             None
         }
-        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> { None }
+        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+            None
+        }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
         // session_jsonl_path uses the default impl → returns None.
     }
 
@@ -215,7 +223,9 @@ fn tailer_skips_when_provider_returns_no_jsonl_path() {
     reg.register_provider(Box::new(NoopProv));
     let reg = Arc::new(reg);
 
-    let sink = Arc::new(Collector { msgs: Mutex::new(vec![]) });
+    let sink = Arc::new(Collector {
+        msgs: Mutex::new(vec![]),
+    });
     let handle = spawn_tailer(
         TailConfig {
             pane_id: "p-noop".into(),
@@ -238,4 +248,61 @@ fn tailer_skips_when_provider_returns_no_jsonl_path() {
 
     // No messages should have been emitted.
     assert_eq!(sink.msgs.lock().len(), 0);
+}
+
+// Regression: dropping a TailerHandle must stop its polling thread. Without
+// the `Drop` impl, ChatRegistry::insert's idempotent-skip (and remount races)
+// leak orphan tailers that keep emitting — duplicating every chat message.
+#[test]
+fn dropping_handle_stops_the_raw_tailer() {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Counter {
+        n: AtomicUsize,
+    }
+    impl crate::service::pane_chat::RawTextSink for Counter {
+        fn emit(&self, _pane_id: &str, _text: String) {
+            self.n.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("s.jsonl");
+    std::fs::write(&path, b"line1\n").unwrap();
+
+    let counter = Arc::new(Counter { n: AtomicUsize::new(0) });
+    let sink: Arc<dyn crate::service::pane_chat::RawTextSink> = counter.clone();
+    let handle = crate::service::pane_chat::spawn_raw_tailer(
+        crate::service::pane_chat::RawTailConfig {
+            pane_id: "p".into(),
+            path: path.clone(),
+            start_offset: 0,
+            poll_interval: Duration::from_millis(40),
+        },
+        sink,
+    );
+
+    assert!(
+        wait_until(2000, || counter.n.load(Ordering::Relaxed) >= 1),
+        "tailer should emit the initial content"
+    );
+    let before = counter.n.load(Ordering::Relaxed);
+
+    // Drop the handle — its thread must stop, NOT keep polling.
+    drop(handle);
+    std::thread::sleep(Duration::from_millis(150));
+
+    // A live thread would pick this up; a stopped one won't.
+    {
+        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        f.write_all(b"line2\n").unwrap();
+    }
+    std::thread::sleep(Duration::from_millis(200));
+
+    assert_eq!(
+        counter.n.load(Ordering::Relaxed),
+        before,
+        "dropped tailer must stop emitting"
+    );
 }

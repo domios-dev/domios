@@ -64,6 +64,18 @@ impl TailerHandle {
     }
 }
 
+impl Drop for TailerHandle {
+    /// A dropped handle MUST stop its polling thread. `ChatRegistry::insert`
+    /// drops the losing handle on an idempotent skip, and remount churn
+    /// (StrictMode / HMR) can race two `chat_start`s; without this the loser's
+    /// thread keeps polling and emitting deltas, so every chat message is
+    /// appended once per orphaned tailer — the "same bubble repeated N times"
+    /// bug. Setting the flag (no join) lets the thread exit on its next poll.
+    fn drop(&mut self) {
+        self.stop_flag.store(true, Ordering::Release);
+    }
+}
+
 pub struct TailConfig {
     pub pane_id: String,
     pub provider_id: String,
@@ -110,7 +122,9 @@ pub fn spawn_tailer(
                     } else {
                         log::warn!(
                             "[pane_chat] no JSONL path for pane={} provider={} sid={}",
-                            cfg.pane_id, cfg.provider_id, cfg.session_id
+                            cfg.pane_id,
+                            cfg.provider_id,
+                            cfg.session_id
                         );
                     }
                     return;
@@ -119,7 +133,8 @@ pub fn spawn_tailer(
             if cached_path.as_ref() != Some(&path) {
                 log::info!(
                     "[pane_chat] pane={} tailing {}",
-                    cfg.pane_id, path.display()
+                    cfg.pane_id,
+                    path.display()
                 );
                 cached_path = Some(path.clone());
                 // TODO: future improvement — also re-fetch pane.agent_session_id
@@ -129,10 +144,7 @@ pub fn spawn_tailer(
             if !path.exists() {
                 missing_streak += 1;
                 if missing_streak > 10 {
-                    log::info!(
-                        "[pane_chat] giving up on {:?} (10 polls missing)",
-                        path
-                    );
+                    log::info!("[pane_chat] giving up on {:?} (10 polls missing)", path);
                     return;
                 }
                 thread::sleep(cfg.poll_interval);
@@ -144,9 +156,7 @@ pub fn spawn_tailer(
             // offset past chunks the plugin couldn't handle, so we
             // never busy-loop on broken bytes.
             let delta = registry
-                .with_provider(&cfg.provider_id, |p| {
-                    p.parse_session_delta(&path, from)
-                })
+                .with_provider(&cfg.provider_id, |p| p.parse_session_delta(&path, from))
                 .unwrap_or_else(|| crate::agent::chat_types::SessionDelta {
                     new_offset: from,
                     messages: vec![],
@@ -181,10 +191,7 @@ pub struct RawTailConfig {
     pub poll_interval: Duration,
 }
 
-pub fn spawn_raw_tailer(
-    cfg: RawTailConfig,
-    sink: Arc<dyn RawTextSink>,
-) -> TailerHandle {
+pub fn spawn_raw_tailer(cfg: RawTailConfig, sink: Arc<dyn RawTextSink>) -> TailerHandle {
     let stop_flag = Arc::new(AtomicBool::new(false));
     let offset = Arc::new(AtomicU64::new(cfg.start_offset));
 
@@ -193,7 +200,9 @@ pub fn spawn_raw_tailer(
     let join = thread::spawn(move || {
         let mut missing_streak = 0u32;
         loop {
-            if stop.load(Ordering::Acquire) { return; }
+            if stop.load(Ordering::Acquire) {
+                return;
+            }
             if !cfg.path.exists() {
                 missing_streak += 1;
                 if missing_streak > 10 {
@@ -207,7 +216,10 @@ pub fn spawn_raw_tailer(
             let from = off.load(Ordering::Acquire);
             let bytes = match std::fs::read(&cfg.path) {
                 Ok(b) => b,
-                Err(_) => { thread::sleep(cfg.poll_interval); continue; }
+                Err(_) => {
+                    thread::sleep(cfg.poll_interval);
+                    continue;
+                }
             };
             let total = bytes.len() as u64;
             if total > from {
@@ -224,7 +236,8 @@ pub fn spawn_raw_tailer(
                 // re-streams from byte 0 rather than spinning past EOF.
                 log::info!(
                     "[pane_chat.raw] file shrank ({} → {}); resetting offset",
-                    from, total
+                    from,
+                    total
                 );
                 off.store(0, Ordering::Release);
             }

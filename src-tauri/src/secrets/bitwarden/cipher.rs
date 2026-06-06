@@ -92,8 +92,10 @@ impl BitwardenStore {
             .run_with_session(vec!["list", "items", "--search", name], None)
             .await?;
         let items: Vec<BwCipher> =
-            serde_json::from_value(unwrap_data_envelope(data)).map_err(|e| SecretError::Backend {
-                message: format!("parse list: {}", e),
+            serde_json::from_value(unwrap_data_envelope(data)).map_err(|e| {
+                SecretError::Backend {
+                    message: format!("parse list: {}", e),
+                }
             })?;
         let exact: Vec<BwCipher> = items
             .into_iter()
@@ -108,13 +110,16 @@ impl BitwardenStore {
         }
     }
 
-    pub(super) async fn resolve_folder_id(&self, name: &str) -> Result<Option<String>, SecretError> {
+    pub(super) async fn resolve_folder_id(
+        &self,
+        name: &str,
+    ) -> Result<Option<String>, SecretError> {
         if name.is_empty() {
             return Ok(None);
         }
         let data = self.run_with_session(vec!["list", "folders"], None).await?;
-        let folders: Vec<serde_json::Value> =
-            serde_json::from_value(unwrap_data_envelope(data)).map_err(|e| SecretError::Backend {
+        let folders: Vec<serde_json::Value> = serde_json::from_value(unwrap_data_envelope(data))
+            .map_err(|e| SecretError::Backend {
                 message: format!("parse folders: {}", e),
             })?;
         Ok(folders

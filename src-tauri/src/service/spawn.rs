@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::ServiceContext;
 use super::orchestrator::{build_agent_command, launch_agent_in_background, SpawnAgentParams};
+use super::ServiceContext;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnPaneSpec {
@@ -165,9 +165,7 @@ impl ServiceContext {
             (PaneVisibility::Visible, PaneCommand::Agent(_)) => {
                 self.spawn_visible_agent_impl(spec, ready_tx)
             }
-            (PaneVisibility::Hidden, PaneCommand::Agent(_)) => {
-                self.spawn_hidden_agent_impl(spec)
-            }
+            (PaneVisibility::Hidden, PaneCommand::Agent(_)) => self.spawn_hidden_agent_impl(spec),
             (PaneVisibility::Visible, PaneCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (PaneVisibility::Hidden, PaneCommand::Shell) => self.spawn_hidden_shell_impl(spec),
         }
@@ -192,7 +190,11 @@ impl ServiceContext {
             agent.provider.clone()
         };
 
-        if self.agent_registry.with_provider(&agent_cmd, |_| ()).is_none() {
+        if self
+            .agent_registry
+            .with_provider(&agent_cmd, |_| ())
+            .is_none()
+        {
             let available = self.agent_registry.provider_ids().join(", ");
             return Err(format!(
                 "Unknown agent provider: '{}'. Available: [{}]",
@@ -272,7 +274,7 @@ impl ServiceContext {
         // create-tab lock so set_pane_role's full validation runs and
         // emits state changes; `can_spawn` is only forced when the caller
         // explicitly passed --can-spawn (Some), preserving role defaults
-        // (Orchestrator/Lead default true, Worker default false).
+        // (Orchestrator defaults true, Worker false).
         if let Some(ref role_str) = agent.role {
             if let Err(e) = self.set_pane_role(
                 &pane_id,
@@ -280,7 +282,12 @@ impl ServiceContext {
                 spec.parent_pane_id.as_deref(),
                 agent.can_spawn,
             ) {
-                log::warn!("[spawn] set_pane_role({}, {}) failed: {}", pane_id, role_str, e);
+                log::warn!(
+                    "[spawn] set_pane_role({}, {}) failed: {}",
+                    pane_id,
+                    role_str,
+                    e
+                );
             }
         }
         // Pin agent_type on the pane up-front. Codex/OpenCode TUIs don't emit
@@ -303,9 +310,12 @@ impl ServiceContext {
             };
             match agent.role.as_deref() {
                 Some("Worker") => format!("{}{}", preamble_wrapped, crate::prompts::WORKER_SUFFIX),
-                Some("Lead") => format!("{}{}", preamble_wrapped, crate::prompts::LEAD_SUFFIX),
                 Some("Orchestrator") => {
-                    format!("{}{}", preamble_wrapped, crate::prompts::ORCHESTRATOR_SUFFIX)
+                    format!(
+                        "{}{}",
+                        preamble_wrapped,
+                        crate::prompts::ORCHESTRATOR_SUFFIX
+                    )
                 }
                 _ => preamble_wrapped,
             }
@@ -592,7 +602,11 @@ impl ServiceContext {
             // session takes a while. Pick by intent: any worker whose intent
             // starts with "dreaming:" gets the dreaming-specific timeout.
             let mem_cfg = crate::config::memory_config();
-            let intent = self.workers.get(worker_id).map(|w| w.intent.clone()).unwrap_or_default();
+            let intent = self
+                .workers
+                .get(worker_id)
+                .map(|w| w.intent.clone())
+                .unwrap_or_default();
             let dreaming = crate::mem::workers::is_dreaming_intent(&intent);
             let timeout = if dreaming {
                 mem_cfg.dreaming_timeout_seconds
@@ -605,7 +619,10 @@ impl ServiceContext {
             // is_dreaming_intent didn't match.
             log::info!(
                 "[run-watcher] register worker={} intent='{}' dreaming={} timeout={}s",
-                worker_id, intent, dreaming, timeout
+                worker_id,
+                intent,
+                dreaming,
+                timeout
             );
             self.run_watcher.register(
                 self.clone(),

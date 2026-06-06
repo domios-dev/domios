@@ -1,14 +1,15 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::agent::provider::{
-    self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy, SessionMessage,
-    SessionMetadata, SettingField, TaskDelivery, UsageSnapshot, VerifySubmitStrategy,
-};
 use super::status_tui::CodexStatusUsageParser;
 use super::usage as codex_usage;
-use crate::shell::ShellSyntax;
+use crate::agent::provider::{
+    self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy,
+    SessionMessage, SessionMetadata, SettingField, TaskDelivery, UsageSnapshot,
+    VerifySubmitStrategy,
+};
 use crate::plugin::common::is_codeterm_injection;
+use crate::shell::ShellSyntax;
 
 static CODEX_STATUS_PARSER: CodexStatusUsageParser = CodexStatusUsageParser;
 
@@ -39,7 +40,9 @@ fn builtin_models() -> Vec<ModelInfo> {
         ModelInfo {
             id: "gpt-5.5".into(),
             display_name: "GPT-5.5".into(),
-            description: Some("Frontier model for complex coding, research, and real-world work.".into()),
+            description: Some(
+                "Frontier model for complex coding, research, and real-world work.".into(),
+            ),
         },
         ModelInfo {
             id: "gpt-5.4".into(),
@@ -49,7 +52,9 @@ fn builtin_models() -> Vec<ModelInfo> {
         ModelInfo {
             id: "gpt-5.4-mini".into(),
             display_name: "GPT-5.4 Mini".into(),
-            description: Some("Small, fast, and cost-efficient model for simpler coding tasks.".into()),
+            description: Some(
+                "Small, fast, and cost-efficient model for simpler coding tasks.".into(),
+            ),
         },
         ModelInfo {
             id: "gpt-5.3-codex".into(),
@@ -109,7 +114,6 @@ impl AgentProvider for CodexProvider {
         parts.join(" ")
     }
 
-
     fn readiness_strategy(&self) -> ReadinessStrategy {
         ReadinessStrategy::PollShellPrompt {
             timeout: Duration::from_secs(30),
@@ -155,7 +159,9 @@ impl AgentProvider for CodexProvider {
     fn screen_has_tui(&self, screen_text: &str) -> bool {
         // Banner is always visible at the top of any running Codex session.
         screen_text.contains("OpenAI Codex")
-            || screen_text.to_ascii_lowercase().contains("ctrl+c to cancel")
+            || screen_text
+                .to_ascii_lowercase()
+                .contains("ctrl+c to cancel")
     }
 
     fn session_file_path(&self, _cwd: &str, session_id: &str) -> Option<PathBuf> {
@@ -177,10 +183,14 @@ impl AgentProvider for CodexProvider {
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
-        let Some(root) = Self::sessions_root() else { return Vec::new(); };
+        let Some(root) = Self::sessions_root() else {
+            return Vec::new();
+        };
         let mut out = Vec::new();
         walk_jsonl_recursive(&root, 0, &mut |path| {
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { return };
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                return;
+            };
             let fallback_uuid = extract_session_uuid(stem).map(String::from);
 
             // First line carries session_meta with the authoritative id + cwd.
@@ -191,8 +201,12 @@ impl AgentProvider for CodexProvider {
             let Some(session_id) = session_id else { return };
 
             let meta = std::fs::metadata(path).ok();
-            let created_ts = meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.created().ok()));
-            let modified_ts = meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.modified().ok()));
+            let created_ts = meta
+                .as_ref()
+                .and_then(|m| provider::fs_time_to_unix(m.created().ok()));
+            let modified_ts = meta
+                .as_ref()
+                .and_then(|m| provider::fs_time_to_unix(m.modified().ok()));
 
             out.push(SessionMetadata {
                 session_id,
@@ -212,14 +226,18 @@ impl AgentProvider for CodexProvider {
 
     fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
         use std::io::{BufRead, BufReader};
-        let Ok(f) = std::fs::File::open(file_path) else { return Vec::new() };
+        let Ok(f) = std::fs::File::open(file_path) else {
+            return Vec::new();
+        };
         let reader = BufReader::new(f);
         let mut out = Vec::new();
         for line in reader.lines().map_while(Result::ok) {
             if line.is_empty() {
                 continue;
             }
-            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
             if v.get("type").and_then(|t| t.as_str()) != Some("response_item") {
                 continue;
             }
@@ -269,7 +287,12 @@ impl AgentProvider for CodexProvider {
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.timestamp());
 
-            out.push(SessionMessage { role, text, ts, is_meta });
+            out.push(SessionMessage {
+                role,
+                text,
+                ts,
+                is_meta,
+            });
         }
         out
     }
@@ -297,7 +320,9 @@ impl AgentProvider for CodexProvider {
 
         sessions.sort_by(|a, b| b.1.cmp(&a.1));
         // Return UUID extracted from the stem (codex resume expects UUID, not filename)
-        sessions.first().and_then(|(stem, _)| extract_session_uuid(stem).map(|s| s.to_string()))
+        sessions
+            .first()
+            .and_then(|(stem, _)| extract_session_uuid(stem).map(|s| s.to_string()))
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
@@ -322,7 +347,8 @@ impl AgentProvider for CodexProvider {
     fn is_output_noise(&self, text: &str) -> bool {
         let t = text.trim();
         t.is_empty()
-            || t.chars().all(|c| c == '─' || c == '━' || c == '═' || c.is_whitespace())
+            || t.chars()
+                .all(|c| c == '─' || c == '━' || c == '═' || c.is_whitespace())
     }
 
     fn auto_approve_flags(&self) -> Vec<String> {
@@ -474,7 +500,15 @@ fn collect_jsonl_files(
         };
 
         if ft.is_dir() && depth < 4 {
-            collect_jsonl_files(&entry.path(), sessions, now, recency_limit, exclude, cwd_filter, depth + 1);
+            collect_jsonl_files(
+                &entry.path(),
+                sessions,
+                now,
+                recency_limit,
+                exclude,
+                cwd_filter,
+                depth + 1,
+            );
             continue;
         }
 
@@ -514,18 +548,31 @@ fn collect_jsonl_files(
 
 fn rollout_cwd_matches(path: &std::path::Path, cwd: &str) -> bool {
     use std::io::{BufRead, BufReader};
-    let Ok(file) = std::fs::File::open(path) else { return false };
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
     let mut reader = BufReader::new(file);
     let mut line = String::new();
-    if reader.read_line(&mut line).ok().filter(|n| *n > 0).is_none() {
+    if reader
+        .read_line(&mut line)
+        .ok()
+        .filter(|n| *n > 0)
+        .is_none()
+    {
         return false;
     }
-    let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) else { return false };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) else {
+        return false;
+    };
     let kind = val.get("type").and_then(|v| v.as_str()).unwrap_or_default();
     if kind != "session_meta" {
         return false;
     }
-    let recorded = match val.get("payload").and_then(|p| p.get("cwd")).and_then(|c| c.as_str()) {
+    let recorded = match val
+        .get("payload")
+        .and_then(|p| p.get("cwd"))
+        .and_then(|c| c.as_str())
+    {
         Some(s) => s,
         None => return false,
     };
@@ -580,15 +627,15 @@ fn walk_jsonl_recursive(dir: &std::path::Path, depth: u8, visit: &mut dyn FnMut(
     if depth > 5 {
         return;
     }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.filter_map(|e| e.ok()) {
         let Ok(ft) = entry.file_type() else { continue };
         let path = entry.path();
         if ft.is_dir() {
             walk_jsonl_recursive(&path, depth + 1, visit);
-        } else if ft.is_file()
-            && path.extension().and_then(|e| e.to_str()) == Some("jsonl")
-        {
+        } else if ft.is_file() && path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
             visit(&path);
         }
     }
@@ -608,10 +655,12 @@ fn read_session_meta(path: &std::path::Path) -> Option<(Option<String>, Option<S
     }
     let payload = v.get("payload")?;
     let id = payload.get("id").and_then(|s| s.as_str()).map(String::from);
-    let cwd = payload.get("cwd").and_then(|s| s.as_str()).map(String::from);
+    let cwd = payload
+        .get("cwd")
+        .and_then(|s| s.as_str())
+        .map(String::from);
     Some((id, cwd))
 }
-
 
 /// Tail-scan a codex jsonl for the latest `turn_context.payload.model`.
 /// Codex writes a fresh turn_context every interaction, so the last one is
@@ -620,20 +669,35 @@ fn scan_tail_for_model(path: &std::path::Path, tail_bytes: u64) -> Option<String
     use std::io::{Read, Seek, SeekFrom};
     let mut f = std::fs::File::open(path).ok()?;
     let len = f.metadata().ok()?.len();
-    if len == 0 { return None; }
+    if len == 0 {
+        return None;
+    }
     let start = len.saturating_sub(tail_bytes);
     f.seek(SeekFrom::Start(start)).ok()?;
     let mut buf = Vec::with_capacity((len - start) as usize);
     f.read_to_end(&mut buf).ok()?;
     let text = String::from_utf8_lossy(&buf);
     let mut lines: Vec<&str> = text.split('\n').collect();
-    if start > 0 && !lines.is_empty() { lines.remove(0); }
+    if start > 0 && !lines.is_empty() {
+        lines.remove(0);
+    }
     for line in lines.iter().rev() {
-        if line.is_empty() { continue; }
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
-        if v.get("type").and_then(|t| t.as_str()) != Some("turn_context") { continue; }
-        let m = v.get("payload").and_then(|p| p.get("model")).and_then(|m| m.as_str())?;
-        if !m.is_empty() { return Some(m.to_string()); }
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if v.get("type").and_then(|t| t.as_str()) != Some("turn_context") {
+            continue;
+        }
+        let m = v
+            .get("payload")
+            .and_then(|p| p.get("model"))
+            .and_then(|m| m.as_str())?;
+        if !m.is_empty() {
+            return Some(m.to_string());
+        }
     }
     None
 }
@@ -643,7 +707,9 @@ fn scan_tail_for_model(path: &std::path::Path, tail_bytes: u64) -> Option<String
 /// else keeps the first dash-segment so the badge stays readable.
 fn codex_short_label(model_id: &str) -> String {
     let m = model_id.to_ascii_lowercase();
-    if m.contains("codex") { return "Codex".into(); }
+    if m.contains("codex") {
+        return "Codex".into();
+    }
     for fam in ["opus", "sonnet", "haiku", "gemini"] {
         if m.contains(fam) {
             let mut c = fam.chars();
@@ -658,7 +724,12 @@ fn codex_short_label(model_id: &str) -> String {
     }
     if let Some(first) = m.split('-').next() {
         let mut c = first.chars();
-        return c.next().map(|x| x.to_ascii_uppercase()).into_iter().collect::<String>() + c.as_str();
+        return c
+            .next()
+            .map(|x| x.to_ascii_uppercase())
+            .into_iter()
+            .collect::<String>()
+            + c.as_str();
     }
     model_id.to_string()
 }

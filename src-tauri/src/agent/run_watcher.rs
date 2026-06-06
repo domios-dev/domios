@@ -38,7 +38,6 @@ struct ResultEvent {
     result: Option<String>,
 }
 
-
 struct RunState {
     pty_id: String,
     pane_id: String,
@@ -61,7 +60,9 @@ impl Default for RunWatcherRegistry {
 
 impl RunWatcherRegistry {
     pub fn new() -> Self {
-        Self { runs: Mutex::new(HashMap::new()) }
+        Self {
+            runs: Mutex::new(HashMap::new()),
+        }
     }
 
     pub fn register(
@@ -148,7 +149,8 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             if busy {
                 log::debug!(
                     "[run-watcher] idle {}s but tool in-flight — deferring reap: pane={}",
-                    idle_secs, state.pane_id
+                    idle_secs,
+                    state.pane_id
                 );
             } else {
                 if state.completed.swap(true, Ordering::AcqRel) {
@@ -156,13 +158,17 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 }
                 log::info!(
                     "[run-watcher] idle complete: pane={} idle={}s",
-                    state.pane_id, idle_secs
+                    state.pane_id,
+                    idle_secs
                 );
                 finish_run(
                     &svc,
                     &state,
                     false,
-                    format!("idle for {}s — claude exited without result event", idle_secs),
+                    format!(
+                        "idle for {}s — claude exited without result event",
+                        idle_secs
+                    ),
                 );
                 svc.run_watcher.runs.lock().remove(&state.pty_id);
                 return;
@@ -175,7 +181,8 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             }
             log::warn!(
                 "[run-watcher] hard timeout: pane={} elapsed={}s",
-                state.pane_id, elapsed_total
+                state.pane_id,
+                elapsed_total
             );
             finish_run(
                 &svc,
@@ -336,12 +343,8 @@ impl ResultEventScanner {
         let mut pos = self.tool_scan_pos;
         let mut max_consumed = pos;
         loop {
-            let next_use = self.buffer[pos..]
-                .find(TOOL_USE_NEEDLE)
-                .map(|r| pos + r);
-            let next_result = self.buffer[pos..]
-                .find(TOOL_RESULT_NEEDLE)
-                .map(|r| pos + r);
+            let next_use = self.buffer[pos..].find(TOOL_USE_NEEDLE).map(|r| pos + r);
+            let next_result = self.buffer[pos..].find(TOOL_RESULT_NEEDLE).map(|r| pos + r);
 
             // Pick whichever needle comes first.
             let (start, is_use) = match (next_use, next_result) {
@@ -441,7 +444,10 @@ mod tests {
         let mut s = ResultEventScanner::new();
         let chunk = r#"{"type":"stream_event","event":{"type":"message_start","message":{"id":"x"}}}
 {"type":"stream_event","event":{"type":"message_stop"},"session_id":"a","uuid":"b"}"#;
-        assert!(s.feed(chunk).is_none(), "must not complete on nested message_stop");
+        assert!(
+            s.feed(chunk).is_none(),
+            "must not complete on nested message_stop"
+        );
     }
 
     #[test]
@@ -455,7 +461,8 @@ mod tests {
     #[test]
     fn scanner_strips_ansi() {
         let mut s = ResultEventScanner::new();
-        let chunk = "\x1b[32m\x1b]0;title\x07{\"type\":\"result\",\"is_error\":true,\"result\":\"err\"}";
+        let chunk =
+            "\x1b[32m\x1b]0;title\x07{\"type\":\"result\",\"is_error\":true,\"result\":\"err\"}";
         let r = s.feed(chunk).expect("completion");
         assert!(r.is_error);
         assert_eq!(r.result.as_deref(), Some("err"));
@@ -478,7 +485,10 @@ mod tests {
         let chunk =
             r#"{"type":"result","is_error":false,"result":"text with {nested} {{braces}} ok"}"#;
         let r = s.feed(chunk).expect("completion");
-        assert_eq!(r.result.as_deref(), Some("text with {nested} {{braces}} ok"));
+        assert_eq!(
+            r.result.as_deref(),
+            Some("text with {nested} {{braces}} ok")
+        );
     }
 
     #[test]
@@ -509,7 +519,10 @@ mod tests {
         let _ = s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_X","name":"Bash","input":{}}]}}"#);
         assert!(s.in_flight());
         let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_X","content":"done"}]}}"#);
-        assert!(!s.in_flight(), "matching tool_result should clear in-flight");
+        assert!(
+            !s.in_flight(),
+            "matching tool_result should clear in-flight"
+        );
     }
 
     #[test]
@@ -526,7 +539,8 @@ mod tests {
     #[test]
     fn scanner_handles_split_tool_use_across_chunks() {
         let mut s = ResultEventScanner::new();
-        let _ = s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_"#);
+        let _ =
+            s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_"#);
         assert!(!s.in_flight(), "incomplete object — id not yet visible");
         let _ = s.feed(r#"SPLIT","name":"Bash","input":{}}]}}"#);
         assert!(s.in_flight(), "completes once the closing brace arrives");
@@ -539,7 +553,10 @@ mod tests {
         let mut s = ResultEventScanner::new();
         let chunk = r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_PM","name":"Bash","input":{}}}}"#;
         let _ = s.feed(chunk);
-        assert!(s.in_flight(), "partial-message tool_use must register in-flight");
+        assert!(
+            s.in_flight(),
+            "partial-message tool_use must register in-flight"
+        );
     }
 
     #[test]

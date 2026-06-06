@@ -91,7 +91,13 @@ fn cached_health(url: &str, ttl: Duration) -> Option<bool> {
 
 fn store_health(url: &str, healthy: bool) {
     let mut map = health_cache().lock();
-    map.insert(url.to_string(), HealthEntry { healthy, checked_at: Instant::now() });
+    map.insert(
+        url.to_string(),
+        HealthEntry {
+            healthy,
+            checked_at: Instant::now(),
+        },
+    );
 }
 
 #[cfg(test)]
@@ -115,7 +121,10 @@ async fn check_health(client: &reqwest::Client, daemon_url: &str) -> Result<(), 
         .await
         .map_err(|e| HookError::HealthFailed(e.to_string()))?;
     if !resp.status().is_success() {
-        return Err(HookError::HealthFailed(format!("HTTP {}", resp.status().as_u16())));
+        return Err(HookError::HealthFailed(format!(
+            "HTTP {}",
+            resp.status().as_u16()
+        )));
     }
     Ok(())
 }
@@ -184,7 +193,10 @@ fn is_valid_http_url(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{routing::{get, post}, Json, Router};
+    use axum::{
+        routing::{get, post},
+        Json, Router,
+    };
     use std::net::SocketAddr;
     use tokio::net::TcpListener;
     use tokio::sync::oneshot;
@@ -196,9 +208,13 @@ mod tests {
     }
 
     impl FakeServer {
-        fn url(&self) -> String { format!("http://{}", self.addr) }
+        fn url(&self) -> String {
+            format!("http://{}", self.addr)
+        }
         async fn stop(mut self) {
-            if let Some(tx) = self.shutdown.take() { let _ = tx.send(()); }
+            if let Some(tx) = self.shutdown.take() {
+                let _ = tx.send(());
+            }
             let _ = self.handle.await;
         }
     }
@@ -209,10 +225,16 @@ mod tests {
         let (tx, rx) = oneshot::channel::<()>();
         let handle = tokio::spawn(async move {
             let _ = axum::serve(listener, router)
-                .with_graceful_shutdown(async move { let _ = rx.await; })
+                .with_graceful_shutdown(async move {
+                    let _ = rx.await;
+                })
                 .await;
         });
-        FakeServer { addr, shutdown: Some(tx), handle }
+        FakeServer {
+            addr,
+            shutdown: Some(tx),
+            handle,
+        }
     }
 
     fn cfg_for(url: &str) -> TextHooksConfig {
@@ -241,14 +263,19 @@ mod tests {
         reset_health_cache();
         let router = Router::new()
             .route("/healthz", get(|| async { "ok" }))
-            .route("/pre_forward", post(|| async {
-                Json(serde_json::json!({"action": "forward"}))
-            }));
+            .route(
+                "/pre_forward",
+                post(|| async { Json(serde_json::json!({"action": "forward"})) }),
+            );
         let server = spawn_server(router).await;
         let cfg = cfg_for(&server.url());
 
         let result = pre_forward(&req(), &cfg).await;
-        assert!(matches!(result, Ok(HookDecision::Forward)), "got {:?}", result);
+        assert!(
+            matches!(result, Ok(HookDecision::Forward)),
+            "got {:?}",
+            result
+        );
         server.stop().await;
     }
 
@@ -257,14 +284,17 @@ mod tests {
         reset_health_cache();
         let router = Router::new()
             .route("/healthz", get(|| async { "ok" }))
-            .route("/pre_forward", post(|| async {
-                Json(serde_json::json!({
-                    "action": "replace",
-                    "respond": [
-                        {"channel": "telegram", "to": "100000001", "text": "task done"}
-                    ]
-                }))
-            }));
+            .route(
+                "/pre_forward",
+                post(|| async {
+                    Json(serde_json::json!({
+                        "action": "replace",
+                        "respond": [
+                            {"channel": "telegram", "to": "100000001", "text": "task done"}
+                        ]
+                    }))
+                }),
+            );
         let server = spawn_server(router).await;
         let cfg = cfg_for(&server.url());
 
@@ -298,7 +328,10 @@ mod tests {
         let result = pre_forward(&req(), &cfg).await;
         match result {
             Ok(HookDecision::ForwardWithMetadata { metadata }) => {
-                assert_eq!(metadata.get("router_label").and_then(|v| v.as_str()), Some("light_cmd"));
+                assert_eq!(
+                    metadata.get("router_label").and_then(|v| v.as_str()),
+                    Some("light_cmd")
+                );
             }
             other => panic!("expected ForwardWithMetadata, got {:?}", other),
         }
@@ -310,9 +343,10 @@ mod tests {
         reset_health_cache();
         let router = Router::new()
             .route("/healthz", get(|| async { "ok" }))
-            .route("/pre_forward", post(|| async {
-                (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "boom")
-            }));
+            .route(
+                "/pre_forward",
+                post(|| async { (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "boom") }),
+            );
         let server = spawn_server(router).await;
         let cfg = cfg_for(&server.url());
 
@@ -361,17 +395,22 @@ mod tests {
         let saw_clone = saw.clone();
         let router = Router::new()
             .route("/healthz", get(|| async { "ok" }))
-            .route("/pre_forward", post(move |Json(body): Json<serde_json::Value>| {
-                let saw = saw_clone.clone();
-                async move {
-                    let ok = body.get("text").and_then(|v| v.as_str()) == Some("hello")
-                        && body.get("channel").and_then(|v| v.as_str()) == Some("telegram")
-                        && body.get("user_id").and_then(|v| v.as_str()) == Some("1")
-                        && body.get("msg_id").and_then(|v| v.as_str()) == Some("42");
-                    if ok { saw.store(true, Ordering::SeqCst); }
-                    Json(serde_json::json!({"action": "forward"}))
-                }
-            }));
+            .route(
+                "/pre_forward",
+                post(move |Json(body): Json<serde_json::Value>| {
+                    let saw = saw_clone.clone();
+                    async move {
+                        let ok = body.get("text").and_then(|v| v.as_str()) == Some("hello")
+                            && body.get("channel").and_then(|v| v.as_str()) == Some("telegram")
+                            && body.get("user_id").and_then(|v| v.as_str()) == Some("1")
+                            && body.get("msg_id").and_then(|v| v.as_str()) == Some("42");
+                        if ok {
+                            saw.store(true, Ordering::SeqCst);
+                        }
+                        Json(serde_json::json!({"action": "forward"}))
+                    }
+                }),
+            );
         let server = spawn_server(router).await;
         let cfg = cfg_for(&server.url());
 

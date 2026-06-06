@@ -232,10 +232,7 @@ impl PluginManager {
     /// Wire the event broadcaster so contribution changes notify in-process
     /// subscribers (and through them, the Tauri frontend via the bus bridge
     /// installed in `lib.rs`).
-    pub fn set_event_broadcaster(
-        &mut self,
-        events: Arc<crate::api::events::EventBroadcaster>,
-    ) {
+    pub fn set_event_broadcaster(&mut self, events: Arc<crate::api::events::EventBroadcaster>) {
         self.events = Some(events);
     }
 
@@ -435,7 +432,6 @@ impl Default for PluginManager {
     }
 }
 
-
 pub type PluginManagerState = Arc<PluginManager>;
 
 #[cfg(test)]
@@ -603,7 +599,10 @@ mod tests {
         assert_eq!(parsed.capabilities.tools.len(), 2);
         assert_eq!(parsed.capabilities.hooks, vec!["mux-state-changed"]);
         assert_eq!(parsed.activation.triggers, vec!["on_startup"]);
-        assert_eq!(parsed.prompt.skill_section.as_deref(), Some("prompts/memory.md"));
+        assert_eq!(
+            parsed.prompt.skill_section.as_deref(),
+            Some("prompts/memory.md")
+        );
     }
 
     #[test]
@@ -637,7 +636,9 @@ mod tests {
     #[test]
     fn discover_on_missing_path_returns_zero() {
         let mgr = PluginManager::new();
-        let count = mgr.discover("/definitely/does/not/exist/codeterm-plugins").unwrap();
+        let count = mgr
+            .discover("/definitely/does/not/exist/codeterm-plugins")
+            .unwrap();
         assert_eq!(count, 0);
     }
 }

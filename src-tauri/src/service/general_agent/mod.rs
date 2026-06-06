@@ -48,11 +48,20 @@ pub fn integrations_dir() -> PathBuf {
 
 /// Ensure all General Agent directories exist.
 pub fn ensure_directories() {
-    let dirs = [general_dir(), secrets_dir(), integrations_dir(), general_dir().join("state")];
+    let dirs = [
+        general_dir(),
+        secrets_dir(),
+        integrations_dir(),
+        general_dir().join("state"),
+    ];
     for dir in &dirs {
         if !dir.exists() {
             if let Err(e) = std::fs::create_dir_all(dir) {
-                log::error!("[general-agent] Failed to create directory {:?}: {}", dir, e);
+                log::error!(
+                    "[general-agent] Failed to create directory {:?}: {}",
+                    dir,
+                    e
+                );
             }
         }
     }

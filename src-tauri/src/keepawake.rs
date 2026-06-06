@@ -1,6 +1,6 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -95,7 +95,11 @@ fn clear_if_owner(state: &KeepAwakeState, my_id: u64, app: &AppHandle) {
         Some(s) if s.session_id == my_id => {
             *guard = None;
             drop(guard);
-            let off = KeepAwakeStatus { active: false, display: false, expires_at: None };
+            let off = KeepAwakeStatus {
+                active: false,
+                display: false,
+                expires_at: None,
+            };
             save_snapshot(&off);
             let _ = app.emit(EVENT_CHANGED, &off);
         }
@@ -130,8 +134,17 @@ pub fn start(
         session_id,
     )?;
 
-    let session = ActiveSession { stop_tx, display, expires_at, session_id };
-    let status = KeepAwakeStatus { active: true, display, expires_at };
+    let session = ActiveSession {
+        stop_tx,
+        display,
+        expires_at,
+        session_id,
+    };
+    let status = KeepAwakeStatus {
+        active: true,
+        display,
+        expires_at,
+    };
     *state.lock() = Some(session);
 
     log::info!(
@@ -149,7 +162,11 @@ pub fn start(
 pub fn stop(state: &KeepAwakeState, app: &AppHandle) -> Result<(), String> {
     stop_inner(state);
     log::info!("[keepawake] stopped");
-    let off = KeepAwakeStatus { active: false, display: false, expires_at: None };
+    let off = KeepAwakeStatus {
+        active: false,
+        display: false,
+        expires_at: None,
+    };
     save_snapshot(&off);
     let _ = app.emit(EVENT_CHANGED, &off);
     Ok(())

@@ -16,27 +16,42 @@ pub async fn mesh_connect_peer(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let instance_id = body["instance_id"].as_str()
+    let instance_id = body["instance_id"]
+        .as_str()
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing instance_id".to_string()))?
         .to_string();
 
     let (request, target_addr, target_port) = {
         let m = state.mesh.lock();
-        let peer = m.discovered_peers.get(&instance_id)
-            .ok_or_else(|| (StatusCode::NOT_FOUND, "Peer not found in discovered list".to_string()))?;
-        let addr = peer.addresses.iter()
+        let peer = m.discovered_peers.get(&instance_id).ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                "Peer not found in discovered list".to_string(),
+            )
+        })?;
+        let addr = peer
+            .addresses
+            .iter()
             .find(|a| a.is_tailscale)
             .or_else(|| peer.addresses.first())
             .ok_or_else(|| (StatusCode::BAD_REQUEST, "No address for peer".to_string()))?;
 
-        let local_addr = m.tailscale_ip.clone()
+        let local_addr = m
+            .tailscale_ip
+            .clone()
             .or_else(|| m.local_ip.clone())
             .unwrap_or_else(|| "127.0.0.1".to_string());
-        let public_key = m.ident.identity.public_key.clone()
-            .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "No identity keypair".to_string()))?;
+        let public_key = m.ident.identity.public_key.clone().ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "No identity keypair".to_string(),
+            )
+        })?;
 
         let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         let request = crate::mesh::types::PairingRequest {
             request_id: uuid::Uuid::new_v4().to_string(),
             from_instance_id: m.ident.identity.instance_id.clone(),
@@ -57,22 +72,37 @@ pub async fn mesh_connect_peer(
             request.request_id.clone(),
             (target_addr.clone(), target_port, instance_id.clone()),
         );
-        m.pending_requests.insert(request.request_id.clone(), request.clone());
+        m.pending_requests
+            .insert(request.request_id.clone(), request.clone());
     }
 
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
-    let url = format!("http://{}:{}/api/mesh/pair/request", target_addr, target_port);
-    let resp = client.post(&url).json(&request).send().await
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_default();
+    let url = format!(
+        "http://{}:{}/api/mesh/pair/request",
+        target_addr, target_port
+    );
+    let resp = client
+        .post(&url)
+        .json(&request)
+        .send()
+        .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Network error: {}", e)))?;
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err((StatusCode::BAD_GATEWAY, format!("Pair request rejected: {}", body)));
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("Pair request rejected: {}", body),
+        ));
     }
 
     log::info!("[mesh/api] Pairing request sent to {}", instance_id);
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
-    Ok(Json(serde_json::json!({"ok": true, "request_id": request.request_id})))
+    Ok(Json(
+        serde_json::json!({"ok": true, "request_id": request.request_id}),
+    ))
 }
 
 /// Approve an incoming pairing request (same logic as Tauri mesh_approve_pairing).
@@ -82,16 +112,24 @@ pub async fn mesh_approve_peer(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let request_id = body["request_id"].as_str()
+    let request_id = body["request_id"]
+        .as_str()
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing request_id".to_string()))?
         .to_string();
 
     let (request, our_pubkey, our_id, our_name) = {
         let m = state.mesh.lock();
-        let req = m.pending_requests.get(&request_id).cloned()
+        let req = m
+            .pending_requests
+            .get(&request_id)
+            .cloned()
             .ok_or_else(|| (StatusCode::NOT_FOUND, "Request not found".to_string()))?;
-        let pk = m.ident.identity.public_key.clone()
-            .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "No identity keypair".to_string()))?;
+        let pk = m.ident.identity.public_key.clone().ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "No identity keypair".to_string(),
+            )
+        })?;
         let id = m.ident.identity.instance_id.clone();
         let name = m.ident.instance_name.clone();
         (req, pk, id, name)
@@ -104,13 +142,25 @@ pub async fn mesh_approve_peer(
         public_key: our_pubkey,
     };
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
-    let url = format!("http://{}:{}/api/mesh/pair/accept", request.from_address, request.from_port);
-    let resp = client.post(&url).json(&accept).send().await
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_default();
+    let url = format!(
+        "http://{}:{}/api/mesh/pair/accept",
+        request.from_address, request.from_port
+    );
+    let resp = client
+        .post(&url)
+        .json(&accept)
+        .send()
+        .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Network error: {}", e)))?;
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err((StatusCode::BAD_GATEWAY, format!("Accept rejected: {}", body)));
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("Accept rejected: {}", body),
+        ));
     }
 
     {
@@ -118,7 +168,9 @@ pub async fn mesh_approve_peer(
         let peer = crate::mesh::types::PairedPeer {
             instance_id: request.from_instance_id.clone(),
             instance_name: request.from_instance_name.clone(),
-            addresses: vec![crate::mesh::types::PeerAddress::from_ip(&request.from_address)],
+            addresses: vec![crate::mesh::types::PeerAddress::from_ip(
+                &request.from_address,
+            )],
             api_port: request.from_port,
             public_key: request.public_key.clone(),
             paired_at: chrono::Utc::now().to_rfc3339(),
@@ -129,7 +181,8 @@ pub async fn mesh_approve_peer(
             version: None,
             consecutive_misses: 0,
         };
-        m.paired_peers.insert(request.from_instance_id.clone(), peer);
+        m.paired_peers
+            .insert(request.from_instance_id.clone(), peer);
         m.pending_requests.remove(&request_id);
         let _ = m.save();
     }
@@ -161,7 +214,8 @@ pub async fn mesh_reject_peer(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let request_id = body["request_id"].as_str()
+    let request_id = body["request_id"]
+        .as_str()
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing request_id".to_string()))?
         .to_string();
 
@@ -169,7 +223,9 @@ pub async fn mesh_reject_peer(
     let block_id = if let Some(req) = mesh.pending_requests.get_mut(&request_id) {
         req.status = crate::mesh::types::PairingStatus::Rejected;
         Some(req.from_instance_id.clone())
-    } else { None };
+    } else {
+        None
+    };
     if let Some(id) = block_id {
         if !mesh.revocation_list.blocked.contains(&id) {
             mesh.revocation_list.blocked.push(id);
@@ -189,7 +245,8 @@ pub async fn mesh_disconnect_peer(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let arg = body["instance_id"].as_str()
+    let arg = body["instance_id"]
+        .as_str()
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing instance_id".to_string()))?
         .to_string();
 
@@ -199,7 +256,8 @@ pub async fn mesh_disconnect_peer(
     let (instance_id, peer, signed_token, our_id) = {
         let m = state.mesh.lock();
         let peer = m.paired_peers.get(&arg).cloned().or_else(|| {
-            m.paired_peers.values()
+            m.paired_peers
+                .values()
                 .find(|p| p.instance_name == arg)
                 .cloned()
         });
@@ -210,37 +268,57 @@ pub async fn mesh_disconnect_peer(
     };
 
     if peer.is_none() {
-        return Err((StatusCode::NOT_FOUND, format!("No paired peer matches '{}'", instance_id)));
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("No paired peer matches '{}'", instance_id),
+        ));
     }
 
     if let (Some(peer), Some(token)) = (peer, signed_token.clone()) {
         if !peer.addresses.is_empty() {
             let http = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+                .unwrap_or_default();
             let api_port = peer.api_port;
             let our_id_for_call = our_id.clone();
             let result = crate::mesh::transport::try_peer(&peer.addresses, |addr| {
-                let url = format!("http://{}:{}/api/mesh/peers/{}", addr.ip, api_port, our_id_for_call);
+                let url = format!(
+                    "http://{}:{}/api/mesh/peers/{}",
+                    addr.ip, api_port, our_id_for_call
+                );
                 let http = http.clone();
                 let token = token.clone();
                 async move {
-                    match http.delete(&url)
+                    match http
+                        .delete(&url)
                         .header("Authorization", format!("Bearer {}", token))
-                        .send().await
+                        .send()
+                        .await
                     {
-                        Ok(resp) if resp.status().is_success() => crate::mesh::transport::TryNext::Success(()),
+                        Ok(resp) if resp.status().is_success() => {
+                            crate::mesh::transport::TryNext::Success(())
+                        }
                         Ok(resp) => {
                             let status = resp.status();
                             let body = resp.text().await.unwrap_or_default();
-                            crate::mesh::transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
+                            crate::mesh::transport::TryNext::Stop(format!(
+                                "HTTP {}: {}",
+                                status, body
+                            ))
                         }
                         Err(e) => crate::mesh::transport::TryNext::Retry(e.to_string()),
                     }
                 }
-            }).await;
+            })
+            .await;
             match result {
                 Ok(()) => log::info!("[mesh/api] Notified {} about disconnect", instance_id),
-                Err(e) => log::warn!("[mesh/api] Failed to notify {} about disconnect: {}", instance_id, e),
+                Err(e) => log::warn!(
+                    "[mesh/api] Failed to notify {} about disconnect: {}",
+                    instance_id,
+                    e
+                ),
             }
         }
     }
@@ -249,9 +327,12 @@ pub async fn mesh_disconnect_peer(
     // target so their mirror of paired_peers stays consistent.
     let (remaining_peers, broadcast_token) = {
         let m = state.mesh.lock();
-        let peers: Vec<_> = m.paired_peers.values()
+        let peers: Vec<_> = m
+            .paired_peers
+            .values()
             .filter(|p| p.instance_id != instance_id)
-            .cloned().collect();
+            .cloned()
+            .collect();
         let token = m.sign_request().ok();
         (peers, token)
     };
@@ -260,9 +341,13 @@ pub async fn mesh_disconnect_peer(
 
     if let Some(token) = broadcast_token {
         let http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap_or_default();
         for peer in &remaining_peers {
-            if peer.addresses.is_empty() { continue; }
+            if peer.addresses.is_empty() {
+                continue;
+            }
             let api_port = peer.api_port;
             let target = instance_id.clone();
             let _ = crate::mesh::transport::try_peer(&peer.addresses, |addr| {
@@ -270,11 +355,15 @@ pub async fn mesh_disconnect_peer(
                 let http = http.clone();
                 let token = token.clone();
                 async move {
-                    match http.delete(&url)
+                    match http
+                        .delete(&url)
                         .header("Authorization", format!("Bearer {}", token))
-                        .send().await
+                        .send()
+                        .await
                     {
-                        Ok(resp) if resp.status().is_success() => crate::mesh::transport::TryNext::Success(()),
+                        Ok(resp) if resp.status().is_success() => {
+                            crate::mesh::transport::TryNext::Success(())
+                        }
                         Ok(resp) => {
                             let status = resp.status();
                             crate::mesh::transport::TryNext::Stop(format!("HTTP {}", status))
@@ -282,7 +371,8 @@ pub async fn mesh_disconnect_peer(
                         Err(e) => crate::mesh::transport::TryNext::Retry(e.to_string()),
                     }
                 }
-            }).await;
+            })
+            .await;
         }
     }
 
@@ -296,7 +386,12 @@ pub async fn mesh_approve_peer_by_id(
     headers: HeaderMap,
     Path(request_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    mesh_approve_peer(state, headers, Json(serde_json::json!({"request_id": request_id}))).await
+    mesh_approve_peer(
+        state,
+        headers,
+        Json(serde_json::json!({"request_id": request_id})),
+    )
+    .await
 }
 
 pub async fn mesh_reject_peer_by_id(
@@ -304,7 +399,12 @@ pub async fn mesh_reject_peer_by_id(
     headers: HeaderMap,
     Path(request_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    mesh_reject_peer(state, headers, Json(serde_json::json!({"request_id": request_id}))).await
+    mesh_reject_peer(
+        state,
+        headers,
+        Json(serde_json::json!({"request_id": request_id})),
+    )
+    .await
 }
 
 pub async fn mesh_disconnect_peer_by_id(
@@ -312,5 +412,10 @@ pub async fn mesh_disconnect_peer_by_id(
     headers: HeaderMap,
     Path(instance_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    mesh_disconnect_peer(state, headers, Json(serde_json::json!({"instance_id": instance_id}))).await
+    mesh_disconnect_peer(
+        state,
+        headers,
+        Json(serde_json::json!({"instance_id": instance_id})),
+    )
+    .await
 }

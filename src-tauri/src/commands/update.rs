@@ -13,7 +13,10 @@ pub async fn check_for_update(
         .map_err(|e| e.to_string())?;
 
     if info.update_available {
-        let _ = app.emit("update-available", serde_json::to_value(&info).unwrap_or_default());
+        let _ = app.emit(
+            "update-available",
+            serde_json::to_value(&info).unwrap_or_default(),
+        );
     }
 
     let val = serde_json::to_value(&info).map_err(|e| e.to_string())?;

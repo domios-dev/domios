@@ -69,7 +69,11 @@ pub fn map_bw_message(msg: &str) -> SecretError {
         SecretError::AlreadyExists
     } else {
         SecretError::Backend {
-            message: if msg.is_empty() { "bw failed".into() } else { msg.into() },
+            message: if msg.is_empty() {
+                "bw failed".into()
+            } else {
+                msg.into()
+            },
         }
     }
 }

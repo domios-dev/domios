@@ -26,7 +26,12 @@ pub fn install_provider_in_pane(
         .agent_registry
         .with_provider(&provider_id, |p| p.install_command(platform))
         .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
-        .ok_or_else(|| format!("Provider '{}' has no install command for {}", provider_id, platform))?;
+        .ok_or_else(|| {
+            format!(
+                "Provider '{}' has no install command for {}",
+                provider_id, platform
+            )
+        })?;
 
     // 2. Resolve workspace — prefer active, fall back to first.
     let ws_id = {
@@ -61,7 +66,10 @@ pub fn install_provider_in_pane(
                 break pid;
             }
             if std::time::Instant::now() > frontend_deadline {
-                log::warn!("install_provider_in_pane: PTY didn't appear for pane {}", pane_id_clone);
+                log::warn!(
+                    "install_provider_in_pane: PTY didn't appear for pane {}",
+                    pane_id_clone
+                );
                 return;
             }
             std::thread::sleep(std::time::Duration::from_millis(300));
@@ -92,7 +100,12 @@ pub fn restart_general_agent(
     let config = (*config).clone();
     std::thread::spawn(move || {
         crate::service::general_agent::restart_general_agent(
-            &svc, &mux, &pty, &screen_state, &config, &app,
+            &svc,
+            &mux,
+            &pty,
+            &screen_state,
+            &config,
+            &app,
         );
     });
     Ok(())
@@ -111,10 +124,19 @@ pub fn check_cli_installed(binary: String) -> Result<bool, String> {
     // Reject anything that looks like a shell metacharacter — `binary` comes
     // from a frontend-supplied provider id and we don't want it interpreted
     // as a path traversal or compound command.
-    if binary.chars().any(|c| matches!(c, '/' | '\\' | ' ' | ';' | '|' | '&' | '$' | '`' | '<' | '>' | '\n')) {
+    if binary.chars().any(|c| {
+        matches!(
+            c,
+            '/' | '\\' | ' ' | ';' | '|' | '&' | '$' | '`' | '<' | '>' | '\n'
+        )
+    }) {
         return Ok(false);
     }
-    let cmd_name = if cfg!(target_os = "windows") { "where" } else { "which" };
+    let cmd_name = if cfg!(target_os = "windows") {
+        "where"
+    } else {
+        "which"
+    };
     let mut cmd = std::process::Command::new(cmd_name);
     cmd.arg(&binary);
     crate::process_util::no_window_std(&mut cmd);
@@ -142,4 +164,3 @@ pub fn check_cli_installed(binary: String) -> Result<bool, String> {
     }
     Ok(false)
 }
-

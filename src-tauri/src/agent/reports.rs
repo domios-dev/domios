@@ -1,5 +1,4 @@
 /// Inter-agent reporting system for orchestration hierarchy.
-
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 

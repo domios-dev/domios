@@ -58,7 +58,9 @@ mod tests {
     #[test]
     fn send_and_receive() {
         let collected = Arc::new(Mutex::new(Vec::new()));
-        let writer = MockWriter { data: collected.clone() };
+        let writer = MockWriter {
+            data: collected.clone(),
+        };
         let queue = WriteQueue::new(Box::new(writer));
 
         queue.send(b"hello".to_vec()).unwrap();
@@ -74,7 +76,9 @@ mod tests {
     #[test]
     fn fifo_ordering() {
         let collected = Arc::new(Mutex::new(Vec::new()));
-        let writer = MockWriter { data: collected.clone() };
+        let writer = MockWriter {
+            data: collected.clone(),
+        };
         let queue = WriteQueue::new(Box::new(writer));
 
         for i in 0..10u8 {
@@ -91,7 +95,9 @@ mod tests {
     #[test]
     fn send_after_close_returns_error() {
         let collected = Arc::new(Mutex::new(Vec::new()));
-        let writer = MockWriter { data: collected.clone() };
+        let writer = MockWriter {
+            data: collected.clone(),
+        };
         let (sender, _receiver) = mpsc::channel::<WriteRequest>();
         // Drop receiver immediately to simulate closed channel
         let queue = WriteQueue { sender };

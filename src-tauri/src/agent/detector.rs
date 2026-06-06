@@ -51,13 +51,14 @@ fn strip_selector(trimmed: &str) -> &str {
 
 /// Check if a line starts with a known selector prefix.
 fn has_selector_prefix(trimmed: &str) -> bool {
-    SELECTOR_CHARS.iter().any(|&c| trimmed.starts_with(c))
-        || trimmed.starts_with(GARBLED_SELECTOR)
+    SELECTOR_CHARS.iter().any(|&c| trimmed.starts_with(c)) || trimmed.starts_with(GARBLED_SELECTOR)
 }
 
 pub fn detect_interactive_prompt(text: &str) -> bool {
     let lines: Vec<&str> = text.lines().collect();
-    if lines.len() < 3 { return false; }
+    if lines.len() < 3 {
+        return false;
+    }
 
     // Scan from the end — prompt is always at the bottom of output
     let scan_start = lines.len().saturating_sub(20);
@@ -65,7 +66,7 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
 
     // Track line indices of features to check proximity
     let mut option_indices: Vec<usize> = Vec::new();
-    let mut footer_idx: Option<usize> = None;    // keyboard hint line
+    let mut footer_idx: Option<usize> = None; // keyboard hint line
     let mut selector_idx: Option<usize> = None;
 
     for (i, line) in tail_lines.iter().enumerate() {
@@ -87,8 +88,10 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
         // Keyboard hint footer: contains Esc/Tab/Enter as shortcuts
         let lower = trimmed.to_lowercase();
         if (lower.contains("esc") || lower.contains("enter"))
-            && (lower.contains("cancel") || lower.contains("amend")
-                || lower.contains("confirm") || lower.contains("continue"))
+            && (lower.contains("cancel")
+                || lower.contains("amend")
+                || lower.contains("confirm")
+                || lower.contains("continue"))
         {
             footer_idx = Some(i);
         }
@@ -104,9 +107,14 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
 
     if let Some(anchor_idx) = anchor {
         // Count options within 8 lines of the anchor
-        let nearby_options = option_indices.iter()
+        let nearby_options = option_indices
+            .iter()
             .filter(|&&idx| {
-                let dist = if idx > anchor_idx { idx - anchor_idx } else { anchor_idx - idx };
+                let dist = if idx > anchor_idx {
+                    idx - anchor_idx
+                } else {
+                    anchor_idx - idx
+                };
                 dist <= 8
             })
             .count();
@@ -125,8 +133,24 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
 /// 2. The question is the nearest line ending with `?` above the options
 /// 3. If no `?` line, use the line immediately before the first option
 pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, String)>)> {
+    parse_interactive_picker(text).map(|p| (p.question, p.options))
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InteractivePicker {
+    pub question: String,
+    pub options: Vec<(String, String)>,
+    pub selected_index: Option<usize>,
+}
+
+/// Parse the active numbered TUI picker near the bottom of the terminal.
+/// This is intentionally generic: Claude Code uses the same numbered-option
+/// shape for permission prompts and local command pickers like `/model`.
+pub fn parse_interactive_picker(text: &str) -> Option<InteractivePicker> {
     let lines: Vec<&str> = text.lines().collect();
-    if lines.len() < 2 { return None; }
+    if lines.len() < 2 {
+        return None;
+    }
 
     // Scan from end for numbered options — take only the LAST cluster
     // (closest to the end of text, which is where the active prompt is)
@@ -144,7 +168,9 @@ pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, Strin
         }
     }
 
-    if all_opts.len() < 2 { return None; }
+    if all_opts.len() < 2 {
+        return None;
+    }
 
     // Extract last cluster: walk backwards from the last option,
     // include options that are within 3 lines of each other
@@ -160,22 +186,28 @@ pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, Strin
     }
     options.reverse();
 
-    if options.len() < 2 { return None; }
+    if options.len() < 2 {
+        return None;
+    }
     let first_opt = options.first()?.2;
     let last_opt = options.last()?.2;
 
     // Must have interactive markers nearby: ❯/> selector OR keyboard footer
     // Without these, it's just a regular numbered list
-    let has_selector = options.iter().any(|(_, _, idx)| {
-        has_selector_prefix(lines[*idx].trim())
-    });
+    let has_selector = options
+        .iter()
+        .any(|(_, _, idx)| has_selector_prefix(lines[*idx].trim()));
     let has_footer = (last_opt..lines.len().min(last_opt + 5)).any(|i| {
         let t = lines[i].trim().to_lowercase();
         (t.contains("esc") || t.contains("enter"))
-            && (t.contains("cancel") || t.contains("amend")
-                || t.contains("confirm") || t.contains("continue"))
+            && (t.contains("cancel")
+                || t.contains("amend")
+                || t.contains("confirm")
+                || t.contains("continue"))
     });
-    if !has_selector && !has_footer { return None; }
+    if !has_selector && !has_footer {
+        return None;
+    }
 
     // Find question: nearest line ending with `?` above the first option
     let mut question = None;
@@ -186,7 +218,9 @@ pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, Strin
             break;
         }
         // Don't search more than 5 lines above
-        if first_opt - i > 5 { break; }
+        if first_opt - i > 5 {
+            break;
+        }
     }
 
     // Fallback: use the non-empty line just above first option
@@ -197,12 +231,18 @@ pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, Strin
                 question = Some(trimmed.to_string());
                 break;
             }
-            if first_opt - i > 3 { break; }
+            if first_opt - i > 3 {
+                break;
+            }
         }
     }
 
     let question = question.unwrap_or_else(|| "Permission required".to_string());
-    let result_options: Vec<(String, String)> = options.into_iter()
+    let selected_index = options
+        .iter()
+        .position(|(_, _, idx)| has_selector_prefix(lines[*idx].trim()));
+    let result_options: Vec<(String, String)> = options
+        .into_iter()
         .map(|(label, value, _)| (label, value))
         .collect();
 
@@ -210,7 +250,11 @@ pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, Strin
         return None;
     }
 
-    Some((question, result_options))
+    Some(InteractivePicker {
+        question,
+        options: result_options,
+        selected_index,
+    })
 }
 
 #[cfg(test)]
@@ -229,6 +273,15 @@ mod tests {
         assert_eq!(options[0].1, "1");
         assert_eq!(options[2].0, "No");
         assert_eq!(options[2].1, "3");
+    }
+
+    #[test]
+    fn test_parse_interactive_picker_selected_index() {
+        let text = "Choose model\n    1. Opus\n  ❯ 2. Sonnet\n    3. Haiku\n\nEnter to confirm · Esc to cancel";
+        let result = parse_interactive_picker(text).unwrap();
+        assert_eq!(result.question, "Choose model");
+        assert_eq!(result.selected_index, Some(1));
+        assert_eq!(result.options[1], ("Sonnet".to_string(), "2".to_string()));
     }
 
     #[test]
@@ -263,7 +316,8 @@ mod tests {
     #[test]
     fn test_fingerprint_no_match_markdown_list() {
         // Markdown numbered list — no selector, no footer
-        let text = "Steps to follow:\n1. Clone the repo\n2. Install dependencies\n3. Run tests\n4. Deploy";
+        let text =
+            "Steps to follow:\n1. Clone the repo\n2. Install dependencies\n3. Run tests\n4. Deploy";
         assert!(!detect_interactive_prompt(text));
     }
 
@@ -336,8 +390,14 @@ mod tests {
     #[test]
     fn test_no_false_positive_bug_analysis() {
         let text = "Here's what I found:\n1. **Memory leak** in the connection pool\n2. **Race condition** in the cache layer\n3. **Missing error handling** in the API endpoint";
-        assert!(parse_permission_prompt(text).is_none(), "Bug analysis list should not be parsed as prompt");
-        assert!(!detect_interactive_prompt(text), "Bug analysis should not trigger prompt detection");
+        assert!(
+            parse_permission_prompt(text).is_none(),
+            "Bug analysis list should not be parsed as prompt"
+        );
+        assert!(
+            !detect_interactive_prompt(text),
+            "Bug analysis should not trigger prompt detection"
+        );
     }
 
     #[test]
@@ -365,7 +425,10 @@ mod tests {
     fn test_no_false_positive_question_with_options_no_selector() {
         // Question with ? before numbered list — but no selector/footer = NOT a prompt
         let text = "Which approach do you prefer?\n\n1. Refactor the entire module into smaller components\n2. Add a compatibility layer for backward support\n3. Keep backward compatibility and add feature flags";
-        assert!(parse_permission_prompt(text).is_none(), "Question before list without selector is not a prompt");
+        assert!(
+            parse_permission_prompt(text).is_none(),
+            "Question before list without selector is not a prompt"
+        );
         assert!(!detect_interactive_prompt(text));
     }
 
@@ -425,7 +488,10 @@ mod tests {
     #[test]
     fn test_real_prompt_yes_no() {
         let text = "Do you want to proceed?\n  ❯ 1. Yes\n    2. No\n\nEsc to cancel · Tab to amend";
-        assert!(detect_interactive_prompt(text), "Standard yes/no prompt should trigger");
+        assert!(
+            detect_interactive_prompt(text),
+            "Standard yes/no prompt should trigger"
+        );
         let result = parse_permission_prompt(text);
         assert!(result.is_some());
         let (q, opts) = result.unwrap();
@@ -512,7 +578,10 @@ mod tests {
     fn test_edge_case_question_mark_then_plain_list() {
         // Question ending with ? followed by plain numbered list — no selector/footer
         let text = "What should we prioritize?\n\n1. Performance optimization\n2. Bug fixes\n3. New features\n4. Technical debt\n\nLet me know your preference.";
-        assert!(parse_permission_prompt(text).is_none(), "Question + plain list = not a prompt");
+        assert!(
+            parse_permission_prompt(text).is_none(),
+            "Question + plain list = not a prompt"
+        );
         assert!(!detect_interactive_prompt(text));
     }
 
@@ -536,7 +605,10 @@ mod tests {
     fn test_garbled_selector_detect() {
         // VT100 parsers can mangle ❯ (E2 9D AF) → â¯ (E2 AF, 9D eaten as C1)
         let text = "Do you want to proceed?\n  \u{00e2}\u{00af} 1. Yes\n    2. No\n\nEsc to cancel \u{00b7} Tab to amend";
-        assert!(detect_interactive_prompt(text), "Should detect garbled â¯ selector");
+        assert!(
+            detect_interactive_prompt(text),
+            "Should detect garbled â¯ selector"
+        );
     }
 
     #[test]
@@ -577,7 +649,10 @@ mod tests {
             "  ✓ Backend: pending/approve flow + migration 003\n",
             "  ✓ Dashboard: pending clients UI\n",
         );
-        assert!(!detect_interactive_prompt(text), "Todo list must not be a prompt");
+        assert!(
+            !detect_interactive_prompt(text),
+            "Todo list must not be a prompt"
+        );
         assert!(parse_permission_prompt(text).is_none());
     }
 
@@ -597,7 +672,7 @@ mod tests {
         assert_eq!(strip_selector("> 1. Yes"), "1. Yes");
         assert_eq!(strip_selector("\u{00e2}\u{00af} 1. Yes"), "1. Yes");
         // Callers always pass .trim()'d input, so no leading spaces
-        assert_eq!(strip_selector("1. Yes"), "1. Yes");  // no selector present
+        assert_eq!(strip_selector("1. Yes"), "1. Yes"); // no selector present
         assert_eq!(strip_selector("1. Yes"), "1. Yes");
     }
 

@@ -9,11 +9,21 @@ pub fn open_folder(path: String) -> Result<(), String> {
     };
     if resolved.exists() {
         #[cfg(target_os = "windows")]
-        { let _ = std::process::Command::new("explorer").arg(&resolved).spawn(); }
+        {
+            let _ = std::process::Command::new("explorer")
+                .arg(&resolved)
+                .spawn();
+        }
         #[cfg(target_os = "macos")]
-        { let _ = std::process::Command::new("open").arg(&resolved).spawn(); }
+        {
+            let _ = std::process::Command::new("open").arg(&resolved).spawn();
+        }
         #[cfg(target_os = "linux")]
-        { let _ = std::process::Command::new("xdg-open").arg(&resolved).spawn(); }
+        {
+            let _ = std::process::Command::new("xdg-open")
+                .arg(&resolved)
+                .spawn();
+        }
     }
     Ok(())
 }
@@ -23,13 +33,18 @@ pub fn test_notification(_app: tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {
         let _ = std::process::Command::new("osascript")
-            .args(["-e", "display notification \"Notifications are working!\" with title \"CodeTerm\""])
+            .args([
+                "-e",
+                "display notification \"Notifications are working!\" with title \"CodeTerm\"",
+            ])
             .spawn();
     }
     #[cfg(not(target_os = "macos"))]
     {
         use tauri_plugin_notification::NotificationExt;
-        let _ = _app.notification().builder()
+        let _ = _app
+            .notification()
+            .builder()
             .title("CodeTerm")
             .body("Notifications are working!")
             .show();
@@ -46,9 +61,13 @@ pub fn open_url(url: String) -> Result<(), String> {
         let _ = cmd.spawn();
     }
     #[cfg(target_os = "macos")]
-    { let _ = std::process::Command::new("open").arg(&url).spawn(); }
+    {
+        let _ = std::process::Command::new("open").arg(&url).spawn();
+    }
     #[cfg(target_os = "linux")]
-    { let _ = std::process::Command::new("xdg-open").arg(&url).spawn(); }
+    {
+        let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+    }
     Ok(())
 }
 
@@ -59,5 +78,9 @@ pub fn get_autostart_enabled() -> bool {
 
 #[tauri::command]
 pub fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
-    if enabled { crate::autostart::enable() } else { crate::autostart::disable() }
+    if enabled {
+        crate::autostart::enable()
+    } else {
+        crate::autostart::disable()
+    }
 }

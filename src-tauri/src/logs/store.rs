@@ -78,7 +78,12 @@ pub fn global() -> Option<LogStoreHandle> {
     GLOBAL.get().cloned()
 }
 
-pub fn record(level: LogLevel, source: &str, message: impl Into<String>, context: Option<serde_json::Value>) {
+pub fn record(
+    level: LogLevel,
+    source: &str,
+    message: impl Into<String>,
+    context: Option<serde_json::Value>,
+) {
     let Some(store) = global() else { return };
     store.push(level, source, message.into(), context);
 }
@@ -91,7 +96,8 @@ impl LogStore {
         let conn = Connection::open(&db_path).map_err(|e| format!("open app_logs.db: {}", e))?;
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| format!("busy_timeout: {}", e))?;
-        conn.execute_batch(SCHEMA).map_err(|e| format!("init schema: {}", e))?;
+        conn.execute_batch(SCHEMA)
+            .map_err(|e| format!("init schema: {}", e))?;
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             ring: Mutex::new(VecDeque::with_capacity(RING_CAP)),
@@ -103,7 +109,8 @@ impl LogStore {
     #[cfg(test)]
     pub fn open_in_memory() -> Result<LogStoreHandle, String> {
         let conn = Connection::open_in_memory().map_err(|e| format!("open :memory:: {}", e))?;
-        conn.execute_batch(SCHEMA).map_err(|e| format!("init schema: {}", e))?;
+        conn.execute_batch(SCHEMA)
+            .map_err(|e| format!("init schema: {}", e))?;
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             ring: Mutex::new(VecDeque::with_capacity(RING_CAP)),
@@ -225,7 +232,8 @@ impl LogStore {
             params_dyn.push(Box::new(s));
         }
         params_dyn.push(Box::new(limit));
-        let params_iter: Vec<&dyn rusqlite::ToSql> = params_dyn.iter().map(|b| b.as_ref()).collect();
+        let params_iter: Vec<&dyn rusqlite::ToSql> =
+            params_dyn.iter().map(|b| b.as_ref()).collect();
         let rows = stmt
             .query_map(rusqlite::params_from_iter(params_iter.iter()), |r| {
                 Ok(AppLog {

@@ -3,9 +3,8 @@
 use serde::Serialize;
 use tauri::Emitter;
 
-use crate::agent::status::PaneStatusTracker;
-use crate::multiplexer::types::AgentRole;
 use super::{ReportResult, ServiceContext};
+use crate::multiplexer::types::AgentRole;
 
 impl ServiceContext {
     pub fn set_pane_role(
@@ -84,8 +83,10 @@ impl ServiceContext {
                 // disambiguate concurrent runs of the same job (e.g. two
                 // overlapping cron fires that share `cron:my-job`).
                 let short_pane = pane_id.split('-').next().unwrap_or(pane_id);
-                let notify_msg =
-                    format!("[Report from {} pane={}] {}", from_title, short_pane, message);
+                let notify_msg = format!(
+                    "[Report from {} pane={}] {}",
+                    from_title, short_pane, message
+                );
                 let _ = self.send_text(target_id, &notify_msg, true);
             }
         }
@@ -143,92 +144,6 @@ impl ServiceContext {
         })
     }
 
-    pub fn list_agents(&self) -> Vec<serde_json::Value> {
-        let mux = self.mux.lock();
-        let tracker = self.agent_tracker.lock();
-        let snap = mux.snapshot();
-        snap.panes
-            .values()
-            .filter(|p| p.role.is_some() || p.agent_type.is_some())
-            .map(|p| {
-                let status = p
-                    .pty_id
-                    .as_ref()
-                    .map(|pid| format!("{:?}", tracker.get_status(pid)))
-                    .unwrap_or_else(|| "Idle".to_string());
-                serde_json::json!({
-                    "pane_id": p.id,
-                    "title": p.title,
-                    "agent_type": p.agent_type,
-                    "role": p.role,
-                    "parent_pane_id": p.parent_pane_id,
-                    "can_spawn": p.can_spawn,
-                    "depth": p.depth,
-                    "status": status,
-                    "cwd": p.cwd,
-                })
-            })
-            .collect()
-    }
-
-    pub fn get_hierarchy(&self) -> Vec<serde_json::Value> {
-        let mux = self.mux.lock();
-        let tracker = self.agent_tracker.lock();
-        let snap = mux.snapshot();
-
-        fn build_node(
-            pane_id: &str,
-            snap: &crate::multiplexer::state::MultiplexerSnapshot,
-            tracker: &PaneStatusTracker,
-        ) -> Option<serde_json::Value> {
-            let pane = snap.panes.get(pane_id)?;
-            let status = pane
-                .pty_id
-                .as_ref()
-                .map(|pid| format!("{:?}", tracker.get_status(pid)))
-                .unwrap_or_else(|| "Idle".to_string());
-            let children: Vec<serde_json::Value> = snap
-                .panes
-                .values()
-                .filter(|p| p.parent_pane_id.as_deref() == Some(pane_id))
-                .filter_map(|p| build_node(&p.id, snap, tracker))
-                .collect();
-            Some(serde_json::json!({
-                "pane_id": pane.id,
-                "title": pane.title,
-                "role": pane.role,
-                "depth": pane.depth,
-                "status": status,
-                "agent_type": pane.agent_type,
-                "can_spawn": pane.can_spawn,
-                "children": children,
-            }))
-        }
-
-        snap.panes
-            .values()
-            .filter(|p| p.role == Some(AgentRole::Orchestrator))
-            .filter_map(|p| build_node(&p.id, &snap, &tracker))
-            .collect()
-    }
-
-    pub fn get_pane_children(&self, pane_id: &str) -> Vec<serde_json::Value> {
-        let mux = self.mux.lock();
-        let child_ids = mux.get_children_ids(pane_id);
-        child_ids
-            .iter()
-            .filter_map(|cid| {
-                let p = mux.get_pane(cid)?;
-                Some(serde_json::json!({
-                    "pane_id": p.id,
-                    "title": p.title,
-                    "role": p.role,
-                    "depth": p.depth,
-                    "agent_type": p.agent_type,
-                }))
-            })
-            .collect()
-    }
 }
 
 /// Storage key used when a report cannot be routed to any specific pane
@@ -297,9 +212,7 @@ mod tests {
     // the contract: the key the reporter writes under MUST match the
     // key the parent queries with.
 
-    fn build_orchestrator_with_worker(
-        worker_title: &str,
-    ) -> (MultiplexerState, String, String) {
+    fn build_orchestrator_with_worker(worker_title: &str) -> (MultiplexerState, String, String) {
         let (mut mux, orch) = MultiplexerState::new();
         let worker = mux.create_pane();
         mux.set_pane_role(&worker, AgentRole::Worker, Some(&orch))
@@ -314,8 +227,7 @@ mod tests {
         let (mux, orch, worker) = build_orchestrator_with_worker("Worker-1");
         let mut store = ReportStore::new(100);
 
-        let (from_title, target_id) =
-            resolve_report_target(&mux, &worker).expect("resolve target");
+        let (from_title, target_id) = resolve_report_target(&mux, &worker).expect("resolve target");
         let target_id = target_id.expect("worker has a parent target");
         assert_eq!(target_id, orch, "worker reports to its direct parent");
         assert_eq!(from_title, "Worker-1");
@@ -349,35 +261,6 @@ mod tests {
             "submit_report write key and agent.reports query key must agree"
         );
         assert_eq!(store.get(query_key, false).len(), 1);
-    }
-
-    #[test]
-    fn lead_to_worker_cascade_targets_lead_not_orchestrator() {
-        let (mut mux, orch) = MultiplexerState::new();
-        let lead = mux.create_pane();
-        mux.set_pane_role(&lead, AgentRole::Lead, Some(&orch))
-            .unwrap();
-        mux.rename_pane(&lead, "Lead-1").unwrap();
-        let worker = mux.create_pane();
-        mux.set_pane_role(&worker, AgentRole::Worker, Some(&lead))
-            .unwrap();
-        mux.rename_pane(&worker, "Worker-Sub").unwrap();
-
-        let (_, target) = resolve_report_target(&mux, &worker).unwrap();
-        let target = target.expect("worker has a Lead parent");
-        assert_eq!(
-            target, lead,
-            "worker reports to direct parent (Lead) for cascade reporting"
-        );
-
-        let mut store = ReportStore::new(100);
-        store.add(&target, &worker, "Worker-Sub", "phase 1 done");
-        assert_eq!(store.get(&lead, false).len(), 1);
-        assert_eq!(
-            store.get(&orch, false).len(),
-            0,
-            "orchestrator should NOT see worker's report directly — cascade goes through Lead"
-        );
     }
 
     #[test]
@@ -515,8 +398,8 @@ mod tests {
     #[test]
     fn report_format_message_with_newlines() {
         // Internal newlines pass through raw — bracket paste protects them.
-        let msg = format_report("Lead", "line1\nline2\nline3");
-        assert_eq!(msg, "[Report from Lead] line1\nline2\nline3");
+        let msg = format_report("Worker", "line1\nline2\nline3");
+        assert_eq!(msg, "[Report from Worker] line1\nline2\nline3");
         assert!(msg.contains('\n'), "Internal newlines are preserved");
     }
 

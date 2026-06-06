@@ -18,9 +18,17 @@ pub(super) fn dispatch(
         }
 
         "bridge.send" => {
-            let chat_id = params.as_ref().and_then(|p| p.get("chat_id")).and_then(|v| v.as_i64());
-            let append = params.as_ref().and_then(|p| p.get("append")).and_then(|v| v.as_bool()).unwrap_or(false);
-            let content_type = params.as_ref()
+            let chat_id = params
+                .as_ref()
+                .and_then(|p| p.get("chat_id"))
+                .and_then(|v| v.as_i64());
+            let append = params
+                .as_ref()
+                .and_then(|p| p.get("append"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let content_type = params
+                .as_ref()
                 .and_then(|p| p.get("type"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("text")
@@ -34,36 +42,61 @@ pub(super) fn dispatch(
                 "photo" | "document" | "voice" | "animation" | "video" | "sticker" => {
                     let file = get_string_param(params, "file")?;
                     if !std::path::Path::new(&file).exists() {
-                        return Err(JsonRpcError { code: -32602, message: format!("File not found: {}", file) });
+                        return Err(JsonRpcError {
+                            code: -32602,
+                            message: format!("File not found: {}", file),
+                        });
                     }
-                    let caption = params.as_ref().and_then(|p| p.get("caption")).and_then(|v| v.as_str()).map(|s| s.to_string())
-                        .or_else(|| params.as_ref().and_then(|p| p.get("text")).and_then(|v| v.as_str()).map(|s| s.to_string()));
-                    let filename = params.as_ref().and_then(|p| p.get("filename")).and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let caption = params
+                        .as_ref()
+                        .and_then(|p| p.get("caption"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| {
+                            params
+                                .as_ref()
+                                .and_then(|p| p.get("text"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                        });
+                    let filename = params
+                        .as_ref()
+                        .and_then(|p| p.get("filename"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
 
                     match content_type.as_str() {
                         "photo" => crate::bridge::traits::OutboundContent::Photo { file, caption },
-                        "document" => crate::bridge::traits::OutboundContent::Document { file, caption, filename },
+                        "document" => crate::bridge::traits::OutboundContent::Document {
+                            file,
+                            caption,
+                            filename,
+                        },
                         "voice" => crate::bridge::traits::OutboundContent::Voice { file, caption },
-                        "animation" => crate::bridge::traits::OutboundContent::Animation { file, caption },
+                        "animation" => {
+                            crate::bridge::traits::OutboundContent::Animation { file, caption }
+                        }
                         "video" => crate::bridge::traits::OutboundContent::Video { file, caption },
                         "sticker" => crate::bridge::traits::OutboundContent::Sticker { file },
                         _ => unreachable!(),
                     }
                 }
                 _ => {
-                    return Err(JsonRpcError { code: -32602, message: format!("Unknown content type: {}", content_type) });
+                    return Err(JsonRpcError {
+                        code: -32602,
+                        message: format!("Unknown content type: {}", content_type),
+                    });
                 }
             };
 
-            let buttons: Option<crate::bridge::traits::InlineKeyboard> = params.as_ref()
+            let buttons: Option<crate::bridge::traits::InlineKeyboard> = params
+                .as_ref()
                 .and_then(|p| p.get("buttons"))
-                .and_then(|v| {
-                    match serde_json::from_value(v.clone()) {
-                        Ok(b) => Some(b),
-                        Err(e) => {
-                            log::warn!("[bridge.send] failed to parse buttons: {} — raw: {}", e, v);
-                            None
-                        }
+                .and_then(|v| match serde_json::from_value(v.clone()) {
+                    Ok(b) => Some(b),
+                    Err(e) => {
+                        log::warn!("[bridge.send] failed to parse buttons: {} — raw: {}", e, v);
+                        None
                     }
                 });
 
@@ -88,29 +121,50 @@ pub(super) fn dispatch(
         }
 
         "bridge.react" => {
-            let chat_id = params.as_ref().and_then(|p| p.get("chat_id")).and_then(|v| v.as_i64())
-                .ok_or(JsonRpcError { code: -32602, message: "chat_id required".into() })?;
-            let message_id = params.as_ref().and_then(|p| p.get("message_id")).and_then(|v| v.as_i64())
-                .ok_or(JsonRpcError { code: -32602, message: "message_id required".into() })?;
+            let chat_id = params
+                .as_ref()
+                .and_then(|p| p.get("chat_id"))
+                .and_then(|v| v.as_i64())
+                .ok_or(JsonRpcError {
+                    code: -32602,
+                    message: "chat_id required".into(),
+                })?;
+            let message_id = params
+                .as_ref()
+                .and_then(|p| p.get("message_id"))
+                .and_then(|v| v.as_i64())
+                .ok_or(JsonRpcError {
+                    code: -32602,
+                    message: "message_id required".into(),
+                })?;
             let emoji = get_string_param(params, "emoji")?;
 
             let token = crate::bridge::telegram::read_token().unwrap_or_default();
             tokio::spawn(async move {
                 let client = reqwest::Client::new();
                 let resp = client
-                    .post(format!("https://api.telegram.org/bot{}/setMessageReaction", token))
+                    .post(format!(
+                        "https://api.telegram.org/bot{}/setMessageReaction",
+                        token
+                    ))
                     .json(&serde_json::json!({
                         "chat_id": chat_id,
                         "message_id": message_id,
                         "reaction": [{"type": "emoji", "emoji": emoji}],
                     }))
                     .timeout(std::time::Duration::from_secs(10))
-                    .send().await;
+                    .send()
+                    .await;
                 match resp {
                     Ok(r) => {
                         let body: serde_json::Value = r.json().await.unwrap_or_default();
                         if body.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-                            log::warn!("[bridge] react failed: {}", body.get("description").and_then(|v| v.as_str()).unwrap_or("unknown"));
+                            log::warn!(
+                                "[bridge] react failed: {}",
+                                body.get("description")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown")
+                            );
                         }
                     }
                     Err(e) => log::warn!("[bridge] react error: {}", e),

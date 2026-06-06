@@ -37,7 +37,9 @@ pub async fn mesh_debug_sign(
     check_auth(&state, &headers)?;
     let mesh = state.mesh.lock();
     match mesh.sign_request() {
-        Ok(token) => Ok(Json(serde_json::json!({"token": token, "instance_id": mesh.ident.identity.instance_id}))),
+        Ok(token) => Ok(Json(
+            serde_json::json!({"token": token, "instance_id": mesh.ident.identity.instance_id}),
+        )),
         Err(e) => Ok(Json(serde_json::json!({"error": e}))),
     }
 }
@@ -48,10 +50,16 @@ pub async fn mesh_start_broadcast(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let duration = state.config.lock().mesh.broadcast_duration_secs;
-    crate::mesh::discovery::start_broadcast(state.mesh.clone(), duration)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to start broadcast"))?;
+    crate::mesh::discovery::start_broadcast(state.mesh.clone(), duration).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to start broadcast",
+        )
+    })?;
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
-    Ok(Json(serde_json::json!({"ok": true, "duration_secs": duration})))
+    Ok(Json(
+        serde_json::json!({"ok": true, "duration_secs": duration}),
+    ))
 }
 
 pub async fn mesh_stop_broadcast(

@@ -29,9 +29,7 @@ pub fn save_session_named(
 }
 
 #[tauri::command]
-pub fn list_saved_sessions(
-    session: tauri::State<'_, SessionState>,
-) -> Result<Vec<String>, String> {
+pub fn list_saved_sessions(session: tauri::State<'_, SessionState>) -> Result<Vec<String>, String> {
     session.lock().list_saved()
 }
 

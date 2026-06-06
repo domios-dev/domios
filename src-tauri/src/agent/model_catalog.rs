@@ -76,9 +76,7 @@ fn registry() -> &'static RwLock<HashMap<String, RegisteredDefaults>> {
 /// hot-reloaded plugin updates and for tests). The data here is what CodeTerm
 /// ships with for the current build; bump it alongside upstream releases.
 pub fn register(provider_id: &str, defaults: RegisteredDefaults) {
-    registry()
-        .write()
-        .insert(provider_id.to_string(), defaults);
+    registry().write().insert(provider_id.to_string(), defaults);
 }
 
 /// Read-side: returns the resolved model list using these rules —
@@ -283,7 +281,11 @@ pub fn ensure_readme_installed() {
         return;
     }
     if let Err(e) = std::fs::write(&readme, README_BODY) {
-        log::warn!("[model_catalog] could not write {}: {}", readme.display(), e);
+        log::warn!(
+            "[model_catalog] could not write {}: {}",
+            readme.display(),
+            e
+        );
     }
 }
 
@@ -486,13 +488,33 @@ mod tests {
         // User override: re-titles sonnet, adds custom finetune.
         // Expectation: order [opus, sonnet-renamed, haiku, my-finetune].
         let builtin = vec![
-            ModelInfo { id: "opus".into(), display_name: "Opus 4.7".into(), description: None },
-            ModelInfo { id: "sonnet".into(), display_name: "Sonnet 4.6".into(), description: None },
-            ModelInfo { id: "haiku".into(), display_name: "Haiku 4.5".into(), description: None },
+            ModelInfo {
+                id: "opus".into(),
+                display_name: "Opus 4.7".into(),
+                description: None,
+            },
+            ModelInfo {
+                id: "sonnet".into(),
+                display_name: "Sonnet 4.6".into(),
+                description: None,
+            },
+            ModelInfo {
+                id: "haiku".into(),
+                display_name: "Haiku 4.5".into(),
+                description: None,
+            },
         ];
         let overrides = vec![
-            ModelInfo { id: "sonnet".into(), display_name: "My Sonnet".into(), description: None },
-            ModelInfo { id: "my-finetune".into(), display_name: "Mine".into(), description: None },
+            ModelInfo {
+                id: "sonnet".into(),
+                display_name: "My Sonnet".into(),
+                description: None,
+            },
+            ModelInfo {
+                id: "my-finetune".into(),
+                display_name: "Mine".into(),
+                description: None,
+            },
         ];
         let merged = merge_models(&builtin, &overrides);
         assert_eq!(merged.len(), 4);
@@ -506,7 +528,9 @@ mod tests {
     #[test]
     fn merge_with_empty_override_is_builtin_verbatim() {
         let builtin = vec![ModelInfo {
-            id: "a".into(), display_name: "A".into(), description: None,
+            id: "a".into(),
+            display_name: "A".into(),
+            description: None,
         }];
         let merged = merge_models(&builtin, &[]);
         assert_eq!(merged.len(), 1);
@@ -516,7 +540,9 @@ mod tests {
     #[test]
     fn merge_with_empty_builtin_is_override_verbatim() {
         let overrides = vec![ModelInfo {
-            id: "x".into(), display_name: "X".into(), description: None,
+            id: "x".into(),
+            display_name: "X".into(),
+            description: None,
         }];
         let merged = merge_models(&[], &overrides);
         assert_eq!(merged.len(), 1);

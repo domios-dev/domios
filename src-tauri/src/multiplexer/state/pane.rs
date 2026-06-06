@@ -45,7 +45,8 @@ impl MultiplexerState {
 
     /// Collect agent_session_ids from all panes except the given one.
     pub fn other_session_ids(&self, exclude_pane_id: &str) -> Vec<String> {
-        self.panes.values()
+        self.panes
+            .values()
             .filter(|p| p.id != exclude_pane_id)
             .filter_map(|p| p.agent_session_id.clone())
             .collect()
@@ -53,7 +54,8 @@ impl MultiplexerState {
 
     /// Pane IDs currently holding the given agent session id (typically 0 or 1).
     pub fn pane_ids_with_session(&self, session_id: &str) -> Vec<String> {
-        self.panes.values()
+        self.panes
+            .values()
             .filter(|p| p.agent_session_id.as_deref() == Some(session_id))
             .map(|p| p.id.clone())
             .collect()
@@ -103,8 +105,15 @@ impl MultiplexerState {
 
     /// Rename a pane at a specific priority level.
     /// Lower levels cannot overwrite higher ones.
-    pub fn rename_pane_at_level(&mut self, pane_id: &str, title: &str, level: TitleLevel) -> Result<(), String> {
-        let pane = self.panes.get_mut(pane_id)
+    pub fn rename_pane_at_level(
+        &mut self,
+        pane_id: &str,
+        title: &str,
+        level: TitleLevel,
+    ) -> Result<(), String> {
+        let pane = self
+            .panes
+            .get_mut(pane_id)
             .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
         if level < pane.title_level {
             return Ok(());
@@ -138,8 +147,13 @@ impl MultiplexerState {
     pub fn display_label_for_pane(&self, pane_id: &str) -> String {
         // Callers may pass a short id / alias — resolve first so the
         // tab-title lookup (which compares full ids) actually matches.
-        let resolved = self.resolve_pane_id(pane_id).unwrap_or_else(|| pane_id.to_string());
-        let pane_title = self.get_pane(&resolved).map(|p| p.title.clone()).unwrap_or_default();
+        let resolved = self
+            .resolve_pane_id(pane_id)
+            .unwrap_or_else(|| pane_id.to_string());
+        let pane_title = self
+            .get_pane(&resolved)
+            .map(|p| p.title.clone())
+            .unwrap_or_default();
         for ws in &self.workspaces {
             if let Some(tab) = ws.tabs.iter().find(|t| t.pane_id == resolved) {
                 let t = tab.title.trim();
@@ -245,6 +259,10 @@ mod display_label_tests {
         let label = state.display_label_for_pane(&pane_id);
         // Default auto-generated tab title is non-empty, so the label is
         // either the tab title or the short id — either way, never empty.
-        assert!(!label.is_empty(), "display label must never be empty (got {:?})", label);
+        assert!(
+            !label.is_empty(),
+            "display label must never be empty (got {:?})",
+            label
+        );
     }
 }

@@ -9,10 +9,10 @@ use std::time::Instant;
 
 use tauri::Emitter;
 
+use super::ServiceContext;
 use crate::agent::detector::AgentEvent;
 use crate::agent::prompt::PromptDecision;
 use crate::agent::status::PaneStatus;
-use super::ServiceContext;
 
 /// Per-pane notification cooldown: (pane_id, event_kind) → last fire time.
 /// Prevents notification spam from TUI redraws (same event every chunk).
@@ -26,21 +26,32 @@ impl ServiceContext {
         static CALL_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if n % 500 == 0 {
-            log::info!("[output] process_pty_output #{}, pty={}, len={}", n, &pty_id[..pty_id.len().min(8)], data.len());
+            log::info!(
+                "[output] process_pty_output #{}, pty={}, len={}",
+                n,
+                &pty_id[..pty_id.len().min(8)],
+                data.len()
+            );
         }
 
         let (pane_id, agent_type) = {
             let mux = self.mux.lock();
             let pid = mux.pane_id_for_pty(pty_id);
-            let at = pid.as_ref().and_then(|id| mux.get_pane(id)).and_then(|p| p.agent_type.clone());
+            let at = pid
+                .as_ref()
+                .and_then(|id| mux.get_pane(id))
+                .and_then(|p| p.agent_type.clone());
             (pid, at)
         };
 
-        let exclude_rows = agent_type.as_deref()
+        let exclude_rows = agent_type
+            .as_deref()
             .map(|at| self.agent_registry.status_bar_rows(at))
             .unwrap_or(0);
         let (prev_status, screen_changed) = {
-            let screen_hash = self.screen_state.lock()
+            let screen_hash = self
+                .screen_state
+                .lock()
                 .get_content_hash(pty_id, exclude_rows)
                 .unwrap_or([0u8; 32]);
             let mut t = self.agent_tracker.lock();
@@ -55,7 +66,12 @@ impl ServiceContext {
         }
         let current_status = self.agent_tracker.lock().get_status(pty_id);
         if current_status != prev_status {
-            log::info!("[status] {} {:?} -> {:?}", &pty_id[..pty_id.len().min(8)], prev_status, current_status);
+            log::info!(
+                "[status] {} {:?} -> {:?}",
+                &pty_id[..pty_id.len().min(8)],
+                prev_status,
+                current_status
+            );
         }
 
         // Identity (`agent_type`) is now driven by explicit intent only:
@@ -71,9 +87,11 @@ impl ServiceContext {
             // Agent already detected — check if it's still running.
             // This is the SOLE agent exit detection point (removed from idle-poll to avoid races).
             // Only check periodically to avoid overhead on every chunk.
-            static UNDETECT_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            static UNDETECT_COUNT: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(0);
             let count = UNDETECT_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if count % 50 == 0 { // Check every ~50 chunks
+            if count % 50 == 0 {
+                // Check every ~50 chunks
                 // Grace period: skip exit detection for 30s after agent_type was set.
                 // Prevents false "agent exited" during startup (shell prompt visible before agent launches).
                 // Locked panes (explicit spawn intent) bypass output-based clearing entirely:
@@ -93,13 +111,27 @@ impl ServiceContext {
                 if in_grace || locked {
                     agent_type
                 } else {
-                    let screen = self.screen_state.lock().get_screen_text(pty_id).unwrap_or_default();
-                    if !screen.is_empty() && self.agent_registry.detect_from_output(&screen).is_none() {
+                    let screen = self
+                        .screen_state
+                        .lock()
+                        .get_screen_text(pty_id)
+                        .unwrap_or_default();
+                    if !screen.is_empty()
+                        && self.agent_registry.detect_from_output(&screen).is_none()
+                    {
                         // Screen has content but no agent markers — check for shell prompt
-                        if let Some(last_line) = screen.lines().rev().find(|l| !l.trim().is_empty()) {
+                        if let Some(last_line) = screen.lines().rev().find(|l| !l.trim().is_empty())
+                        {
                             let t = last_line.trim();
-                            if t.ends_with('>') || t.ends_with('$') || t.ends_with('%') || t.ends_with('#') {
-                                log::info!("[output] agent exited in pane {} (shell prompt detected)", pid);
+                            if t.ends_with('>')
+                                || t.ends_with('$')
+                                || t.ends_with('%')
+                                || t.ends_with('#')
+                            {
+                                log::info!(
+                                    "[output] agent exited in pane {} (shell prompt detected)",
+                                    pid
+                                );
                                 self.set_pane_agent_type(pid, None);
                                 self.prompt_detector.lock().clear(pid);
                                 {
@@ -110,11 +142,19 @@ impl ServiceContext {
                                 }
                                 self.emit_state_changed();
                                 None
-                            } else { agent_type }
-                        } else { agent_type }
-                    } else { agent_type }
+                            } else {
+                                agent_type
+                            }
+                        } else {
+                            agent_type
+                        }
+                    } else {
+                        agent_type
+                    }
                 }
-            } else { agent_type }
+            } else {
+                agent_type
+            }
         } else {
             agent_type
         };
@@ -147,12 +187,9 @@ impl ServiceContext {
                     let mut detector = self.prompt_detector.lock();
                     let agent_type_clone = at.clone();
                     let registry = &self.agent_registry;
-                    detector.evaluate_pty_output(
-                        pid,
-                        check_screen,
-                        clean_text.as_deref(),
-                        |text| registry.parse_prompt(&agent_type_clone, text),
-                    )
+                    detector.evaluate_pty_output(pid, check_screen, clean_text.as_deref(), |text| {
+                        registry.parse_prompt(&agent_type_clone, text)
+                    })
                 };
 
                 self.apply_prompt_decision(&decision);
@@ -177,11 +214,13 @@ impl ServiceContext {
 
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {
         match decision {
-            PromptDecision::None => {},
-            PromptDecision::NewPrompt { pane_id, prompt } |
-            PromptDecision::PromptUpdated { pane_id, prompt } => {
+            PromptDecision::None => {}
+            PromptDecision::NewPrompt { pane_id, prompt }
+            | PromptDecision::PromptUpdated { pane_id, prompt } => {
                 // Auto-approve: if pane has auto_approve set, respond immediately
-                let auto_approve = self.mux.lock()
+                let auto_approve = self
+                    .mux
+                    .lock()
                     .get_pane(pane_id)
                     .map(|p| p.auto_approve)
                     .unwrap_or(false);
@@ -206,7 +245,9 @@ impl ServiceContext {
                             if is_yes_no { "yes/no" } else { "numbered-yes" },
                             pane_id
                         );
-                        let pty_id = self.mux.lock()
+                        let pty_id = self
+                            .mux
+                            .lock()
                             .get_pane(pane_id)
                             .and_then(|p| p.pty_id.clone());
                         if let Some(pty_id) = pty_id {
@@ -219,7 +260,10 @@ impl ServiceContext {
                         }
                         return;
                     }
-                    log::debug!("[auto-approve] Skipping non-approvable prompt for pane {}", pane_id);
+                    log::debug!(
+                        "[auto-approve] Skipping non-approvable prompt for pane {}",
+                        pane_id
+                    );
                 }
                 {
                     let mut mux = self.mux.lock();
@@ -228,18 +272,24 @@ impl ServiceContext {
                     }
                 }
                 // Emit focused event — frontend subscribes directly, no polling needed
-                let _ = self.app_handle.emit("prompt-state-changed", serde_json::json!({
-                    "pane_id": pane_id,
-                    "prompt": prompt,
-                }));
+                let _ = self.app_handle.emit(
+                    "prompt-state-changed",
+                    serde_json::json!({
+                        "pane_id": pane_id,
+                        "prompt": prompt,
+                    }),
+                );
                 self.emit_state_changed();
                 let title = self.mux.lock().get_pane(pane_id).map(|p| p.title.clone());
                 if let Some(title) = title {
-                    self.notify_event("agent.permission_request", serde_json::json!({
-                        "pane_id": pane_id,
-                        "title": format!("{} needs approval", title),
-                        "body": "Agent is waiting for your permission",
-                    }));
+                    self.notify_event(
+                        "agent.permission_request",
+                        serde_json::json!({
+                            "pane_id": pane_id,
+                            "title": format!("{} needs approval", title),
+                            "body": "Agent is waiting for your permission",
+                        }),
+                    );
                 }
             }
             PromptDecision::PromptCleared { pane_id } => {
@@ -248,10 +298,13 @@ impl ServiceContext {
                     pane.pending_prompt = None;
                 }
                 drop(mux);
-                let _ = self.app_handle.emit("prompt-state-changed", serde_json::json!({
-                    "pane_id": pane_id,
-                    "prompt": null,
-                }));
+                let _ = self.app_handle.emit(
+                    "prompt-state-changed",
+                    serde_json::json!({
+                        "pane_id": pane_id,
+                        "prompt": null,
+                    }),
+                );
                 self.emit_state_changed();
             }
         }
@@ -282,11 +335,14 @@ impl ServiceContext {
                 if prev_status == PaneStatus::Working {
                     let title = self.mux.lock().get_pane(pane_id).map(|p| p.title.clone());
                     if let Some(title) = title {
-                        self.notify_event("agent.task_complete", serde_json::json!({
-                            "pane_id": pane_id,
-                            "title": format!("{} finished", title),
-                            "body": "Task complete",
-                        }));
+                        self.notify_event(
+                            "agent.task_complete",
+                            serde_json::json!({
+                                "pane_id": pane_id,
+                                "title": format!("{} finished", title),
+                                "body": "Task complete",
+                            }),
+                        );
                     }
                 }
             }

@@ -8,15 +8,25 @@ fn needs_restart_decision(
     has_agent_type: bool,
     screen: Option<&str>,
 ) -> bool {
-    if in_grace { return false; }
-    if !has_pty && has_agent_type { return true; }
-    let Some(text) = screen else { return false; };
+    if in_grace {
+        return false;
+    }
+    if !has_pty && has_agent_type {
+        return true;
+    }
+    let Some(text) = screen else {
+        return false;
+    };
     let agent_visible = text.contains("Claude Code")
         || text.contains("? for shortcuts")
         || text.contains("Cogitated for")
         || text.contains("Brewed for");
-    if agent_visible { return false; }
-    let has_prompt = text.lines().rev()
+    if agent_visible {
+        return false;
+    }
+    let has_prompt = text
+        .lines()
+        .rev()
         .find(|l| !l.trim().is_empty())
         .map(|l| {
             let t = l.trim();
@@ -60,11 +70,14 @@ pub fn start_watchdog(
                 let m = mux.lock();
                 m.resolve_pane_id(GENERAL_ALIAS).and_then(|pid| {
                     let pane = m.get_pane(&pid)?;
-                    let in_grace = pane.agent_set_at
+                    let in_grace = pane
+                        .agent_set_at
                         .map(|t| t.elapsed().as_secs() < 30)
                         .unwrap_or(false);
                     let screen = pane.pty_id.as_ref().and_then(|pty_id| {
-                        screen_state.try_lock().and_then(|ss| ss.get_screen_text(pty_id))
+                        screen_state
+                            .try_lock()
+                            .and_then(|ss| ss.get_screen_text(pty_id))
                     });
                     Some(needs_restart_decision(
                         in_grace,
@@ -78,19 +91,26 @@ pub fn start_watchdog(
             match needs_restart {
                 Some(true) => {
                     if consecutive_restarts >= general_config.max_restart_attempts {
-                        log::error!("[general-agent/watchdog] Max restarts ({}) reached — stopping",
-                            general_config.max_restart_attempts);
+                        log::error!(
+                            "[general-agent/watchdog] Max restarts ({}) reached — stopping",
+                            general_config.max_restart_attempts
+                        );
                         break;
                     }
                     consecutive_restarts += 1;
-                    log::info!("[general-agent/watchdog] Agent not running — restarting ({}/{})",
-                        consecutive_restarts, general_config.max_restart_attempts);
+                    log::info!(
+                        "[general-agent/watchdog] Agent not running — restarting ({}/{})",
+                        consecutive_restarts,
+                        general_config.max_restart_attempts
+                    );
                     // Clear stale agent_type so start_general_agent doesn't skip with "Already running"
                     let pid = mux.lock().resolve_pane_id(GENERAL_ALIAS);
                     if let Some(pid) = pid {
                         svc.set_pane_agent_type(&pid, None);
                     }
-                    std::thread::sleep(std::time::Duration::from_secs(general_config.restart_delay_s as u64));
+                    std::thread::sleep(std::time::Duration::from_secs(
+                        general_config.restart_delay_s as u64,
+                    ));
                     lifecycle::start_general_agent(&svc, &mux, &pty, &screen_state, &config, &app);
                 }
                 Some(false) => {
@@ -136,7 +156,8 @@ mod tests {
 
     #[test]
     fn bare_powershell_prompt_with_cosmetic_agent_type_triggers_restart() {
-        let screen = "Windows PowerShell\nCopyright (C) Microsoft Corporation.\n\nPS C:\\Users\\foo>";
+        let screen =
+            "Windows PowerShell\nCopyright (C) Microsoft Corporation.\n\nPS C:\\Users\\foo>";
         assert!(needs_restart_decision(false, true, true, Some(screen)));
     }
 

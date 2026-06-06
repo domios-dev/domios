@@ -14,10 +14,16 @@ pub(crate) fn file_sha256(path: &std::path::Path) -> Option<String> {
 
 /// Install bundled CLI binary to ~/.codeterm/bin/ on startup (runs in background).
 pub(crate) fn install_bundled_cli(app: &tauri::App) {
-    let bin_name = if cfg!(windows) { "codeterm.exe" } else { "codeterm" };
+    let bin_name = if cfg!(windows) {
+        "codeterm.exe"
+    } else {
+        "codeterm"
+    };
 
-    let resource_path = app.path()
-        .resolve(format!("cli/{}", bin_name), tauri::path::BaseDirectory::Resource);
+    let resource_path = app.path().resolve(
+        format!("cli/{}", bin_name),
+        tauri::path::BaseDirectory::Resource,
+    );
 
     let src = match resource_path {
         Ok(p) if p.exists() => p,
@@ -29,7 +35,10 @@ pub(crate) fn install_bundled_cli(app: &tauri::App) {
 
     let home = match dirs::home_dir() {
         Some(h) => h,
-        None => { log::error!("[cli-install] Cannot determine home directory"); return; }
+        None => {
+            log::error!("[cli-install] Cannot determine home directory");
+            return;
+        }
     };
 
     // Run in background to not block app startup
@@ -58,9 +67,7 @@ pub(crate) fn install_bundled_cli(app: &tauri::App) {
                     );
                 }
                 _ => {
-                    log::warn!(
-                        "[cli-install] Could not hash existing CLI — proceeding with copy"
-                    );
+                    log::warn!("[cli-install] Could not hash existing CLI — proceeding with copy");
                 }
             }
         }
@@ -153,9 +160,14 @@ fn add_to_user_path(dir: &std::path::Path) {
     if current.contains(&*dir_str) {
         return;
     }
-    let current_val = current.lines()
+    let current_val = current
+        .lines()
         .find(|l| l.contains("REG_") && l.contains("Path"))
-        .and_then(|l| l.split("REG_EXPAND_SZ").nth(1).or_else(|| l.split("REG_SZ").nth(1)))
+        .and_then(|l| {
+            l.split("REG_EXPAND_SZ")
+                .nth(1)
+                .or_else(|| l.split("REG_SZ").nth(1))
+        })
         .map(|v| v.trim().to_string())
         .unwrap_or_default();
     let new_val = if current_val.is_empty() {
@@ -164,7 +176,17 @@ fn add_to_user_path(dir: &std::path::Path) {
         format!("{};{}", current_val, dir_str)
     };
     let mut a = std::process::Command::new("reg");
-    a.args(["add", "HKCU\\Environment", "/v", "Path", "/t", "REG_EXPAND_SZ", "/d", &new_val, "/f"]);
+    a.args([
+        "add",
+        "HKCU\\Environment",
+        "/v",
+        "Path",
+        "/t",
+        "REG_EXPAND_SZ",
+        "/d",
+        &new_val,
+        "/f",
+    ]);
     crate::process_util::no_window_std(&mut a);
     let result = a.output();
     if let Ok(o) = result {
@@ -186,15 +208,24 @@ mod tests {
         let b = dir.path().join("b.bin");
         // Two files of identical length but different content — exactly the v1.1.5/1.1.6
         // failure mode that defeated the old size-only skip.
-        std::fs::File::create(&a).unwrap().write_all(&[0u8; 64]).unwrap();
-        std::fs::File::create(&b).unwrap().write_all(&[1u8; 64]).unwrap();
+        std::fs::File::create(&a)
+            .unwrap()
+            .write_all(&[0u8; 64])
+            .unwrap();
+        std::fs::File::create(&b)
+            .unwrap()
+            .write_all(&[1u8; 64])
+            .unwrap();
         let ha = file_sha256(&a).expect("hash a");
         let hb = file_sha256(&b).expect("hash b");
         assert_eq!(
             std::fs::metadata(&a).unwrap().len(),
             std::fs::metadata(&b).unwrap().len()
         );
-        assert_ne!(ha, hb, "same-size files with different content must hash differently");
+        assert_ne!(
+            ha, hb,
+            "same-size files with different content must hash differently"
+        );
     }
 
     #[test]

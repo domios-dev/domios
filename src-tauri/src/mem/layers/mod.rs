@@ -173,7 +173,14 @@ fn collect_l1_candidates(
                 continue;
             }
             let score = score::score_for(importance, evidence, ws_match, recent);
-            scored.push(Pass2Row { id, importance, evidence, ws_match, recent, score });
+            scored.push(Pass2Row {
+                id,
+                importance,
+                evidence,
+                ws_match,
+                recent,
+                score,
+            });
         }
     }
     // Score desc, id asc tiebreaker (deterministic ordering for tests / explain).

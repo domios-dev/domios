@@ -45,7 +45,9 @@ mod claude {
 
     #[test]
     fn detect_from_title_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         let cases = [
             ("Claude Code", true),
@@ -63,7 +65,9 @@ mod claude {
 
     #[test]
     fn detect_from_output_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         let cases = [
             ("Do you want to proceed?", true),
@@ -81,7 +85,9 @@ mod claude {
 
     #[test]
     fn screen_has_tui_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         for s in ["? for shortcuts here", "ctrl+l help", "esc to interrupt"] {
             assert!(n.screen_has_tui(s), "native: {s}");
@@ -95,7 +101,9 @@ mod claude {
 
     #[test]
     fn is_output_noise_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         let noisy = [
             "bypass permissions on",
@@ -119,15 +127,29 @@ mod claude {
 
     #[test]
     fn extract_session_name_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         let explicit = "  Session: vivid-bhabha-1234\n  cwd: /tmp\n";
-        assert_eq!(n.extract_session_name(explicit).as_deref(), Some("vivid-bhabha-1234"));
-        assert_eq!(j.extract_session_name(explicit).as_deref(), Some("vivid-bhabha-1234"));
+        assert_eq!(
+            n.extract_session_name(explicit).as_deref(),
+            Some("vivid-bhabha-1234")
+        );
+        assert_eq!(
+            j.extract_session_name(explicit).as_deref(),
+            Some("vivid-bhabha-1234")
+        );
 
         let bare = "Resuming previous session\n\n  brave-tiger-4242\n\nReady.";
-        assert_eq!(n.extract_session_name(bare).as_deref(), Some("brave-tiger-4242"));
-        assert_eq!(j.extract_session_name(bare).as_deref(), Some("brave-tiger-4242"));
+        assert_eq!(
+            n.extract_session_name(bare).as_deref(),
+            Some("brave-tiger-4242")
+        );
+        assert_eq!(
+            j.extract_session_name(bare).as_deref(),
+            Some("brave-tiger-4242")
+        );
 
         let prose = "we hit error-code-1234 while parsing — see error-code-5678";
         assert_eq!(n.extract_session_name(prose), None);
@@ -136,7 +158,9 @@ mod claude {
 
     #[test]
     fn slash_commands_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         assert_eq!(n.compact_command(), j.compact_command());
         assert_eq!(n.exit_command(), j.exit_command());
@@ -149,7 +173,9 @@ mod claude {
 
     #[test]
     fn metadata_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         assert_eq!(n.id(), j.id());
         assert_eq!(n.display_name(), j.display_name());
@@ -157,7 +183,10 @@ mod claude {
         assert_eq!(n.cli_binary(), j.cli_binary());
         assert_eq!(n.icon_hint(), j.icon_hint());
         assert_eq!(n.icon_color(), j.icon_color());
-        assert_eq!(n.preserves_context_on_resume(), j.preserves_context_on_resume());
+        assert_eq!(
+            n.preserves_context_on_resume(),
+            j.preserves_context_on_resume()
+        );
         assert_eq!(n.has_hooks(), j.has_hooks());
         assert_eq!(n.supports_lazy_skills(), j.supports_lazy_skills());
         assert_eq!(n.status_bar_rows(), j.status_bar_rows());
@@ -165,7 +194,9 @@ mod claude {
 
     #[test]
     fn parse_session_messages_parity_on_jsonl_fixture() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         // Realistic Claude JSONL snippet: assistant with array content,
         // user with string content, plus a non-message line that must
@@ -192,7 +223,9 @@ mod claude {
 
     #[test]
     fn resume_command_carries_session_id_and_skip_flag() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (_n, j) = pair();
         let cmd = j.build_resume_command("abc-def-123-456", true).unwrap();
         assert!(cmd.contains("--resume"));
@@ -203,12 +236,11 @@ mod claude {
     /// Synthetic Claude plugin variant that points its rule + integration
     /// paths into a tempdir so we exercise the real plugin.js end-to-end
     /// against `JsProvider` without touching the user's real `~/.claude/`.
-    fn claude_in_temp(
-        rule_path: &std::path::Path,
-        settings_path: &std::path::Path,
-    ) -> JsProvider {
+    fn claude_in_temp(rule_path: &std::path::Path, settings_path: &std::path::Path) -> JsProvider {
         let plugin_js = std::fs::read_to_string(
-            workspace_plugins_root().join("provider-claude").join("plugin.js"),
+            workspace_plugins_root()
+                .join("provider-claude")
+                .join("plugin.js"),
         )
         .unwrap();
         let manifest_json = format!(
@@ -236,7 +268,9 @@ mod claude {
 
     #[test]
     fn integration_install_creates_all_four_hooks_with_markers() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let provider = claude_in_temp(
             &dir.path().join("rule.md"),
@@ -256,16 +290,24 @@ mod claude {
         .unwrap();
         for key in ["Notification", "Stop", "PreCompact", "SessionStart"] {
             let arr = json["hooks"][key].as_array().expect(key);
-            assert!(arr.iter().any(|e| {
-                e["hooks"].as_array().map_or(false, |inner| {
-                    inner.iter().any(|h| h["_source"] == "codeterm-hook-v2")
-                })
-            }), "missing v2 hook in {key}");
+            assert!(
+                arr.iter().any(|e| {
+                    e["hooks"].as_array().map_or(false, |inner| {
+                        inner.iter().any(|h| h["_source"] == "codeterm-hook-v2")
+                    })
+                }),
+                "missing v2 hook in {key}"
+            );
             // Curl points to the right port + path.
-            let any_cmd = arr.iter().flat_map(|e| {
-                e["hooks"].as_array().cloned().unwrap_or_default()
-            }).find_map(|h| h["command"].as_str().map(String::from)).unwrap();
-            assert!(any_cmd.contains("CODETERM_API_PORT:-7686"), "{key} cmd: {any_cmd}");
+            let any_cmd = arr
+                .iter()
+                .flat_map(|e| e["hooks"].as_array().cloned().unwrap_or_default())
+                .find_map(|h| h["command"].as_str().map(String::from))
+                .unwrap();
+            assert!(
+                any_cmd.contains("CODETERM_API_PORT:-7686"),
+                "{key} cmd: {any_cmd}"
+            );
         }
 
         // checkIntegration now reports installed.
@@ -280,7 +322,9 @@ mod claude {
 
     #[test]
     fn integration_install_preserves_unrelated_settings_fields() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("settings.json");
         std::fs::write(
@@ -299,7 +343,9 @@ mod claude {
 
     #[test]
     fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("settings.json");
         // Pre-existing settings with: a user hook (must survive), a
@@ -333,18 +379,22 @@ mod claude {
         );
         assert!(
             arr.iter().all(|e| {
-                e["hooks"][0]["_source"].as_str().map_or(true, |s| s != "codeterm")
+                e["hooks"][0]["_source"]
+                    .as_str()
+                    .map_or(true, |s| s != "codeterm")
             }),
             "v1 stale entry must be dropped"
         );
-        assert!(arr.iter().any(|e| {
-            e["hooks"][0]["_source"] == "codeterm-hook-v2"
-        }));
+        assert!(arr
+            .iter()
+            .any(|e| { e["hooks"][0]["_source"] == "codeterm-hook-v2" }));
     }
 
     #[test]
     fn integration_uninstall_drops_notification_and_stop_keeps_precompact() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let provider = claude_in_temp(
             &dir.path().join("rule.md"),
@@ -362,15 +412,25 @@ mod claude {
         let s = json["hooks"]["Stop"].as_array().unwrap();
         let pc = json["hooks"]["PreCompact"].as_array().unwrap();
         let ss = json["hooks"]["SessionStart"].as_array().unwrap();
-        assert!(n.iter().all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v2"));
-        assert!(s.iter().all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v2"));
-        assert!(pc.iter().any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v2"));
-        assert!(ss.iter().any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v2"));
+        assert!(n
+            .iter()
+            .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v2"));
+        assert!(s
+            .iter()
+            .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v2"));
+        assert!(pc
+            .iter()
+            .any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v2"));
+        assert!(ss
+            .iter()
+            .any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v2"));
     }
 
     #[test]
     fn integration_ensure_on_startup_is_idempotent() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let provider = claude_in_temp(
             &dir.path().join("rule.md"),
@@ -393,7 +453,9 @@ mod claude {
     /// trait method native uses) and asserts the file landed.
     #[test]
     fn bridge_rule_install_via_host_writes_file() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let rule_path = dir.path().join("rules").join("codeterm.md");
         let provider = claude_in_temp(&rule_path, &dir.path().join("settings.json"));
@@ -414,7 +476,9 @@ mod claude {
 
     #[test]
     fn launch_command_no_task_matches_native_shape() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         let params = AgentLaunchParams {
             skip_permissions: true,
@@ -430,7 +494,9 @@ mod claude {
 
     #[test]
     fn launch_command_headless_uses_stdin_pipe_in_both() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         let params = AgentLaunchParams {
             task: Some("count files in repo".into()),
@@ -459,7 +525,9 @@ mod claude {
 
     #[test]
     fn launch_command_headless_writes_task_bytes_through_plugin() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (_n, j) = pair();
         let body = "do thing --kind fact `whoami` 'quotes'";
         let cmd = j.build_launch_command(&AgentLaunchParams {
@@ -471,32 +539,45 @@ mod claude {
         // Pull the task-file path out of the pipe prefix and verify the
         // bytes the plugin wrote round-trip byte-exact to the task body.
         let token = if cfg!(target_os = "windows") {
-            cmd.split("Get-Content '").nth(1).and_then(|s| s.split('\'').next())
+            cmd.split("Get-Content '")
+                .nth(1)
+                .and_then(|s| s.split('\'').next())
         } else {
             cmd.split("cat '").nth(1).and_then(|s| s.split('\'').next())
         };
         let path = token.expect("path token");
         let bytes = std::fs::read(path).expect("temp task file written");
         let written = if cfg!(target_os = "windows") {
-            assert!(bytes.starts_with(&[0xEF, 0xBB, 0xBF]), "BOM expected on Windows");
+            assert!(
+                bytes.starts_with(&[0xEF, 0xBB, 0xBF]),
+                "BOM expected on Windows"
+            );
             String::from_utf8(bytes[3..].to_vec()).unwrap()
         } else {
             String::from_utf8(bytes).unwrap()
         };
-        assert_eq!(written, body, "task body must round-trip byte-exact through plugin");
+        assert_eq!(
+            written, body,
+            "task body must round-trip byte-exact through plugin"
+        );
         let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn launch_command_session_id_only_in_visible_mode() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         let visible = AgentLaunchParams {
             session_id: Some("my-uuid".into()),
             skip_permissions: true,
             ..Default::default()
         };
-        for cmd in [n.build_launch_command(&visible), j.build_launch_command(&visible)] {
+        for cmd in [
+            n.build_launch_command(&visible),
+            j.build_launch_command(&visible),
+        ] {
             assert!(cmd.contains("--session-id"), "visible must inject: {cmd}");
             assert!(cmd.contains("my-uuid"));
         }
@@ -507,7 +588,10 @@ mod claude {
             headless: true,
             ..Default::default()
         };
-        for cmd in [n.build_launch_command(&headless), j.build_launch_command(&headless)] {
+        for cmd in [
+            n.build_launch_command(&headless),
+            j.build_launch_command(&headless),
+        ] {
             assert!(!cmd.contains("--session-id"), "headless must skip: {cmd}");
             assert!(!cmd.contains("should-not-appear"));
         }
@@ -515,7 +599,9 @@ mod claude {
 
     #[test]
     fn session_jsonl_path_resolves_via_plugin() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let j = load_js("claude");
         let p = j.session_jsonl_path("/Users/foo/work/proj", "sess-abc-123");
         assert!(p.is_some(), "should return Some(path)");
@@ -523,32 +609,47 @@ mod claude {
         let s = p.to_string_lossy();
         assert!(s.contains("sess-abc-123.jsonl"), "missing session id: {s}");
         // Dash-encoded cwd — non-alphanumerics become '-'
-        assert!(s.contains("-Users-foo-work-proj"), "dash-encoded cwd missing: {s}");
-        assert!(s.contains(".claude") && s.contains("projects"),
-            "must hit ~/.claude/projects: {s}");
+        assert!(
+            s.contains("-Users-foo-work-proj"),
+            "dash-encoded cwd missing: {s}"
+        );
+        assert!(
+            s.contains(".claude") && s.contains("projects"),
+            "must hit ~/.claude/projects: {s}"
+        );
     }
 
     #[test]
     fn session_jsonl_path_returns_none_for_empty_sid() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let j = load_js("claude");
-        assert!(j.session_jsonl_path("/proj", "").is_none(),
-            "empty session id must return None");
+        assert!(
+            j.session_jsonl_path("/proj", "").is_none(),
+            "empty session id must return None"
+        );
     }
 
     #[test]
     fn parse_session_delta_handles_polymorphic_content() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let j = load_js("claude");
 
         // Mixed JSONL: summary (drop), user text (1 block), assistant with
         // text + thinking + tool_use (3 blocks), user tool_result (1 block),
         // and a malformed line (drop).
         let jsonl = concat!(
-            r#"{"type":"summary","x":1}"#, "\n",
-            r#"{"type":"user","message":{"role":"user","content":"hello"},"timestamp":"2026-05-20T10:00:00Z"}"#, "\n",
-            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"thinking","thinking":"hmm"},{"type":"tool_use","id":"u1","name":"Bash","input":{"command":"ls"}}]}}"#, "\n",
-            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"u1","content":"foo bar"}]}}"#, "\n",
+            r#"{"type":"summary","x":1}"#,
+            "\n",
+            r#"{"type":"user","message":{"role":"user","content":"hello"},"timestamp":"2026-05-20T10:00:00Z"}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"thinking","thinking":"hmm"},{"type":"tool_use","id":"u1","name":"Bash","input":{"command":"ls"}}]}}"#,
+            "\n",
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"u1","content":"foo bar"}]}}"#,
+            "\n",
             "not-json-at-all\n",
         );
 
@@ -556,8 +657,11 @@ mod claude {
         std::fs::write(tmp.path(), jsonl).unwrap();
 
         let delta = j.parse_session_delta(tmp.path(), 0);
-        assert_eq!(delta.new_offset, jsonl.len() as u64,
-            "should consume the entire file (last line ends in \\n)");
+        assert_eq!(
+            delta.new_offset,
+            jsonl.len() as u64,
+            "should consume the entire file (last line ends in \\n)"
+        );
         assert_eq!(delta.messages.len(), 3, "3 user/assistant entries");
 
         let m0 = &delta.messages[0];
@@ -578,19 +682,25 @@ mod claude {
         let m2 = &delta.messages[2];
         assert_eq!(m2.blocks[0].kind, "tool_result");
         assert_eq!(
-            m2.blocks[0].data.get("tool_use_id").and_then(|v| v.as_str()),
+            m2.blocks[0]
+                .data
+                .get("tool_use_id")
+                .and_then(|v| v.as_str()),
             Some("u1"),
         );
     }
 
     #[test]
     fn parse_session_delta_holds_back_partial_line() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let j = load_js("claude");
 
         // One complete line + a truncated second line.
         let jsonl = concat!(
-            r#"{"type":"user","message":{"role":"user","content":"first"},"timestamp":"2026-05-20T10:00:00Z"}"#, "\n",
+            r#"{"type":"user","message":{"role":"user","content":"first"},"timestamp":"2026-05-20T10:00:00Z"}"#,
+            "\n",
             r#"{"type":"user","message":{"role":"user","content":"sec"#,
         );
         let tmp = tempfile::NamedTempFile::new().unwrap();
@@ -604,7 +714,9 @@ mod claude {
 
     #[test]
     fn parse_session_delta_from_nonzero_offset() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let j = load_js("claude");
         // Two lines; we ask for the slice starting at line 2.
         let line1 = r#"{"type":"user","message":{"role":"user","content":"first"}}"#;
@@ -622,11 +734,14 @@ mod claude {
 
     #[test]
     fn parse_session_delta_handles_non_ascii_offset_correctly() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let j = load_js("claude");
         // Each line ends in \n. Contains emoji (4 bytes UTF-8 each) so
         // byte counts diverge from char counts.
-        let line1 = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hello 🚀 мир 你好\"}}";
+        let line1 =
+            "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hello 🚀 мир 你好\"}}";
         let line2 = "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"reply 🎉\"}}";
         let jsonl = format!("{}\n{}\n", line1, line2);
         let tmp = tempfile::NamedTempFile::new().unwrap();
@@ -634,8 +749,11 @@ mod claude {
         // First read consumes the whole file. new_offset must equal
         // the BYTE length of jsonl, not a code-unit count.
         let delta = j.parse_session_delta(tmp.path(), 0);
-        assert_eq!(delta.new_offset, jsonl.as_bytes().len() as u64,
-            "new_offset must be byte-accurate even with non-ASCII content");
+        assert_eq!(
+            delta.new_offset,
+            jsonl.as_bytes().len() as u64,
+            "new_offset must be byte-accurate even with non-ASCII content"
+        );
         assert_eq!(delta.messages.len(), 2);
         // Second read from the previous new_offset must return nothing.
         let delta2 = j.parse_session_delta(tmp.path(), delta.new_offset);
@@ -648,7 +766,9 @@ mod claude {
         // Defensive: feed the plugin malformed JSONL bytes. Plugin
         // catch-blocks each line, but the test asserts the tailer
         // doesn't get stuck at the same offset.
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let j = load_js("claude");
         let bad = "this is not json at all\nnot json either\n";
         let tmp = tempfile::NamedTempFile::new().unwrap();
@@ -675,7 +795,9 @@ mod codex {
 
     #[test]
     fn detect_from_title_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         for s in ["Codex", "codex prompt", "RUNNING CODEX"] {
             assert!(n.detect_from_title(s));
@@ -689,7 +811,9 @@ mod codex {
 
     #[test]
     fn detect_from_output_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         let cases = [
             ("OpenAI Codex v1.2", true),
@@ -708,7 +832,9 @@ mod codex {
 
     #[test]
     fn screen_has_tui_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         for s in ["OpenAI Codex banner", "ctrl+c to cancel"] {
             assert!(n.screen_has_tui(s));
@@ -722,7 +848,9 @@ mod codex {
 
     #[test]
     fn has_event_markers_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         for s in [
             "Would you like to proceed",
@@ -734,22 +862,32 @@ mod codex {
             assert_eq!(n.has_event_markers(s), j.has_event_markers(s), "{s}");
             assert!(n.has_event_markers(s));
         }
-        assert_eq!(n.has_event_markers("just normal output"), j.has_event_markers("just normal output"));
+        assert_eq!(
+            n.has_event_markers("just normal output"),
+            j.has_event_markers("just normal output")
+        );
     }
 
     #[test]
     fn slash_commands_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         assert_eq!(n.compact_command(), j.compact_command());
         assert_eq!(n.exit_command(), j.exit_command());
         assert_eq!(n.auto_approve_flags(), j.auto_approve_flags());
-        assert_eq!(n.model_launch_args("gpt-5.5"), j.model_launch_args("gpt-5.5"));
+        assert_eq!(
+            n.model_launch_args("gpt-5.5"),
+            j.model_launch_args("gpt-5.5")
+        );
     }
 
     #[test]
     fn parse_session_messages_parity_on_rollout_fixture() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         let jsonl = "{\"type\":\"meta\",\"x\":1}\n\
             {\"type\":\"response_item\",\"timestamp\":\"2026-04-12T09:00:00Z\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}}\n\
@@ -772,7 +910,9 @@ mod codex {
 
     #[test]
     fn metadata_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         assert_eq!(n.id(), j.id());
         assert_eq!(n.display_name(), j.display_name());
@@ -781,17 +921,25 @@ mod codex {
         assert_eq!(n.icon_hint(), j.icon_hint());
         assert_eq!(n.icon_color(), j.icon_color());
         assert_eq!(n.status_bar_rows(), j.status_bar_rows());
-        assert_eq!(n.preserves_context_on_resume(), j.preserves_context_on_resume());
+        assert_eq!(
+            n.preserves_context_on_resume(),
+            j.preserves_context_on_resume()
+        );
     }
 
     #[test]
     fn resume_command_carries_session_id() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (_n, j) = pair();
         let cmd = j.build_resume_command("uuid-1234", false).unwrap();
         assert_eq!(cmd, "codex resume 'uuid-1234'");
         let cmd2 = j.build_resume_command("uuid-1234", true).unwrap();
-        assert_eq!(cmd2, "codex resume --dangerously-bypass-approvals-and-sandbox 'uuid-1234'");
+        assert_eq!(
+            cmd2,
+            "codex resume --dangerously-bypass-approvals-and-sandbox 'uuid-1234'"
+        );
     }
 
     /// Build a synthetic `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
@@ -800,7 +948,9 @@ mod codex {
     /// sessionFilePath all work end-to-end without native Rust help.
     #[test]
     fn codex_rollout_walk_via_plugin() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         // Plugin honours `CODETERM_CODEX_SESSIONS_ROOT` to avoid hitting
         // the user's real `~/.codex/sessions` during tests. (dirs::home_dir
@@ -817,21 +967,27 @@ mod codex {
         let file_c = sessions.join(format!("rollout-2026-04-12T11-00-00-{uuid_c}.jsonl"));
         std::fs::write(
             &file_a,
-            format!(r#"{{"type":"session_meta","payload":{{"id":"{uuid_a}","cwd":"/proj/foo"}}}}
+            format!(
+                r#"{{"type":"session_meta","payload":{{"id":"{uuid_a}","cwd":"/proj/foo"}}}}
 {{"type":"response_item","payload":{{"type":"message","role":"user","content":[]}}}}
-"#),
+"#
+            ),
         )
         .unwrap();
         std::fs::write(
             &file_b,
-            format!(r#"{{"type":"session_meta","payload":{{"id":"{uuid_b}","cwd":"/other/dir"}}}}
-"#),
+            format!(
+                r#"{{"type":"session_meta","payload":{{"id":"{uuid_b}","cwd":"/other/dir"}}}}
+"#
+            ),
         )
         .unwrap();
         std::fs::write(
             &file_c,
-            format!(r#"{{"type":"session_meta","payload":{{"id":"{uuid_c}","cwd":"/proj/foo"}}}}
-"#),
+            format!(
+                r#"{{"type":"session_meta","payload":{{"id":"{uuid_c}","cwd":"/proj/foo"}}}}
+"#
+            ),
         )
         .unwrap();
         // Touch modified times so c > a > b ordering is deterministic.
@@ -840,14 +996,13 @@ mod codex {
             &file_a,
             filetime::FileTime::from_system_time(now - std::time::Duration::from_secs(60)),
         );
-        let _ = filetime::set_file_mtime(
-            &file_c,
-            filetime::FileTime::from_system_time(now),
-        );
+        let _ = filetime::set_file_mtime(&file_c, filetime::FileTime::from_system_time(now));
 
         // Synthetic plugin pointing at our tempdir via HOME env.
         let plugin_js = std::fs::read_to_string(
-            workspace_plugins_root().join("provider-codex").join("plugin.js"),
+            workspace_plugins_root()
+                .join("provider-codex")
+                .join("plugin.js"),
         )
         .unwrap();
         let manifest_json = r#"{
@@ -874,9 +1029,16 @@ mod codex {
 
         // enumerateSessions sees all three rollouts with their meta.
         let all = provider.enumerate_sessions();
-        let by_id: std::collections::HashMap<_, _> =
-            all.iter().map(|s| (s.session_id.clone(), s.clone())).collect();
-        assert_eq!(by_id.len(), 3, "expected 3 sessions, got {}: {by_id:#?}", by_id.len());
+        let by_id: std::collections::HashMap<_, _> = all
+            .iter()
+            .map(|s| (s.session_id.clone(), s.clone()))
+            .collect();
+        assert_eq!(
+            by_id.len(),
+            3,
+            "expected 3 sessions, got {}: {by_id:#?}",
+            by_id.len()
+        );
         assert_eq!(by_id[uuid_a].provider, "codex");
         assert_eq!(by_id[uuid_a].project_path.as_deref(), Some("/proj/foo"));
         assert_eq!(by_id[uuid_b].project_path.as_deref(), Some("/other/dir"));
@@ -916,7 +1078,9 @@ mod opencode {
 
     #[test]
     fn detect_from_title_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         for s in ["OpenCode", "opencode v0.3", "OpenCode Zen"] {
             assert!(n.detect_from_title(s));
@@ -930,7 +1094,9 @@ mod opencode {
 
     #[test]
     fn detect_from_output_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         // Native + JS both require a two-part fingerprint: marker
         // (opencode/OpenCode) AND a TUI/prompt signal (box-drawing or a
@@ -952,7 +1118,9 @@ mod opencode {
 
     #[test]
     fn screen_has_tui_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         for s in ["tab agents", "Ctrl+P commands"] {
             assert!(n.screen_has_tui(s));
@@ -966,7 +1134,9 @@ mod opencode {
 
     #[test]
     fn slash_commands_and_flags_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         assert_eq!(n.compact_command(), j.compact_command());
         assert_eq!(n.exit_command(), j.exit_command());
@@ -979,7 +1149,9 @@ mod opencode {
 
     #[test]
     fn metadata_parity() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (n, j) = pair();
         assert_eq!(n.id(), j.id());
         assert_eq!(n.display_name(), j.display_name());
@@ -992,7 +1164,9 @@ mod opencode {
 
     #[test]
     fn resume_command_drops_skip_flag_by_design() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let (_n, j) = pair();
         let cmd = j.build_resume_command("ses_abc123", true).unwrap();
         assert!(!cmd.contains("--dangerously-skip-permissions"));
@@ -1006,7 +1180,9 @@ mod opencode {
     /// / detectSessionModel / sessionExists end-to-end through `JsProvider`.
     #[test]
     fn opencode_sqlite_session_detection_via_plugin() {
-        if !ws_exists() { return; }
+        if !ws_exists() {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let opencode_dir = dir.path().join("opencode");
         std::fs::create_dir_all(&opencode_dir).unwrap();
@@ -1062,21 +1238,29 @@ mod opencode {
             // Message rows for detectSessionModel / detectActiveSession.
             conn.execute(
                 "INSERT INTO message VALUES (?1, ?2, ?3)",
-                rusqlite::params!["ses_new", now - 800,
-                    r#"{"role":"assistant","modelID":"anthropic/claude-opus-4-7"}"#],
+                rusqlite::params![
+                    "ses_new",
+                    now - 800,
+                    r#"{"role":"assistant","modelID":"anthropic/claude-opus-4-7"}"#
+                ],
             )
             .unwrap();
             conn.execute(
                 "INSERT INTO message VALUES (?1, ?2, ?3)",
-                rusqlite::params!["ses_mid", now - 5_000,
-                    r#"{"role":"assistant","modelID":"anthropic/claude-sonnet-4-6"}"#],
+                rusqlite::params![
+                    "ses_mid",
+                    now - 5_000,
+                    r#"{"role":"assistant","modelID":"anthropic/claude-sonnet-4-6"}"#
+                ],
             )
             .unwrap();
         }
 
         // Load opencode plugin with XDG_DATA_HOME pointed at our tempdir.
         let plugin_js = std::fs::read_to_string(
-            workspace_plugins_root().join("provider-opencode").join("plugin.js"),
+            workspace_plugins_root()
+                .join("provider-opencode")
+                .join("plugin.js"),
         )
         .unwrap();
         let manifest_json = r#"{
@@ -1103,11 +1287,7 @@ mod opencode {
         assert_eq!(sid.as_deref(), Some("ses_new"));
 
         // Exclusion list skips ses_new → next newest is ses_excluded.
-        let sid2 = provider.detect_session_id(
-            "/proj/foo",
-            &["ses_new".to_string()],
-            None,
-        );
+        let sid2 = provider.detect_session_id("/proj/foo", &["ses_new".to_string()], None);
         assert_eq!(sid2.as_deref(), Some("ses_excluded"));
 
         // Strict max_age = 50 ms — even ses_new (now-1000) misses.
@@ -1136,7 +1316,9 @@ mod opencode {
         assert_eq!(active.as_deref(), Some("ses_new"));
 
         // Cleanup env so other tests aren't affected.
-        unsafe { std::env::remove_var("XDG_DATA_HOME"); }
+        unsafe {
+            std::env::remove_var("XDG_DATA_HOME");
+        }
     }
 }
 
@@ -1146,7 +1328,9 @@ mod opencode {
 
 #[test]
 fn all_workspace_plugins_load() {
-    if !ws_exists() { return; }
+    if !ws_exists() {
+        return;
+    }
     for id in ["claude", "codex", "opencode"] {
         let p = load_js(id);
         assert_eq!(p.id(), id, "plugin id mismatch for {id}");

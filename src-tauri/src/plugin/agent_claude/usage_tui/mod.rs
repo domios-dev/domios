@@ -53,7 +53,8 @@ fn normalize(raw: &str) -> String {
         if ch == '\u{1b}' || ch == '\r' {
             continue;
         }
-        if ch == '█' || ch == '▌' || ch == '▍' || ch == '▎' || ch == '▏' || ch == '▊' || ch == '▋' {
+        if ch == '█' || ch == '▌' || ch == '▍' || ch == '▎' || ch == '▏' || ch == '▊' || ch == '▋'
+        {
             out.push(' ');
             continue;
         }

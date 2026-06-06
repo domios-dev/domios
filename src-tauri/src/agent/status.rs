@@ -1,6 +1,5 @@
 /// Per-PTY agent status tracking.
 /// Keyed by pty_id — use mux.pane_id_for_pty() to translate.
-
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 

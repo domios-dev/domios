@@ -10,8 +10,21 @@
 //! and auto-closes unclosed tags at end of input.
 
 const ALLOWED_TAGS: &[&str] = &[
-    "b", "strong", "i", "em", "u", "ins", "s", "strike", "del",
-    "code", "pre", "a", "tg-spoiler", "span", "blockquote",
+    "b",
+    "strong",
+    "i",
+    "em",
+    "u",
+    "ins",
+    "s",
+    "strike",
+    "del",
+    "code",
+    "pre",
+    "a",
+    "tg-spoiler",
+    "span",
+    "blockquote",
 ];
 
 #[derive(Debug, Clone)]
@@ -114,17 +127,25 @@ fn emit_open_tag(out: &mut String, tag: &ParsedTag) {
 
 pub(crate) fn parse_tag(s: &str, start: usize) -> Option<(ParsedTag, usize)> {
     let bytes = s.as_bytes();
-    if bytes.get(start) != Some(&b'<') { return None; }
+    if bytes.get(start) != Some(&b'<') {
+        return None;
+    }
     let mut i = start + 1;
-    if i >= bytes.len() { return None; }
+    if i >= bytes.len() {
+        return None;
+    }
     let is_close = bytes[i] == b'/';
-    if is_close { i += 1; }
+    if is_close {
+        i += 1;
+    }
 
     let name_start = i;
     while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-') {
         i += 1;
     }
-    if i == name_start { return None; }
+    if i == name_start {
+        return None;
+    }
     let name = s[name_start..i].to_ascii_lowercase();
 
     let mut attrs: Vec<(String, String)> = Vec::new();
@@ -132,31 +153,56 @@ pub(crate) fn parse_tag(s: &str, start: usize) -> Option<(ParsedTag, usize)> {
         while i < bytes.len() && matches!(bytes[i], b' ' | b'\t' | b'\n' | b'\r') {
             i += 1;
         }
-        if i >= bytes.len() { return None; }
-        if bytes[i] == b'>' {
-            return Some((ParsedTag { name, is_close, attrs }, i + 1));
+        if i >= bytes.len() {
+            return None;
         }
-        if is_close { return None; }
+        if bytes[i] == b'>' {
+            return Some((
+                ParsedTag {
+                    name,
+                    is_close,
+                    attrs,
+                },
+                i + 1,
+            ));
+        }
+        if is_close {
+            return None;
+        }
 
         let attr_start = i;
-        while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_') {
+        while i < bytes.len()
+            && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_')
+        {
             i += 1;
         }
-        if i == attr_start { return None; }
+        if i == attr_start {
+            return None;
+        }
         let attr_name = s[attr_start..i].to_ascii_lowercase();
 
-        while i < bytes.len() && matches!(bytes[i], b' ' | b'\t') { i += 1; }
+        while i < bytes.len() && matches!(bytes[i], b' ' | b'\t') {
+            i += 1;
+        }
 
         let value = if i < bytes.len() && bytes[i] == b'=' {
             i += 1;
-            while i < bytes.len() && matches!(bytes[i], b' ' | b'\t') { i += 1; }
-            if i >= bytes.len() { return None; }
+            while i < bytes.len() && matches!(bytes[i], b' ' | b'\t') {
+                i += 1;
+            }
+            if i >= bytes.len() {
+                return None;
+            }
             if bytes[i] == b'"' || bytes[i] == b'\'' {
                 let quote = bytes[i];
                 i += 1;
                 let v_start = i;
-                while i < bytes.len() && bytes[i] != quote { i += 1; }
-                if i >= bytes.len() { return None; }
+                while i < bytes.len() && bytes[i] != quote {
+                    i += 1;
+                }
+                if i >= bytes.len() {
+                    return None;
+                }
                 let v = s[v_start..i].to_string();
                 i += 1;
                 v
@@ -188,8 +234,12 @@ fn filter_attrs(name: &str, attrs: &[(String, String)]) -> String {
     };
     let mut parts = Vec::new();
     for (k, v) in attrs {
-        if !allowed.contains(&k.as_str()) { continue; }
-        if k == "href" && !is_safe_href(v) { continue; }
+        if !allowed.contains(&k.as_str()) {
+            continue;
+        }
+        if k == "href" && !is_safe_href(v) {
+            continue;
+        }
         if v.is_empty() {
             parts.push(k.clone());
         } else {
@@ -234,15 +284,23 @@ fn escape_all_into(out: &mut String, s: &str) {
 
 fn entity_end(s: &str, start: usize) -> Option<usize> {
     let bytes = s.as_bytes();
-    if bytes.get(start) != Some(&b'&') { return None; }
+    if bytes.get(start) != Some(&b'&') {
+        return None;
+    }
     let mut i = start + 1;
     let max = (start + 12).min(bytes.len());
     if i < bytes.len() && bytes[i] == b'#' {
         i += 1;
-        if i < bytes.len() && (bytes[i] == b'x' || bytes[i] == b'X') { i += 1; }
-        while i < max && bytes[i].is_ascii_hexdigit() { i += 1; }
+        if i < bytes.len() && (bytes[i] == b'x' || bytes[i] == b'X') {
+            i += 1;
+        }
+        while i < max && bytes[i].is_ascii_hexdigit() {
+            i += 1;
+        }
     } else {
-        while i < max && bytes[i].is_ascii_alphanumeric() { i += 1; }
+        while i < max && bytes[i].is_ascii_alphanumeric() {
+            i += 1;
+        }
     }
     if i < bytes.len() && bytes[i] == b';' && i > start + 1 {
         Some(i + 1)
@@ -255,10 +313,14 @@ fn find_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
     let h = haystack.as_bytes();
     let n_lower = needle.to_ascii_lowercase();
     let n = n_lower.as_bytes();
-    if n.is_empty() || h.len() < n.len() { return None; }
+    if n.is_empty() || h.len() < n.len() {
+        return None;
+    }
     'outer: for i in 0..=(h.len() - n.len()) {
         for k in 0..n.len() {
-            if h[i + k].to_ascii_lowercase() != n[k] { continue 'outer; }
+            if h[i + k].to_ascii_lowercase() != n[k] {
+                continue 'outer;
+            }
         }
         return Some(i);
     }
@@ -281,9 +343,15 @@ pub(crate) fn tokenize(s: &str) -> Vec<Token> {
             if let Some((tag, end)) = parse_tag(s, i) {
                 let raw = s[i..end].to_string();
                 if tag.is_close {
-                    out.push(Token::Close { name: tag.name, raw });
+                    out.push(Token::Close {
+                        name: tag.name,
+                        raw,
+                    });
                 } else {
-                    out.push(Token::Open { name: tag.name, raw });
+                    out.push(Token::Open {
+                        name: tag.name,
+                        raw,
+                    });
                 }
                 i = end;
                 continue;
@@ -300,7 +368,9 @@ pub(crate) fn tokenize(s: &str) -> Vec<Token> {
 mod tests {
     use super::*;
 
-    fn s(input: &str) -> String { sanitize_html_for_telegram(input) }
+    fn s(input: &str) -> String {
+        sanitize_html_for_telegram(input)
+    }
 
     #[test]
     fn plain_text_unchanged() {
@@ -396,7 +466,10 @@ mod tests {
 
     #[test]
     fn code_with_inner_tag_escaped() {
-        assert_eq!(s("<code><b>not bold</b></code>"), "<code>&lt;b&gt;not bold&lt;/b&gt;</code>");
+        assert_eq!(
+            s("<code><b>not bold</b></code>"),
+            "<code>&lt;b&gt;not bold&lt;/b&gt;</code>"
+        );
     }
 
     #[test]
@@ -424,7 +497,10 @@ mod tests {
 
     #[test]
     fn blockquote_and_expandable() {
-        assert_eq!(s("<blockquote>quote</blockquote>"), "<blockquote>quote</blockquote>");
+        assert_eq!(
+            s("<blockquote>quote</blockquote>"),
+            "<blockquote>quote</blockquote>"
+        );
         let input = "<blockquote expandable>long</blockquote>";
         let out = s(input);
         assert!(out.contains("expandable"), "got: {}", out);
@@ -432,7 +508,10 @@ mod tests {
 
     #[test]
     fn tg_spoiler_kept() {
-        assert_eq!(s("<tg-spoiler>secret</tg-spoiler>"), "<tg-spoiler>secret</tg-spoiler>");
+        assert_eq!(
+            s("<tg-spoiler>secret</tg-spoiler>"),
+            "<tg-spoiler>secret</tg-spoiler>"
+        );
     }
 
     #[test]
@@ -459,7 +538,10 @@ mod tests {
 
     #[test]
     fn unknown_tag_with_attrs_escaped() {
-        assert_eq!(s(r#"<div class="x">y</div>"#), r#"&lt;div class="x"&gt;y&lt;/div&gt;"#);
+        assert_eq!(
+            s(r#"<div class="x">y</div>"#),
+            r#"&lt;div class="x"&gt;y&lt;/div&gt;"#
+        );
     }
 
     #[test]

@@ -88,9 +88,15 @@ pub fn build(config: &RerankConfig) -> Box<dyn Reranker> {
         }),
         "auto" | "" => {
             // Local first: free, fast, offline. Then API paths if user opted in.
-            if let Some(r) = build_local(config) { return r; }
-            if let Some(r) = build_anthropic(config) { return r; }
-            if let Some(r) = build_openai(config) { return r; }
+            if let Some(r) = build_local(config) {
+                return r;
+            }
+            if let Some(r) = build_anthropic(config) {
+                return r;
+            }
+            if let Some(r) = build_openai(config) {
+                return r;
+            }
             log::warn!("[mem.rerank] auto: no rerank backend available, falling back to Noop");
             Box::new(NoopReranker)
         }
@@ -104,7 +110,10 @@ fn build_local(config: &RerankConfig) -> Option<Box<dyn Reranker>> {
     // ~280MB. Override via config.model with strings like:
     //   "bge-reranker-base", "bge-reranker-v2-m3", "jina-v1-turbo-en",
     //   "jina-v2-multilingual"
-    let model_name = config.model.clone().unwrap_or_else(|| "bge-reranker-base".into());
+    let model_name = config
+        .model
+        .clone()
+        .unwrap_or_else(|| "bge-reranker-base".into());
     Some(Box::new(LocalReranker { model_name }))
 }
 
@@ -167,8 +176,7 @@ fn which_on_path(name: &str) -> Option<std::path::PathBuf> {
         if has_dot {
             vec![String::new()]
         } else {
-            let pathext = std::env::var("PATHEXT")
-                .unwrap_or_else(|_| ".EXE;.CMD;.BAT;.COM".into());
+            let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".EXE;.CMD;.BAT;.COM".into());
             let mut exts: Vec<String> = pathext
                 .split(';')
                 .map(|s| s.trim().to_string())
@@ -215,8 +223,10 @@ impl Reranker for AnthropicReranker {
         let limited: Vec<SearchHit> = hits.into_iter().take(20).collect();
         match call_anthropic(&self.api_key, &self.model, query, &limited) {
             Ok(order) => {
-                let mut by_id: std::collections::HashMap<String, SearchHit> =
-                    limited.into_iter().map(|h| (h.item.id.clone(), h)).collect();
+                let mut by_id: std::collections::HashMap<String, SearchHit> = limited
+                    .into_iter()
+                    .map(|h| (h.item.id.clone(), h))
+                    .collect();
                 let mut out = Vec::new();
                 for id in order {
                     if let Some(hit) = by_id.remove(&id) {
@@ -232,7 +242,10 @@ impl Reranker for AnthropicReranker {
                 out
             }
             Err(e) => {
-                log::warn!("[mem.rerank] anthropic call failed: {} — falling back to local order", e);
+                log::warn!(
+                    "[mem.rerank] anthropic call failed: {} — falling back to local order",
+                    e
+                );
                 let mut h = limited;
                 h.truncate(top_k);
                 h
@@ -288,7 +301,8 @@ fn call_anthropic(
         .send()
         .map_err(|e| e.to_string())?;
     let val: serde_json::Value = resp.json().map_err(|e| e.to_string())?;
-    let text = val.get("content")
+    let text = val
+        .get("content")
         .and_then(|c| c.as_array())
         .and_then(|arr| arr.first())
         .and_then(|m| m.get("text"))
@@ -313,8 +327,10 @@ impl Reranker for OpenAIReranker {
         let limited: Vec<SearchHit> = hits.into_iter().take(20).collect();
         match call_openai(&self.api_key, &self.model, query, &limited) {
             Ok(order) => {
-                let mut by_id: std::collections::HashMap<String, SearchHit> =
-                    limited.into_iter().map(|h| (h.item.id.clone(), h)).collect();
+                let mut by_id: std::collections::HashMap<String, SearchHit> = limited
+                    .into_iter()
+                    .map(|h| (h.item.id.clone(), h))
+                    .collect();
                 let mut out = Vec::new();
                 for id in order {
                     if let Some(hit) = by_id.remove(&id) {
@@ -329,7 +345,10 @@ impl Reranker for OpenAIReranker {
                 out
             }
             Err(e) => {
-                log::warn!("[mem.rerank] openai call failed: {} — falling back to local order", e);
+                log::warn!(
+                    "[mem.rerank] openai call failed: {} — falling back to local order",
+                    e
+                );
                 let mut h = limited;
                 h.truncate(top_k);
                 h
@@ -354,32 +373,40 @@ impl Reranker for LocalReranker {
             return hits;
         }
         let limited: Vec<SearchHit> = hits.into_iter().take(20).collect();
-        let docs: Vec<String> = limited.iter().map(|h| {
-            // Use title + summary + body snippet — same shape that other
-            // rerankers see in their text prompt.
-            let summary = h.item.summary.as_deref().unwrap_or("");
-            let snip: String = h.item.body.chars().take(400).collect();
-            format!("{} | {} | {}", h.item.title, summary, snip)
-        }).collect();
+        let docs: Vec<String> = limited
+            .iter()
+            .map(|h| {
+                // Use title + summary + body snippet — same shape that other
+                // rerankers see in their text prompt.
+                let summary = h.item.summary.as_deref().unwrap_or("");
+                let snip: String = h.item.body.chars().take(400).collect();
+                format!("{} | {} | {}", h.item.title, summary, snip)
+            })
+            .collect();
 
         match self.score_candidates(query, &docs) {
             Ok(scores) => {
                 // Pair scores with hits, sort desc by score, truncate
-                let mut paired: Vec<(f32, SearchHit)> =
-                    scores.into_iter().zip(limited).collect();
+                let mut paired: Vec<(f32, SearchHit)> = scores.into_iter().zip(limited).collect();
                 paired.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-                let mut out: Vec<SearchHit> = paired.into_iter().map(|(score, mut hit)| {
-                    // Replace fused FTS score with reranker score (lower=better
-                    // convention is preserved by negating, since reranker gives
-                    // higher=better).
-                    hit.score = -score as f64;
-                    hit
-                }).collect();
+                let mut out: Vec<SearchHit> = paired
+                    .into_iter()
+                    .map(|(score, mut hit)| {
+                        // Replace fused FTS score with reranker score (lower=better
+                        // convention is preserved by negating, since reranker gives
+                        // higher=better).
+                        hit.score = -score as f64;
+                        hit
+                    })
+                    .collect();
                 out.truncate(top_k);
                 out
             }
             Err(e) => {
-                log::warn!("[mem.rerank] local fastembed failed: {} — falling back to local order", e);
+                log::warn!(
+                    "[mem.rerank] local fastembed failed: {} — falling back to local order",
+                    e
+                );
                 let mut h = limited;
                 h.truncate(top_k);
                 h
@@ -405,15 +432,23 @@ impl LocalReranker {
             Some(m) => m,
             None => {
                 let resolved = match self.model_name.as_str() {
-                    "bge-reranker-base" | "BAAI/bge-reranker-base" => RerankerModel::BGERerankerBase,
-                    "bge-reranker-v2-m3" | "rozgo/bge-reranker-v2-m3" => RerankerModel::BGERerankerV2M3,
-                    "jina-v1-turbo-en" | "jinaai/jina-reranker-v1-turbo-en" => RerankerModel::JINARerankerV1TurboEn,
-                    "jina-v2-multilingual" | "jinaai/jina-reranker-v2-base-multilingual" => RerankerModel::JINARerankerV2BaseMultiligual,
+                    "bge-reranker-base" | "BAAI/bge-reranker-base" => {
+                        RerankerModel::BGERerankerBase
+                    }
+                    "bge-reranker-v2-m3" | "rozgo/bge-reranker-v2-m3" => {
+                        RerankerModel::BGERerankerV2M3
+                    }
+                    "jina-v1-turbo-en" | "jinaai/jina-reranker-v1-turbo-en" => {
+                        RerankerModel::JINARerankerV1TurboEn
+                    }
+                    "jina-v2-multilingual" | "jinaai/jina-reranker-v2-base-multilingual" => {
+                        RerankerModel::JINARerankerV2BaseMultiligual
+                    }
                     other => return Err(format!("unknown reranker model: {}", other)),
                 };
                 let opts = RerankInitOptions::new(resolved);
-                let new_model = TextRerank::try_new(opts)
-                    .map_err(|e| format!("load reranker: {}", e))?;
+                let new_model =
+                    TextRerank::try_new(opts).map_err(|e| format!("load reranker: {}", e))?;
                 guard.insert(self.model_name.clone(), new_model);
                 guard.get_mut(&self.model_name).unwrap()
             }
@@ -459,7 +494,10 @@ impl Reranker for ClaudeCliReranker {
         match call_claude_cli(&self.binary, &self.model, query, &limited) {
             Ok(order) => apply_order(limited, order, top_k),
             Err(e) => {
-                log::warn!("[mem.rerank] claude-cli failed: {} — falling back to local order", e);
+                log::warn!(
+                    "[mem.rerank] claude-cli failed: {} — falling back to local order",
+                    e
+                );
                 let mut h = limited;
                 h.truncate(top_k);
                 h
@@ -478,14 +516,14 @@ fn call_claude_cli(
     let mut cmd = std::process::Command::new(binary);
     cmd.arg("--bare")
         .arg("--print")
-        .arg("--model").arg(model)
-        .arg("--output-format").arg("json")
+        .arg("--model")
+        .arg(model)
+        .arg("--output-format")
+        .arg("json")
         .arg(&prompt)
         .stdin(std::process::Stdio::null());
     crate::process_util::no_window_std(&mut cmd);
-    let output = cmd
-        .output()
-        .map_err(|e| format!("spawn claude: {}", e))?;
+    let output = cmd.output().map_err(|e| format!("spawn claude: {}", e))?;
     if !output.status.success() {
         return Err(format!(
             "claude exit {}: {}",
@@ -498,7 +536,8 @@ fn call_claude_cli(
     // like {"type": "result", "result": "..."} — we want `result`.
     let envelope: serde_json::Value =
         serde_json::from_str(&stdout).map_err(|e| format!("parse envelope: {}", e))?;
-    let text = envelope.get("result")
+    let text = envelope
+        .get("result")
         .and_then(|v| v.as_str())
         .or_else(|| envelope.get("response").and_then(|v| v.as_str()))
         .unwrap_or(stdout.as_ref());
@@ -521,7 +560,10 @@ impl Reranker for CodexCliReranker {
         match call_codex_cli(&self.binary, &self.model, query, &limited) {
             Ok(order) => apply_order(limited, order, top_k),
             Err(e) => {
-                log::warn!("[mem.rerank] codex-cli failed: {} — falling back to local order", e);
+                log::warn!(
+                    "[mem.rerank] codex-cli failed: {} — falling back to local order",
+                    e
+                );
                 let mut h = limited;
                 h.truncate(top_k);
                 h
@@ -539,13 +581,12 @@ fn call_codex_cli(
     let prompt = build_rerank_prompt(query, hits);
     let mut cmd = std::process::Command::new(binary);
     cmd.arg("exec")
-        .arg("--model").arg(model)
+        .arg("--model")
+        .arg(model)
         .arg(&prompt)
         .stdin(std::process::Stdio::null());
     crate::process_util::no_window_std(&mut cmd);
-    let output = cmd
-        .output()
-        .map_err(|e| format!("spawn codex: {}", e))?;
+    let output = cmd.output().map_err(|e| format!("spawn codex: {}", e))?;
     if !output.status.success() {
         return Err(format!(
             "codex exit {}: {}",
@@ -560,8 +601,10 @@ fn call_codex_cli(
 /// Apply an LLM-suggested id ordering to the candidate set, append any
 /// missing ids at the end (model dropped them), truncate to top_k.
 fn apply_order(limited: Vec<SearchHit>, order: Vec<String>, top_k: usize) -> Vec<SearchHit> {
-    let mut by_id: std::collections::HashMap<String, SearchHit> =
-        limited.into_iter().map(|h| (h.item.id.clone(), h)).collect();
+    let mut by_id: std::collections::HashMap<String, SearchHit> = limited
+        .into_iter()
+        .map(|h| (h.item.id.clone(), h))
+        .collect();
     let mut out = Vec::new();
     for id in order {
         if let Some(hit) = by_id.remove(&id) {
@@ -605,7 +648,8 @@ fn call_openai(
     // OpenAI's `response_format: json_object` requires the prompt to mention
     // "json" — ours does ("JSON array"). The model returns a JSON object;
     // we accept either {"ids": [...]} or a bare array if it slipped through.
-    let text = val.get("choices")
+    let text = val
+        .get("choices")
         .and_then(|c| c.as_array())
         .and_then(|arr| arr.first())
         .and_then(|m| m.get("message"))
@@ -620,7 +664,9 @@ fn call_openai(
                     .iter()
                     .filter_map(|v| v.as_str().map(String::from))
                     .collect();
-                if !ids.is_empty() { return Ok(ids); }
+                if !ids.is_empty() {
+                    return Ok(ids);
+                }
             }
         }
     }
@@ -644,10 +690,22 @@ mod tests {
     fn hit(id: &str) -> SearchHit {
         SearchHit {
             item: MemItem {
-                id: id.into(), uid: "u".into(), kind: "fact".into(), scope: "global".into(),
-                title: id.into(), summary: None, area: None, tags: vec![],
-                body: id.into(), source: None, importance: 3.0,
-                created_at: "".into(), updated_at: "".into(), accessed_at: None, access_count: 0, recurrence_count: 0,
+                id: id.into(),
+                uid: "u".into(),
+                kind: "fact".into(),
+                scope: "global".into(),
+                title: id.into(),
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: id.into(),
+                source: None,
+                importance: 3.0,
+                created_at: "".into(),
+                updated_at: "".into(),
+                accessed_at: None,
+                access_count: 0,
+                recurrence_count: 0,
             },
             score: 1.0,
         }
@@ -698,11 +756,20 @@ mod tests {
     #[test]
     fn build_claude_cli_falls_back_when_missing() {
         let _g = path_env_lock().lock().unwrap();
-        let cfg = RerankConfig { enabled: true, provider: "claude-cli".into(), api_key_env: None, model: None };
+        let cfg = RerankConfig {
+            enabled: true,
+            provider: "claude-cli".into(),
+            api_key_env: None,
+            model: None,
+        };
         let prev = std::env::var_os("PATH");
         std::env::set_var("PATH", "");
         let r = build(&cfg);
-        if let Some(p) = prev { std::env::set_var("PATH", p); } else { std::env::remove_var("PATH"); }
+        if let Some(p) = prev {
+            std::env::set_var("PATH", p);
+        } else {
+            std::env::remove_var("PATH");
+        }
         let hits = vec![hit("a")];
         assert_eq!(r.rerank("q", hits, 5).len(), 1);
     }
@@ -710,11 +777,20 @@ mod tests {
     #[test]
     fn auto_default_when_provider_empty() {
         let _g = path_env_lock().lock().unwrap();
-        let cfg = RerankConfig { enabled: true, provider: "".into(), api_key_env: Some("DEFINITELY_UNSET_KEY".into()), model: None };
+        let cfg = RerankConfig {
+            enabled: true,
+            provider: "".into(),
+            api_key_env: Some("DEFINITELY_UNSET_KEY".into()),
+            model: None,
+        };
         let prev = std::env::var_os("PATH");
         std::env::set_var("PATH", "");
         let r = build(&cfg);
-        if let Some(p) = prev { std::env::set_var("PATH", p); } else { std::env::remove_var("PATH"); }
+        if let Some(p) = prev {
+            std::env::set_var("PATH", p);
+        } else {
+            std::env::remove_var("PATH");
+        }
         let hits = vec![hit("a"), hit("b")];
         assert_eq!(r.rerank("q", hits, 5).len(), 2);
     }
@@ -754,7 +830,8 @@ mod tests {
 
     #[test]
     fn parse_id_array_extracts_from_prose() {
-        let r = parse_id_array("Sure, here are the ranked ids: [\"x\", \"y\"] in best order.").unwrap();
+        let r =
+            parse_id_array("Sure, here are the ranked ids: [\"x\", \"y\"] in best order.").unwrap();
         assert_eq!(r, vec!["x", "y"]);
     }
 }

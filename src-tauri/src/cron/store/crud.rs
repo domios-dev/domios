@@ -51,7 +51,9 @@ impl CronStore {
             workspace_id: params.workspace_id,
             schedule: params.schedule,
             enabled: params.enabled.unwrap_or(true),
-            agent: params.agent.unwrap_or_else(crate::config::default_agent_provider),
+            agent: params
+                .agent
+                .unwrap_or_else(crate::config::default_agent_provider),
             model: params.model,
             task: params.task,
             cwd: params.cwd,
@@ -177,7 +179,10 @@ impl CronStore {
     pub fn delete(&mut self, id: &str) -> Result<(), String> {
         if let Some(job) = self.file.jobs.iter().find(|j| j.id == id) {
             if job.protected {
-                return Err(format!("Cron job '{}' is protected and cannot be deleted. Use disable instead.", job.name));
+                return Err(format!(
+                    "Cron job '{}' is protected and cannot be deleted. Use disable instead.",
+                    job.name
+                ));
             }
         }
         let before = self.file.jobs.len();
@@ -227,18 +232,23 @@ impl CronStore {
                     job.next_run = None;
                     log::warn!(
                         "[cron] auto-disabled job {} after {} consecutive failures",
-                        job_id, job.consecutive_failures
+                        job_id,
+                        job.consecutive_failures
                     );
                 } else if !job.oneshot && job.enabled {
                     let now_ms = Self::now_ms();
-                    let base_ms = compute_next_run_jittered_in(&job.schedule, Some(0), job.tz.as_deref())?
-                        .map(|t| t.saturating_sub(now_ms))
-                        .unwrap_or(60_000);
+                    let base_ms =
+                        compute_next_run_jittered_in(&job.schedule, Some(0), job.tz.as_deref())?
+                            .map(|t| t.saturating_sub(now_ms))
+                            .unwrap_or(60_000);
                     let backoff = compute_backoff(job.consecutive_failures, base_ms);
                     job.next_run = Some(now_ms + backoff);
                     log::info!(
                         "[cron] {} backoff after failure {}/{}: +{}ms",
-                        job_id, job.consecutive_failures, MAX_CONSECUTIVE_FAILURES, backoff
+                        job_id,
+                        job.consecutive_failures,
+                        MAX_CONSECUTIVE_FAILURES,
+                        backoff
                     );
                 }
             } else {
@@ -249,7 +259,11 @@ impl CronStore {
                     job.next_run = None;
                     job.enabled = false;
                 } else if job.enabled {
-                    job.next_run = compute_next_run_jittered_in(&job.schedule, job.jitter_max_ms, job.tz.as_deref())?;
+                    job.next_run = compute_next_run_jittered_in(
+                        &job.schedule,
+                        job.jitter_max_ms,
+                        job.tz.as_deref(),
+                    )?;
                 }
             }
 
@@ -300,7 +314,10 @@ impl CronStore {
             CronRunStatus::Failed | CronRunStatus::Cancelled => {
                 log::info!(
                     "Cron run completed: job={}, run={}, status={:?}, elapsed_ms={}",
-                    job_id, run_id, status, elapsed_ms.unwrap_or(0)
+                    job_id,
+                    run_id,
+                    status,
+                    elapsed_ms.unwrap_or(0)
                 );
             }
             _ => {}

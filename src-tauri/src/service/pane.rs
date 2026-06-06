@@ -58,7 +58,11 @@ impl ServiceContext {
 
     pub fn link_pty(&self, pane_id: &str, pty_id: String) {
         if let Some(orphan) = self.mux.lock().link_pty(pane_id, pty_id) {
-            log::warn!("[link_pty] pane {} relinked — killing orphan pty {}", pane_id, &orphan[..orphan.len().min(8)]);
+            log::warn!(
+                "[link_pty] pane {} relinked — killing orphan pty {}",
+                pane_id,
+                &orphan[..orphan.len().min(8)]
+            );
             self.kill_ptys(&[orphan]);
         }
         self.emit_state_changed();
@@ -100,7 +104,9 @@ impl ServiceContext {
     fn write_pane_agent_type(&self, pane_id: &str, agent_type: Option<String>, lock: bool) {
         let transition = {
             let mut mux = self.mux.lock();
-            let Some(pane) = mux.get_pane_mut(pane_id) else { return };
+            let Some(pane) = mux.get_pane_mut(pane_id) else {
+                return;
+            };
             let prev = pane.agent_type.clone();
             if agent_type.is_some() {
                 pane.agent_set_at = Some(std::time::Instant::now());
@@ -116,7 +122,9 @@ impl ServiceContext {
         };
         log::info!(
             "[set_pane_agent_type] pane={} prev={:?} new={:?}",
-            pane_id, transition.0, transition.1,
+            pane_id,
+            transition.0,
+            transition.1,
         );
         let (prev, next) = transition;
         if prev.is_none() && next.is_some() {
@@ -215,7 +223,9 @@ impl ServiceContext {
     fn refresh_session_model_once(&self, pane_id: &str, agent_id: &str) {
         let (cwd, session_id, current_model, exclude) = {
             let mux = self.mux.lock();
-            let Some(p) = mux.get_pane(pane_id) else { return };
+            let Some(p) = mux.get_pane(pane_id) else {
+                return;
+            };
             (
                 p.cwd.clone(),
                 p.agent_session_id.clone(),
@@ -250,7 +260,10 @@ impl ServiceContext {
                 if claimed {
                     log::info!(
                         "[session-detect] rolled pane {} from {} → {} ({})",
-                        pane_id, current, new_sid, agent_id,
+                        pane_id,
+                        current,
+                        new_sid,
+                        agent_id,
                     );
                     self.emit_state_changed();
                 }
@@ -258,7 +271,8 @@ impl ServiceContext {
         }
         let session_id = {
             let mux = self.mux.lock();
-            mux.get_pane(pane_id).and_then(|p| p.agent_session_id.clone())
+            mux.get_pane(pane_id)
+                .and_then(|p| p.agent_session_id.clone())
         };
         let sid = match session_id {
             Some(s) => s,
@@ -273,8 +287,7 @@ impl ServiceContext {
                     if mux.other_session_ids(pane_id).contains(&sid) {
                         false
                     } else if let Some(p) = mux.get_pane_mut(pane_id) {
-                        if p.agent_session_id.is_none()
-                            && p.agent_type.as_deref() == Some(agent_id)
+                        if p.agent_session_id.is_none() && p.agent_type.as_deref() == Some(agent_id)
                         {
                             p.agent_session_id = Some(sid.clone());
                             true
@@ -285,25 +298,34 @@ impl ServiceContext {
                         false
                     }
                 };
-                if !claimed { return; }
+                if !claimed {
+                    return;
+                }
                 log::info!(
                     "[session-detect] focused-poller claimed {} for pane {} ({})",
-                    sid, pane_id, agent_id,
+                    sid,
+                    pane_id,
+                    agent_id,
                 );
                 self.emit_state_changed();
                 sid
             }
         };
-        let model = self.agent_registry
+        let model = self
+            .agent_registry
             .with_provider(agent_id, |p| p.detect_session_model(&cwd, &sid))
             .flatten();
-        if model == current_model { return; }
+        if model == current_model {
+            return;
+        }
         let mut mux = self.mux.lock();
         if let Some(p) = mux.get_pane_mut(pane_id) {
             if p.agent_type.as_deref() == Some(agent_id) {
                 log::info!(
                     "[session-model] pane={} {:?} -> {:?}",
-                    pane_id, p.agent_session_model, model
+                    pane_id,
+                    p.agent_session_model,
+                    model
                 );
                 p.agent_session_model = model;
                 drop(mux);
@@ -331,19 +353,32 @@ impl ServiceContext {
                 std::thread::sleep(step);
                 let (pty_id, already, current_agent) = {
                     let mux = svc.mux.lock();
-                    let Some(p) = mux.get_pane(&pane_id) else { return };
+                    let Some(p) = mux.get_pane(&pane_id) else {
+                        return;
+                    };
                     (
                         p.pty_id.clone(),
                         p.agent_session_name.clone(),
                         p.agent_type.clone(),
                     )
                 };
-                if already.is_some() { return; }
-                if current_agent.as_deref() != Some(agent_id.as_str()) { return; }
+                if already.is_some() {
+                    return;
+                }
+                if current_agent.as_deref() != Some(agent_id.as_str()) {
+                    return;
+                }
                 let Some(pty_id) = pty_id else { continue };
-                let screen = svc.screen_state.lock().get_screen_text(&pty_id).unwrap_or_default();
-                if screen.is_empty() { continue; }
-                let name = svc.agent_registry
+                let screen = svc
+                    .screen_state
+                    .lock()
+                    .get_screen_text(&pty_id)
+                    .unwrap_or_default();
+                if screen.is_empty() {
+                    continue;
+                }
+                let name = svc
+                    .agent_registry
                     .with_provider(&agent_id, |p| p.extract_session_name(&screen))
                     .flatten();
                 if let Some(name) = name {
@@ -354,7 +389,9 @@ impl ServiceContext {
                         {
                             log::info!(
                                 "[session-name] pane={} captured {} (provider={})",
-                                pane_id, name, agent_id,
+                                pane_id,
+                                name,
+                                agent_id,
                             );
                             p.agent_session_name = Some(name);
                             drop(mux);
@@ -377,7 +414,9 @@ impl ServiceContext {
             Err(e) => {
                 log::warn!(
                     "[bridge] cannot replay {} queued for pane={}: {}",
-                    queued.len(), pane_id, e,
+                    queued.len(),
+                    pane_id,
+                    e,
                 );
                 for msg in queued {
                     crate::bridge::inbound_buffer::push(pane_id, msg);
@@ -434,11 +473,17 @@ impl ServiceContext {
                 std::thread::sleep(step);
                 let (cwd, sid_already, exclude) = {
                     let mux = svc.mux.lock();
-                    let Some(p) = mux.get_pane(&pane_id) else { return };
+                    let Some(p) = mux.get_pane(&pane_id) else {
+                        return;
+                    };
                     if p.agent_type.as_deref() != Some(agent_id.as_str()) {
                         return; // user/system swapped agent, abort
                     }
-                    (p.cwd.clone(), p.agent_session_id.clone(), mux.other_session_ids(&pane_id))
+                    (
+                        p.cwd.clone(),
+                        p.agent_session_id.clone(),
+                        mux.other_session_ids(&pane_id),
+                    )
                 };
                 if sid_already.is_some() {
                     return;
@@ -463,7 +508,12 @@ impl ServiceContext {
                     // detector may have already saved the same sid (it shows
                     // up in `other_session_ids` only after the save). Re-check
                     // and skip if claimed; otherwise commit.
-                    enum ClaimOutcome { Wrote, AlreadySet, LostRace, PaneGone }
+                    enum ClaimOutcome {
+                        Wrote,
+                        AlreadySet,
+                        LostRace,
+                        PaneGone,
+                    }
                     let outcome = {
                         let mut mux = svc.mux.lock();
                         if mux.other_session_ids(&pane_id).contains(&sid) {
@@ -483,7 +533,9 @@ impl ServiceContext {
                         ClaimOutcome::Wrote => {
                             log::info!(
                                 "[session-detect] auto-saved {} for pane {} (provider={})",
-                                sid, pane_id, agent_id,
+                                sid,
+                                pane_id,
+                                agent_id,
                             );
                             svc.refresh_session_model_once(&pane_id, &agent_id);
                             svc.emit_state_changed();
@@ -509,7 +561,9 @@ impl ServiceContext {
             let total_secs = max_attempts as u64 * step.as_secs();
             log::warn!(
                 "[session-detect] gave up after {}s for pane {} (provider={})",
-                total_secs, pane_id, agent_id,
+                total_secs,
+                pane_id,
+                agent_id,
             );
         });
     }
@@ -581,7 +635,8 @@ impl ServiceContext {
     pub fn respond_prompt(&self, pane_id: &str, value: &str) -> Result<(), String> {
         let had_prompt = {
             let mut mux = self.mux.lock();
-            let pane = mux.get_pane_mut(pane_id)
+            let pane = mux
+                .get_pane_mut(pane_id)
                 .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
             let had = pane.pending_prompt.is_some();
             pane.pending_prompt = None;
@@ -607,10 +662,14 @@ impl ServiceContext {
             if prompt_on_screen {
                 let option_index = value.parse::<usize>().unwrap_or(1).saturating_sub(1);
 
-                let agent_type = self.mux.lock().get_pane(pane_id)
+                let agent_type = self
+                    .mux
+                    .lock()
+                    .get_pane(pane_id)
                     .and_then(|p| p.agent_type.clone());
                 let steps = if let Some(ref at) = agent_type {
-                    self.agent_registry.build_prompt_response(at, option_index)
+                    self.agent_registry
+                        .build_prompt_response(at, option_index)
                         .unwrap_or_else(|| self.default_prompt_response(option_index))
                 } else {
                     self.default_prompt_response(option_index)
@@ -625,7 +684,10 @@ impl ServiceContext {
                     }
                 });
             } else {
-                log::debug!("[respond_prompt] Prompt not on screen — skipping PTY input for pane {}", pane_id);
+                log::debug!(
+                    "[respond_prompt] Prompt not on screen — skipping PTY input for pane {}",
+                    pane_id
+                );
             }
         }
 

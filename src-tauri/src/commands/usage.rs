@@ -4,7 +4,9 @@ pub fn usage_latest(
     provider: String,
     account_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let row = svc.usage_store.get_latest(&provider, account_id.as_deref())?;
+    let row = svc
+        .usage_store
+        .get_latest(&provider, account_id.as_deref())?;
     serde_json::to_value(row).map_err(|e| e.to_string())
 }
 

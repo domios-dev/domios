@@ -21,8 +21,12 @@ pub fn read_from_path(messages_dir: &Path) -> Option<UsageSnapshot> {
         if !name.starts_with("msg_") || !name.ends_with(".json") {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
-        let Ok(v) = serde_json::from_str::<Value>(&text) else { continue };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
         let ts = v
             .get("time")
             .and_then(|t| t.get("created"))
@@ -46,7 +50,9 @@ pub fn accumulate<I: Iterator<Item = Value>>(messages: I) -> Option<UsageSnapsho
         if role != "assistant" {
             continue;
         }
-        let Some(tokens) = v.get("tokens") else { continue };
+        let Some(tokens) = v.get("tokens") else {
+            continue;
+        };
         let input = tokens.get("input").and_then(|n| n.as_u64()).unwrap_or(0);
         let output = tokens.get("output").and_then(|n| n.as_u64()).unwrap_or(0);
         let cache_read = tokens
@@ -64,7 +70,8 @@ pub fn accumulate<I: Iterator<Item = Value>>(messages: I) -> Option<UsageSnapsho
 
         snap.input_tokens = snap.input_tokens.saturating_add(input);
         snap.output_tokens = snap.output_tokens.saturating_add(output);
-        snap.cache_creation_input_tokens = snap.cache_creation_input_tokens.saturating_add(cache_write);
+        snap.cache_creation_input_tokens =
+            snap.cache_creation_input_tokens.saturating_add(cache_write);
         snap.cache_read_input_tokens = snap.cache_read_input_tokens.saturating_add(cache_read);
         snap.message_count = snap.message_count.saturating_add(1);
         found_any = true;
@@ -77,7 +84,11 @@ pub fn accumulate<I: Iterator<Item = Value>>(messages: I) -> Option<UsageSnapsho
         }
     }
 
-    if found_any { Some(snap) } else { None }
+    if found_any {
+        Some(snap)
+    } else {
+        None
+    }
 }
 
 fn ts_from_message(v: &Value) -> Option<DateTime<Utc>> {

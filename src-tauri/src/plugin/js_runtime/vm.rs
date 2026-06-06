@@ -78,7 +78,10 @@ const PLUGIN_PREAMBLE: &str = r#"
 
 #[derive(Debug)]
 pub enum VmError {
-    ReadFile { path: String, source: std::io::Error },
+    ReadFile {
+        path: String,
+        source: std::io::Error,
+    },
     RuntimeInit(String),
     Script(String),
     MissingFunction(String),
@@ -94,7 +97,9 @@ impl std::fmt::Display for VmError {
             }
             VmError::RuntimeInit(msg) => write!(f, "failed to initialise JS runtime: {msg}"),
             VmError::Script(msg) => write!(f, "plugin script error: {msg}"),
-            VmError::MissingFunction(name) => write!(f, "plugin missing exported function `{name}`"),
+            VmError::MissingFunction(name) => {
+                write!(f, "plugin missing exported function `{name}`")
+            }
             VmError::InvalidJson(name, msg) => {
                 write!(f, "plugin function `{name}` returned invalid JSON: {msg}")
             }
@@ -506,12 +511,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a"), "1").unwrap();
         std::fs::write(dir.path().join("b"), "2").unwrap();
-        let names: Vec<String> = call_json(
-            &vm,
-            "listNames",
-            &[json!(dir.path().to_string_lossy())],
-        )
-        .unwrap();
+        let names: Vec<String> =
+            call_json(&vm, "listNames", &[json!(dir.path().to_string_lossy())]).unwrap();
         assert_eq!(names, vec!["a".to_string(), "b".to_string()]);
         let id: Option<String> = call_json(&vm, "getManifestId", &[]).unwrap();
         assert_eq!(id.as_deref(), Some("X"));
