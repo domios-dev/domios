@@ -21,6 +21,6 @@ You have a persistent vector + keyword memory store accessed via `codeterm mem`.
 
 ## Where to find more
 
-For the full command reference (kinds, filters, graph queries, search-strategy fallbacks, sessions API, skill-folder workflow, keepawake, dreaming) — use the `codeterm` skill. It triggers on terminal / pane / agent / workspace / mesh / cron / **mem** / **remember** / **recall** / **save fact** / **memory** / **session** / **keepawake** keywords.
+For the full command reference (kinds, filters, graph queries, search-strategy fallbacks, sessions API, skill-folder workflow, keepawake, dreaming), use the provider skill named `codeterm` from the synced skills directory. Do not rely on the short mem seed item named "codeterm skill"; that search result is only a stub. The provider skill triggers on terminal / pane / agent / workspace / mesh / cron / **mem** / **remember** / **recall** / **save fact** / **memory** / **session** / **keepawake** keywords.
 
 <!-- revision: 10 -->

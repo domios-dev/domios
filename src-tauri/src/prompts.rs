@@ -44,3 +44,56 @@ pub const MEM_RERANK: &str = include_str!("../prompts/mem_rerank.md");
 
 /// REM-phase dreaming prompt — optimization steps for the headless dream worker. No placeholders.
 pub const DREAMING_REM: &str = include_str!("../prompts/dreaming_rem.md");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn docs_do_not_reintroduce_dead_general_agent_spec() {
+        const GENERAL_AGENT_DOC: &str = include_str!("../../docs/GENERAL_AGENT.md");
+
+        assert!(!GENERAL_AGENT_DOC.contains("CODETERM-AUTO-START"));
+        assert!(!GENERAL_AGENT_DOC.contains("CODETERM-AUTO-END"));
+        assert!(!GENERAL_AGENT_DOC.contains("EXTRA_INSTRUCTIONS.md"));
+        assert!(!GENERAL_AGENT_DOC.contains("{connected_services}"));
+        assert!(!GENERAL_AGENT_DOC.contains("secrets/*.md"));
+    }
+
+    #[test]
+    fn prompt_docs_match_extraction_contract() {
+        const PROMPTS_DOC: &str = include_str!("../../docs/PROMPTS.md");
+
+        assert!(PROMPTS_DOC.contains("50,000 chars"));
+        assert!(PROMPTS_DOC.contains("excludes only `MemKind::Summary`"));
+        assert!(!PROMPTS_DOC.contains("4000 chars"));
+        assert!(!PROMPTS_DOC.contains("items longer than ~80 chars"));
+    }
+
+    #[test]
+    fn prompt_surface_uses_delay_only_jitter_wording() {
+        const MEMORY_DOC: &str = include_str!("../../docs/MEMORY.md");
+        const CONFIG_DOC: &str = include_str!("../../docs/CONFIG.md");
+
+        for text in [CODETERM_CLI, MEMORY_DOC, CONFIG_DOC] {
+            assert!(!text.contains("±30 min jitter"));
+            assert!(!text.contains("±90 min jitter"));
+            assert!(!text.contains("5:30–6:30"));
+        }
+        assert!(CODETERM_CLI.contains("delay-only"));
+        assert!(MEMORY_DOC.contains("0..30 min delay-only jitter"));
+        assert!(CONFIG_DOC.contains("0..30 min delay-only jitter"));
+    }
+
+    #[test]
+    fn operational_prompts_keep_clarity_fixes() {
+        assert!(WORKER_SUFFIX.contains("STATUS: done | blocked | partial"));
+        assert!(WORKER_SUFFIX.contains("BUILD/TYPECHECK/TESTS:"));
+        assert!(BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("{general_dir}/bootstrap.md"));
+        assert!(!BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("rm bootstrap.md"));
+        assert!(BRIDGE_MEM.contains("provider skill named `codeterm`"));
+        assert!(BRIDGE_MEM.contains("mem seed item"));
+        assert!(!MEM_EXTRACTION.contains("mem search returns BOTH"));
+        assert!(!DREAMING_REM.contains("mem search returns BOTH"));
+    }
+}
