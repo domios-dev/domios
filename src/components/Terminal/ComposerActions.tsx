@@ -472,9 +472,13 @@ export function ComposerActions({
           }}
           onPointerMove={moveVoice}
           onClick={(e) => e.preventDefault()}
-          className={`${btnBase} h-12 w-12 rounded-full border text-white shadow-[0_5px_18px_rgba(31,111,235,0.35)] hover:scale-[1.03] active:scale-95 ${
+          className={`${btnBase} h-12 w-12 rounded-full border text-white hover:scale-[1.03] active:scale-95 ${
             voice.recording ? "z-20 scale-[2.35] shadow-[0_18px_55px_rgba(31,111,235,0.52)]" : ""
-          } ${voiceMode === "locked" ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/20" : ""} disabled:opacity-40`}
+          } ${voiceMode === "locked" ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/20" : ""} ${
+            voice.recording || mainIsSend
+              ? "shadow-[0_5px_18px_rgba(31,111,235,0.35)]"
+              : "shadow-[0_2px_10px_rgba(0,0,0,0.28)]"
+          } disabled:opacity-40`}
           style={{
             background:
               voice.recording || mainIsSend

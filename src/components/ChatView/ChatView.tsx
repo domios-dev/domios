@@ -587,6 +587,12 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             onPaste={handlePaste}
             placeholder="Send a message..."
             rows={1}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="sentences"
+            spellCheck={false}
+            enterKeyHint="send"
+            inputMode="text"
             className="flex-1 bg-transparent border-none outline-none resize-none text-sm leading-5 placeholder:text-[var(--ct-muted)]"
             style={{
               color: "var(--ct-fg, #c9d1d9)",

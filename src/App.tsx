@@ -537,6 +537,9 @@ function AppInner() {
         // keyboardInset covers iOS Safari, where the keyboard shrinks only
         // the VISUAL viewport and dvh stays put (see useKeyboardInset).
         height: keyboardInset ? `calc(100dvh - ${keyboardInset}px)` : "100dvh",
+        "--ct-composer-bottom-padding": keyboardInset
+          ? "0.5rem"
+          : "calc(0.5rem + env(safe-area-inset-bottom, 0px))",
       } as React.CSSProperties}
     >
       {/* Web mirror strips the chrome: no titlebar row — the sidebar is
