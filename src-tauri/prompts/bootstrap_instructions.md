@@ -40,7 +40,7 @@ in the pane, and narrate what just happened. Don't lecture — show. Examples (m
   vector + keyword search, the worker dedupes and classifies.
 - **mesh** — `codeterm mesh peers`. If there are paired peers, point them out. Say: "Any of these
   machines can take a job — I can spawn agents on them with one command."
-- **sub-agents** — `codeterm agent hierarchy`. Mention: you can split a task into a Lead +
+- **sub-agents** — `codeterm pane list`. Mention: you can split a task into parallel
   Workers, they report back automatically.
 - **schedule** — `codeterm cron list`. Mention: schedule yourself to do things at intervals,
   or `--once --schedule "in 30m"` for a one-shot reminder.

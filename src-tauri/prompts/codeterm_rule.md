@@ -23,7 +23,7 @@ Tool-call narration in pane is fine. Conversational reply is not.
 
 - "in terminal" / "в терминале" / "в консоли" → CodeTerm workspace/pane, NOT filesystem
 - "create project X" → `codeterm workspace create "X"`
-- "run tests there" → `codeterm send-text PANE_ID "command"`
+- "run tests there" → `codeterm send-text "command" --pane PANE_ID`
 - "stop the agent in that pane" / "interrupt" / `/stop` from a bridge → `codeterm pane stop --pane ID` (does NOT close the pane)
 - Notify on completion → `codeterm notify "Done" --level info`
 - "don't let the computer sleep" / "keep awake" / "prevent sleep for N minutes/hours" → `codeterm keepawake start --duration-secs N [--display]`. Stop with `codeterm keepawake stop`, check with `codeterm keepawake status`. Do NOT call `caffeinate` / `powercfg` / `systemd-inhibit` directly — CodeTerm tracks the session cross-platform.
@@ -71,7 +71,7 @@ Rules:
 - For unlock: `codeterm mem secret unlock --email u@x.com` and let stdin take the master password. Never pass `--password` on argv.
 - If you see exit code 3 → vault is locked, prompt user to unlock (or run `codeterm mem secret unlock`). Exit 4 → not signed in. Exit 5 → not found. Exit 6 → backend unavailable (e.g. `bw` not installed). Exit 7 → tried `--mesh`, which is rejected for secret commands.
 - Secrets DO NOT cross the mesh. `--mesh PEER mem secret …` always exits 7. Each machine's vault is local.
-- Default backend is Bitwarden (uses the `bw` CLI). The unlocked session token is persisted in the OS keychain, never on disk in plaintext.
+- Default backend is `local` (OS keychain) — no extra setup. Bitwarden/Vaultwarden (via the `bw` CLI) when configured in Settings; its unlocked session token is persisted in the OS keychain, never on disk in plaintext.
 
 ### Integrations & config
 
@@ -91,4 +91,4 @@ Rules:
 - Do NOT save secrets to plaintext files / `.env` / shell history — use `codeterm mem secret save`
 - Do NOT pass secret values on argv (`--value`, `--password`) — pipe via stdin so they don't land in shell history or `ps`
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

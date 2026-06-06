@@ -14,7 +14,7 @@ You are running inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `
 Commands default to the **current focused pane** when no id is given. Reference your own pane via `$CODETERM_PANE_ID` — `pane current` returns the *focused* pane, which may be someone else's.
 
 ```bash
-codeterm pane list
+codeterm pane list                                 # workspace tree: pane id, name, model; sub-agents nested. --agents = agent panes only
 codeterm pane search "<pattern>"                   # fuzzy across tab name, model, agent, id — cross-script (Далтон → Dalton)
 codeterm pane new --workspace WS_ID [--cmd "<sh>"]  # plain shell pane (no agent) → for scripts/servers/long processes
                                                    # for an AI agent pane: use `codeterm agent spawn <provider>` instead
@@ -44,17 +44,18 @@ A sub-pane is a child agent you own. Spawn one when a piece of the work feels li
 | Independent task with its own workspace | add `--workspace $WS` (no implicit parent) |
 | Task on another machine | add `--mesh PEER` (the peer runs it standalone) |
 
-Sub-panes don't spawn further sub-panes — keep the tree one level deep. For multi-step work, plan the steps yourself and dispatch them as siblings (use `batch` if you want to fire several at once).
+Sub-panes don't spawn further sub-panes — keep the tree one level deep. For multi-step work, plan the steps yourself and dispatch them as sibling `agent spawn` calls.
 
 ```bash
-codeterm agent list
-codeterm agent hierarchy                           # tree view of your sub-panes
+codeterm pane list                                 # workspace tree of panes; your sub-panes nest under you (--agents = agent panes only)
+codeterm agent providers                           # list registered providers (claude, codex, …) + default models + capabilities
+codeterm agent models <provider>                   # list models a provider accepts (e.g. agent models claude)
 codeterm agent spawn claude --task "..." [--title T] [--workspace WS] [--mesh PEER] [--cwd PATH]
 codeterm agent report "summary"                    # report to your parent (when you ARE a sub-pane)
 codeterm agent reports                             # read your sub-panes' reports
-codeterm agent status [--pane ID]
+codeterm pane status [--pane ID]                   # one pane's agent state (type, session, prompt)
 codeterm agent compact [--pane ID]                 # /compact
-codeterm agent model sonnet|haiku|opus [--pane ID]
+codeterm agent model sonnet|haiku|opus [--pane ID]  # Claude panes only — Codex has no scriptable switch; respawn with `agent spawn codex --model`
 codeterm agent restart --pane ID [--force]         # graceful /exit + auto-resume; --force kills hung PTY
 ```
 
@@ -65,7 +66,7 @@ codeterm agent spawn claude --title "Scout" \
   --task "List files in ./src. When done: codeterm agent report 'found N files: ...'"
 ```
 
-Reports auto-inject as `[Report from PANE_ID]` lines into your pane. React when they arrive — don't sleep/poll. Chase silent ones via `codeterm agent status` or `get-output --pane ID`.
+Reports auto-inject as `[Report from PANE_ID]` lines into your pane. React when they arrive — don't sleep/poll. Chase silent ones via `codeterm pane status` or `get-output --pane ID`.
 
 **Don't over-spawn.** Trivial recon (single grep/ls/cat/git/file read) — do it yourself. Spawn only for isolation, parallelism, separate workspace, or visible work the user wants to watch.
 
@@ -168,9 +169,10 @@ Full cron reference (oneshot schedules, lifecycle, full flag set): `codeterm doc
 Manage local services in the Mesh tab — register daemons, list cron+daemon entries, get/rotate push tokens:
 
 ```bash
-codeterm service list                              # all registered services
+codeterm service list                              # unified registry: daemons + crons
 codeterm service list --kind daemon                # daemons only
-codeterm service add <name> [--help]               # register; --help for health probe flags
+codeterm service list --kind cron                  # crons as seen in the registry (read-only view)
+codeterm service add <name> [--help]               # register a DAEMON; --help for health probe flags
 codeterm service show <id>                         # detail + recent activity
 codeterm service edit <id> [--help]                # update fields
 codeterm service delete <id>
@@ -224,6 +226,35 @@ codeterm update --apply --after-update "<text>"    # inject message into General
 
 `--after-update TEXT` queues a message that the new daemon delivers to the General pane once it boots and the pane has a live PTY. Useful for remote-triggered updates over mesh ("update yourself then verify build hash"). Persisted to `~/.codeterm/post-update-message.txt`; deleted after delivery. If the GA pane doesn't come up within 60s the file stays for the next boot. No automated rollback — if the new build is bad, install the old version manually from GitHub releases.
 
+## Plugins (providers)
+
+Agent providers (Claude, Codex, …) and other integrations ship as plugins, installed from **channels** (a git repo or local folder). The bundled system channel `codeterm-core` tracks the official `plugins/` directory.
+
+```bash
+codeterm plugin list                               # installed plugins
+codeterm plugin install <id> [--channel NAME]      # install from a registered channel
+codeterm plugin install --from-dir <path>          # install from a local plugin folder
+codeterm plugin update [<id>]                       # update one, or all when id omitted
+codeterm plugin update-system                        # refresh bundled system providers from codeterm-core
+codeterm plugin remove <id> [--force]               # --force allows removing a verified/system plugin
+codeterm plugin channel list                         # registered channels
+codeterm plugin channel add <url|path> [--name N]    # add a git URL or local-path channel
+codeterm plugin channel refresh [<name>]             # refresh one channel, or all when name omitted
+codeterm plugin channel remove <name>
+```
+
+Run `codeterm plugin <sub> --help` for exact flags — channel resolution and id overrides evolve. Use `update-system` after pulling a new CodeTerm build to pick up bundled provider fixes without a full reinstall.
+
+## Usage tracking
+
+```bash
+codeterm usage latest        # current session + weekly %, reset times (default provider: claude)
+codeterm usage projection    # end-of-today / end-of-cycle projection from your historical rhythm
+codeterm usage refresh       # force a fresh probe (runs the agent hidden, parses /status)
+```
+
+Usage is tracked per **provider** (5-hour block + weekly window), not per pane. Add `--provider P` / `--account-id ID` to target a non-default account.
+
 ## Past agent sessions
 
 Search across every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/`):
@@ -268,6 +299,10 @@ codeterm mem get <id>                                              # full body
 codeterm mem save --kind <kind> --title "..." "<body>"             # capture (auto-classified)
 codeterm mem save --kind fact --title "..." --pin --workspace $CODETERM_WORKSPACE_ID "<body>"
                                                                    # atomic create + pin + workspace scope
+codeterm mem learn "<insight>" [--kind insight|error|feature] [--tags a,b]   # quick lightweight capture → kind=learning
+codeterm mem learn --error "<what broke>" | --feature "<request>"            # shortcuts for error/feature kinds
+codeterm mem learn-list                                                      # pending learnings (kind=learning)
+codeterm mem learn-promote <id>                                              # promote a learning → fact (raises importance)
 codeterm mem pin <id> | unpin <id> | pinned [--limit N]            # toggle is_pinned_wakeup; pinned always loads in L1
 codeterm mem wake-up                                               # L0 identity + L1 critical facts
 codeterm mem wake-up --workspace $CODETERM_WORKSPACE_ID            # boost ws-scoped items in L1 ranking
