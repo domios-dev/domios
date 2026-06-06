@@ -299,21 +299,22 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     };
     let text = String::from_utf8_lossy(&bytes[aligned_start..]).to_string();
 
-    // Stop any prior tailer for this pane before installing the new one —
-    // idempotent re-entry (toggle off/on) must replace, not skip.
-    svc.chat_registry.stop(&pane_id);
-
-    let sink = crate::service::pane_chat::raw_text_sink::make_sink(svc.app_handle.clone());
-    let handle = crate::service::pane_chat::spawn_raw_tailer(
-        crate::service::pane_chat::RawTailConfig {
-            pane_id: pane_id.clone(),
-            path: path.clone(),
-            start_offset: total,
-            poll_interval: std::time::Duration::from_millis(500),
-        },
-        sink,
-    );
-    svc.chat_registry.insert(pane_id, handle);
+    // Multiple webviews can attach to the same pane. The tailer is per pane,
+    // but subscriptions are per client; share the existing worker when one is
+    // already running so one client's stop() cannot kill another's stream.
+    if !svc.chat_registry.acquire(&pane_id) {
+        let sink = crate::service::pane_chat::raw_text_sink::make_sink(svc.app_handle.clone());
+        let handle = crate::service::pane_chat::spawn_raw_tailer(
+            crate::service::pane_chat::RawTailConfig {
+                pane_id: pane_id.clone(),
+                path: path.clone(),
+                start_offset: total,
+                poll_interval: std::time::Duration::from_millis(500),
+            },
+            sink,
+        );
+        svc.chat_registry.insert(pane_id, handle);
+    }
 
     Ok(ChatStartResult {
         text,

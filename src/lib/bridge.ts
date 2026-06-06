@@ -18,6 +18,7 @@ import {
 } from "@tauri-apps/api/event";
 import { IS_WEB, webJson } from "./webApi";
 import { webListen } from "./webEvents";
+import { setClientPaneUiMode } from "./clientPaneUiMode";
 
 export type UnlistenFn = TauriUnlistenFn;
 export { IS_WEB };
@@ -85,10 +86,10 @@ const HTTP_MAP: Record<string, Mapper> = {
     }),
   mux_clear_pane_role: (a) =>
     webJson("DELETE", `/api/panes/${enc(s(a, "paneId"))}/role`),
-  mux_set_chat_view: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-view`, {
-      enabled: a.chatView ?? a.enabled,
-    }),
+  mux_set_chat_view: async (a) => {
+    setClientPaneUiMode(s(a, "paneId"), a.chatView ?? a.enabled ? "chat" : "terminal");
+    return { ok: true };
+  },
 
   // ── panes (read + input) ──
   get_pane_text: (a) =>
@@ -152,11 +153,11 @@ const HTTP_MAP: Record<string, Mapper> = {
   read_pty: (a) => webJson("GET", `/api/pty/${enc(s(a, "ptyId"))}/read`),
   write_pty_string: (a) =>
     webJson("POST", `/api/pty/${enc(s(a, "ptyId"))}/write`, { data: a.data }),
-  resize_pty: (a) =>
-    webJson("POST", `/api/pty/${enc(s(a, "ptyId"))}/resize`, {
-      cols: a.cols,
-      rows: a.rows,
-    }),
+  // Web mirrors are read-only for PTY geometry. The desktop/Tauri client owns
+  // real PTY resize so a phone-sized webview cannot reflow the shared daemon
+  // PTY and glitch the desktop console. A future explicit "take control"
+  // gesture can call the REST resize endpoint directly.
+  resize_pty: async () => ({ ok: true, resize_owner: "desktop" }),
 
   // ── keepawake (sidebar toggle in web) ──
   keepawake_status: () => webJson("GET", "/api/keepawake"),
