@@ -26,8 +26,21 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         log::error!("Failed to start socket server: {}", e);
     }
 
-    // Initialize cron store and scheduler
-    let cron_store = cron::store::CronStore::new();
+    // Initialize cron store and scheduler. Debug builds started with
+    // CODETERM_TEST_CLOCK=1 get a MockClock (driven via /api/debug/clock)
+    // so the e2e suite can time-travel; release builds never do.
+    let test_clock: Option<Arc<cron::clock::MockClock>> = if cfg!(debug_assertions)
+        && std::env::var("CODETERM_TEST_CLOCK").as_deref() == Ok("1")
+    {
+        log::warn!("[cron] CODETERM_TEST_CLOCK=1 — cron runs on a mock clock");
+        Some(cron::clock::MockClock::new())
+    } else {
+        None
+    };
+    let cron_store = match &test_clock {
+        Some(clock) => cron::store::CronStore::new_with_clock(clock.clone()),
+        None => cron::store::CronStore::new(),
+    };
     let cron_state: CronState = Arc::new(Mutex::new(cron_store));
     let cron_wake: CronWake = Arc::new(std::sync::Condvar::new());
 
@@ -83,6 +96,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                 config: states.config.clone(),
                 mesh: states.mesh.clone(),
                 keepawake: states.keepawake.clone(),
+                test_clock: test_clock.clone(),
             };
             let router = api::routes::create_router(api_state);
             let host = api_config.host.clone();

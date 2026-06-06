@@ -524,6 +524,12 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 |--------|------|------|-------------|
 | POST | `/api/session/save` | — | Snapshot the multiplexer (workspaces/tabs/panes) into the session store immediately. Durability is otherwise the 30s auto-save timer + close-to-tray hook; e2e harnesses call this before force-killing the daemon so restart-persistence is deterministic. |
 
+#### Debug (test-only capabilities)
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/debug/clock` | — | `{mocked, now_ms}` — whether cron runs on a mock clock, and its current time. |
+| POST | `/api/debug/clock/advance` | `{ms}` | Advance the mock cron clock and wake the scheduler so overdue jobs fire immediately. **409** unless the daemon is a debug build started with `CODETERM_TEST_CLOCK=1` (release builds never activate the mock). Powers the 07-cron e2e suite's time travel. |
+
 #### Past Agent Sessions
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -1222,4 +1228,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 50 -->
+<!-- revision: 51 -->
