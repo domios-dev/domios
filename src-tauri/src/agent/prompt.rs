@@ -4,6 +4,7 @@
 //! Does NOT hold any external locks — takes data by value, returns decisions.
 
 use std::collections::HashMap;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
@@ -143,7 +144,7 @@ impl PromptDetector {
         F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
     {
         // Hooks are authoritative — skip cooldown, always parse
-        let parsed = parse_fn(clean_ring_text);
+        let parsed = parse_hook_prompt(clean_ring_text, parse_fn);
         log::info!(
             "[prompt] hook_detected_parse for {}: parsed={}, text_len={}",
             pane_id,
@@ -153,7 +154,7 @@ impl PromptDetector {
         if parsed.is_none() && clean_ring_text.len() > 100 {
             log::info!(
                 "[prompt] screen tail: {:?}",
-                &clean_ring_text[clean_ring_text.len().saturating_sub(300)..]
+                utf8_tail(clean_ring_text, 300)
             );
         }
         match parsed {
@@ -273,6 +274,33 @@ impl PromptDetector {
                 }
             }
             None => PromptDecision::None,
+        }
+    }
+}
+
+pub(crate) fn utf8_tail(text: &str, max_bytes: usize) -> &str {
+    if text.len() <= max_bytes {
+        return text;
+    }
+    let mut start = text.len() - max_bytes;
+    while start < text.len() && !text.is_char_boundary(start) {
+        start += 1;
+    }
+    &text[start..]
+}
+
+fn parse_hook_prompt<F>(
+    clean_ring_text: &str,
+    parse_fn: F,
+) -> Option<(String, Vec<(String, String)>)>
+where
+    F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
+{
+    match catch_unwind(AssertUnwindSafe(|| parse_fn(clean_ring_text))) {
+        Ok(parsed) => parsed,
+        Err(_) => {
+            log::error!("[prompt] hook parser panicked; ignoring prompt detection for this hook");
+            None
         }
     }
 }
@@ -468,6 +496,47 @@ mod tests {
         let mut det = PromptDetector::new();
         let decision = det.hook_detected_parse("pane-1", "nothing", parse_yes_no);
         assert!(matches!(decision, PromptDecision::None));
+    }
+
+    #[test]
+    fn test_hook_parse_multibyte_tail_does_not_panic() {
+        let mut det = PromptDetector::new();
+        let text = format!("{}{}{}", "a".repeat(10), "─", "b".repeat(298));
+        assert_eq!(
+            text.len() - 300,
+            11,
+            "fixture must put old byte-slice start inside the box drawing char"
+        );
+        assert!(
+            !text.is_char_boundary(text.len() - 300),
+            "fixture must reproduce the invalid UTF-8 boundary"
+        );
+
+        let decision = det.hook_detected_parse("pane-1", &text, parse_yes_no);
+
+        assert!(matches!(decision, PromptDecision::None));
+    }
+
+    #[test]
+    fn test_hook_parse_contains_parser_panic() {
+        let mut det = PromptDetector::new();
+        let decision = det.hook_detected_parse("pane-1", "│ emoji 😀 cjk 漢字", |_| {
+            panic!("provider parser bug")
+        });
+
+        assert!(matches!(decision, PromptDecision::None));
+    }
+
+    #[test]
+    fn test_utf8_tail_starts_on_char_boundary() {
+        let text = format!("{}{}{}", "a".repeat(10), "😀", "b".repeat(298));
+        let old_start = text.len() - 300;
+        assert!(!text.is_char_boundary(old_start));
+
+        let tail = utf8_tail(&text, 300);
+
+        assert!(tail.len() <= 300);
+        assert!(tail.starts_with('b'));
     }
 
     #[test]
