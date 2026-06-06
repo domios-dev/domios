@@ -58,6 +58,7 @@ test("@smoke UI agrees with API about the active workspace", async () => {
   const workspaces = await api.workspaces();
   const active = workspaces.find((w) => w.is_active);
   expect(active).toBeDefined();
-  // The workspace name is rendered somewhere in the shell (sidebar/titlebar).
-  await expect(ui.page.getByText(active!.name).first()).toBeVisible();
+  await expect(
+    ui.page.locator(`[data-testid="workspace-item"][data-workspace-id="${active!.id}"]`),
+  ).toBeVisible();
 });

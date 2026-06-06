@@ -59,7 +59,7 @@ function CollapsibleTablesDrawer({
           <Chevron size={12} />
           Crons ({cronsCount})
         </button>
-        <button className={DRAWER_BTN} onClick={onToggle}>
+        <button data-testid="mesh-services-toggle" className={DRAWER_BTN} onClick={onToggle}>
           <Chevron size={12} />
           Services ({servicesCount})
         </button>
@@ -194,6 +194,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
           {TABS.map((tab) => (
             <button
               key={tab}
+              data-testid={`mesh-tab-${tab}`}
               onClick={() => setActiveTab(tab)}
               className={activeTab === tab ? TAB_ACTIVE : TAB_INACTIVE}
             >
