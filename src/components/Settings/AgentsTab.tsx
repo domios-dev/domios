@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { Bell, Bot, ChevronRight, FolderTree, Server, Eye } from "lucide-react";
 import type { AppConfig, ProviderConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";

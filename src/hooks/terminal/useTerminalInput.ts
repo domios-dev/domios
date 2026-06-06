@@ -1,6 +1,6 @@
 import { useEffect, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { isMac } from "../../lib/keybindings";
 import { routeClipboardToTerm } from "../../lib/clipboardPaste";
 

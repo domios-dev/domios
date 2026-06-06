@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "../../lib/bridge";
+import { listen } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
 import {
   useXterm,

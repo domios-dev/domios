@@ -5,7 +5,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { mapCursorStyle, buildXtermTheme } from "../../components/Terminal/helpers";
 import type { ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 

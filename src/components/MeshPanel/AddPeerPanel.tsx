@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import type { MeshPeersResponse, DiscoveredPeer, MeshPairingRequest, PairedPeer } from "../../lib/types";
 
 export default function AddPeerPanel() {
