@@ -4,6 +4,7 @@ pub mod cron;
 pub mod debug;
 pub mod mem;
 pub mod misc;
+pub mod plugin;
 pub mod service;
 pub mod sessions;
 pub mod system;

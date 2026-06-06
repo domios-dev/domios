@@ -12,20 +12,6 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
     };
     match action {
-        AgentAction::List => {
-            match http.get(format!("{}/api/agents", base)).send() {
-                Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else if let Some(arr) = val.as_array() {
-                        if arr.is_empty() { println!("No agents found."); }
-                        for a in arr { print_object(a); println!(); }
-                    }
-                }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
-            }
-        }
         AgentAction::Providers => {
             match http.get(format!("{}/api/agents/providers", base)).send() {
                 Ok(resp) => {
@@ -111,38 +97,6 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
             }
         }
-        AgentAction::Hierarchy => {
-            match http.get(format!("{}/api/agents/hierarchy", base)).send() {
-                Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else {
-                        fn print_tree(node: &serde_json::Value, indent: usize) {
-                            let prefix = "  ".repeat(indent);
-                            let role = node.get("role").and_then(|v| v.as_str()).unwrap_or("?");
-                            let title = node.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-                            let status = node.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-                            let icon = match role {
-                                "Orchestrator" => "★",
-                                "Lead" => "·",
-                                "Worker" => "⚙",
-                                _ => "·",
-                            };
-                            println!("{}{} {} [{}] ({})", prefix, icon, title, status, role);
-                            if let Some(children) = node.get("children").and_then(|v| v.as_array()) {
-                                for c in children { print_tree(c, indent + 1); }
-                            }
-                        }
-                        if let Some(arr) = val.as_array() {
-                            if arr.is_empty() { println!("No hierarchy found."); }
-                            for c in arr { print_tree(c, 0); }
-                        }
-                    }
-                }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
-            }
-        }
         AgentAction::SetConductor { pane } => {
             let pane_id = resolve_pane(client, pane);
             match http.post(format!("{}/api/panes/{}/role", base, pane_id))
@@ -161,8 +115,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     let val: serde_json::Value = resp.json().unwrap_or_default();
                     match val.get("role").and_then(|v| v.as_str()) {
                         Some("Orchestrator") | Some("Conductor") => "Worker",
-                        Some("Lead") | Some("Worker") => "Worker",
-                        _ => { eprintln!("Parent must be Orchestrator or Lead"); std::process::exit(1); }
+                        _ => { eprintln!("Parent must be an Orchestrator"); std::process::exit(1); }
                     }
                 }
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
@@ -179,21 +132,6 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             let pane_id = resolve_pane(client, pane);
             match http.delete(format!("{}/api/panes/{}/role", base, pane_id)).send() {
                 Ok(resp) => { let v: serde_json::Value = resp.json().unwrap_or_default(); println!("{}", serde_json::to_string_pretty(&v).unwrap()); }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
-            }
-        }
-        AgentAction::Children { pane } => {
-            let pane_id = resolve_pane(client, pane);
-            match http.get(format!("{}/api/panes/{}/children", base, pane_id)).send() {
-                Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else if let Some(arr) = val.as_array() {
-                        if arr.is_empty() { println!("No children."); }
-                        for c in arr { print_object(c); println!(); }
-                    }
-                }
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
             }
         }
@@ -232,20 +170,6 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                             let msg = r.get("message").and_then(|v| v.as_str()).unwrap_or("");
                             println!("[{}] {}", from, msg);
                         }
-                    }
-                }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
-            }
-        }
-        AgentAction::Status { pane } => {
-            let pane_id = resolve_pane(client, pane);
-            match http.get(format!("{}/api/panes/{}/status", base, pane_id)).send() {
-                Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else {
-                        print_object(&val);
                     }
                 }
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }

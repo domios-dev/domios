@@ -44,8 +44,13 @@ pub enum WorkspaceAction {
 
 #[derive(Subcommand)]
 pub enum PaneAction {
-    /// List all panes
-    List,
+    /// List all panes as a workspace-grouped tree. `--agents` filters to
+    /// agent panes only (replaces the old `agent list`).
+    List {
+        /// Show only panes running an agent (have an agent_type).
+        #[arg(long)]
+        agents: bool,
+    },
     /// Plain shell pane. For an AI pane use `codeterm agent spawn` instead.
     New {
         /// Target workspace id (default: current focused)
