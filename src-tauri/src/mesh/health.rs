@@ -1,9 +1,11 @@
 //! Online/offline decision for paired peers.
 //!
-//! Single writer: the background mesh health loop (multi-address `try_peer`
-//! ping). The old single-address `ping_scheduler` was deleted — two loops
-//! disagreeing about `online` made the flag flap whenever the best-tier
-//! address was dead but another one worked (#127).
+//! Single polling writer: the background mesh health loop (multi-address
+//! `try_peer` ping). The old single-address `ping_scheduler` was deleted —
+//! two pollers disagreeing about `online` made the flag flap whenever the
+//! best-tier address was dead but another one worked (#127). The only other
+//! writer is `apply_announce`, which applies a peer's own explicit
+//! self-reported liveness (#130) — an authoritative event, not a poll.
 
 const MISS_THRESHOLD: u8 = 2;
 
