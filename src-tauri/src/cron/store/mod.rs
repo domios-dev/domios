@@ -90,7 +90,9 @@ pub struct CronJob {
     pub protected: bool,
 }
 
-fn is_zero_u32(v: &u32) -> bool { *v == 0 }
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
+}
 
 fn default_max_history() -> usize {
     100
@@ -135,7 +137,11 @@ impl CronStore {
         } else {
             CronFile::default()
         };
-        Self { file, file_path, pane_owners: HashMap::new() }
+        Self {
+            file,
+            file_path,
+            pane_owners: HashMap::new(),
+        }
     }
 
     #[cfg(test)]
@@ -148,7 +154,11 @@ impl CronStore {
         } else {
             CronFile::default()
         };
-        Self { file, file_path: path, pane_owners: HashMap::new() }
+        Self {
+            file,
+            file_path: path,
+            pane_owners: HashMap::new(),
+        }
     }
 
     pub fn save(&self) -> Result<(), String> {

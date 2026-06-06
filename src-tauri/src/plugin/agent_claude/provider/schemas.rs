@@ -31,10 +31,12 @@ pub(super) fn available_models() -> Vec<ModelInfo> {
 }
 
 pub(super) fn notifications_schema() -> Vec<SettingField> {
-    // Mirrors the legacy `ClaudeHooksGroup` React component:
-    // status badge from check_claude_hooks + Install action that
-    // calls install_claude_hooks. Lives in the global Notifications
-    // tab so it sits next to desktop / sound / toast settings.
+    // Status badge from check_provider_integration + Install action that
+    // calls install_provider_integration. Both target the generic
+    // dispatcher with `provider_id: "claude"` as the arg payload — the
+    // provider trait decides what "integration" means (hooks file for
+    // Claude, no-op for Codex/Opencode).
+    let claude_args = Some(serde_json::json!({ "provider_id": "claude" }));
     vec![SettingField::Section {
         title: "Claude Code Notifications".into(),
         description: Some(
@@ -50,7 +52,8 @@ pub(super) fn notifications_schema() -> Vec<SettingField> {
                 open: PathOpenKind::OpenFolder,
             },
             SettingField::Badge {
-                query_command: "check_claude_hooks".into(),
+                query_command: "check_provider_integration".into(),
+                query_args: claude_args.clone(),
                 variants: vec![
                     BadgeVariant {
                         id: "installed".into(),
@@ -67,8 +70,9 @@ pub(super) fn notifications_schema() -> Vec<SettingField> {
             SettingField::Action {
                 id: "install_hooks".into(),
                 label: "Install hooks".into(),
-                command: "install_claude_hooks".into(),
-                state_query: Some("check_claude_hooks".into()),
+                command: "install_provider_integration".into(),
+                state_query: Some("check_provider_integration".into()),
+                args: claude_args,
                 confirm: None,
                 style: ActionStyle::Primary,
             },
@@ -100,7 +104,8 @@ pub(super) fn settings_schema() -> Vec<SettingField> {
                     open: PathOpenKind::OpenFolder,
                 },
                 SettingField::Badge {
-                    query_command: "check_rule_installed".into(),
+                    query_command: "check_provider_rule".into(),
+                    query_args: Some(serde_json::json!({ "provider_id": "claude" })),
                     variants: vec![
                         BadgeVariant {
                             id: "installed".into(),
@@ -122,8 +127,9 @@ pub(super) fn settings_schema() -> Vec<SettingField> {
                 SettingField::Action {
                     id: "install_rule".into(),
                     label: "Install".into(),
-                    command: "install_project_rules".into(),
-                    state_query: Some("check_rule_installed".into()),
+                    command: "install_provider_rule".into(),
+                    state_query: Some("check_provider_rule".into()),
+                    args: Some(serde_json::json!({ "provider_id": "claude" })),
                     confirm: None,
                     style: ActionStyle::Primary,
                 },
@@ -162,8 +168,7 @@ pub(super) fn uninstall_bridge_rule() -> Result<(), String> {
         .join("rules")
         .join("codeterm.md");
     if path.exists() {
-        std::fs::remove_file(&path)
-            .map_err(|e| format!("remove {}: {}", path.display(), e))?;
+        std::fs::remove_file(&path).map_err(|e| format!("remove {}: {}", path.display(), e))?;
         log::info!("[agent-claude] bridge rule removed from {}", path.display());
     }
     Ok(())
@@ -213,21 +218,49 @@ mod tests {
                 let mut saw_badge = false;
                 let mut saw_action = false;
                 for f in fields {
-                    if let SettingField::Badge { query_command, .. } = f {
-                        if query_command == "check_claude_hooks" {
+                    if let SettingField::Badge {
+                        query_command,
+                        query_args,
+                        ..
+                    } = f
+                    {
+                        if query_command == "check_provider_integration"
+                            && query_args
+                                .as_ref()
+                                .and_then(|v| v.get("provider_id"))
+                                .and_then(|v| v.as_str())
+                                == Some("claude")
+                        {
                             saw_badge = true;
                         }
                     }
-                    if let SettingField::Action { command, state_query, .. } = f {
-                        if command == "install_claude_hooks"
-                            && state_query.as_deref() == Some("check_claude_hooks")
+                    if let SettingField::Action {
+                        command,
+                        state_query,
+                        args,
+                        ..
+                    } = f
+                    {
+                        if command == "install_provider_integration"
+                            && state_query.as_deref() == Some("check_provider_integration")
+                            && args
+                                .as_ref()
+                                .and_then(|v| v.get("provider_id"))
+                                .and_then(|v| v.as_str())
+                                == Some("claude")
                         {
                             saw_action = true;
                         }
                     }
                 }
-                assert!(saw_badge, "expected Badge wired to check_claude_hooks");
-                assert!(saw_action, "expected Action wired to install_claude_hooks");
+                assert!(
+                    saw_badge,
+                    "expected Badge wired to check_provider_integration"
+                );
+                assert!(
+                    saw_action,
+                    "expected Action wired to install_provider_integration"
+                );
             }
             _ => panic!("expected Section as top-level notifications field"),
         }

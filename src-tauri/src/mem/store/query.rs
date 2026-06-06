@@ -218,29 +218,57 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
 
     let mut nodes: Vec<GraphNode> = Vec::new();
     for row in rows {
-        let (id, kind, title, summary, area, tags_json, importance,
-             body_inline, body_blob_path, access_count, recurrence_count) =
-            row.map_err(|e| format!("row graph nodes: {}", e))?;
+        let (
+            id,
+            kind,
+            title,
+            summary,
+            area,
+            tags_json,
+            importance,
+            body_inline,
+            body_blob_path,
+            access_count,
+            recurrence_count,
+        ) = row.map_err(|e| format!("row graph nodes: {}", e))?;
         let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-        let has_body = body_inline.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
+        let has_body = body_inline
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
             || body_blob_path.is_some();
         let has_vector = vector_ids.contains(&id);
         nodes.push(GraphNode {
-            id, kind, title, summary, area, importance, tags,
-            has_vector, has_body, access_count, recurrence_count,
+            id,
+            kind,
+            title,
+            summary,
+            area,
+            importance,
+            tags,
+            has_vector,
+            has_body,
+            access_count,
+            recurrence_count,
         });
     }
 
     let node_ids: std::collections::HashSet<String> = nodes.iter().map(|n| n.id.clone()).collect();
-    if let Ok(mut entity_stmt) = conn.prepare(
-        "SELECT id, entity_type, properties_json FROM entities"
-    ) {
+    if let Ok(mut entity_stmt) =
+        conn.prepare("SELECT id, entity_type, properties_json FROM entities")
+    {
         if let Ok(erows) = entity_stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
         }) {
             for row in erows.flatten() {
                 let (id, entity_type, props_json) = row;
-                if node_ids.contains(&id) { continue; }
+                if node_ids.contains(&id) {
+                    continue;
+                }
                 let label = serde_json::from_str::<serde_json::Value>(&props_json)
                     .ok()
                     .and_then(|v| v.get("label").and_then(|l| l.as_str()).map(String::from))
@@ -291,6 +319,13 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
         }
     }
 
-    let stats = GraphDumpStats { node_count: nodes.len(), edge_count: edges.len() };
-    Ok(GraphDump { nodes, edges, stats })
+    let stats = GraphDumpStats {
+        node_count: nodes.len(),
+        edge_count: edges.len(),
+    };
+    Ok(GraphDump {
+        nodes,
+        edges,
+        stats,
+    })
 }

@@ -6,6 +6,7 @@
 //! trait impl, which delegates each method to the right child.
 
 mod detection;
+mod integration;
 mod launch;
 mod schemas;
 mod sessions;
@@ -215,9 +216,9 @@ impl AgentProvider for ClaudeProvider {
             // in the background, no Node.js dependency. npm is now an "advanced"
             // option per https://code.claude.com/docs/en/setup.
             "macos" | "linux" => Some("curl -fsSL https://claude.ai/install.sh | bash".into()),
-            "windows" => Some(
-                "powershell -Command \"irm https://claude.ai/install.ps1 | iex\"".into(),
-            ),
+            "windows" => {
+                Some("powershell -Command \"irm https://claude.ai/install.ps1 | iex\"".into())
+            }
             _ => None,
         }
     }
@@ -250,6 +251,30 @@ impl AgentProvider for ClaudeProvider {
     fn uninstall_bridge_rule(&self) -> Result<(), String> {
         schemas::uninstall_bridge_rule()
     }
+
+    fn check_integration(&self) -> serde_json::Value {
+        integration::check_integration()
+    }
+
+    fn install_integration(&self, api_port: u16) -> Result<(), String> {
+        integration::install_integration(api_port)
+    }
+
+    fn uninstall_integration(&self) -> Result<(), String> {
+        integration::uninstall_integration()
+    }
+
+    fn ensure_integration_on_startup(&self, api_port: u16) {
+        integration::ensure_integration_on_startup(api_port);
+    }
+
+    fn check_rule_status(&self) -> serde_json::Value {
+        integration::check_rule_status()
+    }
+
+    fn install_rule(&self) -> Result<(), String> {
+        integration::install_rule()
+    }
 }
 
 #[cfg(test)]
@@ -267,7 +292,10 @@ mod tests {
     #[test]
     fn claude_auto_approve_flags_has_dangerously_skip() {
         let p = ClaudeProvider::new();
-        assert_eq!(p.auto_approve_flags(), vec!["--dangerously-skip-permissions"]);
+        assert_eq!(
+            p.auto_approve_flags(),
+            vec!["--dangerously-skip-permissions"]
+        );
     }
 
     #[test]
@@ -279,7 +307,10 @@ mod tests {
     #[test]
     fn claude_model_switch_command_formats_slash_model() {
         let p = ClaudeProvider::new();
-        assert_eq!(p.model_switch_command("sonnet").as_deref(), Some("/model sonnet"));
+        assert_eq!(
+            p.model_switch_command("sonnet").as_deref(),
+            Some("/model sonnet")
+        );
     }
 
     #[test]
@@ -290,7 +321,10 @@ mod tests {
             f,
             crate::agent::provider::SettingField::Section { title, .. } if title.starts_with("Usage Tracking")
         ));
-        assert!(has, "Claude has usage_parser — describe() must auto-inject the Usage Tracking toggle");
+        assert!(
+            has,
+            "Claude has usage_parser — describe() must auto-inject the Usage Tracking toggle"
+        );
     }
 
     #[test]
@@ -338,8 +372,14 @@ mod tests {
     fn claude_uses_tui_input_drained_for_submit_verification() {
         let p = ClaudeProvider::new();
         match p.verify_submit_strategy() {
-            VerifySubmitStrategy::TuiInputDrained { timeout, idle_after_drain } => {
-                assert!(timeout >= Duration::from_secs(10), "claude timeout too short");
+            VerifySubmitStrategy::TuiInputDrained {
+                timeout,
+                idle_after_drain,
+            } => {
+                assert!(
+                    timeout >= Duration::from_secs(10),
+                    "claude timeout too short"
+                );
                 assert!(
                     idle_after_drain >= Duration::from_millis(500),
                     "idle window too short"

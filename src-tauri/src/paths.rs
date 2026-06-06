@@ -32,8 +32,7 @@ pub fn data_dir() -> PathBuf {
 
 /// Get the config file path.
 pub fn config_path() -> Result<PathBuf, String> {
-    let dir = dirs::home_dir()
-        .ok_or_else(|| "Could not determine home directory".to_string())?;
+    let dir = dirs::home_dir().ok_or_else(|| "Could not determine home directory".to_string())?;
     Ok(dir.join(DIR_NAME).join("config.toml"))
 }
 

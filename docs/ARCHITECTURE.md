@@ -129,7 +129,6 @@ src-tauri/prompts/          — AGENT PROMPT TEMPLATES (compiled into binary)
 ├── general_agent.md        — General Agent system prompt
 ├── orchestrator_suffix.md  — Appended to Orchestrator tasks
 ├── worker_suffix.md        — Appended to Worker tasks
-├── lead_suffix.md          — Appended to Lead tasks
 ├── codeterm_rule.md        — Installed to ~/.claude/rules/
 ├── bootstrap_instructions.md — First-run onboarding
 └── cron_complete_suffix.md — Appended to cron tasks

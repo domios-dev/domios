@@ -60,7 +60,10 @@ mod tests {
     fn malformed_header_returns_none() {
         let dir = tempfile::tempdir().unwrap();
         let tokens = TokenStore::new_with_root(dir.path().to_path_buf());
-        assert_eq!(extract_service_token("not-bearer xxx", &tokens).unwrap(), None);
+        assert_eq!(
+            extract_service_token("not-bearer xxx", &tokens).unwrap(),
+            None
+        );
         assert_eq!(extract_service_token("", &tokens).unwrap(), None);
     }
 }

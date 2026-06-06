@@ -31,13 +31,17 @@ pub async fn paste_create(
     Json(body): Json<PasteCreateBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let entry = state.svc.pasteboard.put(PutParams {
-        body: body.body,
-        content_type: body.content_type,
-        ttl_ms: body.ttl_ms,
-        pop_on_read: body.pop_on_read,
-        source_peer: None,
-    }).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let entry = state
+        .svc
+        .pasteboard
+        .put(PutParams {
+            body: body.body,
+            content_type: body.content_type,
+            ttl_ms: body.ttl_ms,
+            pop_on_read: body.pop_on_read,
+            source_peer: None,
+        })
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     Ok(Json(serde_json::json!({
         "id": entry.id,
         "expires_at": entry.expires_at,
@@ -84,7 +88,10 @@ pub async fn paste_delete(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    state.svc.pasteboard.remove(&id)
+    state
+        .svc
+        .pasteboard
+        .remove(&id)
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }

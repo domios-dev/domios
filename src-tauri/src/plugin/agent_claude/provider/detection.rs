@@ -11,8 +11,7 @@ pub(super) fn detect_from_title(title: &str) -> bool {
     // Claude Code v2.1+ uses Braille spinner chars or ✳ as title prefix
     // e.g. "⠐ General coding session", "✳ Claude Code"
     let first = title.chars().next().unwrap_or('\0');
-    (('\u{2801}'..='\u{28ff}').contains(&first) || first == '✳' || first == '✻')
-        && title.len() > 2
+    (('\u{2801}'..='\u{28ff}').contains(&first) || first == '✳' || first == '✻') && title.len() > 2
 }
 
 pub(super) fn detect_from_output(text: &str) -> bool {
@@ -55,26 +54,35 @@ pub(super) fn extract_session_name(screen: &str) -> Option<String> {
     // each, 4-digit number) and live on their own line, not embedded in
     // prose. Trades a few false negatives for far fewer false positives.
     let bare = BARE.get_or_init(|| {
-        regex::Regex::new(r"(?m)^\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*$")
-            .expect("static regex")
+        regex::Regex::new(r"(?m)^\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*$").expect("static regex")
     });
     bare.captures(screen)
         .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
 }
 
 pub(super) fn has_event_markers(chunk: &str) -> bool {
-    chunk.contains("❯") || chunk.contains("proceed")
-        || chunk.contains("Esc to cancel") || chunk.contains("Tab to amend")
+    chunk.contains("❯")
+        || chunk.contains("proceed")
+        || chunk.contains("Esc to cancel")
+        || chunk.contains("Tab to amend")
         || (chunk.contains("1.") && chunk.contains("2."))
-        || chunk.contains(" for 0") || chunk.contains(" for 1") || chunk.contains(" for 2")
-        || chunk.contains(" for 3") || chunk.contains(" for 4") || chunk.contains(" for 5")
-        || chunk.contains(" for 6") || chunk.contains(" for 7") || chunk.contains(" for 8")
+        || chunk.contains(" for 0")
+        || chunk.contains(" for 1")
+        || chunk.contains(" for 2")
+        || chunk.contains(" for 3")
+        || chunk.contains(" for 4")
+        || chunk.contains(" for 5")
+        || chunk.contains(" for 6")
+        || chunk.contains(" for 7")
+        || chunk.contains(" for 8")
         || chunk.contains(" for 9")
 }
 
 pub(super) fn is_output_noise(text: &str) -> bool {
     let t = text.trim();
-    if t.is_empty() { return true; }
+    if t.is_empty() {
+        return true;
+    }
     let noise = [
         "bypass permissions on",
         "shift+tab to cycle",
@@ -87,7 +95,8 @@ pub(super) fn is_output_noise(text: &str) -> bool {
         "hold Space",
     ];
     noise.iter().any(|n| t.contains(n))
-        || t.chars().all(|c| c == '─' || c == '━' || c == '═' || c.is_whitespace())
+        || t.chars()
+            .all(|c| c == '─' || c == '━' || c == '═' || c.is_whitespace())
 }
 
 /// Scan text for Claude-specific events using structural fingerprints.
@@ -141,14 +150,20 @@ mod tests {
     fn extract_session_name_explicit_form() {
         // Claude's TUI banner prints session id with an explicit label.
         let screen = "  Session: vivid-bhabha-1234\n  cwd: /tmp\n";
-        assert_eq!(extract_session_name(screen).as_deref(), Some("vivid-bhabha-1234"));
+        assert_eq!(
+            extract_session_name(screen).as_deref(),
+            Some("vivid-bhabha-1234")
+        );
     }
 
     #[test]
     fn extract_session_name_bare_handle() {
         // Bare handle on its own line, no "Session:" label.
         let screen = "Resuming previous session\n\n  brave-tiger-4242\n\nReady.";
-        assert_eq!(extract_session_name(screen).as_deref(), Some("brave-tiger-4242"));
+        assert_eq!(
+            extract_session_name(screen).as_deref(),
+            Some("brave-tiger-4242")
+        );
     }
 
     #[test]
@@ -171,9 +186,17 @@ mod tests {
         // by re-implementing the bottom-up scan inline.
         let path = dir.path().join("sess.jsonl");
         let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(f, r#"{{"type":"sys","message":{{"model":"claude-sonnet-4-6"}}}}"#).unwrap();
+        writeln!(
+            f,
+            r#"{{"type":"sys","message":{{"model":"claude-sonnet-4-6"}}}}"#
+        )
+        .unwrap();
         writeln!(f, r#"{{"type":"user","cwd":"/x"}}"#).unwrap();
-        writeln!(f, r#"{{"type":"assistant","message":{{"model":"claude-opus-4-7"}}}}"#).unwrap();
+        writeln!(
+            f,
+            r#"{{"type":"assistant","message":{{"model":"claude-opus-4-7"}}}}"#
+        )
+        .unwrap();
         writeln!(f, r#"{{"type":"summary"}}"#).unwrap();
 
         // Mirror the parser logic so the regression is exercised without
@@ -181,10 +204,19 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         let mut found: Option<String> = None;
         for line in text.lines().rev() {
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-                if let Some(m) = v.get("message").and_then(|m| m.get("model")).and_then(|m| m.as_str()) {
-                    if !m.is_empty() { found = Some(m.to_string()); break; }
+                if let Some(m) = v
+                    .get("message")
+                    .and_then(|m| m.get("model"))
+                    .and_then(|m| m.as_str())
+                {
+                    if !m.is_empty() {
+                        found = Some(m.to_string());
+                        break;
+                    }
                 }
             }
         }
@@ -277,10 +309,21 @@ mod tests {
 
     #[test]
     fn test_detect_task_complete_random_verb() {
-        for verb in &["Pounced", "Brewed", "Reasoned", "Preambled", "Wandered", "Mused"] {
+        for verb in &[
+            "Pounced",
+            "Brewed",
+            "Reasoned",
+            "Preambled",
+            "Wandered",
+            "Mused",
+        ] {
             let text = format!("output\n{} for 12s · $0.05 spent", verb);
             let events = detect_claude_events(&text);
-            assert!(events.contains(&AgentEvent::TaskComplete), "Failed for verb: {}", verb);
+            assert!(
+                events.contains(&AgentEvent::TaskComplete),
+                "Failed for verb: {}",
+                verb
+            );
         }
     }
 

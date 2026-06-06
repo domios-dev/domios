@@ -1,11 +1,10 @@
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 /// Event broadcasting — Webhooks for external agent integration,
 /// plus an in-process typed broadcast bus used by plugins and by the
 /// Tauri-emit bridge that keeps the frontend in sync.
-
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
 /// Typed system events published on the in-process bus.
@@ -15,20 +14,41 @@ use tokio::sync::broadcast;
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum SystemEvent {
     MuxStateChanged,
-    PaneTitlePinned { pane_id: String, title: String },
-    PaneFocused { pane_id: String },
-    PaneClosed { pane_id: String },
-    AgentStarted { pane_id: String, provider: String },
-    AgentIdle { pane_id: String, duration_secs: u64 },
-    ConfigChanged { section: String, key: String },
+    PaneTitlePinned {
+        pane_id: String,
+        title: String,
+    },
+    PaneFocused {
+        pane_id: String,
+    },
+    PaneClosed {
+        pane_id: String,
+    },
+    AgentStarted {
+        pane_id: String,
+        provider: String,
+    },
+    AgentIdle {
+        pane_id: String,
+        duration_secs: u64,
+    },
+    ConfigChanged {
+        section: String,
+        key: String,
+    },
     /// A plugin contribution map changed (provider added/removed, etc.).
     /// `kind` identifies which contribution type changed: "agent_provider",
     /// "skill", "command", "pane_renderer", etc. Frontend hooks filter by kind
     /// and refetch the matching list. Generic on purpose so future contribution
     /// types reuse the same channel without churn.
-    ContributionsChanged { kind: String },
+    ContributionsChanged {
+        kind: String,
+    },
     /// Escape hatch for events that don't have a typed variant yet.
-    Generic { event_type: String, data: serde_json::Value },
+    Generic {
+        event_type: String,
+        data: serde_json::Value,
+    },
 }
 
 impl SystemEvent {
@@ -125,7 +145,9 @@ impl EventBroadcaster {
                 // Filter by pane_id
                 if let Some(ref filter_pane) = hook.pane_id {
                     if let Some(event_pane) = data.get("pane_id").and_then(|v| v.as_str()) {
-                        if filter_pane != event_pane { continue; }
+                        if filter_pane != event_pane {
+                            continue;
+                        }
                     }
                 }
                 matching.push(hook.clone());
@@ -159,7 +181,8 @@ impl EventBroadcaster {
 
             tokio::spawn(async move {
                 let client = reqwest::Client::new();
-                let mut req = client.post(&url)
+                let mut req = client
+                    .post(&url)
                     .json(&payload)
                     .timeout(std::time::Duration::from_secs(5));
                 for (k, v) in &headers {
@@ -222,9 +245,17 @@ mod tests {
         let bc = EventBroadcaster::new();
         let mut rx1 = bc.subscribe();
         let mut rx2 = bc.subscribe();
-        bc.publish(SystemEvent::PaneFocused { pane_id: "p".into() });
-        assert!(matches!(rx1.recv().await.unwrap(), SystemEvent::PaneFocused { .. }));
-        assert!(matches!(rx2.recv().await.unwrap(), SystemEvent::PaneFocused { .. }));
+        bc.publish(SystemEvent::PaneFocused {
+            pane_id: "p".into(),
+        });
+        assert!(matches!(
+            rx1.recv().await.unwrap(),
+            SystemEvent::PaneFocused { .. }
+        ));
+        assert!(matches!(
+            rx2.recv().await.unwrap(),
+            SystemEvent::PaneFocused { .. }
+        ));
     }
 
     #[tokio::test]
@@ -232,7 +263,10 @@ mod tests {
         let bc = EventBroadcaster::new();
         let mut rx = bc.subscribe();
         for i in 0..300u64 {
-            bc.publish(SystemEvent::AgentIdle { pane_id: "p".into(), duration_secs: i });
+            bc.publish(SystemEvent::AgentIdle {
+                pane_id: "p".into(),
+                duration_secs: i,
+            });
         }
         // Channel capacity is 256; oldest entries are dropped. First recv
         // should signal Lagged, then continue yielding the remaining tail.
@@ -242,9 +276,16 @@ mod tests {
 
     #[test]
     fn type_name_covers_all_variants() {
-        assert_eq!(SystemEvent::MuxStateChanged.type_name(), "mux-state-changed");
         assert_eq!(
-            SystemEvent::PaneTitlePinned { pane_id: "a".into(), title: "b".into() }.type_name(),
+            SystemEvent::MuxStateChanged.type_name(),
+            "mux-state-changed"
+        );
+        assert_eq!(
+            SystemEvent::PaneTitlePinned {
+                pane_id: "a".into(),
+                title: "b".into()
+            }
+            .type_name(),
             "pane-title-pinned",
         );
     }

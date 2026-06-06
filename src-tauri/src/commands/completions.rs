@@ -3,18 +3,26 @@ use super::DirCompletion;
 #[tauri::command]
 pub fn list_dir_completions(cwd: String, prefix: String) -> Result<Vec<DirCompletion>, String> {
     let dir = std::path::Path::new(&cwd);
-    if !dir.exists() { return Ok(vec![]); }
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
 
     let prefix_lower = prefix.to_lowercase();
     let mut results: Vec<DirCompletion> = Vec::new();
 
     let entries = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
     for entry in entries.flatten() {
-        let Ok(ft) = entry.file_type() else { continue; };
-        if !ft.is_dir() { continue; }
+        let Ok(ft) = entry.file_type() else {
+            continue;
+        };
+        if !ft.is_dir() {
+            continue;
+        }
 
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') { continue; }
+        if name.starts_with('.') {
+            continue;
+        }
 
         let name_lower = name.to_lowercase();
 
@@ -42,7 +50,9 @@ fn subsequence_match(text: &str, query: &str) -> bool {
         if qi.peek() == Some(&tc) {
             qi.next();
         }
-        if qi.peek().is_none() { return true; }
+        if qi.peek().is_none() {
+            return true;
+        }
     }
     qi.peek().is_none()
 }

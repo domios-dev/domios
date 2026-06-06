@@ -9,6 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
+import { shouldDefaultNewAgentPaneToChat } from "../../lib/chatUiMode";
 import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
@@ -164,6 +165,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         .catch(() => {});
     }).then((unlisten) => unlisteners.push(unlisten));
 
+    const refreshMuxState = () => refreshFromBackend();
+    window.addEventListener("codeterm-refresh-mux-state", refreshMuxState);
+    unlisteners.push(() => window.removeEventListener("codeterm-refresh-mux-state", refreshMuxState));
+
     // Backend is the single source of truth for `focused_pane_id`. Any change
     // (CLI `codeterm pane focus`, REST, or service-layer fallback when the
     // currently focused pane is closed) arrives here. Background events
@@ -313,6 +318,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       // bails. Setting agent_type here also kicks off the backend's
       // session-detection polling loop in `set_pane_agent_type`.
       invoke("mux_set_pane_agent_type", { paneId: tabInfo.pane_id, agentType: agentId }).catch(() => {});
+      if (shouldDefaultNewAgentPaneToChat(agentId)) {
+        invoke("mux_set_chat_view", { paneId: tabInfo.pane_id, enabled: true }).catch(() => {});
+      }
       const cmd = await invoke<string>("build_agent_launch_command", { agentId, skipPermissions });
       setPendingCommand(tabInfo.pane_id, cmd);
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });

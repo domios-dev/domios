@@ -31,7 +31,10 @@ pub fn services_create(
                 .into(),
         );
     }
-    let id = svc.services_store.create(input).map_err(|e| e.to_string())?;
+    let id = svc
+        .services_store
+        .create(input)
+        .map_err(|e| e.to_string())?;
     let token = svc.tokens.generate(&id).map_err(|e| e.to_string())?;
     let service = svc
         .services_store

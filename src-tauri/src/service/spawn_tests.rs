@@ -129,7 +129,10 @@ fn to_agent_params_carries_model_as_dedicated_field() {
     assert_eq!(params.task.as_deref(), Some("count files"));
     assert_eq!(params.model.as_deref(), Some("opus"));
     let args = params.args.unwrap_or_default();
-    assert!(!args.iter().any(|a| a == "--model"), "model must not leak into args");
+    assert!(
+        !args.iter().any(|a| a == "--model"),
+        "model must not leak into args"
+    );
 }
 
 #[test]
@@ -137,12 +140,12 @@ fn to_agent_params_passes_role_and_report_target() {
     let mut spec = agent_spec("claude");
     spec.parent_pane_id = Some("parent-1".into());
     if let PaneCommand::Agent(ref mut a) = spec.command {
-        a.role = Some("Lead".into());
+        a.role = Some("Worker".into());
         a.can_spawn = Some(true);
         a.report_target_pane_id = Some("cron-host".into());
     }
     let params = spec.to_agent_params().unwrap();
-    assert_eq!(params.role.as_deref(), Some("Lead"));
+    assert_eq!(params.role.as_deref(), Some("Worker"));
     assert_eq!(params.parent_pane_id.as_deref(), Some("parent-1"));
     assert_eq!(params.can_spawn, Some(true));
     assert_eq!(params.report_target_pane_id.as_deref(), Some("cron-host"));
@@ -158,7 +161,7 @@ fn to_agent_params_fails_on_shell_spec() {
 #[test]
 fn can_spawn_none_round_trips_through_params() {
     // Caller didn't pass --can-spawn → spec.can_spawn=None → params.can_spawn=None.
-    // This tells set_pane_role to keep the role's default (Orchestrator/Lead=true).
+    // This tells set_pane_role to keep the role's default (Orchestrator=true, Worker=false).
     let mut spec = agent_spec("claude");
     if let PaneCommand::Agent(ref mut a) = spec.command {
         a.role = Some("Orchestrator".into());
@@ -172,7 +175,7 @@ fn can_spawn_none_round_trips_through_params() {
 fn can_spawn_some_false_explicitly_overrides() {
     let mut spec = agent_spec("claude");
     if let PaneCommand::Agent(ref mut a) = spec.command {
-        a.role = Some("Lead".into());
+        a.role = Some("Worker".into());
         a.can_spawn = Some(false);
     }
     let params = spec.to_agent_params().unwrap();
@@ -185,7 +188,7 @@ fn from_agent_params_preserves_can_spawn_option() {
     // None means "don't override the role's default", Some(b) means
     // "user said --can-spawn=b explicitly". The spec must NOT collapse
     // None → Some(false) (the pre-fix-#42 behavior that clobbered
-    // Orchestrator/Lead defaults to false on every spawn).
+    // Orchestrator default to false on every spawn).
     let mut p = SpawnAgentParams {
         agent: Some("claude".into()),
         agent_name: None,

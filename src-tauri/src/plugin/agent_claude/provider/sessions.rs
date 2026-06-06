@@ -66,17 +66,25 @@ fn scan_tail(path: &Path, tail_bytes: u64) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
     let mut f = std::fs::File::open(path).ok()?;
     let len = f.metadata().ok()?.len();
-    if len == 0 { return None; }
+    if len == 0 {
+        return None;
+    }
     let start = len.saturating_sub(tail_bytes);
     f.seek(SeekFrom::Start(start)).ok()?;
     let mut buf = Vec::with_capacity((len - start) as usize);
     f.read_to_end(&mut buf).ok()?;
     let text = String::from_utf8_lossy(&buf);
     let mut lines: Vec<&str> = text.split('\n').collect();
-    if start > 0 && !lines.is_empty() { lines.remove(0); }
+    if start > 0 && !lines.is_empty() {
+        lines.remove(0);
+    }
     for line in lines.iter().rev() {
-        if line.is_empty() { continue; }
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
         // /model X writes "Set model to X" before the next assistant turn.
         if let Some(content) = v.get("message").and_then(|m| m.get("content")) {
             let raw = content_to_text(content);
@@ -85,7 +93,11 @@ fn scan_tail(path: &Path, tail_bytes: u64) -> Option<String> {
             }
         }
         // Last assistant turn carries the authoritative model id.
-        if let Some(m) = v.get("message").and_then(|m| m.get("model")).and_then(|m| m.as_str()) {
+        if let Some(m) = v
+            .get("message")
+            .and_then(|m| m.get("model"))
+            .and_then(|m| m.as_str())
+        {
             if !m.is_empty() && m != "<synthetic>" {
                 return Some(family_from_model_id(m));
             }
@@ -97,7 +109,8 @@ fn scan_tail(path: &Path, tail_bytes: u64) -> Option<String> {
 fn content_to_text(c: &serde_json::Value) -> String {
     match c {
         serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Array(arr) => arr.iter()
+        serde_json::Value::Array(arr) => arr
+            .iter()
             .filter_map(|c| c.get("text").and_then(|t| t.as_str()))
             .collect::<Vec<_>>()
             .join(" "),
@@ -109,10 +122,14 @@ fn extract_set_model_family(raw: &str) -> Option<String> {
     let idx = raw.find("Set model to ")?;
     let after = &raw[idx + "Set model to ".len()..];
     let cleaned = strip_ansi(after);
-    let family: String = cleaned.trim_start().chars()
+    let family: String = cleaned
+        .trim_start()
+        .chars()
         .take_while(|c| c.is_ascii_alphabetic())
         .collect();
-    if family.is_empty() { return None; }
+    if family.is_empty() {
+        return None;
+    }
     Some(capitalize_family(&family))
 }
 
@@ -123,7 +140,9 @@ fn strip_ansi(s: &str) -> String {
         if c == '\u{1b}' && chars.peek() == Some(&'[') {
             chars.next();
             while let Some(c) = chars.next() {
-                if c.is_ascii_alphabetic() { break; }
+                if c.is_ascii_alphabetic() {
+                    break;
+                }
             }
         } else {
             out.push(c);
@@ -135,7 +154,9 @@ fn strip_ansi(s: &str) -> String {
 fn family_from_model_id(id: &str) -> String {
     let m = id.to_ascii_lowercase();
     for fam in ["opus", "sonnet", "haiku"] {
-        if m.contains(fam) { return capitalize_family(fam); }
+        if m.contains(fam) {
+            return capitalize_family(fam);
+        }
     }
     let body = m.strip_prefix("claude-").unwrap_or(&m);
     let head = body.split('-').next().unwrap_or(body);
@@ -170,7 +191,8 @@ mod model_label_tests {
     #[test]
     fn extract_set_model_strips_ansi_bold() {
         // Real Claude stdout: "Set model to \x1b[1mOpus 4.7\x1b[22m"
-        let raw = "<local-command-stdout>Set model to \u{1b}[1mOpus 4.7\u{1b}[22m</local-command-stdout>";
+        let raw =
+            "<local-command-stdout>Set model to \u{1b}[1mOpus 4.7\u{1b}[22m</local-command-stdout>";
         assert_eq!(extract_set_model_family(raw).as_deref(), Some("Opus"));
     }
 
@@ -192,7 +214,11 @@ mod model_label_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("s.jsonl");
         let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(f, r#"{{"type":"assistant","message":{{"model":"claude-sonnet-4-6"}}}}"#).unwrap();
+        writeln!(
+            f,
+            r#"{{"type":"assistant","message":{{"model":"claude-sonnet-4-6"}}}}"#
+        )
+        .unwrap();
         writeln!(f, r#"{{"type":"user","message":{{"content":"<local-command-stdout>Set model to \u001b[1mOpus 4.7\u001b[22m</local-command-stdout>"}}}}"#).unwrap();
         drop(f);
         assert_eq!(scan_tail(&path, 64 * 1024).as_deref(), Some("Opus"));
@@ -200,9 +226,13 @@ mod model_label_tests {
 }
 
 pub(super) fn enumerate_sessions() -> Vec<SessionMetadata> {
-    let Some(home) = dirs::home_dir() else { return Vec::new() };
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
     let projects_root = home.join(".claude").join("projects");
-    let Ok(entries) = std::fs::read_dir(&projects_root) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(&projects_root) else {
+        return Vec::new();
+    };
 
     let mut out = Vec::new();
     for entry in entries.filter_map(|e| e.ok()) {
@@ -220,26 +250,34 @@ pub(super) fn enumerate_sessions() -> Vec<SessionMetadata> {
                     v.get("entries").and_then(|e| e.as_array()).map(|arr| {
                         arr.iter()
                             .filter_map(|it| {
-                                it.get("sessionId").and_then(|s| s.as_str()).map(|sid| {
-                                    (sid.to_string(), it.clone())
-                                })
+                                it.get("sessionId")
+                                    .and_then(|s| s.as_str())
+                                    .map(|sid| (sid.to_string(), it.clone()))
                             })
                             .collect()
                     })
                 })
                 .unwrap_or_default();
 
-        let Ok(files) = std::fs::read_dir(&dir_path) else { continue };
+        let Ok(files) = std::fs::read_dir(&dir_path) else {
+            continue;
+        };
         for f in files.filter_map(|e| e.ok()) {
             let name = f.file_name().to_string_lossy().to_string();
-            let Some(stem) = name.strip_suffix(".jsonl") else { continue };
+            let Some(stem) = name.strip_suffix(".jsonl") else {
+                continue;
+            };
             if stem.len() < 32 || !stem.contains('-') {
                 continue;
             }
             let file_path_buf = f.path();
             let meta = f.metadata().ok();
-            let created_ts = meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.created().ok()));
-            let modified_ts = meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.modified().ok()));
+            let created_ts = meta
+                .as_ref()
+                .and_then(|m| provider::fs_time_to_unix(m.created().ok()));
+            let modified_ts = meta
+                .as_ref()
+                .and_then(|m| provider::fs_time_to_unix(m.modified().ok()));
 
             let entry_meta = index.get(stem);
             let title = entry_meta
@@ -267,14 +305,18 @@ pub(super) fn enumerate_sessions() -> Vec<SessionMetadata> {
 
 pub(super) fn parse_session_messages(file_path: &Path) -> Vec<SessionMessage> {
     use std::io::{BufRead, BufReader};
-    let Ok(f) = std::fs::File::open(file_path) else { return Vec::new() };
+    let Ok(f) = std::fs::File::open(file_path) else {
+        return Vec::new();
+    };
     let reader = BufReader::new(f);
     let mut out = Vec::new();
     for line in reader.lines().map_while(Result::ok) {
         if line.is_empty() {
             continue;
         }
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
         let msg_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
         if msg_type != "user" && msg_type != "assistant" {
             continue;
@@ -303,12 +345,18 @@ pub(super) fn parse_session_messages(file_path: &Path) -> Vec<SessionMessage> {
             continue;
         }
 
-        let ts = v.get("timestamp")
+        let ts = v
+            .get("timestamp")
             .and_then(|t| t.as_str())
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.timestamp());
 
-        out.push(SessionMessage { role: msg_type.to_string(), text, ts, is_meta });
+        out.push(SessionMessage {
+            role: msg_type.to_string(),
+            text,
+            ts,
+            is_meta,
+        });
     }
     out
 }
@@ -334,10 +382,7 @@ pub(super) fn detect_session_id(
             let name = entry.file_name().to_string_lossy().to_string();
             if name.ends_with(".jsonl") {
                 let stem = name.trim_end_matches(".jsonl");
-                if stem.len() >= 32
-                    && stem.contains('-')
-                    && !exclude.contains(&stem.to_string())
-                {
+                if stem.len() >= 32 && stem.contains('-') && !exclude.contains(&stem.to_string()) {
                     if let Ok(meta) = entry.metadata() {
                         // Recency check uses modification time — a resumed session
                         // has an old birth time but recent writes.
@@ -410,8 +455,14 @@ mod tests {
             return;
         }
 
-        assert!(p.session_exists(&cwd, "session-real"), "existing JSONL should be detected");
-        assert!(!p.session_exists(&cwd, "session-bogus-uuid-xxx"), "missing JSONL must report false");
+        assert!(
+            p.session_exists(&cwd, "session-real"),
+            "existing JSONL should be detected"
+        );
+        assert!(
+            !p.session_exists(&cwd, "session-bogus-uuid-xxx"),
+            "missing JSONL must report false"
+        );
 
         let _ = std::fs::remove_file(&real_path);
     }

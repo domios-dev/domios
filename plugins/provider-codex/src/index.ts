@@ -1,0 +1,79 @@
+/**
+ * Codex CLI provider plugin — entry point.
+ *
+ * Codex stores session turns in `rollout-*.jsonl`. This plugin
+ * contributes:
+ *   - title detection
+ *   - PTY fingerprint detection
+ *   - TUI noise patterns
+ *   - per-line JSONL parsing for the shared chat renderer
+ *   - statusOf that ignores all events (status comes from PTY parser
+ *     on the Rust side)
+ *   - Renderer that falls back to raw xterm for non-chat hosts
+ */
+
+import type {
+  ProviderPlugin,
+  ProviderEvent,
+  RendererProps,
+} from "../../../src/lib/plugins/types";
+import { parseJsonlSession } from "./parser";
+
+const titlePattern = /codex/i;
+const noisePatterns: RegExp[] = [/^[\s─━═]+$/];
+
+function Renderer({ raw }: RendererProps) {
+  return raw();
+}
+
+const plugin: ProviderPlugin = {
+  meta: {
+    id: "codex",
+    displayName: "Codex",
+  },
+  detect: (sample) => {
+    if (sample.title && titlePattern.test(sample.title)) return true;
+    // Codex prints `codex/` in its prompt frame and has a distinct
+    // "▶ Provide your answer" affordance.
+    if (sample.bytes.includes("codex/")) return true;
+    return false;
+  },
+  parseLine,
+  statusOf: () => null,
+  Renderer,
+  actions: [],
+  noisePatterns,
+  titlePattern,
+};
+
+export default plugin;
+export * from "./parser";
+
+function parseLine(line: string): ProviderEvent[] {
+  if (!line.trim()) return [];
+  const messages = parseJsonlSession(line);
+  return messages.map((m) => ({
+    kind: chatMessageTypeToEventKind(m.type),
+    ts: m.timestamp ? Date.parse(m.timestamp) || undefined : undefined,
+    payload: m,
+  }));
+}
+
+function chatMessageTypeToEventKind(type: string): string {
+  switch (type) {
+    case "user":
+      return "user_message";
+    case "assistant":
+      return "assistant_text";
+    case "tool_call":
+      return "tool_call";
+    case "tool_result":
+      return "tool_result";
+    case "thinking":
+      return "thinking";
+    case "status":
+      return "status";
+    default:
+      return type;
+  }
+}

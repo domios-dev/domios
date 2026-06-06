@@ -16,7 +16,7 @@ If you find a prompt anywhere else, that is a bug — move it into `src-tauri/pr
 Prompts reach the model through five pathways:
 
 1. **System prompt of the General Agent** — written to `~/.codeterm/general/AGENT.md` (and `CLAUDE.md`/`AGENTS.md` wrappers) on every GA start.
-2. **Role suffixes appended at spawn time** — Worker / Lead / Orchestrator / cron tasks get extra instructions glued onto the task string.
+2. **Role suffixes appended at spawn time** — Worker / Orchestrator / cron tasks get extra instructions glued onto the task string.
 3. **Bridge rules installed per provider** — `codeterm_rule.md` and `bridge_mem.md` are copied into `~/.claude/rules/` (Claude) or inlined into `AGENTS.md` (Codex) so the provider auto-injects them on every session.
 4. **Headless memory workers** — extraction and REM dreaming spawn a hidden agent with a wrapped task. `worker_task_preamble.md` is the wrapper, the inner task body comes from `mem_extraction.md` or `dreaming_rem.md`.
 5. **Direct API calls** — `mem_rerank.md` is sent via raw HTTPS to `api.anthropic.com` / OpenAI from `mem/rerank.rs`. The only place in the codebase that talks to a model API without going through the agent provider abstraction.
@@ -31,9 +31,8 @@ All in-binary prompts live in `src-tauri/prompts/`. Each one is exposed as a `pu
 |---|---|---|---|---|
 | `general_agent.md` | `GENERAL_AGENT_TEMPLATE` | GA system prompt | `{version}` `{platform}` `{hostname}` `{provider_name}` `{general_dir}` `{secrets_dir}` `{skills_dir}` `{identity}` `{soul}` | `service/general_agent.rs:114` — substituted, written to `AGENT.md` on every GA start |
 | `bootstrap_instructions.md` | `BOOTSTRAP_INSTRUCTIONS_TEMPLATE` | First-run onboarding | — | `service/general_agent.rs:151` — written to `bootstrap.md` once, deleted after GA completes onboarding |
-| `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs:327,425` — appended when spawned with `--role Worker` |
-| `lead_suffix.md` | `LEAD_SUFFIX` | Role suffix | — | `service/orchestrator.rs:328,426` — appended for `--role Lead` |
-| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Role suffix | — | `service/orchestrator.rs:329,427` — appended for `--role Orchestrator` |
+| `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs` — appended when spawned with `--role Worker` |
+| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Role suffix | — | `service/orchestrator.rs` — appended for `--role Orchestrator` |
 | `cron_report_hint.md` | `CRON_REPORT_HINT` | Cron suffix | — | `service/cron.rs` — appended when a cron job has a `creator_pane_id` |
 | `cron_complete_suffix.md` | `CRON_COMPLETE_SUFFIX` | Cron suffix | `{}` (run_id) | `service/cron.rs:139`, `cron/scheduler.rs:137` — always appended |
 | `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | `commands.rs:707` — written to `~/.claude/rules/codeterm.md`; inlined into Codex `AGENTS.md` |
@@ -90,7 +89,7 @@ src-tauri/src/prompts.rs  (pub const &str)
         ├──► service/general_agent.rs ─► ~/.codeterm/general/AGENT.md     (GA system prompt)
         │                            └─► ~/.codeterm/general/AGENTS.md    (Codex inline bundle)
         │
-        ├──► service/orchestrator.rs ─► task_text += SUFFIX                (Worker/Lead/Orch spawn)
+        ├──► service/orchestrator.rs ─► task_text += SUFFIX                (Worker/Orch spawn)
         │
         ├──► service/cron.rs ──────── ─► task_text += CRON_COMPLETE_SUFFIX (every cron run)
         │
@@ -142,4 +141,4 @@ The General Agent also gets `CODETERM_RULE` and `BRIDGE_MEM` via the provider's 
 - `.claude/agents/prompt-evaluator.md` — the agent that A/B tests prompt changes
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

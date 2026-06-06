@@ -2,10 +2,6 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum AgentAction {
-    /// List all agent panes (with roles)
-    List,
-    /// Show full hierarchy tree
-    Hierarchy,
     /// Mark a pane as orchestrator (top-level, can spawn leads/workers)
     #[command(alias = "set-orchestrator")]
     SetConductor {
@@ -24,12 +20,6 @@ pub enum AgentAction {
     },
     /// Remove a pane's role (also orphans children)
     Unlink {
-        /// Pane ID (default: current focused pane)
-        #[arg(long)]
-        pane: Option<String>,
-    },
-    /// List children of a pane
-    Children {
         /// Pane ID (default: current focused pane)
         #[arg(long)]
         pane: Option<String>,
@@ -62,12 +52,6 @@ pub enum AgentAction {
         /// Show only the N most recent reports (default: all)
         #[arg(long)]
         limit: Option<usize>,
-    },
-    /// Get detailed status of a pane
-    Status {
-        /// Pane ID (default: current focused pane)
-        #[arg(long)]
-        pane: Option<String>,
     },
     /// Compact agent context (sends /compact to Claude)
     Compact {
@@ -114,10 +98,10 @@ pub enum AgentAction {
         /// Working directory
         #[arg(long)]
         cwd: Option<String>,
-        /// Role: Orchestrator, Lead, Worker
+        /// Role: Orchestrator, Worker
         #[arg(long)]
         role: Option<String>,
-        /// Parent pane ID (for Worker/SubWorker)
+        /// Parent pane ID (for Workers)
         #[arg(long)]
         parent: Option<String>,
         /// Allow spawning children

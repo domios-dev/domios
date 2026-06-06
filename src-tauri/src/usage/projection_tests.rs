@@ -149,7 +149,11 @@ fn ratio_clamped_to_two_when_we_far_exceeds_wd() {
         insert(&s, &p, day + 14 * 3_600_000, Some(delta), Some(RESETS_A));
     }
     let b = compute_baseline(&s, &p, None, today_start + 12 * 3_600_000).unwrap();
-    assert!(b.we_to_wd_ratio <= 2.0 + 1e-9, "ratio = {}", b.we_to_wd_ratio);
+    assert!(
+        b.we_to_wd_ratio <= 2.0 + 1e-9,
+        "ratio = {}",
+        b.we_to_wd_ratio
+    );
     assert!(b.we_to_wd_ratio >= 0.02 - 1e-9);
 }
 
@@ -212,11 +216,17 @@ fn cache_invalidate_forces_recompute() {
     }
     let b_cached = baseline_for(&s, &p, None, now).unwrap();
     let b_cached_dow_n_sum: u32 = b_cached.dow_n.iter().sum();
-    assert_eq!(b_cached_dow_n_sum, b1_dow_n_sum, "cached should not see new rows");
+    assert_eq!(
+        b_cached_dow_n_sum, b1_dow_n_sum,
+        "cached should not see new rows"
+    );
     invalidate_cache(&p, None);
     let b2 = baseline_for(&s, &p, None, now).unwrap();
     let b2_dow_n_sum: u32 = b2.dow_n.iter().sum();
-    assert!(b2_dow_n_sum > b1_dow_n_sum, "fresh baseline should see new rows");
+    assert!(
+        b2_dow_n_sum > b1_dow_n_sum,
+        "fresh baseline should see new rows"
+    );
 }
 
 #[test]
@@ -256,7 +266,8 @@ fn shape_skips_offdevice_jump_pair() {
     assert!(
         h19_share < h10_share * 2.0,
         "expected 19h share ({}) to NOT explode vs 10h ({})",
-        h19_share, h10_share,
+        h19_share,
+        h10_share,
     );
     // Shape still sums to 1.
     let sum: f64 = b.wd_hour_share.iter().sum();
@@ -402,8 +413,15 @@ fn day_actuals_emits_one_bucket_per_cycle_day() {
     let actuals = compute_day_actuals(&s, &p, None, now, cycle_end).unwrap();
     // 7 days back from cycle_end, aligned to local-start-of-day → at least 7,
     // possibly 8 if the cycle's start time crossed a midnight boundary.
-    assert!((7..=8).contains(&actuals.len()), "got {} buckets", actuals.len());
-    assert!(actuals.iter().all(|a| a.pct.is_none()), "empty db → all None");
+    assert!(
+        (7..=8).contains(&actuals.len()),
+        "got {} buckets",
+        actuals.len()
+    );
+    assert!(
+        actuals.iter().all(|a| a.pct.is_none()),
+        "empty db → all None"
+    );
 }
 
 #[test]
@@ -416,17 +434,50 @@ fn day_actuals_sparse_history_attributes_only_observed_spend() {
     let today_start = local_start_of_day_ms(now);
     let cycle_end = today_start + DAY_MS;
     // Day -4: 5 → 10
-    insert(&s, &p, today_start - 4 * DAY_MS + 9 * 3_600_000, Some(5.0), Some(cycle_end));
-    insert(&s, &p, today_start - 4 * DAY_MS + 15 * 3_600_000, Some(10.0), Some(cycle_end));
+    insert(
+        &s,
+        &p,
+        today_start - 4 * DAY_MS + 9 * 3_600_000,
+        Some(5.0),
+        Some(cycle_end),
+    );
+    insert(
+        &s,
+        &p,
+        today_start - 4 * DAY_MS + 15 * 3_600_000,
+        Some(10.0),
+        Some(cycle_end),
+    );
     // Day -3: 12 → 14
-    insert(&s, &p, today_start - 3 * DAY_MS + 10 * 3_600_000, Some(12.0), Some(cycle_end));
-    insert(&s, &p, today_start - 3 * DAY_MS + 18 * 3_600_000, Some(14.0), Some(cycle_end));
+    insert(
+        &s,
+        &p,
+        today_start - 3 * DAY_MS + 10 * 3_600_000,
+        Some(12.0),
+        Some(cycle_end),
+    );
+    insert(
+        &s,
+        &p,
+        today_start - 3 * DAY_MS + 18 * 3_600_000,
+        Some(14.0),
+        Some(cycle_end),
+    );
     // Today: 14 (last yesterday EOD-ish) → 22 now. yest 22:00 = 14.
-    insert(&s, &p, today_start - 2 * 3_600_000, Some(14.0), Some(cycle_end));
+    insert(
+        &s,
+        &p,
+        today_start - 2 * 3_600_000,
+        Some(14.0),
+        Some(cycle_end),
+    );
     insert(&s, &p, now, Some(22.0), Some(cycle_end));
     let actuals = compute_day_actuals(&s, &p, None, today_start, cycle_end).unwrap();
     // Today bucket is the LAST one (day_start_ms == today_start).
-    let today_bucket = actuals.iter().find(|a| a.day_start_ms == today_start).unwrap();
+    let today_bucket = actuals
+        .iter()
+        .find(|a| a.day_start_ms == today_start)
+        .unwrap();
     // Bridge 14→14 = 0 + within-day no pairs (just one sample at now) → 0?
     // Actually two samples: yest-22:00 (gets filtered by day_start cutoff) and now.
     // So today has 1 sample. Bridge 14→22 (within 2h gap) = +8. Total 8.
@@ -435,7 +486,11 @@ fn day_actuals_sparse_history_attributes_only_observed_spend() {
     assert!((v - 8.0).abs() < 0.01, "today bucket got {}", v);
     // Days with no samples should be None, not 0.
     let empty_days = actuals.iter().filter(|a| a.pct.is_none()).count();
-    assert!(empty_days >= 2, "expected ≥2 empty days, got {}", empty_days);
+    assert!(
+        empty_days >= 2,
+        "expected ≥2 empty days, got {}",
+        empty_days
+    );
 }
 
 #[test]
@@ -447,12 +502,33 @@ fn day_actuals_skip_other_cycle_rows() {
     let now = now_at_hour(15);
     let today_start = local_start_of_day_ms(now);
     let cycle_end = today_start + DAY_MS;
-    insert(&s, &p, today_start - DAY_MS + 9 * 3_600_000, Some(0.0), Some(cycle_end));
-    insert(&s, &p, today_start - DAY_MS + 18 * 3_600_000, Some(20.0), Some(cycle_end));
+    insert(
+        &s,
+        &p,
+        today_start - DAY_MS + 9 * 3_600_000,
+        Some(0.0),
+        Some(cycle_end),
+    );
+    insert(
+        &s,
+        &p,
+        today_start - DAY_MS + 18 * 3_600_000,
+        Some(20.0),
+        Some(cycle_end),
+    );
     // Stray row from a different cycle, same day — must be filtered.
-    insert(&s, &p, today_start - DAY_MS + 12 * 3_600_000, Some(99.0), Some(RESETS_B));
+    insert(
+        &s,
+        &p,
+        today_start - DAY_MS + 12 * 3_600_000,
+        Some(99.0),
+        Some(RESETS_B),
+    );
     let actuals = compute_day_actuals(&s, &p, None, today_start, cycle_end).unwrap();
-    let yest = actuals.iter().find(|a| a.day_start_ms == today_start - DAY_MS).unwrap();
+    let yest = actuals
+        .iter()
+        .find(|a| a.day_start_ms == today_start - DAY_MS)
+        .unwrap();
     let v = yest.pct.unwrap();
     assert!((v - 20.0).abs() < 0.01, "expected 20%, got {}", v);
 }

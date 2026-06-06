@@ -4,21 +4,23 @@
 //! - IdentityManager — signing, authentication, keypair operations
 //! - MeshManager — thin facade composing identity + peer/discovery state
 
-pub mod types;
-pub mod peers;
-pub mod discovery;
-pub mod pairing;
-pub mod transport;
 pub mod crown;
+pub mod discovery;
 pub mod identity;
+pub mod pairing;
+pub mod peers;
 pub mod ping_scheduler;
+pub mod transport;
+pub mod types;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use types::{DiscoveredPeer, MeshPeersResponse, MeshStatus, PairedPeer, PairingRequest, RevocationList};
+use types::{
+    DiscoveredPeer, MeshPeersResponse, MeshStatus, PairedPeer, PairingRequest, RevocationList,
+};
 
 pub type MeshState = Arc<Mutex<MeshManager>>;
 
@@ -56,7 +58,9 @@ impl MeshManager {
 
         log::info!(
             "[mesh] Initialized: id={}, name={}, {} paired peers",
-            identity.instance_id, instance_name, paired_peers.len()
+            identity.instance_id,
+            instance_name,
+            paired_peers.len()
         );
 
         let ident = identity::IdentityManager::new(identity, instance_name);
@@ -107,16 +111,20 @@ impl MeshManager {
         }
         self.seen_nonces.insert(nonce, now);
         // Purge nonces older than 310s (just past the 300s validity window)
-        self.seen_nonces.retain(|_, &mut ts| now.saturating_sub(ts) <= 310);
+        self.seen_nonces
+            .retain(|_, &mut ts| now.saturating_sub(ts) <= 310);
         Ok(())
     }
 
-    pub fn sign_request(&self) -> Result<String, String> { self.ident.sign_request() }
+    pub fn sign_request(&self) -> Result<String, String> {
+        self.ident.sign_request()
+    }
     pub fn known_public_keys(&self) -> HashMap<String, String> {
         self.ident.known_public_keys(&self.paired_peers)
     }
     pub fn authenticate_request(&self, signed_token: &str) -> Option<String> {
-        self.ident.authenticate_request(signed_token, &self.paired_peers)
+        self.ident
+            .authenticate_request(signed_token, &self.paired_peers)
     }
 
     // ── Status & peers ──────────────────────────────────────────────
@@ -127,7 +135,9 @@ impl MeshManager {
         // status reports N "discovered" but peers list only shows M<N
         // (and operators chasing the discrepancy waste time on a
         // diagnostic-only mismatch).
-        let discovered_count = self.discovered_peers.values()
+        let discovered_count = self
+            .discovered_peers
+            .values()
             .filter(|d| !self.paired_peers.contains_key(&d.instance_id))
             .count();
         MeshStatus {
@@ -150,28 +160,39 @@ impl MeshManager {
         let paired: Vec<PairedPeer> = self.paired_peers.values().cloned().collect();
         MeshPeersResponse {
             paired,
-            discovered: self.discovered_peers.values()
+            discovered: self
+                .discovered_peers
+                .values()
                 .filter(|d| !self.paired_peers.contains_key(&d.instance_id))
-                .cloned().collect(),
-            incoming_requests: self.pending_requests.values()
+                .cloned()
+                .collect(),
+            incoming_requests: self
+                .pending_requests
+                .values()
                 .filter(|r| {
                     r.status == types::PairingStatus::Pending
                         && r.from_instance_id != self.ident.identity.instance_id
                 })
-                .cloned().collect(),
+                .cloned()
+                .collect(),
         }
     }
 
     pub fn is_blocked(&self, instance_id: &str) -> bool {
-        self.revocation_list.blocked.contains(&instance_id.to_string())
+        self.revocation_list
+            .blocked
+            .contains(&instance_id.to_string())
     }
 
     pub fn is_revoked(&self, instance_id: &str) -> bool {
-        self.revocation_list.revoked.contains(&instance_id.to_string())
+        self.revocation_list
+            .revoked
+            .contains(&instance_id.to_string())
     }
 
     pub fn pending_request_count(&self) -> usize {
-        self.pending_requests.values()
+        self.pending_requests
+            .values()
             .filter(|r| r.status == types::PairingStatus::Pending)
             .count()
     }
@@ -189,7 +210,9 @@ impl MeshManager {
     }
 
     pub fn exit_mesh(&mut self) -> Vec<(String, Vec<types::PeerAddress>, u16)> {
-        let peers: Vec<_> = self.paired_peers.values()
+        let peers: Vec<_> = self
+            .paired_peers
+            .values()
             .map(|p| (p.instance_id.clone(), p.addresses.clone(), p.api_port))
             .collect();
         self.paired_peers.clear();
@@ -208,7 +231,9 @@ impl MeshManager {
             return Err("Instance is blocked".to_string());
         }
         let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         if now.saturating_sub(request.timestamp) > 300 {
             return Err("Request expired".to_string());
         }
@@ -218,26 +243,39 @@ impl MeshManager {
         if self.pending_requests.contains_key(&request.request_id) {
             return Err("Duplicate request ID".to_string());
         }
-        if self.pending_requests.values().any(|r| r.from_instance_id == request.from_instance_id && r.status == types::PairingStatus::Pending) {
+        if self.pending_requests.values().any(|r| {
+            r.from_instance_id == request.from_instance_id
+                && r.status == types::PairingStatus::Pending
+        }) {
             return Err("Already have pending request from this instance".to_string());
         }
         if self.paired_peers.contains_key(&request.from_instance_id) {
             return Err("Already paired".to_string());
         }
 
-        log::info!("[mesh] Incoming pairing request from {} ({})",
-            request.from_instance_name, request.from_instance_id);
-        self.pending_requests.insert(request.request_id.clone(), request);
+        log::info!(
+            "[mesh] Incoming pairing request from {} ({})",
+            request.from_instance_name,
+            request.from_instance_id
+        );
+        self.pending_requests
+            .insert(request.request_id.clone(), request);
         Ok(())
     }
 
     pub fn cleanup_expired_requests(&mut self) {
         let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         let before = self.pending_requests.len();
-        self.pending_requests.retain(|_, r| now.saturating_sub(r.timestamp) <= 300);
+        self.pending_requests
+            .retain(|_, r| now.saturating_sub(r.timestamp) <= 300);
         if self.pending_requests.len() < before {
-            log::info!("[mesh] Cleaned up {} expired pairing requests", before - self.pending_requests.len());
+            log::info!(
+                "[mesh] Cleaned up {} expired pairing requests",
+                before - self.pending_requests.len()
+            );
         }
     }
 
@@ -245,45 +283,67 @@ impl MeshManager {
 
     pub fn build_sync_payload(&self) -> types::MeshSyncPayload {
         types::MeshSyncPayload {
-            peers: self.paired_peers.values()
+            peers: self
+                .paired_peers
+                .values()
                 .map(|p| types::GossipPeerInfo {
                     instance_id: p.instance_id.clone(),
                     instance_name: p.instance_name.clone(),
                     addresses: p.addresses.clone(),
                     api_port: p.api_port,
                     dev: false,
-                }).collect(),
+                })
+                .collect(),
         }
     }
 
     pub fn broadcast_clients(&self) -> Vec<transport::PeerClient> {
-        self.paired_peers.keys()
+        self.paired_peers
+            .keys()
             .filter_map(|pid| self.client_for(pid))
             .collect()
     }
 
     pub fn broadcast_clients_except(&self, exclude_id: &str) -> Vec<transport::PeerClient> {
-        self.paired_peers.keys()
+        self.paired_peers
+            .keys()
             .filter(|pid| pid.as_str() != exclude_id)
             .filter_map(|pid| self.client_for(pid))
             .collect()
     }
 
-    pub fn prepare_introductions(&self, new_peer_id: &str) -> Option<(types::PairedPeer, Vec<types::PairedPeer>, String, String)> {
+    pub fn prepare_introductions(
+        &self,
+        new_peer_id: &str,
+    ) -> Option<(types::PairedPeer, Vec<types::PairedPeer>, String, String)> {
         let new_peer = self.paired_peers.get(new_peer_id)?.clone();
-        let existing: Vec<_> = self.paired_peers.values()
+        let existing: Vec<_> = self
+            .paired_peers
+            .values()
             .filter(|p| p.instance_id != new_peer_id)
-            .cloned().collect();
+            .cloned()
+            .collect();
         let token = self.sign_request().ok()?;
-        Some((new_peer, existing, self.ident.identity.instance_id.clone(), token))
+        Some((
+            new_peer,
+            existing,
+            self.ident.identity.instance_id.clone(),
+            token,
+        ))
     }
 
     pub fn client_for(&self, peer_id: &str) -> Option<transport::PeerClient> {
         let peer = self.paired_peers.get(peer_id)?;
-        let addr = peer.addresses.iter()
+        let addr = peer
+            .addresses
+            .iter()
             .min_by_key(|a| types::address_tier(a))?;
         let token = self.sign_request().ok()?;
-        Some(transport::PeerClient::new_signed(&addr.ip, peer.api_port, &token))
+        Some(transport::PeerClient::new_signed(
+            &addr.ip,
+            peer.api_port,
+            &token,
+        ))
     }
 
     /// Build the address list we want to announce to peers. Includes
@@ -293,12 +353,18 @@ impl MeshManager {
         let mut out = Vec::new();
         if let Some(ip) = &self.tailscale_ip {
             if !ip.is_empty() {
-                out.push(types::PeerAddress { ip: ip.clone(), is_tailscale: true });
+                out.push(types::PeerAddress {
+                    ip: ip.clone(),
+                    is_tailscale: true,
+                });
             }
         }
         if let Some(ip) = &self.local_ip {
             if !ip.is_empty() && types::is_lan_private_ip(ip) {
-                out.push(types::PeerAddress { ip: ip.clone(), is_tailscale: false });
+                out.push(types::PeerAddress {
+                    ip: ip.clone(),
+                    is_tailscale: false,
+                });
             }
         }
         out
@@ -342,7 +408,9 @@ impl MeshManager {
             return Ok(None);
         }
         let prev = {
-            let peer = self.paired_peers.get_mut(&ann.instance_id)
+            let peer = self
+                .paired_peers
+                .get_mut(&ann.instance_id)
                 .ok_or_else(|| format!("Peer {} not paired", ann.instance_id))?;
             let prev = peer.addresses.clone();
             peer.addresses = clean.clone();
@@ -368,7 +436,9 @@ impl MeshManager {
         ip: &str,
         port: Option<u16>,
     ) -> Result<Vec<types::PeerAddress>, String> {
-        let peer = self.paired_peers.get_mut(peer_id)
+        let peer = self
+            .paired_peers
+            .get_mut(peer_id)
             .ok_or_else(|| format!("Peer {} not paired", peer_id))?;
         let prev = peer.addresses.clone();
         peer.addresses = vec![types::PeerAddress::from_ip(ip)];
@@ -381,8 +451,12 @@ impl MeshManager {
 }
 
 fn prev_addrs_equal(a: &[types::PeerAddress], b: &[types::PeerAddress]) -> bool {
-    if a.len() != b.len() { return false; }
-    a.iter().zip(b.iter()).all(|(x, y)| x.ip == y.ip && x.is_tailscale == y.is_tailscale)
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter()
+        .zip(b.iter())
+        .all(|(x, y)| x.ip == y.ip && x.is_tailscale == y.is_tailscale)
 }
 
 // ── Free functions (async, need mesh Arc) ───────────────────────────
@@ -392,17 +466,32 @@ pub async fn broadcast_sync(mesh: &MeshState) {
     let (payload, clients) = {
         let m = mesh.lock();
         let payload = m.build_sync_payload();
-        let clients: Vec<_> = m.paired_peers.values().filter_map(|p| {
-            if p.addresses.is_empty() { return None; }
-            let token = m.sign_request().ok()?;
-            Some((p.addresses.clone(), p.api_port, token, p.instance_id.clone()))
-        }).collect();
+        let clients: Vec<_> = m
+            .paired_peers
+            .values()
+            .filter_map(|p| {
+                if p.addresses.is_empty() {
+                    return None;
+                }
+                let token = m.sign_request().ok()?;
+                Some((
+                    p.addresses.clone(),
+                    p.api_port,
+                    token,
+                    p.instance_id.clone(),
+                ))
+            })
+            .collect();
         (payload, clients)
     };
 
-    if clients.is_empty() { return; }
+    if clients.is_empty() {
+        return;
+    }
     let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_default();
     for (addresses, port, token, peer_id) in &clients {
         let result = transport::try_peer(addresses, |addr| {
             let url = format!("http://{}:{}/api/mesh/sync", addr.ip, port);
@@ -410,9 +499,12 @@ pub async fn broadcast_sync(mesh: &MeshState) {
             let token = token.clone();
             let payload = payload.clone();
             async move {
-                match http.post(&url)
+                match http
+                    .post(&url)
                     .header("Authorization", format!("Bearer {}", token))
-                    .json(&payload).send().await
+                    .json(&payload)
+                    .send()
+                    .await
                 {
                     Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
                     Ok(resp) => {
@@ -423,7 +515,8 @@ pub async fn broadcast_sync(mesh: &MeshState) {
                     Err(e) => transport::TryNext::Retry(e.to_string()),
                 }
             }
-        }).await;
+        })
+        .await;
         match result {
             Ok(()) => log::info!("[mesh/broadcast] Synced to {}", peer_id),
             Err(e) => log::warn!("[mesh/broadcast] Sync failed for {}: {}", peer_id, e),
@@ -443,7 +536,9 @@ pub async fn broadcast_introductions(
     token: String,
 ) {
     let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_default();
     for existing in &existing_peers {
         // new → existing
         if !existing.addresses.is_empty() {
@@ -456,13 +551,20 @@ pub async fn broadcast_introductions(
                 introduced_by: our_id.clone(),
             };
             let result = transport::try_peer(&existing.addresses, |addr| {
-                let url = format!("http://{}:{}/api/mesh/introduce", addr.ip, existing.api_port);
+                let url = format!(
+                    "http://{}:{}/api/mesh/introduce",
+                    addr.ip, existing.api_port
+                );
                 let http = http.clone();
                 let token = token.clone();
                 let intro = intro.clone();
                 async move {
-                    match http.post(&url).header("Authorization", format!("Bearer {}", token))
-                        .json(&intro).send().await
+                    match http
+                        .post(&url)
+                        .header("Authorization", format!("Bearer {}", token))
+                        .json(&intro)
+                        .send()
+                        .await
                     {
                         Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
                         Ok(resp) => {
@@ -473,10 +575,20 @@ pub async fn broadcast_introductions(
                         Err(e) => transport::TryNext::Retry(e.to_string()),
                     }
                 }
-            }).await;
+            })
+            .await;
             match result {
-                Ok(()) => log::info!("[mesh/introduce] {} → {}", new_peer.instance_name, existing.instance_name),
-                Err(e) => log::warn!("[mesh/introduce] {} → {} failed: {}", new_peer.instance_name, existing.instance_name, e),
+                Ok(()) => log::info!(
+                    "[mesh/introduce] {} → {}",
+                    new_peer.instance_name,
+                    existing.instance_name
+                ),
+                Err(e) => log::warn!(
+                    "[mesh/introduce] {} → {} failed: {}",
+                    new_peer.instance_name,
+                    existing.instance_name,
+                    e
+                ),
             }
         }
         // existing → new
@@ -490,13 +602,20 @@ pub async fn broadcast_introductions(
                 introduced_by: our_id.clone(),
             };
             let result = transport::try_peer(&new_peer.addresses, |addr| {
-                let url = format!("http://{}:{}/api/mesh/introduce", addr.ip, new_peer.api_port);
+                let url = format!(
+                    "http://{}:{}/api/mesh/introduce",
+                    addr.ip, new_peer.api_port
+                );
                 let http = http.clone();
                 let token = token.clone();
                 let intro = intro.clone();
                 async move {
-                    match http.post(&url).header("Authorization", format!("Bearer {}", token))
-                        .json(&intro).send().await
+                    match http
+                        .post(&url)
+                        .header("Authorization", format!("Bearer {}", token))
+                        .json(&intro)
+                        .send()
+                        .await
                     {
                         Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
                         Ok(resp) => {
@@ -507,10 +626,20 @@ pub async fn broadcast_introductions(
                         Err(e) => transport::TryNext::Retry(e.to_string()),
                     }
                 }
-            }).await;
+            })
+            .await;
             match result {
-                Ok(()) => log::info!("[mesh/introduce] {} → {}", existing.instance_name, new_peer.instance_name),
-                Err(e) => log::warn!("[mesh/introduce] {} → {} failed: {}", existing.instance_name, new_peer.instance_name, e),
+                Ok(()) => log::info!(
+                    "[mesh/introduce] {} → {}",
+                    existing.instance_name,
+                    new_peer.instance_name
+                ),
+                Err(e) => log::warn!(
+                    "[mesh/introduce] {} → {} failed: {}",
+                    existing.instance_name,
+                    new_peer.instance_name,
+                    e
+                ),
             }
         }
     }
@@ -540,12 +669,27 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
                 return report;
             }
         };
-        let clients: Vec<_> = m.paired_peers.values()
-            .filter(|p| target.map(|t| t == p.instance_id.as_str() || t == p.instance_name.as_str()).unwrap_or(true))
+        let clients: Vec<_> = m
+            .paired_peers
+            .values()
+            .filter(|p| {
+                target
+                    .map(|t| t == p.instance_id.as_str() || t == p.instance_name.as_str())
+                    .unwrap_or(true)
+            })
             .filter_map(|p| {
-                if p.addresses.is_empty() { return None; }
-                Some((p.addresses.clone(), p.api_port, token.clone(), p.instance_id.clone(), p.instance_name.clone()))
-            }).collect();
+                if p.addresses.is_empty() {
+                    return None;
+                }
+                Some((
+                    p.addresses.clone(),
+                    p.api_port,
+                    token.clone(),
+                    p.instance_id.clone(),
+                    p.instance_name.clone(),
+                ))
+            })
+            .collect();
         (announce, clients)
     };
 
@@ -554,7 +698,9 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
     }
 
     let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_default();
     for (addresses, port, token, peer_id, peer_name) in &clients {
         report.sent += 1;
         // STALE peer signal (404) is authoritative — short-circuit so we
@@ -568,9 +714,12 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
             let announce = announce.clone();
             let stale_marker = stale_marker.clone();
             async move {
-                match http.post(&url)
+                match http
+                    .post(&url)
                     .header("Authorization", format!("Bearer {}", token))
-                    .json(&announce).send().await
+                    .json(&announce)
+                    .send()
+                    .await
                 {
                     Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
                     Ok(resp) if resp.status().as_u16() == 404 => {
@@ -585,15 +734,24 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
                     Err(e) => transport::TryNext::Retry(e.to_string()),
                 }
             }
-        }).await;
+        })
+        .await;
         match result {
             Ok(()) => {
                 report.ok += 1;
-                log::info!("[mesh/announce] sent to {} ({}) addrs={:?}",
-                    peer_name, peer_id, announce.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>());
+                log::info!(
+                    "[mesh/announce] sent to {} ({}) addrs={:?}",
+                    peer_name,
+                    peer_id,
+                    announce.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>()
+                );
             }
             Err(e) if *stale_marker.lock() => {
-                log::warn!("[mesh/announce] peer {} ({}) too old — no /api/mesh/announce", peer_name, peer_id);
+                log::warn!(
+                    "[mesh/announce] peer {} ({}) too old — no /api/mesh/announce",
+                    peer_name,
+                    peer_id
+                );
                 report.stale_peers.push(peer_id.clone());
             }
             Err(e) => {
@@ -621,7 +779,10 @@ pub fn refresh_local_addresses(mesh: &MeshState) -> bool {
     let changed = prev_ts != new_ts || prev_lan != new_lan;
     log::info!(
         "[mesh/refresh] local addrs: tailscale {:?} -> {:?}, lan {:?} -> {:?}{}",
-        prev_ts, new_ts, prev_lan, new_lan,
+        prev_ts,
+        new_ts,
+        prev_lan,
+        new_lan,
         if changed { " (CHANGED)" } else { "" }
     );
     changed
@@ -645,9 +806,15 @@ mod tests {
         let token = crate::mesh::crown::sign_request(&priv_key, &instance_id).unwrap();
 
         // First use: should succeed
-        assert!(mgr.check_and_record_nonce(&token).is_ok(), "first use should succeed");
+        assert!(
+            mgr.check_and_record_nonce(&token).is_ok(),
+            "first use should succeed"
+        );
         // Second use of same token: should fail
-        assert!(mgr.check_and_record_nonce(&token).is_err(), "replay should be rejected");
+        assert!(
+            mgr.check_and_record_nonce(&token).is_err(),
+            "replay should be rejected"
+        );
     }
 
     fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
@@ -680,7 +847,10 @@ mod tests {
             addresses: vec![PeerAddress::from_ip("100.99.99.99")],
             api_port: 7777,
         };
-        let prev = m.apply_announce("peer-A", &ann).expect("ok").expect("changed");
+        let prev = m
+            .apply_announce("peer-A", &ann)
+            .expect("ok")
+            .expect("changed");
         assert_eq!(prev.len(), 2, "old list returned for logging");
         let after = &m.paired_peers["peer-A"];
         assert_eq!(after.addresses.len(), 1, "list fully replaced, not merged");
@@ -700,7 +870,10 @@ mod tests {
         // Sender token says "peer-B" but body says "peer-A" — reject.
         let err = m.apply_announce("peer-B", &ann).unwrap_err();
         assert!(err.contains("cannot announce"), "got: {}", err);
-        assert_eq!(m.paired_peers["peer-A"].addresses[0].ip, "192.168.1.5", "untouched");
+        assert_eq!(
+            m.paired_peers["peer-A"].addresses[0].ip, "192.168.1.5",
+            "untouched"
+        );
     }
 
     #[test]
@@ -733,7 +906,9 @@ mod tests {
     #[test]
     fn set_peer_addr_override_replaces_with_single_entry() {
         let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);
-        let prev = m.set_peer_addr_override("peer-A", "10.0.0.99", Some(8888)).expect("ok");
+        let prev = m
+            .set_peer_addr_override("peer-A", "10.0.0.99", Some(8888))
+            .expect("ok");
         assert_eq!(prev.len(), 2);
         let after = &m.paired_peers["peer-A"];
         assert_eq!(after.addresses.len(), 1);
@@ -745,7 +920,9 @@ mod tests {
     fn set_peer_addr_override_unknown_peer_errors() {
         let mut m = MeshManager::new("test-host".into(), 7685);
         m.disk_persist = false;
-        let err = m.set_peer_addr_override("ghost", "10.0.0.1", None).unwrap_err();
+        let err = m
+            .set_peer_addr_override("ghost", "10.0.0.1", None)
+            .unwrap_err();
         assert!(err.contains("not paired"), "got: {}", err);
     }
 
@@ -783,9 +960,18 @@ mod tests {
             instance_id: "peer-A".into(),
             instance_name: "TestPeer".into(),
             addresses: vec![
-                PeerAddress { ip: "8.8.8.8".into(), is_tailscale: false },
-                PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false },
-                PeerAddress { ip: "100.65.0.30".into(), is_tailscale: true },
+                PeerAddress {
+                    ip: "8.8.8.8".into(),
+                    is_tailscale: false,
+                },
+                PeerAddress {
+                    ip: "192.168.1.2".into(),
+                    is_tailscale: false,
+                },
+                PeerAddress {
+                    ip: "100.65.0.30".into(),
+                    is_tailscale: true,
+                },
             ],
             api_port: 7685,
             public_key: String::new(),
@@ -801,8 +987,11 @@ mod tests {
 
         // We can't easily inspect PeerClient's URL — but we can verify the
         // address selection by reading addresses directly.
-        let picked = m.paired_peers["peer-A"].addresses.iter()
-            .min_by_key(|a| types::address_tier(a)).unwrap();
+        let picked = m.paired_peers["peer-A"]
+            .addresses
+            .iter()
+            .min_by_key(|a| types::address_tier(a))
+            .unwrap();
         assert_eq!(picked.ip, "100.65.0.30");
     }
 }

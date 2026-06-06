@@ -46,10 +46,7 @@ pub fn list() -> Vec<(&'static str, &'static str, &'static str)> {
 }
 
 pub fn build_active(backend: &str, providers: &HashMap<String, Value>) -> Box<dyn SecretStore> {
-    let cfg = providers
-        .get(backend)
-        .cloned()
-        .unwrap_or(Value::Null);
+    let cfg = providers.get(backend).cloned().unwrap_or(Value::Null);
     match factory(backend) {
         Some(f) => f.build(&cfg),
         None => {

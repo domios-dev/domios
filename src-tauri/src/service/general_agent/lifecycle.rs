@@ -61,7 +61,8 @@ pub fn start_general_agent(
                 if let Some(pty_id) = current_pty_id.clone() {
                     let alive = pty.lock().get_session(&pty_id).is_some();
                     if alive {
-                        let agent_visible = screen_state.try_lock()
+                        let agent_visible = screen_state
+                            .try_lock()
                             .and_then(|ss| ss.get_screen_text(&pty_id))
                             .map(|screen| svc.agent_registry.detect_from_output(&screen).is_some())
                             .unwrap_or(false);
@@ -78,14 +79,21 @@ pub fn start_general_agent(
                         std::thread::sleep(std::time::Duration::from_millis(300));
                     } else {
                         // Stale pty_id pointing at a dead session — clear it so spawn proceeds cleanly.
-                        log::info!("[general-agent] Clearing stale pty_id {} (session not in PtyManager)", pty_id);
+                        log::info!(
+                            "[general-agent] Clearing stale pty_id {} (session not in PtyManager)",
+                            pty_id
+                        );
                         if let Some(pane) = mux.lock().get_pane_mut(&pid) {
                             pane.pty_id = None;
                         }
                     }
                 }
             } else {
-                log::info!("[general-agent] Provider mismatch: running={}, wanted={} — restarting", current_agent, provider_name);
+                log::info!(
+                    "[general-agent] Provider mismatch: running={}, wanted={} — restarting",
+                    current_agent,
+                    provider_name
+                );
                 if let Some(pty_id) = current_pty_id {
                     let _ = pty.lock().kill(&pty_id);
                 }
@@ -102,12 +110,12 @@ pub fn start_general_agent(
     // Find General pane (already created by ensure_general_workspace in init_states)
     let (pane_id, session_id) = {
         let m = mux.lock();
-        let pane = m.resolve_pane_id(GENERAL_ALIAS)
-            .or_else(|| {
-                m.list_workspaces().iter()
-                    .find(|ws| ws.protected)
-                    .and_then(|ws| ws.pane_ids.first().cloned())
-            });
+        let pane = m.resolve_pane_id(GENERAL_ALIAS).or_else(|| {
+            m.list_workspaces()
+                .iter()
+                .find(|ws| ws.protected)
+                .and_then(|ws| ws.pane_ids.first().cloned())
+        });
         match pane {
             Some(pid) => {
                 let mut sid = m.get_pane(&pid).and_then(|p| p.agent_session_id.clone());
@@ -122,16 +130,23 @@ pub fn start_general_agent(
                         &general_cwd,
                         Some(exclude),
                         Some(86400 * 7), // 7 days max age
-                    ).ok().flatten();
+                    )
+                    .ok()
+                    .flatten();
                     if let Some(ref detected) = sid {
                         svc.set_agent_session_id(&pid, Some(detected.clone()));
-                        log::info!("[general-agent] Detected session from filesystem: {}", detected);
+                        log::info!(
+                            "[general-agent] Detected session from filesystem: {}",
+                            detected
+                        );
                     }
                 }
                 (pid, sid)
             }
             None => {
-                log::error!("[general-agent] No General pane found — ensure_general_workspace failed?");
+                log::error!(
+                    "[general-agent] No General pane found — ensure_general_workspace failed?"
+                );
                 return;
             }
         }
@@ -139,17 +154,23 @@ pub fn start_general_agent(
 
     // Validate session_id: if provider can't resolve it to a file, it's stale/wrong-provider
     let session_id = if let Some(ref id) = session_id {
-        let valid = svc.agent_registry.with_provider(provider_name, |p| {
-            p.session_exists(&general_cwd, id)
-        }).unwrap_or(false);
+        let valid = svc
+            .agent_registry
+            .with_provider(provider_name, |p| p.session_exists(&general_cwd, id))
+            .unwrap_or(false);
         if !valid {
             log::info!("[general-agent] Session '{}' not valid for provider '{}' — clearing, will detect fresh", id, provider_name);
             svc.set_agent_session_id(&pane_id, None);
             let exclude = mux.lock().other_session_ids(&pane_id);
             let fresh = crate::multiplexer::commands::detect_agent_session_id(
-                &svc.agent_registry, provider_name, &general_cwd,
-                Some(exclude), Some(86400 * 7),
-            ).ok().flatten();
+                &svc.agent_registry,
+                provider_name,
+                &general_cwd,
+                Some(exclude),
+                Some(86400 * 7),
+            )
+            .ok()
+            .flatten();
             if let Some(ref sid) = fresh {
                 svc.set_agent_session_id(&pane_id, Some(sid.clone()));
                 log::info!("[general-agent] Detected fresh session: {}", sid);
@@ -168,7 +189,10 @@ pub fn start_general_agent(
     let env_vars = {
         let mut env = std::collections::HashMap::new();
         env.insert("CODETERM_PANE_ID".to_string(), pane_id.clone());
-        env.insert("CODETERM_SOCKET_PATH".to_string(), crate::socket::server::socket_display_path());
+        env.insert(
+            "CODETERM_SOCKET_PATH".to_string(),
+            crate::socket::server::socket_display_path(),
+        );
         env.insert("CODETERM_ROLE".to_string(), "Orchestrator".to_string());
         if let Ok(port) = std::env::var("CODETERM_API_PORT") {
             env.insert("CODETERM_API_PORT".to_string(), port);
@@ -225,14 +249,20 @@ pub fn start_general_agent(
                 .build()
                 .expect("Failed to create backend reader runtime");
             rt.block_on(async {
-                match crate::service::pty_lifecycle::start_backend_reader(&svc_clone, &pty_id_clone) {
-                    Ok(handle) => { let _ = handle.await; }
+                match crate::service::pty_lifecycle::start_backend_reader(&svc_clone, &pty_id_clone)
+                {
+                    Ok(handle) => {
+                        let _ = handle.await;
+                    }
                     Err(e) => log::error!("[general-agent] Failed to start backend reader: {}", e),
                 }
             });
         });
     }
-    log::info!("[general-agent] Backend reader started, waiting for shell prompt on PTY {}...", pty_id);
+    log::info!(
+        "[general-agent] Backend reader started, waiting for shell prompt on PTY {}...",
+        pty_id
+    );
 
     // Wait for shell to be ready — same mechanism as regular pane resume in commands.rs.
     // poll_shell_prompt polls screen_state (fed by the backend reader we just started)
@@ -243,7 +273,10 @@ pub fn start_general_agent(
         std::time::Duration::from_secs(60),
     );
     if !ready {
-        log::warn!("[general-agent] Shell not ready within 60s for PTY {} — watchdog will retry", pty_id);
+        log::warn!(
+            "[general-agent] Shell not ready within 60s for PTY {} — watchdog will retry",
+            pty_id
+        );
         return;
     }
     log::info!("[general-agent] Shell ready, building launch command...");
@@ -259,10 +292,17 @@ pub fn start_general_agent(
     let use_resume = session_id.is_some() && preserves_context;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
-        match svc.agent_registry.with_provider(provider_name, |p| p.build_resume_command(sid, true)).flatten() {
+        match svc
+            .agent_registry
+            .with_provider(provider_name, |p| p.build_resume_command(sid, true))
+            .flatten()
+        {
             Some(cmd) => cmd,
             None => {
-                log::error!("[general-agent] Provider '{}' not registered or resume unsupported", provider_name);
+                log::error!(
+                    "[general-agent] Provider '{}' not registered or resume unsupported",
+                    provider_name
+                );
                 return;
             }
         }
@@ -280,7 +320,10 @@ pub fn start_general_agent(
         let pre_session_id = if injection != crate::agent::provider::SessionIdInjection::None {
             let id = uuid::Uuid::new_v4().to_string();
             svc.set_agent_session_id(&pane_id, Some(id.clone()));
-            log::info!("[general-agent] Pre-assigned session id {} for fresh launch", id);
+            log::info!(
+                "[general-agent] Pre-assigned session id {} for fresh launch",
+                id
+            );
             Some(id)
         } else {
             None
@@ -293,10 +336,16 @@ pub fn start_general_agent(
             headless: false,
             session_id: pre_session_id,
         };
-        match svc.agent_registry.with_provider(provider_name, |p| p.build_launch_command(&params)) {
+        match svc
+            .agent_registry
+            .with_provider(provider_name, |p| p.build_launch_command(&params))
+        {
             Some(cmd) => cmd,
             None => {
-                log::error!("[general-agent] Provider '{}' not registered", provider_name);
+                log::error!(
+                    "[general-agent] Provider '{}' not registered",
+                    provider_name
+                );
                 return;
             }
         }
@@ -312,7 +361,12 @@ pub fn start_general_agent(
     }
 
     // Poll screen for agent detection (up to 15s — Claude can take a while)
-    let launched = poll_agent_started(screen_state, &svc.agent_registry, &pty_id, std::time::Duration::from_secs(15));
+    let launched = poll_agent_started(
+        screen_state,
+        &svc.agent_registry,
+        &pty_id,
+        std::time::Duration::from_secs(15),
+    );
     if !launched {
         log::warn!("[general-agent] Agent not detected within 15s — watchdog will retry if needed");
     }
@@ -341,7 +395,11 @@ pub fn start_general_agent(
     }
 
     svc.emit_state_changed();
-    log::info!("[general-agent] Started successfully (pane={}, pty={})", pane_id, pty_id);
+    log::info!(
+        "[general-agent] Started successfully (pane={}, pty={})",
+        pane_id,
+        pty_id
+    );
 }
 
 /// Restart the General Agent — kill current PTY and relaunch with current config.
@@ -402,13 +460,19 @@ pub(super) fn poll_agent_started(
 ) -> bool {
     let deadline = std::time::Instant::now() + timeout;
     loop {
-        if std::time::Instant::now() > deadline { return false; }
-        let detected = screen_state.try_lock()
-            .and_then(|ss| ss.get_screen_text(pty_id).map(|screen| {
-                registry.detect_from_output(&screen).is_some()
-            }))
+        if std::time::Instant::now() > deadline {
+            return false;
+        }
+        let detected = screen_state
+            .try_lock()
+            .and_then(|ss| {
+                ss.get_screen_text(pty_id)
+                    .map(|screen| registry.detect_from_output(&screen).is_some())
+            })
             .unwrap_or(false);
-        if detected { return true; }
+        if detected {
+            return true;
+        }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 }

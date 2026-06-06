@@ -28,15 +28,22 @@ pub async fn mesh_sync(
 
     let mut mesh = state.mesh.lock();
     let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     for peer_info in &payload.peers {
-        if peer_info.instance_id == mesh.ident.identity.instance_id { continue; }
-        if mesh.paired_peers.contains_key(&peer_info.instance_id) { continue; }
+        if peer_info.instance_id == mesh.ident.identity.instance_id {
+            continue;
+        }
+        if mesh.paired_peers.contains_key(&peer_info.instance_id) {
+            continue;
+        }
         let clean_addrs = crate::mesh::types::sanitize_addresses(&peer_info.addresses);
 
         // Merge vouchers: keep prior vouched_by entries, add this sender,
         // dedupe + sort. Stable order keeps the UI from flicker-rerendering.
-        let mut vouched_by = mesh.discovered_peers
+        let mut vouched_by = mesh
+            .discovered_peers
             .get(&peer_info.instance_id)
             .map(|p| p.vouched_by.clone())
             .unwrap_or_default();
@@ -48,16 +55,25 @@ pub async fn mesh_sync(
         vouched_by.sort();
         vouched_by.dedup();
 
-        mesh.discovered_peers.insert(peer_info.instance_id.clone(), crate::mesh::types::DiscoveredPeer {
-            instance_id: peer_info.instance_id.clone(),
-            instance_name: peer_info.instance_name.clone(),
-            addresses: clean_addrs,
-            api_port: peer_info.api_port,
-            discovery_method: crate::mesh::types::DiscoveryMethod::Gossip,
-            last_seen: now, dev: peer_info.dev, mesh_id: None,
-            vouched_by,
-        });
-        log::info!("[mesh/gossip] Learned about peer {} ({})", peer_info.instance_name, peer_info.instance_id);
+        mesh.discovered_peers.insert(
+            peer_info.instance_id.clone(),
+            crate::mesh::types::DiscoveredPeer {
+                instance_id: peer_info.instance_id.clone(),
+                instance_name: peer_info.instance_name.clone(),
+                addresses: clean_addrs,
+                api_port: peer_info.api_port,
+                discovery_method: crate::mesh::types::DiscoveryMethod::Gossip,
+                last_seen: now,
+                dev: peer_info.dev,
+                mesh_id: None,
+                vouched_by,
+            },
+        );
+        log::info!(
+            "[mesh/gossip] Learned about peer {} ({})",
+            peer_info.instance_name,
+            peer_info.instance_id
+        );
     }
     drop(mesh);
 
@@ -74,7 +90,9 @@ pub async fn mesh_sync(
 fn sender_id_from_headers(state: &AppState, headers: &HeaderMap) -> Option<String> {
     let auth = headers.get("authorization").and_then(|v| v.to_str().ok())?;
     let token = auth.strip_prefix("Bearer ").unwrap_or("");
-    if token.is_empty() { return None; }
+    if token.is_empty() {
+        return None;
+    }
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
     if let Some(ref pk) = mesh.ident.identity.public_key {
@@ -116,8 +134,14 @@ fn path_requires_full_access(method: &str, path: &str) -> bool {
 }
 
 /// Verify relay sender: must be paired. Paired = trusted.
-fn check_mesh_relay_auth(state: &AppState, headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
-    let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
+fn check_mesh_relay_auth(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<String, (StatusCode, String)> {
+    let auth = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     let token = auth.strip_prefix("Bearer ").unwrap_or("");
     let (known_keys, our_id) = {
         let mesh = state.mesh.lock();
@@ -127,13 +151,22 @@ fn check_mesh_relay_auth(state: &AppState, headers: &HeaderMap) -> Result<String
         }
         (known_keys, mesh.ident.identity.instance_id.clone())
     };
-    let peer_id = crate::mesh::crown::verify_signed_request(token, &known_keys)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid or unknown signature".to_string()))?;
-    if peer_id == our_id { return Ok("local".to_string()); }
+    let peer_id = crate::mesh::crown::verify_signed_request(token, &known_keys).map_err(|_| {
+        (
+            StatusCode::UNAUTHORIZED,
+            "Invalid or unknown signature".to_string(),
+        )
+    })?;
+    if peer_id == our_id {
+        return Ok("local".to_string());
+    }
 
     let mut mesh = state.mesh.lock();
     if !mesh.paired_peers.contains_key(&peer_id) {
-        return Err((StatusCode::UNAUTHORIZED, format!("Peer {} not paired", peer_id)));
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            format!("Peer {} not paired", peer_id),
+        ));
     }
     mesh.check_and_record_nonce(token)
         .map_err(|e| (StatusCode::UNAUTHORIZED, e))?;
@@ -146,10 +179,19 @@ pub async fn mesh_relay(
     Json(cmd): Json<crate::mesh::types::RelayCommand>,
 ) -> Result<Json<crate::mesh::types::RelayResponse>, (StatusCode, String)> {
     let sender_id = check_mesh_relay_auth(&state, &headers)?;
-    log::info!("[mesh/relay] {} {} from {}", cmd.method, cmd.path, sender_id);
+    log::info!(
+        "[mesh/relay] {} {} from {}",
+        cmd.method,
+        cmd.path,
+        sender_id
+    );
 
     if path_requires_full_access(&cmd.method, &cmd.path) && sender_id != "local" {
-        let access = state.mesh.lock().paired_peers.get(&sender_id)
+        let access = state
+            .mesh
+            .lock()
+            .paired_peers
+            .get(&sender_id)
             .map(|p| p.access_level.clone())
             .unwrap_or(crate::mesh::types::AccessLevel::Full);
         if access != crate::mesh::types::AccessLevel::Full {
@@ -167,7 +209,8 @@ pub async fn mesh_relay(
 
     let sender_name = {
         let mesh = state.mesh.lock();
-        mesh.paired_peers.get(&sender_id)
+        mesh.paired_peers
+            .get(&sender_id)
             .map(|p| p.instance_name.clone())
             .unwrap_or_else(|| sender_id.clone())
     };
@@ -176,40 +219,77 @@ pub async fn mesh_relay(
     let mut body = cmd.body.clone();
     if cmd.path.contains("/send") && cmd.method.eq_ignore_ascii_case("POST") {
         if let Some(text) = body.get("text").and_then(|v| v.as_str()) {
-            let source_pane = body.get("source_pane").and_then(|v| v.as_str()).unwrap_or("unknown");
-            body["text"] = serde_json::json!(format!("[Mesh: {} pane={}] {}", sender_name, source_pane, text));
-            if let Some(obj) = body.as_object_mut() { obj.remove("source_pane"); }
+            let source_pane = body
+                .get("source_pane")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            body["text"] = serde_json::json!(format!(
+                "[Mesh: {} pane={}] {}",
+                sender_name, source_pane, text
+            ));
+            if let Some(obj) = body.as_object_mut() {
+                obj.remove("source_pane");
+            }
         }
     }
 
     let local_url = format!("http://127.0.0.1:{}{}", state.api_port, cmd.path);
-    let signed_token = state.mesh.lock().sign_request()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Sign failed: {}", e)))?;
+    let signed_token = state.mesh.lock().sign_request().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Sign failed: {}", e),
+        )
+    })?;
 
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30)).build().unwrap_or_default();
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_default();
     let req = match cmd.method.to_uppercase().as_str() {
         "GET" => client.get(&local_url),
         "POST" => client.post(&local_url).json(&body),
         "PUT" => client.put(&local_url).json(&body),
         "PATCH" => client.patch(&local_url).json(&body),
         "DELETE" => client.delete(&local_url),
-        _ => return Err((StatusCode::BAD_REQUEST, format!("Unsupported method: {}", cmd.method))),
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Unsupported method: {}", cmd.method),
+            ))
+        }
     };
 
-    let resp = req.header("Authorization", format!("Bearer {}", signed_token))
-        .send().await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Local relay failed: {}", e)))?;
+    let resp = req
+        .header("Authorization", format!("Bearer {}", signed_token))
+        .send()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("Local relay failed: {}", e),
+            )
+        })?;
 
     let status = resp.status().as_u16();
     let data: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!(null));
 
     if status < 400 && cmd.path.contains("/send") && cmd.method.eq_ignore_ascii_case("POST") {
         let target_pane = cmd.path.split('/').nth(3).unwrap_or("unknown").to_string();
-        let preview = cmd.body.get("text").and_then(|v| v.as_str()).unwrap_or("").chars().take(80).collect::<String>();
-        let writer = crate::services::activity::ActivityWriter::new(state.svc.services_store.conn());
+        let preview = cmd
+            .body
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .chars()
+            .take(80)
+            .collect::<String>();
+        let writer =
+            crate::services::activity::ActivityWriter::new(state.svc.services_store.conn());
         let _ = writer.record(crate::services::activity::ActivityEvent::peer_relay(
-            &sender_id, &sender_name, &target_pane, &preview,
+            &sender_id,
+            &sender_name,
+            &target_pane,
+            &preview,
         ));
         let _ = state.svc.app_handle.emit(
             "service-pushed",
@@ -218,8 +298,14 @@ pub async fn mesh_relay(
     }
 
     Ok(Json(crate::mesh::types::RelayResponse {
-        ok: status < 400, status, data: Some(data),
-        error: if status >= 400 { Some(format!("HTTP {}", status)) } else { None },
+        ok: status < 400,
+        status,
+        data: Some(data),
+        error: if status >= 400 {
+            Some(format!("HTTP {}", status))
+        } else {
+            None
+        },
     }))
 }
 
@@ -230,8 +316,14 @@ mod tests {
     #[test]
     fn install_update_is_gated() {
         assert!(path_requires_full_access("POST", "/api/update/install"));
-        assert!(path_requires_full_access("POST", "/api/update/install?method=auto"));
-        assert!(path_requires_full_access("post", "/api/update/install?method=auto&manifest_url=foo"));
+        assert!(path_requires_full_access(
+            "POST",
+            "/api/update/install?method=auto"
+        ));
+        assert!(path_requires_full_access(
+            "post",
+            "/api/update/install?method=auto&manifest_url=foo"
+        ));
     }
 
     #[test]
@@ -242,13 +334,19 @@ mod tests {
     #[test]
     fn check_and_get_channel_are_open() {
         assert!(!path_requires_full_access("GET", "/api/update/check"));
-        assert!(!path_requires_full_access("GET", "/api/update/check?force=true"));
+        assert!(!path_requires_full_access(
+            "GET",
+            "/api/update/check?force=true"
+        ));
         assert!(!path_requires_full_access("GET", "/api/update/channel"));
     }
 
     #[test]
     fn unrelated_paths_are_open() {
-        assert!(!path_requires_full_access("POST", "/api/panes/general/send"));
+        assert!(!path_requires_full_access(
+            "POST",
+            "/api/panes/general/send"
+        ));
         assert!(!path_requires_full_access("GET", "/api/mesh/peers"));
     }
 
@@ -282,7 +380,10 @@ mod tests {
     fn hook_endpoints_are_gated() {
         assert!(path_requires_full_access("POST", "/api/hooks/permission"));
         assert!(path_requires_full_access("POST", "/api/hooks/stop"));
-        assert!(path_requires_full_access("POST", "/api/hooks/session_start"));
+        assert!(path_requires_full_access(
+            "POST",
+            "/api/hooks/session_start"
+        ));
     }
 
     #[test]
@@ -294,8 +395,17 @@ mod tests {
 
     #[test]
     fn peer_delete_is_gated() {
-        assert!(path_requires_full_access("DELETE", "/api/mesh/peers/some-uuid"));
-        assert!(path_requires_full_access("DELETE", "/api/mesh/peers/peer-abc-123"));
-        assert!(!path_requires_full_access("GET", "/api/mesh/peers/some-uuid"));
+        assert!(path_requires_full_access(
+            "DELETE",
+            "/api/mesh/peers/some-uuid"
+        ));
+        assert!(path_requires_full_access(
+            "DELETE",
+            "/api/mesh/peers/peer-abc-123"
+        ));
+        assert!(!path_requires_full_access(
+            "GET",
+            "/api/mesh/peers/some-uuid"
+        ));
     }
 }

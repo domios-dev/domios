@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { invoke } from "@tauri-apps/api/core";
 import { mapCursorStyle, buildXtermTheme } from "../../components/Terminal/helpers";
 import type { ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
@@ -85,10 +86,35 @@ export function useXterm({
 
     term.open(containerRef.current);
 
-    // Copy-on-select removed: silently writing the clipboard every time the
-    // user highlights text is surprising and clobbers whatever they had
-    // copied moments earlier. Ctrl+Shift+C / Cmd+C with a selection and the
-    // right-click "Copy" item both still work.
+    // WebGL renderer — load AFTER term.open() so the canvas exists.
+    // The default DOM renderer drops subtle TUI background colors used
+    // by Codex / Opencode TUIs (gray-tinted input + message blocks).
+    // WebGL renders 24-bit truecolor backgrounds per-cell correctly
+    // and is 10x faster on top of it.
+    //
+    // If WebGL context creation fails (some Linux GPUs, headless),
+    // fall back silently to the DOM renderer — xterm.js's default.
+    // We push the success/failure into the daemon log via
+    // `report_webgl_status` so the rendering health is observable
+    // without opening browser devtools.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        invoke("report_webgl_status", { state: "context_lost", detail: null }).catch(() => {});
+      });
+      term.loadAddon(webgl);
+      invoke("report_webgl_status", { state: "loaded", detail: null }).catch(() => {});
+    } catch (e) {
+      const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      console.warn("[useXterm] WebGL renderer unavailable, falling back to DOM:", e);
+      invoke("report_webgl_status", { state: "failed", detail }).catch(() => {});
+    }
+
+    // Copy-on-select removed: silently writing the clipboard every time
+    // the user highlights text is surprising and clobbers whatever they
+    // had copied moments earlier. Ctrl+Shift+C / Cmd+C with a selection
+    // and the right-click "Copy" item both still work.
 
     // Visual bell
     term.onBell(() => {

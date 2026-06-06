@@ -77,8 +77,7 @@ pub(super) fn fallback_bw_paths() -> Vec<std::path::PathBuf> {
         }
         if let Ok(up) = std::env::var("USERPROFILE") {
             paths.push(
-                std::path::PathBuf::from(up)
-                    .join("scoop\\apps\\bitwarden-cli\\current\\bw.exe"),
+                std::path::PathBuf::from(up).join("scoop\\apps\\bitwarden-cli\\current\\bw.exe"),
             );
         }
         let _ = home;

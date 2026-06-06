@@ -23,10 +23,7 @@ use super::ServiceState;
 /// while this loop is running, which is fine for headless panes.
 ///
 /// Returns a `JoinHandle` that the caller can use to track or abort the task.
-pub fn start_backend_reader(
-    svc: &ServiceState,
-    pty_id: &str,
-) -> Result<JoinHandle<()>, String> {
+pub fn start_backend_reader(svc: &ServiceState, pty_id: &str) -> Result<JoinHandle<()>, String> {
     // Clone a reader from the PTY master — independent from the primary reader.
     // Also set up the frontend channel so read_pty can receive forwarded bytes.
     let (reader, frontend_tx) = {
@@ -35,7 +32,8 @@ pub fn start_backend_reader(
             .get_session(pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
         let pair = session.pair.lock().unwrap();
-        let r = pair.master
+        let r = pair
+            .master
             .try_clone_reader()
             .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
         drop(pair);
@@ -49,7 +47,10 @@ pub fn start_backend_reader(
     let pty_id = pty_id.to_string();
 
     let handle = tokio::spawn(async move {
-        log::info!("[backend-reader] started for pty {}", &pty_id[..pty_id.len().min(8)]);
+        log::info!(
+            "[backend-reader] started for pty {}",
+            &pty_id[..pty_id.len().min(8)]
+        );
         backend_read_loop(reader, svc, pty_id, frontend_tx, true).await;
     });
 
@@ -158,7 +159,10 @@ async fn backend_read_loop(
         }
     }
 
-    log::info!("[backend-reader] exited for pty {}", &pty_id[..pty_id.len().min(8)]);
+    log::info!(
+        "[backend-reader] exited for pty {}",
+        &pty_id[..pty_id.len().min(8)]
+    );
 }
 
 /// Mark PTY as dead and emit events — mirrors the Err branch in read_pty.
@@ -202,4 +206,3 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
         }
     }
 }
-

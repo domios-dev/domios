@@ -36,13 +36,19 @@ pub async fn mem_graph_relate(
         relation_type: b.rel,
         to_id: b.to,
         scope: b.scope.unwrap_or_else(|| "global".to_string()),
-        valid_from: b.valid_from.unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+        valid_from: b
+            .valid_from
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
         valid_to: b.valid_to,
         confidence: b.confidence.unwrap_or(1.0),
         properties: serde_json::json!({}),
         reason: b.reason,
     };
-    state.svc.mem.graph_relate(&r).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    state
+        .svc
+        .mem
+        .graph_relate(&r)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -66,7 +72,12 @@ pub async fn mem_graph_related(
     let rels = state
         .svc
         .mem
-        .graph_related(&p.id, p.rel.as_deref(), p.as_of.as_deref(), p.include_invalidated)
+        .graph_related(
+            &p.id,
+            p.rel.as_deref(),
+            p.as_of.as_deref(),
+            p.include_invalidated,
+        )
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "relations": rels })))
 }
@@ -105,7 +116,11 @@ pub async fn mem_graph_create(
         scope: b.scope.unwrap_or_else(|| "global".to_string()),
         properties: b.properties,
     };
-    state.svc.mem.graph_create_entity(&e).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    state
+        .svc
+        .mem
+        .graph_create_entity(&e)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -124,7 +139,10 @@ pub async fn mem_graph_invalidate(
     Json(b): Json<GraphInvalidateBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let found = state.svc.mem.graph_invalidate(&b.from, &b.rel, &b.to, b.ended.as_deref())
+    let found = state
+        .svc
+        .mem
+        .graph_invalidate(&b.from, &b.rel, &b.to, b.ended.as_deref())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "invalidated": found })))
 }
@@ -142,9 +160,14 @@ pub async fn mem_graph_timeline(
     Query(p): Query<GraphTimelineParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let relations = state.svc.mem.graph_timeline(&p.entity, p.include_invalidated)
+    let relations = state
+        .svc
+        .mem
+        .graph_timeline(&p.entity, p.include_invalidated)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!({ "entity": p.entity, "relations": relations })))
+    Ok(Json(
+        serde_json::json!({ "entity": p.entity, "relations": relations }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -168,7 +191,16 @@ pub async fn mem_graph_traverse(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let hops = p.hops.unwrap_or(2).min(5);
     let max_nodes = p.max_nodes.unwrap_or(100).min(500);
-    let result = state.svc.mem.graph_traverse(&p.from, hops, max_nodes, p.as_of.as_deref(), p.include_invalidated)
+    let result = state
+        .svc
+        .mem
+        .graph_traverse(
+            &p.from,
+            hops,
+            max_nodes,
+            p.as_of.as_deref(),
+            p.include_invalidated,
+        )
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!(result)))
 }
@@ -190,9 +222,14 @@ pub async fn mem_graph_path(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let max_hops = p.max_hops.unwrap_or(4).min(8);
-    let path = state.svc.mem.graph_shortest_path(&p.from, &p.to, max_hops, p.include_invalidated)
+    let path = state
+        .svc
+        .mem
+        .graph_shortest_path(&p.from, &p.to, max_hops, p.include_invalidated)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!({ "from": p.from, "to": p.to, "path": path })))
+    Ok(Json(
+        serde_json::json!({ "from": p.from, "to": p.to, "path": path }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -221,9 +258,14 @@ pub async fn mem_graph_alias(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     validate_canonical(&b.canonical).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    state.svc.mem.graph_alias(&b.alias, &b.canonical)
+    state
+        .svc
+        .mem
+        .graph_alias(&b.alias, &b.canonical)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!({ "ok": true, "alias": b.alias, "canonical": b.canonical })))
+    Ok(Json(
+        serde_json::json!({ "ok": true, "alias": b.alias, "canonical": b.canonical }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -238,7 +280,10 @@ pub async fn mem_graph_tunnels(
     Query(p): Query<GraphTunnelsParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let tunnels = state.svc.mem.graph_tunnels(p.include_invalidated)
+    let tunnels = state
+        .svc
+        .mem
+        .graph_tunnels(p.include_invalidated)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "tunnels": tunnels })))
 }
@@ -248,27 +293,42 @@ pub async fn mem_graph_full(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let dump = state.svc.mem.graph_full()
+    let dump = state
+        .svc
+        .mem
+        .graph_full()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let nodes: Vec<serde_json::Value> = dump.nodes.iter().map(|n| serde_json::json!({
-        "id": n.id,
-        "kind": n.kind,
-        "title": n.title,
-        "summary": n.summary,
-        "area": n.area,
-        "importance": n.importance,
-        "tags": n.tags,
-        "has_vector": n.has_vector,
-        "has_body": n.has_body,
-    })).collect();
-    let edges: Vec<serde_json::Value> = dump.edges.iter().map(|e| serde_json::json!({
-        "from": e.from,
-        "to": e.to,
-        "rel": e.rel,
-        "confidence": e.confidence,
-        "valid_from": e.valid_from,
-        "valid_to": e.valid_to,
-    })).collect();
+    let nodes: Vec<serde_json::Value> = dump
+        .nodes
+        .iter()
+        .map(|n| {
+            serde_json::json!({
+                "id": n.id,
+                "kind": n.kind,
+                "title": n.title,
+                "summary": n.summary,
+                "area": n.area,
+                "importance": n.importance,
+                "tags": n.tags,
+                "has_vector": n.has_vector,
+                "has_body": n.has_body,
+            })
+        })
+        .collect();
+    let edges: Vec<serde_json::Value> = dump
+        .edges
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "from": e.from,
+                "to": e.to,
+                "rel": e.rel,
+                "confidence": e.confidence,
+                "valid_from": e.valid_from,
+                "valid_to": e.valid_to,
+            })
+        })
+        .collect();
     Ok(Json(serde_json::json!({
         "nodes": nodes,
         "edges": edges,
@@ -283,8 +343,12 @@ pub async fn mem_graph_full(
 
 use crate::mem::graph_repair::{EntitySimilarityStrategy, RelationColumn};
 
-fn default_repair_limit() -> usize { 50 }
-fn default_actor() -> String { "user".to_string() }
+fn default_repair_limit() -> usize {
+    50
+}
+fn default_actor() -> String {
+    "user".to_string()
+}
 
 #[derive(Deserialize)]
 pub struct RepairFindRelationsBody {
@@ -299,7 +363,10 @@ pub async fn mem_graph_repair_find_relations(
     Json(b): Json<RepairFindRelationsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let groups = state.svc.mem.graph_find_duplicate_relations(&b.group_by, b.limit)
+    let groups = state
+        .svc
+        .mem
+        .graph_find_duplicate_relations(&b.group_by, b.limit)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "groups": groups })))
 }
@@ -317,7 +384,10 @@ pub async fn mem_graph_repair_delete_relations(
     Json(b): Json<RepairDeleteRelationsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let deleted = state.svc.mem.graph_delete_relations(&b.rowids, &b.actor)
+    let deleted = state
+        .svc
+        .mem
+        .graph_delete_relations(&b.rowids, &b.actor)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "deleted": deleted })))
 }
@@ -336,7 +406,10 @@ pub async fn mem_graph_repair_merge_relations(
     Json(b): Json<RepairMergeRelationsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let report = state.svc.mem.graph_merge_relations(b.keep, &b.merge, &b.actor)
+    let report = state
+        .svc
+        .mem
+        .graph_merge_relations(b.keep, &b.merge, &b.actor)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "report": report })))
 }
@@ -354,7 +427,10 @@ pub async fn mem_graph_repair_find_entities(
     Json(b): Json<RepairFindEntitiesBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let groups = state.svc.mem.graph_find_duplicate_entities(b.strategy, b.limit)
+    let groups = state
+        .svc
+        .mem
+        .graph_find_duplicate_entities(b.strategy, b.limit)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "groups": groups })))
 }
@@ -373,7 +449,10 @@ pub async fn mem_graph_repair_augment_entity(
     Json(b): Json<RepairAugmentEntityBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    state.svc.mem.graph_augment_entity(&b.id, b.patch, &b.actor)
+    state
+        .svc
+        .mem
+        .graph_augment_entity(&b.id, b.patch, &b.actor)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -395,7 +474,10 @@ pub async fn mem_graph_repair_delete_entity(
     Json(b): Json<RepairDeleteEntityBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let report = state.svc.mem.graph_delete_entity(&b.id, b.force, b.purge_history, &b.actor)
+    let report = state
+        .svc
+        .mem
+        .graph_delete_entity(&b.id, b.force, b.purge_history, &b.actor)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "report": report })))
 }
@@ -414,7 +496,10 @@ pub async fn mem_graph_repair_orphan_vectors(
     Json(b): Json<RepairOrphanVectorsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let report = state.svc.mem.graph_repair_orphan_vectors(b.dry_run, &b.actor)
+    let report = state
+        .svc
+        .mem
+        .graph_repair_orphan_vectors(b.dry_run, &b.actor)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "report": report })))
 }
@@ -433,7 +518,10 @@ pub async fn mem_graph_repair_orphan_blobs(
     Json(b): Json<RepairOrphanBlobsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let report = state.svc.mem.graph_repair_orphan_blobs(b.dry_run, &b.actor)
+    let report = state
+        .svc
+        .mem
+        .graph_repair_orphan_blobs(b.dry_run, &b.actor)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "report": report })))
 }

@@ -147,18 +147,42 @@ mod tests {
         };
         let cmd = build_launch_command(&params);
         if cfg!(target_os = "windows") {
-            assert!(cmd.contains("Get-Content "), "headless must use Get-Content pipe: {}", cmd);
-            assert!(cmd.contains("-Raw -Encoding UTF8 |"), "missing pipe: {}", cmd);
+            assert!(
+                cmd.contains("Get-Content "),
+                "headless must use Get-Content pipe: {}",
+                cmd
+            );
+            assert!(
+                cmd.contains("-Raw -Encoding UTF8 |"),
+                "missing pipe: {}",
+                cmd
+            );
         } else {
             assert!(cmd.contains("cat "), "headless must use cat pipe: {}", cmd);
             assert!(cmd.contains(" |"), "missing pipe: {}", cmd);
         }
-        assert!(cmd.contains(".ct-task-"), "task file path expected: {}", cmd);
+        assert!(
+            cmd.contains(".ct-task-"),
+            "task file path expected: {}",
+            cmd
+        );
         assert!(cmd.contains("claude"), "claude bin: {}", cmd);
         assert!(cmd.contains(" -p"), "headless must add -p: {}", cmd);
-        assert!(cmd.contains("--output-format stream-json"), "headless must request stream-json: {}", cmd);
-        assert!(cmd.contains("--verbose"), "stream-json with -p requires --verbose: {}", cmd);
-        assert!(cmd.contains("--allowedTools Bash"), "headless must allow Bash tool for multi-turn: {}", cmd);
+        assert!(
+            cmd.contains("--output-format stream-json"),
+            "headless must request stream-json: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains("--verbose"),
+            "stream-json with -p requires --verbose: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains("--allowedTools Bash"),
+            "headless must allow Bash tool for multi-turn: {}",
+            cmd
+        );
         assert!(cmd.contains("--dangerously-skip-permissions"));
         assert!(
             !cmd.contains("(Get-Content"),
@@ -185,7 +209,11 @@ mod tests {
         };
         let cmd = build_launch_command(&params);
         assert!(!cmd.contains(" -p"), "no -p without task: {}", cmd);
-        assert!(!cmd.contains("--output-format"), "no stream-json without task: {}", cmd);
+        assert!(
+            !cmd.contains("--output-format"),
+            "no stream-json without task: {}",
+            cmd
+        );
         assert!(!cmd.contains("Get-Content"));
         assert!(!cmd.contains("cat "));
         assert!(cmd.contains("claude"));
@@ -244,8 +272,16 @@ mod tests {
             session_id: Some("my-pre-generated-uuid".to_string()),
         };
         let cmd = build_launch_command(&params);
-        assert!(cmd.contains("--session-id"), "must pass --session-id flag, got: {}", cmd);
-        assert!(cmd.contains("my-pre-generated-uuid"), "must include the chosen uuid, got: {}", cmd);
+        assert!(
+            cmd.contains("--session-id"),
+            "must pass --session-id flag, got: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains("my-pre-generated-uuid"),
+            "must include the chosen uuid, got: {}",
+            cmd
+        );
     }
 
     #[test]
@@ -261,7 +297,11 @@ mod tests {
             session_id: Some("should-not-appear".to_string()),
         };
         let cmd = build_launch_command(&params);
-        assert!(!cmd.contains("--session-id"), "headless launch must not pass --session-id, got: {}", cmd);
+        assert!(
+            !cmd.contains("--session-id"),
+            "headless launch must not pass --session-id, got: {}",
+            cmd
+        );
         assert!(!cmd.contains("should-not-appear"));
     }
 

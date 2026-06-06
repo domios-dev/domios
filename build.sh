@@ -131,6 +131,11 @@ case "$CMD" in
     install_cli_to "$HOME/.codeterm/bin"
     install_cli_to "$HOME/.codeterm-dev/bin"
     echo "Starting dev..."
+    # Mark the daemon as dev: bundle hashes are bypassed (live edits
+    # to <repo>/plugins/<id>/ don't trip the verifier) and the
+    # first-launch embedded extract is skipped so ~/.codeterm/plugins/
+    # doesn't shadow the workspace.
+    export CODETERM_DEV=1
 
     WAIT=0
     for arg in "${@:2}"; do

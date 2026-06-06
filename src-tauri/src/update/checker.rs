@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::InstallMethod;
+use serde::{Deserialize, Serialize};
 
 // Public mirror — anonymous-readable, no PAT required. Was previously
 // pointed at rollacode/codeterm (private) with an embedded UPDATER_TOKEN
@@ -63,10 +63,7 @@ pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateIn
         install_method: install_method.clone(),
         update_command,
         download_url,
-        release_url: resp["html_url"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
+        release_url: resp["html_url"].as_str().unwrap_or("").to_string(),
         release_notes: resp["body"].as_str().map(|s| s.to_string()),
         published_at: resp["published_at"].as_str().map(|s| s.to_string()),
     })
@@ -99,7 +96,9 @@ fn resolve_download_url(method: &InstallMethod, release: &serde_json::Value) -> 
         (InstallMethod::Dmg, "macos", _) => "_x64.dmg",
         (InstallMethod::Brew, "macos", "aarch64") => "_aarch64.dmg",
         (InstallMethod::Brew, "macos", _) => "_x64.dmg",
-        (InstallMethod::Nsis, "windows", _) | (InstallMethod::Scoop, "windows", _) => "_x64-setup.exe",
+        (InstallMethod::Nsis, "windows", _) | (InstallMethod::Scoop, "windows", _) => {
+            "_x64-setup.exe"
+        }
         (InstallMethod::Msi, "windows", _) => "_x64_en-US.msi",
         (InstallMethod::AppImage, "linux", _) => "_amd64.AppImage",
         (InstallMethod::Deb, "linux", _) => "_amd64.deb",

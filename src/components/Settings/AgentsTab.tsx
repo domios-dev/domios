@@ -46,7 +46,7 @@ export function AgentsOverview({
               <span className="text-xs text-[var(--ct-muted-fg)]">Provider</span>
               <div className="flex items-center gap-2">
                 <select
-                  value={config.general_agent?.agent_provider ?? "claude"}
+                  value={config.general_agent?.agent_provider ?? providers[0]?.id ?? ""}
                   onChange={(e) => onUpdate("general_agent", { agent_provider: e.target.value })}
                   className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                 >
@@ -213,13 +213,11 @@ function NotificationsGroup({
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onUpdateFullConfig: (next: AppConfig) => void;
 }) {
-  const { providers } = useAgentProviders();
-
   return (
     <SettingsCard
       icon={<Bell size={16} />}
       title="Notifications"
-      description="Get alerted when an agent finishes a task or needs your attention. Hooks auto-install on startup. Providers without hooks are notified via output detection."
+      description="Get alerted when an agent finishes a task or needs your attention. Hooks auto-install on startup."
     >
       <Toggle
         label="Desktop notifications"
@@ -246,20 +244,6 @@ function NotificationsGroup({
         hideActions
         hidePathLinks
       />
-
-      <div className="space-y-1.5">
-        {providers.map((p) => {
-          const installed = p.notifications_schema.length > 0;
-          return (
-            <div key={p.id} className="flex items-center justify-between">
-              <span className="text-xs text-[var(--ct-fg)]">{p.display_name}</span>
-              <SettingsPill tone={installed ? "green" : "muted"}>
-                {installed ? "installed" : "via output detection"}
-              </SettingsPill>
-            </div>
-          );
-        })}
-      </div>
     </SettingsCard>
   );
 }

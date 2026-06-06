@@ -55,7 +55,10 @@ fn ensure_ort_dylib() {
             return;
         }
     }
-    eprintln!("[codeterm-embed] no bundled libonnxruntime.dylib found near {}", dir.display());
+    eprintln!(
+        "[codeterm-embed] no bundled libonnxruntime.dylib found near {}",
+        dir.display()
+    );
 }
 
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
@@ -81,13 +84,16 @@ fn main() {
 
     let cache_dir = resolve_cache_dir();
     if let Err(e) = std::fs::create_dir_all(&cache_dir) {
-        eprintln!("[codeterm-embed] failed to create cache dir {}: {}", cache_dir.display(), e);
+        eprintln!(
+            "[codeterm-embed] failed to create cache dir {}: {}",
+            cache_dir.display(),
+            e
+        );
     }
     eprintln!("[codeterm-embed] cache_dir={}", cache_dir.display());
 
     let mut model = match TextEmbedding::try_new(
-        InitOptions::new(EmbeddingModel::ParaphraseMLMiniLML12V2)
-            .with_cache_dir(cache_dir),
+        InitOptions::new(EmbeddingModel::ParaphraseMLMiniLML12V2).with_cache_dir(cache_dir),
     ) {
         Ok(m) => m,
         Err(e) => {
@@ -107,13 +113,23 @@ fn main() {
             Ok(l) => l,
             Err(_) => break,
         };
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
 
         let req: Request = match serde_json::from_str(&line) {
             Ok(r) => r,
             Err(e) => {
-                let resp = Response { id: String::new(), embedding: None, error: Some(format!("parse: {}", e)) };
-                let _ = writeln!(stdout, "{}", serde_json::to_string(&resp).unwrap_or_default());
+                let resp = Response {
+                    id: String::new(),
+                    embedding: None,
+                    error: Some(format!("parse: {}", e)),
+                };
+                let _ = writeln!(
+                    stdout,
+                    "{}",
+                    serde_json::to_string(&resp).unwrap_or_default()
+                );
                 let _ = stdout.flush();
                 continue;
             }

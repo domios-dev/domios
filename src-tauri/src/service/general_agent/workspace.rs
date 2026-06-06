@@ -9,7 +9,9 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
     let general_cwd = general_dir().to_string_lossy().to_string();
 
     // Check by protected flag — the only reliable marker
-    let protected_ws: Vec<_> = mux.list_workspaces().iter()
+    let protected_ws: Vec<_> = mux
+        .list_workspaces()
+        .iter()
         .filter(|ws| ws.protected)
         .cloned()
         .collect();
@@ -19,7 +21,10 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
         for ws in &protected_ws[1..] {
             mux.set_workspace_protected(&ws.id, false);
             let _ = mux.close_workspace(&ws.id);
-            log::info!("[general-agent] Cleaned up duplicate protected workspace {}", ws.id);
+            log::info!(
+                "[general-agent] Cleaned up duplicate protected workspace {}",
+                ws.id
+            );
         }
     }
 
@@ -35,13 +40,19 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
                 pane.protected = true;
             }
             mux.register_alias(GENERAL_ALIAS, pid);
-            log::info!("[general-agent] Existing General workspace, alias for pane {}", pid);
+            log::info!(
+                "[general-agent] Existing General workspace, alias for pane {}",
+                pid
+            );
         }
         return;
     }
 
     // Create General workspace
-    let ws_info = mux.create_workspace(GENERAL_WORKSPACE_NAME.to_string(), Some(general_cwd.clone()));
+    let ws_info = mux.create_workspace(
+        GENERAL_WORKSPACE_NAME.to_string(),
+        Some(general_cwd.clone()),
+    );
     mux.set_workspace_protected(&ws_info.id, true);
     mux.move_workspace_to_front(&ws_info.id);
 
@@ -58,7 +69,11 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
             // Make General the active workspace + focused pane on first create
             let _ = mux.set_active_workspace(&ws_info.id);
             let _ = mux.set_focused_pane(&pane_id);
-            log::info!("[general-agent] Created General workspace {} with pane {}", ws_info.id, pane_id);
+            log::info!(
+                "[general-agent] Created General workspace {} with pane {}",
+                ws_info.id,
+                pane_id
+            );
         }
         Err(e) => {
             log::error!("[general-agent] Failed to create General tab: {}", e);

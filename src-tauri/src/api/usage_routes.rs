@@ -54,7 +54,9 @@ pub async fn usage_latest(
         .usage_store
         .get_latest(&q.provider, q.account_id.as_deref())
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage latest failed"))?;
-    Ok(Json(serde_json::to_value(row).unwrap_or(serde_json::json!(null))))
+    Ok(Json(
+        serde_json::to_value(row).unwrap_or(serde_json::json!(null)),
+    ))
 }
 
 pub async fn usage_history(
@@ -69,7 +71,9 @@ pub async fn usage_history(
         .usage_store
         .get_history(&q.provider, q.since, limit, q.account_id.as_deref())
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage history failed"))?;
-    Ok(Json(serde_json::to_value(rows).unwrap_or(serde_json::json!([]))))
+    Ok(Json(
+        serde_json::to_value(rows).unwrap_or(serde_json::json!([])),
+    ))
 }
 
 pub async fn usage_daily_rollup(
@@ -83,7 +87,9 @@ pub async fn usage_daily_rollup(
         .usage_store
         .get_daily_rollup(&q.provider, q.since)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage rollup failed"))?;
-    Ok(Json(serde_json::to_value(rows).unwrap_or(serde_json::json!([]))))
+    Ok(Json(
+        serde_json::to_value(rows).unwrap_or(serde_json::json!([])),
+    ))
 }
 
 pub async fn usage_projection(
@@ -100,7 +106,9 @@ pub async fn usage_projection(
         now_ms,
     )
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage projection failed"))?;
-    Ok(Json(serde_json::to_value(proj).unwrap_or(serde_json::json!(null))))
+    Ok(Json(
+        serde_json::to_value(proj).unwrap_or(serde_json::json!(null)),
+    ))
 }
 
 pub async fn usage_refresh(
@@ -115,5 +123,7 @@ pub async fn usage_refresh(
     };
     poller.refresh_now(&body.provider, body.account_id);
     let probe_id = format!("probe_{}", ulid::Ulid::new());
-    Ok(Json(serde_json::json!({ "queued": true, "probe_id": probe_id })))
+    Ok(Json(
+        serde_json::json!({ "queued": true, "probe_id": probe_id }),
+    ))
 }

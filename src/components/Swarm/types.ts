@@ -1,7 +1,7 @@
 export interface SwarmNode {
   id: string;          // pane_id
   title: string;
-  role: 'Orchestrator' | 'Lead' | 'Worker' | null;
+  role: 'Orchestrator' | 'Worker' | null;
   status: 'Working' | 'Waiting' | 'Idle' | 'Dead';
   parentId: string | null;
   x: number;           // computed position

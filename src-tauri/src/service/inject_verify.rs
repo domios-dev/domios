@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use regex::Regex;
 
-use crate::ScreenStateHandle;
 use crate::pty::screen_state::screen_has_shell_prompt;
+use crate::ScreenStateHandle;
 
 #[derive(Debug, Clone)]
 pub struct VerifyOpts {
@@ -39,10 +39,20 @@ pub struct InjectionResult {
 
 #[derive(Debug, Clone)]
 pub enum InjectionError {
-    PromptNeverReady { waited: Duration },
-    EchoMismatch { expected_substr: String, screen_tail: String },
-    SubmitNeverConfirmed { waited: Duration, screen_tail: String },
-    PtyClosed { pty_id: String },
+    PromptNeverReady {
+        waited: Duration,
+    },
+    EchoMismatch {
+        expected_substr: String,
+        screen_tail: String,
+    },
+    SubmitNeverConfirmed {
+        waited: Duration,
+        screen_tail: String,
+    },
+    PtyClosed {
+        pty_id: String,
+    },
 }
 
 impl std::fmt::Display for InjectionError {
@@ -51,14 +61,20 @@ impl std::fmt::Display for InjectionError {
             Self::PromptNeverReady { waited } => {
                 write!(f, "prompt never became ready after {:?}", waited)
             }
-            Self::EchoMismatch { expected_substr, screen_tail } => {
+            Self::EchoMismatch {
+                expected_substr,
+                screen_tail,
+            } => {
                 write!(
                     f,
                     "expected echo not found on screen; expected substring={:?}; screen_tail={:?}",
                     expected_substr, screen_tail
                 )
             }
-            Self::SubmitNeverConfirmed { waited, screen_tail } => {
+            Self::SubmitNeverConfirmed {
+                waited,
+                screen_tail,
+            } => {
                 write!(
                     f,
                     "submit not confirmed after {:?}; screen_tail={:?}",
@@ -202,12 +218,18 @@ pub fn wait_for_submit_shell(
     let deadline = std::time::Instant::now() + timeout;
     loop {
         if std::time::Instant::now() >= deadline {
-            let tail = screen_state.lock().tail_text(pty_id, tail_rows).unwrap_or_default();
+            let tail = screen_state
+                .lock()
+                .tail_text(pty_id, tail_rows)
+                .unwrap_or_default();
             return Err(HelperErr::Timeout(tail));
         }
         let (tail_opt, hash_now) = {
             let s = screen_state.lock();
-            (s.tail_text(pty_id, tail_rows), s.get_content_hash(pty_id, 0))
+            (
+                s.tail_text(pty_id, tail_rows),
+                s.get_content_hash(pty_id, 0),
+            )
         };
         let tail = match tail_opt {
             Some(t) => t,
@@ -300,10 +322,7 @@ mod tests {
 
     #[test]
     fn screen_contains_echo_normalizes_whitespace() {
-        assert!(screen_contains_echo(
-            "user@host:~$  ls    -la\n",
-            "ls -la",
-        ));
+        assert!(screen_contains_echo("user@host:~$  ls    -la\n", "ls -la",));
         assert!(screen_contains_echo(
             "line1\n   user@host:~$\tls\t-la\nline3",
             "ls -la",
@@ -339,7 +358,14 @@ mod tests {
         let body: String = "A".repeat(4900);
         let expected = format!("[Mesh: peer-a pane=abc12345] {} TAIL_TOKEN_END", body);
         // Tail captured by screen_state contains only the last ~640 chars of the paste.
-        let visible_tail: String = expected.chars().rev().take(600).collect::<String>().chars().rev().collect();
+        let visible_tail: String = expected
+            .chars()
+            .rev()
+            .take(600)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect();
         assert!(
             screen_contains_echo(&visible_tail, &expected),
             "long paste should match via suffix even when prefix scrolled out"
@@ -398,7 +424,9 @@ mod tests {
     #[test]
     fn placeholder_regex_matches_singular_and_plural_lines() {
         assert!(screen_has_paste_placeholder("> [Pasted text #1 +1 line]"));
-        assert!(screen_has_paste_placeholder("> [Pasted text #99 +250 lines]"));
+        assert!(screen_has_paste_placeholder(
+            "> [Pasted text #99 +250 lines]"
+        ));
         // v1.1.19 widened the regex to also accept the bare `[Pasted text #N]`
         // shape (without the trailing `+M lines` suffix).
         assert!(screen_has_paste_placeholder("> [Pasted text #1]"));
@@ -478,7 +506,13 @@ mod tests {
             std::thread::sleep(Duration::from_millis(40));
             feed(&h2, "p1", b"\nfile_a\nfile_b\nuser@host:/tmp$ ");
         });
-        let res = wait_for_submit_shell(&h, "p1", hash_before, Duration::from_secs(1), TEST_TAIL_ROWS);
+        let res = wait_for_submit_shell(
+            &h,
+            "p1",
+            hash_before,
+            Duration::from_secs(1),
+            TEST_TAIL_ROWS,
+        );
         join.join().unwrap();
         assert!(res.is_ok(), "expected new prompt to be observed");
     }

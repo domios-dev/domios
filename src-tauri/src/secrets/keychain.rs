@@ -42,22 +42,16 @@ type Shadow = Arc<Mutex<std::collections::HashMap<String, String>>>;
 enum Backend {
     /// OS keychain via the `keyring` crate.
     #[cfg(feature = "secrets-keyring")]
-    Os {
-        service: String,
-    },
+    Os { service: String },
     /// Plain JSON file at `<data_dir>/keychain/<service>.json`,
     /// permissions 0600. Used in dev builds (where every rebuild changes
     /// the binary signature and macOS prompts on every keychain access)
     /// and on platforms where the OS keychain is unavailable. The bytes
     /// are still secret-grade; the only protection is filesystem perms.
-    File {
-        path: std::path::PathBuf,
-    },
+    File { path: std::path::PathBuf },
     /// Pure in-memory — used in tests when the caller has decided
     /// persistence is not wanted.
-    InMemory {
-        reason: String,
-    },
+    InMemory { reason: String },
 }
 
 #[derive(Clone)]
@@ -119,7 +113,9 @@ impl Keychain {
                 e
             );
             return Self {
-                backend: Backend::InMemory { reason: format!("mkdir {}: {}", dir.display(), e) },
+                backend: Backend::InMemory {
+                    reason: format!("mkdir {}: {}", dir.display(), e),
+                },
                 shadow: Arc::new(Mutex::new(std::collections::HashMap::new())),
                 available: false,
             };
@@ -164,8 +160,7 @@ impl Keychain {
         match &self.backend {
             #[cfg(feature = "secrets-keyring")]
             Backend::Os { service } => {
-                let entry =
-                    keyring::Entry::new(service, account).map_err(map_kr_err)?;
+                let entry = keyring::Entry::new(service, account).map_err(map_kr_err)?;
                 entry.set_password(value).map_err(map_kr_err)
             }
             Backend::File { path } => write_file_entry(path, account, Some(value)),
@@ -180,19 +175,14 @@ impl Keychain {
         match &self.backend {
             #[cfg(feature = "secrets-keyring")]
             Backend::Os { service } => {
-                let entry =
-                    keyring::Entry::new(service, account).map_err(map_kr_err)?;
+                let entry = keyring::Entry::new(service, account).map_err(map_kr_err)?;
                 let v = entry.get_password().map_err(map_kr_err)?;
-                self.shadow
-                    .lock()
-                    .insert(account.to_string(), v.clone());
+                self.shadow.lock().insert(account.to_string(), v.clone());
                 Ok(v)
             }
             Backend::File { path } => {
                 let v = read_file_entry(path, account)?;
-                self.shadow
-                    .lock()
-                    .insert(account.to_string(), v.clone());
+                self.shadow.lock().insert(account.to_string(), v.clone());
                 Ok(v)
             }
             Backend::InMemory { .. } => Err(KeychainError::NotFound),
@@ -204,8 +194,7 @@ impl Keychain {
         match &self.backend {
             #[cfg(feature = "secrets-keyring")]
             Backend::Os { service } => {
-                let entry =
-                    keyring::Entry::new(service, account).map_err(map_kr_err)?;
+                let entry = keyring::Entry::new(service, account).map_err(map_kr_err)?;
                 match entry.delete_credential() {
                     Ok(()) => Ok(()),
                     Err(keyring::Error::NoEntry) => Ok(()),
@@ -233,16 +222,20 @@ fn read_file_entry(path: &std::path::Path, account: &str) -> Result<String, Keyc
     let raw = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(KeychainError::NotFound),
-        Err(e) => return Err(KeychainError::Other(format!("read {}: {}", path.display(), e))),
+        Err(e) => {
+            return Err(KeychainError::Other(format!(
+                "read {}: {}",
+                path.display(),
+                e
+            )))
+        }
     };
     if raw.trim().is_empty() {
         return Err(KeychainError::NotFound);
     }
     let map: std::collections::HashMap<String, String> = serde_json::from_str(&raw)
         .map_err(|e| KeychainError::Other(format!("parse {}: {}", path.display(), e)))?;
-    map.get(account)
-        .cloned()
-        .ok_or(KeychainError::NotFound)
+    map.get(account).cloned().ok_or(KeychainError::NotFound)
 }
 
 /// Write or remove an account in a file-backed keychain. Atomic rename

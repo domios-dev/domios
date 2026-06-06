@@ -98,7 +98,9 @@ impl PromptDetector {
         // Hooks are authoritative — skip cooldown check
         let state = self.states.get(pane_id);
         match state {
-            Some(PanePromptState::Active { prompt: existing, .. }) => {
+            Some(PanePromptState::Active {
+                prompt: existing, ..
+            }) => {
                 if same_options(&existing.options, &prompt.options) {
                     return PromptDecision::None;
                 }
@@ -142,13 +144,25 @@ impl PromptDetector {
     {
         // Hooks are authoritative — skip cooldown, always parse
         let parsed = parse_fn(clean_ring_text);
-        log::info!("[prompt] hook_detected_parse for {}: parsed={}, text_len={}", pane_id, parsed.is_some(), clean_ring_text.len());
+        log::info!(
+            "[prompt] hook_detected_parse for {}: parsed={}, text_len={}",
+            pane_id,
+            parsed.is_some(),
+            clean_ring_text.len()
+        );
         if parsed.is_none() && clean_ring_text.len() > 100 {
-            log::info!("[prompt] screen tail: {:?}", &clean_ring_text[clean_ring_text.len().saturating_sub(300)..]);
+            log::info!(
+                "[prompt] screen tail: {:?}",
+                &clean_ring_text[clean_ring_text.len().saturating_sub(300)..]
+            );
         }
         match parsed {
             Some((question, opts)) => {
-                log::info!("[prompt] parsed question={:?}, opts={}", question, opts.len());
+                log::info!(
+                    "[prompt] parsed question={:?}, opts={}",
+                    question,
+                    opts.len()
+                );
                 let prompt = build_prompt(question, opts);
                 self.hook_detected_explicit(pane_id, prompt)
             }
@@ -185,19 +199,16 @@ impl PromptDetector {
         self.states.remove(pane_id);
     }
 
-    fn detect_and_transition<F>(
-        &mut self,
-        pane_id: &str,
-        text: &str,
-        parse_fn: F,
-    ) -> PromptDecision
+    fn detect_and_transition<F>(&mut self, pane_id: &str, text: &str, parse_fn: F) -> PromptDecision
     where
         F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
     {
         let state = self.states.get(pane_id);
 
         match state {
-            Some(PanePromptState::Active { prompt: existing, .. }) => {
+            Some(PanePromptState::Active {
+                prompt: existing, ..
+            }) => {
                 match parse_fn(text) {
                     Some((question, opts)) => {
                         let new_prompt = build_prompt(question, opts);
@@ -219,7 +230,8 @@ impl PromptDetector {
                     }
                     None => {
                         // Prompt gone from screen — user answered in terminal
-                        self.states.insert(pane_id.to_string(), PanePromptState::Idle);
+                        self.states
+                            .insert(pane_id.to_string(), PanePromptState::Idle);
                         PromptDecision::PromptCleared {
                             pane_id: pane_id.to_string(),
                         }
@@ -231,22 +243,16 @@ impl PromptDetector {
                 if responded_at.elapsed().as_millis() < self.cooldown_ms as u128 {
                     return PromptDecision::None;
                 }
-                self.states.insert(pane_id.to_string(), PanePromptState::Idle);
+                self.states
+                    .insert(pane_id.to_string(), PanePromptState::Idle);
                 self.try_detect(pane_id, text, parse_fn)
             }
 
-            Some(PanePromptState::Idle) | None => {
-                self.try_detect(pane_id, text, parse_fn)
-            }
+            Some(PanePromptState::Idle) | None => self.try_detect(pane_id, text, parse_fn),
         }
     }
 
-    fn try_detect<F>(
-        &mut self,
-        pane_id: &str,
-        text: &str,
-        parse_fn: F,
-    ) -> PromptDecision
+    fn try_detect<F>(&mut self, pane_id: &str, text: &str, parse_fn: F) -> PromptDecision
     where
         F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
     {
@@ -287,7 +293,9 @@ fn same_options(a: &[PromptOption], b: &[PromptOption]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter().zip(b.iter()).all(|(x, y)| x.value == y.value && x.label == y.label)
+    a.iter()
+        .zip(b.iter())
+        .all(|(x, y)| x.value == y.value && x.label == y.label)
 }
 
 #[cfg(test)]
@@ -442,7 +450,8 @@ mod tests {
         let mut det = PromptDetector::new();
         det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         // Prompt disappears from screen (user answered in terminal)
-        let decision = det.evaluate_pty_output("pane-1", true, Some("no prompt here"), parse_yes_no);
+        let decision =
+            det.evaluate_pty_output("pane-1", true, Some("no prompt here"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::PromptCleared { .. }));
         assert!(det.active_prompt("pane-1").is_none());
     }

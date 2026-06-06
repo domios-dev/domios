@@ -87,7 +87,8 @@ impl InputParser {
         }
         let first = trimmed.split_whitespace().next()?;
         let token = first.trim_matches(|c: char| c == '"' || c == '\'');
-        let basename = token.rsplit_once(|c| c == '/' || c == '\\')
+        let basename = token
+            .rsplit_once(|c| c == '/' || c == '\\')
             .map(|(_, name)| name)
             .unwrap_or(token);
         let basename = basename.to_ascii_lowercase();
@@ -112,39 +113,76 @@ mod tests {
         binary: &'static str,
     }
     impl AgentProvider for FakeProvider {
-        fn id(&self) -> &str { self.id }
-        fn display_name(&self) -> &str { self.id }
-        fn binary_name(&self) -> &str { self.binary }
-        fn build_launch_command(&self, _: &AgentLaunchParams) -> String { String::new() }
-        fn readiness_strategy(&self) -> ReadinessStrategy {
-            ReadinessStrategy::FixedDelay { duration: Duration::from_secs(0) }
+        fn id(&self) -> &str {
+            self.id
         }
-        fn task_delivery(&self) -> TaskDelivery { TaskDelivery::PtyInput }
-        fn detect_from_title(&self, _: &str) -> bool { false }
-        fn detect_from_output(&self, _: &str) -> bool { false }
-        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> { None }
-        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> { None }
-        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> { None }
+        fn display_name(&self) -> &str {
+            self.id
+        }
+        fn binary_name(&self) -> &str {
+            self.binary
+        }
+        fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+            String::new()
+        }
+        fn readiness_strategy(&self) -> ReadinessStrategy {
+            ReadinessStrategy::FixedDelay {
+                duration: Duration::from_secs(0),
+            }
+        }
+        fn task_delivery(&self) -> TaskDelivery {
+            TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+            None
+        }
+        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+            None
+        }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
     }
 
     fn registry() -> Arc<AgentRegistry> {
         let r = AgentRegistry::new();
-        r.register_provider(Box::new(FakeProvider { id: "claude", binary: "claude" }));
-        r.register_provider(Box::new(FakeProvider { id: "codex", binary: "codex" }));
-        r.register_provider(Box::new(FakeProvider { id: "opencode", binary: "opencode" }));
+        r.register_provider(Box::new(FakeProvider {
+            id: "claude",
+            binary: "claude",
+        }));
+        r.register_provider(Box::new(FakeProvider {
+            id: "codex",
+            binary: "codex",
+        }));
+        r.register_provider(Box::new(FakeProvider {
+            id: "opencode",
+            binary: "opencode",
+        }));
         Arc::new(r)
     }
 
     #[test]
     fn matches_simple_command_with_flags() {
         let p = InputParser::new(registry());
-        assert_eq!(p.process("pane1", b"codex --foo\r").as_deref(), Some("codex"));
+        assert_eq!(
+            p.process("pane1", b"codex --foo\r").as_deref(),
+            Some("codex")
+        );
     }
 
     #[test]
     fn matches_relative_path_prefix() {
         let p = InputParser::new(registry());
-        assert_eq!(p.process("pane1", b"./codex resume xyz\r").as_deref(), Some("codex"));
+        assert_eq!(
+            p.process("pane1", b"./codex resume xyz\r").as_deref(),
+            Some("codex")
+        );
     }
 
     #[test]
@@ -213,7 +251,10 @@ mod tests {
         huge.extend_from_slice(b"codex");
         huge.extend(std::iter::repeat(b'a').take(MAX_BUFFERED_LINE));
         huge.push(b'\r');
-        assert!(p.process("pane1", &huge).is_none(), "poisoned line must not match");
+        assert!(
+            p.process("pane1", &huge).is_none(),
+            "poisoned line must not match"
+        );
         // After the \r resets, fresh codex<Enter> resolves cleanly.
         assert_eq!(p.process("pane1", b"codex\r").as_deref(), Some("codex"));
     }

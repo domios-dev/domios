@@ -1,0 +1,43 @@
+{
+  "id": "opencode",
+  "version": "0.1.0",
+  "displayName": "OpenCode",
+  "binaryName": "opencode",
+  "cliBinary": "opencode",
+  "iconHint": "◇",
+  "iconColor": "var(--ct-fg)",
+  "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\" fill-rule=\"evenodd\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M5 3 H19 V21 H5 Z M9 7 H15 V17 H9 Z\"/></svg>",
+  "entry": "plugin.js",
+  "spawn": {
+    "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
+    "taskDelivery": "pty_input",
+    "taskInputWarmupMs": 5000,
+    "verifySubmit": {
+      "kind": "tui_input_drained",
+      "timeoutSecs": 15,
+      "idleAfterDrainMs": 800
+    },
+    "sessionIdInjection": "none",
+    "statusBarRows": 2,
+    "preservesContextOnResume": true,
+    "supportsLazySkills": false,
+    "hasHooks": false
+  },
+  "models": [
+    { "id": "anthropic/claude-opus-4-7", "displayName": "Claude Opus 4.7", "description": "Anthropic Opus via opencode router." },
+    { "id": "anthropic/claude-sonnet-4-6", "displayName": "Claude Sonnet 4.6", "description": "Anthropic Sonnet via opencode router." }
+  ],
+  "defaultModel": "anthropic/claude-opus-4-7",
+  "installer": {
+    "macos": "curl -fsSL https://opencode.ai/install | bash",
+    "linux": "curl -fsSL https://opencode.ai/install | bash",
+    "windows": "npm install -g opencode-ai"
+  },
+  "commands": {
+    "compact": "/compact",
+    "exit": "/exit",
+    "stopKey": "\u001b",
+    "autoApproveFlags": ["--dangerously-skip-permissions"],
+    "modelLaunchArgsFormat": ["-m", "{model}"]
+  }
+}

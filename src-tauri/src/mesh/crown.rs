@@ -37,7 +37,10 @@ pub struct SignedRequest {
 pub fn generate_peer_keypair() -> (String, String) {
     let signing_key = SigningKey::generate(&mut OsRng);
     let verifying_key = signing_key.verifying_key();
-    (B64.encode(signing_key.to_bytes()), B64.encode(verifying_key.to_bytes()))
+    (
+        B64.encode(signing_key.to_bytes()),
+        B64.encode(verifying_key.to_bytes()),
+    )
 }
 
 /// Derive the Ed25519 public key from a base64-encoded private key.
@@ -97,9 +100,11 @@ pub fn verify_signed_request(
     }
 
     // Decode payload to get instance_id
-    let payload_bytes = B64.decode(parts[0]).map_err(|e| format!("Bad payload: {}", e))?;
-    let req: SignedRequest = serde_json::from_slice(&payload_bytes)
-        .map_err(|e| format!("Bad request claims: {}", e))?;
+    let payload_bytes = B64
+        .decode(parts[0])
+        .map_err(|e| format!("Bad payload: {}", e))?;
+    let req: SignedRequest =
+        serde_json::from_slice(&payload_bytes).map_err(|e| format!("Bad request claims: {}", e))?;
 
     // Check timestamp (5 minute window, reject future-dated)
     let now = std::time::SystemTime::now()
@@ -114,12 +119,15 @@ pub fn verify_signed_request(
     }
 
     // Find public key for this instance
-    let pubkey_b64 = known_keys.get(&req.from_instance_id)
+    let pubkey_b64 = known_keys
+        .get(&req.from_instance_id)
         .ok_or_else(|| format!("Unknown peer: {}", req.from_instance_id))?;
 
     // Verify signature
     let vk = verifying_key_from_b64(pubkey_b64)?;
-    let sig_bytes = B64.decode(parts[1]).map_err(|e| format!("Bad signature: {}", e))?;
+    let sig_bytes = B64
+        .decode(parts[1])
+        .map_err(|e| format!("Bad signature: {}", e))?;
     if sig_bytes.len() != 64 {
         return Err("Invalid signature length".to_string());
     }
@@ -139,9 +147,11 @@ pub fn nonce_from_token(token: &str) -> Result<String, String> {
     if parts.len() != 2 {
         return Err("Invalid token format".to_string());
     }
-    let payload_bytes = B64.decode(parts[0]).map_err(|e| format!("Bad payload: {}", e))?;
-    let req: SignedRequest = serde_json::from_slice(&payload_bytes)
-        .map_err(|e| format!("Bad claims: {}", e))?;
+    let payload_bytes = B64
+        .decode(parts[0])
+        .map_err(|e| format!("Bad payload: {}", e))?;
+    let req: SignedRequest =
+        serde_json::from_slice(&payload_bytes).map_err(|e| format!("Bad claims: {}", e))?;
     Ok(req.nonce)
 }
 

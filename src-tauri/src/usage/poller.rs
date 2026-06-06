@@ -25,7 +25,9 @@ impl PaneActivity {
     }
 
     pub fn mark(&self, pane_id: &str) {
-        self.inner.lock().insert(pane_id.to_string(), Instant::now());
+        self.inner
+            .lock()
+            .insert(pane_id.to_string(), Instant::now());
     }
 
     pub fn forget(&self, pane_id: &str) {
@@ -108,7 +110,14 @@ impl UsagePoller {
         // Skip spawn if a probe is already running. run_probe_for is the
         // definitive guard, but checking here avoids spawning a task that
         // would immediately return.
-        if self.inner.accounts.lock().get(&key).map(|s| s.in_flight).unwrap_or(false) {
+        if self
+            .inner
+            .accounts
+            .lock()
+            .get(&key)
+            .map(|s| s.in_flight)
+            .unwrap_or(false)
+        {
             return;
         }
         let inner = self.inner.clone();
@@ -116,7 +125,9 @@ impl UsagePoller {
             if let Err(e) = run_probe_for(inner, key.clone()).await {
                 log::warn!(
                     "[usage.poller] manual refresh probe {:?}/{:?} failed: {}",
-                    key.provider, key.account_id, e
+                    key.provider,
+                    key.account_id,
+                    e
                 );
             }
         });
@@ -165,7 +176,9 @@ async fn tick(inner: &Arc<UsagePollerInner>) -> Result<(), String> {
         if let Err(e) = run_probe_for(inner.clone(), key.clone()).await {
             log::warn!(
                 "[usage.poller] probe {:?}/{:?} failed: {}",
-                key.provider, key.account_id, e
+                key.provider,
+                key.account_id,
+                e
             );
         }
     }
@@ -214,10 +227,7 @@ fn current_backoff(idx: usize) -> Duration {
     }
 }
 
-async fn run_probe_for(
-    inner: Arc<UsagePollerInner>,
-    key: AccountKey,
-) -> Result<(), String> {
+async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<(), String> {
     {
         let mut accounts = inner.accounts.lock();
         let state = accounts.entry(key.clone()).or_default();
@@ -282,12 +292,10 @@ async fn run_probe_for(
         }
         Err(e) => {
             let msg = e.to_string();
-            let _ = inner.store.insert_failure(
-                &key.provider,
-                key.account_id.as_deref(),
-                None,
-                &msg,
-            );
+            let _ =
+                inner
+                    .store
+                    .insert_failure(&key.provider, key.account_id.as_deref(), None, &msg);
             on_failure(&inner, &key, &msg);
         }
     }
@@ -310,9 +318,13 @@ fn on_success(inner: &Arc<UsagePollerInner>, key: &AccountKey) {
     // previous probe; otherwise climb one step (capped at the longest).
     let panes = visible_panes_for_provider(&inner.svc, &key.provider);
     let active_recently = match last_probe {
-        Some(probe_at) => panes
-            .iter()
-            .any(|p| inner.activity.get(p).map(|act| act > probe_at).unwrap_or(false)),
+        Some(probe_at) => panes.iter().any(|p| {
+            inner
+                .activity
+                .get(p)
+                .map(|act| act > probe_at)
+                .unwrap_or(false)
+        }),
         None => true,
     };
     let mut accounts = inner.accounts.lock();
@@ -367,11 +379,7 @@ fn visible_panes_for_provider(svc: &ServiceContext, provider: &str) -> Vec<Strin
     let snap = mux.snapshot();
     snap.panes
         .values()
-        .filter(|p| {
-            !p.hidden
-                && p.agent_type.as_deref() == Some(provider)
-                && p.pty_id.is_some()
-        })
+        .filter(|p| !p.hidden && p.agent_type.as_deref() == Some(provider) && p.pty_id.is_some())
         .map(|p| p.id.clone())
         .collect()
 }
@@ -386,6 +394,8 @@ fn emit_event(svc: &ServiceContext, key: &AccountKey, snapshot_id: i64) {
         "account_id": key.account_id,
         "snapshot_id": snapshot_id,
     });
-    let _ = svc.app_handle.emit("usage-snapshot-updated", payload.clone());
+    let _ = svc
+        .app_handle
+        .emit("usage-snapshot-updated", payload.clone());
     svc.events.broadcast("usage-snapshot-updated", payload);
 }

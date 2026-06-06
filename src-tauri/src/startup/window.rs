@@ -38,7 +38,8 @@ pub(crate) fn setup_window_styling(window: &tauri::WebviewWindow) {
             // Hide traffic light buttons
             use objc2::msg_send;
             for i in 0..3_isize {
-                let btn: *mut objc2::runtime::AnyObject = msg_send![ns_window, standardWindowButton: i];
+                let btn: *mut objc2::runtime::AnyObject =
+                    msg_send![ns_window, standardWindowButton: i];
                 if !btn.is_null() {
                     let _: () = msg_send![btn, setHidden: true];
                 }
@@ -49,8 +50,8 @@ pub(crate) fn setup_window_styling(window: &tauri::WebviewWindow) {
 
 /// Build and configure the system tray icon and menu.
 pub(crate) fn build_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
     use tauri::menu::{MenuBuilder, MenuItemBuilder};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
     let show = MenuItemBuilder::with_id("show", "Show CodeTerm").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
@@ -68,10 +69,13 @@ pub(crate) fn build_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::err
         let bytes = include_bytes!("../../icons/32x32.png");
 
         let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
-            .read_info().expect("Failed to decode tray icon PNG");
+            .read_info()
+            .expect("Failed to decode tray icon PNG");
         let info = reader.info().clone();
         let mut rgba = vec![0u8; reader.output_buffer_size()];
-        reader.next_frame(&mut rgba).expect("Failed to read tray icon frame");
+        reader
+            .next_frame(&mut rgba)
+            .expect("Failed to read tray icon frame");
         tauri::image::Image::new_owned(rgba, info.width, info.height)
     };
 
@@ -80,22 +84,25 @@ pub(crate) fn build_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::err
         .icon(tray_icon)
         .icon_as_template(cfg!(target_os = "macos"))
         .menu(&menu)
-        .on_menu_event(move |app, event| {
-            match event.id().as_ref() {
-                "show" => {
-                    if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
+        .on_menu_event(move |app, event| match event.id().as_ref() {
+            "show" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
                 }
-                "quit" => {
-                    app.exit(0);
-                }
-                _ => {}
             }
+            "quit" => {
+                app.exit(0);
+            }
+            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
                 if let Some(w) = tray.app_handle().get_webview_window("main") {
                     let _ = w.show();
                     let _ = w.set_focus();

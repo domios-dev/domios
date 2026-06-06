@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMultiplexer } from "../../store/multiplexer";
 import {
@@ -16,6 +17,13 @@ import { registerPanePaste } from "../../lib/panePasteRegistry";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
+import { PaneSessionChat } from "./PaneSessionChat";
+import {
+  isChatUiSupported,
+  isPaneUiModeEvent,
+  shouldDefaultNewAgentPaneToChat,
+  type PaneUiMode,
+} from "../../lib/chatUiMode";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 
 interface TerminalPaneProps {
@@ -42,9 +50,14 @@ export function TerminalPane({
   terminalConfig,
 }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const fallbackShellRef = useRef<HTMLDivElement>(null);
   const connectedPtyRef = useRef<string | null>(null);
 
-  const { updatePaneStatus } = useMultiplexer();
+  const { state, updatePaneStatus } = useMultiplexer();
+  const pane = state.panes[paneId];
+  const agentType = pane?.agent_type;
+  const chatSupported = isChatUiSupported(agentType);
+  const sessionReadyForChat = Boolean(pane?.agent_session_id);
 
   // --- Terminal lifecycle ---
   const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
@@ -81,13 +94,64 @@ export function TerminalPane({
   // --- Agent detection ---
   useAgentDetection({ termRef, paneId, termReady });
 
+  // --- UI state ---
+  const [uiMode, setUiMode] = useState<PaneUiMode>(() => (
+    chatSupported
+      && sessionReadyForChat
+      && (pane?.chat_view || shouldDefaultNewAgentPaneToChat(agentType))
+      ? "chat"
+      : "terminal"
+  ));
+  const userModeOverrideRef = useRef<PaneUiMode | null>(null);
+  const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    if (uiMode !== "chat") {
+      void invoke("chat_stop", { paneId }).catch(() => {});
+    }
+  }, [paneId, uiMode]);
+
+  useEffect(() => {
+    const defaultMode: PaneUiMode = chatSupported
+      && sessionReadyForChat
+      && (pane?.chat_view || shouldDefaultNewAgentPaneToChat(agentType))
+      ? "chat"
+      : "terminal";
+    const desiredMode = userModeOverrideRef.current ?? defaultMode;
+    setUiMode((mode) => mode === desiredMode ? mode : desiredMode);
+    if (desiredMode === "chat" && !pane?.chat_view) {
+      void invoke("mux_set_chat_view", { paneId, enabled: true }).catch(() => {});
+    }
+  }, [agentType, chatSupported, sessionReadyForChat, pane?.chat_view, paneId]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      if (!isPaneUiModeEvent(event)) return;
+      if (event.detail.paneId !== paneId) return;
+      setTerminalFallbackOpen(false);
+      const requested = event.detail.mode;
+      userModeOverrideRef.current = requested;
+      void invoke("mux_set_chat_view", { paneId, enabled: requested === "chat" }).catch(() => {});
+      if (requested === "chat" && (!chatSupported || !sessionReadyForChat)) {
+        setUiMode("terminal");
+        return;
+      }
+      setUiMode(requested);
+    };
+    window.addEventListener("codeterm-pane-ui-mode", handler);
+    return () => window.removeEventListener("codeterm-pane-ui-mode", handler);
+  }, [paneId, chatSupported, sessionReadyForChat]);
+
   // --- Tauri native drag-drop (provides real file paths, no byte copy) ---
   // Routes through term.paste so xterm wraps with bracketed-paste markers
   // only when the running app has enabled bracketed mode — same single
-  // pipeline as keyboard paste.
+  // pipeline as keyboard paste. Suppressed when chat is on top so drops
+  // fall into the composer instead.
   const { isDragOver: isFileDragOver } = useTauriFileDrop({
     containerRef,
-    enabled: termReady,
+    enabled: termReady && uiMode === "terminal",
     onPaths: (paths) => {
       const term = termRef.current;
       if (!term || paths.length === 0) return;
@@ -99,7 +163,7 @@ export function TerminalPane({
   // this pane". Tauri's drag-drop covers FILE drags, HTML dragenter covers
   // everything else (selected text from a browser, etc.). Combined visually.
   const [isTextDragOver, setIsTextDragOver] = useState(false);
-  const showDropOverlay = (isFileDragOver || isTextDragOver) && termReady;
+  const showDropOverlay = (isFileDragOver || isTextDragOver) && termReady && uiMode === "terminal";
 
   // --- Input handling ---
   const { copySelection, pasteFromClipboard } = useTerminalInput({
@@ -109,9 +173,70 @@ export function TerminalPane({
     onInputData: completion.feedInput,
   });
 
-  // --- UI state ---
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
+  // Force xterm refit + repaint + PTY resize on return-from-chat. Belt-
+  // and-suspenders on top of visibility:hidden — if anything (a stale
+  // ResizeObserver tick, a layout race) left xterm with the wrong
+  // dimensions while it was off-screen, this restores them and
+  // re-renders the visible region. Triggered on the *transition* into
+  // terminal mode only, not on every render.
+  useEffect(() => {
+    if (uiMode !== "terminal" || !termReady) return;
+    const raf = requestAnimationFrame(() => {
+      const term = termRef.current;
+      const fit = fitAddonRef.current;
+      if (!term || !fit) return;
+      try {
+        fit.fit();
+        term.refresh(0, term.rows - 1);
+        const ptyId = connectedPtyRef.current;
+        if (ptyId && term.cols > 0 && term.rows > 0) {
+          void invoke("resize_pty", { ptyId, cols: term.cols, rows: term.rows });
+        }
+      } catch { /* ignore */ }
+      termRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [uiMode, termReady, termRef, fitAddonRef, connectedPtyRef]);
+
+  useEffect(() => {
+    if (!terminalFallbackOpen || !termReady) return;
+    const raf = requestAnimationFrame(() => {
+      const term = termRef.current;
+      const fit = fitAddonRef.current;
+      if (!term || !fit) return;
+      try {
+        fit.fit();
+        term.refresh(0, term.rows - 1);
+        const ptyId = connectedPtyRef.current;
+        if (ptyId && term.cols > 0 && term.rows > 0) {
+          void invoke("resize_pty", { ptyId, cols: term.cols, rows: term.rows });
+        }
+      } catch { /* ignore */ }
+      term.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [terminalFallbackOpen, termReady, termRef, fitAddonRef, connectedPtyRef]);
+
+  useEffect(() => {
+    if (!terminalFallbackOpen || uiMode !== "chat") return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (
+        target instanceof Element
+        && target.closest("[data-terminal-fallback-toggle='true']")
+      ) {
+        return;
+      }
+      const shell = fallbackShellRef.current;
+      if (shell?.contains(target)) return;
+      const terminal = containerRef.current;
+      if (terminal?.contains(target)) return;
+      setTerminalFallbackOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [terminalFallbackOpen, uiMode]);
 
   const handleClick = useCallback(() => {
     onFocus?.(paneId);
@@ -223,12 +348,89 @@ export function TerminalPane({
         />
       )}
 
+      {/* xterm container — always mounted at full size so the FitAddon
+          never sees a 0×0 box (display:none triggers ResizeObserver with
+          clientWidth=0 → fit() reshapes to 1 column → garbled buffer on
+          return). visibility:hidden preserves layout dimensions so xterm
+          stays correctly sized while the chat view is on top. */}
       <div
         ref={containerRef}
-        className="w-full h-full"
-        style={{ padding: 8, opacity: shell.overlayVisible ? 0 : 1, transition: "opacity 0.3s ease-in" }}
+        className="absolute inset-0"
+        style={{
+          padding: 8,
+          opacity: shell.overlayVisible ? 0 : 1,
+          transition: "opacity 0.3s ease-in",
+          top: uiMode === "chat" && terminalFallbackOpen ? "auto" : 0,
+          right: uiMode === "chat" && terminalFallbackOpen ? 12 : 0,
+          bottom: uiMode === "chat" && terminalFallbackOpen ? 104 : 0,
+          left: uiMode === "chat" && terminalFallbackOpen ? 12 : 0,
+          height: uiMode === "chat" && terminalFallbackOpen ? "min(42vh, 360px)" : "auto",
+          borderRadius: uiMode === "chat" && terminalFallbackOpen ? 6 : 0,
+          border: uiMode === "chat" && terminalFallbackOpen
+            ? "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)"
+            : "none",
+          background: "var(--ct-bg, #0d1117)",
+          visibility: uiMode === "terminal" || terminalFallbackOpen ? "visible" : "hidden",
+          pointerEvents: uiMode === "terminal" || terminalFallbackOpen ? "auto" : "none",
+          zIndex: terminalFallbackOpen ? 4 : uiMode === "terminal" ? 1 : 0,
+        }}
         onClick={() => termRef.current?.focus()}
       />
+      {/* Chat is conditionally mounted so the per-pane tailer thread on
+          the backend only starts when the user actually flipped into
+          chat mode — not for every pane in the workspace. */}
+      {uiMode === "chat" && (
+        <div className="absolute inset-0" style={{ zIndex: 2 }}>
+          <PaneSessionChat
+            paneId={paneId}
+            onError={() => {
+              void invoke("mux_set_chat_view", { paneId, enabled: false }).catch(() => {});
+              setUiMode("terminal");
+            }}
+            onOpenTerminalFallback={() => {
+              setTerminalFallbackOpen(true);
+              requestAnimationFrame(() => termRef.current?.focus());
+            }}
+            onToggleTerminalFallback={() => {
+              setTerminalFallbackOpen((open) => {
+                const next = !open;
+                if (next) requestAnimationFrame(() => termRef.current?.focus());
+                return next;
+              });
+            }}
+          />
+        </div>
+      )}
+
+      {uiMode === "chat" && terminalFallbackOpen && (
+        <div ref={fallbackShellRef} className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
+          <div
+            className="absolute left-3 right-3 h-7 flex items-center justify-between px-2 rounded-t-md pointer-events-auto"
+            style={{
+              bottom: "calc(104px + min(42vh, 360px))",
+              background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
+              color: "var(--ct-fg, #c9d1d9)",
+              border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+              borderBottom: "none",
+            }}
+          >
+            <span className="text-xs font-mono opacity-80">Terminal fallback</span>
+            <button
+              type="button"
+              className="px-2 h-5 rounded text-xs font-mono hover:brightness-125"
+              style={{
+                background: "var(--ct-surface)",
+                color: "var(--ct-muted-fg)",
+                border: "none",
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setTerminalFallbackOpen(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Drop-target overlay — fades in while a file or text drag is
           hovering this pane so the user gets clear "release to paste" feedback.

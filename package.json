@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:plugins": "bash scripts/plugin-tests.sh"
   },
   "keywords": [],
   "author": "",
@@ -18,12 +19,18 @@
     "@tauri-apps/cli": "^2.10.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^6.0.1",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.9.3",
     "vite": "^8.0.0"
   },
   "dependencies": {
+    "@codeterm/chat-core": "workspace:*",
+    "@codeterm/chat-ui": "workspace:*",
+    "@codeterm/provider-claude": "workspace:*",
+    "@codeterm/provider-codex": "workspace:*",
+    "@codeterm/provider-opencode": "workspace:*",
     "@sigma/edge-curve": "^3.1.0",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
@@ -41,6 +48,9 @@
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "remark-gfm": "^4.0.1",
     "sigma": "^3.0.0"
   }
 }

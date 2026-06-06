@@ -50,7 +50,13 @@ pub(super) fn dispatch(
             let mut store = notif.lock();
             let id = store.add(title, body, level, pane_id, None);
 
-            { let h = app.clone(); let p = serde_json::json!({"id": id, "title": emit_title, "body": emit_body, "level": emit_level, "pane_id": emit_pane, "workspace_id": Value::Null}); std::thread::spawn(move || { let _ = h.emit("notification-created", p); }); }
+            {
+                let h = app.clone();
+                let p = serde_json::json!({"id": id, "title": emit_title, "body": emit_body, "level": emit_level, "pane_id": emit_pane, "workspace_id": Value::Null});
+                std::thread::spawn(move || {
+                    let _ = h.emit("notification-created", p);
+                });
+            }
 
             // OS notification if window unfocused
             {
@@ -60,8 +66,7 @@ pub(super) fn dispatch(
                     .unwrap_or(true);
                 if !is_focused {
                     use tauri_plugin_notification::NotificationExt;
-                    let mut builder = app.notification().builder()
-                        .title(&emit_title);
+                    let mut builder = app.notification().builder().title(&emit_title);
                     if let Some(ref b) = emit_body {
                         builder = builder.body(b);
                     }

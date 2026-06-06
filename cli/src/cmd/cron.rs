@@ -44,21 +44,11 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                             .unwrap_or_default()
                     })
             });
-            let mut params = serde_json::json!({
-                "name": name,
-                "schedule": schedule,
-                "task": task,
-                "workspace_id": ws_id,
-                "agent": agent,
-            });
-            if let Some(m) = model { params["model"] = serde_json::json!(m); }
-            if let Some(c) = cwd { params["cwd"] = serde_json::json!(c); }
-            if let Some(d) = description { params["description"] = serde_json::json!(d); }
-            if let Some(cp) = creator_pane { params["creator_pane_id"] = serde_json::json!(cp); }
-            if once { params["oneshot"] = serde_json::json!(true); }
-            if let Some(j) = jitter_max_ms { params["jitter_max_ms"] = serde_json::json!(j); }
-            if let Some(z) = tz { params["tz"] = serde_json::json!(z); }
-            if let Some(t) = timeout_secs { params["timeout_seconds"] = serde_json::json!(t); }
+            let params = crate::args::cron::cron_create_body(
+                &name, &schedule, &task, &ws_id, &agent,
+                model.as_deref(), cwd.as_deref(), description.as_deref(),
+                creator_pane.as_deref(), once, jitter_max_ms, tz.as_deref(), timeout_secs,
+            );
             match client.call("cron.create", Some(params)) {
                 Ok(val) => {
                     if json {
