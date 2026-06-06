@@ -26,6 +26,8 @@
     "vite": "^8.0.0"
   },
   "dependencies": {
+    "@codeterm/chat-core": "workspace:*",
+    "@codeterm/chat-ui": "workspace:*",
     "@codeterm/provider-claude": "workspace:*",
     "@codeterm/provider-codex": "workspace:*",
     "@codeterm/provider-opencode": "workspace:*",
