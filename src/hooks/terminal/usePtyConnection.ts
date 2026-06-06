@@ -1,7 +1,7 @@
 import { useEffect, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { useEffect, useState } from "react";
 import type { CronRunInfo } from "../../lib/types";
 import { serviceIdToCronId } from "./types";

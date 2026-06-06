@@ -10,7 +10,7 @@
  * know which plugin it's rendering for.
  */
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 
 import type {
   AppConfig,

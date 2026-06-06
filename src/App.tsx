@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./lib/bridge";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";

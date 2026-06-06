@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "../../lib/bridge";
+import { listen, type UnlistenFn } from "../../lib/bridge";
 import { Paperclip, Terminal, X } from "lucide-react";
 import { MessageBubble } from "@codeterm/chat-ui";
 import { parseJsonlSession as parseClaudeJsonlSession } from "@codeterm/provider-claude/src/parser";

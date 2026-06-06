@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import type { Notification, NotificationAction } from "../../lib/types";
 import { InfoIcon, WarningIcon, ErrorIcon } from "../Icons";
 

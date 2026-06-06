@@ -110,7 +110,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   useEffect(() => {
     let unlistenHealth: (() => void) | null = null;
     let unlistenPush: (() => void) | null = null;
-    import("@tauri-apps/api/event").then(({ listen }) => {
+    import("../../lib/bridge").then(({ listen }) => {
       listen<{ service_id: string; status: string }>("service-health-changed", () => {
         triggerRefresh();
       }).then((fn) => { unlistenHealth = fn; });

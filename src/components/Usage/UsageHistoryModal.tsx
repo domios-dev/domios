@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { RefreshCw, X, LineChart, Table as TableIcon } from "lucide-react";
 import { classify, type UsageSnapshot } from "../../types/usage";
 import { useUsageHistory, useUsageProjection } from "../../hooks/useUsageSnapshot";
