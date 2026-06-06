@@ -17,7 +17,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
-import { Mic, Paperclip, SendHorizontal } from "lucide-react";
+import { Mic, Paperclip, SendHorizontal, Terminal } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { IS_WEB, webUpload } from "../../lib/webApi";
 
@@ -205,11 +205,12 @@ interface Props {
   onError: (msg: string) => void;
   sendDisabled: boolean;
   hasText: boolean;
+  onToggleTerminalFallback?: () => void;
   children: ReactNode;
 }
 
 const btnBase =
-  "flex items-center justify-center w-9 h-9 shrink-0 rounded-md border transition-all duration-150";
+  "flex items-center justify-center shrink-0 transition-all duration-150";
 
 export function ComposerActions({
   onAttach,
@@ -218,6 +219,7 @@ export function ComposerActions({
   onError,
   sendDisabled,
   hasText,
+  onToggleTerminalFallback,
   children,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -290,63 +292,97 @@ export function ComposerActions({
           });
         }}
       />
-      <button
-        type="button"
-        data-testid="composer-attach-button"
-        title="Attach file"
-        disabled={uploading}
-        onClick={() => fileRef.current?.click()}
-        className={`${btnBase} border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40`}
-      >
-        <Paperclip size={16} className={uploading ? "animate-pulse" : undefined} />
-      </button>
-      {children}
-      <button
-        type="button"
-        data-testid={mainIsSend ? "composer-send-button" : "composer-voice-button"}
-        title={mainTitle}
-        onPointerDown={(e) => {
-          if (mainIsSend) return;
-          void startVoice(e);
-        }}
-        onPointerUp={(e) => {
-          if (!mainIsSend) {
-            releaseVoice(e);
-            return;
-          }
-          if (voiceMode === "locked") {
-            void finishVoice(true);
-          } else {
-            onSend();
-          }
-        }}
-        onPointerCancel={() => {
-          if (voice.recording && voiceMode === "hold") setVoiceMode("locked");
-        }}
-        onClick={(e) => e.preventDefault()}
-        className={`${btnBase} ${
-          voice.recording
-            ? "border-[var(--ct-red,#f85149)] text-[var(--ct-red,#f85149)]"
-            : mainIsSend
-              ? "border-[var(--ct-accent,#58a6ff)] text-[var(--ct-accent,#58a6ff)] hover:bg-[var(--ct-hover)]"
-              : "border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
-        } ${voiceMode === "hold" ? "scale-[2.75] rounded-full shadow-2xl z-20" : ""} disabled:opacity-40`}
-        style={
-          voice.recording
-            ? {
-                background:
-                  "color-mix(in srgb, var(--ct-red, #f85149) 12%, transparent)",
-              }
-            : undefined
-        }
-        disabled={voiceBusy || (hasText && sendDisabled)}
-      >
-        {mainIsSend ? <SendHorizontal size={16} /> : <Mic size={16} />}
-      </button>
+      <div className="flex w-full items-end gap-2">
+        <button
+          type="button"
+          data-testid="composer-attach-button"
+          title="Attach file"
+          disabled={uploading}
+          onClick={() => fileRef.current?.click()}
+          className={`${btnBase} h-11 w-11 rounded-full border border-white/10 text-white/90 shadow-[0_2px_10px_rgba(0,0,0,0.28)] hover:scale-[1.03] disabled:opacity-40`}
+          style={{
+            background:
+              "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 82%, white 8%)",
+          }}
+        >
+          <Paperclip size={22} strokeWidth={2.3} className={uploading ? "animate-pulse" : undefined} />
+        </button>
+        <div
+          className="relative flex min-h-11 flex-1 items-end rounded-[1.45rem] border px-4 py-2 pr-12 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+          style={{
+            background:
+              "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 86%, white 7%)",
+            borderColor:
+              "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+          }}
+        >
+          {children}
+          {onToggleTerminalFallback && (
+            <button
+              type="button"
+              data-testid="composer-terminal-toggle"
+              data-terminal-fallback-toggle="true"
+              title="Toggle terminal fallback"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onToggleTerminalFallback()}
+              className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full text-[var(--ct-muted-fg)] transition-colors hover:bg-white/10 hover:text-[var(--ct-fg)]"
+              style={{ background: "rgba(255,255,255,0.035)" }}
+            >
+              <Terminal size={15} />
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          data-testid={mainIsSend ? "composer-send-button" : "composer-voice-button"}
+          title={mainTitle}
+          onPointerDown={(e) => {
+            if (mainIsSend) return;
+            void startVoice(e);
+          }}
+          onPointerUp={(e) => {
+            if (!mainIsSend) {
+              releaseVoice(e);
+              return;
+            }
+            if (voiceMode === "locked") {
+              void finishVoice(true);
+            } else {
+              onSend();
+            }
+          }}
+          onPointerCancel={() => {
+            if (voice.recording && voiceMode === "hold") setVoiceMode("locked");
+          }}
+          onPointerLeave={(e) => {
+            if (voice.recording && voiceMode === "hold" && e.buttons === 1) {
+              setVoiceMode("locked");
+            }
+          }}
+          onClick={(e) => e.preventDefault()}
+          className={`${btnBase} h-12 w-12 rounded-full border text-white shadow-[0_5px_18px_rgba(31,111,235,0.35)] hover:scale-[1.03] active:scale-95 ${
+            voiceMode === "hold" ? "z-20 scale-[2.35] shadow-[0_18px_55px_rgba(31,111,235,0.52)]" : ""
+          } ${voiceMode === "locked" ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/20" : ""} disabled:opacity-40`}
+          style={{
+            background:
+              voice.recording || mainIsSend
+                ? "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)"
+                : "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 78%, white 9%)",
+            borderColor:
+              voice.recording || mainIsSend
+                ? "rgba(255,255,255,0.18)"
+                : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 24%, transparent)",
+            color: voice.recording || mainIsSend ? "white" : "var(--ct-fg, #c9d1d9)",
+          }}
+          disabled={voiceBusy || (hasText && sendDisabled)}
+        >
+          {mainIsSend ? <SendHorizontal size={23} fill="currentColor" /> : <Mic size={22} />}
+        </button>
+      </div>
       {voice.recording && (
         <span
           data-testid="composer-voice-elapsed"
-          className="text-[11px] font-mono text-[var(--ct-red,#f85149)] shrink-0"
+          className="absolute -top-6 right-0 rounded-full bg-[var(--ct-titlebar-bg)] px-2 py-0.5 text-[11px] font-mono text-[var(--ct-accent,#58a6ff)] shadow"
         >
           {Math.floor(voice.elapsed / 60)}:{String(voice.elapsed % 60).padStart(2, "0")}
         </span>
