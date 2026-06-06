@@ -15,6 +15,7 @@
  */
 import { expect, test } from "@playwright/test";
 import { ApiClient } from "../../helpers/api-client";
+import { connectUi } from "../../helpers/dev-console";
 import { apiReset } from "../../helpers/reset";
 
 const api = new ApiClient();
@@ -141,5 +142,54 @@ test("@golden real agent spawn → works → reports back (structural asserts)",
   } finally {
     if (agentPaneId) await api.closePane(agentPaneId).catch(() => {});
     await api.closePane(inbox.id).catch(() => {});
+  }
+});
+
+test("@golden fully live: agent response read from the rendered terminal DOM", async () => {
+  // Real UI → real PTY → real LLM → real DOM. The WebGL canvas has no
+  // readable text; the screenReaderMode accessibility tree
+  // (.xterm-accessibility) is the renderer-independent observable.
+  test.setTimeout(300_000);
+
+  const ui = await connectUi();
+  const inbox = (await api.createPane({ title: "pw-dom-inbox" })) as { id: string };
+  const marker = `PW-DOM-${Date.now()}`;
+  let agentPaneId: string | undefined;
+
+  try {
+    await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
+    const spawned = await api.post<{ pane_id: string }>("/agents/spawn", {
+      agent: "claude",
+      model: "sonnet",
+      role: "Worker",
+      title: "pw-agent-dom",
+      parent_pane_id: inbox.id,
+      report_target_pane_id: inbox.id,
+      skip_permissions: true,
+      activate: true,
+      task: `Reply with a single line containing exactly ${marker} and nothing else.`,
+    });
+    agentPaneId = spawned.pane_id;
+
+    // The model's reply lands in the agent pane's terminal; the active
+    // pane's accessibility tree mirrors the viewport text.
+    await ui.page.waitForFunction(
+      (m) =>
+        Array.from(document.querySelectorAll(".xterm-accessibility")).some((tree) =>
+          (tree.textContent ?? "").includes(m),
+        ),
+      marker,
+      { timeout: 240_000, polling: 1_000 },
+    );
+
+    // Cross-check the same content through the PTY text API — DOM and
+    // daemon-side buffer must agree.
+    const text = await api.get<{ text?: string } | string>(`/panes/${agentPaneId}/text`);
+    const buffer = typeof text === "string" ? text : (text.text ?? JSON.stringify(text));
+    expect(buffer, "PTY buffer missing the marker the DOM showed").toContain(marker);
+  } finally {
+    if (agentPaneId) await api.closePane(agentPaneId).catch(() => {});
+    await api.closePane(inbox.id).catch(() => {});
+    await ui.browser.close().catch(() => {});
   }
 });
