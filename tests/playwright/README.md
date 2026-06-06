@@ -110,6 +110,25 @@ thing, stay parsimonious per test) · `@golden` PRs, no upper bound ·
 `@edge` / `@failure` nightly ·
 `@regression` locks a specific fix (named issue in the test title).
 
+## Web mirror (12-web)
+
+12-web drives the **web mirror** (`/web` on the daemon) in a **launched
+msedge browser** — a real cross-origin browser context, unlike the other
+suites' CDP attach to the Tauri WebView. Key facts:
+
+- The SPA is the same React bundle; `src/lib/bridge.ts` maps `invoke()`
+  to REST and `listen()` to the `/api/events/stream` SSE in browser mode.
+- Auth is per host: the token gate (`WebGate`) stores one token per
+  peer in localStorage; the dev token comes from `~/.codeterm-dev/`.
+- Peer switching is exercised against the `MeshStub` running in
+  `webToken` mode — it answers the SPA's direct API calls with canned
+  workspaces, so a switch is provable end-to-end (stub request log +
+  stub workspace rendered + clean switch-back).
+- The browser terminal renders WebGL (no readable DOM); tests that read
+  terminal text load `/web/?a11y=1` — a runtime screen-reader opt-in.
+- The daemon serves `/web` from `dist/` — run `pnpm build` after
+  frontend changes or the suite tests a stale bundle.
+
 ## Hard rules
 
 - **Prod guard**: `reset.ts` refuses to touch any path not under

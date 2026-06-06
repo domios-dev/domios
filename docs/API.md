@@ -524,6 +524,20 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 |--------|------|------|-------------|
 | POST | `/api/session/save` | — | Snapshot the multiplexer (workspaces/tabs/panes) into the session store immediately. Durability is otherwise the 30s auto-save timer + close-to-tray hook; e2e harnesses call this before force-killing the daemon so restart-persistence is deterministic. |
 
+#### Web Mirror
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/web/` | — | The CodeTerm web mirror: the same React bundle as the desktop app, served static (public route; every API call it makes stays token-gated). Exact `/web` 308s to `/web/`. `?a11y=1` enables the screen-reader terminal DOM. |
+| GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs/panes + focus) — the browser bundle's `mux_get_state`. |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
+| POST | `/api/panes/{id}/chat-view` | `{enabled}` | Toggle a pane's chat view flag. |
+| GET | `/api/mesh/peers/{id}/services` | — | Peer services view (same cache+failover as the Mesh tab). |
+| GET | `/api/events/stream` | — | SSE of system events (`data: {event_type, data}`) — mux/mesh/pane-status changes; the web bundle's `listen()`. |
+| GET | `/api/pty/{id}/read` | — | Long-poll one chunk of PTY output (JSON byte array) — the browser terminal's read loop. |
+| POST | `/api/pty/{id}/write` | `{data}` | Write input to a PTY. |
+| POST | `/api/pty/{id}/resize` | `{cols, rows}` | Resize a PTY. |
+
 #### Debug (test-only capabilities)
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -1228,4 +1242,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 51 -->
+<!-- revision: 52 -->

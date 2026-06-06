@@ -10,7 +10,14 @@ import { mapCursorStyle, buildXtermTheme } from "../../components/Terminal/helpe
 import type { ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 
 /** True only under the Playwright harness (vite launched with the env). */
-const E2E_TEST_MODE = import.meta.env.VITE_CODETERM_TEST === "1";
+// Build-time gate (the desktop Playwright harness) OR runtime opt-in via
+// /web/?a11y=1 — gives the web mirror a readable terminal DOM for both
+// screen readers and the 12-web e2e suite, at the cost of the WebGL
+// renderer's truecolor for that session only.
+const E2E_TEST_MODE =
+  import.meta.env.VITE_CODETERM_TEST === "1" ||
+  (typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("a11y"));
 
 export interface UseXtermOptions {
   containerRef: React.RefObject<HTMLDivElement | null>;

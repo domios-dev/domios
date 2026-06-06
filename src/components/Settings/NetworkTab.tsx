@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { invoke } from "../../lib/bridge";
 
 export function NetworkTab() {
   return (
     <div className="space-y-5">
+      <WebAccessSection />
       <Collapsible title="API Endpoints Reference">
         <div className="space-y-3">
           <EndpointGroup title="Workspaces" endpoints={[
@@ -32,6 +34,80 @@ export function NetworkTab() {
           ]} />
         </div>
       </Collapsible>
+    </div>
+  );
+}
+
+/**
+ * Web Access — everything a browser/phone needs to reach this CodeTerm:
+ * the /web URL on each known address and the API token to paste at the
+ * token gate. Tokens for OTHER peers come from their own Web Access panel.
+ */
+function WebAccessSection() {
+  const [token, setToken] = useState<string | null>(null);
+  const [show, setShow] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [hosts, setHosts] = useState<string[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const cfg = await invoke<{ api?: { token?: string; port?: number } }>("get_config");
+        setToken(cfg.api?.token ?? null);
+        const port = cfg.api?.port ?? 7685;
+        const status = await invoke<{ local_ip?: string; tailscale_ip?: string }>(
+          "mesh_get_status",
+        ).catch(() => ({}) as { local_ip?: string; tailscale_ip?: string });
+        const list = [status.tailscale_ip, status.local_ip, "127.0.0.1"]
+          .filter((v): v is string => Boolean(v))
+          .map((ip) => `http://${ip}:${port}/web/`);
+        setHosts([...new Set(list)]);
+      } catch {
+        /* settings panel stays usable without this section's data */
+      }
+    })();
+  }, []);
+
+  return (
+    <div className="rounded border border-[var(--ct-border)] p-4 space-y-3">
+      <div className="text-sm font-medium text-[var(--ct-fg)]">Web Access</div>
+      <p className="text-xs text-[var(--ct-muted)]">
+        Open CodeTerm from a browser or phone. Paste the token below at the
+        connection screen — it is this machine's API token, treat it like a
+        password.
+      </p>
+      <div className="space-y-1">
+        {hosts.map((h) => (
+          <div key={h} className="text-xs font-mono text-[var(--ct-fg)]">{h}</div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <code
+          data-testid="web-access-token"
+          className="flex-1 text-xs font-mono px-2 py-1.5 rounded bg-[var(--ct-bg)] border border-[var(--ct-border)] truncate"
+        >
+          {token ? (show ? token : "•".repeat(Math.min(token.length, 32))) : "no API token configured"}
+        </code>
+        <button
+          onClick={() => setShow((v) => !v)}
+          className="text-xs px-2 py-1.5 rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+        >
+          {show ? "Hide" : "Show"}
+        </button>
+        <button
+          onClick={() => {
+            if (!token) return;
+            void navigator.clipboard.writeText(token).then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            });
+          }}
+          disabled={!token}
+          className="text-xs px-2 py-1.5 rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] disabled:opacity-40"
+        >
+          {copied ? "Copied ✓" : "Copy"}
+        </button>
+      </div>
     </div>
   );
 }

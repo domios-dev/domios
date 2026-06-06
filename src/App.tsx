@@ -66,7 +66,11 @@ function themeToCSS(theme: ThemeConfig): Record<string, string> {
 
 function AppInner() {
   useAgentProviders();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Phones start with the sidebar collapsed; the hamburger opens it as an
+  // overlay (see the wrapper at the render site).
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => typeof window === "undefined" || window.innerWidth > 640,
+  );
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh">("workspace");
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
@@ -511,16 +515,26 @@ function AppInner() {
         onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
       />
 
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 relative">
         {sidebarOpen && (
-          <Sidebar
-            onOpenSettings={() => setSettingsOpen(true)}
-            onOpenMemory={() => setMemoryOpen(true)}
-            onOpenMesh={() => setMeshOpen(true)}
-            onNavigateToTab={() => setMainView("workspace")}
-            mainView={mainView}
-            config={config}
-          />
+          <>
+            {/* Mobile: sidebar overlays the content with a tap-to-close
+                backdrop; ≥sm it participates in the flex row as before. */}
+            <div
+              className="sm:hidden fixed inset-0 z-30 bg-black/40"
+              onClick={() => setSidebarOpen(false)}
+            />
+            <div className="max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl flex min-h-0">
+              <Sidebar
+                onOpenSettings={() => setSettingsOpen(true)}
+                onOpenMemory={() => setMemoryOpen(true)}
+                onOpenMesh={() => setMeshOpen(true)}
+                onNavigateToTab={() => setMainView("workspace")}
+                mainView={mainView}
+                config={config}
+              />
+            </div>
+          </>
         )}
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
