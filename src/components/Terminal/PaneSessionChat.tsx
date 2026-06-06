@@ -974,7 +974,6 @@ export function PaneSessionChat({
             onError={(msg) => setComposerError(msg)}
             sendDisabled={sending || (!input.trim() && attachments.length === 0)}
             hasText={input.trim().length > 0 || attachments.length > 0}
-            onToggleTerminalFallback={onToggleTerminalFallback}
           >
             <SlashPicker
               suggestions={pickerOpen ? suggestions : []}

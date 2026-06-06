@@ -17,7 +17,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
-import { Mic, Paperclip, SendHorizontal, Terminal } from "lucide-react";
+import { Mic, Paperclip, SendHorizontal } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { IS_WEB, webUpload } from "../../lib/webApi";
 
@@ -230,7 +230,6 @@ interface Props {
   onError: (msg: string) => void;
   sendDisabled: boolean;
   hasText: boolean;
-  onToggleTerminalFallback?: () => void;
   children: ReactNode;
 }
 
@@ -244,7 +243,6 @@ export function ComposerActions({
   onError,
   sendDisabled,
   hasText,
-  onToggleTerminalFallback,
   children,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -411,7 +409,7 @@ export function ComposerActions({
           <Paperclip size={22} strokeWidth={2.3} className={uploading ? "animate-pulse" : undefined} />
         </button>
         <div
-          className="relative flex min-h-11 flex-1 items-end rounded-[1.45rem] border px-4 py-2 pr-12 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+          className="relative flex min-h-11 flex-1 items-end rounded-[1.45rem] border px-4 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
           style={{
             background:
               "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 86%, white 7%)",
@@ -447,20 +445,6 @@ export function ComposerActions({
           <div className={voice.recording ? "w-full opacity-0 pointer-events-none" : "w-full"}>
             {children}
           </div>
-          {onToggleTerminalFallback && (
-            <button
-              type="button"
-              data-testid="composer-terminal-toggle"
-              data-terminal-fallback-toggle="true"
-              title="Toggle terminal fallback"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onToggleTerminalFallback()}
-              className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full text-[var(--ct-muted-fg)] transition-colors hover:bg-white/10 hover:text-[var(--ct-fg)]"
-              style={{ background: "rgba(255,255,255,0.035)" }}
-            >
-              <Terminal size={15} />
-            </button>
-          )}
         </div>
         <button
           type="button"
