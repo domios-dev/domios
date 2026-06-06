@@ -70,6 +70,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const stopResolveRef = useRef<((paths: string[]) => void) | null>(null);
+  const discardRef = useRef(false);
 
   useEffect(() => {
     if (!recording) return;
@@ -86,12 +87,12 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     [],
   );
 
-  async function start() {
+  async function start(): Promise<boolean> {
     if (!navigator.mediaDevices?.getUserMedia) {
       // getUserMedia needs a secure context — plain-HTTP peers (e.g. a
       // raw Tailscale IP) can't record; `tailscale serve` adds the TLS.
       onError("Voice needs HTTPS (or localhost) — the mic API is unavailable here.");
-      return;
+      return false;
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -105,6 +106,13 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       rec.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
+        if (discardRef.current) {
+          discardRef.current = false;
+          chunksRef.current = [];
+          stopResolveRef.current?.([]);
+          stopResolveRef.current = null;
+          return;
+        }
         const type = rec.mimeType || mime || "audio/webm";
         const blob = new Blob(chunksRef.current, { type });
         if (blob.size === 0) {
@@ -125,18 +133,21 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       rec.start();
       recRef.current = rec;
       setRecording(true);
+      return true;
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
+      return false;
     }
   }
 
-  function stop(): Promise<string[]> {
+  function stop(discard = false): Promise<string[]> {
     const rec = recRef.current;
     if (!rec || rec.state === "inactive") {
       setRecording(false);
       return Promise.resolve([]);
     }
     return new Promise((resolve) => {
+      discardRef.current = discard;
       stopResolveRef.current = resolve;
       rec.stop();
       recRef.current = null;
@@ -226,13 +237,15 @@ export function ComposerActions({
   const [uploading, setUploading] = useState(false);
   const [voiceMode, setVoiceMode] = useState<"hold" | "locked" | null>(null);
   const [voiceBusy, setVoiceBusy] = useState(false);
+  const voiceStartXRef = useRef<number | null>(null);
   const voice = useVoiceRecorder(onError);
 
   async function finishVoice(sendAfter: boolean) {
-    if (!voice.recording || voiceBusy) return;
+    if (voiceBusy) return;
     setVoiceBusy(true);
     const paths = await voice.stop();
     setVoiceMode(null);
+    voiceStartXRef.current = null;
     setVoiceBusy(false);
     if (paths.length === 0) return;
     if (sendAfter) {
@@ -242,14 +255,39 @@ export function ComposerActions({
     }
   }
 
+  async function cancelVoice() {
+    if (voiceBusy) return;
+    setVoiceBusy(true);
+    await voice.stop(true);
+    setVoiceMode(null);
+    voiceStartXRef.current = null;
+    setVoiceBusy(false);
+  }
+
   async function startVoice(e: PointerEvent<HTMLButtonElement>) {
     if (hasText) {
       onSend();
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
-    setVoiceMode("hold");
-    await voice.start();
+    voiceStartXRef.current = e.clientX;
+    const started = await voice.start();
+    if (started) {
+      setVoiceMode("hold");
+      if (e.buttons !== 1) {
+        const paths = await voice.stop();
+        setVoiceMode(null);
+        voiceStartXRef.current = null;
+        if (paths.length > 0) onSendWithAttachments(paths);
+      }
+    } else {
+      voiceStartXRef.current = null;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* already released */
+      }
+    }
   }
 
   function releaseVoice(e: PointerEvent<HTMLButtonElement>) {
@@ -264,6 +302,13 @@ export function ComposerActions({
       void finishVoice(true);
     } else {
       setVoiceMode("locked");
+    }
+  }
+
+  function moveVoice(e: PointerEvent<HTMLButtonElement>) {
+    if (!voice.recording || voiceMode !== "hold" || voiceStartXRef.current == null) return;
+    if (e.clientX <= voiceStartXRef.current - 95) {
+      void cancelVoice();
     }
   }
 
@@ -316,7 +361,17 @@ export function ComposerActions({
               "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
           }}
         >
-          {children}
+          {voice.recording && voiceMode === "hold" ? (
+            <div
+              data-testid="composer-voice-cancel-hint"
+              className="flex min-h-7 w-full items-center gap-2 pr-1 text-[14px] text-[var(--ct-muted-fg)]"
+            >
+              <span className="text-[18px]">‹</span>
+              <span>Slide left to cancel</span>
+            </div>
+          ) : (
+            children
+          )}
           {onToggleTerminalFallback && (
             <button
               type="button"
@@ -354,11 +409,7 @@ export function ComposerActions({
           onPointerCancel={() => {
             if (voice.recording && voiceMode === "hold") setVoiceMode("locked");
           }}
-          onPointerLeave={(e) => {
-            if (voice.recording && voiceMode === "hold" && e.buttons === 1) {
-              setVoiceMode("locked");
-            }
-          }}
+          onPointerMove={moveVoice}
           onClick={(e) => e.preventDefault()}
           className={`${btnBase} h-12 w-12 rounded-full border text-white shadow-[0_5px_18px_rgba(31,111,235,0.35)] hover:scale-[1.03] active:scale-95 ${
             voiceMode === "hold" ? "z-20 scale-[2.35] shadow-[0_18px_55px_rgba(31,111,235,0.52)]" : ""
