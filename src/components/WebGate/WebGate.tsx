@@ -15,7 +15,8 @@ type GateState = "checking" | "need-token" | "ready";
  * Web-mirror entry gate. In the Tauri shell it renders children directly.
  * In a browser it requires a valid API token for the current host before
  * mounting the app: first visit pastes the token from the desktop app
- * (Settings → Web Access), stored per host in localStorage.
+ * (Settings -> Web Access), stored per host in localStorage. Peer switches
+ * can then mint and store target-host tokens over the signed mesh channel.
  */
 export function WebGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GateState>(IS_WEB ? "checking" : "ready");
@@ -45,10 +46,9 @@ export function WebGate({ children }: { children: ReactNode }) {
     // headers. ?token=… is also accepted as the more familiar/typeable
     // form, with exactly those exposure tradeoffs (the CLI only emits it
     // under an explicit --query). Parse order: fragment wins over query.
-    // Whichever is found is consumed once, stored under the per-host key
-    // (it authenticates THIS host only — switching peers still asks for
-    // that peer's own token), and the URL is redacted via replaceState so
-    // the secret doesn't linger in history, bookmarks, or screenshots.
+    // Whichever is found is consumed once, stored under the per-host key,
+    // and the URL is redacted via replaceState so the secret doesn't linger
+    // in history, bookmarks, or screenshots.
     // A bad token falls through to validate() → the normal gate error.
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const query = new URLSearchParams(window.location.search);
@@ -93,7 +93,7 @@ export function WebGate({ children }: { children: ReactNode }) {
           <h1 className="text-lg font-semibold mb-1">CodeTerm Web</h1>
           <p className="text-xs opacity-70 mb-4">
             Paste the API token for <span className="font-mono">{apiHost()}</span>
-            {" — "}find it in the CodeTerm desktop app under Settings → Web
+            {" — "}find it in the CodeTerm desktop app under Settings {"->"} Web
             Access.
           </p>
           <input

@@ -110,12 +110,11 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     await expect(item).toBeVisible({ timeout: 15_000 });
     await expect(item).toHaveAttribute("data-peer-online", "true");
 
-    // Switch: reload + per-peer token gate for the stub host.
+    // Switch: the current daemon mints the stub's web token over mesh,
+    // stores it for the target host, then reloads directly into the stub.
     const before = stub.requests.length;
     await item.click();
-    await page.waitForSelector('[data-testid="web-token-input"]', { timeout: 20_000 });
-    await page.fill('[data-testid="web-token-input"]', STUB_TOKEN);
-    await page.click('[data-testid="web-token-submit"]');
+    await expect(page.locator('[data-testid="web-token-input"]')).toHaveCount(0);
 
     // PROOF of routing: the stub's workspace renders in the sidebar and
     // the stub actually received the web client's API calls.
@@ -125,6 +124,10 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     expect(stub.requests.length, "stub saw no web traffic after switch").toBeGreaterThan(before);
     expect(
       stub.requests.some((r) => r.includes("/api/mux/state") || r.includes("/api/workspaces")),
+      `stub requests: ${stub.requests.slice(-10).join(", ")}`,
+    ).toBe(true);
+    expect(
+      stub.requests.some((r) => r.includes("/api/mesh/web-token")),
       `stub requests: ${stub.requests.slice(-10).join(", ")}`,
     ).toBe(true);
 
