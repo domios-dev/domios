@@ -4,10 +4,7 @@ import { StatusDot } from "./StatusDot";
 
 export const ROLE_ICONS: Record<string, string> = {
   Orchestrator: "★", // ★
-  Conductor: "★",    // ★ (backward compat)
-  Lead: "·",         // ·
   Worker: "⚙",       // ⚙
-  SubWorker: "◦",    // ◦
 };
 
 export function RoleIcon({ role }: { role: AgentRole }) {
@@ -30,7 +27,7 @@ export function buildHierarchyTree(
 ): HierarchyNodeData[] {
   // Find orchestrators (top-level nodes)
   const orchestrators = Object.values(panes).filter(
-    (p) => p.role === "Orchestrator" || p.role === "Conductor",
+    (p) => p.role === "Orchestrator",
   );
   function buildNode(pane: Pane): HierarchyNodeData {
     const children = Object.values(panes)
@@ -65,7 +62,7 @@ export function HierarchyTree({
               title={`${node.pane.title} (${node.pane.role})`}
             >
               {node.pane.role && <RoleIcon role={node.pane.role} />}
-              <span className={`truncate ${node.pane.role === "Orchestrator" || node.pane.role === "Conductor" ? "font-semibold" : ""}`}>
+              <span className={`truncate ${node.pane.role === "Orchestrator" ? "font-semibold" : ""}`}>
                 {node.pane.title}
               </span>
               <StatusDot status={node.status} animate />

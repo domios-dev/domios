@@ -1,15 +1,13 @@
+import { isChatUiSupported } from "../../lib/chatUiMode";
+
 interface Props {
   uiMode: "terminal" | "chat";
   onToggle: () => void;
   agentType?: string | null;
 }
 
-// Providers known to expose a JSONL parser. Extend as new plugins
-// implement sessionJsonlPath + parseSessionDelta.
-const CHAT_SUPPORTED = new Set(["claude"]);
-
 export function UIModeToggle({ uiMode, onToggle, agentType }: Props) {
-  if (!agentType || !CHAT_SUPPORTED.has(agentType)) return null;
+  if (!isChatUiSupported(agentType)) return null;
   return (
     <button
       onClick={(e) => {

@@ -3,21 +3,8 @@
 //! render them as typed bubbles (cross-pane / telegram / mesh / slash-
 //! command) instead of raw text.
 
-export type ChatOrigin =
-  | { kind: "pane"; title: string; paneIdShort: string }
-  | { kind: "telegram"; userId: string; messageId?: string }
-  | { kind: "mesh"; peerId: string }
-  | { kind: "service"; service: string; userId: string }
-  | { kind: "command"; commands: SlashCommand[] };
-
-export interface SlashCommand {
-  /** The command name including leading slash, e.g. "/model". */
-  name: string;
-  /** Optional inline arg string the user typed after the command. */
-  args?: string;
-  /** Optional captured stdout from local execution. */
-  stdout?: string;
-}
+export type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
+import type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
 
 export interface PrefixMatch {
   origin: ChatOrigin;
@@ -130,9 +117,10 @@ function collectSlashCommands(content: string): PrefixMatch | null {
       ...c,
       stdout: stdouts[i] || undefined,
     }));
-    // Trailing extra stdouts that had no /cmd line → surface as (output) entries.
+    // Trailing extra stdouts that had no /cmd line → surface with Claude's
+    // real wrapper tag, so the UI doesn't invent a generic "(output)" label.
     for (let i = inlineCommands.length; i < stdouts.length; i++) {
-      commands.push({ name: "(output)", stdout: stdouts[i] });
+      commands.push({ name: "local-command-stdout", stdout: stdouts[i] });
     }
   } else if (cmdNameTags.length > 0) {
     // Old format: tag-wrapped commands.
@@ -143,7 +131,7 @@ function collectSlashCommands(content: string): PrefixMatch | null {
     }));
   } else if (stdouts.length > 0) {
     // Orphan stdouts with no command association.
-    commands = stdouts.map((s) => ({ name: "(output)", stdout: s }));
+    commands = stdouts.map((s) => ({ name: "local-command-stdout", stdout: s }));
   } else {
     commands = [];
   }
