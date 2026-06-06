@@ -47,6 +47,11 @@ function bash(args: string[], timeoutMs: number): void {
     env: {
       ...process.env,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
+      // Harness-only terminal test mode: enables xterm screenReaderMode
+      // (the .xterm-accessibility DOM the suites read) and skips the
+      // WebGL renderer. User-facing runs never set this — screenReader
+      // mode degrades terminal colors (the bad56175 regression).
+      VITE_CODETERM_TEST: "1",
     },
   });
 }
