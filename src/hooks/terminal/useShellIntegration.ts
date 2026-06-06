@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
 import { TitleLevel } from "../../lib/types";
 import { consumePendingCommand } from "../../lib/pendingCommands";

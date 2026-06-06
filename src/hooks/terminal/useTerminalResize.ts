@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 
 export interface UseTerminalResizeOptions {
   containerRef: React.RefObject<HTMLDivElement | null>;

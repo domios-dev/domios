@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "../lib/bridge";
+import { listen } from "../lib/bridge";
 import type { AppConfig, ThemeConfig } from "../lib/types";
 
 // Default theme (GitHub Dark) used before config loads from backend

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import type { ProviderDescriptor } from "../../lib/types";
 
 interface InstallPaneResult {

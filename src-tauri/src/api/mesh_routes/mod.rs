@@ -56,7 +56,7 @@ pub async fn mesh_start_broadcast(
             "Failed to start broadcast",
         )
     })?;
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     Ok(Json(
         serde_json::json!({"ok": true, "duration_secs": duration}),
     ))
@@ -68,7 +68,7 @@ pub async fn mesh_stop_broadcast(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     crate::mesh::discovery::stop_broadcast(&state.mesh);
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -101,7 +101,7 @@ pub async fn mesh_add_manual(
     };
     let id = peer.instance_id.clone();
     state.mesh.lock().discovered_peers.insert(id.clone(), peer);
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     Ok(Json(serde_json::json!({"ok": true, "instance_id": id})))
 }
 

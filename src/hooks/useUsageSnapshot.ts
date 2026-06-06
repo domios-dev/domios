@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "../lib/bridge";
+import { listen } from "../lib/bridge";
 import type { UsageSnapshot, UsageSnapshotEvent } from "../types/usage";
 
 export interface UseUsageSnapshotOptions {

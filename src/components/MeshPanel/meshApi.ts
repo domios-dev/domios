@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import type { Service, ActivityEvent, ServiceKind } from "./types";
 
 export async function servicesList(filter?: {

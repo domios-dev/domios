@@ -97,6 +97,8 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                 mesh: states.mesh.clone(),
                 keepawake: states.keepawake.clone(),
                 test_clock: test_clock.clone(),
+                events: states.event_broadcaster.clone(),
+                web_dist: resolve_web_dist(),
             };
             let router = api::routes::create_router(api_state);
             let host = api_config.host.clone();
@@ -204,4 +206,32 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
     // pick up the queued message and inject it into the general pane once the
     // agent is ready.
     update::post_update::spawn(service_state.clone());
+}
+
+/// Locate the built React bundle for the /web mirror.
+/// Priority: explicit env override → repo dist (dev builds) →
+/// exe-adjacent dist (portable/prod layouts). None → /web returns 404
+/// and the daemon logs the miss once.
+fn resolve_web_dist() -> Option<std::path::PathBuf> {
+    let candidates = [
+        std::env::var("CODETERM_WEB_DIST")
+            .ok()
+            .map(std::path::PathBuf::from),
+        Some(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("..")
+                .join("dist"),
+        ),
+        std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|d| d.join("dist"))),
+    ];
+    for cand in candidates.into_iter().flatten() {
+        if cand.join("index.html").exists() {
+            log::info!("[web] serving /web from {}", cand.display());
+            return Some(cand);
+        }
+    }
+    log::warn!("[web] no dist/ bundle found — /web disabled (build with `pnpm build`)");
+    None
 }

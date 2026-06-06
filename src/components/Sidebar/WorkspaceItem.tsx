@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { X, TerminalSquare, FolderOpen } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { useAgentProviders } from "../../hooks/useAgentProviders";

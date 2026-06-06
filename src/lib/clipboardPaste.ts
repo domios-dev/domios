@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./bridge";
 
 export type ClipboardPayload =
   | { kind: "image"; bytes: Blob; mime: string }
