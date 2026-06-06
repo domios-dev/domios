@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { listen, type UnlistenFn } from "../../lib/bridge";
+import { ComposerActions, useWebFileDrop } from "./ComposerActions";
 import { Paperclip, Terminal, X } from "lucide-react";
 import { MessageBubble } from "@codeterm/chat-ui";
 import { parseJsonlSession as parseClaudeJsonlSession } from "@codeterm/provider-claude/src/parser";
@@ -72,6 +73,7 @@ function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void
   const name = path.split(/[\\/]/).pop() || path;
   return (
     <div
+      data-testid="attachment-chip"
       className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono"
       style={{
         background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, transparent)",
@@ -469,6 +471,13 @@ export function PaneSessionChat({
     onPaths: (paths) => addAttachments(paths),
   });
 
+  // Web: browser drag-drop uploads to the daemon, then attaches the
+  // server-side path (Tauri gets native paths from useTauriFileDrop).
+  const { dragOver: webDragOver, handlers: webDropHandlers } = useWebFileDrop(
+    addAttachments,
+    (msg) => setComposerError(msg),
+  );
+
   async function send() {
     const text = input.trim();
     if ((!text && attachments.length === 0) || sending || sendInFlightRef.current) return;
@@ -644,12 +653,25 @@ export function PaneSessionChat({
   return (
     <div
       ref={chatRootRef}
-      className="w-full h-full flex flex-col"
+      className="w-full h-full flex flex-col relative"
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
       }}
+      {...webDropHandlers}
     >
+      {webDragOver && (
+        <div
+          data-testid="web-drop-overlay"
+          className="absolute inset-0 z-20 flex items-center justify-center border-2 border-dashed pointer-events-none"
+          style={{
+            borderColor: "var(--ct-accent, #58a6ff)",
+            background: "color-mix(in srgb, var(--ct-bg, #0d1117) 70%, transparent)",
+          }}
+        >
+          <span className="text-sm font-mono">Drop files to attach</span>
+        </div>
+      )}
       <div
         ref={scrollRef}
         onScroll={(e) => {
@@ -711,6 +733,7 @@ export function PaneSessionChat({
         style={{
           borderColor:
             "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+          paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom, 0px))",
         }}
       >
         <div className="mb-2 flex items-center justify-between gap-2">
@@ -822,6 +845,7 @@ export function PaneSessionChat({
         )}
         {composerError && (
           <div
+            data-testid="chat-composer-error"
             className="mb-2 rounded border px-2 py-1 text-xs font-mono"
             style={{
               background: "color-mix(in srgb, #f85149 14%, transparent)",
@@ -859,7 +883,7 @@ export function PaneSessionChat({
           </button>
         )}
         {/* Bug 4: relative wrapper so SlashPicker positions above textarea */}
-        <div className="relative">
+        <div data-testid="composer-row" className="relative flex items-end gap-1.5">
           <SlashPicker
             suggestions={pickerOpen ? suggestions : []}
             highlighted={pickerHighlight}
@@ -927,12 +951,21 @@ export function PaneSessionChat({
               }
             }}
             onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
+            onFocus={(e) => {
+              // Mobile: the on-screen keyboard can leave the composer below
+              // the fold; nudge it back into the visible viewport.
+              window.setTimeout(
+                () =>
+                  e.target.scrollIntoView({ block: "end", behavior: "smooth" }),
+                50,
+              );
+            }}
             placeholder={pendingPrompt
               ? "Agent may be waiting in the terminal."
               : "Type a message…  (Enter to send, Shift+Enter for newline. Drag files or paste images.)"}
             rows={2}
             disabled={sending}
-            className="w-full resize-none rounded p-2 text-sm font-mono outline-none"
+            className="w-full flex-1 min-w-0 resize-none rounded p-2 text-sm font-mono outline-none"
             style={{
               background:
                 "color-mix(in srgb, var(--ct-bg, #0d1117) 80%, white 5%)",
@@ -940,6 +973,12 @@ export function PaneSessionChat({
               border:
                 "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
             }}
+          />
+          <ComposerActions
+            onAttach={addAttachments}
+            onSend={() => void send()}
+            onError={(msg) => setComposerError(msg)}
+            sendDisabled={sending || (!input.trim() && attachments.length === 0)}
           />
         </div>
       </div>
