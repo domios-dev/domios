@@ -12,7 +12,6 @@ src-tauri/prompts/
   codeterm_rule.md               Bridge rule appended to AGENTS.md, teaches CLI to spawned agents
   bootstrap_instructions.md      First-run bootstrap.md template
   worker_suffix.md               Appended to Worker task bodies
-  lead_suffix.md                 Appended to Lead task bodies
   orchestrator_suffix.md         Appended to Orchestrator task bodies
   cron_complete_suffix.md        Appended to every cron task
   cron_report_hint.md            Appended to cron tasks when creator_pane_id is set
@@ -90,7 +89,7 @@ When you're about to add or move a piece of prompt content, ask:
 | Is it an **operational ladder** that fires rarely (Telegram bot setup, secrets store CLI, hook daemon config)? | `docs/<TOPIC>.md` + register in `cli/src/cmd/docs.rs` |
 | Is it **project-agent framing** (what your scope is, how to ask the GA for help)? | `skills/codeterm/SKILL.md` (the non-template intro and outro around `{codeterm_cli}`) |
 | Is it **mem protocol** (English-only, search-first, no fabrication)? | `prompts/bridge_mem.md` (installed into provider rules dirs by `service::bridge_rule`) |
-| Is it **a worker-task addendum** (must report, ack receipt, return exit code)? | `prompts/worker_suffix.md` / `lead_suffix.md` / `orchestrator_suffix.md` |
+| Is it **a worker-task addendum** (must report, ack receipt, return exit code)? | `prompts/worker_suffix.md` / `orchestrator_suffix.md` |
 | Is it **per-cron-task boilerplate** (run id, completion call, report hint)? | `prompts/cron_complete_suffix.md` / `cron_report_hint.md` |
 | Is it a **headless worker prompt** (extraction, rerank, dream)? | `prompts/mem_extraction.md` / `mem_rerank.md` / `dreaming_rem.md` |
 
@@ -132,4 +131,4 @@ Files that ship as content (skills, docs, bundled prompts) carry a `<!-- revisio
 
 GA prompt and codeterm_cli.md don't carry revision tags — they're not user-facing and get rebuilt on every binary release.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
