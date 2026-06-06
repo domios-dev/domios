@@ -313,8 +313,10 @@ export function PaneSessionChat({
   const paneProvider = muxState.panes[paneId]?.agent_type ?? null;
 
   const refocusComposer = useCallback(() => {
-    requestAnimationFrame(() => textareaRef.current?.focus());
-    window.setTimeout(() => textareaRef.current?.focus(), 0);
+    const focus = () => textareaRef.current?.focus({ preventScroll: true });
+    focus();
+    requestAnimationFrame(focus);
+    window.setTimeout(focus, 0);
   }, []);
 
   useEffect(() => {

@@ -467,7 +467,10 @@ export function ComposerActions({
           data-testid={mainIsSend ? "composer-send-button" : "composer-voice-button"}
           title={mainTitle}
           onPointerDown={(e) => {
-            if (mainIsSend) return;
+            if (mainIsSend) {
+              e.preventDefault();
+              return;
+            }
             void startVoice(e);
           }}
           onPointerUp={(e) => {

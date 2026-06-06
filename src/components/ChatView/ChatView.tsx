@@ -80,6 +80,13 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  const refocusComposer = useCallback(() => {
+    const focus = () => textareaRef.current?.focus({ preventScroll: true });
+    focus();
+    requestAnimationFrame(focus);
+    window.setTimeout(focus, 0);
+  }, []);
+
   useTauriFileDrop({
     containerRef: rootRef,
     onPaths: (paths) => {
@@ -93,7 +100,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         })),
       ]);
       setDragOver(false);
-      textareaRef.current?.focus();
+      refocusComposer();
     },
   });
 
@@ -175,6 +182,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     setInputExpanded(false);
     setInputAtMax(false);
     if (textareaRef.current) textareaRef.current.style.height = "20px";
+    refocusComposer();
 
     // Optimistic: single user message with text + attachment indicators
     const attLabels = currentAttachments.map(a => `[${a.name}]`);
@@ -255,8 +263,10 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       }
     } catch {
       // PTY might be dead
+    } finally {
+      refocusComposer();
     }
-  }, [input, attachments, ptyId, paneId]);
+  }, [input, attachments, ptyId, paneId, refocusComposer]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = Array.from(e.clipboardData.items);
@@ -588,6 +598,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             }}
           />
           <button
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               sendMessage();
               setInputExpanded(false);
@@ -595,6 +606,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
               if (textareaRef.current) {
                 textareaRef.current.style.height = "20px";
               }
+              refocusComposer();
             }}
             disabled={!input.trim() && attachments.length === 0}
             className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors duration-150 flex-shrink-0 disabled:opacity-30 ${inputExpanded ? "self-end" : ""}`}
