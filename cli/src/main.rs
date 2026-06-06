@@ -150,10 +150,11 @@ pub use args::cli::{Cli, Commands};
 pub use args::sessions::SessionsAction;
 pub use args::system::SystemAction;
 pub use args::usage::UsageAction;
-pub use args::mem::{MemAction, MemCalibrationAction, MemDreamAction, MemRepairAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
+pub use args::mem::{MemAction, MemCalibrationAction, MemDreamAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
 pub use args::agent::AgentAction;
 pub use args::cron::CronAction;
 pub use args::service::ServiceAction;
+pub use args::plugin::{PluginAction, PluginChannelAction};
 pub use args::update::UpdateAction;
 pub use args::misc::{WorkspaceAction, PaneAction, PasteAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction};
 
@@ -195,7 +196,22 @@ pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
 }
 
 fn main() {
-    let cli = Cli::parse();
+    if let Some((json, plugin_args)) = extract_plugin_args() {
+        match parse_plugin_action(plugin_args) {
+            Ok((plugin_json, action)) => cmd::plugin::handle_plugin(json || plugin_json, action),
+            Err(e) => {
+                if e.starts_with("Usage:") {
+                    println!("{e}");
+                    std::process::exit(0);
+                }
+                eprintln!("{e}");
+                std::process::exit(2);
+            }
+        }
+        return;
+    }
+
+    let cli = Cli::try_parse_from(std::env::args()).unwrap_or_else(|e| e.exit());
 
     // --mesh TARGET: proxy entire command to a remote peer via relay
     if let Some(ref mesh_target) = cli.mesh {
@@ -284,13 +300,6 @@ fn main() {
     // worker exit 1 before it can do any work.
     if let Commands::Mem { action: MemAction::RunWorker { ref kind, ref db_path } } = cli.command {
         cmd::worker::run_mem_worker(kind, db_path.as_deref());
-        return;
-    }
-
-    // `mem repair` opens knowledge.db directly — short-circuit for the same
-    // reason as run-worker so it works while the daemon is wedged.
-    if let Commands::Mem { action: MemAction::Repair { ref action } } = cli.command {
-        cmd::repair::run_mem_repair(action);
         return;
     }
 
@@ -628,10 +637,6 @@ fn main() {
                 cmd::worker::run_mem_worker(&kind, db_path.as_deref());
                 return;
             }
-            if let MemAction::Repair { action } = action {
-                cmd::repair::run_mem_repair(&action);
-                return;
-            }
             let json_mode = cli.json;
             cmd::mem::handle_mem(json_mode, action);
             return;
@@ -691,6 +696,140 @@ fn main() {
     };
 
     handle_result(cli.json, result);
+}
+
+fn extract_plugin_args() -> Option<(bool, Vec<String>)> {
+    let raw: Vec<String> = std::env::args().collect();
+    raw.first()?;
+    let mut json = false;
+    let mut plugin_idx = None;
+    for (i, arg) in raw.iter().enumerate().skip(1) {
+        if arg == "--json" {
+            json = true;
+            continue;
+        }
+        if arg == "plugin" {
+            plugin_idx = Some(i);
+        }
+        break;
+    }
+    let idx = plugin_idx?;
+    let mut out = Vec::new();
+    for arg in raw.into_iter().skip(idx + 1) {
+        out.push(arg);
+    }
+    Some((json, out))
+}
+
+fn parse_plugin_action(args: Vec<String>) -> Result<(bool, PluginAction), String> {
+    let mut json = false;
+    let mut args: Vec<String> = args
+        .into_iter()
+        .filter(|arg| {
+            if arg == "--json" {
+                json = true;
+                false
+            } else {
+                true
+            }
+        })
+        .collect();
+    if args.is_empty() || args[0] == "--help" || args[0] == "-h" {
+        return Err(plugin_help());
+    }
+    let cmd = args.remove(0);
+    let action = match cmd.as_str() {
+        "list" => PluginAction::List,
+        "install" => {
+            let mut id = None;
+            let mut from_dir = None;
+            let mut id_override = None;
+            let mut channel = None;
+            let mut i = 0;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--from-dir" => {
+                        i += 1;
+                        from_dir = Some(args.get(i).ok_or("--from-dir requires PATH")?.clone());
+                    }
+                    "--id-override" => {
+                        i += 1;
+                        id_override = Some(args.get(i).ok_or("--id-override requires ID")?.clone());
+                    }
+                    "--channel" => {
+                        i += 1;
+                        channel = Some(args.get(i).ok_or("--channel requires NAME")?.clone());
+                    }
+                    value if value.starts_with('-') => return Err(format!("unknown plugin install flag: {value}")),
+                    value => id = Some(value.to_string()),
+                }
+                i += 1;
+            }
+            PluginAction::Install { id, from_dir, id_override, channel }
+        }
+        "update" => PluginAction::Update { id: args.first().cloned() },
+        "update-system" | "system-update" => PluginAction::UpdateSystem { id: args.first().cloned() },
+        "remove" => {
+            let mut id = None;
+            let mut force = false;
+            for arg in args {
+                if arg == "--force" {
+                    force = true;
+                } else if arg.starts_with('-') {
+                    return Err(format!("unknown plugin remove flag: {arg}"));
+                } else {
+                    id = Some(arg);
+                }
+            }
+            PluginAction::Remove { id: id.ok_or("plugin remove requires ID")?, force }
+        }
+        "channel" => {
+            if args.is_empty() {
+                return Err("plugin channel requires subcommand: add | list | refresh | remove".to_string());
+            }
+            let sub = args.remove(0);
+            let command = match sub.as_str() {
+                "add" => {
+                    let mut url = None;
+                    let mut name = None;
+                    let mut i = 0;
+                    while i < args.len() {
+                        match args[i].as_str() {
+                            "--name" => {
+                                i += 1;
+                                name = Some(args.get(i).ok_or("--name requires NAME")?.clone());
+                            }
+                            value if value.starts_with('-') => return Err(format!("unknown plugin channel add flag: {value}")),
+                            value => url = Some(value.to_string()),
+                        }
+                        i += 1;
+                    }
+                    PluginChannelAction::Add { url: url.ok_or("plugin channel add requires URL_OR_PATH")?, name }
+                }
+                "list" => PluginChannelAction::List,
+                "refresh" => PluginChannelAction::Refresh { name: args.first().cloned() },
+                "remove" => PluginChannelAction::Remove { name: args.first().cloned().ok_or("plugin channel remove requires NAME")? },
+                other => return Err(format!("unknown plugin channel command: {other}")),
+            };
+            PluginAction::Channel { command }
+        }
+        other => return Err(format!("unknown plugin command: {other}\n\n{}", plugin_help())),
+    };
+    Ok((json, action))
+}
+
+fn plugin_help() -> String {
+    "Usage:
+  codeterm plugin list [--json]
+  codeterm plugin install [ID] [--from-dir PATH] [--id-override ID] [--channel NAME]
+  codeterm plugin update [ID]
+  codeterm plugin update-system [ID]
+  codeterm plugin remove ID [--force]
+  codeterm plugin channel add URL_OR_PATH [--name NAME]
+  codeterm plugin channel list
+  codeterm plugin channel refresh [NAME]
+  codeterm plugin channel remove NAME"
+        .to_string()
 }
 
 
@@ -755,5 +894,61 @@ mod subcommand_contract_tests {
                 res.err()
             );
         }
+    }
+
+    #[test]
+    fn plugin_subcommands_parse() {
+        let (json, install) = parse_plugin_action(vec![
+            "install".to_string(),
+            "--from-dir".to_string(),
+            "./provider-demo".to_string(),
+            "--id-override".to_string(),
+            "demo".to_string(),
+        ]).expect("plugin install --from-dir parses");
+        assert!(!json);
+        match install {
+            PluginAction::Install { from_dir, id_override, .. } => {
+                assert_eq!(from_dir.as_deref(), Some("./provider-demo"));
+                assert_eq!(id_override.as_deref(), Some("demo"));
+            }
+            _ => panic!("expected plugin install"),
+        }
+
+        let (json, list) = parse_plugin_action(vec![
+            "list".to_string(),
+            "--json".to_string(),
+        ]).expect("plugin list --json parses");
+        assert!(json);
+        assert!(matches!(list, PluginAction::List));
+
+        let (_, update_system) = parse_plugin_action(vec![
+            "update-system".to_string(),
+            "codex".to_string(),
+        ]).expect("plugin update-system parses");
+        assert!(matches!(
+            update_system,
+            PluginAction::UpdateSystem { id: Some(id) } if id == "codex"
+        ));
+
+        let (_, channel) = parse_plugin_action(vec![
+            "channel".to_string(),
+            "add".to_string(),
+            "https://example.invalid/channel.git".to_string(),
+            "--name".to_string(),
+            "example".to_string(),
+        ]).expect("plugin channel add parses");
+        match channel {
+            PluginAction::Channel { command: PluginChannelAction::Add { url, name } } => {
+                assert_eq!(url, "https://example.invalid/channel.git");
+                assert_eq!(name.as_deref(), Some("example"));
+            }
+            _ => panic!("expected plugin channel add"),
+        }
+    }
+
+    #[test]
+    fn top_level_docs_parse() {
+        let parsed = Cli::try_parse_from(["codeterm", "docs"]).expect("docs parses");
+        assert!(matches!(parsed.command, Commands::Docs { .. }));
     }
 }

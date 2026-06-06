@@ -210,6 +210,99 @@ fn mem_save_relays_to_items_post() {
 }
 
 #[test]
+fn mem_graph_create_relays_with_server_key_names() {
+    use crate::{MemAction, MemGraphAction};
+    let cmd = Commands::Mem {
+        action: MemAction::Graph {
+            action: MemGraphAction::Create {
+                id: "person_kai".into(),
+                entity_type: "Person".into(),
+                props: r#"{"name":"Kai"}"#.into(),
+                scope: None,
+            },
+        },
+    };
+    let (m, p, b) = cli_command_to_api(&cmd);
+    assert_eq!(m, "POST");
+    assert_eq!(p, "/api/mem/graph/entities");
+    let body: serde_json::Value = serde_json::from_str(&b.unwrap()).unwrap();
+    assert_eq!(body["id"], "person_kai");
+    // Server's GraphCreateEntityBody deserializes `type` (serde rename) + `properties`.
+    // The mesh payload must use those names, NOT the CLI-local `entity_type`/`props`.
+    assert_eq!(body["type"], "Person");
+    assert_eq!(body["properties"]["name"], "Kai");
+    assert!(body.get("entity_type").is_none(), "stale key leaked: {}", body);
+    assert!(body.get("props").is_none(), "stale key leaked: {}", body);
+}
+
+#[test]
+fn agent_providers_relays_to_providers_endpoint() {
+    use crate::AgentAction;
+    let (m, p, b) = cli_command_to_api(&Commands::Agent { action: AgentAction::Providers });
+    assert_eq!(m, "GET");
+    assert_eq!(p, "/api/agents/providers");
+    assert!(b.is_none());
+}
+
+#[test]
+fn agent_models_relays_to_providers_endpoint() {
+    use crate::AgentAction;
+    let cmd = Commands::Agent { action: AgentAction::Models { provider: "claude".into() } };
+    let (m, p, _) = cli_command_to_api(&cmd);
+    assert_eq!(m, "GET");
+    assert_eq!(p, "/api/agents/providers");
+}
+
+#[test]
+fn mesh_cron_create_forwards_all_advanced_fields() {
+    use crate::CronAction;
+    // Regression for the mesh path silently dropping once/jitter/tz/timeout/
+    // creator. Both transports build the body via args::cron::cron_create_body,
+    // so the advanced flags must survive over --mesh.
+    let cmd = Commands::Cron {
+        action: CronAction::Create {
+            name: "Nightly".into(),
+            schedule: "0 3 * * *".into(),
+            task: "do x".into(),
+            workspace: Some("ws_1".into()),
+            agent: "claude".into(),
+            model: None,
+            cwd: None,
+            description: None,
+            creator_pane: Some("pane_9".into()),
+            once: true,
+            jitter_max_ms: Some(5000),
+            tz: Some("Europe/Riga".into()),
+            timeout_secs: Some(1800),
+        },
+    };
+    let (m, p, b) = cli_command_to_api(&cmd);
+    assert_eq!(m, "POST");
+    assert_eq!(p, "/api/crons");
+    let body: serde_json::Value = serde_json::from_str(&b.unwrap()).unwrap();
+    assert_eq!(body["workspace_id"], "ws_1");
+    assert_eq!(body["oneshot"], true);
+    assert_eq!(body["jitter_max_ms"], 5000);
+    assert_eq!(body["tz"], "Europe/Riga");
+    assert_eq!(body["timeout_seconds"], 1800);
+    assert_eq!(body["creator_pane_id"], "pane_9");
+}
+
+#[test]
+fn mesh_local_only_mem_subcommands_are_rejected_not_misrouted() {
+    use crate::MemAction;
+    // Local-only mem subcommands must surface an honest error over mesh, not a
+    // misleading /api/mem/stats fallback that reads as success.
+    let cmd = Commands::Mem {
+        action: MemAction::RunWorker { kind: "dreaming-light".into(), db_path: None },
+    };
+    let (m, reason, b) = cli_command_to_api(&cmd);
+    assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
+    assert!(reason.contains("local-only"), "reason should explain why: {reason}");
+    assert!(b.is_none());
+}
+
+#[test]
 fn mem_get_relays_to_items_id() {
     use crate::MemAction;
     let cmd = Commands::Mem { action: MemAction::Get { id: "fact_x".into() } };
@@ -222,20 +315,6 @@ fn mem_get_relays_to_items_id() {
 fn mem_stats_still_routes_to_stats() {
     use crate::MemAction;
     let cmd = Commands::Mem { action: MemAction::Stats };
-    let (m, p, _) = cli_command_to_api(&cmd);
-    assert_eq!(m, "GET");
-    assert_eq!(p, "/api/mem/stats");
-}
-
-#[test]
-fn mem_local_only_falls_back_to_stats() {
-    use crate::MemAction;
-    let cmd = Commands::Mem {
-        action: MemAction::RunWorker {
-            kind: "dreaming-light".into(),
-            db_path: None,
-        },
-    };
     let (m, p, _) = cli_command_to_api(&cmd);
     assert_eq!(m, "GET");
     assert_eq!(p, "/api/mem/stats");

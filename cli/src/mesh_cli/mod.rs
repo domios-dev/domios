@@ -176,6 +176,30 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         return;
     }
 
+    // `pane list` renders the same workspace-grouped tree as the local path —
+    // relay the raw list, then format it here so local and mesh output match.
+    if !cli.json {
+        if let Commands::Pane { action: super::PaneAction::List { agents } } = &cli.command {
+            let panes = relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", "/api/panes", None);
+            let mut arr = panes.as_array().cloned().unwrap_or_default();
+            if *agents {
+                arr.retain(|p| {
+                    p.get("agent_type").and_then(|v| v.as_str()).map_or(false, |s| !s.is_empty())
+                });
+            }
+            if arr.is_empty() {
+                println!("(no panes)");
+            } else {
+                print!("{}", crate::cmd::pane::render_pane_tree(&arr));
+            }
+            return;
+        }
+    }
+
     let (method, path, body) = api_map::cli_command_to_api(&cli.command);
+    if method == api_map::UNSUPPORTED_OVER_MESH {
+        eprintln!("Error: {}", path);
+        std::process::exit(2);
+    }
     relay::mesh_relay_generic(&http, &base, &token, target, &method, &path, body.as_deref(), cli.json);
 }

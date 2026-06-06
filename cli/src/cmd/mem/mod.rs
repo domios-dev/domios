@@ -647,7 +647,6 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             }
         }
         MemAction::RunWorker { .. } => unreachable!("RunWorker is short-circuited in main()"),
-        MemAction::Repair { .. } => unreachable!("Repair is short-circuited in main()"),
         MemAction::Dream { .. } => unreachable!("Dream is short-circuited in main()"),
         MemAction::Reembed { scope } => {
             mem_post_request(

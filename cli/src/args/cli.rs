@@ -17,7 +17,12 @@ use super::update::UpdateAction;
 use super::usage::UsageAction;
 
 #[derive(Parser)]
-#[command(name = "codeterm", version, about = "CodeTerm CLI — control your terminal multiplexer")]
+#[command(
+    name = "codeterm",
+    version,
+    about = "CodeTerm CLI — control your terminal multiplexer",
+    after_help = "Plugin management is available via `codeterm plugin --help`."
+)]
 pub struct Cli {
     /// Output raw JSON instead of human-readable text
     #[arg(long, global = true)]
