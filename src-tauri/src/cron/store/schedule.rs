@@ -7,6 +7,43 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MAX_CONSECUTIVE_FAILURES: u32 = 5;
 
+fn system_now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+/// First two fire times strictly after `now_ms`, in the given tz
+/// (None → UTC). The injectable-now core: `Schedule::upcoming` hardcodes
+/// the real current time, which made cron untestable without wall-clock
+/// waits — `Schedule::after` takes our time instead.
+fn first_two_fires_after(
+    sched: &cron::Schedule,
+    tz: Option<chrono_tz::Tz>,
+    now_ms: u64,
+) -> (Option<u64>, Option<u64>) {
+    use chrono::TimeZone;
+    match tz {
+        Some(tz) => {
+            let now = match tz.timestamp_millis_opt(now_ms as i64).single() {
+                Some(dt) => dt,
+                None => return (None, None),
+            };
+            let mut it = sched.after(&now).map(|dt| dt.timestamp_millis() as u64);
+            (it.next(), it.next())
+        }
+        None => {
+            let now = match chrono::Utc.timestamp_millis_opt(now_ms as i64).single() {
+                Some(dt) => dt,
+                None => return (None, None),
+            };
+            let mut it = sched.after(&now).map(|dt| dt.timestamp_millis() as u64);
+            (it.next(), it.next())
+        }
+    }
+}
+
 pub fn to_6field(expr: &str) -> String {
     let fields: Vec<&str> = expr.trim().split_whitespace().collect();
     if fields.len() == 5 {
@@ -32,20 +69,19 @@ pub fn compute_next_run(schedule: &str) -> Result<Option<u64>, String> {
 }
 
 pub fn compute_next_run_in(schedule: &str, tz: Option<&str>) -> Result<Option<u64>, String> {
+    compute_next_run_at(schedule, tz, system_now_ms())
+}
+
+pub fn compute_next_run_at(
+    schedule: &str,
+    tz: Option<&str>,
+    now_ms: u64,
+) -> Result<Option<u64>, String> {
     use std::str::FromStr;
     let expr = to_6field(schedule);
     let sched = cron::Schedule::from_str(&expr).map_err(|e| format!("Invalid cron: {}", e))?;
     let parsed_tz = parse_tz(tz)?;
-    Ok(match parsed_tz {
-        Some(tz) => sched
-            .upcoming(tz)
-            .next()
-            .map(|dt| dt.timestamp_millis() as u64),
-        None => sched
-            .upcoming(chrono::Utc)
-            .next()
-            .map(|dt| dt.timestamp_millis() as u64),
-    })
+    Ok(first_two_fires_after(&sched, parsed_tz, now_ms).0)
 }
 
 pub fn compute_next_run_jittered(
@@ -60,29 +96,23 @@ pub fn compute_next_run_jittered_in(
     jitter_max_ms: Option<u64>,
     tz: Option<&str>,
 ) -> Result<Option<u64>, String> {
+    compute_next_run_jittered_at(schedule, jitter_max_ms, tz, system_now_ms())
+}
+
+pub fn compute_next_run_jittered_at(
+    schedule: &str,
+    jitter_max_ms: Option<u64>,
+    tz: Option<&str>,
+    now_ms: u64,
+) -> Result<Option<u64>, String> {
     use std::str::FromStr;
     let expr = to_6field(schedule);
     let sched = cron::Schedule::from_str(&expr).map_err(|e| format!("Invalid cron: {}", e))?;
     let parsed_tz = parse_tz(tz)?;
-    let (next, second) = match parsed_tz {
-        Some(tz) => {
-            let mut upcoming = sched.upcoming(tz);
-            let n = match upcoming.next() {
-                Some(dt) => dt.timestamp_millis() as u64,
-                None => return Ok(None),
-            };
-            let s = upcoming.next().map(|dt| dt.timestamp_millis() as u64);
-            (n, s)
-        }
-        None => {
-            let mut upcoming = sched.upcoming(chrono::Utc);
-            let n = match upcoming.next() {
-                Some(dt) => dt.timestamp_millis() as u64,
-                None => return Ok(None),
-            };
-            let s = upcoming.next().map(|dt| dt.timestamp_millis() as u64);
-            (n, s)
-        }
+    let (first, second) = first_two_fires_after(&sched, parsed_tz, now_ms);
+    let next = match first {
+        Some(n) => n,
+        None => return Ok(None),
     };
 
     let max = match jitter_max_ms {
@@ -131,6 +161,10 @@ pub fn validate_tz(tz: &str) -> Result<(), String> {
 /// - ISO 8601: "2025-04-05T14:30:00Z", "2025-04-05T14:30:00+03:00"
 /// - Unix ms: "1712345678000" (13+ digits)
 pub fn parse_oneshot_schedule(schedule: &str) -> Result<u64, String> {
+    parse_oneshot_schedule_at(schedule, system_now_ms())
+}
+
+pub fn parse_oneshot_schedule_at(schedule: &str, now_ms: u64) -> Result<u64, String> {
     let s = schedule.trim();
 
     if let Some(rest) = s.strip_prefix("in ") {
@@ -138,20 +172,12 @@ pub fn parse_oneshot_schedule(schedule: &str) -> Result<u64, String> {
         if duration_ms == 0 {
             return Err("Duration must be > 0".into());
         }
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        return Ok(now + duration_ms);
+        return Ok(now_ms + duration_ms);
     }
 
     if s.len() >= 13 && s.chars().all(|c| c.is_ascii_digit()) {
         let ts: u64 = s.parse().map_err(|_| "Invalid timestamp".to_string())?;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        if ts <= now {
+        if ts <= now_ms {
             return Err("Oneshot time must be in the future".into());
         }
         return Ok(ts);
@@ -159,11 +185,7 @@ pub fn parse_oneshot_schedule(schedule: &str) -> Result<u64, String> {
 
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
         let ts = dt.timestamp_millis() as u64;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        if ts <= now {
+        if ts <= now_ms {
             return Err("Oneshot time must be in the future".into());
         }
         return Ok(ts);

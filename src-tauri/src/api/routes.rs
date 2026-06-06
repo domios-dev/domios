@@ -7,10 +7,10 @@ use axum::{
 use tower_http::{catch_panic::CatchPanicLayer, cors::CorsLayer};
 
 use super::{
-    agent_routes, bridge_routes, config_routes, cron_routes, health_routes, hook_routes,
-    logs_routes, mem_routes, mesh_routes, network_routes, notification_routes, pane_chat_routes,
-    pane_routes, pasteboard_routes, services_routes, session_routes, theme_routes, updater_routes,
-    usage_routes, webhook_routes, workspace_routes,
+    agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, health_routes,
+    hook_routes, logs_routes, mem_routes, mesh_routes, network_routes, notification_routes,
+    pane_chat_routes, pane_routes, pasteboard_routes, services_routes, session_routes,
+    theme_routes, updater_routes, usage_routes, webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -23,6 +23,9 @@ pub struct AppState {
     pub config: crate::config::ConfigState,
     pub mesh: crate::MeshStateHandle,
     pub keepawake: crate::KeepAwakeStateHandle,
+    /// Some only in debug builds started with CODETERM_TEST_CLOCK=1 —
+    /// powers /api/debug/clock time travel for the cron e2e suite.
+    pub test_clock: Option<std::sync::Arc<crate::cron::clock::MockClock>>,
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -179,6 +182,8 @@ pub fn create_router(state: AppState) -> Router {
             "/api/agents/providers",
             get(agent_routes::list_agent_providers),
         )
+        .route("/api/debug/clock", get(debug_routes::clock_status))
+        .route("/api/debug/clock/advance", post(debug_routes::clock_advance))
         .route("/api/session/save", post(session_routes::save_session_api))
         .route(
             "/api/sessions/search",

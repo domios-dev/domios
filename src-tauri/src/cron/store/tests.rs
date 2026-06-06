@@ -483,3 +483,117 @@ fn update_schedule_only_recomputes_next_run() {
         before, after
     );
 }
+
+// ── Time-travel semantics (injected MockClock) ─────────────────────
+
+use crate::cron::clock::MockClock;
+
+/// 2023-11-14T22:13:20Z — fixed epoch so boundary math is deterministic.
+const T0: u64 = 1_700_000_000_000;
+
+fn mock_store(start_ms: u64) -> (CronStore, std::sync::Arc<MockClock>) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("crons.json");
+    std::mem::forget(dir);
+    let clock = MockClock::starting_at(start_ms);
+    let store = CronStore::new_with_path_and_clock(path, clock.clone());
+    (store, clock)
+}
+
+fn run(run_id: &str, started_at: u64, status: CronRunStatus) -> CronRunInfo {
+    CronRunInfo {
+        run_id: run_id.into(),
+        started_at,
+        finished_at: None,
+        status,
+        pane_id: None,
+        tab_id: None,
+    }
+}
+
+#[test]
+fn created_at_and_next_run_come_from_injected_clock() {
+    let (mut store, _clock) = mock_store(T0);
+    let job = store.create(make_params("clock", "ws", "*/5 * * * *")).unwrap();
+    assert_eq!(job.created_at, T0);
+    // Next */5 boundary after 22:13:20 is 22:15:00.
+    assert_eq!(job.next_run, Some(1_700_000_100_000));
+}
+
+#[test]
+fn oneshot_in_30s_becomes_due_exactly_after_advance() {
+    let (mut store, clock) = mock_store(T0);
+    let mut params = make_params("oneshot", "ws", "in 30s");
+    params.oneshot = Some(true);
+    let job = store.create(params).unwrap();
+    assert_eq!(job.next_run, Some(T0 + 30_000));
+
+    // 1ms early: not due.
+    clock.advance_ms(29_999);
+    let j = store.get(&job.id).unwrap();
+    assert!(j.next_run.unwrap() > store.now_ms(), "due too early");
+
+    // At exactly +30s: due.
+    clock.advance_ms(1);
+    let j = store.get(&job.id).unwrap();
+    assert!(j.next_run.unwrap() <= store.now_ms(), "not due at fire time");
+}
+
+#[test]
+fn every_5min_fires_exactly_three_times_across_15min_advance() {
+    let (mut store, clock) = mock_store(T0);
+    let job = store.create(make_params("rep", "ws", "*/5 * * * *")).unwrap();
+
+    let mut fires = 0;
+    // Walk time forward to a hair past each next_run, recording a success
+    // per fire — the scheduler's decision rule (next_run <= now) verbatim.
+    let deadline = T0 + 15 * 60_000 + 1_000; // T0 + 15min (+1s slack)
+    loop {
+        let next = store.get(&job.id).unwrap().next_run.unwrap();
+        if next > deadline {
+            break;
+        }
+        clock.set_ms(next);
+        assert!(next <= store.now_ms(), "fire decision must be due now");
+        fires += 1;
+        store
+            .record_run(&job.id, run(&format!("r{}", fires), next, CronRunStatus::Success))
+            .unwrap();
+        let after = store.get(&job.id).unwrap().next_run.unwrap();
+        assert!(after > next, "next_run must move strictly forward");
+    }
+    // 22:15, 22:20, 22:25 — exactly three boundaries within T0+15min.
+    assert_eq!(fires, 3, "expected exactly 3 fires in 15 minutes");
+}
+
+#[test]
+fn failure_backoff_is_anchored_to_mock_now() {
+    let (mut store, clock) = mock_store(T0);
+    let job = store.create(make_params("backoff", "ws", "0 * * * *")).unwrap();
+    clock.advance_ms(60_000);
+    let now = store.now_ms();
+    store
+        .record_run(&job.id, run("r1", now, CronRunStatus::Failed))
+        .unwrap();
+    let next = store.get(&job.id).unwrap().next_run.unwrap();
+    assert!(next > now, "backoff must schedule in the mocked future");
+    assert!(
+        next - now <= 3_600_000 + 3_600_000 / 4 + 1,
+        "backoff must respect the 1h cap (+25% jitter)"
+    );
+}
+
+#[test]
+fn update_run_status_stamps_finished_at_from_mock_clock() {
+    let (mut store, clock) = mock_store(T0);
+    let job = store.create(make_params("stamp", "ws", "0 * * * *")).unwrap();
+    store
+        .record_run(&job.id, run("r1", T0, CronRunStatus::Running))
+        .unwrap();
+    clock.set_ms(T0 + 123_456);
+    store
+        .update_run_status(&job.id, "r1", CronRunStatus::Success)
+        .unwrap();
+    let history = store.get_history(&job.id);
+    assert_eq!(history[0].finished_at, Some(T0 + 123_456));
+}
