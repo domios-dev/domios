@@ -6,15 +6,31 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-tests=(
-  plugins/provider-claude/tests/parser.test.ts
-  plugins/provider-claude/tests/detect.test.ts
-  plugins/provider-claude/tests/status.test.ts
-  plugins/provider-claude/tests/plugin.test.ts
-  plugins/provider-codex/tests/plugin.test.ts
-  plugins/provider-opencode/tests/plugin.test.ts
-  src/lib/plugins/__tests__/registry.test.ts
-)
+case "${1:-all}" in
+  all)
+    tests=(
+      plugins/provider-claude/tests/parser.test.ts
+      plugins/provider-claude/tests/detect.test.ts
+      plugins/provider-claude/tests/status.test.ts
+      plugins/provider-claude/tests/plugin.test.ts
+      plugins/provider-codex/tests/plugin.test.ts
+      plugins/provider-opencode/tests/plugin.test.ts
+      src/lib/plugins/__tests__/registry.test.ts
+    )
+    ;;
+  provider-claude)
+    tests=(
+      plugins/provider-claude/tests/parser.test.ts
+      plugins/provider-claude/tests/detect.test.ts
+      plugins/provider-claude/tests/status.test.ts
+      plugins/provider-claude/tests/plugin.test.ts
+    )
+    ;;
+  *)
+    echo "unknown plugin test suite: $1" >&2
+    exit 2
+    ;;
+esac
 
 fails=0
 for t in "${tests[@]}"; do
