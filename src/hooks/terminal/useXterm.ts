@@ -8,16 +8,16 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { invoke } from "../../lib/bridge";
 import { mapCursorStyle, buildXtermTheme } from "../../components/Terminal/helpers";
 import type { ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
+import { shouldEnableXtermA11yMode } from "./xtermTestMode";
 
-/** True only under the Playwright harness (vite launched with the env). */
-// Build-time gate (the desktop Playwright harness) OR runtime opt-in via
-// /web/?a11y=1 — gives the web mirror a readable terminal DOM for both
-// screen readers and the 12-web e2e suite, at the cost of the WebGL
-// renderer's truecolor for that session only.
-const E2E_TEST_MODE =
-  import.meta.env.VITE_CODETERM_TEST === "1" ||
-  (typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).has("a11y"));
+// Desktop Playwright harness (dev-server only) OR runtime opt-in via
+// /web/?a11y=1. Production builds deliberately ignore VITE_CODETERM_TEST
+// so a leaked env var cannot disable the WebGL terminal renderer in release.
+const E2E_TEST_MODE = shouldEnableXtermA11yMode({
+  isViteDev: import.meta.env.DEV,
+  viteCodeTermTest: import.meta.env.VITE_CODETERM_TEST,
+  locationSearch: typeof window !== "undefined" ? window.location.search : "",
+});
 
 export interface UseXtermOptions {
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -73,10 +73,9 @@ export function useXterm({
       overviewRuler: { width: 4 },
       allowProposedApi: true,
       // E2E-only DOM mirror of the viewport (.xterm-accessibility).
-      // NEVER enabled for users: screenReaderMode degrades the renderer
-      // (forces the reduced-color DOM path — black-and-white TUIs).
-      // The Playwright harness sets VITE_CODETERM_TEST=1 at dev-server
-      // launch; normal `build.sh dev` and prod builds never do.
+      // Enabled by the Playwright dev harness and explicit /web/?a11y=1
+      // only. It degrades truecolor rendering, so normal dev/release
+      // sessions keep WebGL enabled.
       screenReaderMode: E2E_TEST_MODE,
       windowsPty: {
         backend: "conpty",
