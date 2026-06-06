@@ -755,7 +755,7 @@ mod tests {
         // Focus pane_a explicitly.
         state.set_focused_pane(&pane_a).unwrap();
         let panes = build_pane_list_json(&state.snapshot());
-        let get_focused = |id: &str| {
+        let get_focused = |panes: &[serde_json::Value], id: &str| {
             panes
                 .iter()
                 .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(id))
@@ -763,13 +763,52 @@ mod tests {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false)
         };
-        assert!(get_focused(&pane_a), "focused pane must have focused=true");
-        assert!(!get_focused(&pane_b), "non-focused pane must have focused=false");
+        assert!(
+            get_focused(&panes, &pane_a),
+            "focused pane must have focused=true"
+        );
+        assert!(
+            !get_focused(&panes, &pane_b),
+            "non-focused pane must have focused=false"
+        );
         // Switch focus.
         state.set_focused_pane(&pane_b).unwrap();
         let panes = build_pane_list_json(&state.snapshot());
-        assert!(!get_focused(&pane_a), "pane_a must be unfocused after switch");
-        assert!(get_focused(&pane_b), "pane_b must be focused after switch");
+        assert!(
+            !get_focused(&panes, &pane_a),
+            "pane_a must be unfocused after switch"
+        );
+        assert!(
+            get_focused(&panes, &pane_b),
+            "pane_b must be focused after switch"
+        );
+    }
+
+    #[test]
+    fn pane_list_marks_exactly_one_focused_pane_from_each_snapshot() {
+        use crate::multiplexer::state::MultiplexerState;
+        let (mut state, pane_a) = MultiplexerState::new();
+        let pane_b = state.create_pane();
+
+        for focused in [&pane_a, &pane_b] {
+            state.set_focused_pane(focused).unwrap();
+            let panes = build_pane_list_json(&state.snapshot());
+            let focused_ids: Vec<&str> = panes
+                .iter()
+                .filter(|p| {
+                    p.get("focused")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                })
+                .filter_map(|p| p.get("id").and_then(|v| v.as_str()))
+                .collect();
+
+            assert_eq!(
+                focused_ids,
+                vec![focused.as_str()],
+                "pane list must derive focused=true from the snapshot being projected"
+            );
+        }
     }
 
     #[test]
