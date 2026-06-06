@@ -36,15 +36,12 @@ CODETERM_API_URL=http://127.0.0.1:7686 pytest tests/e2e/ -v
 CODETERM_API_URL=http://127.0.0.1:7686 pytest tests/e2e/test_hooks.py -v
 ```
 
-**Windows (BLACKSTAR) — use `dev.local.sh`:**
+**Windows (BLACKSTAR):**
 ```bash
-# Safe: starts dev server WITHOUT killing production instance
-bash dev.local.sh dev       # loads MSVC, starts dev, waits for API on port 7686
+./build.sh dev --wait       # starts dev on 7686 and leaves production on 7685 alone
+bash dev.local.sh dev       # local fallback: starts dev and waits for API on 7686
 bash dev.local.sh test      # runs pytest against dev instance
 bash dev.local.sh all       # dev + wait + test
-
-# WARNING: Do NOT use ./build.sh dev on Windows — it runs
-# taskkill //F //IM codeterm.exe which kills production CodeTerm!
 ```
 
 **Remote testing:**
