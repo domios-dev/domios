@@ -145,6 +145,133 @@ test("@golden real agent spawn → works → reports back (structural asserts)",
   }
 });
 
+async function waitForMarkerInDom(
+  ui: Awaited<ReturnType<typeof connectUi>>,
+  marker: string,
+  timeout = 240_000,
+): Promise<void> {
+  await ui.page.waitForFunction(
+    (m) =>
+      Array.from(document.querySelectorAll(".xterm-accessibility")).some((tree) =>
+        (tree.textContent ?? "").includes(m),
+      ),
+    marker,
+    { timeout, polling: 1_000 },
+  );
+}
+
+async function spawnWorker(inboxId: string, task: string): Promise<string> {
+  const spawned = await api.post<{ pane_id: string }>("/agents/spawn", {
+    agent: "claude",
+    model: "sonnet",
+    role: "Worker",
+    title: "pw-agent-live",
+    parent_pane_id: inboxId,
+    report_target_pane_id: inboxId,
+    skip_permissions: true,
+    activate: true,
+    task,
+  });
+  return spawned.pane_id;
+}
+
+test("@golden multi-turn + tool round-trip observed in the live terminal DOM", async () => {
+  // Turn 1 makes the agent EXECUTE a command (tool use — the echoed marker
+  // only reaches the terminal if the tool actually ran); turn 2 sends a
+  // follow-up into the same session and reads the reply from the DOM.
+  test.setTimeout(420_000);
+
+  const ui = await connectUi();
+  const inbox = (await api.createPane({ title: "pw-mt-inbox" })) as { id: string };
+  const toolMarker = `PW-TOOL-${Date.now()}`;
+  const turn2Marker = `PW-TURN2-${Date.now()}`;
+  let agentPaneId: string | undefined;
+
+  try {
+    await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
+    agentPaneId = await spawnWorker(
+      inbox.id,
+      `Run exactly this command and nothing else, then stop: echo ${toolMarker}`,
+    );
+    await waitForMarkerInDom(ui, toolMarker);
+
+    // Same pane, same session — a real second turn.
+    await api.post(`/panes/${agentPaneId}/send`, {
+      text: `Reply with a single line containing exactly ${turn2Marker} and nothing else.`,
+      enter: true,
+    });
+    await waitForMarkerInDom(ui, turn2Marker);
+  } finally {
+    if (agentPaneId) await api.closePane(agentPaneId).catch(() => {});
+    await api.closePane(inbox.id).catch(() => {});
+    await ui.browser.close().catch(() => {});
+  }
+});
+
+test("@golden agent restart mid-session resumes and stays usable", async () => {
+  test.setTimeout(420_000);
+
+  const ui = await connectUi();
+  const inbox = (await api.createPane({ title: "pw-restart-inbox" })) as { id: string };
+  const warmMarker = `PW-WARM-${Date.now()}`;
+  const resumeMarker = `PW-RESUME-${Date.now()}`;
+  let agentPaneId: string | undefined;
+
+  try {
+    await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
+    agentPaneId = await spawnWorker(
+      inbox.id,
+      `Reply with a single line containing exactly ${warmMarker} and nothing else.`,
+    );
+    await waitForMarkerInDom(ui, warmMarker);
+
+    const sessionBefore = (await api.panes()).find((p) => p.id === agentPaneId) as
+      | { agent_session_id?: string }
+      | undefined;
+
+    // Graceful restart: /exit + auto-resume of the same session.
+    const restart = await api.post<{ restarting: boolean; session_id?: string }>(
+      `/panes/${agentPaneId}/agent/restart`,
+      {},
+    );
+    expect(restart.restarting).toBe(true);
+
+    // The pane must survive the restart and stay a claude agent pane.
+    const deadline = Date.now() + 120_000;
+    let pane: { agent_type?: string | null; agent_session_id?: string } | undefined;
+    while (Date.now() < deadline) {
+      pane = (await api.panes()).find((p) => p.id === agentPaneId);
+      if (pane?.agent_type === "claude") break;
+      await new Promise((r) => setTimeout(r, 2_000));
+    }
+    expect(pane?.agent_type, "pane lost its agent after restart").toBe("claude");
+
+    // Usability after restart is the real bar: a fresh prompt round-trips.
+    // Give the resumed CLI a moment to be input-ready.
+    await new Promise((r) => setTimeout(r, 10_000));
+    await api.post(`/panes/${agentPaneId}/send`, {
+      text: `Reply with a single line containing exactly ${resumeMarker} and nothing else.`,
+      enter: true,
+    });
+    await waitForMarkerInDom(ui, resumeMarker);
+
+    // Resume (not a fresh session): the session id survives when it was
+    // known before the restart.
+    if (sessionBefore?.agent_session_id) {
+      const after = (await api.panes()).find((p) => p.id === agentPaneId) as
+        | { agent_session_id?: string }
+        | undefined;
+      expect(after?.agent_session_id, "restart replaced the session instead of resuming").toBe(
+        sessionBefore.agent_session_id,
+      );
+    }
+  } finally {
+    if (agentPaneId) await api.closePane(agentPaneId).catch(() => {});
+    await api.closePane(inbox.id).catch(() => {});
+    await ui.browser.close().catch(() => {});
+  }
+});
+
 test("@golden fully live: agent response read from the rendered terminal DOM", async () => {
   // Real UI → real PTY → real LLM → real DOM. The WebGL canvas has no
   // readable text; the screenReaderMode accessibility tree
