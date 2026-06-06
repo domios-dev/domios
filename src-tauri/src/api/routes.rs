@@ -187,7 +187,10 @@ pub fn create_router(state: AppState) -> Router {
             get(agent_routes::list_agent_providers),
         )
         .route("/api/debug/clock", get(debug_routes::clock_status))
-        .route("/api/debug/clock/advance", post(debug_routes::clock_advance))
+        .route(
+            "/api/debug/clock/advance",
+            post(debug_routes::clock_advance),
+        )
         // Web mirror: IPC equivalents + the SSE event stream.
         .route("/api/mux/state", get(web_routes::mux_state))
         .route(
@@ -198,7 +201,10 @@ pub fn create_router(state: AppState) -> Router {
             "/api/workspaces/{id}/tabs/{tab_id}/close",
             post(web_routes::tab_close),
         )
-        .route("/api/panes/{id}/chat-view", post(web_routes::pane_chat_view))
+        .route(
+            "/api/panes/{id}/chat-view",
+            post(web_routes::pane_chat_view),
+        )
         .route(
             "/api/mesh/peers/{id}/services",
             get(web_routes::peer_services),
@@ -215,6 +221,13 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/panes/{id}/chat-raw/backfill",
             post(web_routes::chat_raw_backfill),
+        )
+        .route(
+            "/api/upload",
+            post(web_routes::upload)
+                // Voice notes and attached files: axum's 2MB default is too
+                // small; cap at 200MB so a runaway client can't fill the disk.
+                .layer(axum::extract::DefaultBodyLimit::max(200 * 1024 * 1024)),
         )
         .route("/api/pty/{id}/read", get(web_routes::pty_read))
         .route("/api/pty/{id}/write", post(web_routes::pty_write))
@@ -527,8 +540,9 @@ pub fn create_router(state: AppState) -> Router {
     // fallback (deep links resolve to index.html). Public route — the
     // auth middleware skips /web; all API calls remain token-gated.
     let router = if let Some(dist) = &state.web_dist {
-        let serve = tower_http::services::ServeDir::new(dist)
-            .fallback(tower_http::services::ServeFile::new(dist.join("index.html")));
+        let serve = tower_http::services::ServeDir::new(dist).fallback(
+            tower_http::services::ServeFile::new(dist.join("index.html")),
+        );
         router.nest_service("/web", serve)
     } else {
         router

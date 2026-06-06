@@ -174,6 +174,66 @@ pub async fn pty_resize(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+// ── uploads — browser attachments (files, voice notes) land on the
+//    daemon host so the agent CLI can read them by path ──
+
+/// Strip anything that could escape the uploads dir or break a shell-quoted
+/// paste; keep the extension so the receiving agent can tell what it got.
+fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '-' | '_' => c,
+            _ => '_',
+        })
+        .collect();
+    let trimmed = cleaned.trim_matches('.');
+    if trimmed.is_empty() {
+        "upload.bin".to_string()
+    } else {
+        trimmed.chars().take(120).collect()
+    }
+}
+
+pub async fn upload(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let dir = crate::paths::data_dir().join("uploads");
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?
+    {
+        if field.name() != Some("file") {
+            continue;
+        }
+        let name = sanitize_filename(field.file_name().unwrap_or("upload.bin"));
+        let data = field
+            .bytes()
+            .await
+            .map_err(|e| (StatusCode::PAYLOAD_TOO_LARGE, e.to_string()))?;
+        if data.is_empty() {
+            return Err((StatusCode::BAD_REQUEST, "empty file".to_string()));
+        }
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let path = dir.join(format!("{}-{}", &id[..8], name));
+        tokio::fs::write(&path, &data)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        return Ok(Json(serde_json::json!({
+            "path": path.to_string_lossy(),
+            "size": data.len(),
+        })));
+    }
+    Err((StatusCode::BAD_REQUEST, "missing 'file' field".to_string()))
+}
+
 // ── chat-raw — the chat view's JSONL window + tailer, web edition ──
 
 /// Same semantics and result shape as the Tauri `chat_start`: returns the
@@ -214,8 +274,12 @@ pub async fn chat_raw_backfill(
     Json(body): Json<ChatBackfillBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let result =
-        crate::commands::chat_backfill_core(&state.svc, pane_id, body.before_offset, body.max_bytes)
-            .map_err(|e| (StatusCode::CONFLICT, e))?;
+    let result = crate::commands::chat_backfill_core(
+        &state.svc,
+        pane_id,
+        body.before_offset,
+        body.max_bytes,
+    )
+    .map_err(|e| (StatusCode::CONFLICT, e))?;
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }
