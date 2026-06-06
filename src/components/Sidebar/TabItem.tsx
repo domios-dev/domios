@@ -7,6 +7,11 @@ import {
   isChatUiSupported,
   maybeAskDefaultNewAgentPaneToChat,
 } from "../../lib/chatUiMode";
+import {
+  getClientPaneUiMode,
+  listenClientPaneUiMode,
+  setClientPaneUiMode,
+} from "../../lib/clientPaneUiMode";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TelegramIcon, TerminalIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
@@ -50,12 +55,19 @@ export function TabItem({
   const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
-  const [chatView, setChatView] = useState(Boolean(pane?.chat_view));
+  const [chatView, setChatView] = useState(() =>
+    pane ? getClientPaneUiMode(pane.id) === "chat" : false,
+  );
   const tabRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setChatView(Boolean(pane?.chat_view));
-  }, [pane?.chat_view]);
+    if (!pane) {
+      setChatView(false);
+      return;
+    }
+    setChatView(getClientPaneUiMode(pane.id) === "chat");
+    return listenClientPaneUiMode(pane.id, (mode) => setChatView(mode === "chat"));
+  }, [pane?.id]);
 
   // Close animation phases
   const [closePhase, setClosePhase] = useState<0 | 1 | 2>(0);
@@ -92,9 +104,8 @@ export function TabItem({
           : <SquareTerminal size={11} strokeWidth={2} />,
         onClick: () => {
           setChatView(nextChatView);
+          setClientPaneUiMode(pane.id, nextChatView ? "chat" : "terminal");
           emitPaneUiMode(pane.id, nextChatView ? "chat" : "terminal");
-          invoke("mux_set_chat_view", { paneId: pane.id, enabled: nextChatView })
-            .finally(() => window.dispatchEvent(new Event("codeterm-refresh-mux-state")));
           if (nextChatView) maybeAskDefaultNewAgentPaneToChat();
         },
       });

@@ -14,6 +14,11 @@ import {
 } from "../../hooks/terminal";
 import { quotePathForPaste, routeClipboardToTerm } from "../../lib/clipboardPaste";
 import { registerPanePaste } from "../../lib/panePasteRegistry";
+import {
+  getClientPaneUiMode,
+  listenClientPaneUiMode,
+  setClientPaneUiMode,
+} from "../../lib/clientPaneUiMode";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
@@ -98,7 +103,7 @@ export function TerminalPane({
   const [uiMode, setUiMode] = useState<PaneUiMode>(() => (
     chatSupported
       && sessionReadyForChat
-      && (pane?.chat_view || shouldDefaultNewAgentPaneToChat(agentType))
+      && (getClientPaneUiMode(paneId) === "chat" || shouldDefaultNewAgentPaneToChat(agentType))
       ? "chat"
       : "terminal"
   ));
@@ -116,15 +121,17 @@ export function TerminalPane({
   useEffect(() => {
     const defaultMode: PaneUiMode = chatSupported
       && sessionReadyForChat
-      && (pane?.chat_view || shouldDefaultNewAgentPaneToChat(agentType))
+      && ((getClientPaneUiMode(paneId) ?? (shouldDefaultNewAgentPaneToChat(agentType) ? "chat" : "terminal")) === "chat")
       ? "chat"
       : "terminal";
     const desiredMode = userModeOverrideRef.current ?? defaultMode;
     setUiMode((mode) => mode === desiredMode ? mode : desiredMode);
-    if (desiredMode === "chat" && !pane?.chat_view) {
-      void invoke("mux_set_chat_view", { paneId, enabled: true }).catch(() => {});
-    }
-  }, [agentType, chatSupported, sessionReadyForChat, pane?.chat_view, paneId]);
+  }, [agentType, chatSupported, sessionReadyForChat, paneId]);
+
+  useEffect(() => listenClientPaneUiMode(paneId, (mode) => {
+    userModeOverrideRef.current = mode;
+    setUiMode(mode === "chat" && (!chatSupported || !sessionReadyForChat) ? "terminal" : mode);
+  }), [paneId, chatSupported, sessionReadyForChat]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -133,7 +140,7 @@ export function TerminalPane({
       setTerminalFallbackOpen(false);
       const requested = event.detail.mode;
       userModeOverrideRef.current = requested;
-      void invoke("mux_set_chat_view", { paneId, enabled: requested === "chat" }).catch(() => {});
+      setClientPaneUiMode(paneId, requested);
       if (requested === "chat" && (!chatSupported || !sessionReadyForChat)) {
         setUiMode("terminal");
         return;
@@ -384,7 +391,7 @@ export function TerminalPane({
           <PaneSessionChat
             paneId={paneId}
             onError={() => {
-              void invoke("mux_set_chat_view", { paneId, enabled: false }).catch(() => {});
+              setClientPaneUiMode(paneId, "terminal");
               setUiMode("terminal");
             }}
             onOpenTerminalFallback={() => {

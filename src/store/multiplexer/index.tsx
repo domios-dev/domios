@@ -11,6 +11,7 @@ import { IS_WEB, webJson } from "../../lib/webApi";
 import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
 import { shouldDefaultNewAgentPaneToChat } from "../../lib/chatUiMode";
+import { setClientPaneUiMode } from "../../lib/clientPaneUiMode";
 import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
@@ -318,7 +319,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           activate: true,
         });
         if (shouldDefaultNewAgentPaneToChat(agentId)) {
-          invoke("mux_set_chat_view", { paneId: spawned.pane_id, enabled: true }).catch(() => {});
+          setClientPaneUiMode(spawned.pane_id, "chat");
         }
         refreshFromBackend();
         return;
@@ -338,7 +339,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       // session-detection polling loop in `set_pane_agent_type`.
       invoke("mux_set_pane_agent_type", { paneId: tabInfo.pane_id, agentType: agentId }).catch(() => {});
       if (shouldDefaultNewAgentPaneToChat(agentId)) {
-        invoke("mux_set_chat_view", { paneId: tabInfo.pane_id, enabled: true }).catch(() => {});
+        setClientPaneUiMode(tabInfo.pane_id, "chat");
       }
       const cmd = await invoke<string>("build_agent_launch_command", { agentId, skipPermissions });
       setPendingCommand(tabInfo.pane_id, cmd);
