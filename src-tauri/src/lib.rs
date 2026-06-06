@@ -576,7 +576,6 @@ pub fn run() {
                 let activity = crate::services::activity::ActivityWriter::new(store.conn());
                 crate::services::health::scheduler::start(store, activity, app.handle().clone());
             }
-            crate::mesh::ping_scheduler::start(states.mesh.clone(), states.config.clone(), app.handle().clone());
 
             // SecretStore::init() runs inside start_servers BEFORE the
             // API listener binds — see start_servers below. That's the

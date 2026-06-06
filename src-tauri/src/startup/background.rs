@@ -95,21 +95,37 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                             }
                         })
                         .await;
-                        let (online, client) = match ping_result {
+                        let (ping_ok, client) = match ping_result {
                             Ok(c) => (true, Some(c)),
                             Err(_) => (false, None),
                         };
-                        let was_online = {
+                        let (online, was_online) = {
                             let mut m = mesh.lock();
                             if let Some(p) = m.paired_peers.get_mut(&peer.instance_id) {
                                 let was = p.online;
-                                if p.online != online {
-                                    p.online = online;
+                                let out = mesh::health::apply_ping_result(
+                                    p.online,
+                                    p.consecutive_misses,
+                                    ping_ok,
+                                );
+                                p.consecutive_misses = out.misses;
+                                if ping_ok {
+                                    p.last_seen = Some(chrono::Utc::now().to_rfc3339());
+                                }
+                                if p.online != out.online {
+                                    log::info!(
+                                        "[mesh/health] peer {} online: {} -> {} (misses {})",
+                                        peer.instance_id,
+                                        p.online,
+                                        out.online,
+                                        out.misses
+                                    );
+                                    p.online = out.online;
                                     changed = true;
                                 }
-                                was
+                                (out.online, was)
                             } else {
-                                false
+                                (false, false)
                             }
                         };
                         let now_secs = std::time::SystemTime::now()
