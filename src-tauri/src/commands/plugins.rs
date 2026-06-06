@@ -63,7 +63,10 @@ fn plugin_action_args(action: &PluginManagerAction) -> Result<Vec<String>, Strin
             }
         }
         "install" => {
-            let plugin_id = action.plugin_id.clone().ok_or("install requires pluginId")?;
+            let plugin_id = action
+                .plugin_id
+                .clone()
+                .ok_or("install requires pluginId")?;
             args.extend(["install".into(), plugin_id]);
             if let Some(channel) = &action.channel {
                 args.extend(["--channel".into(), channel.clone()]);
@@ -115,7 +118,11 @@ fn run_plugin_cli(args: &[impl AsRef<str>]) -> Result<Value, String> {
 }
 
 fn cli_path(data_dir: &std::path::Path) -> std::path::PathBuf {
-    let bin = if cfg!(windows) { "codeterm.exe" } else { "codeterm" };
+    let bin = if cfg!(windows) {
+        "codeterm.exe"
+    } else {
+        "codeterm"
+    };
     data_dir.join("bin").join(bin)
 }
 
@@ -148,7 +155,10 @@ mod tests {
             name: None,
             force: false,
         };
-        assert_eq!(plugin_action_args(&action).unwrap(), vec!["plugin", "update", "demo", "--json"]);
+        assert_eq!(
+            plugin_action_args(&action).unwrap(),
+            vec!["plugin", "update", "demo", "--json"]
+        );
     }
 
     #[test]

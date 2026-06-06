@@ -641,12 +641,8 @@ impl AgentProvider for JsProvider {
         self.trust
     }
 
-    fn model_switch_command(&self, model: &str) -> Option<String> {
-        self.manifest
-            .commands
-            .model_switch_format
-            .as_ref()
-            .map(|fmt| fmt.replace("{model}", model))
+    fn model_switch_format(&self) -> Option<&str> {
+        self.manifest.commands.model_switch_format.as_deref()
     }
 
     fn supports_lazy_skills(&self) -> bool {
