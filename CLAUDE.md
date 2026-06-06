@@ -136,11 +136,10 @@ Verify on macOS, Windows, Linux. Never add platform-specific code without handli
 
 ## Agent roles (top of mind)
 
-CodeTerm has a 4-level hierarchy: **Orchestrator → Lead → Worker → SubWorker**. Your role comes from `$CODETERM_ROLE` or the spawn task prompt. **No role = Orchestrator.**
+CodeTerm has a 2-level hierarchy: **Orchestrator → Worker**. Your role comes from `$CODETERM_ROLE` or the spawn task prompt. **No role = Orchestrator.**
 
-- **Orchestrator** — top of the chain. Delegates by spawning generic claude agents with explicit role prompts (see below).
-- **Lead** — has a bounded sub-task, may decompose and spawn Workers.
-- **Worker / SubWorker** — does ONE concrete task, runs `codeterm agent report`, exits. **NEVER spawns other agents.** If decomposition needed → report blocked.
+- **Orchestrator** — top of the chain, no parent. Delegates by spawning generic claude agents with explicit role prompts (see below).
+- **Worker** — does ONE concrete task, runs `codeterm agent report`, exits. **NEVER spawns other agents.** If decomposition is needed → report blocked, and the Orchestrator splits it further or spins up a separate Orchestrator in its own workspace.
 
 ### We dogfood our own `codeterm mem` instead of `.claude/agents/`
 
