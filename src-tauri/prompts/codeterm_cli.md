@@ -160,7 +160,7 @@ codeterm cron edit ID [--name N] [--schedule S] [--task T]
 
 `--task` must be **self-contained and in English** — the spawned cron agent has zero memory of any current session. Always include what to do AND how to report (notify / bridge send).
 
-**Run `codeterm cron create --help` and `codeterm cron edit --help` before composing a non-trivial cron.** Flags evolve (timezone, per-cron timeout, jitter, oneshot) and `--help` is the source of truth. Jitter is on by default (±10% of interval) — no need to set it explicitly.
+**Run `codeterm cron create --help` and `codeterm cron edit --help` before composing a non-trivial cron.** Flags evolve (timezone, per-cron timeout, jitter, oneshot) and `--help` is the source of truth. Jitter is on by default as a delay-only window: auto mode adds 0..10% of the interval, clamped to 1..30 minutes. It never fires early.
 
 Full cron reference (oneshot schedules, lifecycle, full flag set): `codeterm docs CONFIG` and the `references/cron.md` file inside the codeterm skill.
 

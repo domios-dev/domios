@@ -15,7 +15,7 @@ Persistent memory for agents. Survives restarts, provider switches
 - **Workers** — hidden headless agents that extract entities, build graph, dedup; `mem worker spawn` for ad-hoc enrichment
 - **Skills** — folder skills (`SKILL.md` + scripts) registered via `mem skill new/add`, indexed alongside other items
 - **Librarian** — periodic file-sync daemon: re-vectorizes source-tracked items when their on-disk file changes, flags deletions
-- **Dreaming** — nightly consolidation at 6 AM (±30 min jitter): four SQL phases (light, deep, normalize, calibration) run server-side in `POST /api/mem/dream`, then the LLM REM worker is spawned to handle structural cleanup + diary; the REM prompt is read-only with respect to calibration (sweep already ran)
+- **Dreaming** — nightly consolidation at 6 AM with 0..30 min delay-only jitter: four SQL phases (light, deep, normalize, calibration) run server-side in `POST /api/mem/dream`, then the LLM REM worker is spawned to handle structural cleanup + diary; the REM prompt is read-only with respect to calibration (sweep already ran)
 - **Auto-flush** — `PreCompact` and `SessionStart` hooks POST to authenticated CodeTerm endpoints to capture conversation state without manual saves
 - **Protocol** — 7 behavioral rules injected into every agent session via `bridge_mem.md`
 
@@ -224,7 +224,7 @@ Hidden headless agents. Live in Memory Panel, invisible in tab bar.
 
 ## Dreaming
 
-Runs nightly at 6 AM (±30 min jitter) via protected cron, fires anywhere in 5:30–6:30 AM local time. Configurable agent + model in Settings. Legacy installs that still hold the old `0 3 * * *` schedule with ±90 min jitter are auto-migrated to the new values on startup (`ensure_dreaming_cron` in `src-tauri/src/mem/dreaming.rs`).
+Runs nightly at 6 AM via protected cron with a 0..30 min delay-only jitter window, so it fires between 6:00 and 6:30 AM local time. Configurable agent + model in Settings. Legacy installs that still hold the old `0 3 * * *` schedule with 0..90 min delay-only jitter are auto-migrated to the new values on startup (`ensure_dreaming_cron` in `src-tauri/src/mem/dreaming.rs`).
 
 ### Phase 1 — SQL Light (`dreaming::light_phase`)
 
