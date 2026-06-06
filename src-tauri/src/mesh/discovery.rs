@@ -343,6 +343,61 @@ fn tailscale_status_peer_ips() -> Vec<String> {
     vec![]
 }
 
+pub fn tailscale_self_dns_name() -> Option<String> {
+    let val = tailscale_status_json()?;
+    let dns = val
+        .get("Self")
+        .and_then(|v| v.get("DNSName"))
+        .and_then(|v| v.as_str())?
+        .trim_end_matches('.')
+        .to_string();
+    (!dns.is_empty() && dns.ends_with(".ts.net")).then_some(dns)
+}
+
+pub fn tailscale_serve_https_enabled() -> bool {
+    let Some(val) = tailscale_serve_status_json() else {
+        return false;
+    };
+    val.get("TCP")
+        .and_then(|v| v.get("443"))
+        .and_then(|v| v.get("HTTPS"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+fn tailscale_status_json() -> Option<serde_json::Value> {
+    run_tailscale_json(&["status", "--json"], std::time::Duration::from_secs(3))
+}
+
+fn tailscale_serve_status_json() -> Option<serde_json::Value> {
+    run_tailscale_json(
+        &["serve", "status", "--json"],
+        std::time::Duration::from_secs(3),
+    )
+}
+
+fn run_tailscale_json(args: &[&str], timeout: std::time::Duration) -> Option<serde_json::Value> {
+    let candidates = [
+        "tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        "/opt/homebrew/bin/tailscale",
+        "/usr/local/bin/tailscale",
+        "/usr/bin/tailscale",
+    ];
+    for cmd in &candidates {
+        let mut c = std::process::Command::new(cmd);
+        c.args(args);
+        crate::process_util::no_window_std(&mut c);
+        let Some((true, raw)) = run_with_timeout(&mut c, timeout) else {
+            continue;
+        };
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+            return Some(val);
+        }
+    }
+    None
+}
+
 /// Scan local network interfaces for an IPv4 address in the Tailscale
 /// CGNAT range (100.64.0.0/10). Avoids spawning the `tailscale` CLI,
 /// which on Windows briefly flashes a console window every time it runs.

@@ -55,12 +55,25 @@ function WebAccessSection() {
         const cfg = await invoke<{ api?: { token?: string; port?: number } }>("get_config");
         setToken(cfg.api?.token ?? null);
         const port = cfg.api?.port ?? 7685;
-        const status = await invoke<{ local_ip?: string; tailscale_ip?: string }>(
-          "mesh_get_status",
-        ).catch(() => ({}) as { local_ip?: string; tailscale_ip?: string });
-        const list = [status.tailscale_ip, status.local_ip, "127.0.0.1"]
+        const status = await invoke<{
+          local_ip?: string;
+          tailscale_ip?: string;
+          tailscale_https_url?: string;
+        }>(
+          "get_network_info",
+        ).catch(() => ({}) as {
+          local_ip?: string;
+          tailscale_ip?: string;
+          tailscale_https_url?: string;
+        });
+        const list = [
+          status.tailscale_https_url ? `${status.tailscale_https_url}/web/` : null,
+          status.tailscale_ip ? `http://${status.tailscale_ip}:${port}/web/` : null,
+          status.local_ip ? `http://${status.local_ip}:${port}/web/` : null,
+          `http://127.0.0.1:${port}/web/`,
+        ]
           .filter((v): v is string => Boolean(v))
-          .map((ip) => `http://${ip}:${port}/web/`);
+          .map((url) => url);
         setHosts([...new Set(list)]);
       } catch {
         /* settings panel stays usable without this section's data */

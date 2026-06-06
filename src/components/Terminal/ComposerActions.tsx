@@ -103,7 +103,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     if (!navigator.mediaDevices?.getUserMedia) {
       onError(
         IS_WEB
-          ? "Voice needs HTTPS (or localhost) — the mic API is unavailable here."
+          ? "Voice needs HTTPS on phones. Open Mesh -> Web UI and scan/copy the https://*.ts.net link; http://100.x cannot use the mic."
           : "Microphone capture is unavailable in this CodeTerm window. Restart the app after updating microphone permissions.",
       );
       return false;
