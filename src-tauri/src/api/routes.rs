@@ -306,6 +306,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/debug/sign", get(mesh_routes::mesh_debug_sign))
         .route("/api/mesh/status", get(mesh_routes::mesh_status))
         .route("/api/mesh/peers", get(mesh_routes::mesh_peers))
+        .route("/api/mesh/web-token", get(mesh_routes::mesh_web_token))
+        .route(
+            "/api/mesh/peers/{id}/web-token",
+            get(mesh_routes::mesh_peer_web_token),
+        )
         .route("/api/mesh/discover", post(mesh_routes::mesh_discover))
         .route("/api/mesh/connect", post(mesh_routes::mesh_connect_peer))
         .route("/api/mesh/approve", post(mesh_routes::mesh_approve_peer))

@@ -3,10 +3,9 @@
  *
  * In WEB mode (no Tauri) the React app talks to a CodeTerm daemon over
  * plain HTTP. The default target is the daemon that served /web (same
- * origin). The peer picker can flip the target to any paired peer's own
- * address — peers can't verify each other's browser sessions (mesh auth
- * is Ed25519-signed or the peer's own api token, and browsers can't
- * sign), so each peer gets its OWN token, stored per host.
+ * origin). The peer picker can flip the target to a paired peer by asking
+ * the current daemon to mint the target's web token over the signed mesh
+ * channel, then storing that token per host.
  */
 
 export const IS_WEB =
