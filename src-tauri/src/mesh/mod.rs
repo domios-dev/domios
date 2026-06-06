@@ -294,13 +294,37 @@ impl MeshManager {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+        self.cleanup_expired_requests_at(now);
+    }
+
+    /// Pending requests past their 300s window become `Expired` (kept around
+    /// for `REQUEST_RETENTION_SECS` so an approve attempt gets an honest
+    /// "expired" error instead of "not found"), then drop for good together
+    /// with their `pairing_targets` entries.
+    pub fn cleanup_expired_requests_at(&mut self, now: u64) {
+        const REQUEST_TTL_SECS: u64 = 300;
+        const REQUEST_RETENTION_SECS: u64 = 3600;
+        let mut expired = 0usize;
+        for r in self.pending_requests.values_mut() {
+            if r.status == types::PairingStatus::Pending
+                && now.saturating_sub(r.timestamp) > REQUEST_TTL_SECS
+            {
+                r.status = types::PairingStatus::Expired;
+                expired += 1;
+            }
+        }
         let before = self.pending_requests.len();
         self.pending_requests
-            .retain(|_, r| now.saturating_sub(r.timestamp) <= 300);
-        if self.pending_requests.len() < before {
+            .retain(|_, r| now.saturating_sub(r.timestamp) <= REQUEST_RETENTION_SECS);
+        let dropped = before - self.pending_requests.len();
+        let pending = &self.pending_requests;
+        self.pairing_targets
+            .retain(|id, _| pending.contains_key(id));
+        if expired > 0 || dropped > 0 {
             log::info!(
-                "[mesh] Cleaned up {} expired pairing requests",
-                before - self.pending_requests.len()
+                "[mesh] Pairing requests: {} marked expired, {} dropped",
+                expired,
+                dropped
             );
         }
     }
@@ -930,7 +954,7 @@ pub fn refresh_local_addresses(mesh: &MeshState) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{PairedPeer, PeerAddress, PeerAnnounce};
+    use types::{PairedPeer, PairingRequest, PeerAddress, PeerAnnounce};
 
     #[test]
     fn check_and_record_nonce_rejects_replay() {
@@ -953,6 +977,65 @@ mod tests {
         assert!(
             mgr.check_and_record_nonce(&token).is_err(),
             "replay should be rejected"
+        );
+    }
+
+    fn pending_request(id: &str, from: &str, timestamp: u64) -> PairingRequest {
+        PairingRequest {
+            request_id: id.into(),
+            from_instance_id: from.into(),
+            from_instance_name: from.into(),
+            from_address: "192.168.1.2".into(),
+            from_port: 7685,
+            from_addresses: vec![],
+            public_key: "pk".into(),
+            timestamp,
+            status: types::PairingStatus::Pending,
+            introduced_by: None,
+        }
+    }
+
+    /// #126 regression: requests used to be silently deleted at 300s, so a
+    /// late approve got "No pending request" instead of an honest "expired",
+    /// and pairing_targets leaked forever.
+    #[test]
+    fn cleanup_marks_expired_then_drops_with_pairing_targets() {
+        let mut m = MeshManager::new("test-host".into(), 7685);
+        m.disk_persist = false;
+        m.pending_requests
+            .insert("r1".into(), pending_request("r1", "peer-a", 1000));
+        m.pairing_targets
+            .insert("r1".into(), ("192.168.1.2".into(), 7685, "peer-a".into()));
+
+        m.cleanup_expired_requests_at(1000 + 301);
+        let r = m.pending_requests.get("r1").expect("retained for visibility");
+        assert_eq!(r.status, types::PairingStatus::Expired);
+        assert!(m.pairing_targets.contains_key("r1"));
+        assert_eq!(m.pending_request_count(), 0, "expired must not count");
+
+        m.cleanup_expired_requests_at(1000 + 3601);
+        assert!(m.pending_requests.is_empty());
+        assert!(m.pairing_targets.is_empty(), "targets must not leak");
+    }
+
+    /// #126 regression: an expired request from the same instance must not
+    /// block a fresh re-send (the duplicate check counts Pending only).
+    #[test]
+    fn expired_request_does_not_block_resend() {
+        let mut m = MeshManager::new("test-host".into(), 7685);
+        m.disk_persist = false;
+        m.pending_requests
+            .insert("r1".into(), pending_request("r1", "peer-a", 1000));
+        m.cleanup_expired_requests_at(1000 + 301);
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let fresh = pending_request("r2", "peer-a", now);
+        assert!(
+            m.receive_pairing_request(fresh).is_ok(),
+            "re-send after expiry must be accepted"
         );
     }
 

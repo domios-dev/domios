@@ -247,6 +247,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                     from_instance_name: m.ident.instance_name.clone(),
                                     from_address: local_addr,
                                     from_port: m.api_port,
+                                    from_addresses: m.local_announce_addresses(),
                                     public_key: pk,
                                     timestamp: now,
                                     status: crate::mesh::types::PairingStatus::Pending,

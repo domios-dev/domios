@@ -74,6 +74,51 @@ pub fn merge_sighting(
     }
 }
 
+#[derive(Debug)]
+pub enum ResolveError {
+    NotFound,
+    /// Several discovered peers share the name; instance_ids listed.
+    Ambiguous(Vec<String>),
+}
+
+impl std::fmt::Display for ResolveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => write!(f, "Peer not found in discovered list"),
+            Self::Ambiguous(ids) => write!(
+                f,
+                "Peer name is ambiguous — use an instance_id: {}",
+                ids.join(", ")
+            ),
+        }
+    }
+}
+
+/// Resolve a connect target against the discovered list by instance_id
+/// first, then by unique instance_name — `mesh connect <name>` used to 404
+/// even though every other surface shows names (#126).
+pub fn resolve_discovered<'a>(
+    peers: &'a std::collections::HashMap<String, DiscoveredPeer>,
+    target: &str,
+) -> Result<&'a DiscoveredPeer, ResolveError> {
+    if let Some(p) = peers.get(target) {
+        return Ok(p);
+    }
+    let matches: Vec<&DiscoveredPeer> = peers
+        .values()
+        .filter(|p| p.instance_name == target)
+        .collect();
+    match matches.len() {
+        0 => Err(ResolveError::NotFound),
+        1 => Ok(matches[0]),
+        _ => {
+            let mut ids: Vec<String> = matches.iter().map(|p| p.instance_id.clone()).collect();
+            ids.sort();
+            Err(ResolveError::Ambiguous(ids))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +211,54 @@ mod tests {
 
         let again = merge_sighting(Some(&first), udp_sighting("p1", "192.168.1.50"), 110);
         assert_eq!(again.addresses.len(), 1);
+    }
+
+    fn discovered_map(entries: &[(&str, &str)]) -> std::collections::HashMap<String, DiscoveredPeer> {
+        entries
+            .iter()
+            .map(|(id, name)| {
+                let mut s = udp_sighting(id, "192.168.1.50");
+                s.instance_name = name.to_string();
+                (id.to_string(), merge_sighting(None, s, 100))
+            })
+            .collect()
+    }
+
+    /// #126 regression: `mesh connect GREENPINGUIN` (by name) 404'd; only
+    /// instance_id was accepted.
+    #[test]
+    fn resolve_discovered_by_unique_name() {
+        let peers = discovered_map(&[("id-1", "GREENPINGUIN"), ("id-2", "ROG")]);
+        let p = resolve_discovered(&peers, "GREENPINGUIN").expect("name resolves");
+        assert_eq!(p.instance_id, "id-1");
+    }
+
+    #[test]
+    fn resolve_discovered_by_id_wins_over_name() {
+        // A peer literally named like another's id must not shadow the id.
+        let peers = discovered_map(&[("id-1", "id-2"), ("id-2", "B")]);
+        let p = resolve_discovered(&peers, "id-2").expect("id resolves");
+        assert_eq!(p.instance_id, "id-2");
+    }
+
+    #[test]
+    fn resolve_discovered_ambiguous_name_lists_ids() {
+        let peers = discovered_map(&[("id-1", "dup"), ("id-2", "dup")]);
+        match resolve_discovered(&peers, "dup") {
+            Err(ResolveError::Ambiguous(ids)) => {
+                assert_eq!(ids, vec!["id-1".to_string(), "id-2".to_string()]);
+            }
+            _ => panic!("expected Ambiguous"),
+        }
+    }
+
+    #[test]
+    fn resolve_discovered_unknown_not_found() {
+        let peers = discovered_map(&[("id-1", "A")]);
+        assert!(matches!(
+            resolve_discovered(&peers, "nope"),
+            Err(ResolveError::NotFound)
+        ));
     }
 
     #[test]

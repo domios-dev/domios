@@ -65,7 +65,7 @@ pub enum MeshAction {
     },
     /// Initiate pairing with a discovered peer
     Connect {
-        /// Instance ID of the discovered peer
+        /// Instance ID or name of the discovered peer
         instance_id: String,
     },
     /// Accept an incoming pairing request

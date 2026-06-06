@@ -99,6 +99,7 @@ pub async fn mesh_introduce(
             .map(|a| a.ip.clone())
             .unwrap_or_default(),
         from_port: intro.api_port,
+        from_addresses: crate::mesh::types::sanitize_addresses(&intro.addresses),
         public_key: intro.public_key.clone(),
         timestamp: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -143,6 +144,7 @@ mod tests {
             from_instance_name: "Bob".to_string(),
             from_address: "192.168.1.2".to_string(),
             from_port: 7685,
+            from_addresses: vec![],
             public_key: "fake-key".to_string(),
             timestamp: 0,
             status: crate::mesh::types::PairingStatus::Pending,
