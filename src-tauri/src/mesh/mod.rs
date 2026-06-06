@@ -5,6 +5,7 @@
 //! - MeshManager — thin facade composing identity + peer/discovery state
 
 pub mod crown;
+pub mod discovered;
 pub mod discovery;
 pub mod identity;
 pub mod pairing;
@@ -221,6 +222,23 @@ impl MeshManager {
         let _ = self.save();
         log::info!("[mesh] Exited mesh — removed {} peers", peers.len());
         peers
+    }
+
+    // ── Discovery ingest ────────────────────────────────────────────
+
+    /// Single ingest point for every discovery source. Merges into the
+    /// existing record instead of clobbering it — see `discovered::merge_sighting`.
+    pub fn upsert_discovered(&mut self, sighting: discovered::DiscoverySighting, now: u64) {
+        if sighting.instance_id == self.ident.identity.instance_id {
+            return;
+        }
+        let merged = discovered::merge_sighting(
+            self.discovered_peers.get(&sighting.instance_id),
+            sighting,
+            now,
+        );
+        self.discovered_peers
+            .insert(merged.instance_id.clone(), merged);
     }
 
     // ── Pairing ─────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use super::types::{DiscoveredPeer, DiscoveryMethod, PeerAddress};
+use super::types::{DiscoveryMethod, PeerAddress};
 use super::MeshManager;
 
 const SERVICE_TYPE: &str = "_codeterm._tcp.local.";
@@ -85,19 +85,18 @@ pub fn init_mdns_daemon(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                     if addresses.is_empty() {
                         continue;
                     }
-                    let peer = DiscoveredPeer {
+                    let sighting = crate::mesh::discovered::DiscoverySighting {
                         instance_id: id.clone(),
                         instance_name: name.clone(),
                         addresses,
                         api_port: port,
-                        discovery_method: DiscoveryMethod::Mdns,
-                        last_seen: now_secs(),
+                        method: DiscoveryMethod::Mdns,
                         dev: false,
                         mesh_id: None,
-                        vouched_by: Vec::new(),
+                        voucher: None,
                     };
                     log::debug!("[mesh/mdns] Discovered: {} ({})", name, id);
-                    mesh_clone.lock().discovered_peers.insert(id, peer);
+                    mesh_clone.lock().upsert_discovered(sighting, now_secs());
                 }
                 Ok(mdns_sd::ServiceEvent::SearchStarted(msg)) => {
                     log::info!("[mesh/mdns] Browse started: {}", msg);
@@ -644,20 +643,19 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                     if beacon.id == instance_id {
                         continue;
                     }
-                    let peer = DiscoveredPeer {
+                    let sighting = crate::mesh::discovered::DiscoverySighting {
                         instance_id: beacon.id.clone(),
                         instance_name: beacon.name,
                         addresses: vec![PeerAddress::from_ip(&src_addr.ip().to_string())],
                         api_port: beacon.port,
-                        discovery_method: DiscoveryMethod::Udp,
-                        last_seen: now_secs(),
+                        method: DiscoveryMethod::Udp,
                         dev: beacon.dev,
                         mesh_id: beacon.mesh_id.clone(),
-                        vouched_by: Vec::new(),
+                        voucher: None,
                     };
                     let mut m = mesh_clone.lock();
                     let is_new = !m.discovered_peers.contains_key(&beacon.id);
-                    m.discovered_peers.insert(beacon.id.clone(), peer);
+                    m.upsert_discovered(sighting, now_secs());
                     drop(m);
                     if is_new {
                         log::info!(
