@@ -872,7 +872,8 @@ export function PaneSessionChat({
         style={{
           borderColor:
             "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
-          paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom, 0px))",
+          paddingBottom:
+            "var(--ct-composer-bottom-padding, calc(0.5rem + env(safe-area-inset-bottom, 0px)))",
         }}
       >
         {modelPickerOpen && (
@@ -1055,8 +1056,14 @@ export function PaneSessionChat({
                 ? "Agent may be waiting in the terminal."
                 : "Message"}
               rows={1}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="sentences"
+              spellCheck={false}
+              enterKeyHint="send"
+              inputMode="text"
               disabled={sending}
-              className="w-full min-h-7 flex-1 resize-none bg-transparent py-0.5 pr-1 text-[15px] leading-6 outline-none placeholder:text-[var(--ct-muted-fg)]"
+              className="w-full min-h-6 flex-1 resize-none bg-transparent py-0 pr-1 text-[15px] leading-6 outline-none placeholder:text-[var(--ct-muted-fg)]"
               style={{
                 color: "var(--ct-fg, #c9d1d9)",
                 border: "none",
