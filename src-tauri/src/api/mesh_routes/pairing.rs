@@ -30,10 +30,11 @@ pub async fn mesh_pair_request(
             "[mesh] Auto-approving pair request from vouched peer {}",
             from_id
         );
-        let state2 = state.clone();
+        let mesh = state.mesh.clone();
+        let app_handle = state.svc.app_handle.clone();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-            if let Err(e) = do_approve(state2, request_id).await {
+            if let Err(e) = do_approve(mesh, app_handle, request_id).await {
                 log::warn!("[mesh] Auto-approve failed for {}: {}", from_id, e);
             }
         });
@@ -41,15 +42,54 @@ pub async fn mesh_pair_request(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-/// Shared approve logic — used by both the manual Tauri command and auto-approve.
-pub async fn do_approve(state: AppState, request_id: String) -> Result<(), String> {
+#[derive(Debug)]
+pub enum ApproveError {
+    /// No such request id (never existed, or already processed).
+    NotFound,
+    /// Request exists but expired — the requester must re-send.
+    Expired,
+    NoKeypair,
+    /// Couldn't reach the requester on any callback address.
+    Network(String),
+    /// Requester answered with an HTTP error.
+    Rejected(String),
+}
+
+impl std::fmt::Display for ApproveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => write!(f, "Request not found or already processed"),
+            Self::Expired => write!(
+                f,
+                "Pairing request expired — ask the peer to send a new one"
+            ),
+            Self::NoKeypair => write!(f, "No identity keypair"),
+            Self::Network(e) => write!(f, "Network error: {}", e),
+            Self::Rejected(e) => write!(f, "Accept rejected: {}", e),
+        }
+    }
+}
+
+/// Shared approve logic — the single implementation behind auto-approve, the
+/// Tauri command, and the HTTP endpoint. Walks every callback address from
+/// the request (Tailscale → LAN → legacy from_address) and stores the full
+/// list on the new PairedPeer — a single dead LAN ip no longer kills the
+/// handshake with a 502 (#126).
+pub async fn do_approve(
+    mesh: crate::mesh::MeshState,
+    app_handle: tauri::AppHandle,
+    request_id: String,
+) -> Result<(), ApproveError> {
     let (request, our_pubkey, our_id, our_name) = {
-        let m = state.mesh.lock();
+        let m = mesh.lock();
         let req = m
             .pending_requests
             .get(&request_id)
             .cloned()
-            .ok_or("Request not found or already processed")?;
+            .ok_or(ApproveError::NotFound)?;
+        if req.status == crate::mesh::types::PairingStatus::Expired {
+            return Err(ApproveError::Expired);
+        }
         if m.paired_peers.contains_key(&req.from_instance_id) {
             return Ok(()); // already paired, nothing to do
         }
@@ -58,7 +98,7 @@ pub async fn do_approve(state: AppState, request_id: String) -> Result<(), Strin
             .identity
             .public_key
             .clone()
-            .ok_or("No identity keypair")?;
+            .ok_or(ApproveError::NoKeypair)?;
         let id = m.ident.identity.instance_id.clone();
         let name = m.ident.instance_name.clone();
         (req, pk, id, name)
@@ -70,33 +110,47 @@ pub async fn do_approve(state: AppState, request_id: String) -> Result<(), Strin
         from_instance_name: our_name,
         public_key: our_pubkey,
     };
+    let candidates = request.callback_addresses();
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .unwrap_or_default();
-    let url = format!(
-        "http://{}:{}/api/mesh/pair/accept",
-        request.from_address, request.from_port
-    );
-    let resp = client
-        .post(&url)
-        .json(&accept)
-        .send()
-        .await
-        .map_err(|e| format!("Network error: {}", e))?;
-    if !resp.status().is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Accept rejected: {}", body));
+    let port = request.from_port;
+    let result = crate::mesh::transport::try_peer(&candidates, |addr| {
+        let client = client.clone();
+        let accept = accept.clone();
+        let url = format!("http://{}:{}/api/mesh/pair/accept", addr.ip, port);
+        async move {
+            use crate::mesh::transport::TryNext;
+            let resp = match client.post(&url).json(&accept).send().await {
+                Ok(r) => r,
+                Err(e) => return TryNext::Retry(e.to_string()),
+            };
+            if resp.status().is_success() {
+                TryNext::Success(())
+            } else {
+                let body = resp.text().await.unwrap_or_default();
+                TryNext::Stop(body)
+            }
+        }
+    })
+    .await;
+    if let Err(e) = result {
+        // try_peer flattens Stop and all-failed into one error string; an
+        // authoritative HTTP rejection contains the peer's body verbatim.
+        return Err(if e.contains("all addresses failed") || e == "no addresses" {
+            ApproveError::Network(e)
+        } else {
+            ApproveError::Rejected(e)
+        });
     }
 
     {
-        let mut m = state.mesh.lock();
+        let mut m = mesh.lock();
         let peer = crate::mesh::types::PairedPeer {
             instance_id: request.from_instance_id.clone(),
             instance_name: request.from_instance_name.clone(),
-            addresses: vec![crate::mesh::types::PeerAddress::from_ip(
-                &request.from_address,
-            )],
+            addresses: candidates,
             api_port: request.from_port,
             public_key: request.public_key.clone(),
             paired_at: chrono::Utc::now().to_rfc3339(),
@@ -113,22 +167,24 @@ pub async fn do_approve(state: AppState, request_id: String) -> Result<(), Strin
         let _ = m.save();
     }
 
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    let _ = app_handle.emit("mesh-state-changed", ());
     log::info!(
         "[mesh] Pairing complete (approver/auto) with {}",
         request.from_instance_id
     );
 
-    let intro_data = state
-        .mesh
-        .lock()
-        .prepare_introductions(&request.from_instance_id);
+    let intro_data = mesh.lock().prepare_introductions(&request.from_instance_id);
     if let Some((new_peer, existing, our_id, token)) = intro_data {
         crate::mesh::broadcast_introductions(new_peer, existing, our_id, token).await;
     }
-    let mesh_arc = state.mesh.clone();
+    // Pair-time records start from the request's candidate addresses only.
+    // Push our authoritative full address list right away so apply_announce
+    // on the new peer's side replaces any stub (issue #9 from 1.1.9 SMOKE).
+    let mesh_arc = mesh.clone();
+    let new_peer_id = request.from_instance_id.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let _ = crate::mesh::broadcast_announce(&mesh_arc, Some(&new_peer_id)).await;
         crate::mesh::broadcast_sync(&mesh_arc).await;
     });
     Ok(())
@@ -172,10 +228,22 @@ pub async fn mesh_pair_accept(
             Some(n) if !n.contains(':') => n,
             _ => accept.from_instance_name.clone(),
         };
+        // Store every address we know for the approver (pairing target ∪
+        // discovered record), not a single-ip stub — the next ping or relay
+        // must be able to fail over (#126).
+        let mut addresses = vec![crate::mesh::types::PeerAddress::from_ip(&b_address)];
+        if let Some(d) = mesh.discovered_peers.get(&b_instance_id) {
+            for a in &d.addresses {
+                if !addresses.iter().any(|x| x.ip == a.ip) {
+                    addresses.push(a.clone());
+                }
+            }
+        }
+        let addresses = crate::mesh::types::sanitize_addresses(&addresses);
         let peer = crate::mesh::types::PairedPeer {
             instance_id: accept.from_instance_id.clone(),
             instance_name: b_name,
-            addresses: vec![crate::mesh::types::PeerAddress::from_ip(&b_address)],
+            addresses,
             api_port: b_port,
             public_key: accept.public_key.clone(),
             paired_at: chrono::Utc::now().to_rfc3339(),

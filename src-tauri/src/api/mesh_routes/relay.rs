@@ -38,36 +38,18 @@ pub async fn mesh_sync(
         if mesh.paired_peers.contains_key(&peer_info.instance_id) {
             continue;
         }
-        let clean_addrs = crate::mesh::types::sanitize_addresses(&peer_info.addresses);
-
-        // Merge vouchers: keep prior vouched_by entries, add this sender,
-        // dedupe + sort. Stable order keeps the UI from flicker-rerendering.
-        let mut vouched_by = mesh
-            .discovered_peers
-            .get(&peer_info.instance_id)
-            .map(|p| p.vouched_by.clone())
-            .unwrap_or_default();
-        if let Some(ref sid) = sender_id {
-            if !vouched_by.contains(sid) {
-                vouched_by.push(sid.clone());
-            }
-        }
-        vouched_by.sort();
-        vouched_by.dedup();
-
-        mesh.discovered_peers.insert(
-            peer_info.instance_id.clone(),
-            crate::mesh::types::DiscoveredPeer {
+        mesh.upsert_discovered(
+            crate::mesh::discovered::DiscoverySighting {
                 instance_id: peer_info.instance_id.clone(),
                 instance_name: peer_info.instance_name.clone(),
-                addresses: clean_addrs,
+                addresses: peer_info.addresses.clone(),
                 api_port: peer_info.api_port,
-                discovery_method: crate::mesh::types::DiscoveryMethod::Gossip,
-                last_seen: now,
+                method: crate::mesh::types::DiscoveryMethod::Gossip,
                 dev: peer_info.dev,
                 mesh_id: None,
-                vouched_by,
+                voucher: sender_id.clone(),
             },
+            now,
         );
         log::info!(
             "[mesh/gossip] Learned about peer {} ({})",

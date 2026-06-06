@@ -33,12 +33,11 @@ pub async fn mesh_connect(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     instance_id: String,
 ) -> Result<(), String> {
-    let (request, target_addr, target_port) = {
+    let (request, target_addr, target_port, instance_id) = {
         let m = mesh.lock();
-        let peer = m
-            .discovered_peers
-            .get(&instance_id)
-            .ok_or_else(|| "Peer not found in discovered list".to_string())?;
+        let peer = crate::mesh::discovered::resolve_discovered(&m.discovered_peers, &instance_id)
+            .map_err(|e| e.to_string())?;
+        let instance_id = peer.instance_id.clone();
         let addr = peer
             .addresses
             .iter()
@@ -68,12 +67,13 @@ pub async fn mesh_connect(
             from_instance_name: m.ident.instance_name.clone(),
             from_address: local_addr,
             from_port: m.api_port,
+            from_addresses: m.local_announce_addresses(),
             public_key,
             timestamp: now,
             status: crate::mesh::types::PairingStatus::Pending,
             introduced_by: None,
         };
-        (request, addr.ip.clone(), peer.api_port)
+        (request, addr.ip.clone(), peer.api_port, instance_id)
     };
 
     // Store target info for the accept handler
@@ -117,95 +117,13 @@ pub async fn mesh_approve_pairing(
     svc: tauri::State<'_, crate::service::ServiceState>,
     request_id: String,
 ) -> Result<(), String> {
-    let (request, our_pubkey, our_id, our_name) = {
-        let m = mesh.lock();
-        let req = m
-            .pending_requests
-            .get(&request_id)
-            .cloned()
-            .ok_or_else(|| "Request not found".to_string())?;
-        let pk = m
-            .ident
-            .identity
-            .public_key
-            .clone()
-            .ok_or("No identity keypair")?;
-        let id = m.ident.identity.instance_id.clone();
-        let name = m.ident.instance_name.clone();
-        (req, pk, id, name)
-    };
-
-    // Send our public key to the requester
-    let accept = crate::mesh::types::PairingAccept {
-        request_id: request_id.clone(),
-        from_instance_id: our_id.clone(),
-        from_instance_name: our_name,
-        public_key: our_pubkey,
-    };
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .unwrap_or_default();
-    let url = format!(
-        "http://{}:{}/api/mesh/pair/accept",
-        request.from_address, request.from_port
-    );
-    let resp = client
-        .post(&url)
-        .json(&accept)
-        .send()
-        .await
-        .map_err(|e| format!("Network error: {}", e))?;
-    if !resp.status().is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Accept rejected: {}", body));
-    }
-
-    // Store requester as paired peer (we have their public_key from the request)
-    {
-        let mut m = mesh.lock();
-        let peer = crate::mesh::types::PairedPeer {
-            instance_id: request.from_instance_id.clone(),
-            instance_name: request.from_instance_name.clone(),
-            addresses: vec![crate::mesh::types::PeerAddress::from_ip(
-                &request.from_address,
-            )],
-            api_port: request.from_port,
-            public_key: request.public_key.clone(),
-            paired_at: chrono::Utc::now().to_rfc3339(),
-            last_seen: Some(chrono::Utc::now().to_rfc3339()),
-            online: true,
-            is_primary: false,
-            access_level: crate::mesh::types::AccessLevel::Full,
-            version: None,
-            consecutive_misses: 0,
-        };
-        m.paired_peers
-            .insert(request.from_instance_id.clone(), peer);
-        m.pending_requests.remove(&request_id);
-        let _ = m.save();
-    }
-
-    let _ = svc.app_handle.emit("mesh-state-changed", ());
-    log::info!(
-        "[mesh] Pairing complete (approver) with {} — pubkey exchanged",
-        request.from_instance_id
-    );
-
-    // Auto-pair: introduce new peer to all existing peers and vice versa
-    let intro_data = mesh.lock().prepare_introductions(&request.from_instance_id);
-    if let Some((new_peer, existing, our_id, token)) = intro_data {
-        crate::mesh::broadcast_introductions(new_peer, existing, our_id, token).await;
-    }
-
-    // Broadcast sync (peers) to all
-    let mesh_arc = mesh.inner().clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        crate::mesh::broadcast_sync(&mesh_arc).await;
-    });
-
-    Ok(())
+    crate::api::mesh_routes::pairing::do_approve(
+        mesh.inner().clone(),
+        svc.app_handle.clone(),
+        request_id,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -510,44 +428,98 @@ pub fn mesh_set_access(
     Ok(())
 }
 
+/// Fetch a paired peer's services, walking all known addresses
+/// (Tailscale → LAN → public) and falling back to the last-known cache when
+/// the peer is unreachable. Always returns a `PeerServicesView` envelope —
+/// stale data is flagged, errors are surfaced, nothing collapses to a
+/// silent empty list (#119/#127).
 #[tauri::command]
 pub async fn mesh_peer_services_list(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     instance_id: String,
 ) -> Result<serde_json::Value, String> {
-    let (addr, port, token) = {
+    use crate::mesh::peer_services::{build_view, FetchOutcome};
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let (addresses, port, online, token, cache_fresh) = {
         let m = mesh.lock();
         let peer = m
             .paired_peers
             .get(&instance_id)
             .ok_or_else(|| format!("Peer {} not paired", instance_id))?;
-        let addr = peer
-            .addresses
-            .iter()
-            .min_by_key(|a| crate::mesh::types::address_tier(a))
-            .ok_or_else(|| "Peer has no addresses".to_string())?
-            .ip
-            .clone();
         let token = m
             .sign_request()
             .map_err(|e| format!("sign_request: {}", e))?;
-        (addr, peer.api_port, token)
+        (
+            crate::mesh::types::sanitize_addresses(&peer.addresses),
+            peer.api_port,
+            peer.online,
+            token,
+            m.peer_services.is_fresh(&instance_id, now),
+        )
     };
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| e.to_string())?;
-    let url = format!("http://{}:{}/api/services", addr, port);
-    let resp = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {}", token))
-        .send()
-        .await
-        .map_err(|e| format!("request: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
+
+    let outcome = if cache_fresh || !online {
+        FetchOutcome::Skipped
+    } else {
+        fetch_peer_services(&addresses, port, &token).await
+    };
+
+    let mut m = mesh.lock();
+    if let FetchOutcome::Fetched(ref services) = outcome {
+        m.peer_services.refresh(&instance_id, services.clone(), now);
     }
-    resp.json::<serde_json::Value>()
-        .await
-        .map_err(|e| format!("parse: {}", e))
+    let view = build_view(m.peer_services.get(&instance_id), online, outcome, now);
+    serde_json::to_value(&view).map_err(|e| e.to_string())
+}
+
+async fn fetch_peer_services(
+    addresses: &[crate::mesh::types::PeerAddress],
+    port: u16,
+    token: &str,
+) -> crate::mesh::peer_services::FetchOutcome {
+    use crate::mesh::peer_services::FetchOutcome;
+    use crate::mesh::transport::TryNext;
+
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => return FetchOutcome::Failed(e.to_string()),
+    };
+
+    let result = crate::mesh::transport::try_peer(addresses, |addr| {
+        let client = client.clone();
+        let url = format!("http://{}:{}/api/services", addr.ip, port);
+        let token = token.to_string();
+        async move {
+            let resp = match client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => return TryNext::Retry(format!("request: {}", e)),
+            };
+            if !resp.status().is_success() {
+                return TryNext::Stop(format!("HTTP {}", resp.status()));
+            }
+            match resp.json::<Vec<serde_json::Value>>().await {
+                Ok(services) => TryNext::Success(services),
+                Err(e) => TryNext::Stop(format!("parse: {}", e)),
+            }
+        }
+    })
+    .await;
+
+    match result {
+        Ok(services) => FetchOutcome::Fetched(services),
+        Err(e) => FetchOutcome::Failed(e),
+    }
 }

@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { MeshStatus, MeshPeersResponse, PairedPeer, DiscoveredPeer } from "../../lib/types";
 import { servicesList } from "./meshApi";
 import type { Service } from "./types";
+import {
+  collectPeerErrors,
+  mergeServicesView,
+  type PeerFetchResult,
+  type PeerServicesView,
+} from "./servicesView";
 
 export interface PeerStatus {
   instance_id: string;
@@ -16,14 +22,6 @@ export interface PeerStatus {
   pending?: boolean;
   /** instance_names of paired peers that vouched for this one (only for pending). */
   vouched_by_names?: string[];
-}
-
-const LAST_SEEN_GRACE_MS = 90_000;
-
-function withinGrace(lastSeen: string | null | undefined): boolean {
-  if (!lastSeen) return false;
-  const t = Date.parse(lastSeen);
-  return !isNaN(t) && Date.now() - t <= LAST_SEEN_GRACE_MS;
 }
 
 export interface MeshData {
@@ -86,7 +84,13 @@ export function useMeshData(refreshKey: number): MeshDataResult {
     };
   });
 
+  const inFlightRef = useRef(false);
+
   const loadAll = useCallback(async () => {
+    // Peer fetches can take several seconds (multi-address walk on a dying
+    // peer); don't stack a new cycle on top of a running one.
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setData((d) => ({ ...d, loading: true }));
     try {
       const local: Service[] = await servicesList();
@@ -128,20 +132,27 @@ export function useMeshData(refreshKey: number): MeshDataResult {
             .filter((n): n is string => Boolean(n)),
         }));
 
+      // Query every paired peer — the daemon decides whether to hit the
+      // network or serve its last-known cache, so offline peers still
+      // contribute (stale-flagged) services instead of vanishing (#119/#127).
       const remotePromises = paired
-        .filter((p) => p.ip && (p.online || withinGrace(p.last_seen)))
-        .map(async (p) => {
+        .filter((p) => p.ip)
+        .map(async (p): Promise<PeerFetchResult> => {
           try {
-            const arr = await invoke<Service[]>("mesh_peer_services_list", {
-              instanceId: p.instance_id,
-            });
-            return arr.map((s) => ({ ...s, source_peer: p.name }));
-          } catch {
-            return [];
+            const view = await invoke<PeerServicesView>(
+              "mesh_peer_services_list",
+              { instanceId: p.instance_id },
+            );
+            return { peerName: p.name, view };
+          } catch (e) {
+            console.warn(`[mesh] services fetch failed for ${p.name}:`, e);
+            return { peerName: p.name, view: null };
           }
         });
       const remoteResults = await Promise.all(remotePromises);
-      const remote = remoteResults.flat();
+      for (const err of collectPeerErrors(remoteResults)) {
+        console.warn(`[mesh] peer services: ${err}`);
+      }
 
       const next = {
         thisMachine: {
@@ -149,12 +160,14 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           ip: status?.local_ip ?? status?.tailscale_ip ?? "",
         },
         peers: [...paired, ...pending],
-        services: [...local, ...remote],
+        services: mergeServicesView(local, remoteResults),
       };
       writeCache(next);
       setData({ ...next, loading: false, error: null });
     } catch (e) {
       setData((d) => ({ ...d, loading: false, error: String(e) }));
+    } finally {
+      inFlightRef.current = false;
     }
   }, []);
 
