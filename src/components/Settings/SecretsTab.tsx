@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { KeyRound, LogIn, FlaskConical, Settings2, Clock } from "lucide-react";
 import type { AppConfig, SecretsConfig } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";

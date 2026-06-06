@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { X, Pencil, UserMinus, MessageSquare, SquareTerminal } from "lucide-react";
 import { getAgentProvider } from "../../lib/agentProviders";
 import {

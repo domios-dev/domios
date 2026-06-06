@@ -221,7 +221,7 @@ pub(crate) fn start_api_liveness_watchdog(
                             let (changed, _) =
                                 handle_probe_action(&mesh, action, write_liveness_report);
                             if changed {
-                                let _ = app.emit("mesh-state-changed", ());
+                                crate::api::events::emit_everywhere(&app, "mesh-state-changed", serde_json::Value::Null);
                                 let report = crate::mesh::broadcast_announce(&mesh, None).await;
                                 log::info!(
                                     "[liveness] local API recovered; announce sent={} ok={} errors={}",
@@ -235,7 +235,7 @@ pub(crate) fn start_api_liveness_watchdog(
                             let (changed, report_result) =
                                 handle_probe_action(&mesh, action, write_liveness_report);
                             if changed {
-                                let _ = app.emit("mesh-state-changed", ());
+                                crate::api::events::emit_everywhere(&app, "mesh-state-changed", serde_json::Value::Null);
                             }
                             match report_result.expect("unhealthy action writes a report") {
                                 Ok(path) => log::error!(

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";

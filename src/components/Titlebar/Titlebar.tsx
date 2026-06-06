@@ -1,5 +1,6 @@
 import { useCallback, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import type { ThemeConfig } from "../../lib/types";
 import { HamburgerIcon, CloseXIcon } from "../Icons";
 
@@ -25,10 +26,13 @@ export function Titlebar({
   onOpenSettingsAbout,
 }: TitlebarProps) {
   void _theme;
-  const appWindow = getCurrentWindow();
-  const handleMinimize = useCallback(() => appWindow.minimize(), [appWindow]);
-  const handleMaximize = useCallback(() => appWindow.toggleMaximize(), [appWindow]);
-  const handleClose = useCallback(() => appWindow.close(), [appWindow]);
+  // Window chrome controls only exist in the Tauri shell; the browser tab
+  // owns its own window in web-mirror mode.
+  const isTauri = "__TAURI_INTERNALS__" in window;
+  const appWindow = isTauri ? getCurrentWindow() : null;
+  const handleMinimize = useCallback(() => appWindow?.minimize(), [appWindow]);
+  const handleMaximize = useCallback(() => appWindow?.toggleMaximize(), [appWindow]);
+  const handleClose = useCallback(() => appWindow?.close(), [appWindow]);
 
   return (
     <div
@@ -54,6 +58,9 @@ export function Titlebar({
         >
           <HamburgerIcon size={15} />
         </button>
+
+        {/* Web mirror: peer switcher, top-left per spec */}
+        {!isTauri && <WebPeerPicker />}
 
         {/* Breadcrumb */}
         <div className="flex items-center gap-1 ml-1" data-tauri-drag-region>

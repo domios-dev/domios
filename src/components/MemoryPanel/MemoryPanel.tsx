@@ -73,7 +73,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
     load();
     let unlisten: (() => void) | null = null;
     if (isTauriEnv()) {
-      import("@tauri-apps/api/event").then(({ listen }) => {
+      import("../../lib/bridge").then(({ listen }) => {
         listen<{ op: string }>("mem-activity", (ev) => {
           if (!active) return;
           if (ev.payload?.op === "write" || ev.payload?.op === "delete") load();

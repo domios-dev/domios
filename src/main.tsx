@@ -1,5 +1,6 @@
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
+import { WebGate } from "./components/WebGate/WebGate";
 import { loadBundledPlugins } from "./lib/plugins/loader";
 import "./styles/globals.css";
 
@@ -8,5 +9,7 @@ import "./styles/globals.css";
 loadBundledPlugins();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <App />,
+  <WebGate>
+    <App />
+  </WebGate>,
 );

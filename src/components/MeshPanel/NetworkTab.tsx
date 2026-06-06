@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { Radio, Search, Users } from "lucide-react";
 import { BroadcastToggle } from "./BroadcastToggle";
 import AddPeerPanel from "./AddPeerPanel";

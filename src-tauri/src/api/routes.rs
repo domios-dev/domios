@@ -10,7 +10,7 @@ use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, health_routes,
     hook_routes, logs_routes, mem_routes, mesh_routes, network_routes, notification_routes,
     pane_chat_routes, pane_routes, pasteboard_routes, services_routes, session_routes,
-    theme_routes, updater_routes, usage_routes, webhook_routes, workspace_routes,
+    theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -26,6 +26,10 @@ pub struct AppState {
     /// Some only in debug builds started with CODETERM_TEST_CLOCK=1 —
     /// powers /api/debug/clock time travel for the cron e2e suite.
     pub test_clock: Option<std::sync::Arc<crate::cron::clock::MockClock>>,
+    /// System event bus — feeds the web mirror's SSE stream.
+    pub events: crate::api::events::EventBroadcasterState,
+    /// Directory holding the built React bundle, served at /web.
+    pub web_dist: Option<std::path::PathBuf>,
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -184,6 +188,25 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/debug/clock", get(debug_routes::clock_status))
         .route("/api/debug/clock/advance", post(debug_routes::clock_advance))
+        // Web mirror: IPC equivalents + the SSE event stream.
+        .route("/api/mux/state", get(web_routes::mux_state))
+        .route(
+            "/api/workspaces/{id}/tabs/{tab_id}/focus",
+            post(web_routes::tab_focus),
+        )
+        .route(
+            "/api/workspaces/{id}/tabs/{tab_id}/close",
+            post(web_routes::tab_close),
+        )
+        .route("/api/panes/{id}/chat-view", post(web_routes::pane_chat_view))
+        .route(
+            "/api/mesh/peers/{id}/services",
+            get(web_routes::peer_services),
+        )
+        .route("/api/events/stream", get(web_routes::events_stream))
+        .route("/api/pty/{id}/read", get(web_routes::pty_read))
+        .route("/api/pty/{id}/write", post(web_routes::pty_write))
+        .route("/api/pty/{id}/resize", post(web_routes::pty_resize))
         .route("/api/session/save", post(session_routes::save_session_api))
         .route(
             "/api/sessions/search",
@@ -487,6 +510,17 @@ pub fn create_router(state: AppState) -> Router {
             "/api/logs",
             get(logs_routes::list_logs).delete(logs_routes::delete_logs),
         );
+
+    // Web mirror: serve the built React bundle at /web with an SPA
+    // fallback (deep links resolve to index.html). Public route — the
+    // auth middleware skips /web; all API calls remain token-gated.
+    let router = if let Some(dist) = &state.web_dist {
+        let serve = tower_http::services::ServeDir::new(dist)
+            .fallback(tower_http::services::ServeFile::new(dist.join("index.html")));
+        router.nest_service("/web", serve)
+    } else {
+        router
+    };
 
     router
         .layer(middleware::from_fn_with_state(

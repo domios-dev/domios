@@ -28,6 +28,8 @@ export function useTauriFileDrop({
 
   useEffect(() => {
     if (!enabled) return;
+    // Native drag-drop is a Tauri webview feature — no-op in web mode.
+    if (!("__TAURI_INTERNALS__" in window)) return;
     let unlisten: (() => void) | null = null;
     let cancelled = false;
 

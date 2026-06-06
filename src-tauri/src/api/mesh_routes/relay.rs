@@ -61,7 +61,7 @@ pub async fn mesh_sync(
 
     let mesh = state.mesh.lock();
     let our_payload = mesh.build_sync_payload();
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     Ok(Json(serde_json::to_value(our_payload).unwrap()))
 }
 

@@ -339,6 +339,20 @@ pub async fn read_pty(
     app: AppHandle,
     pty_id: String,
 ) -> Result<Vec<u8>, String> {
+    let _ = (&state, &output_buf, &screen_state, &mux, &tracker, &app);
+    read_pty_core(&svc, pty_id).await
+}
+
+/// Long-poll one chunk of PTY output. Shared by the Tauri command and the
+/// web mirror's GET /api/pty/{id}/read — every state it needs lives on
+/// ServiceContext.
+pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>, String> {
+    let state = &svc.pty;
+    let output_buf = &svc.output_buf;
+    let screen_state = &svc.screen_state;
+    let mux = &svc.mux;
+    let tracker = &svc.agent_tracker;
+    let app = &svc.app_handle;
     let session = {
         let manager = state.lock();
         manager
@@ -432,13 +446,10 @@ pub async fn read_pty(
             if now != prev {
                 let pane_id = mux.lock().pane_id_for_pty(&pty_id);
                 if let Some(ref pid) = pane_id {
-                    let _ = app.emit(
-                        "pane-status-changed",
-                        serde_json::json!({
+                    crate::api::events::emit_everywhere(&app, "pane-status-changed", serde_json::json!({
                             "pane_id": pid,
                             "status": format!("{:?}", now),
-                        }),
-                    );
+                        }));
                 }
             }
 
@@ -449,13 +460,10 @@ pub async fn read_pty(
             tracker.lock().set_dead(&pty_id);
             let pane_id = mux.lock().pane_id_for_pty(&pty_id);
             if let Some(ref pid) = pane_id {
-                let _ = app.emit(
-                    "pane-status-changed",
-                    serde_json::json!({
+                crate::api::events::emit_everywhere(&app, "pane-status-changed", serde_json::json!({
                         "pane_id": pid,
                         "status": "Dead",
-                    }),
-                );
+                    }));
 
                 // Cron fallback: if agent died without calling cron complete, mark as failed
                 use tauri::Manager;
@@ -493,15 +501,25 @@ pub async fn write_pty_string(
     pty_id: String,
     data: String,
 ) -> Result<(), String> {
+    let _ = (&state, &mux_state);
+    write_pty_string_core(&svc, pty_id, data)
+}
+
+/// Shared by the Tauri command and the web mirror's POST /api/pty/{id}/write.
+pub fn write_pty_string_core(
+    svc: &ServiceState,
+    pty_id: String,
+    data: String,
+) -> Result<(), String> {
     let session = {
-        let manager = state.lock();
+        let manager = svc.pty.lock();
         manager
             .get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
     let bytes = data.into_bytes();
-    parse_pty_input(&svc, &mux_state, &pty_id, &bytes);
-    mark_user_activity(&svc, &mux_state, &pty_id);
+    parse_pty_input(svc, &svc.mux, &pty_id, &bytes);
+    mark_user_activity(svc, &svc.mux, &pty_id);
     session.write_queue.send(bytes)
 }
 
@@ -573,6 +591,16 @@ fn parse_pty_input(
 #[tauri::command]
 pub async fn resize_pty(
     state: tauri::State<'_, PtyState>,
+    pty_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    resize_pty_core(&state, pty_id, cols, rows)
+}
+
+/// Shared by the Tauri command and the web mirror's POST /api/pty/{id}/resize.
+pub fn resize_pty_core(
+    state: &PtyState,
     pty_id: String,
     cols: u16,
     rows: u16,

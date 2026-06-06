@@ -29,9 +29,18 @@ export class MeshStub {
   /** Daemon base for the pair-accept callback. */
   private daemonBase: string;
 
-  constructor(opts: { services?: number; daemonBase?: string } = {}) {
+  /** When set, the stub also answers the web-mirror's direct API calls
+   * (gate validation, mux state, peers …) gated by this bearer token —
+   * lets 12-web exercise real peer SWITCHING against a scripted host. */
+  webToken: string | null = null;
+  /** Config payload for /api/config — seed with a REAL daemon config so
+   * the SPA's boot path doesn't choke on missing fields. */
+  configPayload: unknown = {};
+
+  constructor(opts: { services?: number; daemonBase?: string; webToken?: string } = {}) {
     this.serviceCount = opts.services ?? 3;
     this.daemonBase = opts.daemonBase ?? "http://127.0.0.1:7686";
+    this.webToken = opts.webToken ?? null;
   }
 
   start(mode: StubMode = "happy"): Promise<number> {
@@ -92,9 +101,17 @@ export class MeshStub {
     req.on("data", (c) => (body += c));
     req.on("end", () => {
       const json = (status: number, value: unknown) => {
-        res.writeHead(status, { "Content-Type": "application/json" });
+        res.writeHead(status, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Headers": "*",
+          "Access-Control-Allow-Methods": "*",
+        });
         res.end(JSON.stringify(value));
       };
+      if (req.method === "OPTIONS") return json(204, null);
+
+      if (this.webToken && this.handleWebApi(req, res, path, json)) return;
 
       switch (path) {
         case "/api/mesh/ping":
@@ -140,6 +157,100 @@ export class MeshStub {
           return json(200, { ok: true });
       }
     });
+  }
+
+  /** Minimal web-mirror API: enough for the SPA to pass the token gate
+   * and render against this stub as a switched-to peer. Returns true when
+   * the path was handled. */
+  private handleWebApi(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    path: string,
+    json: (status: number, value: unknown) => void,
+  ): boolean {
+    const WEB_PATHS = new Set([
+      "/api/workspaces",
+      "/api/mux/state",
+      "/api/config",
+      "/api/mesh/peers",
+      "/api/mesh/status",
+      "/api/agents/providers",
+      "/api/services",
+      "/api/activity",
+      "/api/health",
+      "/api/events/stream",
+    ]);
+    if (!WEB_PATHS.has(path)) return false;
+
+    const auth = req.headers.authorization ?? "";
+    if (path !== "/api/health" && auth !== `Bearer ${this.webToken}`) {
+      json(401, { error: "invalid token" });
+      return true;
+    }
+    if (path === "/api/events/stream") {
+      // Hold an empty SSE open so the web bundle's listener stays calm
+      // instead of reconnect-spamming a JSON 200.
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+      });
+      res.write(": stub stream\n\n");
+      return true;
+    }
+    switch (path) {
+      case "/api/health":
+        json(200, { status: "ok", build: "stub", version: "0.0.0" });
+        break;
+      case "/api/workspaces":
+        json(200, [
+          {
+            id: "stub-ws",
+            name: `${this.instanceName}-workspace`,
+            is_active: true,
+            tab_count: 0,
+            cwd: null,
+            protected: true,
+            pane_ids: [],
+          },
+        ]);
+        break;
+      case "/api/mux/state":
+        json(200, {
+          workspaces: [
+            {
+              id: "stub-ws",
+              name: `${this.instanceName}-workspace`,
+              tabs: [],
+              active_tab_id: null,
+              cwd: null,
+              protected: true,
+            },
+          ],
+          panes: {},
+          active_workspace_id: "stub-ws",
+          focused_pane_id: null,
+        });
+        break;
+      case "/api/config":
+        json(200, this.configPayload);
+        break;
+      case "/api/mesh/peers":
+        json(200, { paired: [], discovered: [], incoming_requests: [] });
+        break;
+      case "/api/mesh/status":
+        json(200, {
+          enabled: true,
+          instance_name: this.instanceName,
+          local_ip: "127.0.0.1",
+          tailscale_ip: null,
+        });
+        break;
+      default:
+        json(200, []);
+    }
+    return true;
   }
 
   private async sendAccept(requestId: string): Promise<void> {

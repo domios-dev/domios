@@ -5,8 +5,8 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "../../lib/bridge";
+import { listen } from "../../lib/bridge";
 import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
 import { shouldDefaultNewAgentPaneToChat } from "../../lib/chatUiMode";

@@ -146,7 +146,7 @@ pub fn mesh_reject_pairing(
         let _ = m.save();
     }
     drop(m);
-    let _ = svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     Ok(())
 }
 
@@ -262,7 +262,7 @@ pub async fn mesh_disconnect(
         }
     }
 
-    let _ = svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     Ok(())
 }
 
@@ -311,7 +311,7 @@ pub async fn mesh_exit(
 
     // Clear all local mesh state
     mesh.lock().exit_mesh();
-    let _ = svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     log::info!("[mesh] Exited mesh");
     Ok(())
 }
@@ -341,7 +341,7 @@ pub fn mesh_add_manual(
     mesh.lock()
         .discovered_peers
         .insert(peer.instance_id.clone(), peer);
-    let _ = svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     Ok(())
 }
 
@@ -419,7 +419,7 @@ pub fn mesh_set_access(
     peer.access_level = level;
     let _ = m.save();
     drop(m);
-    let _ = svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(&svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
     log::info!(
         "[mesh] Set access level for {} to {}",
         instance_id,
@@ -438,6 +438,15 @@ pub async fn mesh_peer_services_list(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     instance_id: String,
 ) -> Result<serde_json::Value, String> {
+    fetch_peer_services_view(mesh.inner(), &instance_id).await
+}
+
+/// Shared implementation behind the Tauri command and the web-mirror HTTP
+/// route (`GET /api/mesh/peers/{id}/services`).
+pub async fn fetch_peer_services_view(
+    mesh: &crate::MeshStateHandle,
+    instance_id: &str,
+) -> Result<serde_json::Value, String> {
     use crate::mesh::peer_services::{build_view, FetchOutcome};
 
     let now = std::time::SystemTime::now()
@@ -449,7 +458,7 @@ pub async fn mesh_peer_services_list(
         let m = mesh.lock();
         let peer = m
             .paired_peers
-            .get(&instance_id)
+            .get(instance_id)
             .ok_or_else(|| format!("Peer {} not paired", instance_id))?;
         let token = m
             .sign_request()
@@ -459,7 +468,7 @@ pub async fn mesh_peer_services_list(
             peer.api_port,
             peer.online,
             token,
-            m.peer_services.is_fresh(&instance_id, now),
+            m.peer_services.is_fresh(instance_id, now),
         )
     };
 
@@ -471,9 +480,9 @@ pub async fn mesh_peer_services_list(
 
     let mut m = mesh.lock();
     if let FetchOutcome::Fetched(ref services) = outcome {
-        m.peer_services.refresh(&instance_id, services.clone(), now);
+        m.peer_services.refresh(instance_id, services.clone(), now);
     }
-    let view = build_view(m.peer_services.get(&instance_id), online, outcome, now);
+    let view = build_view(m.peer_services.get(instance_id), online, outcome, now);
     serde_json::to_value(&view).map_err(|e| e.to_string())
 }
 
