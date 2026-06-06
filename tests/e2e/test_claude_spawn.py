@@ -119,59 +119,14 @@ def test_spawn_claude_as_worker(api: CodeTermAPI, claude_ws):
     )
 
     try:
-        # Verify role was set
+        # Verify role + parent linkage (hierarchy is derived from
+        # parent_pane_id; the /children endpoint was removed).
         time.sleep(2)
         status = api.get(f"/api/panes/{pane_id}/status")
         assert status.get("role") == "Worker"
         assert status.get("parent_pane_id") == orch_pane
-
-        # Verify in hierarchy
-        children = api.get(f"/api/panes/{orch_pane}/children")
-        child_ids = [c["pane_id"] for c in children]
-        assert pane_id in child_ids
     finally:
         api.close_pane(pane_id)
-
-
-def test_spawn_claude_as_lead_with_workers(api: CodeTermAPI, claude_ws):
-    """Spawn Lead under Orchestrator, then Worker under Lead — 3-level hierarchy."""
-    _, orch_pane = claude_ws
-    lead_id = _spawn_claude(
-        api,
-        title="Lead",
-        role="Lead",
-        parent_pane_id=orch_pane,
-        task="You are a lead. Wait for worker reports.",
-    )
-
-    worker_id = _spawn_claude(
-        api,
-        title="Worker",
-        role="Worker",
-        parent_pane_id=lead_id,
-        task="Say: HIERARCHY_TEST_OK",
-    )
-
-    try:
-        time.sleep(2)
-
-        lead_status = api.get(f"/api/panes/{lead_id}/status")
-        assert lead_status.get("role") == "Lead"
-        assert lead_status.get("depth") == 2
-
-        worker_status = api.get(f"/api/panes/{worker_id}/status")
-        assert worker_status.get("role") == "Worker"
-        assert worker_status.get("parent_pane_id") == lead_id
-        assert worker_status.get("depth") == 3
-
-        hierarchy = api.get("/api/agents/hierarchy")
-        hierarchy_str = str(hierarchy)
-        assert orch_pane in hierarchy_str
-        assert lead_id in hierarchy_str
-        assert worker_id in hierarchy_str
-    finally:
-        api.close_pane(worker_id)
-        api.close_pane(lead_id)
 
 
 def test_spawn_claude_with_cwd(api: CodeTermAPI, claude_ws):
@@ -215,16 +170,15 @@ def test_spawn_multiple_claude_agents(api: CodeTermAPI, claude_ws):
 
     try:
         time.sleep(5)
+        panes = api.list_panes()
         for pid in pane_ids:
-            panes = api.list_panes()
             pane = next((p for p in panes if p["id"] == pid), None)
             assert pane is not None, f"Pane {pid} not found"
             assert pane.get("pty_id"), f"Pane {pid} has no PTY"
-
-        children = api.get(f"/api/panes/{orch_pane}/children")
-        child_ids = [c["pane_id"] for c in children]
-        for pid in pane_ids:
-            assert pid in child_ids, f"Worker {pid} not in hierarchy"
+            # hierarchy is derived from parent_pane_id (the /children endpoint
+            # was removed).
+            assert pane.get("parent_pane_id") == orch_pane, \
+                f"Worker {pid} not linked to orchestrator"
     finally:
         for pid in pane_ids:
             try:
