@@ -257,6 +257,12 @@ pub struct PairingRequest {
     pub from_instance_name: String,
     pub from_address: String,
     pub from_port: u16,
+    /// All sender addresses (Tailscale + LAN). The approver walks these in
+    /// tier order for the accept callback instead of betting on the single
+    /// `from_address` (#126). Additive: absent from pre-1.3.3 peers, in
+    /// which case `from_address` is the only candidate.
+    #[serde(default)]
+    pub from_addresses: Vec<PeerAddress>,
     /// Ed25519 public key (base64) — the ONLY auth credential exchanged.
     pub public_key: String,
     /// Unix timestamp (seconds). Reject if >60s old.
@@ -267,6 +273,22 @@ pub struct PairingRequest {
     /// None for direct pair requests. Used by the UI to show "Introduced by X".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub introduced_by: Option<String>,
+}
+
+impl PairingRequest {
+    /// Sanitized candidate addresses for the accept callback, legacy
+    /// `from_address` included (deduped). Never empty unless every address
+    /// is unparseable.
+    pub fn callback_addresses(&self) -> Vec<PeerAddress> {
+        let mut addrs = sanitize_addresses(&self.from_addresses);
+        let legacy = sanitize_addresses(&[PeerAddress::from_ip(&self.from_address)]);
+        for a in legacy {
+            if !addrs.iter().any(|x| x.ip == a.ip) {
+                addrs.push(a);
+            }
+        }
+        addrs
+    }
 }
 
 fn default_pairing_status() -> PairingStatus {
@@ -570,6 +592,57 @@ mod tests {
         assert!(!should_proactive_sync(true, true, 1059, Some(1000), 60));
         assert!(!should_proactive_sync(true, true, 1001, Some(1000), 60));
         assert!(!should_proactive_sync(true, true, 1000, Some(1000), 60));
+    }
+
+    fn pairing_request_with(from_address: &str, from_addresses: Vec<PeerAddress>) -> PairingRequest {
+        PairingRequest {
+            request_id: "r1".into(),
+            from_instance_id: "peer-a".into(),
+            from_instance_name: "A".into(),
+            from_address: from_address.into(),
+            from_port: 7685,
+            from_addresses,
+            public_key: "pk".into(),
+            timestamp: 0,
+            status: PairingStatus::Pending,
+            introduced_by: None,
+        }
+    }
+
+    /// #126 regression: pre-1.3.3 peers send only `from_address` — it must
+    /// remain the callback candidate.
+    #[test]
+    fn callback_addresses_falls_back_to_legacy_single_address() {
+        let req = pairing_request_with("192.168.1.124", vec![]);
+        let addrs = req.callback_addresses();
+        assert_eq!(addrs.len(), 1);
+        assert_eq!(addrs[0].ip, "192.168.1.124");
+    }
+
+    /// #126 regression: with `from_addresses` present, the approver gets all
+    /// candidates (Tailscale + LAN), so an unreachable LAN `from_address`
+    /// no longer kills the accept callback with a 502.
+    #[test]
+    fn callback_addresses_includes_all_candidates_deduped() {
+        let req = pairing_request_with(
+            "192.168.1.124",
+            vec![
+                PeerAddress::from_ip("100.65.0.30"),
+                PeerAddress::from_ip("192.168.1.124"),
+            ],
+        );
+        let addrs = req.callback_addresses();
+        let ips: Vec<&str> = addrs.iter().map(|a| a.ip.as_str()).collect();
+        assert_eq!(ips, vec!["100.65.0.30", "192.168.1.124"]);
+    }
+
+    #[test]
+    fn callback_addresses_sanitizes_poison() {
+        let req = pairing_request_with(
+            "not-an-ip",
+            vec![PeerAddress::from_ip("Tailscale daemon is not running.")],
+        );
+        assert!(req.callback_addresses().is_empty());
     }
 
     #[test]
