@@ -288,6 +288,7 @@ pub fn run() {
             // Resume any keep-awake session that was active when CodeTerm last
             // shut down. Indefinite → resume; timed + remaining → resume with
             // the remainder; timed + already expired → drop the snapshot.
+            keepawake::reap_orphaned_children_on_startup();
             keepawake::resume_from_disk(&states.keepawake, &app_handle);
 
             // Bootstrap plugin system — agent-claude is a bundled native plugin
@@ -727,6 +728,7 @@ pub fn run() {
             // graceful_shutdown already does this on the in-place upgrade
             // path; this catches every other shutdown route.
             if let tauri::RunEvent::Exit = _event {
+                keepawake::cleanup_active_children_for_exit();
                 if let Some(svc) = _app.try_state::<service::ServiceState>() {
                     match svc.mem.checkpoint_and_close() {
                         Ok((busy, log_frames, checkpointed)) => log::info!(

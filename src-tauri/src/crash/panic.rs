@@ -7,6 +7,7 @@ use super::report;
 pub fn install_panic_hook() {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        crate::keepawake::cleanup_active_children_for_exit();
         write_panic_report(info);
         prev(info);
     }));
