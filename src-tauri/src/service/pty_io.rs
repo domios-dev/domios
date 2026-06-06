@@ -53,6 +53,37 @@ impl ServiceContext {
         self.send_text_to_pty(&pty_id, text, enter)
     }
 
+    /// `send_text` that first waits out an in-flight agent boot. A booting
+    /// TUI silently swallows bracket-paste, so input sent in that window
+    /// vanished without an error — the chat composer's "message lost" bug.
+    pub async fn send_text_when_ready(
+        &self,
+        pane_id: &str,
+        text: &str,
+        enter: bool,
+    ) -> Result<(), String> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
+        loop {
+            let booting = self
+                .mux
+                .lock()
+                .get_pane(pane_id)
+                .map(|p| p.agent_booting)
+                .unwrap_or(false);
+            if !booting {
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(format!(
+                    "Agent in pane {} is still booting — input would be lost",
+                    pane_id
+                ));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+        self.send_text(pane_id, text, enter)
+    }
+
     /// Launch a shell-level command in an attached pty (agent spawn, mem worker
     /// spawn, etc). Bypasses bracketed-paste — see `build_spawn_dispatch` for
     /// the rationale (bash 3.2 cannot interpret paste markers, the launch

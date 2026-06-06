@@ -204,7 +204,8 @@ pub async fn send_text(
     let text = prepend(&body.text.unwrap_or_default());
     state
         .svc
-        .send_text(&pane_id, &text, body.enter)
+        .send_text_when_ready(&pane_id, &text, body.enter)
+        .await
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     record_push_activity(&state, &svc_token_match, &pane_id, &text);
     Ok(Json(serde_json::json!({"ok": true})))
