@@ -22,7 +22,7 @@ export interface Tab {
   pane_id: string;
 }
 
-export type AgentRole = "Orchestrator" | "Lead" | "Worker" | "Conductor" | "SubWorker";
+export type AgentRole = "Orchestrator" | "Worker";
 
 export interface PromptOption {
   label: string;

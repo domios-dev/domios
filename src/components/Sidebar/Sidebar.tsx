@@ -365,7 +365,7 @@ export function Sidebar({
             const isExpanded = expandedWorkspaces.has(ws.id);
             // Orchestrators available for linking (across all workspaces)
             const wsOrchestrators = Object.values(state.panes).filter(
-              (p) => p.role === "Orchestrator" || p.role === "Conductor" || p.role === "Lead" || (p.role === "Worker" && p.can_spawn),
+              (p) => p.role === "Orchestrator",
             );
 
             return (

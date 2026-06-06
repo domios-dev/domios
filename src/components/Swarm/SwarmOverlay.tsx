@@ -12,12 +12,8 @@ let particleCounter = 0;
 function mapRoleToSwarm(role: Pane["role"]): SwarmNode["role"] {
   switch (role) {
     case "Orchestrator":
-    case "Conductor":
       return "Orchestrator";
-    case "Lead":
-      return "Lead";
     case "Worker":
-    case "SubWorker":
       return "Worker";
     default:
       return null;

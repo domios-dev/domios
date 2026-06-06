@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { X, Pencil, UserMinus, Ban, CircleCheck } from "lucide-react";
+import { X, Pencil, UserMinus, MessageSquare, SquareTerminal } from "lucide-react";
 import { getAgentProvider } from "../../lib/agentProviders";
+import {
+  emitPaneUiMode,
+  isChatUiSupported,
+  maybeAskDefaultNewAgentPaneToChat,
+} from "../../lib/chatUiMode";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TelegramIcon, TerminalIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
@@ -45,7 +50,12 @@ export function TabItem({
   const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
+  const [chatView, setChatView] = useState(Boolean(pane?.chat_view));
   const tabRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setChatView(Boolean(pane?.chat_view));
+  }, [pane?.chat_view]);
 
   // Close animation phases
   const [closePhase, setClosePhase] = useState<0 | 1 | 2>(0);
@@ -66,20 +76,27 @@ export function TabItem({
       onClick: () => { setEditName(tab.title); setEditing(true); },
     });
     // Role management — hide for Orchestrators (default role on all tabs)
-    if (pane?.role && pane.role !== "Orchestrator" && pane.role !== "Conductor") {
+    if (pane?.role && pane.role !== "Orchestrator") {
       items.push({
         label: "Remove Role",
         icon: <UserMinus size={11} strokeWidth={2} />,
         onClick: () => { if (pane) invoke("mux_clear_pane_role", { paneId: pane.id }); },
       });
     }
-    if (pane?.role && pane.role !== "Orchestrator" && (pane.role === "Conductor" || pane.role === "Lead")) {
+    if (pane && isChatUiSupported(pane.agent_type)) {
+      const nextChatView = !chatView;
       items.push({
-        label: pane.can_spawn ? "Disallow Spawning" : "Allow Spawning",
-        icon: pane.can_spawn
-          ? <Ban size={11} strokeWidth={2} />
-          : <CircleCheck size={11} strokeWidth={2} />,
-        onClick: () => { if (pane) invoke("mux_set_can_spawn", { paneId: pane.id, canSpawn: !pane.can_spawn }); },
+        label: nextChatView ? "Open Chat UI" : "Use Terminal Mode",
+        icon: nextChatView
+          ? <MessageSquare size={11} strokeWidth={2} />
+          : <SquareTerminal size={11} strokeWidth={2} />,
+        onClick: () => {
+          setChatView(nextChatView);
+          emitPaneUiMode(pane.id, nextChatView ? "chat" : "terminal");
+          invoke("mux_set_chat_view", { paneId: pane.id, enabled: nextChatView })
+            .finally(() => window.dispatchEvent(new Event("codeterm-refresh-mux-state")));
+          if (nextChatView) maybeAskDefaultNewAgentPaneToChat();
+        },
       });
     }
     if (canClose && !pane?.protected) {
@@ -91,7 +108,7 @@ export function TabItem({
       });
     }
     return items;
-  }, [tab.title, pane, canClose, hasAgent, onClose]);
+  }, [tab.title, pane, chatView, canClose, hasAgent, onClose]);
 
   // Build animation CSS class
   const animClass = isClosing
@@ -216,7 +233,7 @@ export function TabItem({
             {pane.agent_session_model}
           </span>
         )}
-        {canClose && (
+        {menuItems.length > 0 && (
           <DropdownMenu
             items={menuItems}
             className="sidebar-tab-close absolute inset-y-0 right-0 flex items-center"

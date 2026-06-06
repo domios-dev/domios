@@ -199,8 +199,8 @@ No response requested.
   if (r?.origin.kind === "command") {
     eq(
       r.origin.commands,
-      [{ name: "(output)", stdout: "just output" }],
-      "orphan stdout: rendered as (output) entry",
+      [{ name: "local-command-stdout", stdout: "just output" }],
+      "orphan stdout: rendered with wrapper tag",
     );
   }
 }

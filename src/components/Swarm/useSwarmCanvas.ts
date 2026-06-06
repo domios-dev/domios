@@ -5,10 +5,7 @@ import { NODE_W, NODE_H } from "./layout";
 // Role icons (simple text)
 const ROLE_ICON: Record<string, string> = {
   Orchestrator: "\u2699",  // gear
-  Lead: "\u25C6",          // diamond
   Worker: "\u25CF",        // circle
-  Conductor: "\u2699",
-  SubWorker: "\u25CF",
 };
 
 /**
@@ -72,12 +69,8 @@ function readThemeColors(): ThemeColors {
 function getRoleBorderColor(role: string | null, colors: ThemeColors): string {
   switch (role) {
     case "Orchestrator":
-    case "Conductor":
       return colors.accent;
-    case "Lead":
-      return colors.cyan;
     case "Worker":
-    case "SubWorker":
       return rgba(colors.fg, 0.6);
     default:
       return colors.border;
