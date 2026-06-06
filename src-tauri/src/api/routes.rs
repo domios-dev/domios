@@ -179,6 +179,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/agents/providers",
             get(agent_routes::list_agent_providers),
         )
+        .route("/api/session/save", post(session_routes::save_session_api))
         .route(
             "/api/sessions/search",
             get(session_routes::search_sessions_api),
