@@ -616,6 +616,7 @@ export function Sidebar({
             </button>
           )}
           <button
+            data-testid="nav-settings"
             onClick={onOpenSettings}
             className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
               mainView === "settings"

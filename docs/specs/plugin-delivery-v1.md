@@ -10,7 +10,8 @@ This is the first working slice of the larger channel/update design in
 The runtime already loads JS provider plugins from:
 
 - repository `plugins/` in dev/source builds;
-- user install dir `~/.codeterm/plugins/<id>/`.
+- user install dir `<data-dir>/plugins/<id>/` (`~/.codeterm-dev/` in dev,
+  `~/.codeterm/` in production).
 
 The runtime hot-reload watcher polls those roots and reloads changed
 `plugin.json` / `plugin.js` bundles. Plugin delivery v1 adds the missing
@@ -28,17 +29,30 @@ codeterm plugin remove <id> [--force]
 codeterm plugin channel add <url-or-path> [--name <name>]
 codeterm plugin channel list
 codeterm plugin channel refresh [<name>]
+codeterm plugin channel diff [<name>]
 ```
 
 ## Storage
 
-- Installed plugins: `~/.codeterm/plugins/<id>/`
-- Install metadata: `~/.codeterm/plugins/<id>/.codeterm-install.json`
-- Channel cache: `~/.codeterm/channels/<name>/`
-- Channel registry: `~/.codeterm/plugin-channels.json`
+- Installed plugins: `<data-dir>/plugins/<id>/`
+- Install metadata: `<data-dir>/plugins/<id>/.codeterm-install.json`
+- Channel cache: `<data-dir>/channels/<name>/`
+- Channel registry: `<data-dir>/plugin-channels.json`
+- Audit log: `<data-dir>/logs/plugin-events.log`
 
-`~/.codeterm/plugins` is used even from a dev CLI because the daemon's
-plugin loader watches that canonical directory today.
+The CLI and daemon use the same data directory routing. Dev builds and dev
+consoles use `~/.codeterm-dev/`; production uses `~/.codeterm/`. Test
+harnesses may set `CODETERM_DATA_DIR` to an absolute sandbox path for CLI
+plugin commands.
+
+`plugin list --json` returns:
+
+- `id`, `version`, `display_name`
+- `install_path`, `install_time`
+- `source.channel` / `source.path` for channel installs
+- `manifest_hash` (SHA-256 of installed `plugin.json`)
+- `verified` (visible trust flag; unverified plugins are usable but shown)
+- `last_change` (`installed`, `updated`, or `downgraded`)
 
 ## Supported Sources
 
@@ -110,12 +124,20 @@ bundle.
   channel checkout is used.
 - Hot reload is delegated to the running daemon's existing watcher; the
   CLI does not need a daemon call.
+- `channel diff [name]` observes channel drift without installing. Git
+  channels are checked out to a temporary directory so the registered channel
+  cache is not mutated.
+
+## Plugin Manager UI
+
+Settings → Plugins mirrors the CLI contract. It shows installed plugins,
+registered channels, channel diff badges, one-click refresh/install/update/
+remove actions, and the recent JSONL audit events.
 
 ## Non-Goals
 
 - Permission prompts and permission delta approvals.
 - Signed third-party releases.
-- Plugin manager UI.
 - Background update discovery.
 - Lazy activation.
 - Zip/tarball/npm/github polymorphic sources beyond plain git channel

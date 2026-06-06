@@ -1,14 +1,17 @@
 use std::collections::BTreeMap;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::args::plugin::{PluginAction, PluginChannelAction};
+use crate::data_root;
 
 const SYSTEM_CHANNEL_NAME: &str = "codeterm-core";
-const DEFAULT_SYSTEM_CHANNEL_URL: &str = "https://github.com/rollacode/codeterm.git#master:plugins";
+const DEFAULT_SYSTEM_CHANNEL_URL: &str = "https://github.com/rollacode/codeterm.git#develop:plugins";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ChannelRegistry {
@@ -37,6 +40,8 @@ struct InstallRecord {
     version: Option<String>,
     source: InstallSource,
     installed_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_change: Option<LastChange>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,13 +61,13 @@ struct PluginManifest {
     display_name: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct ChannelManifest {
     name: String,
     plugins: Vec<ChannelPlugin>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct ChannelPlugin {
     id: String,
     #[serde(default)]
@@ -79,11 +84,60 @@ struct InstalledPluginRow {
     version: Option<String>,
     display_name: Option<String>,
     path: String,
+    install_path: String,
+    install_time: Option<String>,
+    manifest_hash: Option<String>,
+    verified: bool,
+    last_change: Option<LastChange>,
+    state: String,
     source: Option<InstallSource>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LastChange {
+    kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    from_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    channel: Option<String>,
+    time: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ChannelDiffRow {
+    channel: String,
+    id: String,
+    local_version: Option<String>,
+    remote_version: Option<String>,
+    local_manifest_hash: Option<String>,
+    remote_manifest_hash: Option<String>,
+    drift: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PluginEvent {
+    ts: String,
+    kind: String,
+    actor: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plugin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    channel: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
 pub fn handle_plugin(json: bool, action: PluginAction) {
-    let result = match action {
+    let result = match action.clone() {
         PluginAction::List => list_installed(),
         PluginAction::Install { id, from_dir, id_override, channel } => {
             install_command(id, from_dir, id_override, channel)
@@ -93,6 +147,10 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
         PluginAction::Remove { id, force } => remove_installed(&id, force),
         PluginAction::Channel { command } => channel_command(command),
     };
+
+    if let Err(e) = &result {
+        let _ = audit_command_failure(&action, e);
+    }
 
     match result {
         Ok(value) => {
@@ -154,13 +212,25 @@ fn install_command(
             .or(id)
             .or_else(|| manifest_id(&source).ok())
             .unwrap_or_else(|| source.file_name().and_then(|s| s.to_str()).unwrap_or("plugin").to_string());
+        let version = manifest_version(&source).ok().flatten();
         let record = InstallRecord {
             id: install_id.clone(),
-            version: manifest_version(&source).ok().flatten(),
+            version: version.clone(),
             source: InstallSource::Dir { path: source.to_string_lossy().to_string() },
             installed_at: now_rfc3339(),
+            last_change: Some(last_change_for_install(version, None)),
         };
-        install_from_dir(&source, &install_id, Some(&record))?;
+        let before = manifest_version(&plugin_dir(&install_id)).ok().flatten();
+        let result = install_from_dir(&source, &install_id, Some(&record));
+        audit_plugin_result(
+            "install",
+            Some(&install_id),
+            None,
+            before,
+            record.version.clone(),
+            &result,
+        );
+        result?;
         return Ok(serde_json::json!({
             "ok": true,
             "message": format!("Installed plugin '{}' from {}", install_id, source.display()),
@@ -172,16 +242,29 @@ fn install_command(
     let id = id.ok_or("install requires <id> or --from-dir <path>")?;
     let candidate = find_channel_plugin(&id, channel.as_deref())?;
     let source_dir = candidate.channel_path.join(&candidate.plugin_path);
+    let channel_name = candidate.channel_name.clone();
+    let version = candidate.version;
     let record = InstallRecord {
         id: id.clone(),
-        version: candidate.version,
+        version: version.clone(),
         source: InstallSource::Channel {
-            channel: candidate.channel_name,
+            channel: channel_name.clone(),
             path: candidate.plugin_path,
         },
         installed_at: now_rfc3339(),
+        last_change: Some(last_change_for_install(version, Some(channel_name.clone()))),
     };
-    install_from_dir(&source_dir, &id, Some(&record))?;
+    let before = manifest_version(&plugin_dir(&id)).ok().flatten();
+    let result = install_from_dir(&source_dir, &id, Some(&record));
+    audit_plugin_result(
+        "install",
+        Some(&id),
+        Some(&channel_name),
+        before,
+        record.version.clone(),
+        &result,
+    );
+    result?;
     Ok(serde_json::json!({
         "ok": true,
         "message": format!("Installed plugin '{}' from channel", id),
@@ -210,18 +293,35 @@ fn update_command(id: Option<String>) -> Result<serde_json::Value, String> {
 
 fn update_one(id: &str) -> Result<(), String> {
     let record = read_install_record(id)?;
+    let before = manifest_version(&plugin_dir(id)).ok().flatten();
     match record.source.clone() {
         InstallSource::Dir { path } => {
-            let next_record = InstallRecord { installed_at: now_rfc3339(), ..record };
-            install_from_dir(Path::new(&path), id, Some(&next_record))
+            let after = manifest_version(Path::new(&path)).ok().flatten();
+            let next_record = InstallRecord {
+                installed_at: now_rfc3339(),
+                version: after.clone(),
+                last_change: Some(last_change_for_update(before.clone(), after.clone(), None)),
+                ..record
+            };
+            let result = install_from_dir(Path::new(&path), id, Some(&next_record));
+            audit_plugin_result("update", Some(id), None, before, after, &result);
+            result
         }
         InstallSource::Channel { channel, path } => {
             refresh_channel(Some(&channel))?;
             let reg = read_channel_registry()?;
             let ch = reg.channels.get(&channel).ok_or_else(|| format!("channel '{channel}' not registered"))?;
             let source = Path::new(&ch.path).join(&path);
-            let next_record = InstallRecord { installed_at: now_rfc3339(), ..record };
-            install_from_dir(&source, id, Some(&next_record))
+            let after = manifest_version(&source).ok().flatten();
+            let next_record = InstallRecord {
+                installed_at: now_rfc3339(),
+                version: after.clone(),
+                last_change: Some(last_change_for_update(before.clone(), after.clone(), Some(channel.clone()))),
+                ..record
+            };
+            let result = install_from_dir(&source, id, Some(&next_record));
+            audit_plugin_result("update", Some(id), Some(&channel), before, after, &result);
+            result
         }
         InstallSource::SystemChannel { channel, path } => {
             ensure_system_channel()?;
@@ -229,8 +329,16 @@ fn update_one(id: &str) -> Result<(), String> {
             let reg = read_channel_registry()?;
             let ch = reg.channels.get(&channel).ok_or_else(|| format!("channel '{channel}' not registered"))?;
             let source = Path::new(&ch.path).join(&path);
-            let next_record = InstallRecord { installed_at: now_rfc3339(), ..record };
-            install_from_dir(&source, id, Some(&next_record))
+            let after = manifest_version(&source).ok().flatten();
+            let next_record = InstallRecord {
+                installed_at: now_rfc3339(),
+                version: after.clone(),
+                last_change: Some(last_change_for_update(before.clone(), after.clone(), Some(channel.clone()))),
+                ..record
+            };
+            let result = install_from_dir(&source, id, Some(&next_record));
+            audit_plugin_result("update", Some(id), Some(&channel), before, after, &result);
+            result
         }
     }
 }
@@ -238,36 +346,78 @@ fn update_one(id: &str) -> Result<(), String> {
 fn update_system_command(id: Option<String>) -> Result<serde_json::Value, String> {
     ensure_system_channel()?;
     refresh_channel(Some(SYSTEM_CHANNEL_NAME))?;
-    let ids = match id {
+    let reg = read_channel_registry()?;
+    let channel = reg
+        .channels
+        .get(SYSTEM_CHANNEL_NAME)
+        .ok_or_else(|| format!("channel '{SYSTEM_CHANNEL_NAME}' not registered"))?;
+    let channel_path = PathBuf::from(&channel.path);
+    let manifest = read_channel_manifest(&channel_path)?;
+    let requested = match id {
         Some(id) => {
-            if !is_reserved_system_id(&id) {
-                return Err(format!("'{id}' is not a bundled system plugin id"));
-            }
-            vec![id]
+            let plugin = manifest
+                .plugins
+                .iter()
+                .find(|plugin| plugin.id == id)
+                .cloned()
+                .ok_or_else(|| format!("'{id}' is not listed in the {SYSTEM_CHANNEL_NAME} channel"))?;
+            vec![plugin]
         }
-        None => system_plugin_ids(),
+        None => manifest.plugins,
     };
     let mut updated = Vec::new();
-    for id in ids {
-        let candidate = find_channel_plugin(&id, Some(SYSTEM_CHANNEL_NAME))?;
-        let source_dir = candidate.channel_path.join(&candidate.plugin_path);
+    for plugin in requested {
+        let id = plugin.id.clone();
+        let plugin_path = plugin_path(&plugin)?;
+        let source_dir = channel_path.join(&plugin_path);
+        let version = plugin.version;
         let record = InstallRecord {
             id: id.clone(),
-            version: candidate.version,
+            version: version.clone(),
             source: InstallSource::SystemChannel {
                 channel: SYSTEM_CHANNEL_NAME.to_string(),
-                path: candidate.plugin_path,
+                path: plugin_path,
             },
             installed_at: now_rfc3339(),
+            last_change: Some(last_change_for_install(version, Some(SYSTEM_CHANNEL_NAME.to_string()))),
         };
-        install_from_dir(&source_dir, &id, Some(&record))?;
+        let before = manifest_version(&plugin_dir(&id)).ok().flatten();
+        let result = install_from_dir(&source_dir, &id, Some(&record));
+        audit_plugin_result(
+            "update_system",
+            Some(&id),
+            Some(SYSTEM_CHANNEL_NAME),
+            before,
+            record.version.clone(),
+            &result,
+        );
+        result?;
         updated.push(id);
     }
+    let warnings = removed_system_channel_warnings(&updated)?;
     Ok(serde_json::json!({
         "ok": true,
         "message": format!("Updated {} system plugin(s)", updated.len()),
         "updated": updated,
+        "warnings": warnings,
     }))
+}
+
+fn removed_system_channel_warnings(current_ids: &[String]) -> Result<Vec<String>, String> {
+    let current: std::collections::BTreeSet<_> = current_ids.iter().cloned().collect();
+    let mut warnings = Vec::new();
+    for id in installed_ids()? {
+        let record = read_install_record(&id).ok();
+        let Some(InstallRecord { source: InstallSource::SystemChannel { channel, .. }, .. }) = record else {
+            continue;
+        };
+        if channel == SYSTEM_CHANNEL_NAME && !current.contains(&id) {
+            warnings.push(format!(
+                "system plugin '{id}' is installed but no longer listed in {SYSTEM_CHANNEL_NAME}; it was left installed"
+            ));
+        }
+    }
+    Ok(warnings)
 }
 
 fn remove_installed(id: &str, force: bool) -> Result<serde_json::Value, String> {
@@ -278,7 +428,10 @@ fn remove_installed(id: &str, force: bool) -> Result<serde_json::Value, String> 
     if !dir.exists() {
         return Err(format!("plugin '{id}' is not installed"));
     }
-    fs::remove_dir_all(&dir).map_err(|e| format!("remove {}: {e}", dir.display()))?;
+    let before = manifest_version(&dir).ok().flatten();
+    let result = fs::remove_dir_all(&dir).map_err(|e| format!("remove {}: {e}", dir.display()));
+    audit_plugin_result("remove", Some(id), None, before, None, &result);
+    result?;
     Ok(serde_json::json!({
         "ok": true,
         "message": format!("Removed plugin '{}'", id),
@@ -293,7 +446,8 @@ fn channel_command(action: PluginChannelAction) -> Result<serde_json::Value, Str
             refresh_channel(name.as_deref())?;
             Ok(serde_json::json!({"ok": true, "message": "Channel refresh complete"}))
         }
-        PluginChannelAction::Remove { name } => remove_channel(&name),
+        PluginChannelAction::Diff { name } => channel_diff(name.as_deref()),
+        PluginChannelAction::Remove { name, force } => remove_channel(&name, force),
     }
 }
 
@@ -308,19 +462,32 @@ fn list_installed() -> Result<serde_json::Value, String> {
         }
         let path = entry.path();
         let folder_id = path.file_name().and_then(|s| s.to_str()).unwrap_or("?").to_string();
+        if folder_id.ends_with(".tmp-install") {
+            continue;
+        }
         let id = manifest_id(&path).unwrap_or_else(|_| {
             folder_id.clone()
         });
         let manifest = read_plugin_manifest(&path).ok();
+        let record = read_install_record(&folder_id)
+            .or_else(|_| read_install_record(&id))
+            .ok();
         rows.push(InstalledPluginRow {
             id: id.clone(),
             version: manifest.as_ref().and_then(|m| m.version.clone()),
             display_name: manifest.and_then(|m| m.display_name),
             path: path.display().to_string(),
-            source: read_install_record(&folder_id)
-                .or_else(|_| read_install_record(&id))
-                .ok()
-                .map(|r| r.source),
+            install_path: path.display().to_string(),
+            install_time: record.as_ref().map(|r| r.installed_at.clone()),
+            manifest_hash: manifest_hash(&path).ok(),
+            verified: is_verified_install(&id, record.as_ref()),
+            last_change: record.as_ref().and_then(|r| r.last_change.clone()),
+            state: if path.with_extension("tmp-install").exists() {
+                "mid-install".to_string()
+            } else {
+                "installed".to_string()
+            },
+            source: record.map(|r| r.source),
         });
     }
     Ok(serde_json::json!({ "plugins": rows }))
@@ -356,7 +523,9 @@ fn add_channel(url: &str, name_override: Option<String>) -> Result<serde_json::V
         path: final_path.display().to_string(),
         kind: if is_local { ChannelKind::Local } else { ChannelKind::Git },
     });
-    write_channel_registry(&reg)?;
+    let result = write_channel_registry(&reg);
+    audit_channel_result("channel_add", Some(&name), &result);
+    result?;
     Ok(serde_json::json!({
         "ok": true,
         "message": format!("Added plugin channel '{}'", name),
@@ -370,14 +539,118 @@ fn list_channels() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "channels": channels }))
 }
 
-fn remove_channel(name: &str) -> Result<serde_json::Value, String> {
+fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, String> {
+    let reg = read_channel_registry().unwrap_or_default();
+    let channels: Vec<ChannelRecord> = reg
+        .channels
+        .values()
+        .filter(|ch| name.map(|n| n == ch.name).unwrap_or(true))
+        .cloned()
+        .collect();
+    if let Some(name) = name {
+        if channels.is_empty() {
+            return Err(format!("channel '{name}' not registered"));
+        }
+    }
+
+    let mut rows = Vec::new();
+    for ch in channels {
+        let temp = std::env::temp_dir().join(format!(
+            "codeterm-channel-diff-{}-{}",
+            ch.name,
+            uuid::Uuid::new_v4()
+        ));
+        let channel_path = materialize_channel_for_diff(&ch, &temp)?;
+        let manifest = read_channel_manifest(&channel_path)?;
+        for plugin in manifest.plugins {
+            let remote_path = plugin_path(&plugin)?;
+            let remote_dir = channel_path.join(&remote_path);
+            let local_dir = plugin_dir(&plugin.id);
+            let local_version = manifest_version(&local_dir).ok().flatten();
+            let remote_version = plugin.version.clone()
+                .or_else(|| manifest_version(&remote_dir).ok().flatten());
+            let local_manifest_hash = manifest_hash(&local_dir).ok();
+            let remote_manifest_hash = manifest_hash(&remote_dir).ok();
+            let drift = classify_drift(
+                local_version.as_deref(),
+                remote_version.as_deref(),
+                local_manifest_hash.as_deref(),
+                remote_manifest_hash.as_deref(),
+            );
+            if drift != "up_to_date" {
+                audit_drift_detected(
+                    &ch.name,
+                    &plugin.id,
+                    local_version.clone(),
+                    remote_version.clone(),
+                    local_manifest_hash.clone(),
+                    remote_manifest_hash.clone(),
+                    &drift,
+                );
+            }
+            rows.push(ChannelDiffRow {
+                channel: ch.name.clone(),
+                id: plugin.id,
+                local_version,
+                remote_version,
+                local_manifest_hash,
+                remote_manifest_hash,
+                drift,
+            });
+        }
+        if temp.exists() {
+            let _ = fs::remove_dir_all(&temp);
+        }
+    }
+
+    Ok(serde_json::json!({ "diff": rows }))
+}
+
+fn materialize_channel_for_diff(ch: &ChannelRecord, temp: &Path) -> Result<PathBuf, String> {
+    match ch.kind {
+        ChannelKind::Local => Ok(parse_channel_source(&ch.url).source_dir()),
+        ChannelKind::Git => {
+            let source = parse_channel_source(&ch.url);
+            clone_git_channel(&source, temp)?;
+            Ok(temp.to_path_buf())
+        }
+    }
+}
+
+fn classify_drift(
+    local_version: Option<&str>,
+    remote_version: Option<&str>,
+    local_hash: Option<&str>,
+    remote_hash: Option<&str>,
+) -> String {
+    match (local_version, remote_version) {
+        (None, Some(_)) => "not_installed".to_string(),
+        (Some(_), None) => "not_in_channel".to_string(),
+        (Some(local), Some(remote)) => match version_cmp(local, remote) {
+            std::cmp::Ordering::Less => "update_available".to_string(),
+            std::cmp::Ordering::Greater => "local_ahead".to_string(),
+            std::cmp::Ordering::Equal if local_hash != remote_hash => "hash_drift".to_string(),
+            std::cmp::Ordering::Equal => "up_to_date".to_string(),
+        },
+        (None, None) => "unknown".to_string(),
+    }
+}
+
+fn remove_channel(name: &str, force: bool) -> Result<serde_json::Value, String> {
+    if name == SYSTEM_CHANNEL_NAME && !force {
+        return Err(format!(
+            "'{name}' is the system plugin channel; pass --force to remove its registry entry"
+        ));
+    }
     let mut reg = read_channel_registry().unwrap_or_default();
     let ch = reg.channels.remove(name).ok_or_else(|| format!("channel '{name}' not registered"))?;
     let path = PathBuf::from(&ch.path);
     if path.exists() {
         fs::remove_dir_all(&path).map_err(|e| format!("remove {}: {e}", path.display()))?;
     }
-    write_channel_registry(&reg)?;
+    let result = write_channel_registry(&reg);
+    audit_channel_result("channel_remove", Some(name), &result);
+    result?;
     Ok(serde_json::json!({
         "ok": true,
         "message": format!("Removed plugin channel '{}'", name),
@@ -397,25 +670,43 @@ fn refresh_channel(name: Option<&str>) -> Result<(), String> {
                 continue;
             }
         }
-        let path = PathBuf::from(&ch.path);
-        match ch.kind {
-            ChannelKind::Local => {
-                if path.exists() {
-                    fs::remove_dir_all(&path).map_err(|e| format!("clear {}: {e}", path.display()))?;
-                }
-                let source = parse_channel_source(&ch.url);
-                copy_dir_filtered(&source.source_dir(), &path)?;
-            }
-            ChannelKind::Git => {
-                if path.exists() {
-                    fs::remove_dir_all(&path).map_err(|e| format!("clear {}: {e}", path.display()))?;
-                }
-                let source = parse_channel_source(&ch.url);
-                clone_git_channel(&source, &path)?;
-            }
-        }
+        refresh_channel_record(ch)?;
     }
-    Ok(())
+    let result = Ok(());
+    audit_channel_result("refresh-fetched", name, &result);
+    result
+}
+
+fn refresh_channel_record(ch: &ChannelRecord) -> Result<(), String> {
+    let path = PathBuf::from(&ch.path);
+    let tmp = path.with_file_name(format!(
+        ".{}-refresh-{}",
+        path.file_name().and_then(|s| s.to_str()).unwrap_or("channel"),
+        uuid::Uuid::new_v4()
+    ));
+    if tmp.exists() {
+        fs::remove_dir_all(&tmp).map_err(|e| format!("clear {}: {e}", tmp.display()))?;
+    }
+    let result = materialize_registered_channel(ch, &tmp)
+        .and_then(|_| read_channel_manifest(&tmp).map(|_| ()));
+    if let Err(err) = result {
+        if tmp.exists() {
+            let _ = fs::remove_dir_all(&tmp);
+        }
+        return Err(err);
+    }
+    if path.exists() {
+        fs::remove_dir_all(&path).map_err(|e| format!("clear {}: {e}", path.display()))?;
+    }
+    fs::rename(&tmp, &path).map_err(|e| format!("replace channel cache: {e}"))
+}
+
+fn materialize_registered_channel(ch: &ChannelRecord, dest: &Path) -> Result<(), String> {
+    let source = parse_channel_source(&ch.url);
+    match ch.kind {
+        ChannelKind::Local => copy_dir_filtered(&source.source_dir(), dest),
+        ChannelKind::Git => clone_git_channel(&source, dest),
+    }
 }
 
 fn ensure_system_channel() -> Result<(), String> {
@@ -575,6 +866,54 @@ fn manifest_version(dir: &Path) -> Result<Option<String>, String> {
     Ok(read_plugin_manifest(dir)?.version)
 }
 
+fn manifest_hash(dir: &Path) -> Result<String, String> {
+    let path = dir.join("plugin.json");
+    let bytes = fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    Ok(format!("{:x}", Sha256::digest(&bytes)))
+}
+
+fn last_change_for_install(version: Option<String>, channel: Option<String>) -> LastChange {
+    LastChange {
+        kind: "installed".to_string(),
+        from_version: None,
+        to_version: version,
+        channel,
+        time: now_rfc3339(),
+    }
+}
+
+fn last_change_for_update(
+    from_version: Option<String>,
+    to_version: Option<String>,
+    channel: Option<String>,
+) -> LastChange {
+    let kind = match (&from_version, &to_version) {
+        (Some(from), Some(to)) if version_cmp(to, from).is_lt() => "downgraded",
+        _ => "updated",
+    };
+    LastChange {
+        kind: kind.to_string(),
+        from_version,
+        to_version,
+        channel,
+        time: now_rfc3339(),
+    }
+}
+
+fn version_cmp(left: &str, right: &str) -> std::cmp::Ordering {
+    match (semverish(left), semverish(right)) {
+        (Some(a), Some(b)) => a.cmp(&b),
+        _ => left.cmp(right),
+    }
+}
+
+fn semverish(value: &str) -> Option<Vec<u64>> {
+    value
+        .split('.')
+        .map(|part| part.parse::<u64>().ok())
+        .collect()
+}
+
 fn read_install_record(id: &str) -> Result<InstallRecord, String> {
     let path = plugin_dir(id).join(".codeterm-install.json");
     let text = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
@@ -590,7 +929,10 @@ fn installed_ids() -> Result<Vec<String>, String> {
     for entry in fs::read_dir(root).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
-            out.push(entry.file_name().to_string_lossy().to_string());
+            let id = entry.file_name().to_string_lossy().to_string();
+            if !id.ends_with(".tmp-install") {
+                out.push(id);
+            }
         }
     }
     Ok(out)
@@ -615,7 +957,7 @@ fn write_channel_registry(registry: &ChannelRegistry) -> Result<(), String> {
 }
 
 fn plugins_root() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".codeterm").join("plugins")
+    plugin_data_root().join("plugins")
 }
 
 fn plugin_dir(id: &str) -> PathBuf {
@@ -623,11 +965,168 @@ fn plugin_dir(id: &str) -> PathBuf {
 }
 
 fn channels_root() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".codeterm").join("channels")
+    plugin_data_root().join("channels")
 }
 
 fn channel_registry_path() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".codeterm").join("plugin-channels.json")
+    plugin_data_root().join("plugin-channels.json")
+}
+
+fn plugin_data_root() -> PathBuf {
+    data_root()
+}
+
+fn audit_log_path() -> PathBuf {
+    plugin_data_root().join("logs").join("plugin-events.log")
+}
+
+fn audit_plugin_result(
+    kind: &str,
+    plugin_id: Option<&str>,
+    channel: Option<&str>,
+    from: Option<String>,
+    to: Option<String>,
+    result: &Result<(), String>,
+) {
+    let event = PluginEvent {
+        ts: now_rfc3339(),
+        kind: event_kind(kind, result),
+        actor: "cli".to_string(),
+        ok: result.is_ok(),
+        plugin: plugin_id.map(ToOwned::to_owned),
+        channel: channel.map(ToOwned::to_owned),
+        from,
+        to: to.clone(),
+        version: to,
+        error: result.as_ref().err().cloned(),
+    };
+    let _ = append_audit_event(&event);
+}
+
+fn audit_channel_result(kind: &str, channel: Option<&str>, result: &Result<(), String>) {
+    let event = PluginEvent {
+        ts: now_rfc3339(),
+        kind: event_kind(kind, result),
+        actor: "cli".to_string(),
+        ok: result.is_ok(),
+        plugin: None,
+        channel: channel.map(ToOwned::to_owned),
+        from: None,
+        to: None,
+        version: None,
+        error: result.as_ref().err().cloned(),
+    };
+    let _ = append_audit_event(&event);
+}
+
+fn audit_drift_detected(
+    channel: &str,
+    plugin: &str,
+    local: Option<String>,
+    remote: Option<String>,
+    local_manifest_hash: Option<String>,
+    remote_manifest_hash: Option<String>,
+    drift: &str,
+) {
+    let event = serde_json::json!({
+        "ts": now_rfc3339(),
+        "kind": "drift-detected",
+        "actor": "cli",
+        "ok": true,
+        "channel": channel,
+        "plugin": plugin,
+        "local": local,
+        "remote": remote,
+        "local_manifest_hash": local_manifest_hash,
+        "remote_manifest_hash": remote_manifest_hash,
+        "drift": drift,
+    });
+    let _ = append_audit_value(&event);
+}
+
+fn audit_command_failure(action: &PluginAction, error: &str) -> Result<(), String> {
+    let (kind, plugin, channel) = command_failure_fields(action);
+    let event = PluginEvent {
+        ts: now_rfc3339(),
+        kind,
+        actor: "cli".to_string(),
+        ok: false,
+        plugin,
+        channel,
+        from: None,
+        to: None,
+        version: None,
+        error: Some(error.to_string()),
+    };
+    append_audit_event(&event)
+}
+
+fn command_failure_fields(action: &PluginAction) -> (String, Option<String>, Option<String>) {
+    match action {
+        PluginAction::List => ("list-failed".to_string(), None, None),
+        PluginAction::Install { id, channel, .. } => {
+            ("install-failed".to_string(), id.clone(), channel.clone())
+        }
+        PluginAction::Update { id } => ("update-failed".to_string(), id.clone(), None),
+        PluginAction::UpdateSystem { id } => {
+            ("update-system-failed".to_string(), id.clone(), Some(SYSTEM_CHANNEL_NAME.to_string()))
+        }
+        PluginAction::Remove { id, .. } => ("remove-failed".to_string(), Some(id.clone()), None),
+        PluginAction::Channel { command } => match command {
+            PluginChannelAction::Add { name, .. } => {
+                ("channel-add-failed".to_string(), None, name.clone())
+            }
+            PluginChannelAction::List => ("channel-list-failed".to_string(), None, None),
+            PluginChannelAction::Refresh { name } => {
+                ("refresh-failed".to_string(), None, name.clone())
+            }
+            PluginChannelAction::Diff { name } => {
+                ("diff-failed".to_string(), None, name.clone())
+            }
+            PluginChannelAction::Remove { name, .. } => {
+                ("channel-remove-failed".to_string(), None, Some(name.clone()))
+            }
+        },
+    }
+}
+
+fn event_kind(base: &str, result: &Result<(), String>) -> String {
+    let kind = if result.is_ok() {
+        match base {
+            "update" => "update-completed",
+            "update_system" => "update-system-completed",
+            other => other,
+        }
+    } else {
+        match base {
+            "install" => "install-failed",
+            "update" => "update-failed",
+            "update_system" => "update-system-failed",
+            "remove" => "remove-failed",
+            "refresh-fetched" => "refresh-failed",
+            other => other,
+        }
+    };
+    kind.to_string()
+}
+
+fn append_audit_event(event: &PluginEvent) -> Result<(), String> {
+    let value = serde_json::to_value(event).map_err(|e| e.to_string())?;
+    append_audit_value(&value)
+}
+
+fn append_audit_value(value: &serde_json::Value) -> Result<(), String> {
+    let path = audit_log_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+    }
+    let line = serde_json::to_string(value).map_err(|e| e.to_string())?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| format!("open {}: {e}", path.display()))?;
+    writeln!(file, "{line}").map_err(|e| format!("write {}: {e}", path.display()))
 }
 
 fn looks_like_local_path(value: &str) -> bool {
@@ -753,11 +1252,10 @@ fn is_reserved_system_id(id: &str) -> bool {
     matches!(id, "claude" | "codex" | "opencode")
 }
 
-fn system_plugin_ids() -> Vec<String> {
-    ["claude", "codex", "opencode"]
-        .into_iter()
-        .map(String::from)
-        .collect()
+fn is_verified_install(id: &str, record: Option<&InstallRecord>) -> bool {
+    record
+        .map(|r| matches!(r.source, InstallSource::SystemChannel { .. }))
+        .unwrap_or_else(|| is_reserved_system_id(id))
 }
 
 fn now_rfc3339() -> String {
@@ -766,8 +1264,61 @@ fn now_rfc3339() -> String {
 
 #[cfg(test)]
 mod store_index_tests {
-    use super::ChannelManifest;
-    use std::path::Path;
+    use super::*;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn restore_env(key: &str, value: Option<String>) {
+        match value {
+            Some(v) => std::env::set_var(key, v),
+            None => std::env::remove_var(key),
+        }
+    }
+
+    fn with_data_root<T>(f: impl FnOnce(PathBuf) -> T) -> T {
+        let _guard = env_lock().lock().unwrap();
+        let prev = std::env::var("CODETERM_DATA_DIR").ok();
+        let root = std::env::temp_dir().join(format!("codeterm-plugin-test-{}", uuid::Uuid::new_v4()));
+        std::env::set_var("CODETERM_DATA_DIR", &root);
+        let result = f(root.clone());
+        restore_env("CODETERM_DATA_DIR", prev);
+        let _ = std::fs::remove_dir_all(root);
+        result
+    }
+
+    fn write_channel(dir: &Path, name: &str, plugins: &[(&str, &str)]) {
+        std::fs::create_dir_all(dir).unwrap();
+        let entries = plugins
+            .iter()
+            .map(|(id, path)| serde_json::json!({"id": id, "version": "1.0.0", "path": path}))
+            .collect::<Vec<_>>();
+        std::fs::write(
+            dir.join("channel.json"),
+            serde_json::json!({"schemaVersion": 1, "name": name, "plugins": entries}).to_string(),
+        )
+        .unwrap();
+        for (id, path) in plugins {
+            let plugin_dir = dir.join(path);
+            std::fs::create_dir_all(&plugin_dir).unwrap();
+            std::fs::write(
+                plugin_dir.join("plugin.json"),
+                serde_json::json!({
+                    "id": id,
+                    "version": "1.0.0",
+                    "displayName": id,
+                    "main": "plugin.js"
+                })
+                .to_string(),
+            )
+            .unwrap();
+            std::fs::write(plugin_dir.join("plugin.js"), "module.exports = {};").unwrap();
+        }
+    }
 
     /// The repo's `plugins/` dir IS the `codeterm-core` channel (served at
     /// github.com/rollacode/codeterm.git#master:plugins). `channel.json` is its
@@ -806,5 +1357,99 @@ mod store_index_tests {
                 rel
             );
         }
+    }
+
+    #[test]
+    fn default_system_channel_points_at_develop_plugins_index() {
+        assert_eq!(
+            DEFAULT_SYSTEM_CHANNEL_URL,
+            "https://github.com/rollacode/codeterm.git#develop:plugins"
+        );
+    }
+
+    #[test]
+    fn plugin_storage_roots_follow_code_term_data_dir_override() {
+        let _guard = env_lock().lock().unwrap();
+        let prev = std::env::var("CODETERM_DATA_DIR").ok();
+        let root = std::env::temp_dir().join(format!("codeterm-plugin-root-{}", uuid::Uuid::new_v4()));
+        std::env::set_var("CODETERM_DATA_DIR", &root);
+
+        assert_eq!(plugins_root(), root.join("plugins"));
+        assert_eq!(channels_root(), root.join("channels"));
+        assert_eq!(channel_registry_path(), root.join("plugin-channels.json"));
+
+        restore_env("CODETERM_DATA_DIR", prev);
+    }
+
+    #[test]
+    fn refresh_preserves_existing_channel_cache_when_new_manifest_is_malformed() {
+        with_data_root(|root| {
+            let bad_source = root.join("bad-source");
+            std::fs::create_dir_all(&bad_source).unwrap();
+            std::fs::write(bad_source.join("channel.json"), "{not-json").unwrap();
+
+            let cache = channels_root().join("demo");
+            write_channel(&cache, "demo", &[("demo-plugin", "provider-demo")]);
+            write_channel_registry(&ChannelRegistry {
+                channels: BTreeMap::from([(
+                    "demo".to_string(),
+                    ChannelRecord {
+                        name: "demo".to_string(),
+                        url: format!("file://{}", bad_source.display()),
+                        path: cache.display().to_string(),
+                        kind: ChannelKind::Local,
+                    },
+                )]),
+            })
+            .unwrap();
+
+            let err = refresh_channel(Some("demo")).expect_err("malformed refresh must fail");
+            assert!(err.contains("parse channel.json"), "{err}");
+            let manifest = read_channel_manifest(&cache).expect("old cache must remain readable");
+            assert_eq!(manifest.name, "demo");
+            assert_eq!(manifest.plugins[0].id, "demo-plugin");
+        });
+    }
+
+    #[test]
+    fn update_system_installs_manifest_additions_and_warns_without_auto_removing_deletions() {
+        with_data_root(|root| {
+            let prev_system_url = std::env::var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL").ok();
+            let source = root.join("system-source");
+            write_channel(&source, SYSTEM_CHANNEL_NAME, &[("extra-system", "provider-extra")]);
+            std::env::set_var(
+                "CODETERM_SYSTEM_PLUGIN_CHANNEL_URL",
+                format!("file://{}", source.display()),
+            );
+
+            let first = update_system_command(None).expect("system manifest addition installs");
+            assert_eq!(first["updated"], serde_json::json!(["extra-system"]));
+            assert!(plugin_dir("extra-system").join("plugin.json").exists());
+            let listed = list_installed().unwrap();
+            assert_eq!(listed["plugins"][0]["verified"], serde_json::json!(true));
+
+            write_channel(&source, SYSTEM_CHANNEL_NAME, &[]);
+            let second = update_system_command(None).expect("removal warning does not uninstall");
+            assert_eq!(second["updated"], serde_json::json!([]));
+            assert!(second["warnings"][0]
+                .as_str()
+                .unwrap()
+                .contains("left installed"));
+            assert!(plugin_dir("extra-system").join("plugin.json").exists());
+
+            restore_env("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", prev_system_url);
+        });
+    }
+
+    #[test]
+    fn installed_ids_ignore_leftover_tmp_install_dirs() {
+        with_data_root(|_root| {
+            write_channel(&plugin_dir("real"), "unused", &[]);
+            std::fs::create_dir_all(plugins_root().join("partial.tmp-install")).unwrap();
+            let ids = installed_ids().unwrap();
+            assert_eq!(ids, vec!["real".to_string()]);
+            let listed = list_installed().unwrap();
+            assert_eq!(listed["plugins"].as_array().unwrap().len(), 1);
+        });
     }
 }
