@@ -62,6 +62,36 @@ function bash(args: string[], timeoutMs: number): void {
 
 export function killDevConsole(): void {
   bash(["build.sh", "kill"], 60_000);
+  // build.sh kill only targets the 7686 listener; its vite child survives
+  // holding port 1420 and orphan dev binaries keep the exe locked — both
+  // deterministically break the NEXT start, so sweep them every time.
+  killDevLeftovers();
+}
+
+/**
+ * Windows recovery for the recurring crash-leftover states build.sh kill
+ * can't see: orphan dev binaries (no 7686 listener but still holding
+ * target\debug\codeterm.exe → relink fails with PermissionDenied) and a
+ * surviving vite holding port 1420 (next dev start aborts). Scoped hard
+ * to the dev target dir / port — prod is untouchable by construction.
+ */
+function killDevLeftovers(): void {
+  if (process.platform !== "win32") return;
+  const script = [
+    "Get-Process codeterm -ErrorAction SilentlyContinue |",
+    "Where-Object { $_.Path -like '*target\\debug*' } |",
+    "ForEach-Object { Stop-Process -Id $_.Id -Force -Confirm:$false };",
+    "$vite = (netstat -ano | Select-String ':1420.*LISTENING') -replace '.*\\s(\\d+)$','$1' | Select-Object -Unique;",
+    "foreach ($p in $vite) { try { Stop-Process -Id $p -Force -Confirm:$false } catch {} }",
+  ].join(" ");
+  try {
+    execFileSync("powershell", ["-NoProfile", "-Command", script], {
+      timeout: 30_000,
+      stdio: "inherit",
+    });
+  } catch {
+    /* best effort — the dev --wait retry decides success */
+  }
 }
 
 /**
@@ -73,7 +103,14 @@ export function killDevConsole(): void {
 export async function ensureDevConsole(): Promise<void> {
   if ((await isHealthy()) && (await isCdpUp())) return;
   killDevConsole();
-  bash(["build.sh", "dev", "--wait"], 600_000);
+  try {
+    bash(["build.sh", "dev", "--wait"], 600_000);
+  } catch {
+    // First start attempt can lose to crash leftovers (orphan dev exe
+    // locking the binary, vite squatting 1420) — sweep and retry once.
+    killDevLeftovers();
+    bash(["build.sh", "dev", "--wait"], 600_000);
+  }
   if (!(await isHealthy())) {
     throw new Error("dev console did not become healthy after ./build.sh dev --wait");
   }
