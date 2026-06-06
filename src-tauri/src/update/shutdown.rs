@@ -201,7 +201,7 @@ fn soft_kill(pty: &crate::PtyState, pty_id: &str) -> Result<(), String> {
     child.kill().map_err(|e| format!("Child::kill: {}", e))
 }
 
-fn persist_session(app: &tauri::AppHandle, svc: &ServiceState) -> Result<(), String> {
+pub(crate) fn persist_session(app: &tauri::AppHandle, svc: &ServiceState) -> Result<(), String> {
     let session = app
         .try_state::<SessionState>()
         .ok_or_else(|| "SessionState not registered".to_string())?

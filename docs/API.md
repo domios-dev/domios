@@ -519,6 +519,11 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 
 **Logging discipline:** the daemon never logs the value field, the master password, or session tokens. The reveal endpoint is the only path that emits plaintext.
 
+#### Session Snapshot
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| POST | `/api/session/save` | — | Snapshot the multiplexer (workspaces/tabs/panes) into the session store immediately. Durability is otherwise the 30s auto-save timer + close-to-tray hook; e2e harnesses call this before force-killing the daemon so restart-persistence is deterministic. |
+
 #### Past Agent Sessions
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -1217,4 +1222,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 49 -->
+<!-- revision: 50 -->
