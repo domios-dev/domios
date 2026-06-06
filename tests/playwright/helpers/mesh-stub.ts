@@ -33,6 +33,9 @@ export class MeshStub {
    * (gate validation, mux state, peers …) gated by this bearer token —
    * lets 12-web exercise real peer SWITCHING against a scripted host. */
   webToken: string | null = null;
+  /** Config payload for /api/config — seed with a REAL daemon config so
+   * the SPA's boot path doesn't choke on missing fields. */
+  configPayload: unknown = {};
 
   constructor(opts: { services?: number; daemonBase?: string; webToken?: string } = {}) {
     this.serviceCount = opts.services ?? 3;
@@ -108,7 +111,7 @@ export class MeshStub {
       };
       if (req.method === "OPTIONS") return json(204, null);
 
-      if (this.webToken && this.handleWebApi(req, path, json)) return;
+      if (this.webToken && this.handleWebApi(req, res, path, json)) return;
 
       switch (path) {
         case "/api/mesh/ping":
@@ -161,6 +164,7 @@ export class MeshStub {
    * the path was handled. */
   private handleWebApi(
     req: http.IncomingMessage,
+    res: http.ServerResponse,
     path: string,
     json: (status: number, value: unknown) => void,
   ): boolean {
@@ -174,12 +178,25 @@ export class MeshStub {
       "/api/services",
       "/api/activity",
       "/api/health",
+      "/api/events/stream",
     ]);
     if (!WEB_PATHS.has(path)) return false;
 
     const auth = req.headers.authorization ?? "";
     if (path !== "/api/health" && auth !== `Bearer ${this.webToken}`) {
       json(401, { error: "invalid token" });
+      return true;
+    }
+    if (path === "/api/events/stream") {
+      // Hold an empty SSE open so the web bundle's listener stays calm
+      // instead of reconnect-spamming a JSON 200.
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+      });
+      res.write(": stub stream\n\n");
       return true;
     }
     switch (path) {
@@ -217,7 +234,7 @@ export class MeshStub {
         });
         break;
       case "/api/config":
-        json(200, {});
+        json(200, this.configPayload);
         break;
       case "/api/mesh/peers":
         json(200, { paired: [], discovered: [], incoming_requests: [] });

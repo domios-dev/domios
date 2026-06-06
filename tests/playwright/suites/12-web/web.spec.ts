@@ -30,7 +30,9 @@ async function passTokenGate(page: Page): Promise<void> {
   await page.waitForSelector('[data-testid="web-token-input"]', { timeout: 15_000 });
   await page.fill('[data-testid="web-token-input"]', readDevToken());
   await page.click('[data-testid="web-token-submit"]');
-  await page.waitForSelector('[data-testid="workspace-item"]', { timeout: 20_000 });
+  // The peer picker lives in the titlebar — visible on every viewport
+  // (workspace items hide inside the collapsed mobile sidebar).
+  await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
 }
 
 test("@smoke /web serves the SPA; token gate authenticates; self is the default host", async () => {
@@ -64,7 +66,21 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
   const stub = new MeshStub({ services: 1, webToken: STUB_TOKEN });
   let peerId: string | undefined;
 
+  // Stale stub peers persist in peers.json when an earlier run crashed
+  // before its cleanup — drop them so selectors stay unambiguous.
+  const existing = await api.get<{ paired: { instance_id: string; instance_name: string }[] }>(
+    "/mesh/peers",
+  );
+  for (const p of existing.paired) {
+    if (p.instance_name === stub.instanceName) {
+      await api.post(`/mesh/peers/disconnect/${p.instance_id}`).catch(() => {});
+    }
+  }
+
   try {
+    // Seed the stub with this daemon's real config so the SPA's boot path
+    // has every field it expects when pointed at the stub.
+    stub.configPayload = await api.get("/config");
     await stub.start("happy");
     const added = await api.post<{ instance_id: string }>("/mesh/peers/add-manual", {
       address: "127.0.0.1",
