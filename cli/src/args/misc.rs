@@ -316,3 +316,21 @@ pub enum ConfigAction {
     /// Set a config value (JSON-compatible: true, false, 42, "string")
     Set { key: String, value: String },
 }
+
+#[derive(clap::Subcommand)]
+pub enum WebAction {
+    /// Print a ready-to-open /web URL for THIS machine with the API token
+    /// embedded in the URL fragment (use --query for ?token= instead).
+    Link {
+        /// Host override (default: Tailscale IP > LAN IP > 127.0.0.1).
+        #[arg(long)]
+        host: Option<String>,
+        /// Port override (default: this daemon's API port).
+        #[arg(long)]
+        port: Option<u16>,
+        /// Emit ?token= instead of #token= — easier to type, but query
+        /// strings reach server/proxy logs; the fragment never does.
+        #[arg(long)]
+        query: bool,
+    },
+}

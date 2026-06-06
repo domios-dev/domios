@@ -96,6 +96,12 @@ pub enum Commands {
         from_stdin: bool,
     },
 
+    /// Web mirror helpers (share links, etc.)
+    Web {
+        #[command(subcommand)]
+        action: crate::args::misc::WebAction,
+    },
+
     /// Cross-mesh ephemeral pastebin — stash payloads with short ids (#98)
     Paste {
         #[command(subcommand)]
