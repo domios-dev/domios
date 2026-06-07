@@ -189,21 +189,17 @@ pub fn spawn_raw_tailer(cfg: RawTailConfig, sink: Arc<dyn RawTextSink>) -> Taile
     let stop = stop_flag.clone();
     let off = offset.clone();
     let join = thread::spawn(move || {
-        let mut missing_streak = 0u32;
         loop {
             if stop.load(Ordering::Acquire) {
                 return;
             }
+            // A fresh session's JSONL lags the session id (first write lands
+            // with the first reply) — keep waiting; the registry's stop flag
+            // bounds this thread's lifetime.
             if !cfg.path.exists() {
-                missing_streak += 1;
-                if missing_streak > 10 {
-                    log::info!("[pane_chat.raw] giving up on {:?}", cfg.path);
-                    return;
-                }
                 thread::sleep(cfg.poll_interval);
                 continue;
             }
-            missing_streak = 0;
             let from = off.load(Ordering::Acquire);
             let bytes = match std::fs::read(&cfg.path) {
                 Ok(b) => b,
