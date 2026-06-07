@@ -383,11 +383,14 @@ export function PaneSessionChat({
 
   // Append paths to the attachment list, de-duping.
   const addAttachments = useCallback((paths: string[]) => {
-    if (paths.length === 0) return;
+    const cleanPaths = paths
+      .map((p) => p.trim())
+      .filter((p, i, all) => p.length > 0 && all.indexOf(p) === i);
+    if (cleanPaths.length === 0) return;
     setAttachments((prev) => {
       const seen = new Set(prev);
       const next = [...prev];
-      for (const p of paths) {
+      for (const p of cleanPaths) {
         if (!seen.has(p)) {
           seen.add(p);
           next.push(p);
@@ -614,8 +617,11 @@ export function PaneSessionChat({
 
   async function send(extraAttachments: string[] = []) {
     const text = input.trim();
+    const cleanExtraAttachments = extraAttachments
+      .map((p) => p.trim())
+      .filter((p, i, all) => p.length > 0 && all.indexOf(p) === i);
     const allAttachments = [...attachments];
-    for (const p of extraAttachments) {
+    for (const p of cleanExtraAttachments) {
       if (!allAttachments.includes(p)) allAttachments.push(p);
     }
     if ((!text && allAttachments.length === 0) || sending || sendInFlightRef.current) return;
@@ -836,7 +842,7 @@ export function PaneSessionChat({
           <div
             aria-hidden="true"
             className="shrink-0"
-            style={{ height: "calc(1.25rem + env(safe-area-inset-top, 0px))" }}
+            style={{ height: "calc(1.25rem + var(--ct-safe-top, 0px))" }}
           />
         )}
         {(hiddenMessageCount > 0 || earliestOffset > 0) && (
@@ -894,7 +900,7 @@ export function PaneSessionChat({
           // Keyboard open (touch + focused): it covers the home indicator, so the safe-area bottom pad would render as a dead stripe under the input.
           paddingBottom: touchMode && composerFocused
             ? "0.5rem"
-            : "var(--ct-composer-bottom-padding, calc(0.5rem + env(safe-area-inset-bottom, 0px)))",
+            : "var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)))",
         }}
       >
         {modelPickerOpen && (

@@ -112,6 +112,19 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       );
       return false;
     }
+
+    if ("permissions" in navigator && typeof navigator.permissions?.query === "function") {
+      try {
+        const permission = await navigator.permissions.query({ name: "microphone" as PermissionName });
+        if (permission.state === "denied") {
+          onError("Microphone permission is blocked for CodeTerm.");
+          return false;
+        }
+      } catch {
+        // Permission probing can fail in older/sandboxed environments. Fall back to getUserMedia.
+      }
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mime = pickAudioMime();
@@ -139,7 +152,13 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
           return;
         }
         void storeBlob(blob, `voice-note-${Date.now()}.${audioExt(type)}`)
-          .then((path) => stopResolveRef.current?.([path]))
+          .then((path) => {
+            if (path.trim()) {
+              stopResolveRef.current?.([path]);
+            } else {
+              stopResolveRef.current?.([]);
+            }
+          })
           .catch((e) => {
             onError(e instanceof Error ? e.message : String(e));
             stopResolveRef.current?.([]);
@@ -153,6 +172,8 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       setRecording(true);
       return true;
     } catch (e) {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
       onError(microphoneErrorMessage(e));
       return false;
     }
@@ -162,6 +183,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     const rec = recRef.current;
     if (!rec || rec.state === "inactive") {
       setRecording(false);
+      discardRef.current = false;
       return Promise.resolve([]);
     }
     return new Promise((resolve) => {
@@ -184,7 +206,10 @@ export async function storeBrowserFiles(
   const paths: string[] = [];
   for (const f of files) {
     try {
-      paths.push(await storeBlob(f, f.name || "file.bin"));
+      const path = await storeBlob(f, f.name || "file.bin");
+      if (path.trim()) {
+        paths.push(path);
+      }
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     }

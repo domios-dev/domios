@@ -516,7 +516,7 @@ function AppInner() {
         height: keyboardInset ? `calc(100% - ${keyboardInset}px)` : "100%",
         "--ct-composer-bottom-padding": keyboardInset
           ? "0.5rem"
-          : "calc(0.5rem + env(safe-area-inset-bottom, 0px))",
+          : "calc(0.5rem + var(--ct-safe-bottom, 0px))",
       } as React.CSSProperties}
     >
       {/* Web mirror strips the chrome: no titlebar row — the sidebar is
@@ -536,7 +536,7 @@ function AppInner() {
           data-testid="web-sidebar-open"
           onClick={() => setSidebarOpen(true)}
           className="fixed left-2 z-50 flex items-center justify-center w-11 h-11 rounded-md bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)]"
-          style={{ top: "calc(0.5rem + env(safe-area-inset-top, 0px))" }}
+          style={{ top: "calc(0.5rem + var(--ct-safe-top, 0px))" }}
           title="Open sidebar"
         >
           ☰
@@ -552,7 +552,8 @@ function AppInner() {
               className="sm:hidden fixed inset-0 z-30 bg-black/40"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl flex min-h-0">
+            {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
+            <div className="max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0">
               <Sidebar
                 onOpenSettings={() => setSettingsOpen(true)}
                 onOpenMemory={() => setMemoryOpen(true)}

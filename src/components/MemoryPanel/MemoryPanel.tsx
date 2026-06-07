@@ -8,6 +8,7 @@ import { MemorySettingsTab } from "./MemorySettingsTab";
 import { useGraphData } from "./useGraphData";
 import { useActivityPulses } from "./useActivityPulses";
 import { fetchStats, isTauriEnv, type MemStats } from "./memoryApi";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 
 export type MemoryTab = "dreams" | "inspect" | "activity" | "settings";
@@ -25,10 +26,13 @@ export interface MemoryInitialState {
   activeTab?: MemoryTab;
 }
 
-const TAB_BASE =
-  "px-3 py-2 text-xs border-b-2 bg-transparent cursor-pointer capitalize";
-const TAB_ACTIVE = `${TAB_BASE} border-[var(--ct-accent)] text-[var(--ct-fg)]`;
-const TAB_INACTIVE = `${TAB_BASE} border-transparent text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]`;
+const TAB_BASE = "shrink-0 border-b-2 bg-transparent cursor-pointer capitalize";
+const tabClass = (active: boolean, touch: boolean) =>
+  `${TAB_BASE} ${touch ? "px-4 py-3 text-sm" : "px-3 py-2 text-xs"} ${
+    active
+      ? "border-[var(--ct-accent)] text-[var(--ct-fg)]"
+      : "border-transparent text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+  }`;
 
 const TABS: MemoryTab[] = ["dreams", "inspect", "activity", "settings"];
 
@@ -42,6 +46,7 @@ interface Props {
 }
 
 export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate }: Props) {
+  const touchUi = useTouchOptimizedUi();
   const [activeTab, setActiveTab] = useState<MemoryTab>(normalizeTab(initialState?.activeTab));
   const [inspectView, setInspectView] = useState<"graph" | "list">("graph");
   const {
@@ -129,10 +134,10 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)]">
       {/* Header with tabs */}
-      <div className="flex items-center gap-0 px-4 py-0 text-[13px] bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)]">
-        <div className="flex items-center gap-3 mr-4">
+      <div className="flex items-center gap-0 px-4 py-0 text-[13px] bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] ct-hscroll whitespace-nowrap">
+        <div className="flex items-center gap-3 mr-4 shrink-0">
           <strong>Memory</strong>
-          <span className="text-[11px] opacity-70">
+          <span className="text-[11px] opacity-70 max-sm:hidden">
             {stats.node_count} nodes &middot; {stats.edge_count} edges
           </span>
           {memStats && memStats.total_vectors < memStats.total_items && (
@@ -142,7 +147,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
             </span>
           )}
           {memStats && memStats.total_vectors >= memStats.total_items && memStats.total_vectors > 0 && (
-            <span className="text-[11px] text-[var(--ct-green)] opacity-60">
+            <span className="text-[11px] text-[var(--ct-green)] opacity-60 max-sm:hidden">
               {memStats.total_vectors} vectors
             </span>
           )}
@@ -153,7 +158,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={activeTab === tab ? TAB_ACTIVE : TAB_INACTIVE}
+              className={tabClass(activeTab === tab, touchUi)}
             >
               {tab}
             </button>
