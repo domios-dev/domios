@@ -303,6 +303,56 @@ test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", asyn
   await page.context().close();
 });
 
+// ── close-sync: actions propagate between web and desktop UIs ────────
+
+test("@golden close sync: web close updates the desktop window, desktop close updates web", async () => {
+  test.setTimeout(180_000);
+  const { connectUi } = await import("../../helpers/dev-console");
+
+  const a = (await api.createPane({ title: "pw-close-from-web" })) as {
+    id: string;
+    tab_id: string;
+  };
+  const b = (await api.createPane({ title: "pw-close-from-desktop" })) as {
+    id: string;
+    tab_id: string;
+  };
+  const ui = await connectUi();
+  const page = await newWebPage();
+  try {
+    await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
+
+    const webTab = (id: string) => page.locator(`[data-testid="tab-item"][data-tab-id="${id}"]`);
+    const deskTab = (id: string) => ui.page.locator(`[data-testid="tab-item"][data-tab-id="${id}"]`);
+    for (const id of [a.tab_id, b.tab_id]) {
+      await expect(webTab(id)).toBeVisible({ timeout: 20_000 });
+      await expect(deskTab(id)).toBeVisible({ timeout: 20_000 });
+    }
+
+    // 1) Close A through the WEB sidebar UI (⋮ → Close Tab).
+    await webTab(a.tab_id).hover();
+    await webTab(a.tab_id).locator('[title="Tab actions"]').click({ force: true });
+    await page.getByText(/^Close (Tab|Session)$/).first().click();
+    await expect(webTab(a.tab_id)).toHaveCount(0, { timeout: 15_000 });
+    // …and the DESKTOP window follows via mux-state-changed.
+    await expect(deskTab(a.tab_id)).toHaveCount(0, { timeout: 15_000 });
+
+    // 2) Close B through the DESKTOP sidebar UI.
+    await deskTab(b.tab_id).hover();
+    await deskTab(b.tab_id).locator('[title="Tab actions"]').click({ force: true });
+    await ui.page.getByText(/^Close (Tab|Session)$/).first().click();
+    await expect(deskTab(b.tab_id)).toHaveCount(0, { timeout: 15_000 });
+    // …and the WEB mirror follows via SSE.
+    await expect(webTab(b.tab_id)).toHaveCount(0, { timeout: 15_000 });
+  } finally {
+    await api.closePane(a.id).catch(() => {});
+    await api.closePane(b.id).catch(() => {});
+    await ui.browser.close().catch(() => {});
+    await page.context().close();
+  }
+});
+
 // ── chat view in the browser — the mirror's core demo path ──────────
 
 test("@golden web chat: a live assistant reply streams in AND history survives a reload", async () => {

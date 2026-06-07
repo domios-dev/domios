@@ -135,6 +135,8 @@ export function TabItem({
   return (
     <div
       ref={tabRef}
+      data-testid="tab-item"
+      data-tab-id={tab.id}
       onClick={onClick}
       draggable={!touchMode}
       onDragStart={(e) => {
