@@ -12,9 +12,8 @@ pub fn handle_web(json_mode: bool, action: WebAction) {
 
 fn link(json_mode: bool, host_flag: Option<String>, port_flag: Option<u16>, query: bool) {
     let (base, _auth) = crate::read_api_config();
-    // The link must embed the STABLE api.token from config.toml — never
-    // the signed mesh token read_api_config prefers (those expire in ~60s
-    // and are nonce-protected against replay, i.e. dead on first reuse).
+    // The link must embed the STABLE api.token from config.toml — never the signed mesh token read_api_config prefers (those expire in ~60s and
+    // are nonce-protected against replay, i.e. dead on first reuse).
     let Some(token) = config_api_token().filter(|t| !t.is_empty()) else {
         eprintln!("Error: no api.token in config — web access needs one (Settings → Network).");
         std::process::exit(1);
@@ -27,8 +26,7 @@ fn link(json_mode: bool, host_flag: Option<String>, port_flag: Option<u16>, quer
             .unwrap_or(7685)
     });
 
-    // Host priority: explicit flag > Tailscale (stable across networks) >
-    // LAN > loopback. Mesh status is best-effort — loopback still works.
+    // Host priority: explicit flag > Tailscale (stable across networks) > LAN > loopback. Mesh status is best-effort — loopback still works.
     let host = host_flag.unwrap_or_else(|| {
         let http = crate::build_http(&Some(token.clone())).ok();
         let status = http.and_then(|h| {
@@ -50,9 +48,8 @@ fn link(json_mode: bool, host_flag: Option<String>, port_flag: Option<u16>, quer
             .unwrap_or_else(|| "127.0.0.1".to_string())
     });
 
-    // Fragment is the secure default: it never leaves the browser, so the
-    // token can't land in the daemon access log, proxies, or Referer
-    // headers. --query opts into the more typeable (but loggable) form.
+    // Fragment is the secure default: it never leaves the browser, so the token can't land in the daemon access log, proxies, or Referer headers.
+    // --query opts into the more typeable (but loggable) form.
     let url = if query {
         format!("http://{}:{}/web/?token={}", host, port, token)
     } else {

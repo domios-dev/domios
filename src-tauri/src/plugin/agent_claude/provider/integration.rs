@@ -11,9 +11,8 @@
 use crate::prompts::CODETERM_RULE;
 use serde_json::Value as Json;
 
-// v2 = hooks carry `Authorization: Bearer $CODETERM_API_TOKEN` and rely on
-// auth_middleware instead of the old loopback-exemption path. Any older
-// marker is treated as upgradable so we overwrite the pre-v2 curl commands.
+// v2 hook marker: use `Authorization: Bearer $CODETERM_API_TOKEN` + auth_middleware.
+// Older markers are replaced during install/upgrade.
 const CODETERM_HOOK_MARKER: &str = "codeterm-hook-v2";
 
 fn claude_settings_path() -> Result<std::path::PathBuf, String> {
@@ -362,9 +361,7 @@ mod tests {
 
     #[test]
     fn check_integration_without_file_reports_missing() {
-        // We can't write to ~/.claude in tests, just check the shape when
-        // home doesn't exist or settings file is absent. The function
-        // gracefully falls back, returning settings_exists:false.
+        // We can't write to ~/.claude in tests, just check the shape when home doesn't exist or settings file is absent. The function gracefully falls back, returning settings_exists:false.
         let result = check_integration();
         assert!(result.get("settings_exists").is_some());
         assert!(result.get("hooks_installed").is_some());

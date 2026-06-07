@@ -170,11 +170,8 @@ mod tests {
 
     #[test]
     fn explicit_set_can_spawn_after_role_does_not_clobber_role() {
-        // Pre-fix #42: callers chained set_pane_role + set_can_spawn(false)
-        // and accidentally reset Orchestrator's can_spawn to false on every
-        // spawn that didn't pass --can-spawn. The fix moves to Option<bool>
-        // so callers can skip the override; the mux primitive itself stays
-        // permissive — only the role/can_spawn fields are touched.
+        // Pre-fix #42: callers chained set_pane_role + set_can_spawn(false) and accidentally reset Orchestrator's can_spawn to false on every spawn
+        // Preserve old permissive role behavior: only override fields explicitly provided via --can-spawn.
         let (mut mux, _root) = MultiplexerState::new();
         let pane = mux.create_pane();
         mux.set_pane_role(&pane, AgentRole::Orchestrator, None)

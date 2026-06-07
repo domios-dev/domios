@@ -9,9 +9,7 @@ pub struct ShellSyntax;
 impl ShellSyntax {
     pub const IS_WINDOWS: bool = cfg!(target_os = "windows");
 
-    // Windows: unset CLAUDECODE, force UTF-8, pin Standard argv-passing
-    // (default on pwsh 7.3+; explicit so older pwsh / 5.1 also pass a
-    // `"$(…)"` result as a single argv element).
+    // Windows: unset CLAUDECODE, force UTF-8, pin Standard argv-passing (default on pwsh 7.3+; explicit so older pwsh / 5.1 also pass a `"$(…)"` result as a single argv element).
     pub const UNSET_CLAUDECODE: &str = if Self::IS_WINDOWS {
         "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';"
     } else {
@@ -119,9 +117,8 @@ mod tests {
         if !ShellSyntax::IS_WINDOWS {
             return;
         }
-        // Defense-in-depth: explicit `Standard` argv-passing means a `-f`/
-        // `--flag` token inside the task body never re-parses as a claude
-        // CLI option, even on older pwsh versions whose default is Legacy.
+        // Defense-in-depth: explicit `Standard` argv-passing means a `-f`/ `--flag` token inside the task body never re-parses as a claude CLI option,
+        // even on older pwsh versions whose default is Legacy.
         assert!(
             ShellSyntax::UNSET_CLAUDECODE.contains("$PSNativeCommandArgumentPassing = 'Standard'"),
             "preamble must pin Standard argv passing: {}",
@@ -131,9 +128,7 @@ mod tests {
 
     #[test]
     fn task_file_persists_problematic_body_unchanged() {
-        // Body containing patterns that historically broke argv passing or
-        // got re-interpolated by the launching shell: `-f` flag, $vars,
-        // backticks, embedded quotes, multiline, unicode.
+        // Body containing patterns that historically broke argv passing or got re-interpolated by the launching shell: `-f` flag, $vars, backticks, embedded quotes, multiline, unicode.
         let body = "step --foo bar\n`whoami`\n$HOME contains 'quotes' and \"more\"\nemoji 🦀 ok";
         let (prefix, path) = ShellSyntax::task_file_stdin_pipe(body);
         assert!(prefix.ends_with('|'));

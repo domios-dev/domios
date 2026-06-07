@@ -101,8 +101,8 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
         return false;
     }
 
-    // Check proximity: options must be close to each other AND to footer/selector.
-    // Find the contiguous cluster of options near the anchor (footer or selector).
+    // Check proximity: options must be close to each other AND to footer/selector. Find the contiguous cluster of options near the anchor (footer
+    // or selector).
     let anchor = footer_idx.or(selector_idx);
 
     if let Some(anchor_idx) = anchor {
@@ -152,8 +152,7 @@ pub fn parse_interactive_picker(text: &str) -> Option<InteractivePicker> {
         return None;
     }
 
-    // Scan from end for numbered options — take only the LAST cluster
-    // (closest to the end of text, which is where the active prompt is)
+    // Scan from end for numbered options — take only the LAST cluster (closest to the end of text, which is where the active prompt is)
     let scan_start = lines.len().saturating_sub(20);
     let mut all_opts: Vec<(String, String, usize)> = Vec::new();
 
@@ -172,8 +171,7 @@ pub fn parse_interactive_picker(text: &str) -> Option<InteractivePicker> {
         return None;
     }
 
-    // Extract last cluster: walk backwards from the last option,
-    // include options that are within 3 lines of each other
+    // Extract last cluster: walk backwards from the last option, include options that are within 3 lines of each other
     let mut options: Vec<(String, String, usize)> = Vec::new();
     let mut prev_idx = all_opts.last()?.2;
     for opt in all_opts.iter().rev() {
@@ -192,8 +190,7 @@ pub fn parse_interactive_picker(text: &str) -> Option<InteractivePicker> {
     let first_opt = options.first()?.2;
     let last_opt = options.last()?.2;
 
-    // Must have interactive markers nearby: ❯/> selector OR keyboard footer
-    // Without these, it's just a regular numbered list
+    // Must have interactive markers nearby: ❯/> selector OR keyboard footer Without these, it's just a regular numbered list
     let has_selector = options
         .iter()
         .any(|(_, _, idx)| has_selector_prefix(lines[*idx].trim()));

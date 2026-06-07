@@ -26,8 +26,7 @@ import { matchesBinding, isMac } from "./lib/keybindings";
 import { blendColor, deriveColor } from "./lib/colors";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { pasteToPane } from "./lib/panePasteRegistry";
-// TODO: Agent Swarm Visualization — future feature
-// import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
+// TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
 /**
  * Derive CSS custom properties from a ThemeConfig so the entire UI
@@ -68,8 +67,7 @@ function themeToCSS(theme: ThemeConfig): Record<string, string> {
 
 function AppInner() {
   useAgentProviders();
-  // Phones start with the sidebar collapsed; the hamburger opens it as an
-  // overlay (see the wrapper at the render site).
+  // Phones start with the sidebar collapsed; the hamburger opens it as an overlay (see the wrapper at the render site).
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 640,
   );
@@ -111,10 +109,8 @@ function AppInner() {
   // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
   const { config, updateConfig, theme } = useConfig();
 
-  // Resolve usage-tracking toggle once per config change so every pane's
-  // UsageBubble can read it via prop instead of subscribing to config
-  // events on its own (the per-bubble `useConfig` was multiplying invokes
-  // by pane count and made the webview unresponsive after many resumes).
+  // Resolve usage-tracking toggle once per config change so every pane's UsageBubble can read it via prop instead of subscribing to config
+  // events on its own (the per-bubble `useConfig` was multiplying invokes by pane count and made the webview unresponsive after many resumes).
   const usageEnabledByProvider = useMemo(() => {
     const out: Record<string, boolean> = {};
     for (const [pid, pc] of Object.entries(config.agents ?? {})) {
@@ -308,16 +304,8 @@ function AppInner() {
         if (sel) navigator.clipboard.writeText(sel).catch(() => {});
         return;
       }
-      // App-wide paste: works when the CodeTerm window is focused regardless
-      // of where the inner focus is (titlebar, sidebar, document body, an
-      // unfocused pane). Matches plain Cmd+V / Ctrl+V AND the configured
-      // kb.paste (default Ctrl+Shift+V).
-      //
-      // Skips when an actual editable element owns focus — xterm helper
-      // textarea has its own attachCustomKeyEventHandler that calls
-      // routeClipboardToTerm directly, and real <input>/<textarea>/
-      // contenteditable elements should keep native browser paste. Both
-      // cases would otherwise double-paste against this fallback.
+      // App-wide paste works across titlebar/sidebar/chat as long as the main window is focused.
+      // Target the active terminal tab pane and skip native editable controls to avoid double-paste.
       const plainPaste = e.code === "KeyV" && !e.shiftKey && !e.altKey
         && (isMac ? e.metaKey : e.ctrlKey);
       if (plainPaste || matchesBinding(e, kb.paste)) {
@@ -330,11 +318,8 @@ function AppInner() {
         );
         if (isXtermFocused || isInputFocused) return;
 
-        // Target the ACTIVE TAB'S pane, not the global focused_pane_id.
-        // focused_pane_id can stay set on a pane from a previous tab even
-        // after the user switched tabs — pasting there means the text
-        // lands in an invisible terminal. The active tab's pane is what
-        // the user perceives as "the selected one" they're looking at.
+        // Target the ACTIVE TAB'S pane, not the global focused_pane_id. focused_pane_id can stay set on a pane from a previous tab even after the user
+        // switched tabs — pasting there means the text lands in an invisible terminal. The active tab's pane is what the user perceives as "the selected one" they're looking at.
         const st = stateRef.current;
         const ws = st.workspaces.find((w) => w.id === st.active_workspace_id);
         const tab = ws?.tabs.find((t) => t.id === ws.active_tab_id);
@@ -383,12 +368,7 @@ function AppInner() {
         return;
       }
 
-      // TODO: Swarm overlay — future feature
-      // if (matchesBinding(e, "Mod+Shift+G")) {
-      //   e.preventDefault();
-      //   setSwarmVisible((v) => !v);
-      //   return;
-      // }
+      // TODO: Swarm overlay — future feature if (matchesBinding(e, "Mod+Shift+G")) { e.preventDefault(); setSwarmVisible((v) => !v); return; }
 
       // Pane focus navigation (uses config bindings)
       if (matchesBinding(e, kb.focus_pane_left) || matchesBinding(e, kb.focus_pane_right) ||
@@ -511,8 +491,7 @@ function AppInner() {
   const themeStyles = useMemo(() => themeToCSS(theme), [theme]);
   const isCRT = theme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
 
-  // Set color-scheme + theme vars on documentElement so portals (modals,
-  // popups rendered into document.body via createPortal) inherit them.
+  // Set color-scheme + theme vars on documentElement so portals (modals, popups rendered into document.body via createPortal) inherit them.
   useEffect(() => {
     const hex = theme.background.replace("#", "");
     const r = parseInt(hex.substring(0, 2), 16);
@@ -532,10 +511,8 @@ function AppInner() {
         ...themeStyles,
         backgroundColor: theme.background,
         color: theme.foreground,
-        // dvh tracks the REAL visible viewport on mobile (shrinks when
-        // browser chrome / keyboard appear); vh does not. Desktop equal.
-        // keyboardInset covers iOS Safari, where the keyboard shrinks only
-        // the VISUAL viewport and dvh stays put (see useKeyboardInset).
+        // dvh tracks the REAL visible viewport on mobile (shrinks when browser chrome / keyboard appear); vh does not. Desktop equal. keyboardInset
+        // covers iOS Safari, where the keyboard shrinks only the VISUAL viewport and dvh stays put (see useKeyboardInset).
         height: keyboardInset ? `calc(100dvh - ${keyboardInset}px)` : "100dvh",
         "--ct-composer-bottom-padding": keyboardInset
           ? "0.5rem"

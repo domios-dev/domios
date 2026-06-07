@@ -27,6 +27,11 @@ type Args = Record<string, unknown>;
 type Mapper = (args: Args) => Promise<unknown>;
 const webPtyOffsets = new Map<string, number>();
 
+/** Drop the tail cursor so the next read_pty replays retained history from 0. */
+export function resetWebPtyTail(ptyId: string): void {
+  webPtyOffsets.delete(ptyId);
+}
+
 const enc = encodeURIComponent;
 const s = (args: Args, key: string): string => String(args[key] ?? "");
 
@@ -93,13 +98,23 @@ const HTTP_MAP: Record<string, Mapper> = {
     return { ok: true };
   },
 
-  // ── panes (read + input) ──
-  get_pane_text: (a) =>
-    webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/text?formatted=${a.formatted ? "true" : "false"}`),
-  get_pane_output: (a) => webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/output`),
+  // ── panes (read + input) ── REST returns JSON envelopes; Tauri commands return bare strings — unwrap.
+  get_pane_text: async (a) => {
+    const resp = await webJson<{ text?: string }>(
+      "GET",
+      `/api/panes/${enc(s(a, "paneId"))}/text?formatted=${a.formatted ? "true" : "false"}`,
+    );
+    return resp.text ?? "";
+  },
+  get_pane_output: async (a) => {
+    const resp = await webJson<{ output?: string }>(
+      "GET",
+      `/api/panes/${enc(s(a, "paneId"))}/output`,
+    );
+    return resp.output ?? "";
+  },
 
-  // ── chat (raw-JSONL window + tailer — matches the Tauri command shapes,
-  //     NOT the parsed-snapshot /chat/* routes other consumers use) ──
+  // ── chat (raw-JSONL window + tailer — matches the Tauri command shapes, NOT the parsed-snapshot /chat/* routes other consumers use) ──
   chat_start: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/start`),
   chat_stop: (a) =>
@@ -154,11 +169,11 @@ const HTTP_MAP: Record<string, Mapper> = {
   // ── PTY (browser terminal I/O loop) ──
   read_pty: async (a) => {
     const ptyId = s(a, "ptyId");
-    const offset = webPtyOffsets.get(ptyId);
-    const suffix = offset == null ? "" : `?offset=${offset}`;
+    // First attach tails from 0 — the initial read doubles as history replay.
+    const offset = webPtyOffsets.get(ptyId) ?? 0;
     const resp = await webJson<{ data: number[]; offset: number }>(
       "GET",
-      `/api/pty/${enc(ptyId)}/read${suffix}`,
+      `/api/pty/${enc(ptyId)}/read?offset=${offset}`,
     );
     webPtyOffsets.set(ptyId, resp.offset);
     return resp.data;
@@ -215,8 +230,7 @@ const CANNED: Record<string, unknown> = {
   mux_update_pane_cwd: null,
   usage_refresh: null,
   open_folder: null,
-  // Closing a browser tab / unmounting a web terminal must never kill the
-  // shared server-side PTY other clients may be attached to.
+  // Closing a browser tab / unmounting a web terminal must never kill the shared server-side PTY other clients may be attached to.
   kill_pty: null,
 };
 

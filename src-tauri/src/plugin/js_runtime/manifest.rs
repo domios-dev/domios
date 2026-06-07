@@ -55,8 +55,7 @@ pub struct PluginManifest {
     #[serde(default)]
     pub usage: Option<UsageConfig>,
 
-    // Models — plugin.json uses camelCase, ModelInfo (wire format) is
-    // snake_case, so we deserialize through a local wrapper.
+    // Models — plugin.json uses camelCase, ModelInfo (wire format) is snake_case, so we deserialize through a local wrapper.
     #[serde(default)]
     pub models: Vec<SerdeModelInfo>,
     #[serde(default)]
@@ -70,8 +69,7 @@ pub struct PluginManifest {
     #[serde(default)]
     pub commands: CommandsConfig,
 
-    // Plugin capabilities (mostly informational; transport layer enforces
-    // permissions where it matters)
+    // Plugin capabilities (mostly informational; transport layer enforces permissions where it matters)
     #[serde(default)]
     pub permissions: PermissionsConfig,
 

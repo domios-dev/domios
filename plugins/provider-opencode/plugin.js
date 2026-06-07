@@ -1,12 +1,7 @@
-// OpenCode (sst/opencode) provider plugin. Detection + slash commands +
-// schema + sqlite-backed session detection via host.fs.sqliteQuery
-// against `<XDG_DATA_HOME|~/.local/share>/opencode/opencode.db`.
+// OpenCode (sst/opencode) provider: detect, slash commands, schema.
 
 var TITLE_RE = /opencode/i;
-// Two-part fingerprint: must mention opencode AND show a TUI / prompt
-// signal. Single mention isn't enough (a shell command typing
-// "opencode" would otherwise misfire); single signal isn't enough
-// (claude has "Permission required" too).
+// Two-part fingerprint: opencode mention + TUI/prompt signal to avoid false positives.
 var OUTPUT_MARKERS = ["opencode", "OpenCode", "OpenCode Zen"];
 var OUTPUT_SIGNALS = [
   "Permission required",
@@ -79,9 +74,7 @@ module.exports.default = {
   },
 
   buildLaunchCommand: function (params) {
-    // `--dangerously-skip-permissions` is `run`-only — opencode TUI
-    // rejects unknown args and exits to help. Drop it silently for
-    // interactive launches; honour caller intent in headless+task.
+  // `--dangerously-skip-permissions` is run-only; include only for headless tasks.
     var p = params || {};
     var parts = ["opencode"];
     if (p.headless && p.task) {
@@ -98,21 +91,13 @@ module.exports.default = {
   },
 
   buildResumeCommand: function (sessionId, skipPermissions) {
-    // OpenCode resume goes through the TUI — --dangerously-skip-permissions
-    // not supported on resume. Per-session permission rules live on the
-    // session JSON. Honour intent by silently dropping the flag.
+  // Resume uses the normal TUI path; permission rules come from saved session config.
     var _ = skipPermissions;
     var parts = ["opencode", "--session", host.shell.quote(sessionId)];
     return parts.join(" ");
   },
 
-  // ── Sqlite-backed session detection (opencode.db) ───────────────────
-  //
-  // Modern opencode keeps sessions in `<XDG_DATA_HOME|~/.local/share>/
-  // opencode/opencode.db`. Each session row has `directory` (cwd it
-  // started in, normalised to native path separators), `time_created`
-  // ms epoch, and `time_archived` (NULL when live). We surface only
-  // live sessions for the requested cwd, newest-first.
+  // Opencode session detection uses sqlite (`opencode.db`) by cwd, newest-live rows first.
 
   detectSessionId: function (cwd, exclude, maxAgeMs) {
     var db = opencodeDbPath();
@@ -164,9 +149,7 @@ module.exports.default = {
   detectSessionModel: function (cwd, sessionId) {
     var db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return null;
-    // Prefer the most recent assistant model for the explicit session;
-    // fall back to the latest assistant model in the cwd when the
-    // session hasn't produced an assistant turn yet (post-/model swap).
+  // Prefer explicit session model; fall back to latest model in cwd.
     if (sessionId) {
       var model = scanMessagesForModel(db,
         "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",

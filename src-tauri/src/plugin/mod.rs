@@ -346,8 +346,7 @@ impl PluginManager {
                     }
                 }
             } else {
-                // Process / WASM plugins: activation is a no-op at this level
-                // until the respective hosts are implemented.
+                // Process / WASM plugins: activation is a no-op at this level until the respective hosts are implemented.
                 entry.state = PluginState::Active;
                 Ok(())
             }

@@ -1,8 +1,5 @@
-//! Translate any local CLI command to the (method, path, body) tuple needed
-//! to forward it through /api/mesh/relay to a paired peer's API.
-//!
-//! One large match — the dispatch table for every CLI subcommand. Adding a
-//! new subcommand to `super::Commands` requires adding an arm here.
+//! Map local CLI commands to relay `(method, path, body)` calls for peer dispatch.
+//! Update this match when new `super::Commands` variants are added.
 
 use crate::{Commands, ServiceAction, UpdateAction};
 
@@ -20,8 +17,7 @@ pub const UNSUPPORTED_OVER_MESH: &str = "UNSUPPORTED";
 /// Map a CLI command to its corresponding API call.
 pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
     match cmd {
-        // `web link` embeds the LOCAL machine's token — relaying it to a
-        // peer would emit a link with the wrong credentials. Local-only.
+        // `web link` is local-only: token must be generated on the same machine.
         Commands::Web { .. } => (
             UNSUPPORTED_OVER_MESH.into(),
             "web link is local-only — each peer's link needs that peer's own token; run it there"
@@ -108,9 +104,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("GET".into(), format!("/api/panes/{}/status", p), None)
             }
             crate::PaneAction::Search { .. } => {
-                // pane search runs entirely on the CLI side off `/api/panes`;
-                // mesh just relays the list. The fuzzy ranking happens
-                // locally so the response shape stays the same as `pane list`.
+                // pane search runs local CLI-side; peer only supplies raw list.
+                // Local ranking keeps `pane list` output stable.
                 ("GET".into(), "/api/panes".into(), None)
             }
             crate::PaneAction::Stop { pane } => {
@@ -129,11 +124,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     }
                     buf
                 } else if let Some(path) = from_file.as_ref() {
-                    // Surface the read error explicitly — the local path
-                    // exits 1 on failure (cmd/paste.rs), the mesh path used
-                    // to silently fall back to `body` (typically empty) and
-                    // then trip the empty-body guard below with a misleading
-                    // message. Same UX both paths.
+                // Surface paste read errors explicitly.
+                // Local path exits on failure; /stats fallback used to hide real errors.
                     match std::fs::read_to_string(path) {
                         Ok(s) => s,
                         Err(e) => {
@@ -287,8 +279,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 };
                 ("POST".into(), path, None)
             }
-            // peer set-addr is local-only — relay path is meaningless. Map
-            // to the local endpoint so it errors clearly if relayed.
+            // `peer set-addr` is local-only; map to local endpoint for clear errors.
             MeshAction::Peer { action } => match action {
                 MeshPeerAction::SetAddr { peer, addr } => {
                     let (ip, port) = parse_ip_port(addr);
@@ -367,9 +358,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             _ => ("GET".into(), "/api/keepawake".into(), None),
         },
-        // `system` writes platform-specific files (schtasks/launchd/systemd)
-        // and only makes sense on the local host. Mesh relay falls through
-        // to /identify so callers always get a valid JSON response.
+        // `system` is local-only platform config (schtasks/launchd/systemd).
+        // Mesh relay falls through to /identify for a valid response shape.
         Commands::System { .. } => ("GET".into(), "/api/identify".into(), None),
         // `docs` reads embedded markdown — local-only by definition.
         Commands::Docs { .. } => ("GET".into(), "/api/identify".into(), None),
@@ -559,9 +549,7 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                     format!("/api/mem/dream?phase={}", enc(phase)),
                     None,
                 ),
-                // `apply` and `diary` open the DB directly. They never round-
-                // trip via mesh — fall through to /stats so callers still get
-                // a valid JSON response.
+                // apply/diary are local-only DB paths; fallback to /stats for JSON shape.
                 MemDreamAction::Apply { .. } | MemDreamAction::Diary { .. } => {
                     ("GET".into(), "/api/mem/stats".into(), None)
                 }
@@ -670,9 +658,7 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 let payload = json!({"id": id, "force": force, "purge_history": purge_history, "actor": actor});
                 ("POST".into(), "/api/mem/graph/repair/delete-entity".into(), Some(payload.to_string()))
             }
-            // Local-only graph mutations: no mesh relay. Fall through to
-            // /stats so the call still returns valid JSON if a caller
-            // somehow routes it across the wire.
+            // Graph mutations are local-only; unknown relay use falls back to /stats.
             MemGraphAction::Route { .. }
             | MemGraphAction::PurgeInvalidated { .. }
             | MemGraphAction::ReviveBroken { .. }
@@ -684,12 +670,8 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 ("GET".into(), "/api/mem/stats".into(), None)
             }
         },
-        // Local-only subcommands: PTY scrollback / local subprocess / on-disk
-        // skill folders / env-coupled worker handles / OS keychain. None of
-        // these round-trip over the wire. Return an honest error rather than a
-        // misleading /stats fallback (which reads as success to the caller).
-        // `Secret` is also hard-rejected upstream in main.rs; kept here as
-        // defence in depth.
+        // Local-only subcommands (PTY/subprocess/folders/keychain) never relay.
+        // Return explicit errors; `Secret` is rejected upstream.
         MemAction::Flush { .. }
         | MemAction::RunWorker { .. }
         | MemAction::Skill { .. }
@@ -756,4 +738,3 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
         }
     }
 }
-

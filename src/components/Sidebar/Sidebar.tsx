@@ -76,14 +76,11 @@ export function Sidebar({
     spawnClaudeTab,
     spawnAgentTab,
   } = useMultiplexer();
-  // When mainView leaves the workspace (Memory / Settings open), suppress the
-  // "active" highlight on the current workspace + tab so the sidebar clearly
-  // shows where the user actually is in the hierarchy. Backend focus state
-  // is unchanged — returning to workspace restores the visual highlight.
+  // When mainView leaves the workspace (Memory / Settings open), suppress the "active" highlight on the current workspace + tab so the sidebar
+  // clearly shows where the user is in the hierarchy. Backend focus state is unchanged — returning to workspace restores the visual highlight.
   const isWorkspaceMode = mainView === "workspace";
 
-  // Agent spawn modal state. `workspaceId` is captured up front so the
-  // confirm step targets the workspace that opened the menu, not whatever
+  // Agent spawn modal state. `workspaceId` is captured up front so the confirm step targets the workspace that opened the menu, not whatever
   // happens to be active when the user clicks Continue.
   const [agentSpawnModal, setAgentSpawnModal] = useState<
     { folder: string; agentId: string; workspaceId: string } | null
@@ -105,8 +102,7 @@ export function Sidebar({
     workspaceId: string,
     workspaceCwd: string | null,
   ) => {
-    // Spawning from a workspace's 3-dot menu — the workspace folder is the
-    // implicit choice; no need for a folder picker. Older versions opened a
+    // Spawning from a workspace's 3-dot menu — the workspace folder is the implicit choice; no need for a folder picker. Older versions opened a
     // dialog here even though the user had already selected the workspace.
     let folder: string | null = workspaceCwd;
     if (!folder) {
@@ -285,9 +281,8 @@ export function Sidebar({
     return () => clearTimeout(timer);
   }, [appearingTabs]);
 
-  // Fire backend PTY-kill immediately so it runs in parallel with the visual
-  // exit animation; defer the local state dispatch (which removes the tab)
-  // until the 350ms animation completes so the pill doesn't disappear mid-fade.
+  // Fire backend PTY-kill immediately so it runs in parallel with the visual exit animation; defer the local state dispatch (which removes the
+  // tab) until the 350ms animation completes so the pill doesn't disappear mid-fade.
   const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
     const ws = state.workspaces.find((w) => w.id === wsId);
     const tab = ws?.tabs.find((t) => t.id === tabId);
@@ -381,11 +376,8 @@ export function Sidebar({
                           title={tab.title}
                         >
                           {(() => {
-                            // Any pane with an agent_type set (backend
-                            // already classified) — don't gate on the
-                            // FE-only `getAgentProvider` registry, or
-                            // drop-in plugins without a FE module
-                            // wouldn't surface here.
+                            // Any pane with an agent_type set (backend already classified) — don't gate on the FE-only `getAgentProvider` registry, or drop-in plugins
+                            // without a FE module wouldn't surface here.
                             const agentPid = tabPaneIds.find((pid) => !!state.panes[pid]?.agent_type);
                             const agentType = agentPid ? state.panes[agentPid]?.agent_type : undefined;
                             return agentType ? (

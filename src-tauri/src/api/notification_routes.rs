@@ -69,10 +69,8 @@ pub async fn serve_file(
 ) -> Result<axum::response::Response, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
 
-    // Path guard: only serve files inside the CodeTerm data directory.
-    // Canonicalize BOTH sides — on Windows canonicalize() yields a \\?\
-    // verbatim path, so comparing against the plain data_dir() always
-    // failed the prefix check (every request 403'd).
+    // Path guard: only serve files inside the CodeTerm data directory. Canonicalize BOTH sides — on Windows canonicalize() yields a \\?\ verbatim
+    // path, so comparing against the plain data_dir() always failed the prefix check (every request 403'd).
     let requested = std::path::Path::new(&query.path)
         .canonicalize()
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid path"))?;

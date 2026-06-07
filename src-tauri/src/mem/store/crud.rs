@@ -76,9 +76,8 @@ fn insert_with_options(
             (Some(item.body.clone()), None)
         };
 
-    // source_path stores the raw "file:..." form (it's also a tag for
-    // librarian's source-missing handling). Strip the scheme before any
-    // std::fs call — both here and in mem/file_sync.rs::sync_one.
+    // source_path stores the raw "file:..." form (it's also a tag for librarian's source-missing handling). Strip the scheme before any std::fs
+    // call — both here and in mem/file_sync.rs::sync_one.
     let (source_size, source_mtime) = item
         .source_path
         .as_ref()
@@ -256,11 +255,8 @@ pub fn get(conn: &Connection, id: &str, blobs_dir: &Path) -> Result<Option<MemIt
 
     if let Some(ref src) = source {
         if let Some(path) = src.strip_prefix("file:") {
-            // Debounce the disk-touching freshness check: only run it if we
-            // haven't read this row in the last 10 seconds. Hot search loops
-            // (mem search returning N skill rows) would otherwise stat + UPDATE
-            // every row on every call. Librarian still does the canonical
-            // hourly sweep — this in-line check is opportunistic.
+            // Debounce the disk-touching freshness check: only run it if we haven't read this row in the last 10 seconds. Hot search loops (mem search
+            // Skip redundant stat+UPDATE when row was just touched recently; opportunistic refresh only.
             let recently_accessed = accessed_at
                 .as_ref()
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
@@ -496,10 +492,8 @@ pub fn update(
     )
     .map_err(|e| format!("update fts: {}", e))?;
 
-    // Record only the fields that actually changed. If nothing changed
-    // (e.g. patch touched only tags/area/summary), still emit an update row
-    // so the caller can see the write happened — but leave old_/new_ at
-    // None for fields that were unchanged.
+    // Record only the fields that changed. If nothing changed (e.g. patch touched only tags/area/summary), still emit an update row so the caller
+    // can see the write happened — but leave old_/new_ at None for fields that were unchanged.
     let mut old = HistorySnapshot::default();
     let mut new = HistorySnapshot::default();
     let mut dirty = false;
@@ -521,8 +515,7 @@ pub fn update(
     if patch.pinned.is_some() && Some(prev_pinned) != patch.pinned {
         dirty = true;
     }
-    // Kind is not patchable via MemUpdate, but record it so downstream
-    // consumers can see which kind the item was at update time.
+    // Kind is not patchable via MemUpdate, but record it so downstream consumers can see which kind the item was at update time.
     if dirty {
         old.kind = Some(prev_kind.clone());
         new.kind = Some(prev_kind);

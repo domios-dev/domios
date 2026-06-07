@@ -90,9 +90,8 @@ pub async fn start(
     let info = pane_chat_info(&state, &pane_id)?;
     let path = resolve_jsonl_path(&state, &info)?;
 
-    // Snapshot: parse the trailing window so the UI gets recent context
-    // immediately. start_offset = file_size - SNAPSHOT_WINDOW (clamped
-    // to 0); the tailer picks up from snapshot.new_offset onwards.
+    // Snapshot: parse the trailing window so the UI gets recent context immediately. start_offset = file_size - SNAPSHOT_WINDOW (clamped to 0);
+    // the tailer picks up from snapshot.new_offset onwards.
     let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     let start_offset = file_size.saturating_sub(SNAPSHOT_WINDOW_BYTES);
     let snapshot = state
@@ -158,10 +157,8 @@ pub async fn backfill(
     let start = body.before_offset.saturating_sub(max_bytes);
     let end = body.before_offset;
 
-    // Read the bounded slice directly so we don't re-ship messages
-    // past `before_offset`. parse_session_delta(path, from) reads to
-    // EOF — that's the wrong semantics for backfill. Slice + temp
-    // file gives us a hard upper bound without changing the trait.
+    // Read the bounded slice directly so we don't re-ship messages past `before_offset`. parse_session_delta(path, from) reads to EOF — that's the
+    // wrong semantics for backfill. Slice + temp file gives us a hard upper bound without changing the trait.
     let bytes = std::fs::read(&path)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "read jsonl failed"))?;
     let total = bytes.len() as u64;
@@ -169,13 +166,11 @@ pub async fn backfill(
     let clamped_start = (start as usize).min(clamped_end);
     let window = &bytes[clamped_start..clamped_end];
 
-    // Trim to the last complete line within the window. If there's no
-    // \n the window is partial — return empty rather than guess.
+    // Trim to the last complete line within the window. If there's no \n the window is partial — return empty rather than guess.
     let last_nl = window.iter().rposition(|&b| b == b'\n');
     let messages = if let Some(idx) = last_nl {
         let complete = &window[..=idx];
-        // Write bounded content to a temp file so parse_session_delta
-        // can parse it via the plugin (trait takes a path, not bytes).
+        // Write bounded content to a temp file so parse_session_delta can parse it via the plugin (trait takes a path, not bytes).
         let tmp_path =
             std::env::temp_dir().join(format!("codeterm-backfill-{}.jsonl", uuid::Uuid::new_v4()));
         std::fs::write(&tmp_path, complete)

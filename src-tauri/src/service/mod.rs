@@ -74,11 +74,9 @@ pub struct ServiceContext {
     pub workers: Arc<crate::mem::workers::GraphWorkerRegistry>,
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
-    // Stable pane→pty map for hidden agent runs; survives close_pane so the
-    // unified AgentRun log endpoints can read closed-worker output.
+    // Stable pane→pty map for hidden agent runs; survives close_pane so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
-    // Auto-completes hidden agent runs from claude stream-json result events,
-    // idle silence, or hard timeout — replaces relying on claude calling
+    // Auto-completes hidden agent runs from claude stream-json result events, idle silence, or hard timeout — replaces relying on claude calling
     // codeterm cron complete / mem worker report itself.
     pub run_watcher: Arc<crate::agent::run_watcher::RunWatcherRegistry>,
     /// Channel for outbound Telegram messages (CLI bridge.send command).

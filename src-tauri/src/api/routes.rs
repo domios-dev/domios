@@ -232,8 +232,7 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/upload",
             post(web_routes::upload)
-                // Voice notes and attached files: axum's 2MB default is too
-                // small; cap at 200MB so a runaway client can't fill the disk.
+                // Voice notes and attached files: axum's 2MB default is too small; cap at 200MB so a runaway client can't fill the disk.
                 .layer(axum::extract::DefaultBodyLimit::max(200 * 1024 * 1024)),
         )
         .route("/api/pty/{id}/read", get(web_routes::pty_read))
@@ -552,9 +551,8 @@ pub fn create_router(state: AppState) -> Router {
             get(logs_routes::list_logs).delete(logs_routes::delete_logs),
         );
 
-    // Web mirror: serve the built React bundle at /web with an SPA
-    // fallback (deep links resolve to index.html). Public route — the
-    // auth middleware skips /web; all API calls remain token-gated.
+    // Web mirror: serve the built React bundle at /web with an SPA fallback (deep links resolve to index.html). Public route — the auth middleware
+    // skips /web; all API calls remain token-gated.
     let router = if let Some(dist) = &state.web_dist {
         let serve = tower_http::services::ServeDir::new(dist).fallback(
             tower_http::services::ServeFile::new(dist.join("index.html")),
@@ -641,6 +639,5 @@ pub(crate) fn check_auth(
     Ok(())
 }
 
-// Re-exports preserve the `crate::api::routes::*` import paths used by
-// commands.rs, update::self_update.rs, secrets/api.rs, etc.
+// Re-export route handlers so modules like commands/update/secrets keep stable imports.
 pub use super::network_routes::local_ip_address;

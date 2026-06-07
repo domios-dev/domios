@@ -169,11 +169,8 @@ export function TabItem({
       <div className={`flex items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
         {hasAgent ? (
           <AgentIcon
-            // Pass agent_type directly — AgentIcon resolves via the
-            // backend descriptor cache (icon_svg ships with every
-            // registered provider, JS-plugin or native). Going through
-            // the FE-only getAgentProvider list dropped any third-party
-            // drop-in plugin to a "claude" fallback icon.
+            // Pass agent_type directly — AgentIcon resolves via the backend descriptor cache (icon_svg ships with every registered provider, JS-plugin or
+            // native). Going through the FE-only getAgentProvider list dropped any third-party drop-in plugin to a "claude" fallback icon.
             providerId={pane?.agent_type ?? "claude"}
             working={status === "Working"}
             className={`shrink-0 leading-none ${touchMode ? "text-[15px]" : isSubPane ? "text-[10px]" : "text-[12px]"}`}

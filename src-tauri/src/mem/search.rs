@@ -289,21 +289,16 @@ impl Default for SearchConfig {
             auto_extracted_penalty: 0.5,
             recurrence_cap: 0.25,
             recurrence_step: 0.05,
-            // A/B: 0.5 gave +3.3pp Recall@1 over 0.30 after the embed format
-            // was extended to carry kind/area/tags alongside title+body.
+            // A/B: 0.5 gave +3.3pp Recall@1 over 0.30 after the embed format was extended to carry kind/area/tags alongside title+body.
             keyword_overlap_weight: 0.5,
-            // A/B proven: +10pp Recall@1 on 30-query bench (30 EN queries).
-            // RU stop words added too but not yet bench-validated on RU queries.
+            // A/B proven: +10pp Recall@1 on 30-query bench (30 EN queries). RU stop words added too but not yet bench-validated on RU queries.
             fts_drop_stopwords: true,
-            // A/B on 251-item fixture: 1.0 hits 86.7% Recall@1, 96.7% Recall@5.
-            // The formula is cliff-shaped (0.8-0.95 all ≈60%, jumps at 1.0)
-            // because (1.0 - bonus) × bm25 is non-zero until bonus=1.0.
-            // 1.0 guarantees title-matchers rank first, which is what we want.
+            // A/B on 251-item fixture: 1.0 hits 86.7% Recall@1, 96.7% Recall@5. The formula is cliff-shaped (0.8-0.95 all ≈60%, jumps at 1.0) because (1.0
+            // - bonus) × bm25 is non-zero until bonus=1.0. 1.0 guarantees title-matchers rank first, which is what we want.
             title_match_bonus: 1.0,
             graph_entity_boost: 1.0,
             graph_as_rrf_source: false,
-            // Off by default — default behaviour stays HybridRrf until benches
-            // show vector-first wins on our own corpus.
+            // Off by default — default behaviour stays HybridRrf until benches show vector-first wins on our own corpus.
             mode: SearchMode::HybridRrf,
             vector_rerank_weight: 0.30,
             vector_rerank_pool_multiplier: 5,
@@ -675,9 +670,7 @@ pub fn hybrid_rrf_with_config(
         HashSet::new()
     };
 
-    // Optional: feed graph hits as a third RRF source. This survives the
-    // title_match_bonus=1.0 score-collapse trick because RRF works on rank,
-    // not on bm25 score.
+    // Optional: feed graph hits as a third RRF source. This survives the title_match_bonus=1.0 score-collapse trick because RRF works on rank, not on bm25 score.
     if cfg.graph_as_rrf_source && !graph_boosted.is_empty() {
         let mut graph_ids: Vec<&String> = graph_boosted.iter().collect();
         graph_ids.sort();
@@ -1067,8 +1060,7 @@ mod tests {
             &blobs,
         )
         .unwrap();
-        // Insert an archived item directly — bypasses the kind enum since 'archived'
-        // is a runtime value written by the sweep, not a MemKind variant.
+        // Insert an archived item directly — bypasses the kind enum since 'archived' is a runtime value written by the sweep, not a MemKind variant.
         conn.execute(
             "INSERT INTO mem_items (id, uid, kind, scope, title, importance,
                 evidence_count, created_at, updated_at, accessed_at, tags_json,

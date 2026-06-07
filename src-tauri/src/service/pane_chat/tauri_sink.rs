@@ -34,8 +34,7 @@ impl DeltaSink for TauriDeltaSink {
             pane_id,
             messages: &messages,
         };
-        // emit_everywhere: webview + SSE bus, so the web mirror's chat
-        // streams assistant deltas too.
+        // emit_everywhere: webview + SSE bus, so the web mirror's chat streams assistant deltas too.
         crate::api::events::emit_everywhere(
             &self.app,
             &event,

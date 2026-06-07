@@ -62,13 +62,11 @@ pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Forward CLI-shaped argv to the bundled CLI before Tauri/logging init,
-    // otherwise GUI single-instance silently swallows the args (issue #51).
+    // Forward CLI-shaped argv to the bundled CLI before Tauri/logging init, otherwise GUI single-instance silently swallows the args (issue #51).
     startup::forward_to_cli_if_invoked();
 
-    // Install panic + native crash handlers BEFORE any thread spawn or logging
-    // init. Reports land in ~/.codeterm/crashes/ regardless of where the crash
-    // originates (tokio worker, Tauri main, FFI thread, signal handler).
+    // Install panic + native crash handlers BEFORE any thread spawn or logging init. Reports land in ~/.codeterm/crashes/ regardless of where the
+    // crash originates (tokio worker, Tauri main, FFI thread, signal handler).
     crash::install();
 
     startup::setup_logging();
@@ -291,9 +289,8 @@ pub fn run() {
             // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
 
-            // Resume any keep-awake session that was active when CodeTerm last
-            // shut down. Indefinite → resume; timed + remaining → resume with
-            // the remainder; timed + already expired → drop the snapshot.
+            // Resume any keep-awake session that was active when CodeTerm last shut down. Indefinite → resume; timed + remaining → resume with the
+            // remainder; timed + already expired → drop the snapshot.
             keepawake::reap_orphaned_children_on_startup();
             keepawake::resume_from_disk(&states.keepawake, &app_handle);
 
@@ -357,17 +354,8 @@ pub fn run() {
             }
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
 
-            // First-launch bootstrap: extract the embedded system-plugin
-            // bundles into ~/.codeterm/plugins/<id>/ when missing. This
-            // is the offline fallback — a fresh prod binary without
-            // network still ships working providers because the bundles
-            // are baked into the executable via include_dir!. Channel
-            // infra (Phase 2 of the channels plan) will overlay/update
-            // on top of this, but the floor stays the embedded bundle.
-            //
-            // Skipped in dev mode (CODETERM_DEV=1) so that live edits
-            // to <repo>/plugins/<id>/ aren't shadowed by a stale extract
-            // in the user dir. In dev, the workspace IS the source.
+            // Extract embedded providers on first run for offline/dev-limited setups.
+            // Skip in CODETERM_DEV=1 so workspace sources stay authoritative.
             if std::env::var("CODETERM_DEV").as_deref() != Ok("1") {
                 let user_plugins = crate::paths::data_dir().join("plugins");
                 match plugin::embedded::bootstrap_into(&user_plugins) {
@@ -394,16 +382,8 @@ pub fn run() {
                 log::info!("[plugin/bootstrap] CODETERM_DEV=1 — skipping embedded extract, workspace plugins are authoritative");
             }
 
-            // Discover and register JS-runtime plugins. Scans the bundled
-            // workspace (`<repo>/plugins/`, only present in dev/source
-            // builds) and the per-user drop-in dir (`~/.codeterm/plugins/`).
-            //
-            // Collision rule (current default): **JS plugins are
-            // authoritative** — they overwrite the native bundled provider
-            // when both define the same id. Native code stays in the
-            // binary as an emergency rollback: set
-            // `CODETERM_NATIVE_PROVIDERS=<id>[,id]|all` to pin the native
-            // impl for one or more providers.
+            // Register JS plugins from workspace and user drop-in dirs.
+            // JS provider defaults to authoritative on collision; set CODETERM_NATIVE_PROVIDERS to pin native.
             {
                 use crate::agent::provider::AgentProvider;
                 use std::collections::HashSet;
@@ -460,18 +440,13 @@ pub fn run() {
                     }
                 }
 
-                // Hot-reload watcher: polls the same roots every 2s and
-                // (a) discovers new plugin folders dropped into
-                // ~/.codeterm/plugins/, (b) reloads existing plugin VMs
-                // when their plugin.js changes, (c) unregisters plugins
-                // whose folder vanished. The initial state above is the
-                // current registry; from here on the watcher owns it.
+                // Hot-reload watcher: polls the same roots every 2s and (a) discovers new plugin folders dropped into ~/.codeterm/plugins/, (b) reloads
+                // Hot-reload keeps plugin VMs in sync: reload existing plugins and drop vanished plugin dirs.
                 let watcher = plugin::js_runtime::HotReloadRegistry::new(
                     roots.clone(),
                     agent_registry.clone(),
                 );
-                // Seed tracked-state for already-registered plugins so the
-                // first tick doesn't re-register them.
+                // Seed tracked-state for already-registered plugins so the first tick doesn't re-register them.
                 watcher.tick();
                 watcher.start();
                 log::info!(
@@ -480,9 +455,8 @@ pub fn run() {
                 );
             }
 
-            // All providers have called `model_catalog::register(...)` in their
-            // constructors by now — refresh the `<provider>.example.toml`
-            // files so users always see the current build's defaults.
+            // All providers have called `model_catalog::register(...)` in their constructors by now — refresh the `<provider>.example.toml` files so users
+            // always see the current build's defaults.
             agent::model_catalog::refresh_example_files();
 
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
@@ -502,11 +476,8 @@ pub fn run() {
             // Re-index any items missing vectors (catches failed bg indexing)
             mem.reindex_missing();
 
-            // Auto-install each provider's CodeTerm integration (hooks /
-            // callbacks). Providers without an integration no-op via the
-            // AgentProvider trait default. For Claude this installs the
-            // Notification / Stop / PreCompact / SessionStart hooks that
-            // POST events back into our HTTP API.
+            // Auto-install each provider's CodeTerm integration (hooks / callbacks). Providers without an integration no-op via the AgentProvider trait
+            // default. For Claude this installs the Notification / Stop / PreCompact / SessionStart hooks that POST events back into our HTTP API.
             commands::ensure_integrations_for_all(&agent_registry);
 
             let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
@@ -569,10 +540,8 @@ pub fn run() {
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
 
-            // Re-kick session-name + model pollers for panes restored from
-            // snapshot: set_pane_agent_type fires on transitions, but a
-            // restore brings agent_type back already-set so no transition
-            // ever happens. Walk the restored panes once at boot.
+            // Re-kick session-name + model pollers for panes restored from snapshot: set_pane_agent_type fires on transitions, but a restore brings
+            // agent_type back already-set so no transition ever happens. Walk the restored panes once at boot.
             service_state.kick_off_pollers_for_existing_agents();
 
             {
@@ -581,13 +550,9 @@ pub fn run() {
                 crate::services::health::scheduler::start(store, activity, app.handle().clone());
             }
 
-            // SecretStore::init() runs inside start_servers BEFORE the
-            // API listener binds — see start_servers below. That's the
-            // single race-free seam for "wait until secrets are ready".
+            // Secrets init happens before API listener binds to avoid auth calls hitting uninitialized state.
 
-            // Librarian: hourly file-sync + skill-folder scan, run as a
-            // subprocess via the supervisor so a panic / OOM cannot take
-            // the daemon down. First fire after a 30s warm-up.
+            // Librarian: hourly file-sync + skill-folder scan, run as a subprocess via the supervisor so a panic / OOM cannot take the daemon down. First fire after a 30s warm-up.
             {
                 let supervisor = service_state.mem_supervisor.clone();
                 tauri::async_runtime::spawn(async move {
@@ -602,8 +567,7 @@ pub fn run() {
                 });
             }
 
-            // Resume extraction for items that were saved but never finished
-            // (previous run crashed mid-extraction, LLM API errored, bulk import).
+            // Resume extraction for items that were saved but never finished (previous run crashed mid-extraction, LLM API errored, bulk import).
             // run_extract_pending returns fast after spawning its tokio task.
             {
                 let svc_for_extract = service_state.clone();
@@ -648,9 +612,8 @@ pub fn run() {
             }
             startup::build_system_tray(app)?;
 
-            // After webview is ready, check for crash reports from a previous
-            // session and emit an event the frontend can show as a toast.
-            // Delay a tick so the React side has time to attach the listener.
+            // After webview is ready, check for crash reports from a previous session and emit an event the frontend can show as a toast. Delay a tick so
+            // the React side has time to attach the listener.
             {
                 use tauri::Emitter;
                 let app_handle = app.handle().clone();
@@ -725,11 +688,8 @@ pub fn run() {
                 }
             }
 
-            // On any clean process exit (tray-Quit, Cmd+Q after window close,
-            // SIGTERM caught by Tauri), checkpoint+truncate the mem WAL so a
-            // stale ~4MB log doesn't survive into the next run. The updater's
-            // graceful_shutdown already does this on the in-place upgrade
-            // path; this catches every other shutdown route.
+            // On any clean process exit (tray-Quit, Cmd+Q after window close, SIGTERM caught by Tauri), checkpoint+truncate the mem WAL so a stale ~4MB
+            // log doesn't survive into the next run. The updater's graceful_shutdown already does this on the in-place upgrade path; this catches every other shutdown route.
             if let tauri::RunEvent::Exit = _event {
                 keepawake::cleanup_active_children_for_exit();
                 if let Some(svc) = _app.try_state::<service::ServiceState>() {

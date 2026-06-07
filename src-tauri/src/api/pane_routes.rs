@@ -42,9 +42,8 @@ pub async fn create_shell_pane(
             ..Default::default()
         })
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    // Mirror `pane_id` as `id` so the conventional CRUD idiom (`jq '.id'`,
-    // resp.get("id")) reaches the new pane without anyone having to learn
-    // our per-resource naming. Both fields hold the same value.
+    // Mirror `pane_id` as `id` so the conventional CRUD idiom (`jq '.id'`, resp.get("id")) reaches the new pane without anyone having to learn our
+    // per-resource naming. Both fields hold the same value.
     Ok(Json(serde_json::json!({
         "id": handle.pane_id,
         "pane_id": handle.pane_id,
@@ -191,8 +190,7 @@ pub async fn send_text(
     }
 
     if body.raw {
-        // raw mode bypasses bracket paste — sender prefix is intentionally
-        // skipped here too (raw = byte-for-byte keystrokes for TUIs)
+        // raw mode bypasses bracket paste — sender prefix is intentionally skipped here too (raw = byte-for-byte keystrokes for TUIs)
         let raw_text = body.text.clone().unwrap_or_default();
         let mut buf = raw_text.clone();
         if body.enter && !buf.ends_with('\r') {
@@ -570,8 +568,8 @@ fn read_log_from_disk_by_pane(state: &AppState, raw_pane_id: &str) -> Option<Str
     None
 }
 
-// Mux drops pane→pty on close_pane, but output_buf[pty_id] survives — fall
-// back to the stable spawn-time map so closed worker/cron logs stay readable.
+// close_pane can remove pane→pty, but output_buf[pty_id] may remain.
+// Fall back to spawn-time map so worker/cron logs from closed panes stay readable.
 fn resolve_pty_id_with_fallback(
     state: &AppState,
     raw_pane_id: &str,

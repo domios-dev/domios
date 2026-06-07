@@ -131,9 +131,7 @@ export default function AddPeerPanel() {
   const incoming = peers?.incoming_requests ?? [];
   const paired = peers?.paired ?? [];
   const pairedIds = new Set(paired.map((p) => p.instance_id));
-  // Vouched peers are surfaced in the "Paired devices" card as "auto-pairs
-  // when online" — drop them from "Discovered nearby" so users see one row,
-  // not two.
+  // Vouched peers are surfaced in the "Paired devices" card as "auto-pairs when online" — drop them from "Discovered nearby" so users see one row, not two.
   const discovered = (peers?.discovered ?? []).filter(
     (d) => d.vouched_by.length === 0 && !pairedIds.has(d.instance_id),
   );

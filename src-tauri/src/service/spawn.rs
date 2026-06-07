@@ -270,11 +270,8 @@ impl ServiceContext {
             result
         };
 
-        // Apply role + can_spawn after the tab is created. Done outside the
-        // create-tab lock so set_pane_role's full validation runs and
-        // emits state changes; `can_spawn` is only forced when the caller
-        // explicitly passed --can-spawn (Some), preserving role defaults
-        // (Orchestrator defaults true, Worker false).
+        // Apply role + can_spawn after the tab is created. Done outside the create-tab lock so set_pane_role's full validation runs and emits state
+        // changes; `can_spawn` is only forced when the caller explicitly passed --can-spawn (Some), preserving role defaults (Orchestrator defaults true, Worker false).
         if let Some(ref role_str) = agent.role {
             if let Err(e) = self.set_pane_role(
                 &pane_id,
@@ -290,12 +287,8 @@ impl ServiceContext {
                 );
             }
         }
-        // Pin agent_type on the pane up-front. Codex/OpenCode TUIs don't emit
-        // OSC titles and only trip `detect_from_output` on permission prompts —
-        // without this proactive tag they stay agent_type=None forever and the
-        // session-id poller (in `set_pane_agent_type`) never starts, so resume
-        // after restart silently fails. The orchestrator-side spawn path also
-        // needs the same call (see `service/orchestrator.rs::spawn_agent`).
+        // Pin agent_type before launch so detect_from_output has a durable session-id source.
+        // Missing this tag leaves Codex/OpenCode panes unresumable after restart.
         self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.clone());
         if let Some(ref sid) = agent.resume_session_id {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
@@ -594,13 +587,11 @@ impl ServiceContext {
         self.agent_run_pty_map
             .lock()
             .insert(pane_id.clone(), pty_id.clone());
-        // Register run for auto-complete via stream-json result event / idle / timeout.
-        // Cron kind is resolved later (after the cron registry links pane→run).
+        // Register run for auto-complete via stream-json result event / idle / timeout. Cron kind is resolved later (after the cron registry links
+        // pane→run).
         if let Some(ref worker_id) = agent.worker_id {
-            // Dreamer (REM phase) needs a longer timeout than the default
-            // worker — hub decomposition + diary + classification all in one
-            // session takes a while. Pick by intent: any worker whose intent
-            // starts with "dreaming:" gets the dreaming-specific timeout.
+            // Dreamer (REM phase) needs a longer timeout than the default worker — hub decomposition + diary + classification all in one session takes a
+            // while. Pick by intent: any worker whose intent starts with "dreaming:" gets the dreaming-specific timeout.
             let mem_cfg = crate::config::memory_config();
             let intent = self
                 .workers
@@ -613,10 +604,8 @@ impl ServiceContext {
             } else {
                 mem_cfg.worker_timeout_seconds
             };
-            // Surface the timeout choice so reports of "dreaming worker died at
-            // 150s" (= worker_timeout_seconds, not dreaming_timeout_seconds=1800)
-            // can be diagnosed: either intent lookup returned empty, or
-            // is_dreaming_intent didn't match.
+            // Surface the timeout choice so reports of "dreaming worker died at 150s" (= worker_timeout_seconds, not dreaming_timeout_seconds=1800) can
+            // diagnosed: either intent lookup returned empty, or is_dreaming_intent didn't match.
             log::info!(
                 "[run-watcher] register worker={} intent='{}' dreaming={} timeout={}s",
                 worker_id,

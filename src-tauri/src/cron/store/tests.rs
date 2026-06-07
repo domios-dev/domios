@@ -552,8 +552,7 @@ fn every_5min_fires_exactly_three_times_across_15min_advance() {
         .unwrap();
 
     let mut fires = 0;
-    // Walk time forward to a hair past each next_run, recording a success
-    // per fire — the scheduler's decision rule (next_run <= now) verbatim.
+    // Walk time forward to a hair past each next_run, recording a success per fire — the scheduler's decision rule (next_run <= now) verbatim.
     let deadline = T0 + 15 * 60_000 + 1_000; // T0 + 15min (+1s slack)
     loop {
         let next = store.get(&job.id).unwrap().next_run.unwrap();

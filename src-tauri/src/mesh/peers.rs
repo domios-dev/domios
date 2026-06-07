@@ -71,8 +71,8 @@ pub fn save_identity(identity: &MeshIdentity) {
 
 // ── Encryption key ──────────────────────────────────────────────────
 
-// ── Peer storage ────────────────────────────────────────────────────
-// Clean format: PairedPeer serialized directly. No encrypted tokens.
+// Peer storage.
+// PairedPeer serialized directly; no encrypted tokens.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PeersFile {

@@ -75,8 +75,7 @@ pub async fn patch_config_api(
     let new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid config value"))?;
 
-    // Detect rename so we can sync mesh state + push the new name to peers.
-    // Mirror of the same logic in the Tauri update_config command.
+    // Detect rename so can sync mesh state + push the new name to peers. Mirror of the same logic in the Tauri update_config command.
     let prev_name = state.config.lock().mesh.instance_name.clone();
     let prev_mesh_enabled = state.config.lock().mesh.enabled;
     let new_name = new_cfg.mesh.instance_name.clone();

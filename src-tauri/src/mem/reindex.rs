@@ -88,8 +88,7 @@ impl MemManager {
                 missing.len()
             );
             for (id, embed_text) in missing {
-                // embed_text already has title prefixed (from query_missing_vectors).
-                // If body was empty (blob storage), re-read blob and re-prefix title.
+                // embed_text already has title prefixed (from query_missing_vectors). If body was empty (blob storage), re-read blob and re-prefix title.
                 let actual_text = if embed_text.trim_end().ends_with("\n\n") {
                     let row: Option<(String, Option<String>)> = conn
                         .query_row(

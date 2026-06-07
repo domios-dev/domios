@@ -315,10 +315,8 @@ impl CronStore {
             }
         }
 
-        // Observability parity: terminal states (Failed/Cancelled) get a
-        // "Cron run completed" log line just like Success runs do (which
-        // are emitted by service::cron_complete). Without this, dashboards
-        // and grep-based observability miss every Failed/Cancelled run.
+        // Observability parity: terminal states (Failed/Cancelled) get a "Cron run completed" log line just like Success runs do (which are emitted by
+        // service::cron_complete). Without this, dashboards and grep-based observability miss every Failed/Cancelled run.
         let elapsed_ms = started_at.map(|s| now.saturating_sub(s));
         match status {
             CronRunStatus::Failed | CronRunStatus::Cancelled => {

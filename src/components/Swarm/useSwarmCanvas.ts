@@ -293,8 +293,7 @@ function drawEdge(
       continue;
     }
 
-    // Particle travels from child (t=0) to parent (t=1)
-    // Map progress: child is at bezier t=1, parent at t=0
+    // Particle travels from child (t=0) to parent (t=1). Progress maps child at bezier t=1 and parent at t=0.
     const t = 1 - p.progress;
     const pt = bezierPoint(b.x0, b.y0, b.cx0, b.cy0, b.cx1, b.cy1, b.x1, b.y1, t);
 

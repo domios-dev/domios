@@ -45,10 +45,8 @@ fn build_extraction_prompt(
         .replace("{dedup_threshold}", &format!("{:.2}", dedup_threshold))
 }
 
-// Injects the live taxonomy so the worker picks from areas that actually
-// exist in mem (ordered by usage) instead of from a hardcoded table that
-// drifts from reality. Worker is read-only on areas: pick one of these or
-// leave empty. Only the main agent creates new areas.
+// Feed existing taxonomy into prompts so workers pick known mem areas by usage order.
+// Prompt only suggests existing areas; only main agent can create new ones.
 fn format_existing_areas(svc: &ServiceContext) -> String {
     let tax = match svc.mem.get_taxonomy(None) {
         Ok(t) => t,
@@ -136,8 +134,7 @@ pub fn spawn_extraction_worker(
     } else {
         mem_cfg.extraction_agent.clone()
     };
-    // Extraction workers use `extraction_model` when set, otherwise fall
-    // back to the shared `worker_model` default ("haiku").
+    // Extraction workers use `extraction_model` when set, otherwise fall back to the shared `worker_model` default ("haiku").
     let raw_model = if mem_cfg.extraction_model.is_empty() {
         mem_cfg.worker_model.clone()
     } else {
@@ -178,9 +175,8 @@ pub fn find_pending_items(
 ) -> Result<Vec<(String, String, String, MemKind)>, String> {
     use crate::mem::store::MemKind::*;
     svc.mem.with_conn(|conn| {
-        // "Pending" = eligible item with zero graph relations either direction.
-        // Any relation (uses/mentions/applies_to/extracted_from/…) means a worker
-        // has already run against it — we don't need to re-queue.
+        // "Pending" = eligible item with zero graph relations either direction. Any relation (uses/mentions/applies_to/extracted_from/…) means a
+        // worker has already run against it — we don't need to re-queue.
         let mut stmt = conn
             .prepare(
                 r#"SELECT m.id, m.kind, m.title, COALESCE(m.body_inline, '')
@@ -268,20 +264,8 @@ pub fn run_extract_pending(svc: Arc<ServiceContext>, limit: usize) -> usize {
     count
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// Evolution observer (Track 8 / issue #58)
-//
-// Tracks which `kind=skill` or `kind=lesson` mem_items got injected into
-// the agent's context this turn (typically via `codeterm mem get` or the
-// CLI's recall path). When the next observation arrives we score it:
-//
-//   - "success-shaped" (no obvious error markers) → bump_evidence_count
-//   - the observation is just an echo of the skill body → SKIP (false-
-//     corroboration mitigation per the issue body §3)
-//   - otherwise → no-op for now
-//
-// v1.1.23 ships scaffold only: bump or skip. v1.1.24 adds rank formula,
-// auto-retire on rank ≤ 0, trigger broadening, 90d decay pass.
+// Track injected `kind=skill` and `kind=lesson` items so we can bump evidence on matching output.
+// Only successful-shaped observations count; raw echoes and failed/error-looking outputs are ignored.
 
 /// Tracked context entry per scoped key (e.g. pane id, worker id).
 #[derive(Clone, Debug)]

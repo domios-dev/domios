@@ -94,9 +94,7 @@ pub fn memory_config() -> schema::MemoryConfig {
 pub fn provider_config(provider_id: &str) -> schema::ProviderConfig {
     let cfg = load_config();
     let mut out = cfg.agents.get(provider_id).cloned().unwrap_or_default();
-    // Back-compat: fall through to global [agent] for any field not set
-    // in the per-provider section. Lets existing configs keep working
-    // without an explicit [agents.<id>] block.
+    // Back-compat: fall through to global [agent] for any field not set in the per-provider section. Lets existing configs keep working without an explicit [agents.<id>] block.
     if out.resume_sessions.is_none() {
         out.resume_sessions = Some(cfg.agent.resume_sessions);
     }
@@ -132,9 +130,7 @@ pub fn load_config() -> AppConfig {
             Ok(contents) => match toml::from_str::<AppConfig>(&contents) {
                 Ok(mut config) => {
                     resolve_theme(&mut config);
-                    // Mesh tab disabled → force offline. Tab is the on/off
-                    // switch for the whole subsystem; flag is the runtime
-                    // presence state.
+                    // Mesh tab disabled → force offline. Tab is the on/off switch for the whole subsystem; flag is the runtime presence state.
                     if !config.ui.mesh_tab_enabled {
                         config.mesh.enabled = false;
                     }
@@ -195,23 +191,11 @@ fn ensure_api_token(mut config: AppConfig, path: Option<&std::path::Path>) -> Ap
 fn resolve_theme(config: &mut AppConfig) {
     let theme_name = config.theme.name.clone();
     if let Some(base) = schema::get_any_theme(&theme_name) {
-        // For each color field, if the user didn't specify it (i.e., it's the
-        // default empty or matches the schema default), use the built-in theme color.
-        // Since we parse the TOML, user values that are explicitly set will already
-        // be in config.theme. We only fill in from the built-in if the config
-        // value is the serde default (which is the github-dark default).
-        // Actually, the simplest approach: the built-in theme IS the base.
-        // We parse the user's [theme] section on top of it.
-        // Since serde gives us the full struct with defaults already filled in,
-        // we just use the built-in theme as the base when the theme name differs
-        // from "github-dark" (which is already the serde default).
+        // For each color field, if the user didn't set it (empty or serde default), use the built-in theme color.
+        // Config starts from built-in defaults and layers parsed [theme] values on top; this preserves explicit overrides while keeping unset fields themed.
         if theme_name != "github-dark" {
-            // Re-parse just the theme section to see what was explicitly set.
-            // For simplicity and correctness, just apply the builtin theme colors.
-            // Users who want to override specific colors with a non-default theme
-            // will have those overrides in the TOML which will be parsed on top.
-            // But since serde fills defaults from Default impl (github-dark),
-            // we need a different approach: use the builtin theme as base.
+            // Re-parse just the theme section to detect explicit fields; apply built-in colors as fallback.
+            // Serde fills defaults from github-dark, so this avoids treating those defaults as intentional user values.
             config.theme = apply_theme_with_overrides(&base, &config.theme, &theme_name);
         }
     }
@@ -262,9 +246,7 @@ fn apply_theme_with_overrides(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -363,9 +345,7 @@ fn save_config(config: &AppConfig) -> Result<(), String> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // Tauri commands
-// ---------------------------------------------------------------------------
 
 #[tauri::command]
 pub async fn get_config(state: tauri::State<'_, ConfigState>) -> Result<AppConfig, String> {
@@ -381,9 +361,8 @@ pub async fn update_config(
 ) -> Result<(), String> {
     let mut resolved = config;
 
-    // If the theme name changed, load the builtin theme fresh instead of
-    // trying to detect overrides (the frontend sends old colors with the new
-    // name, so override detection breaks after the first switch).
+    // If the theme name changed, load the builtin theme fresh instead of trying to detect overrides.
+    // The frontend sends old colors with the new name, so override detection breaks after the first switch.
     let current_name = state.lock().theme.name.clone();
     if resolved.theme.name != current_name {
         let requested_name = resolved.theme.name.clone();
@@ -395,10 +374,8 @@ pub async fn update_config(
         resolve_theme(&mut resolved);
     }
 
-    // Detect rename so we can sync mesh state + push the new name to peers
-    // immediately instead of waiting for the next periodic announce. Without
-    // this, paired peers stay on the old instance_name forever (the
-    // alias-propagation bug seen after an instance rename).
+    // Detect rename so we can sync mesh state + push the new name to peers immediately instead of waiting for the next periodic announce. Without
+    // this, paired peers stay on the old instance_name forever (the alias-propagation bug seen after an instance rename).
     let prev_name = state.lock().mesh.instance_name.clone();
     let new_name = resolved.mesh.instance_name.clone();
     let renamed = !new_name.is_empty() && new_name != prev_name;

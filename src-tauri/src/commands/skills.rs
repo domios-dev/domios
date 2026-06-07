@@ -82,10 +82,8 @@ pub fn seed_bundled_skills() {
         }
         log::info!("[skills] Seeded {:?} to canonical dir", id);
 
-        // The `codeterm` skill SKILL.md is a template with a {codeterm_cli}
-        // placeholder. Substitute the shared CLI reference (single source
-        // of truth, also injected into the GA prompt) so project agents
-        // and the GA see the same command surface.
+        // The `codeterm` skill SKILL.md is a template with a {codeterm_cli} placeholder. Substitute the shared CLI reference (single source of truth,
+        // also injected into the GA prompt) so project agents and the GA see the same command surface.
         if id.to_string_lossy() == "codeterm" {
             if let Ok(body) = std::fs::read_to_string(&dst_skill) {
                 if body.contains("{codeterm_cli}") {

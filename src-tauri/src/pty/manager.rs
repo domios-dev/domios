@@ -380,9 +380,8 @@ impl PtyManager {
             }
             Err(e) => log::warn!("PTY {} child mutex poisoned during kill: {}", pty_id, e),
         }
-        // Reap in background — wait() can block indefinitely if descendants
-        // ignore SIGKILL or zombie isn't reaped promptly. Move session
-        // ownership to background thread so PTY lock is released immediately.
+        // Reap in background — wait() can block indefinitely if descendants ignore SIGKILL or zombie isn't reaped promptly. Move session ownership to
+        // background thread so PTY lock is released immediately.
         let id = pty_id.to_string();
         std::thread::spawn(move || {
             match session.child.lock() {
@@ -438,8 +437,7 @@ impl PtyManager {
 fn detect_default_shell() -> String {
     #[cfg(target_os = "windows")]
     {
-        // Avoid the WindowsApps stub for pwsh.exe — Store loader serialises
-        // ConPTY spawns for 10–30s. Prefer real installs.
+        // Avoid the WindowsApps stub for pwsh.exe — Store loader serialises ConPTY spawns for 10–30s. Prefer real installs.
         let candidates = [
             r"C:\Program Files\PowerShell\7\pwsh.exe",
             r"C:\Program Files (x86)\PowerShell\7\pwsh.exe",

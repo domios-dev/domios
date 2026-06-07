@@ -1,5 +1,4 @@
-// Shared inline types used as command return types live here so external
-// callers can reference them as `commands::DirCompletion`, etc.
+// Public command return DTOs for external callers (e.g. `commands::DirCompletion`).
 
 #[derive(serde::Serialize)]
 pub struct DirCompletion {

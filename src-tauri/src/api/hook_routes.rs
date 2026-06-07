@@ -26,17 +26,16 @@ fn ensure_agent_state(state: &AppState, pane_id: &str) {
 
     let agent_changed = agent_type.is_none();
     if agent_changed {
-        // TODO(plugin-prep): when plugins can register HTTP routes, move this whole hook
-        // handler into plugin/agent_claude/ and let each provider own its own hook endpoints.
+        // TODO(plugin-prep): when plugins can register HTTP routes, move this whole hook handler into plugin/agent_claude/ and let each provider own
+        // its own hook endpoints.
         state
             .svc
             .set_and_lock_pane_agent_type(pane_id, "claude".to_string());
         log::info!("[hook] set agent_type=claude for pane {}", pane_id);
     }
 
-    // Hook proves an agent is alive in this pane, but it does not prove that
-    // the newest JSONL in cwd belongs to this pane. Only detect a session for
-    // panes that do not have one yet; otherwise keep the tab's saved binding.
+    // Hook proves an agent is alive in this pane, but it does not prove that the newest JSONL in cwd belongs to this pane. Only detect a session
+    // for panes that do not have one yet; otherwise keep the tab's saved binding.
     if session_id.is_none() {
         if let Some(ref cwd) = cwd {
             let exclude = state.svc.mux.lock().other_session_ids(pane_id);
@@ -159,9 +158,8 @@ pub async fn hook_permission(
             if !matches!(decision, crate::agent::prompt::PromptDecision::None) {
                 decision
             } else {
-                // Fallback: raw output buffer (preserves UTF-8, contains ANSI).
-                // VT100 parser can garble multi-byte chars (C1 byte stripping),
-                // so we try the raw buffer with ANSI stripped as a second source.
+                // Fallback: raw output buffer (preserves UTF-8, contains ANSI). VT100 parser can garble multi-byte chars (C1 byte stripping), so we try the
+                // raw buffer with ANSI stripped as a second source.
                 let raw = state
                     .svc
                     .output_buf

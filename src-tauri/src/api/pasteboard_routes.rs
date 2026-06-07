@@ -68,10 +68,8 @@ pub async fn paste_get(
         .pasteboard
         .get(&id, query.pop.unwrap_or(false))
         .ok_or((StatusCode::NOT_FOUND, format!("paste not found: {}", id)))?;
-    // Body returned as text. Binary payloads are not the canonical use case
-    // — `String::from_utf8_lossy` keeps the response printable without
-    // pretending to be lossless. If/when binary support lands, switch to
-    // a separate base64 field.
+    // Body returned as text. Binary payloads are not the canonical use case — `String::from_utf8_lossy` keeps the response printable without
+    // pretending to be lossless. If/when binary support lands, switch to a separate base64 field.
     Ok(Json(serde_json::json!({
         "id": entry.id,
         "body": String::from_utf8_lossy(&entry.body),

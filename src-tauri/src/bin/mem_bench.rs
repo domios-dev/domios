@@ -244,9 +244,7 @@ fn run() -> Result<(), String> {
     // If db points to a file path, we use its parent. Easier: treat it as a dir.
     let mem = MemManager::open_offline(&db_dir).map_err(|e| format!("open_offline: {}", e))?;
 
-    // 3. Seed — exercise the normal insert path. Keep a map from the
-    //    engine-generated id back to the fixture id so we can score
-    //    recall against the fixture's stable identifiers.
+    // 3. Seed — exercise the normal insert path. Keep a map from the engine-generated id back to the fixture id so we can score recall against the fixture's stable identifiers.
     let mut id_map: HashMap<String, String> = HashMap::new();
     for seed in &fixture.seed_data {
         let kind = MemKind::from_str(&seed.kind)
@@ -264,8 +262,7 @@ fn run() -> Result<(), String> {
             source_path: None,
             pinned: false,
         };
-        // insert_raw skips auto-extract + embed queue so bench recall
-        // isn't polluted by extracted child items.
+        // insert_raw skips auto-extract + embed queue so bench recall isn't polluted by extracted child items.
         let generated = mem
             .insert_raw(&new)
             .map_err(|e| format!("seed insert {}: {}", seed.id, e))?;
@@ -297,9 +294,7 @@ fn run() -> Result<(), String> {
             .map_err(|e| format!("recall {}: {}", tc.id, e))?;
         let latency_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
-        // Translate engine ids -> fixture ids. Any hit not in the map
-        // is a child extraction we don't care about; skip it so it
-        // doesn't push real candidates down the ranking.
+        // Translate engine ids -> fixture ids. Any hit not in the map is a child extraction we don't care about; skip it so it doesn't push real candidates down the ranking.
         let got_top_k: Vec<String> = hits
             .iter()
             .filter_map(|h| id_map.get(&h.item.id).cloned())

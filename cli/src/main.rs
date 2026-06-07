@@ -105,9 +105,8 @@ pub fn read_api_config() -> (String, Option<String>) {
     // Try Ed25519 signed token first, fall back to simple API token from config
     let signed_token = read_mesh_signed_token();
 
-    // Highest priority: explicit CODETERM_API_TOKEN env override.
-    // Useful for hitting dev (port 7686) from outside its PTY without the
-    // matching mesh identity, or for tests with a manually scoped token.
+    // Highest priority: explicit CODETERM_API_TOKEN env override. Useful for hitting dev (port 7686) from outside its PTY without the matching
+    // mesh identity, or for tests with a manually scoped token.
     let token = std::env::var("CODETERM_API_TOKEN").ok()
         .filter(|s| !s.is_empty())
         .or(signed_token)
@@ -234,8 +233,7 @@ fn main() {
 
     // --mesh TARGET: proxy entire command to a remote peer via relay
     if let Some(ref mesh_target) = cli.mesh {
-        // Secrets are local-only — refuse to proxy them across the mesh.
-        // Cross-mesh secret access needs a trust model we haven't designed yet.
+        // Secrets are local-only — refuse to proxy them across the mesh. Cross-mesh secret access needs a trust model we haven't designed yet.
         if matches!(cli.command, Commands::Mem { action: MemAction::Secret { .. } }) {
             eprintln!(
                 "Error: secrets do not cross the mesh. Run on the local machine \
@@ -312,11 +310,8 @@ fn main() {
         return;
     }
 
-    // `mem run-worker` opens knowledge.db directly via --db-path and never
-    // talks to the daemon socket — short-circuit before discover_socket so
-    // a stale CODETERM_SOCKET_PATH inherited from a previous daemon PID
-    // (e.g. after update --apply restarts the binary) doesn't make the
-    // worker exit 1 before it can do any work.
+    // `mem run-worker` opens knowledge.db directly via --db-path and never talks to the daemon socket — short-circuit before discover_socket so a
+    // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update --apply restarts the binary) doesn't make the worker exit 1 before it can do any work.
     if let Commands::Mem { action: MemAction::RunWorker { ref kind, ref db_path } } = cli.command {
         cmd::worker::run_mem_worker(kind, db_path.as_deref());
         return;
@@ -329,9 +324,7 @@ fn main() {
         }
     }
 
-    // `mem dream` opens knowledge.db directly. Bridge ping is best-effort
-    // and routed through `discover_socket` itself so a wedged daemon
-    // doesn't break the planner.
+    // `mem dream` opens knowledge.db directly. Bridge ping is best-effort and routed through `discover_socket` itself so a wedged daemon doesn't break the planner.
     if let Commands::Mem { action: MemAction::Dream { .. } } = cli.command {
         match cli.command {
             Commands::Mem { action: MemAction::Dream { action } } => {
@@ -341,9 +334,8 @@ fn main() {
         }
     }
 
-    // `system` writes OS-level autostart triggers (schtasks / launchd /
-    // systemd). No daemon dependency — short-circuit so it works pre-install
-    // and during recovery when the daemon is wedged.
+    // `system` writes OS-level autostart triggers (schtasks / launchd / systemd). No daemon dependency — short-circuit so it works pre-install and
+    // during recovery when the daemon is wedged.
     if matches!(cli.command, Commands::System { .. }) {
         let json_mode = cli.json;
         match cli.command {
@@ -353,9 +345,7 @@ fn main() {
         return;
     }
 
-    // `docs` reads embedded markdown bundled at compile time — no daemon
-    // dependency. Short-circuit so agents can read references even when the
-    // daemon is wedged or restarting.
+    // `docs` reads embedded markdown bundled at compile time — no daemon dependency. Short-circuit so agents can read references even when the daemon is wedged or restarting.
     if matches!(cli.command, Commands::Docs { .. }) {
         match cli.command {
             Commands::Docs { name, full, head } => cmd::docs::handle(name, full, head),

@@ -74,30 +74,19 @@ impl ServiceContext {
             );
         }
 
-        // Identity (`agent_type`) is now driven by explicit intent only:
-        //   1. Spawn paths call `set_and_lock_pane_agent_type`.
-        //   2. The PTY input parser (`commands::pty::write_pty`) detects when
-        //      the user types `claude/codex/opencode ...<Enter>` in a shell.
-        // Output content is no longer treated as identity evidence — see the
-        // exit-detection block below for the only place output still drives
-        // an `agent_type` write (clearing it on shell-prompt resurrection).
+        // agent_type is intentional: explicit spawn paths set it directly.
+        // Output parsing no longer infers identity except the narrow shell-prompt exit path.
         let agent_type = if agent_type.is_none() {
             None
         } else if let Some(ref pid) = pane_id {
-            // Agent already detected — check if it's still running.
-            // This is the SOLE agent exit detection point (removed from idle-poll to avoid races).
+            // Agent already detected — check if it's still running. This is the SOLE agent exit detection point (removed from idle-poll to avoid races).
             // Only check periodically to avoid overhead on every chunk.
             static UNDETECT_COUNT: std::sync::atomic::AtomicU64 =
                 std::sync::atomic::AtomicU64::new(0);
             let count = UNDETECT_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if count % 50 == 0 {
-                // Check every ~50 chunks
-                // Grace period: skip exit detection for 30s after agent_type was set.
-                // Prevents false "agent exited" during startup (shell prompt visible before agent launches).
-                // Locked panes (explicit spawn intent) bypass output-based clearing entirely:
-                // a slow-starting agent (e.g. Claude over mesh on Windows) can leave the shell
-                // prompt visible past the grace window even though the agent is alive and
-                // processing — see issue #100.
+                // Keep a short grace after session-tagging so early prompt snapshots don't trigger false exits.
+                // Locked panes skip output-based clearing because slow startup can leave stale prompt text visible.
                 let (in_grace, locked) = {
                     let mux = self.mux.lock();
                     let pane = mux.get_pane(pid);
@@ -164,10 +153,8 @@ impl ServiceContext {
                 let chunk_text = crate::pty::ansi::clean_terminal_output(raw);
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
 
-                // Read screen text if markers found OR if there's an active prompt
-                // (need screen text to detect when user answers prompt in terminal).
-                // For auto_approve panes (GA), always read screen — chunk fragmentation
-                // can split markers across reads, so we check full screen every time.
+                // Read screen text if markers found OR if there's an active prompt (need screen text to detect when user answers prompt in terminal). For
+                // auto_approve panes (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
                 let (has_active_prompt, is_auto_approve) = {
                     let mux = self.mux.lock();
                     let pane = mux.get_pane(pid);
@@ -232,8 +219,7 @@ impl ServiceContext {
                         v == "y" || v == "yes"
                     });
 
-                    // Check for numbered prompts where first option is affirmative
-                    // (e.g. "1. Yes, continue" — trust directory prompts)
+                    // Check for numbered prompts where first option is affirmative (e.g. "1. Yes, continue" — trust directory prompts)
                     let is_numbered_yes = !is_yes_no
                         && !prompt.options.is_empty()
                         && prompt.options[0].label.to_lowercase().starts_with("yes");

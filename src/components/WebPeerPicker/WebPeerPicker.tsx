@@ -81,8 +81,7 @@ export function WebPeerPicker() {
 
   const switchTo = useCallback((target: string | null) => {
     setApiHost(target);
-    // Full reload: clean slate per host — no stale panes/mesh/chat data
-    // from the previous peer, and the SSE stream reattaches naturally.
+    // Full reload: clean slate per host — no stale panes/mesh/chat data from the previous peer, and the SSE stream reattaches naturally.
     window.location.reload();
   }, []);
 

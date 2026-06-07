@@ -13,8 +13,7 @@ export interface PrefixMatch {
   body: string;
 }
 
-// Cross-pane: `[from <Title with spaces> pane=89186f68] body`.
-// Title may contain spaces / unicode. pane= is followed by 6+ hex chars.
+// Cross-pane marker format: `[from <Title> pane=<6+hex>] body`.
 const PANE_RE = /^\[from\s+(.+?)\s+pane=([0-9a-f]{6,})\]\s*/;
 
 // Bridge services emit `[<Capitalized>: <user_id>[ msg_id=<id>]] body`.
@@ -117,8 +116,7 @@ function collectSlashCommands(content: string): PrefixMatch | null {
       ...c,
       stdout: stdouts[i] || undefined,
     }));
-    // Trailing extra stdouts that had no /cmd line → surface with Claude's
-    // real wrapper tag, so the UI doesn't invent a generic "(output)" label.
+    // Trailing extra stdouts that had no /cmd line → surface with Claude's real wrapper tag, so the UI doesn't invent a generic "(output)" label.
     for (let i = inlineCommands.length; i < stdouts.length; i++) {
       commands.push({ name: "local-command-stdout", stdout: stdouts[i] });
     }

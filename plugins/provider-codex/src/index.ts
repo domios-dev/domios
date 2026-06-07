@@ -33,8 +33,7 @@ const plugin: ProviderPlugin = {
   },
   detect: (sample) => {
     if (sample.title && titlePattern.test(sample.title)) return true;
-    // Codex prints `codex/` in its prompt frame and has a distinct
-    // "▶ Provide your answer" affordance.
+    // Codex prints `codex/` in its prompt frame and has a distinct "▶ Provide your answer" affordance.
     if (sample.bytes.includes("codex/")) return true;
     return false;
   },

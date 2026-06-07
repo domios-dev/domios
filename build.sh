@@ -47,6 +47,7 @@ setup_env() {
 
 # --- Kill dev instance only (never prod) ---
 kill_dev() {
+  kill_web_watch 2>/dev/null || true
   if [[ "$OSTYPE" == darwin* ]]; then
     pgrep -f "target/debug/codeterm" | xargs kill 2>/dev/null || true
     pgrep -f "pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json" | xargs kill 2>/dev/null || true
@@ -92,6 +93,25 @@ start_dev_wait_process() {
       </dev/null >> "$log" 2>&1 &
   fi
   echo $!
+}
+
+# /web browser clients are served the static dist/ bundle, NOT vite HMR.
+# Watch-rebuild it so phone/browser mirrors pick up frontend edits on reload.
+start_web_watch() {
+  kill_web_watch
+  nohup pnpm exec vite build --watch </dev/null >> /tmp/codeterm-web-watch.log 2>&1 &
+  echo $! > /tmp/codeterm-web-watch.pid
+  echo "Web bundle watcher started (dist/ auto-rebuilds, log /tmp/codeterm-web-watch.log)"
+}
+
+kill_web_watch() {
+  if [ -f /tmp/codeterm-web-watch.pid ]; then
+    kill "$(cat /tmp/codeterm-web-watch.pid)" 2>/dev/null || true
+    rm -f /tmp/codeterm-web-watch.pid
+  fi
+  if [[ "$OSTYPE" == darwin* ]]; then
+    pgrep -f "vite build --watch" | xargs kill 2>/dev/null || true
+  fi
 }
 
 dev_health_status() {
@@ -164,6 +184,7 @@ case "$CMD" in
     # first-launch embedded extract is skipped so ~/.codeterm/plugins/
     # doesn't shadow the workspace.
     export CODETERM_DEV=1
+    start_web_watch
 
     WAIT=0
     for arg in "${@:2}"; do

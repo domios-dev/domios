@@ -1,7 +1,7 @@
 import { useEffect, useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
-import { invoke } from "../../lib/bridge";
+import { invoke, IS_WEB, resetWebPtyTail } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 
@@ -42,6 +42,8 @@ export function usePtyConnection({
 }: UsePtyConnectionOptions): UsePtyConnectionReturn {
   const { state } = useMultiplexer();
   const localFitEnabledRef = useRef(localFitEnabled);
+  // Web resets the tail cursor once per mount; toggles resume it.
+  const webReplayedPtysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     localFitEnabledRef.current = localFitEnabled;
@@ -73,7 +75,13 @@ export function usePtyConnection({
       connectedPtyRef.current = predictedId;
 
       // Replay full ANSI history on mount so scrollback survives remounts.
-      if (ptyId) {
+      // Web replays via the tail: cursor reset makes the first read return history.
+      if (ptyId && IS_WEB) {
+        if (!webReplayedPtysRef.current.has(ptyId)) {
+          webReplayedPtysRef.current.add(ptyId);
+          resetWebPtyTail(ptyId);
+        }
+      } else if (ptyId) {
         let restored = false;
         try {
           const raw = await invoke<string>("get_pane_history_raw", { paneId });
@@ -214,10 +222,8 @@ export function usePtyConnection({
           cols, rows, predictedId, cwd, paneId,
         });
         if (disposed) {
-          // spawn_pty links the PTY to the pane before it resolves. If this
-          // component unmounts during a chat/terminal mode switch or tab
-          // remount, killing here leaves backend pane state pointing at a
-          // dead PTY. Pane/tab close paths own real teardown.
+          // spawn_pty links the PTY to the pane before it resolves. If this component unmounts during a chat/terminal mode switch or tab remount,
+          // killing here leaves backend pane state pointing at a dead PTY. Pane/tab close paths own real teardown.
           return;
         }
         onPtySpawned?.(paneId, spawnedId);

@@ -1,9 +1,7 @@
 use super::skills::extract_revision;
 use std::fs;
 
-// Mirror of the constant in plugin::agent_claude::provider::integration —
-// kept inline here so the legacy "$ escaping" defence stays exercised
-// without depending on the integration module's private items.
+// Mirror CLAUDE hook marker from integration tests to keep legacy `$`-escaping regression covered.
 const CODETERM_HOOK_MARKER: &str = "codeterm-hook-v2";
 
 #[test]

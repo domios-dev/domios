@@ -203,8 +203,7 @@ fn append_footer_and_rename(
         out.push('\n');
     }
 
-    // Rename `<stem>.md` → `<stem>-applied.md`. If the file already ends in
-    // `-applied.md`, append a numeric suffix to avoid clobbering history.
+    // Rename `<stem>.md` → `<stem>-applied.md`. If the file already ends in `-applied.md`, append a numeric suffix to avoid clobbering history.
     let new_path = build_applied_path(plan_path);
     std::fs::write(&new_path, &out)
         .map_err(|e| format!("write {}: {}", new_path.display(), e))?;

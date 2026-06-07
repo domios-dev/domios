@@ -123,10 +123,8 @@ impl MasterPty for ConPtyMasterPty {
     }
 
     fn try_clone_reader(&self) -> anyhow::Result<Box<dyn std::io::Read + Send>> {
-        // WORKAROUND: On Windows 11 Insider builds (26200+), DuplicateHandle
-        // on ConPTY pipe handles creates non-functional read handles.
-        // Solution: return the ORIGINAL handle and put the clone in inner
-        // (inner doesn't read, so broken clone is fine there).
+        // WORKAROUND: On Windows 11 Insider builds (26200+), DuplicateHandle on ConPTY pipe handles creates non-functional read handles. Solution:
+        // return the ORIGINAL handle and put the clone in inner (inner doesn't read, so broken clone is fine there).
         let mut inner = self.inner.lock().unwrap();
         let cloned = inner.readable.try_clone()?;
         let original = std::mem::replace(&mut inner.readable, cloned);

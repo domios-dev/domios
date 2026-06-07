@@ -57,9 +57,8 @@ eq(plugin.parseLine("   "), [], "whitespace-only line → no events");
 
 // Unknown ChatMessage.type (forward-compat through mapping)
 {
-  // We can't easily synth a parser output with a new type — instead
-  // exercise the chatMessageTypeToEventKind by pushing through a
-  // known shape. Skipping this — covered by existing parser tests.
+  // can't easily synth a parser output with a new type — instead exercise the chatMessageTypeToEventKind by pushing through a known shape.
+  // Skipping this — covered by existing parser tests.
 }
 
 console.log("\n--- statusOf delegation ---\n");

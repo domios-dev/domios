@@ -48,10 +48,8 @@ pub struct AgentLaunchParams {
     pub skip_permissions: bool,
     // True for one-shot hidden panes; providers pick non-interactive delivery.
     pub headless: bool,
-    // Pre-generated session id to use when starting a NEW conversation.
-    // Honored only by providers reporting `SessionIdInjection != None` —
-    // others ignore it (they generate ids themselves and CodeTerm has to
-    // detect after launch).
+    // Pre-generated session id to use when starting a NEW conversation. Honored only by providers reporting `SessionIdInjection != None` — others
+    // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
     pub session_id: Option<String>,
 }
 
@@ -100,9 +98,8 @@ pub struct SessionMessage {
     pub is_meta: bool,
 }
 
-// `ProviderDescriptor` is the wire format every plugin reports through
-// `AgentProvider::describe()`; the frontend renders Settings, Sidebar,
-// and command palette entries from the list with no per-provider JS.
+// `ProviderDescriptor` is every plugin's describe() wire payload used by the
+// frontend for Settings, Sidebar, and command-palette rows.
 
 /// Single model offered by an agent provider.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -747,13 +744,8 @@ pub trait AgentProvider: Send + Sync {
         Ok(())
     }
 
-    // ── CodeTerm integration (hooks / callbacks / native notification wiring) ──
-    //
-    // Some providers (Claude) need explicit configuration in their own
-    // settings file to call back into CodeTerm on permission prompts and
-    // task completion. Other providers (Codex, Opencode) are observed
-    // entirely through PTY parsing and need no configuration. The trait
-    // exposes a uniform surface so commands/* can dispatch generically.
+    // CodeTerm integration varies: Claude uses hooks for permission/task callbacks;
+    // Codex/OpenCode are PTY-observed and need no extra provider config.
 
     /// Status of CodeTerm's notification integration with this provider —
     /// returned as opaque JSON so each provider shapes it for its own UI.
@@ -777,13 +769,8 @@ pub trait AgentProvider: Send + Sync {
     /// provider during boot. Default no-op.
     fn ensure_integration_on_startup(&self, _api_port: u16) {}
 
-    // ── Project rule (provider-specific instruction file) ──
-    //
-    // Claude reads `~/.claude/rules/codeterm.md`; other providers either
-    // embed equivalent instructions into the system prompt directly or
-    // simply don't have a project-rule concept yet. Returning "installed"
-    // by default means providers without a rule file are considered
-    // good-to-go (no UI nag).
+    // Project rules: only Claude reads `~/.claude/rules/codeterm.md`.
+    // Others inject rules elsewhere, so installed defaults to true when file is absent.
 
     fn check_rule_status(&self) -> serde_json::Value {
         serde_json::json!({ "installed": true, "update_available": false })
@@ -793,8 +780,7 @@ pub trait AgentProvider: Send + Sync {
         Ok(())
     }
 
-    // Self-presentation: frontend reads provider tabs, models, and
-    // settings purely from these + `describe()`. Defaults stay empty.
+    // Self-presentation: frontend reads provider tabs, models, and settings purely from these + `describe()`. Defaults stay empty.
 
     /// Models this provider offers (e.g. sonnet, opus, haiku for Claude).
     fn available_models(&self) -> Vec<ModelInfo> {
@@ -1035,8 +1021,7 @@ mod tests {
 
     #[test]
     fn provider_descriptor_rejects_unknown_fields() {
-        // schema_version protects against silent breakage; deny_unknown_fields
-        // protects against typos in field names.
+        // schema_version protects against silent breakage; deny_unknown_fields protects against typos in field names.
         let bad = r#"{
             "schema_version": 1,
             "id": "test",

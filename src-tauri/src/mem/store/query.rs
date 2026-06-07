@@ -96,9 +96,8 @@ pub fn tail_recent(
     since: Option<&str>,
     limit: usize,
 ) -> Result<Vec<TailEntry>, String> {
-    // Left-join the most recent history row per item (via a correlated
-    // subquery) to surface `changed_by`. Items without history default to
-    // "user" — this preserves observability for pre-Phase-C rows.
+    // Left-join the most recent history row per item (via a correlated subquery) to surface `changed_by`. Items without history default to "user"
+    // — this preserves observability for pre-Phase-C rows.
     let base_sql = r#"
         SELECT m.id, m.kind, m.title, m.area, m.updated_at,
                COALESCE(

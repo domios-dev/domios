@@ -43,8 +43,7 @@ export type Action =
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
     case "SET_STATE": {
-      // One pane per tab now — backend state is authoritative; no split-ratio
-      // preservation needed since there are no dividers to drag.
+      // Backend is authoritative for state; one pane per tab means no split-ratio to preserve.
       const mergedWorkspaces = action.state.workspaces;
       const mergedPanes = { ...action.state.panes };
       for (const [id, backendPane] of Object.entries(mergedPanes)) {
@@ -78,10 +77,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           });
         }
       }
-      // `focused_pane_id` is intentionally omitted from the spread — focus
-      // is propagated via the dedicated `pane-focused` event from backend, NOT
-      // via blind merging of every state snapshot. Otherwise any background
-      // emit (PTY chunk, worker spawn) would steal the user's selection.
+      // `focused_pane_id` comes only from backend `pane-focused` events.
       return {
         ...state,
         workspaces: mergedWorkspaces,
@@ -113,9 +109,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         delete newStatuses[pid];
       }
       const remaining = state.workspaces.filter((w) => w.id !== action.id);
-      // focused_pane_id intentionally untouched — backend's close_workspace
-      // emits `pane-focused` with the General fallback target, which the
-      // listener applies separately. If we nulled here we'd flicker.
+      // keep focused_pane_id untouched; close_workspace emits fallback focus separately.
       return {
         ...state,
         workspaces: remaining,
@@ -169,8 +163,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     }
 
     case "ADD_TAB": {
-      // No auto-focus on tab creation. The createTab caller decides whether to
-      // focus the new tab (user-initiated UI clicks do, background spawns don't).
+      // Do not auto-focus on tab creation; caller decides (UI clicks do, background spawns don't).
       return {
         ...state,
         workspaces: state.workspaces.map((ws) =>
@@ -224,8 +217,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       delete newPanes[action.paneId];
       const newStatuses = { ...state.paneStatuses };
       delete newStatuses[action.paneId];
-      // focused_pane_id intentionally untouched — see CLOSE_WORKSPACE comment.
-      // One pane per tab → closing the pane closes the tab.
+      // keep focused_pane_id untouched (see CLOSE_WORKSPACE). One pane per tab.
       return {
         ...state,
         workspaces: state.workspaces.map((ws) => {
@@ -241,9 +233,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     }
 
     case "SET_FOCUSED_PANE":
-      // Defense-in-depth: ignore focus changes targeting a pane we don't know
-      // about (race window between backend `pane-focused` event and the
-      // structural state catching up). Listener also retries once after 100 ms.
+      // Ignore focus updates for unknown panes; state merge may be in flight (retry once).
       if (action.paneId && !state.panes[action.paneId]) return state;
       return { ...state, focused_pane_id: action.paneId };
 

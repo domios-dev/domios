@@ -43,8 +43,7 @@ fn opencode_launch_interactive() {
 
 #[test]
 fn opencode_launch_interactive_skip_perms_does_not_attach_flag() {
-    // The --dangerously-skip-permissions flag is `run`-only. Interactive
-    // TUI launches must NOT include it (opencode rejects unknown args).
+    // The --dangerously-skip-permissions flag is `run`-only. Interactive TUI launches must NOT include it (opencode rejects unknown args).
     let p = OpenCodeProvider::new();
     let cmd = p.build_launch_command(&AgentLaunchParams {
         agent_name: None,
@@ -131,8 +130,7 @@ fn opencode_resume_command_uses_session_flag() {
         .unwrap();
     assert!(cmd.starts_with("opencode --session"));
     assert!(cmd.contains("ses_3bc903c6bffeLofCwfS0EczYak"));
-    // TUI doesn't accept --dangerously-skip-permissions even when caller
-    // asks for skip — provider must drop it silently.
+    // TUI doesn't accept --dangerously-skip-permissions even when caller asks for skip — provider must drop it silently.
     assert!(!cmd.contains("--dangerously-skip-permissions"));
 }
 
@@ -191,8 +189,7 @@ fn opencode_describe_assembles_full_descriptor() {
 
 #[test]
 fn opencode_describe_omits_usage_tracking_section() {
-    // OpenCode has no usage_parser — describe() must NOT inject the Usage
-    // Tracking toggle. The auto-injection in `describe()` keys off
+    // OpenCode has no usage_parser — describe() must NOT inject the Usage Tracking toggle. The auto-injection in `describe()` keys off
     // `usage_parser().is_some()`, so this test pins that contract.
     let p = OpenCodeProvider::new();
     let desc = p.describe();
@@ -236,9 +233,8 @@ fn opencode_settings_schema_round_trips_as_json() {
 
 #[test]
 fn opencode_does_not_contribute_notifications_card() {
-    // Opencode notifications fire automatically via the PTY event
-    // pipeline — no user-facing setting to render. Keeps the
-    // Notifications tab free of "auto-enabled, no setup required" noise.
+    // Opencode notifications fire automatically via the PTY event pipeline — no user-facing setting to render. Keeps the Notifications tab free of
+    // "auto-enabled, no setup required" noise.
     let p = OpenCodeProvider::new();
     assert!(p.notifications_schema().is_empty());
     assert!(p.describe().notifications_schema.is_empty());
@@ -255,9 +251,8 @@ fn opencode_default_model_is_set() {
 
 #[test]
 fn opencode_models_returns_non_empty_list_via_live_or_fallback() {
-    // Either the live `opencode models` succeeds and we get >0 entries,
-    // or the fetch fails and the fallback seed list kicks in. Both paths
-    // must produce a non-empty list — settings UI relies on it.
+    // Either the live `opencode models` succeeds and we get >0 entries, or the fetch fails and the fallback seed list kicks in. Both paths must
+    // produce a non-empty list — settings UI relies on it.
     let p = OpenCodeProvider::new();
     let models = p.available_models();
     assert!(!models.is_empty(), "available_models must never be empty");
@@ -321,8 +316,7 @@ fn opencode_meta_filter_known_injections() {
 
 #[test]
 fn opencode_session_id_injection_default_none() {
-    // OpenCode generates session ids itself (`ses_*`) — no pre-launch
-    // injection like Claude's --session-id flag.
+    // OpenCode generates session ids itself (`ses_*`) — no pre-launch injection like Claude's --session-id flag.
     let p = OpenCodeProvider::new();
     assert_eq!(
         p.session_id_injection(),
@@ -357,14 +351,12 @@ fn opencode_detect_requires_opencode_marker() {
 
 #[test]
 fn opencode_approve_alone_does_not_fire() {
-    // "opencode" + "approve" must NOT trigger opencode detection on its own —
-    // this is the cross-fire path where codex output mentioning "approve network access"
-    // could appear alongside "opencode" in screen content from a mixed pane.
-    // Only codex-specific "approve" phrasing must NOT be claimed by opencode.
+    // "opencode" + "approve" must NOT trigger opencode detection on its own — this is the cross-fire path where codex output mentioning "approve
+    // network access" could appear alongside "opencode" in screen content from a mixed pane. Only codex-specific "approve" phrasing must NOT be claimed by opencode.
     let p = OpenCodeProvider::new();
     let mixed = "opencode v0.3.0\nDo you want to approve network access to api.example.com?";
-    // This used to fire opencode (via "approve" clause) AND codex simultaneously,
-    // causing non-deterministic tab labeling. opencode must not claim this.
+    // This used to fire opencode (via "approve" clause) AND codex simultaneously, causing non-deterministic tab labeling. opencode must not claim
+    // this.
     assert!(
         !p.detect_from_output(mixed),
         "opencode must not claim 'approve network access' — that is codex's phrase"

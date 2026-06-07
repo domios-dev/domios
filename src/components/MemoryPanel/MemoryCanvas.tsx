@@ -82,8 +82,7 @@ export function MemoryCanvas({
     heat: layout.heat,
   };
 
-  // Selection + hover ids live in refs so the nodeReducer (per-frame
-  // closure) sees the latest values without re-wiring sigma.
+  // Selection + hover ids live in refs so the nodeReducer (per-frame closure) sees the latest values without re-wiring sigma.
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId ?? null;
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -93,9 +92,7 @@ export function MemoryCanvas({
     sigmaRef.current?.refresh({ skipIndexation: true });
   }, [selectedId, hoveredId]);
 
-  // Per-frame screen position of the currently active (hovered or selected)
-  // node — drives the HTML chip overlay without forcing React to re-render
-  // every camera frame.
+  // Per-frame screen position of the currently active (hovered or selected) node — drives the HTML chip overlay without forcing React to re-render every camera frame.
   const [chipStyle, setChipStyle] = useState<{
     x: number;
     y: number;
@@ -180,8 +177,7 @@ export function MemoryCanvas({
     };
   }, []);
 
-  // Sync graph topology. Positions come from layout.positions (already
-  // seeded by useGraphLayout before this effect fires — hook order).
+  // Sync graph topology. Positions come from layout.positions (already seeded by useGraphLayout before this effect fires — hook order).
   useEffect(() => {
     const graph = graphRef.current;
     const sigma = sigmaRef.current;
@@ -213,8 +209,7 @@ export function MemoryCanvas({
       if (!graph.hasEdge(key)) {
         try {
           const conf = e.confidence ?? 0.5;
-          // Edges are visually dominated by overdraw at hub nodes — keep each
-          // stroke thin AND dim so dense clusters read as gauze, not glare.
+          // Edges are visually dominated by overdraw at hub nodes — keep each stroke thin AND dim so dense clusters read as gauze, not glare.
           graph.addEdgeWithKey(key, e.from, e.to, {
             size: 0.005 + conf * 0.010,
             color: `rgba(${EDGE_RGB},${0.012 + conf * 0.025})`,
@@ -229,8 +224,7 @@ export function MemoryCanvas({
     }
   }, [nodes, edges]);
 
-  // Stream physics ticks into sigma's graphology store. Skip the dragged
-  // node so the user's mouse owns it; re-apply on release.
+  // Stream physics ticks into sigma's graphology store. Skip the dragged node so the user's mouse owns it; re-apply on release.
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph) return;
@@ -266,11 +260,8 @@ export function MemoryCanvas({
     };
   }, [pulses, nodes]);
 
-  // Active-node chip: track screen position of selected/hovered node every
-  // render frame, push into React state as {x,y,label}. Subscribes to sigma
-  // afterRender which fires after camera moves, drag updates, or any
-  // refresh — keeps the chip glued to its node without per-frame re-renders
-  // when nothing is active.
+  // Active-node chip: track screen position of selected/hovered node every render frame, push into React state as {x,y,label}. Subscribes to
+  // sigma afterRender which fires after camera moves, drag updates, or any refresh — keeps the chip glued to its node without per-frame re-renders when nothing is active.
   useEffect(() => {
     const sigma = sigmaRef.current;
     if (!sigma) return;
@@ -284,9 +275,8 @@ export function MemoryCanvas({
       if (!n) return;
       const graph = graphRef.current;
       if (!graph?.hasNode(activeId)) return;
-      // Use raw graph attributes — getNodeDisplayData returns already-projected
-      // framed coords; passing those through graphToViewport double-transforms
-      // and the chip flies off across the camera origin.
+      // Use raw graph attributes — getNodeDisplayData returns already-projected framed coords; passing those through graphToViewport
+      // double-transforms and the chip flies off across the camera origin.
       const attrs = graph.getNodeAttributes(activeId);
       const viewport = sigma.graphToViewport({
         x: attrs.x as number,
@@ -321,9 +311,8 @@ export function MemoryCanvas({
     };
   }, [selectedId, hoveredId, nodes]);
 
-  // Manual fit/recenter buttons — compute bbox + ratio to fit the graph
-  // within the container with 15% padding. Ratio=1 would be 1-graph-unit
-  // per screen pixel, which blanks the view at our seed layout scale.
+  // Manual fit/recenter buttons — compute bbox + ratio to fit the graph within the container with 15% padding. Ratio=1 would be 1-graph-unit per
+  // screen pixel, which blanks the view at our seed layout scale.
   const doFit = useCallback(() => {
     const sigma = sigmaRef.current;
     const graph = graphRef.current;

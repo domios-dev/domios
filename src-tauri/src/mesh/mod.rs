@@ -137,11 +137,8 @@ impl MeshManager {
     // ── Status & peers ──────────────────────────────────────────────
 
     pub fn status(&self) -> MeshStatus {
-        // discovered_count must match peers_response().discovered.len() —
-        // both filter out peers that are also in paired_peers, otherwise
-        // status reports N "discovered" but peers list only shows M<N
-        // (and operators chasing the discrepancy waste time on a
-        // diagnostic-only mismatch).
+        // discovered_count must match peers_response().discovered.len() — both filter out peers that are also in paired_peers, otherwise status
+        // reports N "discovered" but peers list only shows M<N (and operators chasing the discrepancy waste time on a diagnostic-only mismatch).
         let discovered_count = self
             .discovered_peers
             .values()
@@ -461,10 +458,8 @@ impl MeshManager {
                 sender_id, ann.instance_id
             ));
         }
-        // Strip unparseable IPs (release/1.1.9 sanitize-on-ingest).
-        // If a v1.1.8 peer announces a poisoned address list and ALL entries
-        // fail to parse, treat as a no-op rather than blanking the cache —
-        // we'd rather keep stale-but-valid addresses than commit nothing.
+        // Strip unparseable IPs (release/1.1.9 sanitize-on-ingest). If a v1.1.8 peer announces a poisoned address list and ALL entries fail to parse,
+        // treat as a no-op rather than blanking the cache — we'd rather keep stale-but-valid addresses than commit nothing.
         let clean = types::sanitize_addresses(&ann.addresses);
         if clean.is_empty() && ann.online {
             return Ok(None);
@@ -866,8 +861,7 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
         .unwrap_or_default();
     for (addresses, port, token, peer_id, peer_name) in &clients {
         report.sent += 1;
-        // STALE peer signal (404) is authoritative — short-circuit so we
-        // record it once instead of asking three IPs the same question.
+        // STALE peer signal (404) is authoritative — short-circuit so we record it once instead of asking three IPs the same question.
         let stale_marker: std::sync::Arc<parking_lot::Mutex<bool>> =
             std::sync::Arc::new(parking_lot::Mutex::new(false));
         let result = transport::try_peer(addresses, |addr| {
@@ -1214,8 +1208,7 @@ mod tests {
         };
         m.paired_peers.insert("peer-A".into(), peer);
 
-        // We can't easily inspect PeerClient's URL — but we can verify the
-        // address selection by reading addresses directly.
+        // can't easily inspect PeerClient's URL — but can verify the address selection by reading addresses directly.
         let picked = m.paired_peers["peer-A"]
             .addresses
             .iter()

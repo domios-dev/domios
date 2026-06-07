@@ -1,6 +1,4 @@
-//! Generic mesh relay envelope — wrap any local API call (method+path+body)
-//! into a /api/mesh/relay POST signed with our mesh identity, dispatch it to
-//! a paired peer's API, and pretty-print the response.
+//! Relay local API calls to a paired peer via signed /api/mesh/relay POSTs.
 
 use crate::data_dir_name;
 
@@ -132,9 +130,8 @@ pub fn mesh_relay_generic(http: &reqwest::blocking::Client, base: &str, token: &
     let port = peer.get("api_port").and_then(|v| v.as_u64()).unwrap_or(7685);
     let peer_url = format!("http://{}:{}", ip, port);
 
-    // Outbound peer call must use a freshly signed Ed25519 token from our
-    // mesh identity. The local CODETERM_API_TOKEN env (set in CodeTerm
-    // panes) is meaningless to a paired peer's verifier and gets a 401.
+    // Mesh peers require a freshly signed Ed25519 token from mesh identity.
+    // Local CODETERM_API_TOKEN is not accepted by peer verifiers.
     let signed_token = match crate::read_mesh_signed_token() {
         Some(t) => t,
         None => {
@@ -166,9 +163,7 @@ pub fn mesh_relay_generic(http: &reqwest::blocking::Client, base: &str, token: &
                 std::process::exit(1);
             }
 
-            // Surface peer-side errors regardless of mode — relay returns 200
-            // with `ok:false` for application-level failures (auth gating,
-            // upstream 4xx/5xx).
+            // Relay returns 200+ok:false on auth/HTTP failures; surface as errors.
             if let Some(err) = val.get("error").and_then(|v| v.as_str()) {
                 if val.get("ok").and_then(|v| v.as_bool()) == Some(false) {
                     eprintln!("Error: {}", err);
@@ -179,10 +174,7 @@ pub fn mesh_relay_generic(http: &reqwest::blocking::Client, base: &str, token: &
             let data = val.get("data").cloned().unwrap_or(serde_json::Value::Null);
 
             if json_mode {
-                // Strip the relay envelope so JSON output matches the local
-                // CLI's `--json` shape on the same command. Callers piping
-                // through `jq` shouldn't have to know whether we routed
-                // through mesh.
+                // Unwrap envelope so `--json` output matches local CLI shape.
                 println!("{}", serde_json::to_string_pretty(&data).unwrap());
             } else if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
                 // /panes/<id>/output returns {"text": "..."} — print raw.

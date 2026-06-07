@@ -64,9 +64,8 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
   const { providers } = useAgentProviders();
   const inputClass = "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
 
-  // Pick default model from the first registered provider's descriptor —
-  // avoids hardcoding "haiku" (a Claude-specific id) and keeps the
-  // defaults useful for whichever provider is the user's primary.
+  // Pick default model from the first registered provider's descriptor — avoids hardcoding "haiku" (a Claude-specific id) and keeps the defaults
+  // useful for whichever provider is the user's primary.
   const defaultProvider = config.general_agent?.agent_provider || providers[0]?.id || "";
   const defaultModel = providers.find(p => p.id === defaultProvider)?.default_model ?? "";
   const defaultMem = {

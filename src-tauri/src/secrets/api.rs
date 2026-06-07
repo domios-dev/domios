@@ -47,8 +47,7 @@ fn map_error(e: SecretError) -> (StatusCode, Json<serde_json::Value>) {
         SecretError::BadRequest { .. } => StatusCode::BAD_REQUEST,
         SecretError::Backend { .. } => StatusCode::SERVICE_UNAVAILABLE,
     };
-    // `message` may interpolate user-controlled strings (server URL, bw
-    // stderr); scrub control chars before the CLI prints them.
+    // `message` may interpolate user-controlled strings (server URL, bw stderr); scrub control chars before the CLI prints them.
     let message = match &e {
         SecretError::LoggedOut => "logged out — sign in again".to_string(),
         SecretError::Locked => "vault is locked".to_string(),
@@ -306,10 +305,8 @@ pub async fn save_item(
     }
     let store = state.svc.secrets.read().await;
 
-    // Fill in default organization / collection from config when the
-    // caller did not specify one explicitly. An empty string in config
-    // means "personal vault" — leave it as None so the backend doesn't
-    // try to attach to a non-existent org.
+    // Fill in default organization / collection from config when the caller did not specify one explicitly. An empty string in config means
+    // "personal vault" — leave it as None so the backend doesn't try to attach to a non-existent org.
     let cfg = crate::config::load_config();
     let default_org = some_if_nonempty(&cfg.integrations.secrets.default_organization);
     let default_coll = some_if_nonempty(&cfg.integrations.secrets.default_collection);
@@ -422,8 +419,7 @@ pub async fn switch_backend(
         }
     }
 
-    // Persist to config first — if the daemon dies right after the swap
-    // we still want the new choice to stick.
+    // Persist to config first — if the daemon dies right after the swap we still want the new choice to stick.
     {
         let mut cfg = crate::config::load_config();
         cfg.integrations.secrets.backend = body.backend.clone();
@@ -437,9 +433,7 @@ pub async fn switch_backend(
         }
     }
 
-    // Build the new backend, run init, then atomically swap. Init
-    // failures are surfaced — the caller asked to switch and deserves
-    // to know whether the new backend is actually usable.
+    // Build the new backend, run init, then atomically swap. Init failures are surfaced — the caller asked to switch and deserves to know whether the new backend is actually usable.
     let cfg = crate::config::load_config();
     let new_store = crate::secrets::build_active_store(&cfg.integrations.secrets);
     if let Err(e) = new_store.init().await {

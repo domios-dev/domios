@@ -103,9 +103,8 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         "#,
     )?;
 
-    // Pinned positions live in a dedicated table — only rows the user has
-    // explicitly anchored by drag-drop are persisted. Force-sim positions
-    // are transient (worker-owned) and must not touch SQLite per tick.
+    // Pinned positions live in a dedicated table — only rows the user has explicitly anchored by drag-drop are persisted. Force-sim positions are
+    // transient (worker-owned) and must not touch SQLite per tick.
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS graph_pinned_positions (
@@ -118,8 +117,7 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         "#,
     )?;
 
-    // Legacy `graph_x` / `graph_y` columns are being retired — positions are
-    // transient. Drop them when running against SQLite ≥ 3.35 (supports
+    // Legacy `graph_x` / `graph_y` columns are being retired — positions are transient. Drop them when running against SQLite ≥ 3.35 (supports
     // DROP COLUMN). Earlier versions just leave the dead columns in place.
     let has_graph_x: bool = {
         let mut stmt = conn.prepare("PRAGMA table_info(mem_items)")?;
