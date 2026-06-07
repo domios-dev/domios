@@ -472,6 +472,66 @@ pub async fn git_workdir_diff(
     ))
 }
 
+#[derive(Deserialize)]
+pub(crate) struct ReposQuery {
+    cwd: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct RepoEntry {
+    path: String,
+    name: String,
+    branch: Option<String>,
+}
+
+const REPO_SCAN_CAP: usize = 20;
+
+/// Discover repos at `cwd`: the work tree itself, or depth-1 child repos when
+/// `cwd` is a plain folder holding several checkouts.
+pub async fn git_repos(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ReposQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    if q.cwd.is_empty() || !Path::new(&q.cwd).is_dir() {
+        return Err((StatusCode::NOT_FOUND, "not a directory".to_string()));
+    }
+
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    let top = run_git(&q.cwd, &["rev-parse", "--show-toplevel"])
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if top.status_ok {
+        let root = String::from_utf8_lossy(&top.stdout).trim().to_string();
+        roots.push(root.into());
+    } else if let Ok(entries) = std::fs::read_dir(&q.cwd) {
+        let mut children: Vec<_> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir() && p.join(".git").exists())
+            .collect();
+        children.sort();
+        children.truncate(REPO_SCAN_CAP);
+        roots = children;
+    }
+
+    let mut repos = Vec::with_capacity(roots.len());
+    for root in roots {
+        let cwd = root.to_string_lossy().to_string();
+        let branch = match run_git(&cwd, &["rev-parse", "--abbrev-ref", "HEAD"]).await {
+            Ok(o) if o.status_ok => Some(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+            _ => None,
+        };
+        let name = root
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| cwd.clone());
+        repos.push(RepoEntry { path: cwd, name, branch });
+    }
+    Ok(Json(serde_json::json!({ "repos": repos })))
+}
+
 /// Lossy-decode the patch, re-appending the truncation marker when the byte cap clipped it.
 fn render_capped(stdout: &[u8]) -> String {
     let mut text = String::from_utf8_lossy(stdout).to_string();

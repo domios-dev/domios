@@ -569,7 +569,8 @@ pub fn create_router(state: AppState) -> Router {
             "/api/git/commit/{sha}/diff",
             get(git_routes::git_commit_diff),
         )
-        .route("/api/git/workdir-diff", get(git_routes::git_workdir_diff));
+        .route("/api/git/workdir-diff", get(git_routes::git_workdir_diff))
+        .route("/api/git/repos", get(git_routes::git_repos));
 
     // gzip-scoped snapshot route: 100k-node payloads compress ~4:1. Kept on its
     // own sub-router so compression only runs for this large response.
