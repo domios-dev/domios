@@ -425,3 +425,29 @@ async fn ensure_repo_rejects_non_repo() {
     assert!(res.is_err());
     assert_eq!(res.unwrap_err().0, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn worktrees_are_first_class_repos() {
+    if !git_available() {
+        return;
+    }
+    let fixture = build_fixture();
+    let p = fixture.path();
+    run(p, &["branch", "wt-branch"]);
+    let wt = p.join("the-worktree");
+    run(p, &["worktree", "add", "-q", wt.to_str().unwrap(), "wt-branch"]);
+
+    // A worktree's `.git` is a file, not a dir — ensure_repo must accept it.
+    assert!(wt.join(".git").is_file());
+    assert!(ensure_repo(wt.to_str().unwrap()).await.is_ok());
+
+    // The log format works from inside the worktree.
+    let out = run_git(
+        wt.to_str().unwrap(),
+        &["log", "-n", "1", "--pretty=format:%x1f%H%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e"],
+    )
+    .await
+    .unwrap();
+    assert!(out.status_ok);
+    assert_eq!(parse_graph(&out.stdout).len(), 1);
+}
