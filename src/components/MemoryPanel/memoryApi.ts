@@ -1,6 +1,14 @@
 import type { ApiConfig } from "../../lib/types";
 import type { GraphFullResponse, MemItemFull } from "./types";
+import type {
+  DeltaResponse,
+  GraphSnapshot,
+  LabelRow,
+  SnapshotEdge,
+} from "./snapshotTypes";
 import { IS_WEB, apiHost, currentToken } from "../../lib/webApi";
+
+export class SnapshotUnavailableError extends Error {}
 
 export function baseUrl(api: ApiConfig): string {
   if (IS_WEB) return apiHost();
@@ -33,6 +41,89 @@ export async function fetchGraphFull(
     signal,
   });
   if (!res.ok) throw new Error(`graph/full failed: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+export async function fetchSnapshot(
+  api: ApiConfig,
+  signal?: AbortSignal,
+): Promise<GraphSnapshot> {
+  const res = await fetch(`${baseUrl(api)}/api/mem/graph/snapshot`, {
+    headers: authHeaders(api),
+    signal,
+  });
+  if (res.status === 404) throw new SnapshotUnavailableError("snapshot endpoint missing");
+  if (!res.ok) throw new Error(`snapshot failed: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+export async function fetchSnapshotDelta(
+  api: ApiConfig,
+  sinceVersion: number,
+  sinceSeq: number,
+  signal?: AbortSignal,
+): Promise<DeltaResponse> {
+  const url = `${baseUrl(api)}/api/mem/graph/snapshot?since_version=${sinceVersion}&since_seq=${sinceSeq}`;
+  const res = await fetch(url, { headers: authHeaders(api), signal });
+  if (res.status === 404) throw new SnapshotUnavailableError("snapshot endpoint missing");
+  if (!res.ok) throw new Error(`snapshot delta failed: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+export async function fetchLabels(
+  api: ApiConfig,
+  ids: string[],
+  signal?: AbortSignal,
+): Promise<LabelRow[]> {
+  if (ids.length === 0) return [];
+  const qs = encodeURIComponent(ids.join(","));
+  const res = await fetch(`${baseUrl(api)}/api/mem/graph/labels?ids=${qs}`, {
+    headers: authHeaders(api),
+    signal,
+  });
+  if (!res.ok) throw new Error(`labels failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchGraphEdges(
+  api: ApiConfig,
+  ids: string[],
+  signal?: AbortSignal,
+): Promise<SnapshotEdge[]> {
+  if (ids.length === 0) return [];
+  const qs = encodeURIComponent(ids.join(","));
+  const res = await fetch(`${baseUrl(api)}/api/mem/graph/edges?ids=${qs}`, {
+    headers: authHeaders(api),
+    signal,
+  });
+  if (!res.ok) throw new Error(`edges failed: ${res.status}`);
+  return res.json();
+}
+
+export async function setPinnedPosition(
+  api: ApiConfig,
+  id: string,
+  x: number,
+  y: number,
+): Promise<void> {
+  const res = await fetch(
+    `${baseUrl(api)}/api/mem/pinned-positions/${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      headers: { ...authHeaders(api), "Content-Type": "application/json" },
+      body: JSON.stringify({ x, y }),
+    },
+  );
+  if (!res.ok) throw new Error(`pin failed: ${res.status}`);
+}
+
+export async function rebuildLayout(api: ApiConfig): Promise<{ started: boolean }> {
+  const res = await fetch(`${baseUrl(api)}/api/mem/graph/layout/rebuild`, {
+    method: "POST",
+    headers: authHeaders(api),
+  });
+  if (res.status === 409) return { started: false };
+  if (!res.ok) throw new Error(`rebuild failed: ${res.status}`);
   return res.json();
 }
 

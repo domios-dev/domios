@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { List, Network } from "lucide-react";
 import { MemoryCanvas } from "./MemoryCanvas";
+import { MemorySnapshotCanvas } from "./MemorySnapshotCanvas";
 import { MemoryListTab } from "./MemoryListTab";
 import { MemoryActivityTab } from "./MemoryActivityTab";
 import { MemoryDreamsTab } from "./MemoryDreamsTab";
 import { MemorySettingsTab } from "./MemorySettingsTab";
 import { useGraphData } from "./useGraphData";
+import { useSnapshotGraph } from "./useSnapshotGraph";
 import { useActivityPulses } from "./useActivityPulses";
 import { fetchStats, isTauriEnv, type MemStats } from "./memoryApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -51,6 +53,8 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
     updateNode,
     removeNode,
   } = useGraphData(api);
+  const snapshot = useSnapshotGraph(api);
+  const useSnapshot = snapshot.status !== "unavailable";
   const { pulses } = useActivityPulses(api);
   const [selectedId, setSelectedId] = useState<string | null>(
     initialState?.selectedId ?? null,
@@ -131,7 +135,8 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
         <div className="flex items-center gap-3 mr-4 shrink-0">
           <strong>Memory</strong>
           <span className="text-[11px] opacity-70 max-sm:hidden">
-            {stats.node_count} nodes &middot; {stats.edge_count} edges
+            {(useSnapshot && snapshot.stats ? snapshot.stats.node_count : stats.node_count)} nodes &middot;{" "}
+            {(useSnapshot && snapshot.stats ? snapshot.stats.edge_count : stats.edge_count)} edges
           </span>
           {memStats && memStats.total_vectors < memStats.total_items && (
             <span className="text-[11px] text-[var(--ct-yellow)] flex items-center gap-1">
@@ -173,21 +178,42 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
             removeNode={removeNode}
           />
         )}
-        {activeTab === "inspect" && inspectView === "graph" && loading && (
+        {activeTab === "inspect" && inspectView === "graph" &&
+          (useSnapshot ? snapshot.status === "loading" : loading) && (
           <div className="absolute inset-0 flex items-center justify-center">
             <span className={UI_TEXT.meta}>Loading memory graph...</span>
           </div>
         )}
-        {activeTab === "inspect" && inspectView === "graph" && error && (
+        {activeTab === "inspect" && inspectView === "graph" &&
+          (useSnapshot ? snapshot.error : error) && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-2 rounded bg-[var(--ct-red)] text-white text-xs">
-            {error}
+            {useSnapshot ? snapshot.error : error}
           </div>
         )}
-        {/* Mount the canvas as soon as data is ready, even on other tabs, so
-            Louvain seed + physics worker get a head start. Hide it (not
-            unmount) when not active so sigma keeps its container size and the
-            settled positions survive tab switches. */}
-        {!loading && !error && (
+        {/* Snapshot mode: default render path. Positions come from the backend
+            layout; LOD is handled inside MemorySnapshotCanvas. */}
+        {useSnapshot && snapshot.index && (
+          <div
+            className={
+              activeTab === "inspect" && inspectView === "graph"
+                ? "absolute inset-0"
+                : "absolute inset-0 invisible pointer-events-none"
+            }
+            aria-hidden={!(activeTab === "inspect" && inspectView === "graph")}
+          >
+            <MemorySnapshotCanvas
+              api={api}
+              index={snapshot.index}
+              pulses={pulses}
+              registerFit={registerFit}
+              registerRecenter={registerRecenter}
+              selectedIdOverride={selectedId}
+              onSelectedIdChange={setSelectedId}
+            />
+          </div>
+        )}
+        {/* Legacy physics fallback — only when the snapshot endpoint is absent. */}
+        {!useSnapshot && !loading && !error && (
           <div
             className={
               activeTab === "inspect" && inspectView === "graph"

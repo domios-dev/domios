@@ -62,6 +62,8 @@ const MERMAID_BLOCK_MAX_HEIGHT = "72rem";
 const CODE_BLOCK_PLAIN_FALLBACK_THRESHOLD = 200_000;
 const MERMAID_RENDER_LENGTH_LIMIT = 120_000;
 const MERMAID_CLEANUP_PASSES = 2;
+const MERMAID_FULLSCREEN_MIN_SCALE = 0.35;
+const MERMAID_FULLSCREEN_MAX_SCALE = 5;
 const MERMAID_CDN_URL = "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js";
 const MERMAID_RENDER_CACHE_LIMIT = 64;
 const MERMAID_BLOCK_GUARDS = [
@@ -100,6 +102,16 @@ type RectLike = {
   left: number;
   width: number;
   height: number;
+};
+type PointLike = {
+  x: number;
+  y: number;
+};
+type MermaidGesture = {
+  distance: number;
+  midpoint: PointLike;
+  pan: PointLike;
+  scale: number;
 };
 
 function getMobileViewport(): boolean {
@@ -164,6 +176,21 @@ function remapMermaidSvgSourceId(svg: string, from: string, to: string) {
     return svg;
   }
   return svg.split(from).join(to);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function distanceBetween(a: PointLike, b: PointLike) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function midpointBetween(a: PointLike, b: PointLike): PointLike {
+  return {
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+  };
 }
 
 function removeMermaidRenderArtifacts(sourceId: string) {
@@ -569,6 +596,14 @@ type CodeContentProps = {
   shouldDisplayMermaid: boolean;
   showMermaidFallback: boolean;
   suppressMermaidErrorOutput: boolean;
+  interactiveMermaid?: boolean;
+  mermaidPan?: PointLike;
+  mermaidScale?: number;
+  onMermaidPointerDown?: React.PointerEventHandler<HTMLDivElement>;
+  onMermaidPointerMove?: React.PointerEventHandler<HTMLDivElement>;
+  onMermaidPointerUp?: React.PointerEventHandler<HTMLDivElement>;
+  onMermaidWheel?: React.WheelEventHandler<HTMLDivElement>;
+  onMermaidDoubleClick?: React.MouseEventHandler<HTMLDivElement>;
 };
 
 const CodeBlockContent = React.memo(function CodeBlockContent({
@@ -582,6 +617,14 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   shouldDisplayMermaid,
   showMermaidFallback,
   suppressMermaidErrorOutput,
+  interactiveMermaid = false,
+  mermaidPan,
+  mermaidScale = 1,
+  onMermaidPointerDown,
+  onMermaidPointerMove,
+  onMermaidPointerUp,
+  onMermaidWheel,
+  onMermaidDoubleClick,
 }: CodeContentProps) {
   if (forcePlainText) {
     return (
@@ -605,15 +648,38 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
       style={{ maxHeight: fullSize ? "100%" : maxHeight }}
     >
       {suppressMermaidErrorOutput ? null : shouldDisplayMermaid ? (
-        <div className="px-2 py-1.5" style={{ color: "var(--ct-fg)" }}>
+        <div
+          className="px-2 py-1.5"
+          style={{
+            color: "var(--ct-fg)",
+            cursor: interactiveMermaid ? "grab" : undefined,
+            touchAction: interactiveMermaid ? "none" : undefined,
+          }}
+          onPointerDown={onMermaidPointerDown}
+          onPointerMove={onMermaidPointerMove}
+          onPointerUp={onMermaidPointerUp}
+          onPointerCancel={onMermaidPointerUp}
+          onWheel={onMermaidWheel}
+          onDoubleClick={onMermaidDoubleClick}
+        >
           <div
             className="w-full overflow-auto flex items-center justify-center"
             style={{
               background: "var(--ct-surface)",
               minHeight: "max(100%, 0px)",
             }}
-            dangerouslySetInnerHTML={{ __html: mermaidSvg ?? "" }}
-          />
+          >
+            <div
+              style={{
+                transform: interactiveMermaid
+                  ? `translate(${mermaidPan?.x ?? 0}px, ${mermaidPan?.y ?? 0}px) scale(${mermaidScale})`
+                  : undefined,
+                transformOrigin: "center center",
+                transition: interactiveMermaid ? "transform 80ms linear" : undefined,
+              }}
+              dangerouslySetInnerHTML={{ __html: mermaidSvg ?? "" }}
+            />
+          </div>
         </div>
       ) : (
         <>
@@ -686,7 +752,11 @@ function CodeBlock({
   const fullscreenBoundsRaf = useRef<number | null>(null);
   const blockRef = useRef<HTMLDivElement>(null);
   const scrollHostRef = useRef<HTMLElement | null>(null);
+  const mermaidPointerRef = useRef<Map<number, PointLike>>(new Map());
+  const mermaidGestureRef = useRef<MermaidGesture | null>(null);
   const mermaidNodeId = useMemo(() => `ct-mermaid-${Math.random().toString(36).slice(2, 11)}`, []);
+  const [mermaidPan, setMermaidPan] = useState<PointLike>({ x: 0, y: 0 });
+  const [mermaidScale, setMermaidScale] = useState(1);
   const copyText = useCallback(async (event: React.MouseEvent) => {
     event.stopPropagation();
     try {
@@ -924,8 +994,18 @@ function CodeBlock({
     }
     : undefined;
 
+  const resetMermaidView = useCallback(() => {
+    mermaidPointerRef.current.clear();
+    mermaidGestureRef.current = null;
+    setMermaidPan({ x: 0, y: 0 });
+    setMermaidScale(1);
+  }, []);
+
   const openFullscreen = (event?: React.MouseEvent) => {
     event?.stopPropagation();
+    if (mermaidMode) {
+      resetMermaidView();
+    }
     setExpanded(true);
     const host = findScrollableContainer(blockRef.current);
     scrollHostRef.current = host;
@@ -945,10 +1025,114 @@ function CodeBlock({
 
   const closeFullscreen = (event?: React.MouseEvent) => {
     event?.stopPropagation();
+    if (mermaidMode) {
+      resetMermaidView();
+    }
     setIsFullscreen(false);
     setFullscreenBounds(null);
     scrollHostRef.current = null;
   };
+
+  const startMermaidGesture = useCallback(() => {
+    const points = Array.from(mermaidPointerRef.current.values());
+    if (points.length >= 2) {
+      const [first, second] = points;
+      mermaidGestureRef.current = {
+        distance: distanceBetween(first, second),
+        midpoint: midpointBetween(first, second),
+        pan: mermaidPan,
+        scale: mermaidScale,
+      };
+      return;
+    }
+    if (points.length === 1) {
+      mermaidGestureRef.current = {
+        distance: 0,
+        midpoint: points[0],
+        pan: mermaidPan,
+        scale: mermaidScale,
+      };
+      return;
+    }
+    mermaidGestureRef.current = null;
+  }, [mermaidPan, mermaidScale]);
+
+  const handleMermaidPointerDown = useCallback<React.PointerEventHandler<HTMLDivElement>>((event) => {
+    if (!isFullscreen || !mermaidMode || !shouldDisplayMermaid) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    mermaidPointerRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    startMermaidGesture();
+  }, [isFullscreen, mermaidMode, shouldDisplayMermaid, startMermaidGesture]);
+
+  const handleMermaidPointerMove = useCallback<React.PointerEventHandler<HTMLDivElement>>((event) => {
+    if (!isFullscreen || !mermaidMode || !mermaidPointerRef.current.has(event.pointerId)) {
+      return;
+    }
+    event.preventDefault();
+    mermaidPointerRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const gesture = mermaidGestureRef.current;
+    const points = Array.from(mermaidPointerRef.current.values());
+    if (!gesture || points.length === 0) {
+      return;
+    }
+
+    if (points.length >= 2 && gesture.distance > 0) {
+      const [first, second] = points;
+      const distance = distanceBetween(first, second);
+      const midpoint = midpointBetween(first, second);
+      setMermaidScale(clamp(
+        gesture.scale * (distance / gesture.distance),
+        MERMAID_FULLSCREEN_MIN_SCALE,
+        MERMAID_FULLSCREEN_MAX_SCALE,
+      ));
+      setMermaidPan({
+        x: gesture.pan.x + midpoint.x - gesture.midpoint.x,
+        y: gesture.pan.y + midpoint.y - gesture.midpoint.y,
+      });
+      return;
+    }
+
+    const point = points[0];
+    setMermaidPan({
+      x: gesture.pan.x + point.x - gesture.midpoint.x,
+      y: gesture.pan.y + point.y - gesture.midpoint.y,
+    });
+  }, [isFullscreen, mermaidMode]);
+
+  const handleMermaidPointerUp = useCallback<React.PointerEventHandler<HTMLDivElement>>((event) => {
+    if (!mermaidPointerRef.current.has(event.pointerId)) {
+      return;
+    }
+    event.preventDefault();
+    mermaidPointerRef.current.delete(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    startMermaidGesture();
+  }, [startMermaidGesture]);
+
+  const handleMermaidWheel = useCallback<React.WheelEventHandler<HTMLDivElement>>((event) => {
+    if (!isFullscreen || !mermaidMode || !shouldDisplayMermaid) {
+      return;
+    }
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const originX = event.clientX - rect.left - rect.width / 2;
+    const originY = event.clientY - rect.top - rect.height / 2;
+    const direction = event.deltaY < 0 ? 1.12 : 0.88;
+    setMermaidScale((currentScale) => {
+      const nextScale = clamp(currentScale * direction, MERMAID_FULLSCREEN_MIN_SCALE, MERMAID_FULLSCREEN_MAX_SCALE);
+      const ratio = nextScale / currentScale;
+      setMermaidPan((currentPan) => ({
+        x: originX - (originX - currentPan.x) * ratio,
+        y: originY - (originY - currentPan.y) * ratio,
+      }));
+      return nextScale;
+    });
+  }, [isFullscreen, mermaidMode, shouldDisplayMermaid]);
 
   const fullscreenHeaderTopPadding = needsFullscreenSafeTop
     ? "calc(0.5rem + var(--ct-safe-top, 0px))"
@@ -1076,6 +1260,14 @@ function CodeBlock({
                 shouldDisplayMermaid={shouldDisplayMermaid}
                 showMermaidFallback={showMermaidFallback}
                 suppressMermaidErrorOutput={suppressMermaidErrorOutput}
+                interactiveMermaid={mermaidMode}
+                mermaidPan={mermaidPan}
+                mermaidScale={mermaidScale}
+                onMermaidPointerDown={handleMermaidPointerDown}
+                onMermaidPointerMove={handleMermaidPointerMove}
+                onMermaidPointerUp={handleMermaidPointerUp}
+                onMermaidWheel={handleMermaidWheel}
+                onMermaidDoubleClick={resetMermaidView}
               />
             </div>
           </div>
