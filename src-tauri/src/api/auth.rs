@@ -35,6 +35,7 @@ pub fn is_service_push_allowed(method: &str, path: &str) -> bool {
 
 const PUBLIC_PATHS: &[&str] = &[
     "/api/health",
+    "/api/providers",
     "/api/mesh/ping",
     "/api/mesh/pair/request",
     "/api/mesh/pair/accept",
@@ -71,10 +72,8 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
     let own_id = mesh.ident.identity.instance_id.clone();
-    // Always register self as a known key. Prefer the cached pubkey, but fall
-    // back to deriving it from the private key on the fly — covers identities
-    // serialized before public_key was added to MeshIdentity, which otherwise
-    // 401 every CLI call from outside a PTY (issue #1 from 1.1.9 SMOKE).
+    // Always register self as a known key. Prefer the cached pubkey, but fall back to deriving it from the private key on the fly — covers
+    // identities serialized before public_key was added to MeshIdentity, which otherwise 401 every CLI call from outside a PTY (issue #1 from 1.1.9 SMOKE).
     let self_pubkey = mesh.ident.identity.public_key.clone().or_else(|| {
         mesh.ident
             .identity
@@ -160,6 +159,12 @@ fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
             {
                 return true;
             }
+            if (path == "/api/fs/list-dir" || path == "/api/fs/mkdir")
+                && (perms.contains(&Permission::ManageWorkspaces)
+                    || perms.contains(&Permission::SpawnAgents))
+            {
+                return true;
+            }
             if path.starts_with("/api/crons") && perms.contains(&Permission::ManageCrons) {
                 return true;
             }
@@ -176,10 +181,8 @@ pub async fn auth_middleware(
     let path = req.uri().path().to_string();
     let method = req.method().clone();
 
-    // Mesh-disabled gate: blocks /api/mesh/* except /api/mesh/ping (so paired
-    // peers detect us as down without retrying forever). Also blocks
-    // /api/mesh/pair/* by design — re-enabling mesh requires a local config
-    // change, not a remote pair request.
+    // Mesh-disabled gate: blocks /api/mesh/* except /api/mesh/ping (so paired peers detect us as down without retrying forever). Also blocks
+    // /api/mesh/pair/* by design — re-enabling mesh requires a local config change, not a remote pair request.
     if path.starts_with("/api/mesh/") && path != "/api/mesh/ping" {
         let mesh_enabled = state.config.lock().mesh.enabled;
         if !mesh_enabled {
@@ -196,10 +199,8 @@ pub async fn auth_middleware(
         }
     }
 
-    // The /web static bundle is public by design: it is the same React
-    // code anyone can build from the repo. Every API call it makes is
-    // still token-gated. Exact /web redirects to /web/ so the bundle's
-    // relative asset URLs resolve under the mount.
+    // The /web static bundle is public by design: it is the same React code anyone can build from the repo. Every API call it makes is still
+    // token-gated. Exact /web redirects to /web/ so the bundle's relative asset URLs resolve under the mount.
     if path == "/web" {
         return axum::response::Redirect::permanent("/web/").into_response();
     }
@@ -358,6 +359,10 @@ mod tests {
         for p in PUBLIC_PATHS {
             assert!(PUBLIC_PATHS.iter().any(|pp| pp == p));
         }
+        assert!(
+            PUBLIC_PATHS.contains(&"/api/providers"),
+            "plugin verification needs unauthenticated provider liveness checks"
+        );
     }
 
     #[test]

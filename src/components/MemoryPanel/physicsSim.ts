@@ -181,8 +181,7 @@ export class PhysicsSim {
       const f = SPRING_K * delta * this.edgeConfidence[e];
       const nx = dx / d;
       const ny = dy / d;
-      // Two-term spring identical to the original worker: a distance-scaled
-      // pull plus the plain Hooke term — applied as two separate adds in the
+      // Two-term spring identical to the original worker: a distance-scaled pull plus the plain Hooke term — applied as two separate adds in the
       // original's order so small-n trajectories stay bit-comparable.
       force[a * 2] += nx * f * d * 0.02;
       force[a * 2 + 1] += ny * f * d * 0.02;
@@ -257,8 +256,7 @@ export class PhysicsSim {
       const py = pos[i * 2 + 1];
       let fx = 0;
       let fy = 0;
-      // Iterative traversal with an explicit stack — recursion is measurably
-      // slower here and can hit depth limits on degenerate layouts.
+      // Iterative traversal with an explicit stack — recursion is measurably slower here and can hit depth limits on degenerate layouts.
       const stack = this.traversalStack;
       let sp = 0;
       stack[sp++] = 0;
@@ -275,11 +273,8 @@ export class PhysicsSim {
         const isLeaf = tree.children[t * 4] === -1;
         if (isLeaf || (width * width) / d2 < BH_THETA2) {
           if (leafPoint === i) {
-            // Cell contains self plus others: subtract nothing — the self
-            // term is zero-distance and excluded by construction only for
-            // single-point leaves; multi-point cells containing self are
-            // split further by the θ criterion in practice (self is always
-            // inside the cell, making width²/d² large until the leaf).
+            // Cell contains self plus others: subtract nothing — the self term is zero-distance and excluded by construction only for single-point leaves;
+            // multi-point cells containing self are split further by the θ criterion (self is always inside the cell, making width²/d² large until the leaf).
             continue;
           }
           const d = Math.sqrt(d2);
@@ -362,9 +357,8 @@ export class PhysicsSim {
         tree.comY[t] = y;
         return;
       }
-      // Occupied leaf → split. Coincident points would split forever; merge
-      // them into one heavier leaf instead (repulsion between exact
-      // coincident points is undefined anyway — epsilon handles it).
+      // Occupied leaf → split. Coincident points would split forever; merge them into one heavier leaf instead (repulsion between exact coincident
+      // points is undefined anyway — epsilon handles it).
       const existing = tree.pointIndex[t];
       const ex = tree.comX[t];
       const ey = tree.comY[t];

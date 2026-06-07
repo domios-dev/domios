@@ -9,9 +9,8 @@ use tauri::{Emitter, Manager};
 
 use crate::service::ServiceContext;
 
-// Idle hard-coded (claude thinks between events; 30s is enough margin while
-// --include-partial-messages keeps bytes flowing during normal generation).
-// Hard timeout is config-driven via memory.worker_timeout_seconds.
+// Default idle wait is 30s (Claude can think between events while still streaming partials).
+// `memory.worker_timeout_seconds` can lower/higher this at runtime.
 const IDLE_COMPLETE_SECS: u64 = 30;
 const SCANNER_BUFFER_CAP: usize = 64 * 1024;
 
@@ -83,8 +82,7 @@ impl RunWatcherRegistry {
             completed: AtomicBool::new(false),
         });
         self.runs.lock().insert(pty_id, state.clone());
-        // Use tauri's runtime handle so this works even when register() is called
-        // from outside a tokio reactor (e.g. main thread spawn paths).
+        // Use tauri's runtime handle so this works even when register() is called from outside a tokio reactor (e.g. main thread spawn paths).
         tauri::async_runtime::spawn(watchdog_loop(svc, state, timeout_secs));
     }
 
@@ -140,11 +138,8 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         let idle_secs = state.last_byte_at.lock().elapsed().as_secs();
 
         if idle_secs >= IDLE_COMPLETE_SECS {
-            // Defer the kill while a tool call is mid-flight: claude's PTY
-            // can stay silent for >30s during a slow Bash subprocess (mem
-            // graph hubs on a busy graph, large `mem search`, etc.) even
-            // though the run is alive. Hard timeout still bounds runaway
-            // tools.
+            // Defer the kill while a tool call is mid-flight: claude's PTY can stay silent for >30s during a slow Bash subprocess (mem graph hubs on a
+            // busy graph, large `mem search`, etc.) even though the run is alive. Hard timeout still bounds runaway tools.
             let busy = state.scanner.lock().in_flight();
             if busy {
                 log::debug!(
@@ -237,17 +232,8 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
     }
 }
 
-// Detects:
-//   1. The TOP-LEVEL {"type":"result"} event that claude CLI emits once per
-//      run at the very end of the multi-turn flow. Do NOT match nested
-//      message_stop events — those fire after every assistant turn in a
-//      tool-use loop and would complete the run mid-flight.
-//   2. Tool-call lifecycle: each {"type":"tool_use","id":"toolu_…"} block
-//      registers an in-flight tool; the matching tool_result with the same
-//      tool_use_id clears it. The watchdog uses this to suppress idle-reaper
-//      kills while a tool is actively executing — claude's PTY can stay
-//      silent for >30s during a slow Bash subprocess even though the run
-//      itself is alive.
+// Track only top-level run completion events (`{"type":"result"}`), not nested `message_stop`.
+// Tool lifecycle is in-flight tracked by `tool_use`/`tool_result`, so we skip idle reaping while tools run.
 struct ResultEventScanner {
     buffer: String,
     tool_scan_pos: usize,
@@ -287,17 +273,13 @@ impl ResultEventScanner {
         let cleaned = crate::pty::ansi::strip_ansi_codes(chunk);
         self.buffer.push_str(&cleaned);
 
-        // Pass 1: tool-use / tool-result lifecycle. Done first so a buffer
-        // drain after the result-event pass below cannot lose unscanned
-        // tool events.
+        // Pass 1: tool-use / tool-result lifecycle. Done first so a buffer drain after the result-event pass below cannot lose unscanned tool events.
         self.scan_tool_events();
 
         let mut search_from = 0;
         let mut found: Option<CompletionSignal> = None;
-        // Floor the drain at the tool scanner's cursor: it may be parked
-        // mid-object waiting for the closing brace to arrive in the next
-        // chunk, and dropping bytes past that cursor would lose the
-        // partial tool_use we're tracking.
+        // Floor the drain at the tool scanner's cursor: it may be parked mid-object waiting for the closing brace to arrive in the next chunk, and
+        // dropping bytes past that cursor would lose the partial tool_use we're tracking.
         let mut consumed = 0usize;
 
         loop {
@@ -375,8 +357,7 @@ impl ResultEventScanner {
                     max_consumed = pos;
                 }
                 None => {
-                    // Object incomplete — leave tool_scan_pos here so the next
-                    // chunk re-attempts from the same start.
+                    // Object incomplete — leave tool_scan_pos here so the next chunk re-attempts from the same start.
                     break;
                 }
             }
@@ -438,9 +419,8 @@ mod tests {
 
     #[test]
     fn scanner_ignores_mid_stream_message_stop() {
-        // message_stop inside stream_event fires after every assistant turn
-        // in a tool-use loop — must NOT be treated as completion or the
-        // watcher kills the pane before claude can process tool results.
+        // message_stop inside stream_event fires after every assistant turn in a tool-use loop — must NOT be treated as completion or the watcher
+        // kills the pane before claude can process tool results.
         let mut s = ResultEventScanner::new();
         let chunk = r#"{"type":"stream_event","event":{"type":"message_start","message":{"id":"x"}}}
 {"type":"stream_event","event":{"type":"message_stop"},"session_id":"a","uuid":"b"}"#;
@@ -548,8 +528,7 @@ mod tests {
 
     #[test]
     fn scanner_picks_up_partial_message_content_block() {
-        // --include-partial-messages emits content_block_start with the
-        // tool_use shape nested inside. We must catch that form too.
+        // --include-partial-messages emits content_block_start with the tool_use shape nested inside. We must catch that form too.
         let mut s = ResultEventScanner::new();
         let chunk = r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_PM","name":"Bash","input":{}}}}"#;
         let _ = s.feed(chunk);
@@ -561,8 +540,7 @@ mod tests {
 
     #[test]
     fn scanner_result_event_still_works_with_tool_tracking() {
-        // Sanity: extending the scanner must not break the existing
-        // top-level result detection.
+        // Sanity: extending the scanner must not break the existing top-level result detection.
         let mut s = ResultEventScanner::new();
         let _ = s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_F","name":"Bash","input":{}}]}}"#);
         let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_F","content":"ok"}]}}"#);

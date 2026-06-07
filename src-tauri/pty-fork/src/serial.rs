@@ -79,11 +79,8 @@ impl PtySystem for SerialTty {
         log::debug!("serial settings: {:#?}", port.get_configuration());
         port.set_configuration(&settings)?;
 
-        // The timeout needs to be rather short because, at least on Windows,
-        // a read with a long timeout will block a concurrent write from
-        // happening.  In wezterm we tend to have a thread looping on read
-        // while writes happen occasionally from the gui thread, and if we
-        // make this timeout too long we can block the gui thread.
+        // The timeout needs to be rather short because, at least on Windows, a read with a long timeout will block a concurrent write from happening.
+        // In wezterm we tend to have a thread looping on read while writes happen occasionally from the gui thread, and if we make this timeout too long can block the gui thread.
         port.set_read_timeout(Duration::from_millis(50))?;
         port.set_write_timeout(Duration::from_millis(50))?;
 
@@ -136,15 +133,8 @@ impl Child for SerialChild {
     }
 
     fn wait(&mut self) -> IoResult<ExitStatus> {
-        // There isn't really a child process to wait for,
-        // as the serial connection never really "dies",
-        // however, for something like a USB serial port,
-        // if it is unplugged then it logically is terminated.
-        // We read the CD (carrier detect) signal periodically
-        // to see if the device has gone away: we actually discard
-        // the CD value itself and just look for an error state.
-        // We could potentially also decide to call CD==false the
-        // same thing as the "child" completing.
+        // Serial ports may disappear (e.g. USB unplug), so we poll CD for disconnect errors.
+        // We currently treat CD errors as termination and ignore the raw CD value itself.
         loop {
             std::thread::sleep(Duration::from_secs(5));
 
@@ -220,9 +210,7 @@ impl MasterPty for Master {
     }
 
     fn try_clone_reader(&self) -> anyhow::Result<Box<dyn std::io::Read + Send>> {
-        // We rely on the fact that SystemPort implements the traits
-        // that expose the underlying file descriptor, and that direct
-        // reads from that return the raw data that we want
+        // We rely on the fact that SystemPort implements the traits that expose the underlying file descriptor, and that direct reads from that return the raw data that we want
         let fd = FileDescriptor::dup(&*self.port)?;
         Ok(Box::new(Reader { fd }))
     }
@@ -259,16 +247,12 @@ struct Reader {
 
 impl Read for Reader {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, std::io::Error> {
-        // On windows, this self.fd.read will block for up to the time we set
-        // as the timeout when we set up the port, but on unix it will
-        // never block.
+        // On windows, this self.fd.read will block for up to the time we set as the timeout when we set up the port, but on unix it will never block.
         loop {
             #[cfg(unix)]
             {
                 use filedescriptor::{poll, pollfd, AsRawSocketDescriptor, POLLIN};
-                // The serial crate puts the serial port in non-blocking mode,
-                // so we must explicitly poll for ourselves here to avoid a
-                // busy loop.
+                // The serial crate puts the serial port in non-blocking mode, so we must explicitly poll for ourselves here to avoid a busy loop.
                 let mut poll_array = [pollfd {
                     fd: self.fd.as_socket_descriptor(),
                     events: POLLIN,
@@ -280,8 +264,7 @@ impl Read for Reader {
             match self.fd.read(buf) {
                 Ok(0) => {
                     if cfg!(windows) {
-                        // Read timeout with no data available yet;
-                        // loop and try again.
+                        // Read timeout with no data available yet; loop and try again.
                         continue;
                     }
                     return Err(std::io::Error::new(

@@ -47,8 +47,7 @@ export function BroadcastToggle() {
       if (active) {
         await invoke("mesh_stop_broadcast");
       } else {
-        // Broadcast requires mesh persistence on. Flip it on first if
-        // user is currently offline and surface a hint so they know.
+        // Broadcast requires mesh persistence on. Flip it on first if user is currently offline and surface a hint so they know.
         const cfg = await invoke<AppConfigShape>("get_config");
         if (!cfg.mesh.enabled) {
           await invoke("update_config", {

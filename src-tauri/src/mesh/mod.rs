@@ -39,6 +39,10 @@ pub struct MeshManager {
     pub broadcast_expires_at: Option<u64>,
     pub tailscale_ip: Option<String>,
     pub local_ip: Option<String>,
+    /// Own `https://<host>.<tailnet>.ts.net` when `tailscale serve` fronts
+    /// the API — announced to peers so https-origin browsers can switch to
+    /// us without tripping mixed-content blocking.
+    pub local_https_url: Option<String>,
     pub api_port: u16,
     pub pairing_targets: HashMap<String, (String, u16, String)>,
     pub mdns_daemon: Option<mdns_sd::ServiceDaemon>,
@@ -81,6 +85,7 @@ impl MeshManager {
             broadcast_expires_at: None,
             tailscale_ip: None,
             local_ip: None,
+            local_https_url: None,
             api_port,
             pairing_targets: HashMap::new(),
             mdns_daemon: None,
@@ -137,11 +142,8 @@ impl MeshManager {
     // ── Status & peers ──────────────────────────────────────────────
 
     pub fn status(&self) -> MeshStatus {
-        // discovered_count must match peers_response().discovered.len() —
-        // both filter out peers that are also in paired_peers, otherwise
-        // status reports N "discovered" but peers list only shows M<N
-        // (and operators chasing the discrepancy waste time on a
-        // diagnostic-only mismatch).
+        // discovered_count must match peers_response().discovered.len() — both filter out peers that are also in paired_peers, otherwise status
+        // reports N "discovered" but peers list only shows M<N (and operators chasing the discrepancy waste time on a diagnostic-only mismatch).
         let discovered_count = self
             .discovered_peers
             .values()
@@ -433,6 +435,11 @@ impl MeshManager {
             },
             api_port: self.api_port,
             online,
+            https_url: if online {
+                self.local_https_url.clone()
+            } else {
+                None
+            },
         }
     }
 
@@ -461,10 +468,8 @@ impl MeshManager {
                 sender_id, ann.instance_id
             ));
         }
-        // Strip unparseable IPs (release/1.1.9 sanitize-on-ingest).
-        // If a v1.1.8 peer announces a poisoned address list and ALL entries
-        // fail to parse, treat as a no-op rather than blanking the cache —
-        // we'd rather keep stale-but-valid addresses than commit nothing.
+        // Strip unparseable IPs (release/1.1.9 sanitize-on-ingest). If a v1.1.8 peer announces a poisoned address list and ALL entries fail to parse,
+        // treat as a no-op rather than blanking the cache — we'd rather keep stale-but-valid addresses than commit nothing.
         let clean = types::sanitize_addresses(&ann.addresses);
         if clean.is_empty() && ann.online {
             return Ok(None);
@@ -479,6 +484,7 @@ impl MeshManager {
             peer.addresses = clean.clone();
             peer.api_port = ann.api_port;
             peer.online = ann.online;
+            peer.https_url = ann.https_url.clone();
             if !ann.instance_name.is_empty() {
                 peer.instance_name = ann.instance_name.clone();
             }
@@ -531,6 +537,7 @@ mod liveness_tests {
             is_primary: false,
             access_level: types::AccessLevel::Full,
             version: None,
+            https_url: None,
             consecutive_misses: 0,
         }
     }
@@ -551,6 +558,7 @@ mod liveness_tests {
                     addresses: Vec::new(),
                     api_port: 7685,
                     online: false,
+                    https_url: None,
                 },
             )
             .unwrap();
@@ -577,6 +585,7 @@ mod liveness_tests {
                     addresses: Vec::new(),
                     api_port: 7685,
                     online: true,
+                    https_url: None,
                 },
             )
             .unwrap();
@@ -604,6 +613,7 @@ mod liveness_tests {
                     addresses: Vec::new(),
                     api_port: 7685,
                     online: false,
+                    https_url: None,
                 },
             )
             .unwrap();
@@ -866,8 +876,7 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
         .unwrap_or_default();
     for (addresses, port, token, peer_id, peer_name) in &clients {
         report.sent += 1;
-        // STALE peer signal (404) is authoritative — short-circuit so we
-        // record it once instead of asking three IPs the same question.
+        // STALE peer signal (404) is authoritative — short-circuit so we record it once instead of asking three IPs the same question.
         let stale_marker: std::sync::Arc<parking_lot::Mutex<bool>> =
             std::sync::Arc::new(parking_lot::Mutex::new(false));
         let result = transport::try_peer(addresses, |addr| {
@@ -933,19 +942,28 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
 pub fn refresh_local_addresses(mesh: &MeshState) -> bool {
     let prev_ts = mesh.lock().tailscale_ip.clone();
     let prev_lan = mesh.lock().local_ip.clone();
+    let prev_https = mesh.lock().local_https_url.clone();
 
     discovery::detect_tailscale(mesh);
     discovery::detect_local_ip(mesh);
+    let https = if discovery::tailscale_serve_https_enabled() {
+        discovery::tailscale_self_dns_name().map(|dns| format!("https://{dns}"))
+    } else {
+        None
+    };
+    mesh.lock().local_https_url = https.clone();
 
     let new_ts = mesh.lock().tailscale_ip.clone();
     let new_lan = mesh.lock().local_ip.clone();
-    let changed = prev_ts != new_ts || prev_lan != new_lan;
+    let changed = prev_ts != new_ts || prev_lan != new_lan || prev_https != https;
     log::info!(
-        "[mesh/refresh] local addrs: tailscale {:?} -> {:?}, lan {:?} -> {:?}{}",
+        "[mesh/refresh] local addrs: tailscale {:?} -> {:?}, lan {:?} -> {:?}, https {:?} -> {:?}{}",
         prev_ts,
         new_ts,
         prev_lan,
         new_lan,
+        prev_https,
+        https,
         if changed { " (CHANGED)" } else { "" }
     );
     changed
@@ -1008,7 +1026,10 @@ mod tests {
             .insert("r1".into(), ("192.168.1.2".into(), 7685, "peer-a".into()));
 
         m.cleanup_expired_requests_at(1000 + 301);
-        let r = m.pending_requests.get("r1").expect("retained for visibility");
+        let r = m
+            .pending_requests
+            .get("r1")
+            .expect("retained for visibility");
         assert_eq!(r.status, types::PairingStatus::Expired);
         assert!(m.pairing_targets.contains_key("r1"));
         assert_eq!(m.pending_request_count(), 0, "expired must not count");
@@ -1054,6 +1075,7 @@ mod tests {
             is_primary: false,
             access_level: types::AccessLevel::Full,
             version: None,
+            https_url: None,
             consecutive_misses: 0,
         };
         m.paired_peers.insert(peer_id.into(), peer);
@@ -1069,6 +1091,7 @@ mod tests {
             addresses: vec![PeerAddress::from_ip("100.99.99.99")],
             api_port: 7777,
             online: true,
+            https_url: None,
         };
         let prev = m
             .apply_announce("peer-A", &ann)
@@ -1082,6 +1105,33 @@ mod tests {
     }
 
     #[test]
+    fn apply_announce_stores_and_clears_https_url() {
+        let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
+        let with_https = PeerAnnounce {
+            instance_id: "peer-A".into(),
+            instance_name: "TestPeer".into(),
+            addresses: vec![PeerAddress::from_ip("100.64.0.5")],
+            api_port: 7685,
+            online: true,
+            https_url: Some("https://peer-a.tail.ts.net".into()),
+        };
+        m.apply_announce("peer-A", &with_https).expect("ok");
+        assert_eq!(
+            m.paired_peers["peer-A"].https_url.as_deref(),
+            Some("https://peer-a.tail.ts.net")
+        );
+
+        // Peer turned tailscale serve off — the next announce must clear it,
+        // or browsers would keep targeting a dead https endpoint.
+        let without = PeerAnnounce {
+            https_url: None,
+            ..with_https
+        };
+        m.apply_announce("peer-A", &without).expect("ok");
+        assert_eq!(m.paired_peers["peer-A"].https_url, None);
+    }
+
+    #[test]
     fn apply_announce_rejects_spoofed_sender() {
         let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
         let ann = PeerAnnounce {
@@ -1090,6 +1140,7 @@ mod tests {
             addresses: vec![PeerAddress::from_ip("100.99.99.99")],
             api_port: 7685,
             online: true,
+            https_url: None,
         };
         // Sender token says "peer-B" but body says "peer-A" — reject.
         let err = m.apply_announce("peer-B", &ann).unwrap_err();
@@ -1109,6 +1160,7 @@ mod tests {
             addresses: vec![],
             api_port: 7685,
             online: true,
+            https_url: None,
         };
         let res = m.apply_announce("peer-A", &ann).expect("ok");
         assert!(res.is_none(), "empty list does not clear cache");
@@ -1124,6 +1176,7 @@ mod tests {
             addresses: vec![PeerAddress::from_ip("100.64.0.5")],
             api_port: 7685,
             online: true,
+            https_url: None,
         };
         let res = m.apply_announce("peer-A", &ann).expect("ok");
         assert!(res.is_none(), "identical list reports no change");
@@ -1207,12 +1260,12 @@ mod tests {
             is_primary: false,
             access_level: types::AccessLevel::Full,
             version: None,
+            https_url: None,
             consecutive_misses: 0,
         };
         m.paired_peers.insert("peer-A".into(), peer);
 
-        // We can't easily inspect PeerClient's URL — but we can verify the
-        // address selection by reading addresses directly.
+        // can't easily inspect PeerClient's URL — but can verify the address selection by reading addresses directly.
         let picked = m.paired_peers["peer-A"]
             .addresses
             .iter()

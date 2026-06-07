@@ -245,6 +245,7 @@ pub fn build_session(
     cmd.env("CODETERM", "1");
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    cmd.env("CLICOLOR", "1");
     cmd.env("TERM_PROGRAM", "CodeTerm");
     cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
 
@@ -263,6 +264,7 @@ pub fn build_session(
     }
 
     cmd.env_remove("CLAUDECODE");
+    cmd.env_remove("NO_COLOR");
 
     let child = pair
         .slave
@@ -378,9 +380,8 @@ impl PtyManager {
             }
             Err(e) => log::warn!("PTY {} child mutex poisoned during kill: {}", pty_id, e),
         }
-        // Reap in background — wait() can block indefinitely if descendants
-        // ignore SIGKILL or zombie isn't reaped promptly. Move session
-        // ownership to background thread so PTY lock is released immediately.
+        // Reap in background — wait() can block indefinitely if descendants ignore SIGKILL or zombie isn't reaped promptly. Move session ownership to
+        // background thread so PTY lock is released immediately.
         let id = pty_id.to_string();
         std::thread::spawn(move || {
             match session.child.lock() {
@@ -416,18 +417,27 @@ impl PtyManager {
         pty_id: &str,
     ) -> Option<tokio::sync::mpsc::Sender<Vec<u8>>> {
         let session = self.sessions.get(pty_id)?;
+        if let Some(existing) = session.backend_reader_tx.lock().unwrap().clone() {
+            return Some(existing);
+        }
         let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(Self::BACKEND_CHANNEL_CAPACITY);
         *session.backend_reader_tx.lock().unwrap() = Some(tx.clone());
         *session.backend_reader_rx.lock().unwrap() = Some(rx);
         Some(tx)
+    }
+
+    pub fn has_backend_reader(&self, pty_id: &str) -> bool {
+        self.sessions
+            .get(pty_id)
+            .and_then(|session| session.backend_reader_tx.lock().unwrap().clone())
+            .is_some()
     }
 }
 
 fn detect_default_shell() -> String {
     #[cfg(target_os = "windows")]
     {
-        // Avoid the WindowsApps stub for pwsh.exe — Store loader serialises
-        // ConPTY spawns for 10–30s. Prefer real installs.
+        // Avoid the WindowsApps stub for pwsh.exe — Store loader serialises ConPTY spawns for 10–30s. Prefer real installs.
         let candidates = [
             r"C:\Program Files\PowerShell\7\pwsh.exe",
             r"C:\Program Files (x86)\PowerShell\7\pwsh.exe",

@@ -46,10 +46,8 @@ pub(crate) fn install_bundled_cli(app: &tauri::App) {
         let dest_dir = home.join(".codeterm").join("bin");
         let dest = dest_dir.join(bin_name);
 
-        // Skip iff destination already matches the bundle by content (sha256), not size.
-        // Two different release builds can produce same-sized binaries with different
-        // content; size-only check silently leaves a stale CLI in PATH (the v1.1.5→1.1.6
-        // incident: same 7334912 bytes, different hashes, mesh signing broke).
+        // Skip iff destination already matches the bundle by content (sha256), not size. Two different release builds can produce same-sized binaries
+        // with different content; size-only check silently leaves a stale CLI in PATH (the v1.1.5→1.1.6 incident: same 7334912 bytes, different hashes, mesh signing broke).
         if dest.exists() {
             match (file_sha256(&src), file_sha256(&dest)) {
                 (Some(src_hash), Some(dest_hash)) if src_hash == dest_hash => {
@@ -92,12 +90,8 @@ pub(crate) fn install_bundled_cli(app: &tauri::App) {
                 {
                     use std::os::unix::fs::PermissionsExt;
                     let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
-                    // Symlink to ~/.local/bin/ for PATH access (user-local, no sudo).
-                    // If a symlink already exists but points elsewhere (typically
-                    // the .app launcher from a Homebrew cask or older install),
-                    // repair it — otherwise `codeterm <subcommand>` from PATH
-                    // hits the launcher, which boots the daemon and exits 0
-                    // without parsing the subcommand. See repo issue #30.
+                    // Repair stale ~/.local/bin symlinks (e.g. old launcher) so PATH calls hit this install.
+                    // Otherwise PATH dispatch can no-op by re-entering the daemon launcher.
                     let local_bin = home.join(".local").join("bin");
                     let _ = std::fs::create_dir_all(&local_bin);
                     let link = local_bin.join("codeterm");
@@ -121,8 +115,7 @@ pub(crate) fn install_bundled_cli(app: &tauri::App) {
                             }
                         }
                         Ok(_) => {
-                            // Regular file or directory — user/installer placed
-                            // a real binary here. Don't clobber; log and skip.
+                            // Regular file or directory — user/installer placed a real binary here. Don't clobber; log and skip.
                             log::warn!(
                                 "[cli-install] {} exists and is not a symlink; refusing to replace",
                                 link.display()
@@ -206,8 +199,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let a = dir.path().join("a.bin");
         let b = dir.path().join("b.bin");
-        // Two files of identical length but different content — exactly the v1.1.5/1.1.6
-        // failure mode that defeated the old size-only skip.
+        // Two files of identical length but different content — exactly the v1.1.5/1.1.6 failure mode that defeated the old size-only skip.
         std::fs::File::create(&a)
             .unwrap()
             .write_all(&[0u8; 64])

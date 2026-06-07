@@ -185,6 +185,93 @@ test("@golden themes list is a non-empty name array", async () => {
   expect(res.themes).toContain("github-dark");
 });
 
+// ── uploads (browser attachments / voice notes) ──────────────────────
+
+test("@golden upload round-trip: multipart in, exact bytes back via serve-file", async () => {
+  const content = `pw-upload-${Date.now()}`;
+  const form = new FormData();
+  form.append("file", new Blob([content], { type: "text/plain" }), "pw upload (тест).txt");
+  const res = await fetch(`${API_BASE}/api/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${readDevToken()}` },
+    body: form,
+    signal: AbortSignal.timeout(15_000),
+  });
+  expect(res.status).toBe(200);
+  const { path, size } = (await res.json()) as { path: string; size: number };
+  expect(size).toBe(content.length);
+  expect(path).toContain("uploads");
+  // Sanitizer: nothing shell-hostile survives in the stored name.
+  const stored = path.split(/[\\/]/).pop()!;
+  expect(stored).toMatch(/^[A-Za-z0-9._-]+$/);
+
+  // Uploads live inside the data dir, so serve-file can hand them back.
+  const back = await fetch(
+    `${API_BASE}/api/serve-file?path=${encodeURIComponent(path)}`,
+    { headers: { Authorization: `Bearer ${readDevToken()}` } },
+  );
+  expect(back.status).toBe(200);
+  expect(await back.text()).toBe(content);
+});
+
+test("@golden upload rejects a missing file field and missing auth", async () => {
+  const form = new FormData();
+  form.append("not-file", new Blob(["x"]), "x.txt");
+  const res = await fetch(`${API_BASE}/api/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${readDevToken()}` },
+    body: form,
+    signal: AbortSignal.timeout(15_000),
+  });
+  expect(res.status).toBe(400);
+
+  const unauth = await fetch(`${API_BASE}/api/upload`, {
+    method: "POST",
+    body: new FormData(),
+    signal: AbortSignal.timeout(15_000),
+  });
+  expect(unauth.status).toBe(401);
+});
+
+// ── fs browse (web folder picker) ────────────────────────────────────
+
+test("@golden fs list-dir + mkdir: browse, create, conflict, validation", async () => {
+  const home = await raw("GET", "/api/fs/list-dir");
+  expect(home.status).toBe(200);
+  const listing = JSON.parse(home.body) as { path: string; entries: unknown[]; roots: unknown[] };
+  expect(listing.path.length).toBeGreaterThan(0);
+  expect(Array.isArray(listing.entries)).toBe(true);
+  expect(listing.roots.length).toBeGreaterThan(0);
+
+  // Create under the OS temp dir — never touch real user folders.
+  const tmpBase = JSON.parse(
+    (await raw("GET", `/api/fs/list-dir?path=${encodeURIComponent(process.env.TEMP ?? "/tmp")}`)).body,
+  ) as { path: string };
+  const name = `pw-mkdir-${Date.now()}`;
+  const created = await raw("POST", "/api/fs/mkdir", { body: { parent: tmpBase.path, name } });
+  expect(created.status).toBe(200);
+  const createdPath = (JSON.parse(created.body) as { path: string }).path;
+  expect(createdPath).toContain(name);
+
+  // The new folder is listable and empty.
+  const inside = await raw("GET", `/api/fs/list-dir?path=${encodeURIComponent(createdPath)}`);
+  expect(inside.status).toBe(200);
+  expect((JSON.parse(inside.body) as { entries: unknown[] }).entries).toHaveLength(0);
+
+  // Conflict and validation are honest errors, not silent successes.
+  const dup = await raw("POST", "/api/fs/mkdir", { body: { parent: tmpBase.path, name } });
+  expect(dup.status).toBe(409);
+  for (const bad of ["", "..", "a/b", "x:y"]) {
+    const r = await raw("POST", "/api/fs/mkdir", { body: { parent: tmpBase.path, name: bad } });
+    expect(r.status, `name ${JSON.stringify(bad)}`).toBe(400);
+  }
+  const unauth = await raw("POST", "/api/fs/mkdir", {
+    token: null,
+    body: { parent: tmpBase.path, name: "nope" },
+  });
+  expect(unauth.status).toBe(401);
+});
+
 test("@golden sessions search answers with a hits array for any query", async () => {
   const res = await api.get<{ hits: unknown[] }>(
     "/sessions/search?q=pw-definitely-unmatched-term",

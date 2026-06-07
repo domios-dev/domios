@@ -1,6 +1,6 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { listen } from "../../lib/bridge";
+import { IS_WEB, listen } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
 import {
   useXterm,
@@ -11,10 +11,18 @@ import {
   useTerminalInput,
   useAgentDetection,
   useTauriFileDrop,
+  useTouchScroll,
 } from "../../hooks/terminal";
 import { quotePathForPaste, routeClipboardToTerm } from "../../lib/clipboardPaste";
 import { registerPanePaste } from "../../lib/panePasteRegistry";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
+import {
+  getClientPaneUiMode,
+  listenClientPaneUiMode,
+  setClientPaneUiMode,
+} from "../../lib/clientPaneUiMode";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
+import { TerminalKeyBar } from "./TerminalKeyBar";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
 import { PaneSessionChat } from "./PaneSessionChat";
@@ -25,6 +33,7 @@ import {
   type PaneUiMode,
 } from "../../lib/chatUiMode";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
+import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
 
 interface TerminalPaneProps {
   paneId: string;
@@ -56,17 +65,69 @@ export function TerminalPane({
   const { state, updatePaneStatus } = useMultiplexer();
   const pane = state.panes[paneId];
   const agentType = pane?.agent_type;
+  // No session-readiness gate: PaneSessionChat renders an empty chat for fresh
+  // panes and binds the session when the mux reports its id.
   const chatSupported = isChatUiSupported(agentType);
-  const sessionReadyForChat = Boolean(pane?.agent_session_id);
+  const [mobileWebDefaultChat, setMobileWebDefaultChat] = useState(() =>
+    IS_WEB && typeof window !== "undefined" && window.matchMedia("(max-width: 700px)").matches,
+  );
+
+  useEffect(() => {
+    if (!IS_WEB || typeof window === "undefined") return;
+    const query = window.matchMedia("(max-width: 700px)");
+    const update = () => setMobileWebDefaultChat(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  const shouldDefaultToChat =
+    shouldDefaultNewAgentPaneToChat(agentType) ||
+    (mobileWebDefaultChat && chatSupported);
 
   // --- Terminal lifecycle ---
   const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
     containerRef, theme, fontConfig, terminalConfig,
   });
 
+  // --- UI state ---
+  const [uiMode, setUiMode] = useState<PaneUiMode>(() => (
+    chatSupported
+      && (getClientPaneUiMode(paneId) ?? (shouldDefaultToChat ? "chat" : "terminal")) === "chat"
+      ? "chat"
+      : "terminal"
+  ));
+  const userModeOverrideRef = useRef<PaneUiMode | null>(null);
+  const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
+  const terminalOwnsLivePty = !IS_WEB || terminalVisible;
+  const resizeClientId = useMemo(() => getResizeClientId(), []);
+  const claimTerminalOwnership = useCallback(() => {
+    if (!terminalOwnsLivePty) return;
+    const term = termRef.current;
+    const ptyIdNow = connectedPtyRef.current ?? ptyId ?? null;
+    if (!term || !ptyIdNow || term.cols <= 0 || term.rows <= 0) return;
+    void claimResizeOwner(paneId, ptyIdNow, resizeClientId, term.cols, term.rows)
+      .then(() => invoke("resize_pty", {
+        ptyId: ptyIdNow,
+        cols: term.cols,
+        rows: term.rows,
+        clientId: resizeClientId,
+      }))
+      .catch(() => {});
+  }, [paneId, ptyId, resizeClientId, terminalOwnsLivePty, termRef, connectedPtyRef]);
+
   // --- Resize handling ---
   const { jiggleResize } = useTerminalResize({
-    containerRef, termRef, fitAddonRef, connectedPtyRef, termReady, isFocused,
+    containerRef,
+    termRef,
+    fitAddonRef,
+    connectedPtyRef,
+    termReady,
+    isFocused,
+    resizeEnabled: terminalVisible,
+    resizeClientId,
   });
 
   // --- Shell integration (readiness, CWD, pending commands) ---
@@ -80,7 +141,7 @@ export function TerminalPane({
   });
 
   // --- PTY connection ---
-  usePtyConnection({
+  const { writePty } = usePtyConnection({
     termRef, fitAddonRef, connectedPtyRef, paneId, ptyId, termReady,
     onPtySpawned,
     onShellReady: shell.markReady,
@@ -89,23 +150,24 @@ export function TerminalPane({
       completion.feedOutput(text);
     },
     jiggleResize,
+    localFitEnabled: terminalVisible,
+    ioEnabled: terminalOwnsLivePty,
+    resizeClientId,
   });
 
   // --- Agent detection ---
   useAgentDetection({ termRef, paneId, termReady });
 
-  // --- UI state ---
-  const [uiMode, setUiMode] = useState<PaneUiMode>(() => (
-    chatSupported
-      && sessionReadyForChat
-      && (pane?.chat_view || shouldDefaultNewAgentPaneToChat(agentType))
-      ? "chat"
-      : "terminal"
-  ));
-  const userModeOverrideRef = useRef<PaneUiMode | null>(null);
-  const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
+  // --- Touch swipe scrolling (xterm has no native touch scroll) ---
+  useTouchScroll({ containerRef, termRef, termReady });
+
+  const touchUi = useTouchOptimizedUi();
+  const showTerminalKeyBar = touchUi && uiMode === "terminal" && termReady;
+  const fallbackChat = uiMode === "chat" && terminalFallbackOpen;
+  const mobileSheet = fallbackChat && touchUi;
+  const SHEET_TOP = "calc(var(--ct-safe-top, 0px) + 0.75rem)";
+  const SHEET_HEADER = "2.5rem";
+  const SHEET_FOOTER = "3.75rem";
 
   useEffect(() => {
     if (uiMode !== "chat") {
@@ -114,17 +176,29 @@ export function TerminalPane({
   }, [paneId, uiMode]);
 
   useEffect(() => {
+    if (isFocused && terminalOwnsLivePty) {
+      claimTerminalOwnership();
+    }
+  }, [isFocused, terminalOwnsLivePty, claimTerminalOwnership]);
+
+  useEffect(() => {
     const defaultMode: PaneUiMode = chatSupported
-      && sessionReadyForChat
-      && (pane?.chat_view || shouldDefaultNewAgentPaneToChat(agentType))
+      && ((getClientPaneUiMode(paneId) ?? (shouldDefaultToChat ? "chat" : "terminal")) === "chat")
       ? "chat"
       : "terminal";
     const desiredMode = userModeOverrideRef.current ?? defaultMode;
     setUiMode((mode) => mode === desiredMode ? mode : desiredMode);
-    if (desiredMode === "chat" && !pane?.chat_view) {
-      void invoke("mux_set_chat_view", { paneId, enabled: true }).catch(() => {});
-    }
-  }, [agentType, chatSupported, sessionReadyForChat, pane?.chat_view, paneId]);
+  }, [agentType, chatSupported, paneId, shouldDefaultToChat]);
+
+  useEffect(() => listenClientPaneUiMode(paneId, (mode) => {
+    userModeOverrideRef.current = mode;
+    setUiMode(mode === "chat" && !chatSupported ? "terminal" : mode);
+  }), [paneId, chatSupported]);
+
+  // The client-mode store records EXPLICIT choices only (user toggles, spawn
+  // default, bridge requests). Persisting every computed uiMode here used to
+  // erase the spawn-flow's "chat" with the pre-agent_type "terminal" and its
+  // echo got recorded as a user override — pinning new panes to terminal.
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -133,8 +207,8 @@ export function TerminalPane({
       setTerminalFallbackOpen(false);
       const requested = event.detail.mode;
       userModeOverrideRef.current = requested;
-      void invoke("mux_set_chat_view", { paneId, enabled: requested === "chat" }).catch(() => {});
-      if (requested === "chat" && (!chatSupported || !sessionReadyForChat)) {
+      setClientPaneUiMode(paneId, requested);
+      if (requested === "chat" && !chatSupported) {
         setUiMode("terminal");
         return;
       }
@@ -142,13 +216,10 @@ export function TerminalPane({
     };
     window.addEventListener("codeterm-pane-ui-mode", handler);
     return () => window.removeEventListener("codeterm-pane-ui-mode", handler);
-  }, [paneId, chatSupported, sessionReadyForChat]);
+  }, [paneId, chatSupported]);
 
-  // --- Tauri native drag-drop (provides real file paths, no byte copy) ---
-  // Routes through term.paste so xterm wraps with bracketed-paste markers
-  // only when the running app has enabled bracketed mode — same single
-  // pipeline as keyboard paste. Suppressed when chat is on top so drops
-  // fall into the composer instead.
+  // Tauri file-drop uses the same `term.paste` path as keyboard paste.
+  // Bracketed-paste rules stay active when chat is off.
   const { isDragOver: isFileDragOver } = useTauriFileDrop({
     containerRef,
     enabled: termReady && uiMode === "terminal",
@@ -159,9 +230,7 @@ export function TerminalPane({
     },
   });
 
-  // Tracks "user is dragging non-file content (text from another app) over
-  // this pane". Tauri's drag-drop covers FILE drags, HTML dragenter covers
-  // everything else (selected text from a browser, etc.). Combined visually.
+  // Track non-file drag overlay too (browser text drags). Tauri handles files, HTML dragenter handles text.
   const [isTextDragOver, setIsTextDragOver] = useState(false);
   const showDropOverlay = (isFileDragOver || isTextDragOver) && termReady && uiMode === "terminal";
 
@@ -173,14 +242,9 @@ export function TerminalPane({
     onInputData: completion.feedInput,
   });
 
-  // Force xterm refit + repaint + PTY resize on return-from-chat. Belt-
-  // and-suspenders on top of visibility:hidden — if anything (a stale
-  // ResizeObserver tick, a layout race) left xterm with the wrong
-  // dimensions while it was off-screen, this restores them and
-  // re-renders the visible region. Triggered on the *transition* into
-  // terminal mode only, not on every render.
+  // Refit xterm when the terminal layout changes so rows match the actual terminal box.
   useEffect(() => {
-    if (uiMode !== "terminal" || !termReady) return;
+    if (!terminalVisible || !termReady) return;
     const raf = requestAnimationFrame(() => {
       const term = termRef.current;
       const fit = fitAddonRef.current;
@@ -190,13 +254,20 @@ export function TerminalPane({
         term.refresh(0, term.rows - 1);
         const ptyId = connectedPtyRef.current;
         if (ptyId && term.cols > 0 && term.rows > 0) {
-          void invoke("resize_pty", { ptyId, cols: term.cols, rows: term.rows });
+          void claimResizeOwner(paneId, ptyId, resizeClientId, term.cols, term.rows)
+            .then(() => invoke("resize_pty", {
+              ptyId,
+              cols: term.cols,
+              rows: term.rows,
+              clientId: resizeClientId,
+            }))
+            .catch(() => {});
         }
       } catch { /* ignore */ }
       termRef.current?.focus();
     });
     return () => cancelAnimationFrame(raf);
-  }, [uiMode, termReady, termRef, fitAddonRef, connectedPtyRef]);
+  }, [terminalVisible, showTerminalKeyBar, termReady, paneId, resizeClientId, termRef, fitAddonRef, connectedPtyRef]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || !termReady) return;
@@ -209,13 +280,20 @@ export function TerminalPane({
         term.refresh(0, term.rows - 1);
         const ptyId = connectedPtyRef.current;
         if (ptyId && term.cols > 0 && term.rows > 0) {
-          void invoke("resize_pty", { ptyId, cols: term.cols, rows: term.rows });
+          void claimResizeOwner(paneId, ptyId, resizeClientId, term.cols, term.rows)
+            .then(() => invoke("resize_pty", {
+              ptyId,
+              cols: term.cols,
+              rows: term.rows,
+              clientId: resizeClientId,
+            }))
+            .catch(() => {});
         }
       } catch { /* ignore */ }
       term.focus();
     });
     return () => cancelAnimationFrame(raf);
-  }, [terminalFallbackOpen, termReady, termRef, fitAddonRef, connectedPtyRef]);
+  }, [terminalFallbackOpen, termReady, paneId, resizeClientId, termRef, fitAddonRef, connectedPtyRef]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || uiMode !== "chat") return;
@@ -224,7 +302,8 @@ export function TerminalPane({
       if (!target) return;
       if (
         target instanceof Element
-        && target.closest("[data-terminal-fallback-toggle='true']")
+        && (target.closest("[data-terminal-fallback-toggle='true']")
+          || target.closest("[data-terminal-keys='true']"))
       ) {
         return;
       }
@@ -240,8 +319,9 @@ export function TerminalPane({
 
   const handleClick = useCallback(() => {
     onFocus?.(paneId);
+    claimTerminalOwnership();
     termRef.current?.focus();
-  }, [onFocus, paneId, termRef]);
+  }, [onFocus, paneId, termRef, claimTerminalOwnership]);
 
   // --- Pane status events ---
   useEffect(() => {
@@ -264,12 +344,8 @@ export function TerminalPane({
     return () => window.removeEventListener("codeterm-toggle-search", handler);
   }, [paneId]);
 
-  // --- App-wide paste routing ---
-  // Register this pane's paste fn in the global registry so App.tsx's
-  // window-level Ctrl+V handler can target whichever pane is currently
-  // focused, regardless of where the inner DOM focus is. Synchronous
-  // function-call lookup — no event bus race, no remount window where
-  // the dispatch falls into a void.
+  // Register this pane in global paste registry so app-level Ctrl/Cmd+V always targets focused pane.
+  // Direct function lookup avoids event-bus race conditions and remount windows.
   useEffect(() => {
     return registerPanePaste(paneId, () => {
       const term = termRef.current;
@@ -294,6 +370,7 @@ export function TerminalPane({
     : hasSplits && isFocused
       ? "var(--ct-muted-fg, #8b949e)"
       : "transparent";
+  const terminalKeyBar = <TerminalKeyBar onSendKey={writePty} className="w-full" />;
 
   // --- Render ---
   return (
@@ -308,26 +385,18 @@ export function TerminalPane({
       onMouseDown={handleClick}
       onContextMenu={handleContextMenu}
       onDragEnter={(e) => {
-        // Only flip for drags carrying actual draggable data — ignores DOM
-        // drag interactions from internal UI (resizing splits, etc.) which
-        // don't put anything on `dataTransfer.types`.
+        // Only set overlay for real drags with transferable data.
         if (e.dataTransfer.types.length > 0) setIsTextDragOver(true);
       }}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
       onDragLeave={(e) => {
-        // dragleave fires when moving between children too. Only clear when
-        // the cursor truly leaves the pane bounds — relatedTarget is null
-        // (or outside `currentTarget`) on a real exit.
+        // Clear overlay only when the cursor leaves pane bounds.
         if (!e.relatedTarget || !(e.currentTarget as Node).contains(e.relatedTarget as Node)) {
           setIsTextDragOver(false);
         }
       }}
       onDrop={(e) => {
-        // File drops are handled by Tauri's native drag-drop (useTauriFileDrop).
-        // This handler covers plain-text drops (drag selection from browser,
-        // etc.). Routes through term.paste so the bracketed-paste wrap is
-        // governed by xterm's live mode state — same pipeline as every
-        // other paste path.
+        // Text-only drags go through term.paste to keep bracketed mode.
         e.preventDefault();
         e.stopPropagation();
         setIsTextDragOver(false);
@@ -348,34 +417,88 @@ export function TerminalPane({
         />
       )}
 
-      {/* xterm container — always mounted at full size so the FitAddon
-          never sees a 0×0 box (display:none triggers ResizeObserver with
-          clientWidth=0 → fit() reshapes to 1 column → garbled buffer on
-          return). visibility:hidden preserves layout dimensions so xterm
-          stays correctly sized while the chat view is on top. */}
+      {/* Keep the xterm mount node stable. xterm is opened once into containerRef; remounting that node breaks viewport sizing. */}
       <div
-        ref={containerRef}
-        className="absolute inset-0"
+        className={showTerminalKeyBar
+          ? "absolute inset-0 grid grid-rows-[minmax(0,1fr)_auto] overflow-hidden"
+          : "absolute"
+        }
         style={{
-          padding: 8,
-          opacity: shell.overlayVisible ? 0 : 1,
-          transition: "opacity 0.3s ease-in",
-          top: uiMode === "chat" && terminalFallbackOpen ? "auto" : 0,
-          right: uiMode === "chat" && terminalFallbackOpen ? 12 : 0,
-          bottom: uiMode === "chat" && terminalFallbackOpen ? 104 : 0,
-          left: uiMode === "chat" && terminalFallbackOpen ? 12 : 0,
-          height: uiMode === "chat" && terminalFallbackOpen ? "min(42vh, 360px)" : "auto",
-          borderRadius: uiMode === "chat" && terminalFallbackOpen ? 6 : 0,
-          border: uiMode === "chat" && terminalFallbackOpen
+          top: showTerminalKeyBar
+            ? undefined
+            : mobileSheet
+              ? `calc(${SHEET_TOP} + ${SHEET_HEADER})`
+              : fallbackChat ? "auto" : 0,
+          right: showTerminalKeyBar ? undefined : fallbackChat ? (mobileSheet ? 10 : 12) : 0,
+          bottom: showTerminalKeyBar
+            ? undefined
+            : mobileSheet
+              ? `calc(0.75rem + ${SHEET_FOOTER})`
+              : fallbackChat
+                ? "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))"
+                : 0,
+          left: showTerminalKeyBar ? undefined : fallbackChat ? (mobileSheet ? 10 : 12) : 0,
+          height: !showTerminalKeyBar && fallbackChat && !mobileSheet ? "min(38dvh, 320px)" : undefined,
+          borderRadius: mobileSheet ? 0 : fallbackChat ? 6 : 0,
+          border: fallbackChat
             ? "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)"
             : "none",
+          borderTop: mobileSheet ? "none" : undefined,
+          borderBottom: mobileSheet ? "none" : undefined,
           background: "var(--ct-bg, #0d1117)",
-          visibility: uiMode === "terminal" || terminalFallbackOpen ? "visible" : "hidden",
-          pointerEvents: uiMode === "terminal" || terminalFallbackOpen ? "auto" : "none",
+          visibility: terminalVisible ? "visible" : "hidden",
+          pointerEvents: terminalVisible ? "auto" : "none",
           zIndex: terminalFallbackOpen ? 4 : uiMode === "terminal" ? 1 : 0,
+          animation: mobileSheet ? "ct-sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1)" : undefined,
         }}
-        onClick={() => termRef.current?.focus()}
-      />
+      >
+        {/* Padding lives on this frame, not on the xterm parent: FitAddon sizes
+            rows from the mount node's box and is blind to the parent's own padding. */}
+        <div
+          className={showTerminalKeyBar
+            ? "min-h-0 min-w-0 overflow-hidden"
+            : "absolute inset-0 overflow-hidden"
+          }
+          style={{
+            padding: 8,
+            paddingTop: touchUi && uiMode === "terminal"
+              ? "calc(1.25rem + var(--ct-safe-top, 0px))"
+              : 8,
+            opacity: shell.overlayVisible ? 0 : 1,
+            transition: "opacity 0.3s ease-in",
+            background: "var(--ct-bg, #0d1117)",
+          }}
+          onClick={() => termRef.current?.focus()}
+        >
+          <div ref={containerRef} className="terminal-xterm-host w-full h-full" />
+        </div>
+        {showTerminalKeyBar && (
+          <div
+            className="min-w-0 border-t px-2 pt-2"
+            style={{
+              paddingBottom: "var(--ct-composer-bottom-padding, 0.5rem)",
+              borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 24%, transparent)",
+              background: "var(--ct-bg, #0d1117)",
+            }}
+          >
+            {terminalKeyBar}
+          </div>
+        )}
+      </div>
+
+      {mobileSheet && (
+        <div
+          className="absolute inset-0"
+          style={{
+            zIndex: 3,
+            background: "rgba(0, 0, 0, 0.6)",
+            backdropFilter: "blur(2px)",
+            WebkitBackdropFilter: "blur(2px)",
+            animation: "ct-backdrop-in 160ms ease-out",
+          }}
+        />
+      )}
+
       {/* Chat is conditionally mounted so the per-pane tailer thread on
           the backend only starts when the user actually flipped into
           chat mode — not for every pane in the workspace. */}
@@ -384,7 +507,8 @@ export function TerminalPane({
           <PaneSessionChat
             paneId={paneId}
             onError={() => {
-              void invoke("mux_set_chat_view", { paneId, enabled: false }).catch(() => {});
+              // Automatic fallback, NOT a user choice: never write the
+              // client-mode store here or the pane gets pinned to terminal.
               setUiMode("terminal");
             }}
             onOpenTerminalFallback={() => {
@@ -402,12 +526,13 @@ export function TerminalPane({
         </div>
       )}
 
-      {uiMode === "chat" && terminalFallbackOpen && (
+      {fallbackChat && !mobileSheet && (
         <div ref={fallbackShellRef} className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
           <div
             className="absolute left-3 right-3 h-7 flex items-center justify-between px-2 rounded-t-md pointer-events-auto"
             style={{
-              bottom: "calc(104px + min(42vh, 360px))",
+              bottom:
+                "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem) + min(38dvh, 320px))",
               background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
               color: "var(--ct-fg, #c9d1d9)",
               border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
@@ -428,6 +553,64 @@ export function TerminalPane({
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {mobileSheet && (
+        <div ref={fallbackShellRef} className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
+          {/* Sheet header: grabber, live title, native Done */}
+          <div
+            className="absolute pointer-events-auto flex items-center justify-between px-3"
+            style={{
+              top: SHEET_TOP,
+              left: 10,
+              right: 10,
+              height: SHEET_HEADER,
+              background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
+              border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+              borderBottom: "none",
+              borderRadius: "14px 14px 0 0",
+              boxShadow: "0 -8px 40px rgba(0,0,0,0.5)",
+              animation: "ct-sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1)",
+            }}
+          >
+            <div
+              className="absolute left-1/2 -translate-x-1/2 top-1.5 h-1 w-9 rounded-full"
+              style={{ background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 35%, transparent)" }}
+            />
+            <span className="flex items-center gap-1.5 text-xs font-mono pt-1.5" style={{ color: "var(--ct-fg, #c9d1d9)" }}>
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--ct-green, #3fb950)" }} />
+              terminal
+            </span>
+            <button
+              type="button"
+              data-testid="terminal-sheet-done"
+              className="h-10 px-2 -mr-2 pt-1.5 text-sm font-medium select-none touch-manipulation active:opacity-60"
+              style={{ background: "transparent", border: "none", color: "var(--ct-accent, #58a6ff)" }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setTerminalFallbackOpen(false)}
+            >
+              Done
+            </button>
+          </div>
+          {/* Sheet footer: integrated key bar */}
+          <div
+            className="absolute pointer-events-auto px-3 pt-2"
+            style={{
+              bottom: "0.75rem",
+              left: 10,
+              right: 10,
+              height: SHEET_FOOTER,
+              background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
+              border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+              borderTop: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",
+              borderRadius: "0 0 14px 14px",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
+              animation: "ct-sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1)",
+            }}
+          >
+            {terminalKeyBar}
           </div>
         </div>
       )}

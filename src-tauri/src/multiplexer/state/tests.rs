@@ -77,17 +77,12 @@ fn test_create_tab_invalid_workspace() {
     assert!(result.is_err());
 }
 
-// split_pane removed — every tab now owns exactly one pane. The
-// regression tests that exercised split tree construction / collapse
-// went with it; close_pane behavior is now covered by close_tab tests
-// further down.
+// split_pane removed: each tab owns one pane.
+// Regressions are covered by close_tab-focused tests below.
 
 #[test]
 fn test_close_pane_preserves_active_tab_when_unrelated_single_leaf_tab_closes() {
-    // Regression: hidden usage-probe panes are single-leaf tabs. When such a
-    // probe finishes and closes its tab, the workspace's active_tab_id must
-    // stay pinned on whatever the user was viewing — NOT silently flip to
-    // ws.tabs.last(). The old code unconditionally reassigned to last().
+    // Probe tabs are single-leaf; closing them must keep the current active tab, not switch to ws.tabs.last().
     let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     let (tab2_id, _) = state.create_tab(&ws_id).unwrap();
@@ -127,8 +122,8 @@ fn test_close_pane_returns_pty_id() {
 
 #[test]
 fn test_close_pane_clears_focus_when_no_general() {
-    // No `general` alias registered → fallback finds nothing → focus drops to None.
-    // Matches old behavior so existing callers without General are unaffected.
+    // No general alias -> focus becomes None after closing the pane.
+    // Preserves behavior for callers that still rely on this fallback.
     let (mut state, _initial_pane_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     let (_tab, new_pane_id) = state.create_tab(&ws_id).unwrap();
@@ -142,8 +137,7 @@ fn test_close_pane_clears_focus_when_no_general() {
 
 #[test]
 fn test_close_pane_falls_back_to_general() {
-    // With `general` alias registered, closing the focused pane moves focus to
-    // the General orchestrator pane instead of leaving the UI deselected.
+    // With `general` alias registered, closing the focused pane moves focus to the General orchestrator pane instead of leaving the UI deselected.
     let (mut state, general_pane_id) = MultiplexerState::new();
     state.register_alias("general", &general_pane_id);
 
@@ -361,8 +355,7 @@ fn test_worker_parent_must_allow_spawn() {
 
 #[test]
 fn worker_under_orchestrator_is_depth_2_and_cannot_parent() {
-    // 2-level hierarchy: a Worker sits directly under the Orchestrator,
-    // and there is no third level — a Worker can't parent another Worker.
+    // 2-level hierarchy: a Worker sits directly under the Orchestrator, and there is no third level — a Worker can't parent another Worker.
     let (mut state, orch_id) = MultiplexerState::new();
     state
         .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
@@ -380,7 +373,10 @@ fn worker_under_orchestrator_is_depth_2_and_cannot_parent() {
 
     let sub_id = state.create_pane();
     let result = state.set_pane_role(&sub_id, AgentRole::Worker, Some(&worker_id));
-    assert!(result.is_err(), "a Worker must not be allowed to parent another Worker");
+    assert!(
+        result.is_err(),
+        "a Worker must not be allowed to parent another Worker"
+    );
 }
 
 #[test]
@@ -563,10 +559,8 @@ fn test_session_snapshot_roundtrip() {
 
     let pane = restored.get_pane(&pane_id).unwrap();
     assert_eq!(pane.cwd.as_deref(), Some("/test/path"));
-    // agent_type MUST survive even without a session_id. The spawn-on-mount
-    // path (commands::pty) launches a fresh agent in this case, otherwise
-    // a "silent" claude pane (spawned but never talked to before kill)
-    // would come back as a bare powershell.
+    // Restore agent_type even when session_id is missing.
+    // Without it, a previously silent pane can reappear as plain powershell after restart.
     assert_eq!(pane.agent_type.as_deref(), Some("claude"));
     assert_eq!(pane.role, Some(AgentRole::Orchestrator));
     assert_eq!(pane.depth, 1);
@@ -576,10 +570,8 @@ fn test_session_snapshot_roundtrip() {
 
 #[test]
 fn test_session_snapshot_preserves_agent_type_with_session_id() {
-    // Regression: codex/opencode panes silently failed to resume on app
-    // restart because agent_type was always dropped, so the resume launcher
-    // fell back to default_agent_provider (claude) and tried to claude-resume
-    // a non-claude session uuid → session_exists() bailed → resume cleared.
+    // Preserve `agent_type` on snapshot restore.
+    // Dropping to default claude prevented codex/opencode sessions from resuming.
     for provider in ["claude", "codex", "opencode"] {
         let (mut state, pane_id) = MultiplexerState::new();
         if let Some(pane) = state.get_pane_mut(&pane_id) {
@@ -626,9 +618,8 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
         SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
     };
 
-    // Legacy snapshot path: agent_type is None (saved before reliable tracking),
-    // but the title preserved when the snapshot was captured carries the
-    // provider name. Restore must recover agent_type so tab-bar icons show.
+    // Legacy snapshot path: agent_type is None (saved before reliable tracking), but the title preserved when the snapshot was captured carries
+    // the provider name. Restore must recover agent_type so tab-bar icons show.
     for (title, expected) in [
         ("codex", "codex"),
         ("opencode session", "opencode"),
@@ -737,9 +728,8 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
     use crate::session::store::{
         SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
     };
-    // Snapshot saved BEFORE agent_type_locked existed: only agent_type populated.
-    // Restore code must treat it as locked — pre-lock snapshots only persisted
-    // agent_type via a real spawn or detection, both qualify as explicit intent.
+    // Snapshot saved BEFORE agent_type_locked existed: only agent_type populated. Restore code must treat it as locked — pre-lock snapshots only
+    // persisted agent_type via a real spawn or detection, both qualify as explicit intent.
     let snap = SessionSnapshot {
         version: "test".to_string(),
         timestamp: 0,

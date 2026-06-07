@@ -162,9 +162,7 @@ pub fn extract_all(text: &str) -> Vec<Extraction> {
                 .filter(|s| !s.is_empty())
                 .collect::<Vec<_>>()
                 .join(" / ");
-            // For milestone/emotional patterns the capture group may be empty
-            // (e.g. "Got it working!" — the match itself is the content).
-            // Fall back to the full match text.
+            // For milestone/emotional patterns the capture group may be empty (e.g. "Got it working!" — the match itself is the content). Fall back to the full match text.
             let text = if captured.is_empty() {
                 cap.get(0)
                     .map(|m| m.as_str().trim().to_string())

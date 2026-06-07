@@ -19,11 +19,8 @@ pub struct TabInfo {
     pub pane_id: String,
 }
 
-// ── Commands ─────────────────────────────────────────────────────────
-//
-// All state-mutating commands delegate to ServiceContext for consistent
-// behavior (PTY cleanup, event emission). Read-only commands access
-// MuxState directly since they don't need side-effects.
+// Mutating commands route through ServiceContext for PTY cleanup/event emission.
+// Read-only commands read MuxState directly since they have no side effects.
 
 /// Returns the full multiplexer state for frontend hydration (read-only).
 #[tauri::command]

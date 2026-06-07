@@ -3,10 +3,8 @@ use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
 use crate::ScreenStateHandle;
 
-// NOTE: `crate::agent::chat_types::{RichMessage, SessionDelta}` and the
-// parallel `spawn_tailer` / `DeltaSink` path are reserved for future
-// non-UI consumers (mem worker, mesh log shipping, etc.). The chat UI
-// uses the raw-text tailer below — the TS plugin owns parsing.
+// NOTE: keep `RichMessage`/`SessionDelta` and `spawn_tailer`/`DeltaSink`
+// for future non-UI consumers. Frontend uses raw-text tailer + TS parser today.
 
 #[tauri::command]
 pub async fn get_pane_output(
@@ -225,9 +223,7 @@ pub fn read_session_jsonl(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Chat UI mode — thin Tauri wrappers over the pane_chat service.
-// ---------------------------------------------------------------------------
 
 #[derive(serde::Serialize)]
 pub struct ChatStartResult {
@@ -237,6 +233,9 @@ pub struct ChatStartResult {
     pub text: String,
     pub start_offset: u64,
     pub offset: u64,
+    /// Agent pane exists but its session hasn't been created yet — render an empty chat and retry once the mux reports a session id.
+    #[serde(default)]
+    pub pending: bool,
 }
 
 #[tauri::command]
@@ -244,43 +243,91 @@ pub async fn chat_start(
     svc: tauri::State<'_, ServiceState>,
     pane_id: String,
 ) -> Result<ChatStartResult, String> {
-    let (provider_id, cwd, session_id) = {
+    chat_start_core(&svc, pane_id)
+}
+
+/// Shared by the Tauri command and the web mirror's
+/// POST /api/panes/{id}/chat-raw/start — identical result shape, so the
+/// chat view renders the same in both shells.
+pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
+    let started = std::time::Instant::now();
+    let (provider_id, cwd, mut session_id, mux_ms) = {
+        let t = std::time::Instant::now();
         let m = svc.mux.lock();
         let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
         let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
         let cwd = pane.cwd.clone().unwrap_or_default();
-        let sid = pane
-            .agent_session_id
-            .clone()
-            .ok_or("pane has no session_id yet")?;
-        (provider, cwd, sid)
+        let Some(sid) = pane.agent_session_id.clone() else {
+            // Fresh agent pane: the session file appears with the first agent reply.
+            return Ok(ChatStartResult {
+                text: String::new(),
+                start_offset: 0,
+                offset: 0,
+                pending: true,
+            });
+        };
+        (provider, cwd, sid, t.elapsed().as_millis())
     };
 
-    // Chat view is a reader for the tab's saved conversation, not a session
-    // detector. Recency/cwd-based detection is unsafe here: a dev console or
-    // sibling pane can create a newer JSONL in the same project and would make
-    // this tab render the wrong chat.
+    // Chat view is a reader for the tab's saved conversation, not a session detector. A provider may still report that the live process has rolled
+    // to a newer backing session (Codex resume starts a fresh rollout). Only accept that provider-owned handoff when no sibling pane already owns it.
+    let detect_started = std::time::Instant::now();
+    if let Some(active_sid) = svc
+        .agent_registry
+        .with_provider(&provider_id, |p| p.detect_active_session(&cwd, &session_id))
+        .flatten()
+    {
+        let claimed = {
+            let mut mux = svc.mux.lock();
+            if mux.other_session_ids(&pane_id).contains(&active_sid) {
+                false
+            } else if let Some(pane) = mux.get_pane_mut(&pane_id) {
+                if pane.agent_type.as_deref() == Some(provider_id.as_str()) {
+                    pane.agent_session_id = Some(active_sid.clone());
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+        if claimed {
+            log::info!(
+                "[chat_start] rolled pane {} from {} -> {} ({})",
+                pane_id,
+                session_id,
+                active_sid,
+                provider_id,
+            );
+            svc.emit_state_changed();
+            session_id = active_sid;
+        }
+    }
+    let detect_ms = detect_started.elapsed().as_millis();
+
+    let path_started = std::time::Instant::now();
     let path = svc
         .agent_registry
         .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
         .flatten()
         .ok_or("provider has no JSONL")?;
-    if !path.exists() {
-        return Err(format!(
-            "JSONL not found for pane session {}: {}",
-            session_id,
-            path.display()
-        ));
-    }
+    let path_ms = path_started.elapsed().as_millis();
 
-    // Read the tail (~512KB) so toggle reveals plenty of context. The TS
-    // parser is fast even at 1MB — no need for a smaller window.
+    // Read the tail (~512KB) so toggle reveals plenty of context. The TS parser is fast even at 1MB — no need for a smaller window.
+    // A missing file is NOT an error: the session id is detected from CLI output
+    // before the provider writes the first JSONL line. Tail from byte 0 so the
+    // history streams in as deltas the moment the file appears.
     let snapshot_window: u64 = 512 * 1024;
-    let bytes = std::fs::read(&path).map_err(|e| format!("read jsonl: {e}"))?;
+    let read_started = std::time::Instant::now();
+    let bytes = if path.exists() {
+        std::fs::read(&path).map_err(|e| format!("read jsonl: {e}"))?
+    } else {
+        Vec::new()
+    };
     let total = bytes.len() as u64;
     let start = total.saturating_sub(snapshot_window) as usize;
-    // Align start to a line boundary — handing the parser a partial
-    // first line forces it to discard data that would otherwise render.
+    // Align start to a line boundary — handing the parser a partial first line forces it to discard data that would otherwise render.
     let aligned_start = if start == 0 {
         0
     } else {
@@ -291,27 +338,47 @@ pub async fn chat_start(
             .unwrap_or(start)
     };
     let text = String::from_utf8_lossy(&bytes[aligned_start..]).to_string();
+    let read_ms = read_started.elapsed().as_millis();
 
-    // Stop any prior tailer for this pane before installing the new one —
-    // idempotent re-entry (toggle off/on) must replace, not skip.
-    svc.chat_registry.stop(&pane_id);
-
-    let sink = crate::service::pane_chat::raw_text_sink::make_sink(svc.app_handle.clone());
-    let handle = crate::service::pane_chat::spawn_raw_tailer(
-        crate::service::pane_chat::RawTailConfig {
-            pane_id: pane_id.clone(),
-            path: path.clone(),
-            start_offset: total,
-            poll_interval: std::time::Duration::from_millis(500),
-        },
-        sink,
-    );
-    svc.chat_registry.insert(pane_id, handle);
+    // Multiple webviews can attach to the same pane. The tailer is per pane, but subscriptions are per client; share the existing worker when one
+    // is already running so one client's stop() cannot kill another's stream.
+    let tailer_started = std::time::Instant::now();
+    if !svc.chat_registry.acquire(&pane_id) {
+        let sink = crate::service::pane_chat::raw_text_sink::make_sink(svc.app_handle.clone());
+        let handle = crate::service::pane_chat::spawn_raw_tailer(
+            crate::service::pane_chat::RawTailConfig {
+                pane_id: pane_id.clone(),
+                path: path.clone(),
+                start_offset: total,
+                poll_interval: std::time::Duration::from_millis(500),
+            },
+            sink,
+        );
+        svc.chat_registry.insert(pane_id.clone(), handle);
+    }
+    let tailer_ms = tailer_started.elapsed().as_millis();
+    let total_ms = started.elapsed().as_millis();
+    if total_ms > 250 {
+        log::warn!(
+            "[chat_start.slow] pane={} provider={} total_ms={} mux={} detect={} path={} read={} tailer={} total_bytes={} returned={}",
+            pane_id,
+            provider_id,
+            total_ms,
+            mux_ms,
+            detect_ms,
+            path_ms,
+            read_ms,
+            tailer_ms,
+            total,
+            text.len()
+        );
+    }
 
     Ok(ChatStartResult {
         text,
         start_offset: aligned_start as u64,
         offset: total,
+        pending: false,
     })
 }
 
@@ -331,6 +398,17 @@ pub struct ChatBackfillResult {
 #[tauri::command]
 pub async fn chat_backfill(
     svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+    before_offset: u64,
+    max_bytes: Option<u64>,
+) -> Result<ChatBackfillResult, String> {
+    chat_backfill_core(&svc, pane_id, before_offset, max_bytes)
+}
+
+/// Shared by the Tauri command and the web mirror's
+/// POST /api/panes/{id}/chat-raw/backfill.
+pub fn chat_backfill_core(
+    svc: &ServiceState,
     pane_id: String,
     before_offset: u64,
     max_bytes: Option<u64>,
@@ -385,5 +463,5 @@ pub async fn chat_send_text(
     enter: Option<bool>,
 ) -> Result<(), String> {
     let enter = enter.unwrap_or(true);
-    svc.send_text(&pane_id, &text, enter)
+    svc.send_text_when_ready(&pane_id, &text, enter).await
 }

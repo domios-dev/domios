@@ -248,8 +248,7 @@ async fn save_creates_when_no_existing_match() {
     let calls = exec.call_args();
     assert_eq!(calls[1][0], "create");
     assert_eq!(calls[1][1], "item");
-    // Value must travel as base64-encoded JSON in argv (Bitwarden's
-    // documented input shape) — but the raw plaintext must NOT appear.
+    // Value must travel as base64-encoded JSON in argv (Bitwarden's documented input shape) — but the raw plaintext must NOT appear.
     assert!(calls
         .iter()
         .all(|c| !c.iter().any(|a| a.contains("sk-foo"))));
@@ -498,8 +497,7 @@ async fn unlock_extracts_token_from_template_wrapper() {
 
 #[tokio::test]
 async fn login_already_logged_in_is_treated_as_success() {
-    // Status reports unauthenticated → triggers login → bw returns
-    // "already logged in" → we should soft-succeed and proceed to unlock.
+    // Status reports unauthenticated → triggers login → bw returns "already logged in" → we should soft-succeed and proceed to unlock.
     let (store, _) = build_store(vec![
         ok_data(json!({ "status": "unauthenticated" })),
         ok_data(json!({ "object": "message" })),

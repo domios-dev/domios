@@ -80,8 +80,7 @@ fn codex_launch_interactive_skip_perms() {
         headless: false,
         session_id: None,
     });
-    // Codex CLI removed --full-auto; the surviving skip-approvals flag is
-    // --dangerously-bypass-approvals-and-sandbox (same one codex exec uses).
+    // Codex CLI removed --full-auto; the surviving skip-approvals flag is --dangerously-bypass-approvals-and-sandbox (same one codex exec uses).
     assert_eq!(cmd, "codex --dangerously-bypass-approvals-and-sandbox");
 }
 
@@ -168,6 +167,67 @@ fn extract_uuid_from_stem() {
     );
     assert_eq!(extract_session_uuid("not-a-rollout"), None);
     assert_eq!(extract_session_uuid("rollout-short"), None);
+}
+
+#[test]
+fn codex_detect_active_session_rolls_forward_from_stale_resume_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("2026").join("06").join("06");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let cwd = "/Users/rollacode/.codeterm-dev/general";
+    let old_sid = "019e1b8c-6ff3-7ec1-8088-856525752ce7";
+    let new_sid = "019e9e33-c35c-7cd0-98e8-4e7aa7a7f537";
+    let old_file = sessions.join(format!("rollout-2026-05-12T12-37-29-{old_sid}.jsonl"));
+    let new_file = sessions.join(format!("rollout-2026-06-06T21-30-53-{new_sid}.jsonl"));
+    std::fs::write(
+        &old_file,
+        format!(
+            r#"{{"timestamp":"2026-05-12T09:41:43.084Z","type":"session_meta","payload":{{"id":"{old_sid}","cwd":"{cwd}"}}}}
+{{"timestamp":"2026-05-12T09:41:43.090Z","type":"response_item","payload":{{"type":"message","role":"user","content":[{{"type":"input_text","text":"echo BANANA-7"}}]}}}}
+"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        &new_file,
+        format!(
+            r#"{{"timestamp":"2026-06-06T18:30:54.000Z","type":"session_meta","payload":{{"id":"{new_sid}","cwd":"{cwd}"}}}}
+{{"timestamp":"2026-06-06T18:31:10.207Z","type":"response_item","payload":{{"type":"message","role":"user","content":[{{"type":"input_text","text":"Йо?"}}]}}}}
+"#
+        ),
+    )
+    .unwrap();
+    let base = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000);
+    filetime::set_file_mtime(&old_file, filetime::FileTime::from_system_time(base)).unwrap();
+    filetime::set_file_mtime(
+        &new_file,
+        filetime::FileTime::from_system_time(base + std::time::Duration::from_secs(60)),
+    )
+    .unwrap();
+
+    let prev = std::env::var("CODETERM_CODEX_SESSIONS_ROOT").ok();
+    unsafe {
+        std::env::set_var(
+            "CODETERM_CODEX_SESSIONS_ROOT",
+            dir.path().to_string_lossy().as_ref(),
+        );
+    }
+    let p = CodexProvider::new();
+    assert_eq!(
+        p.session_file_path(cwd, old_sid).as_deref(),
+        Some(old_file.as_path())
+    );
+    assert_eq!(
+        p.detect_active_session(cwd, old_sid).as_deref(),
+        Some(new_sid)
+    );
+    assert_eq!(p.detect_active_session(cwd, new_sid), None);
+    unsafe {
+        match prev {
+            Some(value) => std::env::set_var("CODETERM_CODEX_SESSIONS_ROOT", value),
+            None => std::env::remove_var("CODETERM_CODEX_SESSIONS_ROOT"),
+        }
+    }
 }
 
 #[test]
@@ -263,17 +323,15 @@ fn codex_settings_schema_round_trips_as_json() {
 
 #[test]
 fn codex_does_not_contribute_notifications_card() {
-    // Codex notifications fire automatically via the PTY event pipeline
-    // — no user-facing setting to render. Keeping the Notifications tab
-    // free of "auto-enabled, no setup required" cards keeps the UI honest.
+    // Codex notifications fire automatically via the PTY event pipeline — no user-facing setting to render. Keeping the Notifications tab free of
+    // "auto-enabled, no setup required" cards keeps the UI honest.
     let p = CodexProvider::new();
     assert!(p.notifications_schema().is_empty());
     assert!(p.describe().notifications_schema.is_empty());
 }
 
-// Meta filter — these strings are injections CodeTerm writes to a codex
-// session as role=user. Session search must mark them is_meta so they
-// don't pollute results with our own bootstrap noise.
+// Meta filter for CodeTerm bootstrap lines injected into codex sessions.
+// Tag them is_meta so search can ignore its own bootstrap noise.
 #[test]
 fn is_codeterm_injection_matches_known_boot_prompts() {
     assert!(is_codeterm_injection(
@@ -301,8 +359,7 @@ fn is_codeterm_injection_leaves_real_user_messages_alone() {
     assert!(!is_codeterm_injection("fix the bug in parser.rs"));
     assert!(!is_codeterm_injection("why did the deploy fail?"));
     assert!(!is_codeterm_injection("# TODO list\n- ship v2"));
-    // User could paste the literal strings inside a question — that's
-    // legitimate. Strict `starts_with` keeps false positives low.
+    // User could paste the literal strings inside a question — that's legitimate. Strict `starts_with` keeps false positives low.
     assert!(!is_codeterm_injection(
         "looking at <INSTRUCTIONS> — what does it mean"
     ));

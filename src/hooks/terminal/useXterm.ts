@@ -8,16 +8,17 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { invoke } from "../../lib/bridge";
 import { mapCursorStyle, buildXtermTheme } from "../../components/Terminal/helpers";
 import type { ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
+import { shouldEnableXtermA11yMode } from "./xtermTestMode";
 
-/** True only under the Playwright harness (vite launched with the env). */
-// Build-time gate (the desktop Playwright harness) OR runtime opt-in via
-// /web/?a11y=1 — gives the web mirror a readable terminal DOM for both
-// screen readers and the 12-web e2e suite, at the cost of the WebGL
-// renderer's truecolor for that session only.
-const E2E_TEST_MODE =
-  import.meta.env.VITE_CODETERM_TEST === "1" ||
-  (typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).has("a11y"));
+// Playwright harness (`/web/?a11y=1`) can enable xterm screen-reader mode.
+// Production ignores VITE_CODETERM_TEST to avoid accidental renderer disable.
+const E2E_TEST_MODE = shouldEnableXtermA11yMode({
+  isViteDev: import.meta.env.DEV,
+  viteCodeTermTest: import.meta.env.VITE_CODETERM_TEST,
+  locationSearch: typeof window !== "undefined" ? window.location.search : "",
+});
+const MACOS_WEBGL_DISABLED = typeof navigator !== "undefined"
+  && /Mac/.test(navigator.platform);
 
 export interface UseXtermOptions {
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -72,11 +73,8 @@ export function useXterm({
       theme: buildXtermTheme(theme),
       overviewRuler: { width: 4 },
       allowProposedApi: true,
-      // E2E-only DOM mirror of the viewport (.xterm-accessibility).
-      // NEVER enabled for users: screenReaderMode degrades the renderer
-      // (forces the reduced-color DOM path — black-and-white TUIs).
-      // The Playwright harness sets VITE_CODETERM_TEST=1 at dev-server
-      // launch; normal `build.sh dev` and prod builds never do.
+      // DOM accessibility mirror for Playwright/e2e (`/web/?a11y=1`).
+      // It disables truecolor, so normal/dev sessions keep WebGL.
       screenReaderMode: E2E_TEST_MODE,
       windowsPty: {
         backend: "conpty",
@@ -102,21 +100,13 @@ export function useXterm({
 
     term.open(containerRef.current);
 
-    // WebGL renderer — load AFTER term.open() so the canvas exists.
-    // The default DOM renderer drops subtle TUI background colors used
-    // by Codex / Opencode TUIs (gray-tinted input + message blocks).
-    // WebGL renders 24-bit truecolor backgrounds per-cell correctly
-    // and is 10x faster on top of it.
-    //
-    // If WebGL context creation fails (some Linux GPUs, headless),
-    // fall back silently to the DOM renderer — xterm.js's default.
-    // We push the success/failure into the daemon log via
-    // `report_webgl_status` so the rendering health is observable
-    // without opening browser devtools.
+    // Use WebGL for Opencode/Codex after term.open(), fall back to DOM.
+    // Report webgl status so runtime metrics can track renderer choice.
     if (E2E_TEST_MODE) {
-      // Harness runs read terminal text from the accessibility DOM; the
-      // WebGL renderer is skipped so it can't fight screenReaderMode.
+      // E2E mode reads accessibility DOM text; skip WebGL to avoid conflicts.
       invoke("report_webgl_status", { state: "skipped_test_mode", detail: null }).catch(() => {});
+    } else if (MACOS_WEBGL_DISABLED) {
+      invoke("report_webgl_status", { state: "skipped_macos", detail: null }).catch(() => {});
     } else
     try {
       const webgl = new WebglAddon();
@@ -132,10 +122,8 @@ export function useXterm({
       invoke("report_webgl_status", { state: "failed", detail }).catch(() => {});
     }
 
-    // Copy-on-select removed: silently writing the clipboard every time
-    // the user highlights text is surprising and clobbers whatever they
-    // had copied moments earlier. Ctrl+Shift+C / Cmd+C with a selection
-    // and the right-click "Copy" item both still work.
+    // Copy-on-select is disabled to avoid overwriting the clipboard on highlight.
+    // Use Ctrl+Shift+C / Cmd+C / context menu Copy instead.
 
     // Visual bell
     term.onBell(() => {

@@ -132,8 +132,8 @@ pub async fn resume_session_api(
         })
         .flatten();
 
-    // Idempotency: if a live pane already holds this session_id, return it as-is.
-    // Two concurrent resume calls (UI reconnect, CLI retry) must not both spawn.
+    // Idempotency: if a live pane already holds this session_id, return it as-is. Two concurrent resume calls (UI reconnect, CLI retry) must not
+    // both spawn.
     {
         let mux = state.svc.mux.lock();
         let existing_pane = mux.pane_ids_with_session(&session_id).into_iter().next();
@@ -162,12 +162,8 @@ pub async fn resume_session_api(
     let ws_id = match body.workspace_id {
         Some(id) => id,
         None => {
-            // Reuse existing workspace at this cwd if there is one. Going
-            // through `WorkspaceCreate` here would spawn an extra empty
-            // Terminal tab as a side effect (intentional for the UI "open
-            // folder" button, but pure noise for a programmatic resume).
-            // `spawn_agent` will create the only tab we actually want —
-            // the resumed agent pane.
+            // Reuse existing workspace at this cwd if there is one. Going through `WorkspaceCreate` here would spawn an extra empty Terminal tab as a side
+            // Ignore extra effect for programmatic resume; it should only create the single resumed agent tab.
             let existing_id = state
                 .svc
                 .mux

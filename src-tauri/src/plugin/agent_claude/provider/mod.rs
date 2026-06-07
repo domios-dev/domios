@@ -182,8 +182,8 @@ impl AgentProvider for ClaudeProvider {
         Some("/compact")
     }
 
-    fn model_switch_command(&self, model: &str) -> Option<String> {
-        Some(format!("/model {}", model))
+    fn model_switch_format(&self) -> Option<&str> {
+        Some("/model {model}")
     }
 
     fn exit_command(&self) -> Option<&str> {
@@ -212,8 +212,7 @@ impl AgentProvider for ClaudeProvider {
 
     fn install_command(&self, platform: &str) -> Option<String> {
         match platform {
-            // Anthropic's native installer is the recommended path — auto-updates
-            // in the background, no Node.js dependency. npm is now an "advanced"
+            // Anthropic's native installer is the recommended path — auto-updates in the background, no Node.js dependency. npm is now an "advanced"
             // option per https://code.claude.com/docs/en/setup.
             "macos" | "linux" => Some("curl -fsSL https://claude.ai/install.sh | bash".into()),
             "windows" => {
@@ -342,8 +341,7 @@ mod tests {
     #[test]
     fn claude_install_skills_default_noop_is_ok() {
         let p = ClaudeProvider::new();
-        // Default implementation is a no-op that returns Ok(()) — ClaudeProvider
-        // doesn't override it yet (real skill delivery comes with Phase 2).
+        // Default implementation is a no-op that returns Ok(()) — ClaudeProvider doesn't override it yet (real skill delivery comes with Phase 2).
         assert!(p.install_skills(&[]).is_ok());
         assert!(p.uninstall_skills(&[]).is_ok());
     }

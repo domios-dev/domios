@@ -58,8 +58,7 @@ pub fn normalize_cwd(raw: &str) -> String {
     });
 
     if cfg!(windows) {
-        // Strip the Windows verbatim prefix that canonicalize adds on Windows
-        // (`\\?\C:\foo`) so user-supplied and canonicalized paths still match.
+        // Strip the Windows verbatim prefix that canonicalize adds on Windows (`\\?\C:\foo`) so user-supplied and canonicalized paths still match.
         let stripped = base.strip_prefix(r"\\?\").unwrap_or(&base);
         stripped.to_lowercase()
     } else {

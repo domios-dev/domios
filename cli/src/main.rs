@@ -57,11 +57,30 @@ pub fn data_dir_name() -> &'static str {
     ".codeterm"
 }
 
+/// Resolve the CodeTerm data root used by local filesystem commands.
+///
+/// `CODETERM_DATA_DIR` is an explicit test/dev harness override. It must be
+/// absolute so a typo cannot silently route plugin operations into a relative
+/// workspace path.
+pub fn data_root() -> std::path::PathBuf {
+    if let Ok(root) = std::env::var("CODETERM_DATA_DIR") {
+        if !root.trim().is_empty() {
+            let path = std::path::PathBuf::from(root);
+            if path.is_absolute() {
+                return path;
+            }
+        }
+    }
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(data_dir_name())
+}
+
 /// Read API config (host, port, token).
 /// Priority: $CODETERM_API_PORT env var (set by CodeTerm PTY) > config.toml.
 /// This ensures CLI works in both dev (7686) and prod (7685) when called from inside CodeTerm.
 pub fn read_api_config() -> (String, Option<String>) {
-    let config_dir = dirs::home_dir().unwrap_or_default().join(data_dir_name());
+    let config_dir = data_root();
     let config_path = config_dir.join("config.toml");
 
     let (mut host, mut port) = ("127.0.0.1".to_string(), 7685i64);
@@ -86,9 +105,8 @@ pub fn read_api_config() -> (String, Option<String>) {
     // Try Ed25519 signed token first, fall back to simple API token from config
     let signed_token = read_mesh_signed_token();
 
-    // Highest priority: explicit CODETERM_API_TOKEN env override.
-    // Useful for hitting dev (port 7686) from outside its PTY without the
-    // matching mesh identity, or for tests with a manually scoped token.
+    // Highest priority: explicit CODETERM_API_TOKEN env override. Useful for hitting dev (port 7686) from outside its PTY without the matching
+    // mesh identity, or for tests with a manually scoped token.
     let token = std::env::var("CODETERM_API_TOKEN").ok()
         .filter(|s| !s.is_empty())
         .or(signed_token)
@@ -110,7 +128,7 @@ pub fn read_api_config() -> (String, Option<String>) {
 /// outbound mesh calls produces a silent 401 with a `text/plain` body that
 /// the JSON parser swallows.
 pub fn read_mesh_signed_token() -> Option<String> {
-    let config_dir = dirs::home_dir()?.join(data_dir_name());
+    let config_dir = data_root();
     let identity_path = config_dir.join("mesh").join("identity.json");
     let content = std::fs::read_to_string(&identity_path).ok()?;
     let id: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -156,7 +174,7 @@ pub use args::cron::CronAction;
 pub use args::service::ServiceAction;
 pub use args::plugin::{PluginAction, PluginChannelAction};
 pub use args::update::UpdateAction;
-pub use args::misc::{WorkspaceAction, PaneAction, PasteAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction};
+pub use args::misc::{WorkspaceAction, PaneAction, PasteAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction, WebAction};
 
 /// Resolve pane ID: explicit arg > $CODETERM_PANE_ID env var > focused pane from server.
 ///
@@ -215,8 +233,7 @@ fn main() {
 
     // --mesh TARGET: proxy entire command to a remote peer via relay
     if let Some(ref mesh_target) = cli.mesh {
-        // Secrets are local-only — refuse to proxy them across the mesh.
-        // Cross-mesh secret access needs a trust model we haven't designed yet.
+        // Secrets are local-only — refuse to proxy them across the mesh. Cross-mesh secret access needs a trust model we haven't designed yet.
         if matches!(cli.command, Commands::Mem { action: MemAction::Secret { .. } }) {
             eprintln!(
                 "Error: secrets do not cross the mesh. Run on the local machine \
@@ -293,11 +310,8 @@ fn main() {
         return;
     }
 
-    // `mem run-worker` opens knowledge.db directly via --db-path and never
-    // talks to the daemon socket — short-circuit before discover_socket so
-    // a stale CODETERM_SOCKET_PATH inherited from a previous daemon PID
-    // (e.g. after update --apply restarts the binary) doesn't make the
-    // worker exit 1 before it can do any work.
+    // `mem run-worker` opens knowledge.db directly via --db-path and never talks to the daemon socket — short-circuit before discover_socket so a
+    // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update --apply restarts the binary) doesn't make the worker exit 1 before it can do any work.
     if let Commands::Mem { action: MemAction::RunWorker { ref kind, ref db_path } } = cli.command {
         cmd::worker::run_mem_worker(kind, db_path.as_deref());
         return;
@@ -310,9 +324,7 @@ fn main() {
         }
     }
 
-    // `mem dream` opens knowledge.db directly. Bridge ping is best-effort
-    // and routed through `discover_socket` itself so a wedged daemon
-    // doesn't break the planner.
+    // `mem dream` opens knowledge.db directly. Bridge ping is best-effort and routed through `discover_socket` itself so a wedged daemon doesn't break the planner.
     if let Commands::Mem { action: MemAction::Dream { .. } } = cli.command {
         match cli.command {
             Commands::Mem { action: MemAction::Dream { action } } => {
@@ -322,9 +334,8 @@ fn main() {
         }
     }
 
-    // `system` writes OS-level autostart triggers (schtasks / launchd /
-    // systemd). No daemon dependency — short-circuit so it works pre-install
-    // and during recovery when the daemon is wedged.
+    // `system` writes OS-level autostart triggers (schtasks / launchd / systemd). No daemon dependency — short-circuit so it works pre-install and
+    // during recovery when the daemon is wedged.
     if matches!(cli.command, Commands::System { .. }) {
         let json_mode = cli.json;
         match cli.command {
@@ -334,9 +345,7 @@ fn main() {
         return;
     }
 
-    // `docs` reads embedded markdown bundled at compile time — no daemon
-    // dependency. Short-circuit so agents can read references even when the
-    // daemon is wedged or restarting.
+    // `docs` reads embedded markdown bundled at compile time — no daemon dependency. Short-circuit so agents can read references even when the daemon is wedged or restarting.
     if matches!(cli.command, Commands::Docs { .. }) {
         match cli.command {
             Commands::Docs { name, full, head } => cmd::docs::handle(name, full, head),
@@ -413,6 +422,11 @@ fn main() {
 
         Commands::Pane { action } => {
             cmd::pane::handle_pane(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Web { action } => {
+            cmd::web::handle_web(cli.json, action);
             return;
         }
 
@@ -808,7 +822,26 @@ fn parse_plugin_action(args: Vec<String>) -> Result<(bool, PluginAction), String
                 }
                 "list" => PluginChannelAction::List,
                 "refresh" => PluginChannelAction::Refresh { name: args.first().cloned() },
-                "remove" => PluginChannelAction::Remove { name: args.first().cloned().ok_or("plugin channel remove requires NAME")? },
+                "diff" => PluginChannelAction::Diff { name: args.first().cloned() },
+                "remove" => {
+                    let mut force = false;
+                    let mut name = None;
+                    for arg in args {
+                        if arg == "--force" {
+                            force = true;
+                        } else if arg.starts_with('-') {
+                            return Err(format!("unknown plugin channel remove flag: {arg}"));
+                        } else if name.is_none() {
+                            name = Some(arg);
+                        } else {
+                            return Err("plugin channel remove accepts one NAME".to_string());
+                        }
+                    }
+                    PluginChannelAction::Remove {
+                        name: name.ok_or("plugin channel remove requires NAME")?,
+                        force,
+                    }
+                }
                 other => return Err(format!("unknown plugin channel command: {other}")),
             };
             PluginAction::Channel { command }
@@ -828,7 +861,8 @@ fn plugin_help() -> String {
   codeterm plugin channel add URL_OR_PATH [--name NAME]
   codeterm plugin channel list
   codeterm plugin channel refresh [NAME]
-  codeterm plugin channel remove NAME"
+  codeterm plugin channel diff [NAME]
+  codeterm plugin channel remove NAME [--force]"
         .to_string()
 }
 
@@ -839,6 +873,19 @@ fn plugin_help() -> String {
 mod subcommand_contract_tests {
     use super::*;
     use clap::CommandFactory;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn restore_env(key: &str, value: Option<String>) {
+        match value {
+            Some(v) => std::env::set_var(key, v),
+            None => std::env::remove_var(key),
+        }
+    }
 
     fn mem_subcommand() -> clap::Command {
         Cli::command()
@@ -944,6 +991,49 @@ mod subcommand_contract_tests {
             }
             _ => panic!("expected plugin channel add"),
         }
+
+        let (_, diff) = parse_plugin_action(vec![
+            "channel".to_string(),
+            "diff".to_string(),
+            "example".to_string(),
+        ]).expect("plugin channel diff parses");
+        assert!(matches!(
+            diff,
+            PluginAction::Channel { command: PluginChannelAction::Diff { name: Some(name) } }
+                if name == "example"
+        ));
+
+        let (_, remove) = parse_plugin_action(vec![
+            "channel".to_string(),
+            "remove".to_string(),
+            "codeterm-core".to_string(),
+            "--force".to_string(),
+        ]).expect("plugin channel remove --force parses");
+        assert!(matches!(
+            remove,
+            PluginAction::Channel {
+                command: PluginChannelAction::Remove { name, force: true }
+            } if name == "codeterm-core"
+        ));
+    }
+
+    #[test]
+    fn data_root_uses_absolute_env_override() {
+        let _guard = env_lock().lock().unwrap();
+        let prev = std::env::var("CODETERM_DATA_DIR").ok();
+        let root = std::env::temp_dir().join(format!("codeterm-data-root-{}", uuid::Uuid::new_v4()));
+        std::env::set_var("CODETERM_DATA_DIR", &root);
+        assert_eq!(data_root(), root);
+        restore_env("CODETERM_DATA_DIR", prev);
+    }
+
+    #[test]
+    fn data_root_ignores_relative_env_override() {
+        let _guard = env_lock().lock().unwrap();
+        let prev = std::env::var("CODETERM_DATA_DIR").ok();
+        std::env::set_var("CODETERM_DATA_DIR", "relative-data");
+        assert!(data_root().ends_with(data_dir_name()));
+        restore_env("CODETERM_DATA_DIR", prev);
     }
 
     #[test]

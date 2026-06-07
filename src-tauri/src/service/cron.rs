@@ -296,9 +296,7 @@ impl ServiceContext {
             );
             drop(store);
 
-            // Tell the run-watcher this pane is already done so the idle /
-            // hard timeout watchdog does NOT fire later and overwrite our
-            // Success status with Failed.
+            // Tell the run-watcher this pane is already done so the idle / hard timeout watchdog does NOT fire later and overwrite our Success status with Failed.
             if let Some(ref pid) = pty_id {
                 self.run_watcher.mark_completed_externally(pid);
             }

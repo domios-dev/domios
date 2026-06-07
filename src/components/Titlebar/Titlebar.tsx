@@ -8,26 +8,22 @@ import { isMac } from "../../lib/keybindings";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { MeshPresenceTray } from "./MeshPresenceTray";
 import { UpdateBadge } from "../UpdateBadge";
+import { UI_BUTTON } from "../shared/design";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
   onNewTab?: () => void;
-  workspaceName?: string;
-  tabTitle?: string;
   theme?: ThemeConfig;
   onOpenSettingsAbout?: () => void;
 }
 
 export function Titlebar({
   onToggleSidebar,
-  workspaceName,
-  tabTitle,
   theme: _theme,
   onOpenSettingsAbout,
 }: TitlebarProps) {
   void _theme;
-  // Window chrome controls only exist in the Tauri shell; the browser tab
-  // owns its own window in web-mirror mode.
+  // Window chrome controls only exist in the Tauri shell; the browser tab owns its own window in web-mirror mode.
   const isTauri = "__TAURI_INTERNALS__" in window;
   const appWindow = isTauri ? getCurrentWindow() : null;
   const handleMinimize = useCallback(() => appWindow?.minimize(), [appWindow]);
@@ -36,7 +32,8 @@ export function Titlebar({
 
   return (
     <div
-      className="flex items-center h-9 bg-[var(--ct-titlebar-bg)] select-none shrink-0"
+      data-testid="titlebar"
+      className="flex items-center h-10 bg-[var(--ct-titlebar-bg)] select-none shrink-0"
       style={{ boxShadow: "inset 0 -0.5px 0 var(--ct-border-subtle)" }}
       data-tauri-drag-region
     >
@@ -53,7 +50,7 @@ export function Titlebar({
       <div className="flex items-center gap-1.5 pl-3" data-tauri-drag-region>
         <button
           onClick={onToggleSidebar}
-          className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+          className={`${UI_BUTTON.ghost} w-9 h-9`}
           title="Toggle sidebar"
         >
           <HamburgerIcon size={15} />
@@ -62,28 +59,12 @@ export function Titlebar({
         {/* Web mirror: peer switcher, top-left per spec */}
         {!isTauri && <WebPeerPicker />}
 
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-1 ml-1" data-tauri-drag-region>
-          <span className="text-[11px] text-[var(--ct-muted)]" data-tauri-drag-region>
-            CodeTerm
-          </span>
-          {workspaceName && (
-            <>
-              <Chevron />
-              <span className="text-[11px] text-[var(--ct-muted-fg)]" data-tauri-drag-region>
-                {workspaceName}
-              </span>
-            </>
-          )}
-          {tabTitle && (
-            <>
-              <Chevron />
-              <span className="text-[11px] text-[var(--ct-fg)]" data-tauri-drag-region>
-                {tabTitle}
-              </span>
-            </>
-          )}
-        </div>
+        <span
+          className="ml-1 text-[11px] text-[var(--ct-muted)]"
+          data-tauri-drag-region
+        >
+          CodeTerm
+        </span>
       </div>
 
       {/* Spacer — drag region */}
@@ -202,7 +183,7 @@ function WindowsControls({
     <div className="flex items-center h-full">
       <button
         onClick={onMinimize}
-        className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+        className={`${UI_BUTTON.ghost} h-full w-12`} 
         title="Minimize"
       >
         <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor">
@@ -211,7 +192,7 @@ function WindowsControls({
       </button>
       <button
         onClick={onMaximize}
-        className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+        className={`${UI_BUTTON.ghost} h-full w-12`}
         title="Maximize"
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
@@ -220,7 +201,7 @@ function WindowsControls({
       </button>
       <button
         onClick={onClose}
-        className="inline-flex items-center justify-center w-12 h-full hover:bg-[#e81123] text-[var(--ct-muted)] hover:text-white transition-colors"
+        className={`${UI_BUTTON.base} h-full w-12 text-[var(--ct-muted)] hover:text-white hover:bg-[#e81123] transition-colors`} 
         title="Close"
       >
         <CloseXIcon />
@@ -229,16 +210,3 @@ function WindowsControls({
   );
 }
 
-// ── Shared ────────────────────────────────────────────────────────────
-
-function Chevron() {
-  return (
-    <svg
-      width="12" height="12" viewBox="0 0 16 16" fill="none"
-      stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"
-      className="text-[var(--ct-muted)] opacity-50 shrink-0"
-    >
-      <path d="M6 4l4 4-4 4" />
-    </svg>
-  );
-}

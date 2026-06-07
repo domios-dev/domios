@@ -106,10 +106,8 @@ pub fn build(config: &RerankConfig) -> Box<dyn Reranker> {
 
 #[cfg(feature = "embeddings")]
 fn build_local(config: &RerankConfig) -> Option<Box<dyn Reranker>> {
-    // Default model: BAAI/bge-reranker-base — solid English+Chinese baseline,
-    // ~280MB. Override via config.model with strings like:
-    //   "bge-reranker-base", "bge-reranker-v2-m3", "jina-v1-turbo-en",
-    //   "jina-v2-multilingual"
+    // Default model: BAAI/bge-reranker-base — solid English+Chinese baseline, ~280MB. Override via config.model with strings like:
+    // "bge-reranker-base", "bge-reranker-v2-m3", "jina-v1-turbo-en", "jina-v2-multilingual"
     let model_name = config
         .model
         .clone()
@@ -168,10 +166,8 @@ fn which_on_path(name: &str) -> Option<std::path::PathBuf> {
 
     #[cfg(windows)]
     let extensions: Vec<String> = {
-        // If the caller already supplied an extension, just use it as-is;
-        // otherwise iterate over PATHEXT plus a blank entry so `dir.join(name)`
-        // also gets a shot (rare, but avoids a regression for bare names
-        // that were resolvable before).
+        // If the caller already supplied an extension, just use it as-is; otherwise iterate over PATHEXT plus a blank entry so `dir.join(name)` also
+        // gets a shot (rare, but avoids a regression for bare names that were resolvable before).
         let has_dot = std::path::Path::new(name).extension().is_some();
         if has_dot {
             vec![String::new()]
@@ -376,8 +372,7 @@ impl Reranker for LocalReranker {
         let docs: Vec<String> = limited
             .iter()
             .map(|h| {
-                // Use title + summary + body snippet — same shape that other
-                // rerankers see in their text prompt.
+                // Use title + summary + body snippet — same shape that other rerankers see in their text prompt.
                 let summary = h.item.summary.as_deref().unwrap_or("");
                 let snip: String = h.item.body.chars().take(400).collect();
                 format!("{} | {} | {}", h.item.title, summary, snip)
@@ -392,9 +387,7 @@ impl Reranker for LocalReranker {
                 let mut out: Vec<SearchHit> = paired
                     .into_iter()
                     .map(|(score, mut hit)| {
-                        // Replace fused FTS score with reranker score (lower=better
-                        // convention is preserved by negating, since reranker gives
-                        // higher=better).
+                        // Replace fused FTS score with reranker score (lower=better convention is preserved by negating, since reranker gives higher=better).
                         hit.score = -score as f64;
                         hit
                     })
@@ -422,8 +415,7 @@ impl LocalReranker {
         use parking_lot::Mutex;
         use std::sync::OnceLock;
 
-        // Cache the loaded reranker model across calls (model load is the
-        // expensive part). Indexed by model name.
+        // Cache the loaded reranker model across calls (model load is the expensive part). Indexed by model name.
         static MODEL_CACHE: OnceLock<Mutex<std::collections::HashMap<String, TextRerank>>> =
             OnceLock::new();
         let cache = MODEL_CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
@@ -460,8 +452,7 @@ impl LocalReranker {
             .rerank(query.to_string(), owned, false, None)
             .map_err(|e| format!("rerank: {}", e))?;
 
-        // results contains RerankResult { index, score, document } sorted by
-        // score desc. We need scores in the original document order.
+        // results contains RerankResult { index, score, document } sorted by score desc. We need scores in the original document order.
         let mut scores = vec![0f32; docs.len()];
         for r in results {
             if r.index < scores.len() {
@@ -532,8 +523,7 @@ fn call_claude_cli(
         ));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // claude --output-format json wraps the assistant reply in a JSON envelope
-    // like {"type": "result", "result": "..."} — we want `result`.
+    // claude --output-format json wraps the assistant reply in a JSON envelope like {"type": "result", "result": "..."} — we want `result`.
     let envelope: serde_json::Value =
         serde_json::from_str(&stdout).map_err(|e| format!("parse envelope: {}", e))?;
     let text = envelope
@@ -645,8 +635,7 @@ fn call_openai(
         .send()
         .map_err(|e| e.to_string())?;
     let val: serde_json::Value = resp.json().map_err(|e| e.to_string())?;
-    // OpenAI's `response_format: json_object` requires the prompt to mention
-    // "json" — ours does ("JSON array"). The model returns a JSON object;
+    // OpenAI's `response_format: json_object` requires the prompt to mention "json" — ours does ("JSON array"). The model returns a JSON object;
     // we accept either {"ids": [...]} or a bare array if it slipped through.
     let text = val
         .get("choices")
@@ -680,8 +669,7 @@ mod tests {
     use crate::mem::store::MemItem;
     use std::sync::{Mutex, OnceLock};
 
-    // Tests that mutate process-wide PATH must run serialized or they race
-    // with which_on_path_finds_known_binary reading PATH on a sibling thread.
+    // Tests that mutate process-wide PATH must run serialized or they race with which_on_path_finds_known_binary reading PATH on a sibling thread.
     fn path_env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))

@@ -1,7 +1,5 @@
-// Registry of "paste into THIS pane" callbacks, keyed by pane id. Each
-// TerminalPane registers on mount, App.tsx looks up and calls directly when
-// the app-wide Ctrl+V / Cmd+V shortcut fires — synchronous, no event-bus
-// indirection that can swallow the event in remount races.
+// Registry of pane-scoped paste callbacks.
+// TerminalPane registers on mount; App.tsx calls it directly on global paste shortcuts.
 
 type PasteFn = () => void;
 

@@ -56,8 +56,7 @@ export function SchemaRenderer({
   );
 }
 
-// Per-provider toggle inherits from [agent] when unset — mirrors backend
-// `provider_config()` fallback so UI matches what runtime actually uses.
+// Provider-specific toggle inherits [agent] defaults when unset (matches backend fallback).
 function globalToggleFallback(key: string, config: AppConfig): boolean | undefined {
   if (key === "resume_sessions") return config.agent?.resume_sessions;
   if (key === "resume_skip_permissions") return config.agent?.resume_skip_permissions;
@@ -374,8 +373,7 @@ function BadgeField({
   variants: BadgeVariant[];
 }) {
   const [variant, setVariant] = useState<BadgeVariant | null>(null);
-  // Serialize args for stable dependency tracking. Plain object refs flip
-  // every render even when contents don't change.
+  // Serialize args for stable dependency tracking. Plain object refs flip every render even when contents don't change.
   const argsKey = JSON.stringify(queryArgs ?? null);
 
   useEffect(() => {
@@ -431,9 +429,7 @@ function ActionField({
     const parsed = argsKey === "null" ? undefined : (JSON.parse(argsKey) as Record<string, unknown>);
     invoke<unknown>(stateQuery, parsed)
       .then((result) => {
-        // Map common state-query shapes into a button label/style.
-        // Reuses the same variant-id mapping as Badge so the same backend
-        // command can drive both a status badge and an action button.
+        // Map common state-query shapes into a button label/style. Reuses the same variant-id mapping as Badge so the same backend command can drive both a status badge and an action button.
         const id = mapQueryResultToVariantId(result);
         const r = result as Record<string, unknown> | undefined;
         if (r && typeof r === "object" && typeof r.label === "string") {

@@ -61,8 +61,7 @@ impl SecretStore for BitwardenStore {
             });
         }
 
-        // Validate server URL — guard against malformed config that would
-        // otherwise be passed verbatim to `bw config server`.
+        // Validate server URL — guard against malformed config that would otherwise be passed verbatim to `bw config server`.
         let server = self.server_url.lock().clone();
         if !is_valid_http_url(&server) {
             return Err(SecretError::BadRequest {
@@ -76,10 +75,8 @@ impl SecretStore for BitwardenStore {
             .map(|s| s.status != "unauthenticated")
             .unwrap_or(false);
 
-        // Point bw at the configured server BEFORE any login. Safe to
-        // re-run on every unlock — bw treats it as idempotent. If the URL
-        // differs from a logged-in server, force a logout first so login
-        // talks to the right host.
+        // Point bw at the configured server BEFORE any login. Safe to re-run on every unlock — bw treats it as idempotent. If the URL differs from a
+        // logged-in server, force a logout first so login talks to the right host.
         let current_server = status
             .as_ref()
             .and_then(|s| s.server_url.clone())
@@ -96,11 +93,8 @@ impl SecretStore for BitwardenStore {
             *self.session.write().await = None;
             let _ = self.keychain.delete(BW_KEYRING_SESSION);
         }
-        // Apply the server config only when it actually changes. bw
-        // refuses to update the server while logged in to it ("Logout
-        // required before server config update"), so re-running config
-        // server with the same URL is both pointless AND breaks the
-        // common no-op login flow.
+        // Apply the server config only when it changes. bw refuses to update the server while logged in to it ("Logout required before server config
+        // update"), so re-running config server with the same URL is both pointless AND breaks the common no-op login flow.
         if current_server != server {
             if let Err(e) = self
                 .run_no_session(vec!["config", "server", &server], None, HashMap::new())
@@ -121,9 +115,7 @@ impl SecretStore for BitwardenStore {
             .unwrap_or(false);
 
         if !is_logged_in {
-            // Need to log in first. "You are already logged in" is bw's
-            // way of saying "skip the login step" — treat as soft success
-            // so we proceed to unlock with the existing session.
+            // Need to log in first. "You are already logged in" is bw's way of saying "skip the login step" — treat as soft success so we proceed to unlock with the existing session.
             let login_result: Result<serde_json::Value, SecretError> =
                 if let (Some(client_id), Some(client_secret)) =
                     (&creds.api_key_client_id, &creds.api_key_client_secret)
@@ -193,10 +185,8 @@ impl SecretStore for BitwardenStore {
             )
             .await?;
 
-        // bw unlock --raw output shape varies by version:
-        //   modern: { "object": "unlock", "raw": "<token>", ... }
-        //   modern wrapped: { "template": { "raw": "<token>" } }
-        //   legacy: just the raw token string at the top level
+        // bw unlock --raw output shape varies by version: modern: { "object": "unlock", "raw": "<token>", ... } modern wrapped: { "template": { "raw":
+        // "<token>" } } legacy: just the raw token string at the top level
         let token_owned: String = unlock_data
             .as_str()
             .map(|s| s.to_string())
@@ -228,8 +218,8 @@ impl SecretStore for BitwardenStore {
 
         *self.session.write().await = Some(SecretString::from(token.clone()));
         let _ = self.keychain.set(BW_KEYRING_SESSION, &token);
-        // Always persist master pw to file (mode 0600, ~/.codeterm/secrets/) for JIT auto-unlock.
-        // Skipped only when the user signed in via API key (no master pw to save).
+        // Always persist master pw to file (mode 0600, ~/.codeterm/secrets/) for JIT auto-unlock. Skipped only when the user signed in via API key (no
+        // master pw to save).
         if creds.api_key_client_id.is_none() {
             let _ = super::write_master_password_file(creds.master_password.expose_secret());
             if let Some(email) = creds.email.as_deref() {
@@ -273,8 +263,7 @@ impl SecretStore for BitwardenStore {
             });
         }
 
-        // If overwriting, look up the existing item id first; bw create will
-        // happily insert a duplicate-name item, which we never want.
+        // If overwriting, look up the existing item id first; bw create will happily insert a duplicate-name item, which we never want.
         let existing = self.find_by_name(&req.name).await.ok();
         if existing.is_some() && !req.overwrite {
             return Err(SecretError::AlreadyExists);
@@ -416,9 +405,7 @@ impl SecretStore for BitwardenStore {
     }
 
     async fn sync(&self) -> Result<(), SecretError> {
-        // bw sync requires an unlocked session. We surface failures so
-        // callers can tell the difference between "synced ok" and "vault
-        // is locked" (which would silently leave stale data).
+        // bw sync requires an unlocked session. We surface failures so callers can tell the difference between "synced ok" and "vault is locked" (which would silently leave stale data).
         self.run_with_session(vec!["sync"], None).await?;
         Ok(())
     }

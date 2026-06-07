@@ -107,9 +107,7 @@ impl UsagePoller {
             provider: provider.to_string(),
             account_id,
         };
-        // Skip spawn if a probe is already running. run_probe_for is the
-        // definitive guard, but checking here avoids spawning a task that
-        // would immediately return.
+        // Skip spawn if a probe is already running. run_probe_for is the definitive guard, but checking here avoids spawning a task that would immediately return.
         if self
             .inner
             .accounts
@@ -202,8 +200,7 @@ fn activity_gate(
             return false;
         }
     }
-    // Gate is time-only here; the step adjustment (reset vs climb) happens
-    // in on_success/on_failure once the probe completes.
+    // Gate is time-only here; the step adjustment (reset vs climb) happens in on_success/on_failure once the probe completes.
     let _ = panes;
     true
 }
@@ -314,8 +311,7 @@ fn on_success(inner: &Arc<UsagePollerInner>, key: &AccountKey) {
     state.last_success_at = Some(Instant::now());
     let last_probe = state.last_probe_at;
     drop(accounts);
-    // Adaptive backoff: reset to densest if terminal was active since the
-    // previous probe; otherwise climb one step (capped at the longest).
+    // Adaptive backoff: reset to densest if terminal was active since the previous probe; otherwise climb one step (capped at the longest).
     let panes = visible_panes_for_provider(&inner.svc, &key.provider);
     let active_recently = match last_probe {
         Some(probe_at) => panes.iter().any(|p| {
@@ -340,8 +336,7 @@ fn on_failure(inner: &Arc<UsagePollerInner>, key: &AccountKey, reason: &str) {
     let mut accounts = inner.accounts.lock();
     let state = accounts.entry(key.clone()).or_default();
     state.consecutive_failures = state.consecutive_failures.saturating_add(1);
-    // Climb one backoff step on every failure; stays at max (50 min) indefinitely.
-    // No hard pause — the max-step interval is the rate limit.
+    // Climb one backoff step on every failure; stays at max (50 min) indefinitely. No hard pause — the max-step interval is the rate limit.
     if state.backoff_idx + 1 < BACKOFF_STEPS_S.len() {
         state.backoff_idx += 1;
     }

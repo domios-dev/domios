@@ -32,7 +32,7 @@ function parseEntry(entry: Record<string, unknown>, messages: CodexChatMessage[]
   if (type === "event_msg" && payload?.type === "agent_message") {
     const message = extractText(payload.message);
     if (message.trim()) {
-      messages.push({
+      pushMessage(messages, {
         id: idFor(entry, messages, "assistant"),
         type: "assistant",
         content: message.trim(),
@@ -68,10 +68,11 @@ function parseResponsePayload(
     const content = parseContentBlocks(payload.content);
     if (!content.trim()) return;
     if (role === "user") {
+      if (isCodexBootstrapInstruction(content)) return;
       pushUserContentWithContext(content, payload, timestamp, messages);
       return;
     }
-    messages.push({
+    pushMessage(messages, {
       id: idFor(payload, messages, role),
       type: role,
       content: content.trim(),
@@ -132,6 +133,19 @@ function parseResponsePayload(
   }
 }
 
+function pushMessage(messages: CodexChatMessage[], message: CodexChatMessage): void {
+  const duplicate = messages
+    .slice(-6)
+    .some((existing) =>
+      existing.type === message.type &&
+      existing.provider === message.provider &&
+      existing.content === message.content
+    );
+  if (!duplicate) {
+    messages.push(message);
+  }
+}
+
 function pushUserContentWithContext(
   content: string,
   payload: Record<string, unknown>,
@@ -173,6 +187,15 @@ function splitLeadingEnvironmentContext(content: string): {
     environmentContext: match[1],
     userText: content.slice(match[0].length),
   };
+}
+
+function isCodexBootstrapInstruction(content: string): boolean {
+  const trimmed = content.trimStart();
+  return (
+    trimmed.startsWith("# AGENTS.md instructions for ") &&
+    trimmed.includes("<INSTRUCTIONS>") &&
+    trimmed.includes("</INSTRUCTIONS>")
+  );
 }
 
 function parseContentBlocks(content: unknown): string {

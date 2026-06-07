@@ -31,11 +31,8 @@ pub(super) fn available_models() -> Vec<ModelInfo> {
 }
 
 pub(super) fn notifications_schema() -> Vec<SettingField> {
-    // Status badge from check_provider_integration + Install action that
-    // calls install_provider_integration. Both target the generic
-    // dispatcher with `provider_id: "claude"` as the arg payload — the
-    // provider trait decides what "integration" means (hooks file for
-    // Claude, no-op for Codex/Opencode).
+    // Status badge from check_provider_integration + Install action that calls install_provider_integration. Both target the generic dispatcher
+    // with `provider_id: "claude"` as the arg payload — the provider trait decides what "integration" means (hooks file for Claude, no-op for Codex/Opencode).
     let claude_args = Some(serde_json::json!({ "provider_id": "claude" }));
     vec![SettingField::Section {
         title: "Claude Code Notifications".into(),

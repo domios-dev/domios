@@ -22,14 +22,8 @@ pub fn start_general_agent(
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
 
-    // Regenerate AGENT.md with the live mem snapshot in a detached thread.
-    // mem.wake_up() locks the shared rusqlite connection and can stall
-    // arbitrarily long when other in-process workers (extraction, embed
-    // queue) hold it; blocking GA bootstrap on that means the resume
-    // command never gets written to the PTY and the General tab stays
-    // dead until the user intervenes. The bootstrap copy from
-    // init_states already wrote a usable AGENT.md without a snapshot, so
-    // a delayed regen still leaves the agent with a coherent file.
+    // Regenerate AGENT.md in a background thread.
+    // If mem.lock is busy, delay the snapshot pass rather than blocking PTY resume.
     {
         let mem = svc.mem.clone();
         let provider_owned = provider_name.clone();
@@ -40,9 +34,8 @@ pub fn start_general_agent(
 
     let general_cwd = general_dir().to_string_lossy().to_string();
 
-    // Live PTY alone isn't enough: after snapshot rehydrate the frontend may race-spawn
-    // a bare shell into the pane while agent_type is cosmetically restored — verify with
-    // screen markers and tear down the bare shell if no agent is actually running.
+    // Live PTY alone isn't enough: after snapshot rehydrate the frontend may race-spawn a bare shell into the pane while agent_type is
+    // cosmetically restored — verify with screen markers and tear down the bare shell if no agent is running.
     {
         let (pane_id_opt, current_agent, current_pty_id) = {
             let m = mux.lock();
@@ -119,8 +112,7 @@ pub fn start_general_agent(
         match pane {
             Some(pid) => {
                 let mut sid = m.get_pane(&pid).and_then(|p| p.agent_session_id.clone());
-                // If no session_id from snapshot, try detecting from filesystem
-                // (covers first launch, new machine, or wiped session store)
+                // If no session_id from snapshot, try detecting from filesystem (covers first launch, new machine, or wiped session store)
                 if sid.is_none() {
                     let exclude: Vec<String> = m.other_session_ids(&pid);
                     drop(m); // release lock before filesystem scan
@@ -197,9 +189,7 @@ pub fn start_general_agent(
         if let Ok(port) = std::env::var("CODETERM_API_PORT") {
             env.insert("CODETERM_API_PORT".to_string(), port);
         }
-        // Hook callbacks POST to our REST API. Without the token they'd 401
-        // on any non-loopback bind and silently swallow the failure via
-        // `curl … || true`, so set it unconditionally.
+        // Hook callbacks POST to our REST API. Without the token they'd 401 on any non-loopback bind and silently swallow the failure via `curl … || true`, so set it unconditionally.
         let tok: Option<String> = config.lock().api.token.clone();
         if let Some(tok) = tok {
             if !tok.is_empty() {
@@ -232,13 +222,12 @@ pub fn start_general_agent(
         svc.kill_ptys(&[orphan]);
     }
     svc.set_and_lock_pane_agent_type(&pane_id, provider_name.to_string());
-    // Emit state NOW so frontend picks up pty_id immediately — don't wait for agent detection.
-    // Without this, frontend auto-spawns its own PTY and writes go to the wrong one.
+    // Emit state NOW so frontend picks up pty_id immediately — don't wait for agent detection. Without this, frontend auto-spawns its own PTY and
+    // writes go to the wrong one.
     svc.emit_state_changed();
     log::info!("[general-agent] PTY {} linked to pane {}", pty_id, pane_id);
 
-    // Start backend reader on a tokio runtime (start_backend_reader uses tokio::spawn,
-    // but we're on a plain std::thread — no tokio runtime here)
+    // Start backend reader on a tokio runtime (start_backend_reader uses tokio::spawn, but we're on a plain std::thread — no tokio runtime here)
     log::info!("[general-agent] Starting backend reader for PTY {}", pty_id);
     {
         let svc_clone = svc.clone();
@@ -264,9 +253,8 @@ pub fn start_general_agent(
         pty_id
     );
 
-    // Wait for shell to be ready — same mechanism as regular pane resume in commands.rs.
-    // poll_shell_prompt polls screen_state (fed by the backend reader we just started)
-    // every 300ms, returns true when a shell prompt appears on the last non-empty line.
+    // Wait for shell to be ready — same mechanism as regular pane resume in commands.rs. poll_shell_prompt polls screen_state (fed by the backend
+    // reader we just started) every 300ms, returns true when a shell prompt appears on the last non-empty line.
     let ready = crate::service::pty_io::poll_shell_prompt(
         screen_state,
         &pty_id,
@@ -281,10 +269,8 @@ pub fn start_general_agent(
     }
     log::info!("[general-agent] Shell ready, building launch command...");
 
-    // Build launch command.
-    // Resume only when the provider preserves prior context across resume
-    // (Claude replays JSONL → true; Codex restarts fresh → false).
-    // Single-source-of-truth comes from the AgentProvider trait.
+    // Build launch command. Resume only when the provider preserves prior context across resume (Claude replays JSONL → true; Codex restarts fresh
+    // → false). Single-source-of-truth comes from the AgentProvider trait.
     let preserves_context = svc
         .agent_registry
         .with_provider(provider_name, |p| p.preserves_context_on_resume())
@@ -307,12 +293,8 @@ pub fn start_general_agent(
             }
         }
     } else {
-        // Fresh start. If the provider supports session-id injection
-        // (claude --session-id <uuid>), pre-generate a UUID, write it to
-        // the pane BEFORE launch so subsequent restarts/resumes match this
-        // session deterministically, and pass it through. Without this we'd
-        // have to scan the JSONL dir post-launch and guess by mtime, which
-        // breaks when multiple panes share a cwd.
+        // For providers supporting session-id injection, pre-generate and pin it before launch.
+        // This avoids guessing by mtime after start, especially when multiple panes share a cwd.
         let injection = svc
             .agent_registry
             .with_provider(provider_name, |p| p.session_id_injection())
@@ -351,8 +333,7 @@ pub fn start_general_agent(
         }
     };
 
-    // No bracket-paste: zsh ZLE binds the handler only after the first
-    // interactive cycle, so the markers leak as literal text on launch.
+    // No bracket-paste: zsh ZLE binds the handler only after the first interactive cycle, so the markers leak as literal text on launch.
     log::info!("[general-agent] Launching on PTY {}: {}", pty_id, cmd);
     let payload = format!("{}\r", cmd);
     if let Err(e) = pty.lock().write(&pty_id, payload.as_bytes()) {
@@ -371,13 +352,8 @@ pub fn start_general_agent(
         log::warn!("[general-agent] Agent not detected within 15s — watchdog will retry if needed");
     }
 
-    // Fresh-session init: when we couldn't resume, the agent has no prior
-    // context — kick it with a self-instructive init message. The instructions
-    // live inline so the orient procedure is consumed exactly once and isn't
-    // sitting in the system prompt burning tokens every turn.
-    //
-    // For resumed sessions we deliberately do NOT send init — the agent
-    // already has the previous turn-by-turn context replayed by `--resume`.
+    // Fresh session: send one inline orient message to seed context.
+    // Resume mode omits this because `--resume` already restores prior turns.
     if launched && !use_resume {
         std::thread::sleep(std::time::Duration::from_millis(800));
         let init_msg = "init [Orient yourself: \
@@ -435,10 +411,8 @@ pub fn restart_general_agent(
 
     std::thread::sleep(std::time::Duration::from_millis(500));
 
-    // Re-generate instructions for potentially new provider in the background.
-    // Clone to avoid holding the config lock (deadlock with start_general_agent).
-    // Same rationale as the lifecycle::start_general_agent path: do not block
-    // restart on mem.wake_up().
+    // Re-generate instructions for potentially new provider in the background. Clone to avoid holding the config lock (deadlock with
+    // start_general_agent). Same rationale as the lifecycle::start_general_agent path: do not block restart on mem.wake_up().
     {
         let mem = svc.mem.clone();
         let provider_name = config.lock().general_agent.agent_provider.clone();

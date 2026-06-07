@@ -8,6 +8,7 @@ import {
   setTokenFor,
   webJson,
 } from "../../lib/webApi";
+import { PwaSetup } from "./PwaSetup";
 
 type GateState = "checking" | "need-token" | "ready";
 
@@ -15,7 +16,8 @@ type GateState = "checking" | "need-token" | "ready";
  * Web-mirror entry gate. In the Tauri shell it renders children directly.
  * In a browser it requires a valid API token for the current host before
  * mounting the app: first visit pastes the token from the desktop app
- * (Settings → Web Access), stored per host in localStorage.
+ * (Settings -> Web Access), stored per host in localStorage. Peer switches
+ * can then mint and store target-host tokens over the signed mesh channel.
  */
 export function WebGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GateState>(IS_WEB ? "checking" : "ready");
@@ -38,7 +40,23 @@ export function WebGate({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (IS_WEB) void validate();
+    if (!IS_WEB) return;
+    // Consume token from URL fragment/query only once and keep it out of history.
+    // Fragment is preferred (no referrer/access-log leakage), invalid tokens fall back to normal validation.
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const query = new URLSearchParams(window.location.search);
+    const urlToken = (hash.get("token") ?? query.get("token"))?.trim();
+    if (urlToken) {
+      setTokenFor(apiHost(), urlToken);
+      query.delete("token");
+      const qs = query.toString();
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + (qs ? `?${qs}` : ""),
+      );
+    }
+    void validate();
   }, [validate]);
 
   const submit = useCallback(async () => {
@@ -57,7 +75,13 @@ export function WebGate({ children }: { children: ReactNode }) {
     }
   }, [draft]);
 
-  if (state === "ready") return <>{children}</>;
+  if (state === "ready")
+    return (
+      <>
+        {children}
+        {IS_WEB && <PwaSetup />}
+      </>
+    );
 
   return (
     <div className="flex items-center justify-center h-screen bg-[var(--ct-bg,#0d1117)] text-[var(--ct-fg,#e6edf3)]">
@@ -68,7 +92,7 @@ export function WebGate({ children }: { children: ReactNode }) {
           <h1 className="text-lg font-semibold mb-1">CodeTerm Web</h1>
           <p className="text-xs opacity-70 mb-4">
             Paste the API token for <span className="font-mono">{apiHost()}</span>
-            {" — "}find it in the CodeTerm desktop app under Settings → Web
+            {" — "}find it in the CodeTerm desktop app under Settings {"->"} Web
             Access.
           </p>
           <input

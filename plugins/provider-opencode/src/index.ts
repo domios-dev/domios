@@ -26,8 +26,7 @@ const plugin: ProviderPlugin = {
   },
   detect: (sample) => {
     if (sample.title && titlePattern.test(sample.title)) return true;
-    // opencode banners contain "OPENCODE" ASCII art and the lowercased
-    // command name in its status bar.
+    // opencode banners contain "OPENCODE" ASCII art and the lowercased command name in its status bar.
     if (sample.bytes.includes("opencode") || sample.bytes.includes("OPENCODE")) {
       return true;
     }

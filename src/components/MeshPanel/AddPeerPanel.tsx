@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "../../lib/bridge";
 import type { MeshPeersResponse, DiscoveredPeer, MeshPairingRequest, PairedPeer } from "../../lib/types";
+import { UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
+
+const ACTION_BTN_CLASS = `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`;
+const PRIMARY_BTN_CLASS = `${UI_BUTTON.accent} ${UI_BUTTON.compact}`;
 
 export default function AddPeerPanel() {
   const [peers, setPeers] = useState<MeshPeersResponse | null>(null);
@@ -131,9 +135,7 @@ export default function AddPeerPanel() {
   const incoming = peers?.incoming_requests ?? [];
   const paired = peers?.paired ?? [];
   const pairedIds = new Set(paired.map((p) => p.instance_id));
-  // Vouched peers are surfaced in the "Paired devices" card as "auto-pairs
-  // when online" — drop them from "Discovered nearby" so users see one row,
-  // not two.
+  // Vouched peers are surfaced in the "Paired devices" card as "auto-pairs when online" — drop them from "Discovered nearby" so users see one row, not two.
   const discovered = (peers?.discovered ?? []).filter(
     (d) => d.vouched_by.length === 0 && !pairedIds.has(d.instance_id),
   );
@@ -141,20 +143,20 @@ export default function AddPeerPanel() {
   return (
     <div className="flex flex-col gap-3">
       {meshOnline === false && (
-        <div className="text-[11px] bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] rounded p-2.5 flex items-center justify-between gap-3">
-          <span className="text-[var(--ct-muted-fg)]">
+        <div className={`${UI_PANEL.card} bg-[var(--ct-titlebar-bg)] p-2.5 flex items-center justify-between gap-3`}>
+          <span className={UI_TEXT.meta}>
             You're offline — broadcasting peers won't show up here.
           </span>
           <button
             onClick={enableMesh}
-            className="text-[10px] uppercase tracking-wider px-2.5 py-1 rounded border border-[var(--ct-accent)]/40 text-[var(--ct-accent)] hover:bg-[var(--ct-accent)]/10 transition-colors flex-shrink-0"
-          >
+            className={`${UI_BUTTON.primary} ${UI_BUTTON.compact} flex-shrink-0`}
+            >
             Go online
           </button>
         </div>
       )}
       {error && (
-        <div className="text-[10px] text-[var(--ct-red)] bg-[var(--ct-bg)] border border-[var(--ct-red)] rounded p-2 break-all">
+        <div className={`text-[var(--ct-red)] bg-[var(--ct-bg)] border border-[var(--ct-red)] rounded p-2 break-all ${UI_TEXT.meta}`}>
           {error}
         </div>
       )}
@@ -180,7 +182,7 @@ export default function AddPeerPanel() {
             onClick={handleScan}
             disabled={scanning}
             title="Scan for peers now"
-            className="text-[9px] uppercase tracking-wider text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors disabled:opacity-40 flex items-center gap-1"
+            className={`${ACTION_BTN_CLASS} text-[var(--ct-muted)] disabled:opacity-40`}
           >
             {scanning ? (
               <span className="w-2.5 h-2.5 border border-[var(--ct-accent)] border-t-transparent rounded-full animate-spin" />
@@ -216,7 +218,7 @@ export default function AddPeerPanel() {
       <div>
         {showManual ? (
           <div className="flex flex-col gap-2">
-            <div className="text-[10px] text-[var(--ct-muted)] uppercase tracking-wide">Add manually</div>
+            <div className={`${UI_TEXT.metaMuted} uppercase`}>Add manually</div>
             <div className="flex items-center gap-2">
               <input
                 type="text"
@@ -224,18 +226,18 @@ export default function AddPeerPanel() {
                 onChange={(e) => setManualAddr(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleAddManual()}
                 placeholder="192.168.1.50:7685"
-                className="flex-1 bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none font-mono"
+                className={`${UI_INPUT.mono} flex-1 bg-[var(--ct-titlebar-bg)]`}
                 autoFocus
               />
               <button
                 onClick={handleAddManual}
-                className="text-[10px] px-3 py-1.5 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all"
+                className={PRIMARY_BTN_CLASS}
               >
                 Add
               </button>
               <button
                 onClick={() => { setShowManual(false); setManualAddr(""); }}
-                className="text-[10px] px-2 py-1.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+                className={ACTION_BTN_CLASS}
               >
                 Cancel
               </button>
@@ -244,7 +246,7 @@ export default function AddPeerPanel() {
         ) : (
           <button
             onClick={() => setShowManual(true)}
-            className="text-[10px] text-[var(--ct-accent)] hover:underline"
+            className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}
           >
             + Add peer manually…
           </button>
@@ -258,7 +260,7 @@ function Section({ label, action, children }: { label: string; action?: React.Re
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <div className="text-[10px] text-[var(--ct-muted)] uppercase tracking-wide">{label}</div>
+        <div className={`${UI_TEXT.metaMuted} uppercase`}>{label}</div>
         {action}
       </div>
       <div className="rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] divide-y divide-[var(--ct-border)]">
@@ -280,29 +282,29 @@ function IncomingRequestRow({
   onReject: () => void;
 }) {
   return (
-    <div className="p-3 flex items-center justify-between gap-2">
-      <div className="flex items-center gap-2 min-w-0">
-        <div className="w-2 h-2 rounded-full bg-[var(--ct-accent)] animate-pulse flex-shrink-0" />
-        <span className="text-xs font-medium text-[var(--ct-fg)] truncate">{req.from_instance_name}</span>
-        <span className="text-[9px] text-[var(--ct-muted)] font-mono flex-shrink-0">{req.from_address}</span>
+      <div className="p-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-2 h-2 rounded-full bg-[var(--ct-accent)] animate-pulse flex-shrink-0" />
+          <span className="font-medium text-[var(--ct-fg)] truncate">{req.from_instance_name}</span>
+          <span className={`${UI_TEXT.meta} ct-text-mono flex-shrink-0`}>{req.from_address}</span>
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <button
+            onClick={onApprove}
+            disabled={approving}
+            className={`${UI_BUTTON.primary} ${UI_BUTTON.compact} disabled:opacity-50`}
+          >
+            {approving ? "Approving…" : "Approve"}
+          </button>
+          <button
+            onClick={onReject}
+            disabled={approving}
+            className={`${ACTION_BTN_CLASS} disabled:opacity-50`}
+          >
+            Reject
+          </button>
+        </div>
       </div>
-      <div className="flex items-center gap-1.5 flex-shrink-0">
-        <button
-          onClick={onApprove}
-          disabled={approving}
-          className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all disabled:opacity-50"
-        >
-          {approving ? "Approving…" : "Approve"}
-        </button>
-        <button
-          onClick={onReject}
-          disabled={approving}
-          className="text-[10px] px-2 py-1 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors disabled:opacity-50"
-        >
-          Reject
-        </button>
-      </div>
-    </div>
   );
 }
 
@@ -329,24 +331,24 @@ function DiscoveredPeerRow({
 
   return (
     <div className="p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          <div className="w-2 h-2 rounded-full border border-[var(--ct-muted)] flex-shrink-0" />
-          <span className="text-xs text-[var(--ct-fg)] truncate">{peer.instance_name}</span>
-          <span className="text-[10px] text-[var(--ct-muted)] font-mono flex-shrink-0">
-            {peer.addresses[0]?.ip || ""}
-          </span>
-          {peer.dev && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)] flex-shrink-0">
-              dev
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            <div className="w-2 h-2 rounded-full border border-[var(--ct-muted)] flex-shrink-0" />
+            <span className="text-sm truncate text-[var(--ct-fg)]">{peer.instance_name}</span>
+            <span className={`${UI_TEXT.meta} ct-text-mono flex-shrink-0`}>
+              {peer.addresses[0]?.ip || ""}
             </span>
-          )}
-          <span className={`text-[9px] px-1.5 py-0.5 rounded-full flex-shrink-0 ${
-            hasVouchers
-              ? "bg-[var(--ct-green)]/20 text-[var(--ct-green)]"
-              : "bg-[var(--ct-border)] text-[var(--ct-muted)]"
-          }`}>
-            {hasVouchers ? "vouched" : "discovered"}
+            {peer.dev && (
+              <span className={`${UI_PANEL.smallPill} bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]`}>
+                dev
+              </span>
+            )}
+            <span className={`ct-small-pill flex-shrink-0 ${
+              hasVouchers
+                ? "bg-[var(--ct-green)]/20 text-[var(--ct-green)]"
+                : "bg-[var(--ct-border)] text-[var(--ct-muted)]"
+            }`}>
+              {hasVouchers ? "vouched" : "discovered"}
           </span>
         </div>
         {isPending ? (
@@ -360,19 +362,19 @@ function DiscoveredPeerRow({
           <button
             onClick={onConnect}
             disabled={connectDisabled}
-            className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)]/20 text-[var(--ct-accent)] hover:bg-[var(--ct-accent)]/30 transition-all disabled:opacity-50 flex-shrink-0"
+            className={`${UI_BUTTON.accent} ${UI_BUTTON.compact} disabled:opacity-50 flex-shrink-0`}
           >
             {hasVouchers ? "Pair too?" : hasPeers ? "Add to Mesh" : "Connect"}
           </button>
         )}
       </div>
       {hasVouchers && !isPending && (
-        <div className="mt-1.5 text-[10px] text-[var(--ct-muted-fg)]">
+        <div className={`mt-1.5 ${UI_TEXT.meta}`}>
           Vouched by {voucherNames.join(", ")}
         </div>
       )}
       {isPending && (
-        <div className="mt-1.5 text-[10px] text-[var(--ct-muted)]">
+        <div className={`mt-1.5 ${UI_TEXT.metaMuted}`}>
           Accept the pairing request on {peer.instance_name}
         </div>
       )}

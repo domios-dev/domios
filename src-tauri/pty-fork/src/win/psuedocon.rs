@@ -43,15 +43,13 @@ shared_library!(ConPtyFuncs,
 );
 
 fn load_conpty() -> ConPtyFuncs {
-    // If the kernel doesn't export these functions then their system is
-    // too old and we cannot run.
+    // If the kernel doesn't export these functions then their system is too old and we cannot run.
     let kernel = ConPtyFuncs::open(Path::new("kernel32.dll")).expect(
         "this system does not support conpty.  Windows 10 October 2018 or newer is required",
     );
 
-    // We prefer to use a sideloaded conpty.dll and openconsole.exe host deployed
-    // alongside the application.  We check for this after checking for kernel
-    // support so that we don't try to proceed and do something crazy.
+    // We prefer to use a sideloaded conpty.dll and openconsole.exe host deployed alongside the application. We check for this after checking for
+    // kernel support so that we don't try to proceed and do something crazy.
     if let Ok(sideloaded) = ConPtyFuncs::open(Path::new("conpty.dll")) {
         sideloaded
     } else {
@@ -79,17 +77,8 @@ impl Drop for PsuedoCon {
 impl PsuedoCon {
     pub fn new(size: COORD, input: FileDescriptor, output: FileDescriptor) -> Result<Self, Error> {
         let mut con: HPCON = INVALID_HANDLE_VALUE;
-        // PSEUDOCONSOLE_PASSTHROUGH_MODE (0x8) relays VT sequences from
-        // the child unmodified — without it, ConPTY re-renders the
-        // child's screen using its own VT processor, which silently
-        // strips 24-bit truecolor backgrounds and reorders cursor
-        // moves relative to palette changes. Symptoms with ratatui
-        // TUIs (codex, claude, opencode): cursor visibly jumps and
-        // input-box backgrounds disappear (microsoft/terminal#8698).
-        //
-        // Supported on Windows 11 22H2+ (build 22621+). On older
-        // builds the call returns E_INVALIDARG; retry without the
-        // flag.
+        // Pass-through VT preserves child rendering; ConPTY repaint mode can reorder cursor and strip colors.
+        // Retry without the flag on older Windows builds where it returns E_INVALIDARG.
         let base_flags = PSUEDOCONSOLE_INHERIT_CURSOR
             | PSEUDOCONSOLE_RESIZE_QUIRK
             | PSEUDOCONSOLE_WIN32_INPUT_MODE;
@@ -117,8 +106,7 @@ impl PsuedoCon {
                 )
             };
         }
-        // One-line diag so the daemon log shows whether VT passthrough
-        // is in effect for ratatui TUIs.
+        // One-line diag so the daemon log shows whether VT passthrough is in effect for ratatui TUIs.
         eprintln!(
             "[conpty] CreatePseudoConsole flags=0x{:x} HRESULT=0x{:08x}",
             base_flags | if passthrough_engaged { PSEUDOCONSOLE_PASSTHROUGH_MODE } else { 0 },
@@ -147,12 +135,8 @@ impl PsuedoCon {
     pub fn spawn_command(&self, cmd: CommandBuilder) -> anyhow::Result<WinChild> {
         let mut si: STARTUPINFOEXW = unsafe { mem::zeroed() };
         si.StartupInfo.cb = mem::size_of::<STARTUPINFOEXW>() as u32;
-        // Explicitly set the stdio handles as invalid handles otherwise
-        // we can end up with a weird state where the spawned process can
-        // inherit the explicitly redirected output handles from its parent.
-        // For example, when daemonizing wezterm-mux-server, the stdio handles
-        // are redirected to a log file and the spawned process would end up
-        // writing its output there instead of to the pty we just created.
+        // Reset stdio handles to INVALID_HANDLE to prevent children inheriting parent redirections.
+        // Without this, detached children may write output to a log file instead of PTY.
         si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
         si.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
         si.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
@@ -197,8 +181,7 @@ impl PsuedoCon {
             bail!("{}", msg);
         }
 
-        // Make sure we close out the thread handle so we don't leak it;
-        // we do this simply by making it owned
+        // Make sure we close out the thread handle so we don't leak it; we do this by making it owned
         let _main_thread = unsafe { OwnedHandle::from_raw_handle(pi.hThread as _) };
         let proc = unsafe { OwnedHandle::from_raw_handle(pi.hProcess as _) };
 

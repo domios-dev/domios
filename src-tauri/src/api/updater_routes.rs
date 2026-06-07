@@ -100,20 +100,15 @@ pub async fn install_update(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
 
-    // Persist before restart — the new daemon picks this up on boot and
-    // injects into the General Agent pane.
+    // Persist before restart — the new daemon picks this up on boot and injects into the General Agent pane.
     if let Some(text) = q.after_update.as_deref() {
         if let Err(e) = crate::update::post_update::stash(text) {
             log::warn!("[updater] failed to stash after_update message: {}", e);
         }
     }
 
-    // For the auto path the embedded tauri-plugin-updater always re-fetches
-    // the manifest before download/install — going through it directly avoids
-    // the daemon's cached `last_check` short-circuiting "up_to_date" right
-    // after a release lands but before the 1h check cache expires. The cache
-    // remains useful for the badge polling and the manual download/browser
-    // fallback paths below.
+    // Auto update checks bypass the daemon's short-check cache to avoid stale "up_to_date" right after release.
+    // Keep cache useful for polling badge and manual browser fallback paths.
     if q.method.as_deref() == Some("auto") {
         let app = state.svc.app_handle.clone();
         let channel = state.update_state.lock().channel;
@@ -165,9 +160,7 @@ pub async fn install_update(
         })));
     }
 
-    // Non-auto paths still need the resolved info (download URL, install
-    // command). Fall back on the cached check; if it's missing, ask the
-    // caller to poll /check first.
+    // Non-auto paths still need the resolved info (download URL, install command). Fall back on the cached check; if it's missing, ask the caller to poll /check first.
     let us = state.update_state.lock();
     let info = us
         .last_check

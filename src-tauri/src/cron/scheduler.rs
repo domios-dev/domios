@@ -158,10 +158,8 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     }
     task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
 
-    // Model priority: per-job override → mem_cfg.dreaming_model (legacy
-    // fallback for the auto-installed dreaming cron) → mem_cfg.worker_model
-    // (shared default). Short labels (haiku|sonnet|opus) resolve at runtime
-    // via agent::models.
+    // Model priority: per-job override → mem_cfg.dreaming_model (legacy fallback for the auto-installed dreaming cron) → mem_cfg.worker_model
+    // (shared default). Short labels (haiku|sonnet|opus) resolve at runtime via agent::models.
     let model = model
         .map(|s| s.to_string())
         .or_else(|| {
@@ -176,9 +174,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         })
         .map(|s| crate::agent::models::canonicalize_short(&s).to_string());
 
-    // Carry the cron job's human name into the pane title so that
-    // [Report from <title>] shows "cron:my-job" instead of the
-    // default "Terminal" when the agent reports back to its creator.
+    // Include cron job name in the pane title so reports show `cron:<job>` instead of plain `Terminal`.
     let job_name = cron_state
         .lock()
         .get(job_id)
@@ -195,8 +191,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         parent_pane_id: None,
         cwd: cwd.map(|s| s.to_string()),
         title: Some(pane_title),
-        // Hidden — user observes cron runs via the cron history log
-        // viewer, not as a live tab. Mirrors the mem worker pattern.
+        // Hidden — user observes cron runs via the cron history log viewer, not as a live tab. Mirrors the mem worker pattern.
         visibility: PaneVisibility::Hidden,
         command: PaneCommand::Agent(AgentSpawnSpec {
             provider: agent.to_string(),

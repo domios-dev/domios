@@ -539,8 +539,7 @@ mod tests {
 
     #[test]
     fn command_round_trips_through_json() {
-        // Validates that every variant we migrated survives a JSON
-        // round trip with tag-based dispatch.
+        // Validates that every variant we migrated survives a JSON round trip with tag-based dispatch.
         let commands = vec![
             Command::Health,
             Command::PaneList,
@@ -706,12 +705,8 @@ mod tests {
         assert!(matches!(cmd, Command::ListAgentProviders));
     }
 
-    // ── cmd_pane_list / build_pane_list_json enrichment ─────────────
-    //
-    // Tests live on the pure helper so we don't have to stand up a full
-    // ServiceContext. This is the surface CLI `pane list` and `pane find`
-    // both read — if these break, the user-visible bug is "the sidebar
-    // friendly name (Dalton/Thomson/Lagrange) doesn't show up in CLI".
+    // `cmd_pane_list` and `build_pane_list_json` enrich panes with sidebar labels.
+    // Tests stay on the pure helper so both `pane list` and `pane find` keep full workspace context.
 
     #[test]
     fn pane_list_attaches_tab_title_and_workspace_name() {
@@ -795,11 +790,7 @@ mod tests {
             let panes = build_pane_list_json(&state.snapshot());
             let focused_ids: Vec<&str> = panes
                 .iter()
-                .filter(|p| {
-                    p.get("focused")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false)
-                })
+                .filter(|p| p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
                 .filter_map(|p| p.get("id").and_then(|v| v.as_str()))
                 .collect();
 

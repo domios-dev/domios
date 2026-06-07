@@ -10,6 +10,8 @@ export interface UseTerminalResizeOptions {
   connectedPtyRef: React.MutableRefObject<string | null>;
   termReady: boolean;
   isFocused: boolean;
+  resizeEnabled?: boolean;
+  resizeClientId?: string;
 }
 
 export interface UseTerminalResizeReturn {
@@ -23,6 +25,8 @@ export function useTerminalResize({
   connectedPtyRef,
   termReady,
   isFocused,
+  resizeEnabled = true,
+  resizeClientId,
 }: UseTerminalResizeOptions): UseTerminalResizeReturn {
   // ConPTY resize jiggle: shrink by 1 col then restore to force SIGWINCH
   const jigglePendingRef = useRef(false);
@@ -32,23 +36,18 @@ export function useTerminalResize({
     const cols = term.cols, rows = term.rows;
     if (cols <= 1 || rows <= 0) return;
     jigglePendingRef.current = true;
-    invoke("resize_pty", { ptyId, cols: cols - 1, rows })
+    invoke("resize_pty", { ptyId, cols: cols - 1, rows, clientId: resizeClientId })
       .then(() => new Promise<void>(r => setTimeout(r, 100)))
-      .then(() => invoke("resize_pty", { ptyId, cols, rows }))
+      .then(() => invoke("resize_pty", { ptyId, cols, rows, clientId: resizeClientId }))
       .finally(() => { jigglePendingRef.current = false; });
-  }, [termRef]);
+  }, [termRef, resizeClientId]);
 
   // ResizeObserver + debounce + self-heal + HMR + visibility
   useEffect(() => {
-    if (!termReady || !containerRef.current) return;
+    if (!termReady || !resizeEnabled || !containerRef.current) return;
 
-    // Debounced refit (150ms — prevents thrashing during split drag).
-    // Skips when the container is currently hidden (clientWidth ≈ 0) —
-    // calling fit() against a 0-width box collapses xterm.cols to 1
-    // and corrupts the visible buffer when the container becomes
-    // visible again. The visibility:hidden trick in TerminalPane.tsx
-    // keeps clientWidth non-zero on toggle, but this guard catches any
-    // other path that ends up here while the element is collapsed.
+    // Debounced refit after split drag only; skip while pane is hidden.
+    // fit() on 0-width element collapses cols to 1 and distorts the buffer.
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const safefit = () => {
       if (resizeTimer) clearTimeout(resizeTimer);
@@ -110,7 +109,12 @@ export function useTerminalResize({
           const term = termRef.current;
           const currentPtyId = connectedPtyRef.current;
           if (term && currentPtyId && term.cols > 0 && term.rows > 0) {
-            invoke("resize_pty", { ptyId: currentPtyId, cols: term.cols, rows: term.rows });
+            invoke("resize_pty", {
+              ptyId: currentPtyId,
+              cols: term.cols,
+              rows: term.rows,
+              clientId: resizeClientId,
+            });
           }
         } catch { /* ignore */ }
       });
@@ -126,11 +130,11 @@ export function useTerminalResize({
       hmrCleanup?.();
       window.removeEventListener("codeterm-pane-resize", handlePaneResize);
     };
-  }, [termReady, containerRef, termRef, fitAddonRef, connectedPtyRef, jiggleResize]);
+  }, [termReady, resizeEnabled, resizeClientId, containerRef, termRef, fitAddonRef, connectedPtyRef, jiggleResize]);
 
   // Refit + focus when pane becomes focused
   useEffect(() => {
-    if (isFocused && termReady) {
+    if (isFocused && termReady && resizeEnabled) {
       requestAnimationFrame(() => {
         try {
           fitAddonRef.current?.fit();
@@ -138,7 +142,7 @@ export function useTerminalResize({
         } catch { /* ignore */ }
       });
     }
-  }, [isFocused, termReady, fitAddonRef, termRef]);
+  }, [isFocused, termReady, resizeEnabled, fitAddonRef, termRef]);
 
   return { jiggleResize };
 }

@@ -146,7 +146,11 @@ pub fn mesh_reject_pairing(
         let _ = m.save();
     }
     drop(m);
-    crate::api::events::emit_everywhere(&svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     Ok(())
 }
 
@@ -262,7 +266,11 @@ pub async fn mesh_disconnect(
         }
     }
 
-    crate::api::events::emit_everywhere(&svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     Ok(())
 }
 
@@ -311,7 +319,11 @@ pub async fn mesh_exit(
 
     // Clear all local mesh state
     mesh.lock().exit_mesh();
-    crate::api::events::emit_everywhere(&svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     log::info!("[mesh] Exited mesh");
     Ok(())
 }
@@ -341,7 +353,11 @@ pub fn mesh_add_manual(
     mesh.lock()
         .discovered_peers
         .insert(peer.instance_id.clone(), peer);
-    crate::api::events::emit_everywhere(&svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     Ok(())
 }
 
@@ -419,7 +435,11 @@ pub fn mesh_set_access(
     peer.access_level = level;
     let _ = m.save();
     drop(m);
-    crate::api::events::emit_everywhere(&svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     log::info!(
         "[mesh] Set access level for {} to {}",
         instance_id,

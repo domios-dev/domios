@@ -97,8 +97,7 @@ impl AgentRegistry {
         id: &str,
     ) -> Option<impl std::ops::Deref<Target = dyn AgentProvider> + 'a> {
         let guard = self.providers.read();
-        // We need to return something that holds the guard alive.
-        // Use a mapped guard via parking_lot's RwLockReadGuard::try_map.
+        // must return something that holds the guard alive. Use a mapped guard via parking_lot's RwLockReadGuard::try_map.
         parking_lot::RwLockReadGuard::try_map(guard, |map| map.get(id).map(|b| b.as_ref())).ok()
     }
 
@@ -242,10 +241,8 @@ impl AgentRegistry {
         if opts.terms.is_empty() {
             return Vec::new();
         }
-        // Use ASCII-lowercase so the lowered string stays byte-for-byte aligned
-        // with the original. `str::to_lowercase` can change byte AND char count
-        // (`ß → ss`, `İ → i̇`), which would misalign snippet windows when we
-        // translate a lowercased-string position back into the original.
+        // Use ASCII-lowercase so the lowered string stays byte-for-byte aligned with the original. `str::to_lowercase` can change byte AND char count
+        // (`ß → ss`, `İ → i̇`), which would misalign snippet windows when we translate a lowercased-string position back into the original.
         let lowered_terms: Vec<String> =
             opts.terms.iter().map(|t| t.to_ascii_lowercase()).collect();
         let limit = if opts.limit == 0 { 10 } else { opts.limit };
@@ -283,8 +280,7 @@ impl AgentRegistry {
                     }
                     matched_msgs += 1;
                     if snippets.len() < max_snippets {
-                        // Positions in `text_lc` map 1:1 to bytes in `msg.text`
-                        // thanks to ascii-lowercasing.
+                        // Positions in `text_lc` map 1:1 to bytes in `msg.text` thanks to ascii-lowercasing.
                         let pos = lowered_terms
                             .iter()
                             .filter_map(|t| text_lc.find(t))

@@ -1,5 +1,4 @@
-// Shared types matching Rust's RichMessage / MessageBlock / SessionDelta.
-// Keep in sync with src-tauri/src/agent/chat_types.rs.
+// Types mirror Rust `agent/chat_types.rs` for UI chat payloads.
 
 export interface MessageBlock {
   kind: string;

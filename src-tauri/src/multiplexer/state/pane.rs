@@ -30,6 +30,7 @@ impl MultiplexerState {
             protected: false,
             connected_services: vec![],
             agent_set_at: None,
+            agent_booting: false,
             hidden: false,
             show_in_tabbar: true,
             worker_id: None,
@@ -89,9 +90,8 @@ impl MultiplexerState {
     /// nothing" UX bug). Callers in service-layer close paths should compare
     /// pre/post focus and emit `pane-focused` if it actually changed.
     pub fn fallback_focus_to_general(&mut self) -> Option<String> {
-        // Hard-coded alias mirrors `service::general_agent::GENERAL_ALIAS`.
-        // Kept as a string literal to avoid pulling a service-layer constant
-        // into the state layer; if the alias name ever changes, update both.
+        // Hard-coded alias mirrors `service::general_agent::GENERAL_ALIAS`. Kept as a string literal to avoid pulling a service-layer constant into
+        // the state layer; if the alias name ever changes, update both.
         let target = self.resolve_pane_id("general")?;
         self.focused_pane_id = Some(target.clone());
         Some(target)
@@ -145,8 +145,7 @@ impl MultiplexerState {
 
     /// Sidebar label for a pane — tab.title, falling back to pane.title, then short id.
     pub fn display_label_for_pane(&self, pane_id: &str) -> String {
-        // Callers may pass a short id / alias — resolve first so the
-        // tab-title lookup (which compares full ids) actually matches.
+        // Callers may pass a short id / alias — resolve first so the tab-title lookup (which compares full ids) matches.
         let resolved = self
             .resolve_pane_id(pane_id)
             .unwrap_or_else(|| pane_id.to_string());
@@ -229,9 +228,8 @@ mod display_label_tests {
 
     #[test]
     fn display_label_prefers_tab_title_over_pane_title() {
-        // Regression: `[from MY-CUSTOM-TITLE pane=2503fbce]` showed the raw
-        // pane.title instead of the sidebar's friendly tab name. Recipients
-        // had no way to map the prefix back to the tab they could see.
+        // Regression: `[from MY-CUSTOM-TITLE pane=2503fbce]` showed the raw pane.title instead of the sidebar's friendly tab name. Recipients had no
+        // way to map the prefix back to the tab they could see.
         let (mut state, pane_id) = MultiplexerState::new();
         let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
         let tab_id = state.find_tab_for_pane(&pane_id).unwrap();
@@ -247,8 +245,7 @@ mod display_label_tests {
         let tab_id = state.find_tab_for_pane(&pane_id).unwrap();
         state.rename_tab(&ws_id, &tab_id, "Same").unwrap();
         state.rename_pane(&pane_id, "Same").unwrap();
-        // Tab and pane title are identical — no point parroting the same word,
-        // fall back to pane.title so the resulting string isn't double-empty.
+        // Tab and pane title are identical — no point parroting the same word, fall back to pane.title so the resulting string isn't double-empty.
         assert_eq!(state.display_label_for_pane(&pane_id), "Same");
     }
 
@@ -257,8 +254,7 @@ mod display_label_tests {
         let (mut state, pane_id) = MultiplexerState::new();
         state.rename_pane(&pane_id, "").unwrap();
         let label = state.display_label_for_pane(&pane_id);
-        // Default auto-generated tab title is non-empty, so the label is
-        // either the tab title or the short id — either way, never empty.
+        // Default auto-generated tab title is non-empty, so the label is either the tab title or the short id — either way, never empty.
         assert!(
             !label.is_empty(),
             "display label must never be empty (got {:?})",

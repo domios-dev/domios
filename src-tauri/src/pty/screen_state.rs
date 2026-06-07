@@ -204,8 +204,7 @@ pub fn screen_has_agent_tui(screen_text: &str) -> bool {
     if screen_text.chars().any(|c| TUI_GLYPHS.contains(&c)) {
         return true;
     }
-    // Six+ consecutive `▀` (upper-half blocks) — opencode logo/borders never
-    // appear in normal shell output.
+    // Six+ consecutive `▀` (upper-half blocks) — opencode logo/borders never appear in normal shell output.
     screen_text.contains("▀▀▀▀▀▀")
 }
 
@@ -238,8 +237,7 @@ pub fn screen_has_shell_prompt(screen_text: &str) -> bool {
             if trimmed == ">" || trimmed == "> " {
                 return false;
             }
-            // Claude Code TUI idle input cursor: `❯` (U+276F), optional trailing space.
-            // Some agent TUIs use `›` (U+203A) similarly. Match anywhere on the
+            // Claude Code TUI idle input cursor: `❯` (U+276F), optional trailing space. Some agent TUIs use `›` (U+203A) similarly. Match anywhere on the
             // last line so this still fires when the cursor sits inside a box.
             if trimmed.contains('\u{276F}') || trimmed.contains('\u{203A}') {
                 return true;
@@ -250,9 +248,7 @@ pub fn screen_has_shell_prompt(screen_text: &str) -> bool {
                 || trimmed.ends_with('%')
                 // PowerShell ready prompt: starts with "PS " and ends with ">".
                 || (trimmed.starts_with("PS ") && trimmed.ends_with('>'))
-                // Generic `name>` form (cmd.exe `C:\path>`, fish `name>`, etc).
-                // Must contain non-`>` content before the trailing `>` so we don't
-                // accept bare-arrow continuation lines.
+                // Generic `name>` form (cmd.exe `C:\path>`, fish `name>`, etc). Must contain non-`>` content before the trailing `>` so we don't accept bare-arrow continuation lines.
                 || (trimmed.ends_with('>') && trimmed.chars().any(|c| c != '>' && !c.is_whitespace()))
         }
     }
@@ -264,8 +260,7 @@ mod tests {
 
     #[test]
     fn powershell_continuation_is_not_a_ready_prompt() {
-        // The `>>` continuation indicator appears when the previous command was
-        // incomplete (unclosed quote, mid-pipe). NEVER treat as ready — the
+        // The `>>` continuation indicator appears when the previous command was incomplete (unclosed quote, mid-pipe). NEVER treat as ready — the
         // launch_cmd would just become more input on the broken line.
         assert!(!screen_has_shell_prompt(">>"));
         assert!(!screen_has_shell_prompt(">> "));
@@ -289,8 +284,7 @@ mod tests {
 
     #[test]
     fn claude_tui_input_cursor_is_recognized() {
-        // Issue #72: idle Claude TUI shows `❯` (U+276F) as the input cursor.
-        // `send-text --verify` was timing out with PromptNeverReady because the
+        // Issue #72: idle Claude TUI shows `❯` (U+276F) as the input cursor. `send-text --verify` was timing out with PromptNeverReady because the
         // matcher only knew POSIX/Windows shell markers.
         assert!(screen_has_shell_prompt("❯ "));
         assert!(screen_has_shell_prompt("❯"));
@@ -307,9 +301,8 @@ mod tests {
 
     #[test]
     fn bare_shell_prompt_rejects_active_tui() {
-        // Claude TUI with idle cursor on the last non-empty line. `screen_has_shell_prompt`
-        // accepts `❯` (issue #72), so without the TUI veto the restart code would think
-        // the shell is back and pipe the launch command into Claude's input box.
+        // Claude TUI with idle cursor on the last non-empty line. `screen_has_shell_prompt` accepts `❯` (issue #72), so without the TUI veto the
+        // restart code would think the shell is back and pipe the launch command into Claude's input box.
         let claude_tui = "╭──────────────────────────╮\n│ ❯                        │";
         assert!(
             screen_has_shell_prompt(claude_tui),
@@ -333,8 +326,8 @@ mod tests {
 
     #[test]
     fn agent_tui_detected_by_universal_glyphs() {
-        // Universal glyph check (box-drawing, block chars) — no text patterns here.
-        // Text patterns live in each provider's screen_has_tui() implementation.
+        // Universal glyph check (box-drawing, block chars) — no text patterns here. Text patterns live in each provider's screen_has_tui()
+        // implementation.
         assert!(screen_has_agent_tui("╭─ foo ─╮"));
         assert!(screen_has_agent_tui("▀▀▀▀▀▀ opencode logo"));
         assert!(!screen_has_agent_tui("some content\n? for shortcuts")); // text → provider

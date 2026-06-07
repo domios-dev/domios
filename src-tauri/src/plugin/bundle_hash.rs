@@ -90,9 +90,8 @@ pub fn hash_bundle(plugin_dir: &Path) -> Result<String, HashError> {
     let mut entries: Vec<(String, PathBuf)> = Vec::new();
     collect_entries(plugin_dir, plugin_dir, &mut entries)?;
 
-    // Sort by path bytes for cross-platform determinism. String sort
-    // happens to align with bytes for ASCII paths; for non-ASCII names
-    // we still want byte-level ordering, not locale ordering.
+    // Sort by path bytes for cross-platform determinism. String sort happens to align with bytes for ASCII paths; for non-ASCII names we still
+    // want byte-level ordering, not locale ordering.
     entries.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
 
     let mut outer = Sha256::new();
@@ -156,8 +155,7 @@ fn collect_entries(
                 .replace('\\', "/");
             out.push((rel, path));
         }
-        // FIFOs, sockets, etc. are silently ignored (not expected in
-        // a plugin bundle).
+        // FIFOs, sockets, etc. are silently ignored (not expected in a plugin bundle).
     }
     Ok(())
 }
@@ -251,8 +249,7 @@ mod tests {
 
     #[test]
     fn binary_files_not_normalised() {
-        // A .png file containing \r\n bytes should NOT be normalised —
-        // bumping the count of \r bytes must change the hash.
+        // A.png file containing \r\n bytes should NOT be normalised — bumping the count of \r bytes must change the hash.
         let a = tempfile::tempdir().unwrap();
         write(a.path(), "icon.png", b"\x89PNG\r\n\x1a\n");
         let b = tempfile::tempdir().unwrap();
@@ -283,8 +280,7 @@ mod tests {
 
     #[test]
     fn nested_directory_order_independent() {
-        // Filesystem walk may visit "z/a.js" before "a/z.js" depending
-        // on FS; explicit sort step must produce the same hash.
+        // Filesystem walk may visit "z/a.js" before "a/z.js" depending on FS; explicit sort step must produce the same hash.
         let a = tempfile::tempdir().unwrap();
         write(a.path(), "a/file.js", b"a\n");
         write(a.path(), "z/file.js", b"z\n");
@@ -301,11 +297,8 @@ mod tests {
 
     #[test]
     fn forward_slash_canonical_path_separator() {
-        // The relative path component fed into the inner hash uses '/'
-        // not '\'. We verify this implicitly: a bundle hashed on
-        // Windows should match one hashed on Unix for identical
-        // content. Direct check: rename file to nested and verify
-        // hash depends on logical name, not raw OS separator.
+        // The relative path component fed into the inner hash uses '/' not '\'. We verify this implicitly: a bundle hashed on Windows should match one
+        // hashed on Unix for identical content. Direct check: rename file to nested and verify hash depends on logical name, not raw OS separator.
         let a = tempfile::tempdir().unwrap();
         write(a.path(), "sub/file.js", b"x\n");
         let h = hash_bundle(a.path()).unwrap();

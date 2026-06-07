@@ -18,12 +18,8 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         if params.skip_permissions {
             parts.push("--dangerously-skip-permissions".to_string());
         }
-        // -p reads stdin; stream-json+verbose+partial-messages emits NDJSON
-        // continuously (text deltas as generated) so the watcher's idle
-        // counter never trips during normal claude generation.
-        // --allowedTools Bash is REQUIRED for -p mode to allow tool use;
-        // without it the worker can't call the codeterm CLI and the whole
-        // extraction pipeline silently does nothing.
+        // Keep Claude in streaming mode (-p) and allow Bash tools so extraction can call the CLI.
+        // Without stream output + allowedTools, the extraction pipeline can stall.
         parts.push("-p".to_string());
         parts.push("--output-format".to_string());
         parts.push("stream-json".to_string());
@@ -46,8 +42,7 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         parts.push(ShellSyntax::quote(name));
     }
 
-    // Pre-generated session id (only honored for fresh sessions —
-    // `--session-id` is silently ignored by claude when also resuming).
+    // Pre-generated session id (only honored for fresh sessions — `--session-id` is silently ignored by claude when also resuming).
     if !use_stdin_pipe {
         if let Some(ref sid) = params.session_id {
             parts.push("--session-id".to_string());
@@ -286,8 +281,7 @@ mod tests {
 
     #[test]
     fn test_headless_does_not_inject_session_id() {
-        // Headless (-p) Claude launches don't take --session-id; we must
-        // skip injection rather than emit a flag claude will reject.
+        // Headless (-p) Claude launches don't take --session-id; we must skip injection rather than emit a flag claude will reject.
         let params = AgentLaunchParams {
             agent_name: None,
             task: Some("hello".to_string()),

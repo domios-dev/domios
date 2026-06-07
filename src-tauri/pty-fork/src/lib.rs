@@ -251,8 +251,7 @@ impl std::fmt::Display for ExitStatus {
 }
 
 pub struct PtyPair {
-    // slave is listed first so that it is dropped first.
-    // The drop order is stable and specified by rust rfc 1857
+    // slave is listed first so that it is dropped first. The drop order is stable and specified by rust rfc 1857
     pub slave: Box<dyn SlavePty + Send>,
     pub master: Box<dyn MasterPty + Send>,
 }
@@ -341,20 +340,15 @@ impl ChildKiller for std::process::Child {
     fn kill(&mut self) -> IoResult<()> {
         #[cfg(unix)]
         {
-            // On unix, we send the SIGHUP signal instead of trying to kill
-            // the process. The default behavior of a process receiving this
-            // signal is to be killed unless it configured a signal handler.
+            // On unix, we send the SIGHUP signal instead of trying to kill the process. The default behavior of a process receiving this signal is to be
+            // killed unless it configured a signal handler.
             let result = unsafe { libc::kill(self.id() as i32, libc::SIGHUP) };
             if result != 0 {
                 return Err(std::io::Error::last_os_error());
             }
 
-            // We successfully delivered SIGHUP, but the semantics of Child::kill
-            // are that on success the process is dead or shortly about to
-            // terminate.  Since SIGUP doesn't guarantee termination, we
-            // give the process a bit of a grace period to shutdown or do whatever
-            // it is doing in its signal handler befre we proceed with the
-            // full on kill.
+            // We successfully delivered SIGHUP, but the semantics of Child::kill are that on success the process is dead or shortly about to terminate.
+            // SIGUP may not terminate immediately; wait briefly before force-kill.
             for attempt in 0..5 {
                 if attempt > 0 {
                     std::thread::sleep(std::time::Duration::from_millis(50));

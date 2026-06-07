@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { open } from "@tauri-apps/plugin-dialog";
+import { IS_WEB } from "../../lib/webApi";
+import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
+import { KeepAwakeTray } from "../Titlebar/KeepAwakeTray";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
 import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
@@ -9,6 +13,7 @@ import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
+import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
 
@@ -71,18 +76,20 @@ export function Sidebar({
     spawnClaudeTab,
     spawnAgentTab,
   } = useMultiplexer();
-  // When mainView leaves the workspace (Memory / Settings open), suppress the
-  // "active" highlight on the current workspace + tab so the sidebar clearly
-  // shows where the user actually is in the hierarchy. Backend focus state
-  // is unchanged — returning to workspace restores the visual highlight.
+  // When mainView leaves the workspace (Memory / Settings open), suppress the "active" highlight on the current workspace + tab so the sidebar
+  // clearly shows where the user is in the hierarchy. Backend focus state is unchanged — returning to workspace restores the visual highlight.
   const isWorkspaceMode = mainView === "workspace";
 
-  // Agent spawn modal state. `workspaceId` is captured up front so the
-  // confirm step targets the workspace that opened the menu, not whatever
+  // Agent spawn modal state. `workspaceId` is captured up front so the confirm step targets the workspace that opened the menu, not whatever
   // happens to be active when the user clicks Continue.
   const [agentSpawnModal, setAgentSpawnModal] = useState<
     { folder: string; agentId: string; workspaceId: string } | null
   >(null);
+  const [folderPicker, setFolderPicker] = useState<{
+    title: string;
+    initialPath?: string | null;
+    onSelect: (path: string) => void;
+  } | null>(null);
   const [claudeSkipPerms, setClaudeSkipPerms] = useState(() => {
     try { return localStorage.getItem("codeterm-claude-skip-perms") === "true"; } catch { return false; }
   });
@@ -95,21 +102,35 @@ export function Sidebar({
     workspaceId: string,
     workspaceCwd: string | null,
   ) => {
-    // Spawning from a workspace's 3-dot menu — the workspace folder is the
-    // implicit choice; no need for a folder picker. Older versions opened a
+    // Spawning from a workspace's 3-dot menu — the workspace folder is the implicit choice; no need for a folder picker. Older versions opened a
     // dialog here even though the user had already selected the workspace.
     let folder: string | null = workspaceCwd;
     if (!folder) {
       const provider = getAgentProvider(agentId);
-      try {
-        folder = await open({
-          directory: true,
-          multiple: false,
-          title: `Choose project folder for ${provider?.displayName ?? agentId}`,
+      if (IS_WEB) {
+        setFolderPicker({
+          title: `Project folder for ${provider?.displayName ?? agentId}`,
+          initialPath: workspaceCwd,
+          onSelect: (path) => {
+            if (claudeRememberChoice) {
+              spawnAgentTab(workspaceId, agentId, claudeSkipPerms, path);
+            } else {
+              setAgentSpawnModal({ folder: path, agentId, workspaceId });
+            }
+          },
         });
-      } catch (err) {
-        console.error(`[agent-spawn] folder picker failed:`, err);
         return;
+      } else {
+        try {
+          folder = await open({
+            directory: true,
+            multiple: false,
+            title: `Choose project folder for ${provider?.displayName ?? agentId}`,
+          });
+        } catch (err) {
+          console.error(`[agent-spawn] folder picker failed:`, err);
+          return;
+        }
       }
       if (!folder) return;
     }
@@ -155,10 +176,21 @@ export function Sidebar({
 
   const handleNewWorkspace = useCallback(async () => {
     let folder: string | null;
-    try {
-      folder = await open({ directory: true, multiple: false, title: "Choose workspace folder" });
-    } catch {
+    if (IS_WEB) {
+      setFolderPicker({
+        title: "Workspace folder",
+        onSelect: async (path) => {
+          const basename = path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
+          await createWorkspace(basename, path);
+        },
+      });
       return;
+    } else {
+      try {
+        folder = await open({ directory: true, multiple: false, title: "Choose workspace folder" });
+      } catch {
+        return;
+      }
     }
     if (!folder) return;
     const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
@@ -210,7 +242,8 @@ export function Sidebar({
   }, [sidebarWidth]);
 
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const isCompact = sidebarWidth < 100;
+  const touchMode = useTouchOptimizedUi();
+  const isCompact = !touchMode && sidebarWidth < 100;
 
   // Track tabs for appear/close animations
   const prevTabIdsRef = useRef<Set<string>>(new Set());
@@ -248,9 +281,8 @@ export function Sidebar({
     return () => clearTimeout(timer);
   }, [appearingTabs]);
 
-  // Fire backend PTY-kill immediately so it runs in parallel with the visual
-  // exit animation; defer the local state dispatch (which removes the tab)
-  // until the 350ms animation completes so the pill doesn't disappear mid-fade.
+  // Fire backend PTY-kill immediately so it runs in parallel with the visual exit animation; defer the local state dispatch (which removes the
+  // tab) until the 350ms animation completes so the pill doesn't disappear mid-fade.
   const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
     const ws = state.workspaces.find((w) => w.id === wsId);
     const tab = ws?.tabs.find((t) => t.id === tabId);
@@ -276,9 +308,20 @@ export function Sidebar({
     <>
       <aside
         ref={sidebarRef}
+        data-touch-mode={touchMode ? "true" : "false"}
         className="shrink-0 bg-[var(--ct-sidebar-bg)] flex flex-col select-none overflow-hidden relative"
         style={{ width: sidebarWidth, boxShadow: "inset -0.5px 0 0 var(--ct-border-subtle)" }}
       >
+        {/* Web mirror: the titlebar is stripped, so the host picker (with
+            its online dot) and keep-awake live at the top of the sidebar. */}
+        {IS_WEB && (
+          <div className="flex items-center gap-2 px-2 pt-2 pb-1 border-b border-[var(--ct-border)]">
+            <WebPeerPicker />
+            <div className="ml-auto">
+              <KeepAwakeTray />
+            </div>
+          </div>
+        )}
         {/* Panes header with action icons */}
         <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
           {!isCompact && (
@@ -333,11 +376,8 @@ export function Sidebar({
                           title={tab.title}
                         >
                           {(() => {
-                            // Any pane with an agent_type set (backend
-                            // already classified) — don't gate on the
-                            // FE-only `getAgentProvider` registry, or
-                            // drop-in plugins without a FE module
-                            // wouldn't surface here.
+                            // Any pane with an agent_type set (backend already classified) — don't gate on the FE-only `getAgentProvider` registry, or drop-in plugins
+                            // without a FE module wouldn't surface here.
                             const agentPid = tabPaneIds.find((pid) => !!state.panes[pid]?.agent_type);
                             const agentType = agentPid ? state.panes[agentPid]?.agent_type : undefined;
                             return agentType ? (
@@ -393,6 +433,7 @@ export function Sidebar({
                       }
                     } catch { /* ignore */ }
                   }}
+                  touchMode={touchMode}
                 />
                 {/* Animated expand/collapse using grid-template-rows */}
                 <div
@@ -463,6 +504,7 @@ export function Sidebar({
                               orchestrators={wsOrchestrators}
                               isAppearing={isAppearing}
                               isClosing={isClosing}
+                              touchMode={touchMode}
                             />
                             {childTabs.map((ct, ci) => renderTab(ct, ci, depth + 1))}
                           </div>
@@ -526,6 +568,7 @@ export function Sidebar({
                         }}
                         pane={atFirstPane}
                         orchestrators={wsOrchestrators}
+                        touchMode={touchMode}
                       />
                     );
                   })()
@@ -540,14 +583,14 @@ export function Sidebar({
           {(config?.ui?.memory_tab_enabled ?? true) && (
             <button
               onClick={onOpenMemory}
-              className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
+              className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                 mainView === "memory"
                   ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                   : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
               }`}
               title="Memory Graph (Ctrl+Shift+M)"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
                 <circle cx="12" cy="5" r="2" />
                 <circle cx="5" cy="19" r="2" />
                 <circle cx="19" cy="19" r="2" />
@@ -556,21 +599,21 @@ export function Sidebar({
                 <line x1="10.5" y1="14.5" x2="6.5" y2="17.5" />
                 <line x1="13.5" y1="14.5" x2="17.5" y2="17.5" />
               </svg>
-              {!isCompact && <span className="text-[11px]">Memory</span>}
+              {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Memory</span>}
             </button>
           )}
           {(config?.ui?.mesh_tab_enabled ?? true) && (
             <button
               data-testid="nav-mesh"
               onClick={onOpenMesh}
-              className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
+              className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                 mainView === "mesh"
                   ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                   : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
               }`}
               title="Mesh"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
                 <circle cx="12" cy="12" r="2" />
                 <circle cx="4" cy="6" r="2" />
                 <circle cx="20" cy="6" r="2" />
@@ -581,20 +624,21 @@ export function Sidebar({
                 <line x1="6" y1="18" x2="10.5" y2="13" />
                 <line x1="18" y1="18" x2="13.5" y2="13" />
               </svg>
-              {!isCompact && <span className="text-[11px]">Mesh</span>}
+              {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Mesh</span>}
             </button>
           )}
           <button
+            data-testid="nav-settings"
             onClick={onOpenSettings}
-            className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
+            className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
               mainView === "settings"
                 ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                 : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
             }`}
             title="Settings (Ctrl+,)"
           >
-            <GearIcon className="shrink-0" />
-            {!isCompact && <span className="text-[11px]">Settings</span>}
+            <GearIcon size={touchMode ? 18 : 14} className="shrink-0" />
+            {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Settings</span>}
           </button>
         </div>
         {/* Resize handle */}
@@ -603,6 +647,18 @@ export function Sidebar({
           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--ct-accent)] transition-colors"
         />
       </aside>
+
+      {folderPicker && (
+        <RemoteFolderPicker
+          title={folderPicker.title}
+          initialPath={folderPicker.initialPath}
+          onCancel={() => setFolderPicker(null)}
+          onSelect={(path) => {
+            setFolderPicker(null);
+            folderPicker.onSelect(path);
+          }}
+        />
+      )}
 
       {/* Agent spawn modal */}
       {agentSpawnModal && (

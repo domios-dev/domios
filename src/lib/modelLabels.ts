@@ -1,6 +1,5 @@
-// Frontend mirror of src-tauri/src/agent/models.rs::canonicalize_short.
-// Existing user configs may contain version-pinned ids; the picker must
-// match them to the short label so the dropdown highlights correctly.
+// Keep frontend label mapping aligned with `canonicalize_short`.
+// Version-pinned IDs in config should still highlight as expected.
 
 const LEGACY: Record<string, string> = {
   "claude-sonnet-4-6": "sonnet",

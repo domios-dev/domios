@@ -34,8 +34,7 @@ fn read_session_cwd(file_path: &Path) -> Option<String> {
     use std::io::{BufRead, BufReader};
     let f = std::fs::File::open(file_path).ok()?;
     let reader = BufReader::new(f);
-    // cwd appears on every message line but not on the permission-mode
-    // header, so bound the scan to the first ~20 lines.
+    // cwd appears on every message line but not on the permission-mode header, so bound the scan to the first ~20 lines.
     for line in reader.lines().take(20).map_while(Result::ok) {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
             if let Some(cwd) = v.get("cwd").and_then(|c| c.as_str()) {
@@ -53,10 +52,8 @@ pub(super) fn session_file_path(cwd: &str, session_id: &str) -> Option<PathBuf> 
 
 pub(super) fn detect_session_model(cwd: &str, session_id: &str) -> Option<String> {
     let path = session_file_path(cwd, session_id)?;
-    // Climb the tail in tiers — most sessions resolve from 64K, but resumed
-    // sessions that haven't received a new assistant turn yet can have many
-    // hundreds of KB of file-backup/tool-call metadata trailing the last
-    // message. 4MB is plenty without hitting the disk hard.
+    // Climb the tail in tiers — most sessions resolve from 64K, but resumed sessions that haven't received a new assistant turn yet can have many
+    // hundreds of KB of file-backup/tool-call metadata trailing the last message. 4MB is plenty without hitting the disk hard.
     scan_tail(&path, 64 * 1024)
         .or_else(|| scan_tail(&path, 512 * 1024))
         .or_else(|| scan_tail(&path, 4 * 1024 * 1024))
@@ -209,8 +206,7 @@ mod model_label_tests {
 
     #[test]
     fn tail_scan_picks_set_model_over_older_message_model() {
-        // user runs /model opus AFTER an assistant turn on sonnet — the
-        // newer Set-model command must win.
+        // user runs /model opus AFTER an assistant turn on sonnet — the newer Set-model command must win.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("s.jsonl");
         let mut f = std::fs::File::create(&path).unwrap();
@@ -323,8 +319,7 @@ pub(super) fn parse_session_messages(file_path: &Path) -> Vec<SessionMessage> {
         }
         let is_meta = v.get("isMeta").and_then(|b| b.as_bool()).unwrap_or(false);
 
-        // Claude JSONL nests the real content under `message.content`,
-        // which can be a string or an array of typed blocks.
+        // Claude JSONL nests the real content under `message.content`, which can a string or an array of typed blocks.
         let content = v.get("message").and_then(|m| m.get("content"));
         let text = match content {
             Some(serde_json::Value::String(s)) => s.clone(),
@@ -384,8 +379,7 @@ pub(super) fn detect_session_id(
                 let stem = name.trim_end_matches(".jsonl");
                 if stem.len() >= 32 && stem.contains('-') && !exclude.contains(&stem.to_string()) {
                     if let Ok(meta) = entry.metadata() {
-                        // Recency check uses modification time — a resumed session
-                        // has an old birth time but recent writes.
+                        // Recency check uses modification time — a resumed session has an old birth time but recent writes.
                         if let Ok(modified) = meta.modified() {
                             if let Ok(age) = now.duration_since(modified) {
                                 if age > recency_limit {
@@ -393,10 +387,8 @@ pub(super) fn detect_session_id(
                                 }
                             }
                         }
-                        // Sort key uses creation time (birth) when available —
-                        // a new session creates a new file, so the newest-created
-                        // file is the current session. Falls back to modified time
-                        // (Linux without birth time, or resumed sessions).
+                        // Sort key uses creation time (birth) when available — a new session creates a new file, so the newest-created file is the current session.
+                        // Falls back to modified time (Linux without birth time, or resumed sessions).
                         let sort_key = meta.created().or_else(|_| meta.modified());
                         if let Ok(ts) = sort_key {
                             sessions.push((stem.to_string(), ts));
@@ -439,9 +431,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path().to_string_lossy().to_string();
 
-        // Build the path the provider expects, then materialize it so the
-        // default `session_exists` (which checks `session_file_path().exists()`)
-        // can find it. Skips the test if HOME isn't writable.
+        // Build the path the provider expects, then materialize it so the default `session_exists` (which checks `session_file_path().exists()`) can
+        // find it. Skips the test if HOME isn't writable.
         let real_path = match p.session_file_path(&cwd, "session-real") {
             Some(p) => p,
             None => return,

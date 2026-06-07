@@ -111,6 +111,12 @@ export class MeshStub {
       };
       if (req.method === "OPTIONS") return json(204, null);
 
+      if (path === "/api/mesh/web-token" && this.webToken) {
+        const auth = req.headers.authorization ?? "";
+        if (!auth.startsWith("Bearer ")) return json(401, { error: "missing mesh auth" });
+        return json(200, { ok: true, token: this.webToken });
+      }
+
       if (this.webToken && this.handleWebApi(req, res, path, json)) return;
 
       switch (path) {

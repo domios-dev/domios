@@ -48,10 +48,8 @@ pub struct AgentLaunchParams {
     pub skip_permissions: bool,
     // True for one-shot hidden panes; providers pick non-interactive delivery.
     pub headless: bool,
-    // Pre-generated session id to use when starting a NEW conversation.
-    // Honored only by providers reporting `SessionIdInjection != None` —
-    // others ignore it (they generate ids themselves and CodeTerm has to
-    // detect after launch).
+    // Pre-generated session id to use when starting a NEW conversation. Honored only by providers reporting `SessionIdInjection != None` — others
+    // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
     pub session_id: Option<String>,
 }
 
@@ -100,9 +98,8 @@ pub struct SessionMessage {
     pub is_meta: bool,
 }
 
-// `ProviderDescriptor` is the wire format every plugin reports through
-// `AgentProvider::describe()`; the frontend renders Settings, Sidebar,
-// and command palette entries from the list with no per-provider JS.
+// `ProviderDescriptor` is every plugin's describe() wire payload used by the
+// frontend for Settings, Sidebar, and command-palette rows.
 
 /// Single model offered by an agent provider.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -416,6 +413,12 @@ pub struct ProviderDescriptor {
     /// pipes it into a fresh terminal pane when the user clicks Install.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_command: Option<String>,
+    /// Provider-declared in-agent model switch command template. `{model}` is
+    /// replaced by the frontend with the selected `ModelInfo.id`. Absent means
+    /// the provider may publish models for launch/config surfaces but does not
+    /// support an arg-based live session switch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_switch_format: Option<String>,
     /// `true` when this provider declares a stop_keystroke — UI shows
     /// a Stop button on the pane that POSTs to `/api/panes/:id/stop`.
     #[serde(default)]
@@ -685,6 +688,14 @@ pub trait AgentProvider: Send + Sync {
 
     /// In-agent command that switches the underlying model, if supported.
     fn model_switch_command(&self, _model: &str) -> Option<String> {
+        self.model_switch_format()
+            .map(|fmt| fmt.replace("{model}", _model))
+    }
+
+    /// In-agent model switch command template. Frontend consumers use the
+    /// template to render provider-agnostic model pickers without hardcoding
+    /// provider slash commands.
+    fn model_switch_format(&self) -> Option<&str> {
         None
     }
 
@@ -733,13 +744,8 @@ pub trait AgentProvider: Send + Sync {
         Ok(())
     }
 
-    // ── CodeTerm integration (hooks / callbacks / native notification wiring) ──
-    //
-    // Some providers (Claude) need explicit configuration in their own
-    // settings file to call back into CodeTerm on permission prompts and
-    // task completion. Other providers (Codex, Opencode) are observed
-    // entirely through PTY parsing and need no configuration. The trait
-    // exposes a uniform surface so commands/* can dispatch generically.
+    // CodeTerm integration varies: Claude uses hooks for permission/task callbacks;
+    // Codex/OpenCode are PTY-observed and need no extra provider config.
 
     /// Status of CodeTerm's notification integration with this provider —
     /// returned as opaque JSON so each provider shapes it for its own UI.
@@ -763,13 +769,8 @@ pub trait AgentProvider: Send + Sync {
     /// provider during boot. Default no-op.
     fn ensure_integration_on_startup(&self, _api_port: u16) {}
 
-    // ── Project rule (provider-specific instruction file) ──
-    //
-    // Claude reads `~/.claude/rules/codeterm.md`; other providers either
-    // embed equivalent instructions into the system prompt directly or
-    // simply don't have a project-rule concept yet. Returning "installed"
-    // by default means providers without a rule file are considered
-    // good-to-go (no UI nag).
+    // Project rules: only Claude reads `~/.claude/rules/codeterm.md`.
+    // Others inject rules elsewhere, so installed defaults to true when file is absent.
 
     fn check_rule_status(&self) -> serde_json::Value {
         serde_json::json!({ "installed": true, "update_available": false })
@@ -779,8 +780,7 @@ pub trait AgentProvider: Send + Sync {
         Ok(())
     }
 
-    // Self-presentation: frontend reads provider tabs, models, and
-    // settings purely from these + `describe()`. Defaults stay empty.
+    // Self-presentation: frontend reads provider tabs, models, and settings purely from these + `describe()`. Defaults stay empty.
 
     /// Models this provider offers (e.g. sonnet, opus, haiku for Claude).
     fn available_models(&self) -> Vec<ModelInfo> {
@@ -874,6 +874,7 @@ pub trait AgentProvider: Send + Sync {
             preserves_context_on_resume: self.preserves_context_on_resume(),
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
+            model_switch_format: self.model_switch_format().map(|s| s.to_string()),
             supports_stop: self.stop_keystroke().is_some(),
             trust: self.trust(),
         }
@@ -1008,6 +1009,7 @@ mod tests {
             preserves_context_on_resume: true,
             cli_binary: Some("testcli".into()),
             install_command: Some("npm i -g testcli".into()),
+            model_switch_format: Some("/model {model}".into()),
             supports_stop: true,
             trust: ProviderTrust::System,
         };
@@ -1019,8 +1021,7 @@ mod tests {
 
     #[test]
     fn provider_descriptor_rejects_unknown_fields() {
-        // schema_version protects against silent breakage; deny_unknown_fields
-        // protects against typos in field names.
+        // schema_version protects against silent breakage; deny_unknown_fields protects against typos in field names.
         let bad = r#"{
             "schema_version": 1,
             "id": "test",
@@ -1031,6 +1032,7 @@ mod tests {
             "supports_lazy_skills": false,
             "has_hooks": false,
             "preserves_context_on_resume": true,
+            "model_switch_format": "/model {model}",
             "extra_unknown_field": "boom"
         }"#;
         let result: Result<ProviderDescriptor, _> = serde_json::from_str(bad);

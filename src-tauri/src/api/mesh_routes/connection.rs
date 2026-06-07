@@ -25,12 +25,12 @@ pub async fn mesh_connect_peer(
         let m = state.mesh.lock();
         let peer = crate::mesh::discovered::resolve_discovered(&m.discovered_peers, &instance_id)
             .map_err(|e| {
-                let status = match e {
-                    crate::mesh::discovered::ResolveError::NotFound => StatusCode::NOT_FOUND,
-                    crate::mesh::discovered::ResolveError::Ambiguous(_) => StatusCode::CONFLICT,
-                };
-                (status, e.to_string())
-            })?;
+            let status = match e {
+                crate::mesh::discovered::ResolveError::NotFound => StatusCode::NOT_FOUND,
+                crate::mesh::discovered::ResolveError::Ambiguous(_) => StatusCode::CONFLICT,
+            };
+            (status, e.to_string())
+        })?;
         let instance_id = peer.instance_id.clone();
         let addr = peer
             .addresses
@@ -103,7 +103,11 @@ pub async fn mesh_connect_peer(
     }
 
     log::info!("[mesh/api] Pairing request sent to {}", instance_id);
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     Ok(Json(
         serde_json::json!({"ok": true, "request_id": request.request_id}),
     ))
@@ -168,7 +172,11 @@ pub async fn mesh_reject_peer(
     }
     drop(mesh);
 
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -184,9 +192,8 @@ pub async fn mesh_disconnect_peer(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing instance_id".to_string()))?
         .to_string();
 
-    // Accept either a UUID (paired_peers map key) or an instance_name.
-    // CLI users typically copy names from `mesh peers` output; resolving
-    // here keeps the API forgiving without bloating the CLI.
+    // Accept either a UUID (paired_peers map key) or an instance_name. CLI users typically copy names from `mesh peers` output; resolving here
+    // keeps the API forgiving without bloating the CLI.
     let (instance_id, peer, signed_token, our_id) = {
         let m = state.mesh.lock();
         let peer = m.paired_peers.get(&arg).cloned().or_else(|| {
@@ -257,8 +264,7 @@ pub async fn mesh_disconnect_peer(
         }
     }
 
-    // Cascade to remaining peers — tell each one we just unpaired the
-    // target so their mirror of paired_peers stays consistent.
+    // Cascade to remaining peers — tell each one we just unpaired the target so their mirror of paired_peers stays consistent.
     let (remaining_peers, broadcast_token) = {
         let m = state.mesh.lock();
         let peers: Vec<_> = m
@@ -310,7 +316,11 @@ pub async fn mesh_disconnect_peer(
         }
     }
 
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     log::info!("[mesh/api] Disconnected from {}", instance_id);
     Ok(Json(serde_json::json!({"ok": true})))
 }

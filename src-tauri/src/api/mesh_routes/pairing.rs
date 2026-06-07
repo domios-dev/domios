@@ -24,7 +24,11 @@ pub async fn mesh_pair_request(
             .unwrap_or(false);
         (request_id, from_id, is_vouched)
     };
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     if is_vouched {
         log::info!(
             "[mesh] Auto-approving pair request from vouched peer {}",
@@ -136,13 +140,14 @@ pub async fn do_approve(
     })
     .await;
     if let Err(e) = result {
-        // try_peer flattens Stop and all-failed into one error string; an
-        // authoritative HTTP rejection contains the peer's body verbatim.
-        return Err(if e.contains("all addresses failed") || e == "no addresses" {
-            ApproveError::Network(e)
-        } else {
-            ApproveError::Rejected(e)
-        });
+        // try_peer flattens Stop and all-failed into one error string; an authoritative HTTP rejection contains the peer's body verbatim.
+        return Err(
+            if e.contains("all addresses failed") || e == "no addresses" {
+                ApproveError::Network(e)
+            } else {
+                ApproveError::Rejected(e)
+            },
+        );
     }
 
     {
@@ -159,6 +164,7 @@ pub async fn do_approve(
             is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
             version: None,
+            https_url: None,
             consecutive_misses: 0,
         };
         m.paired_peers
@@ -177,8 +183,7 @@ pub async fn do_approve(
     if let Some((new_peer, existing, our_id, token)) = intro_data {
         crate::mesh::broadcast_introductions(new_peer, existing, our_id, token).await;
     }
-    // Pair-time records start from the request's candidate addresses only.
-    // Push our authoritative full address list right away so apply_announce
+    // Pair-time records start from the request's candidate addresses only. Push our authoritative full address list right away so apply_announce
     // on the new peer's side replaces any stub (issue #9 from 1.1.9 SMOKE).
     let mesh_arc = mesh.clone();
     let new_peer_id = request.from_instance_id.clone();
@@ -228,9 +233,7 @@ pub async fn mesh_pair_accept(
             Some(n) if !n.contains(':') => n,
             _ => accept.from_instance_name.clone(),
         };
-        // Store every address we know for the approver (pairing target ∪
-        // discovered record), not a single-ip stub — the next ping or relay
-        // must be able to fail over (#126).
+        // Store every address we know for the approver (pairing target ∪ discovered record), not a single-ip stub — the next ping or relay must be able to fail over (#126).
         let mut addresses = vec![crate::mesh::types::PeerAddress::from_ip(&b_address)];
         if let Some(d) = mesh.discovered_peers.get(&b_instance_id) {
             for a in &d.addresses {
@@ -252,6 +255,7 @@ pub async fn mesh_pair_accept(
             is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
             version: None,
+            https_url: None,
             consecutive_misses: 0,
         };
         mesh.paired_peers
@@ -262,12 +266,14 @@ pub async fn mesh_pair_accept(
     }
 
     log::info!("[mesh] Paired (requester) with {}", accept.from_instance_id);
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
 
-    // Mirror of mesh_approve_peer: announce our full address list to the
-    // newly-paired peer so their pair-time single-IP stub gets replaced
-    // immediately (issue #9). broadcast_sync still follows for gossip
-    // about other peers in our mesh.
+    // Mirror of mesh_approve_peer: announce our full address list to the newly-paired peer so their pair-time single-IP stub gets replaced
+    // immediately (issue #9). broadcast_sync still follows for gossip about other peers in our mesh.
     {
         let mesh_state = state.mesh.clone();
         let new_peer_id = accept.from_instance_id.clone();
@@ -324,7 +330,11 @@ pub async fn mesh_pair_reject(
     }
     drop(mesh);
 
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -389,8 +399,7 @@ pub async fn mesh_unpair(
     let our_id = mesh.ident.identity.instance_id.clone();
     drop(mesh);
 
-    // Cascade: notify removed peer to also remove us. Walks every cached
-    // address so a stale Tailscale entry doesn't drop the cascade.
+    // Cascade: notify removed peer to also remove us. Walks every cached address so a stale Tailscale entry doesn't drop the cascade.
     if sender_id != instance_id {
         if let (Some(peer), Some(token)) = (target_peer, signed_token) {
             if !peer.addresses.is_empty() {
@@ -446,7 +455,11 @@ pub async fn mesh_unpair(
         }
     }
 
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

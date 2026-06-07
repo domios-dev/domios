@@ -104,9 +104,7 @@ impl HotReloadRegistry {
     /// Returns the plugin id once it's been seen / registered / reloaded.
     fn reconcile_one(&self, manifest_path: &std::path::Path) -> Option<String> {
         let manifest_mtime = mtime_or_epoch(manifest_path);
-        // Parse manifest to learn id + entry path. Cheap enough on a
-        // 2s poll; the alternative is caching mtime → id which adds
-        // a second source of truth.
+        // Parse manifest to learn id + entry path. Cheap enough on a 2s poll; the alternative is caching mtime → id which adds a second source of truth.
         let manifest = match PluginManifest::load(manifest_path) {
             Ok(m) => m,
             Err(e) => {
@@ -120,9 +118,7 @@ impl HotReloadRegistry {
         }
         let entry_mtime = mtime_or_epoch(&entry_path);
 
-        // Snapshot prior state without holding the lock across I/O or
-        // QuickJS work — parking_lot is non-reentrant, and the VM
-        // mutex sits below this one in the lock order.
+        // Snapshot prior state without holding the lock across I/O or QuickJS work — parking_lot is non-reentrant, and the VM mutex sits below this one in the lock order.
         let prior = self.state.lock().get(&manifest.id).cloned();
         if let Some(prev) = prior {
             let manifest_changed = prev.manifest_mtime != manifest_mtime;
@@ -130,12 +126,8 @@ impl HotReloadRegistry {
             if !manifest_changed && !entry_changed {
                 return Some(manifest.id);
             }
-            // Always full-rebuild on any change. In-place `vm.reload`
-            // would be faster but adds a second code path that races
-            // against any provider call holding the VM mutex (an idle
-            // pane's detect_from_output still runs at PTY-event rate).
-            // Throwing the old VM away and constructing a new one is
-            // 10-50ms — cheap enough for plugin edits.
+            // Always full-rebuild on any change. In-place `vm.reload` would be faster but adds a second code path that races against any provider call
+            // holding the VM mutex (an idle pane's detect_from_output still runs at PTY-event rate). Throwing the old VM away and constructing a new one is 10-50ms — cheap enough for plugin edits.
             log::info!(
                 "[plugin-watcher] {} changed (manifest={manifest_changed}, entry={entry_changed}) — reloading",
                 manifest.id
@@ -153,6 +145,7 @@ impl HotReloadRegistry {
         match load_one(manifest_path) {
             Ok(provider) => {
                 let id = provider.manifest().id.clone();
+                let version = provider.manifest().version.clone();
                 self.agent_registry.register_provider(Box::new(provider));
                 self.state.lock().insert(
                     id.clone(),
@@ -162,6 +155,7 @@ impl HotReloadRegistry {
                     },
                 );
                 log::info!("[plugin-watcher] registered {id}");
+                crate::plugin::audit::append_daemon_reloaded(&id, &version);
                 Some(id)
             }
             Err(e) => {

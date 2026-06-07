@@ -357,6 +357,17 @@ pub async fn list_agent_providers(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
+/// Public provider list for local plugin verification/UI smoke checks.
+/// This exposes provider descriptors only; mutating agent routes remain
+/// authenticated.
+pub async fn list_agent_providers_public(
+    AxumState(state): AxumState<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    crate::dispatch::dispatch(&crate::dispatch::Command::ListAgentProviders, &state.svc)
+        .map(|r| Json(r.into_json()))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

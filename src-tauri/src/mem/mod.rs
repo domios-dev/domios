@@ -8,6 +8,7 @@ pub mod embeddings;
 pub mod extract;
 pub mod file_sync;
 pub mod graph;
+pub mod graph_layout;
 pub mod graph_repair;
 pub mod ids;
 pub mod layers;
@@ -22,6 +23,7 @@ pub mod workers;
 
 mod manager_crud;
 mod manager_graph;
+mod manager_layout;
 mod manager_queries;
 mod manager_search;
 #[cfg(test)]
@@ -54,6 +56,7 @@ pub struct MemManager {
     pub(super) blobs_dir: PathBuf,
     pub(super) embed_queue: embed_queue::EmbedQueue,
     pub(super) heavy_ops_permits: Arc<Semaphore>,
+    pub(super) layout: graph_layout::LayoutState,
 }
 
 impl MemManager {
@@ -68,8 +71,7 @@ impl MemManager {
 
         let db_path = mem_dir.join("knowledge.db");
         let conn = Connection::open(&db_path).map_err(|e| format!("open knowledge.db: {}", e))?;
-        // concurrent writers wait up to 5s instead of failing — required for
-        // multi-process access (daemon + `mem run-worker` subprocess share the DB).
+        // concurrent writers wait up to 5s instead of failing — required for multi-process access (daemon + `mem run-worker` subprocess share the DB).
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| format!("set busy_timeout: {}", e))?;
 
@@ -84,17 +86,19 @@ impl MemManager {
             );
         }
 
-        // Backfill: any entity row that has no mem_vectors entry (typically
-        // entities created before v1.1.23 wired auto-embed-on-create) gets
-        // embedded now. Idempotent — entities already embedded are skipped.
-        // Best-effort: errors logged, never block startup.
+        // Backfill: any entity row that has no mem_vectors entry (typically entities created before v1.1.23 wired auto-embed-on-create) gets embedded
+        // now. Idempotent — entities already embedded are skipped. Best-effort: errors logged, never block startup.
         if let Err(e) = backfill_entity_embeddings(&conn) {
             log::warn!("[mem] entity-embedding backfill failed: {}", e);
         }
 
         let heavy_ops_permits = Arc::new(Semaphore::new(HEAVY_OPS_PERMITS));
-        let embed_queue =
-            embed_queue::EmbedQueue::start(db_path.clone(), heavy_ops_permits.clone());
+        let layout = graph_layout::LayoutState::load(&mem_dir);
+        let embed_queue = embed_queue::EmbedQueue::start(
+            db_path.clone(),
+            heavy_ops_permits.clone(),
+            layout.cache.clone(),
+        );
 
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
@@ -102,6 +106,7 @@ impl MemManager {
             blobs_dir,
             embed_queue,
             heavy_ops_permits,
+            layout,
         }))
     }
 
@@ -111,12 +116,14 @@ impl MemManager {
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
         let tmp = std::env::temp_dir().join(format!("mem-test-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(tmp.join("blobs")).ok();
+        let layout = graph_layout::LayoutState::load(&tmp);
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             db_path: tmp.join("knowledge.db"),
             blobs_dir: tmp.join("blobs"),
             embed_queue: embed_queue::EmbedQueue::disabled(),
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
+            layout,
         }))
     }
 
@@ -152,12 +159,14 @@ impl MemManager {
         // Non-fatal: offline mode is allowed to run FTS5-only without vectors.
         let _ = embeddings::init_extension(&conn);
 
+        let layout = graph_layout::LayoutState::load(data_dir);
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             db_path,
             blobs_dir,
             embed_queue: embed_queue::EmbedQueue::disabled(),
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
+            layout,
         }))
     }
 
@@ -257,9 +266,8 @@ pub struct MemStats {
 /// failure (logged) so one bad row can't block the whole backfill.
 fn backfill_entity_embeddings(conn: &Connection) -> Result<(), String> {
     use rusqlite::params;
-    // Pull entities lacking any mem_vectors row (matched on the canonical id —
-    // chunked vectors live under `<id>_chunk_N`, but graph-entity bodies are
-    // tiny so we expect one row per id). LEFT JOIN to detect absence.
+    // Pull entities lacking any mem_vectors row (matched on the canonical id — chunked vectors live under `<id>_chunk_N`, but graph-entity bodies
+    // are tiny so we expect one row per id). LEFT JOIN to detect absence.
     let mut stmt = conn
         .prepare(
             "SELECT e.id, e.entity_type, e.properties_json

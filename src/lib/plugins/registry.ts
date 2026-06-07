@@ -27,8 +27,7 @@ function bump() {
 export function register(plugin: ProviderPlugin): void {
   plugins.set(plugin.meta.id, plugin);
   bump();
-  // Guarded so plain-Node test runners (tsx) without Vite's import.meta.env
-  // don't crash on the optional chain.
+  // Guarded so plain-Node test runners (tsx) without Vite's import.meta.env don't crash on the optional chain.
   if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
     console.debug(`[plugins] registered ${plugin.meta.id} (v${version})`);
   }

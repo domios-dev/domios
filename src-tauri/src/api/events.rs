@@ -268,8 +268,7 @@ mod tests {
                 duration_secs: i,
             });
         }
-        // Channel capacity is 256; oldest entries are dropped. First recv
-        // should signal Lagged, then continue yielding the remaining tail.
+        // Channel capacity is 256; oldest entries are dropped. First recv should signal Lagged, then continue yielding the remaining tail.
         let first = rx.recv().await;
         assert!(matches!(first, Err(broadcast::error::RecvError::Lagged(_))));
     }
@@ -294,11 +293,7 @@ mod tests {
 /// Emit a named frontend event BOTH to the Tauri webview and to the SSE
 /// bus so the web mirror sees it. Drop-in for raw `app.emit(name, payload)`
 /// at sites that matter to the browser bundle.
-pub fn emit_everywhere(
-    app: &tauri::AppHandle,
-    event_type: &str,
-    data: serde_json::Value,
-) {
+pub fn emit_everywhere(app: &tauri::AppHandle, event_type: &str, data: serde_json::Value) {
     use tauri::{Emitter, Manager};
     let _ = app.emit(event_type, data.clone());
     if let Some(events) = app.try_state::<EventBroadcasterState>() {

@@ -135,8 +135,7 @@ pub fn run_hubs(threshold: u32, sample: u32, db_path: Option<&str>) -> ! {
             .filter_map(Result::ok)
             .collect();
 
-        // Existing topic_*/role_* anchors — Dreamer should prefer routing into
-        // these instead of inventing new slugs.
+        // Existing topic_*/role_* anchors — Dreamer should prefer routing into these instead of inventing new slugs.
         let mut anchor_stmt = conn.prepare(
             "SELECT id, entity_type FROM entities
              WHERE id LIKE 'topic\\_%' ESCAPE '\\' OR id LIKE 'role\\_%' ESCAPE '\\'
@@ -269,12 +268,8 @@ fn load_active_edges(conn: &rusqlite::Connection) -> Result<Vec<(String, String)
     Ok(rows.flatten().collect())
 }
 
-// Pick a single anchor candidate from a component's members. Heuristic:
-// 1. Most common non-empty area among members → topic_<area>.
-// 2. Else most common entity:Tech / entity:Project / entity:Topic in the
-//    component (with the assumption that one of the members already names
-//    the cluster).
-// 3. Else fall back to "topic_misc".
+// Pick anchor by most common non-empty area among members (`topic_<area>`),
+// else fall back to the most-common Tech/Project/Topic entity.
 fn suggested_anchor(members: &[(&str, &NodeMeta)]) -> String {
     let mut area_count: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
     for (_, m) in members {
@@ -287,8 +282,7 @@ fn suggested_anchor(members: &[(&str, &NodeMeta)]) -> String {
     if let Some((a, _)) = area_count.into_iter().max_by_key(|(_, c)| *c) {
         return format!("topic_{}", a.to_lowercase().replace([' ', '-'], "_"));
     }
-    // No shared area — see if a Tech/Project/Topic entity is in the cluster
-    // and use it as anchor candidate (it usually names the cluster best).
+    // No shared area: use a cluster member of type Tech/Project/Topic as anchor.
     for (id, m) in members {
         if m.is_entity {
             let prefixes = ["topic_", "project_", "tech_"];
@@ -306,9 +300,7 @@ pub fn run_islands(max_size: usize, limit: usize, db_path: Option<&str>) -> ! {
         let meta = load_node_meta(&conn)?;
         let edges = load_active_edges(&conn)?;
 
-        // Owned adjacency map over all known node ids. Both mem_items and
-        // entities live in `meta`; isolated entities still get a zero-edge
-        // entry so BFS treats them as their own component.
+        // Build adjacency over all node ids so BFS can detect isolated entities as singleton components.
         let mut adj: std::collections::HashMap<String, std::collections::HashSet<String>> =
             std::collections::HashMap::new();
         for id in meta.keys() {
@@ -406,13 +398,10 @@ pub fn run_orphans(limit: usize, db_path: Option<&str>) -> ! {
         let mut orphans: Vec<(&str, &NodeMeta)> = degree.iter()
             .filter(|(_, d)| **d == 0)
             .filter_map(|(id, _)| meta.get_key_value(*id).map(|(k, v)| (k.as_str(), v)))
-            // Filter to interesting kinds — entities-only nodes with degree 0
-            // are usually trash from extraction (e.g. tech_foo created but
-            // never linked). Mem_items with degree 0 are real orphans the
-            // user might want to keep but shouldn't be invisible in graph.
+        // entities-only degree-0 nodes are often extraction noise (e.g. tech_foo).
+        // Mem_items with degree 0 are real orphans and should stay visible.
             .collect();
-        // Sort: real mem_items first (the user likely wants these bridged),
-        // then loose entities (often delete candidates).
+        // Sort: real mem_items first (the user likely wants these bridged), then loose entities (often delete candidates).
         orphans.sort_by_key(|(_, m)| (m.is_entity, m.kind.clone()));
         orphans.truncate(limit);
 

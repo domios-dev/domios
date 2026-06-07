@@ -71,8 +71,8 @@ pub fn save_identity(identity: &MeshIdentity) {
 
 // ── Encryption key ──────────────────────────────────────────────────
 
-// ── Peer storage ────────────────────────────────────────────────────
-// Clean format: PairedPeer serialized directly. No encrypted tokens.
+// Peer storage.
+// PairedPeer serialized directly; no encrypted tokens.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PeersFile {
@@ -94,6 +94,8 @@ struct PairedPeerDisk {
     #[serde(default)]
     pub access_level: super::types::AccessLevel,
     pub version: Option<String>,
+    #[serde(default)]
+    pub https_url: Option<String>,
 }
 
 /// Load all paired peers from disk.
@@ -138,6 +140,7 @@ pub fn load_peers() -> HashMap<String, PairedPeer> {
                     is_primary: d.is_primary,
                     access_level: d.access_level,
                     version: d.version,
+                    https_url: d.https_url,
                     consecutive_misses: 0,
                 },
             )
@@ -176,6 +179,7 @@ pub fn save_peers(peers: &HashMap<String, PairedPeer>) -> Result<(), String> {
                     is_primary: p.is_primary,
                     access_level: p.access_level.clone(),
                     version: p.version.clone(),
+                    https_url: p.https_url.clone(),
                 },
             )
         })

@@ -514,7 +514,9 @@ fn run(run_id: &str, started_at: u64, status: CronRunStatus) -> CronRunInfo {
 #[test]
 fn created_at_and_next_run_come_from_injected_clock() {
     let (mut store, _clock) = mock_store(T0);
-    let job = store.create(make_params("clock", "ws", "*/5 * * * *")).unwrap();
+    let job = store
+        .create(make_params("clock", "ws", "*/5 * * * *"))
+        .unwrap();
     assert_eq!(job.created_at, T0);
     // Next */5 boundary after 22:13:20 is 22:15:00.
     assert_eq!(job.next_run, Some(1_700_000_100_000));
@@ -536,17 +538,21 @@ fn oneshot_in_30s_becomes_due_exactly_after_advance() {
     // At exactly +30s: due.
     clock.advance_ms(1);
     let j = store.get(&job.id).unwrap();
-    assert!(j.next_run.unwrap() <= store.now_ms(), "not due at fire time");
+    assert!(
+        j.next_run.unwrap() <= store.now_ms(),
+        "not due at fire time"
+    );
 }
 
 #[test]
 fn every_5min_fires_exactly_three_times_across_15min_advance() {
     let (mut store, clock) = mock_store(T0);
-    let job = store.create(make_params("rep", "ws", "*/5 * * * *")).unwrap();
+    let job = store
+        .create(make_params("rep", "ws", "*/5 * * * *"))
+        .unwrap();
 
     let mut fires = 0;
-    // Walk time forward to a hair past each next_run, recording a success
-    // per fire — the scheduler's decision rule (next_run <= now) verbatim.
+    // Walk time forward to a hair past each next_run, recording a success per fire — the scheduler's decision rule (next_run <= now) verbatim.
     let deadline = T0 + 15 * 60_000 + 1_000; // T0 + 15min (+1s slack)
     loop {
         let next = store.get(&job.id).unwrap().next_run.unwrap();
@@ -557,7 +563,10 @@ fn every_5min_fires_exactly_three_times_across_15min_advance() {
         assert!(next <= store.now_ms(), "fire decision must be due now");
         fires += 1;
         store
-            .record_run(&job.id, run(&format!("r{}", fires), next, CronRunStatus::Success))
+            .record_run(
+                &job.id,
+                run(&format!("r{}", fires), next, CronRunStatus::Success),
+            )
             .unwrap();
         let after = store.get(&job.id).unwrap().next_run.unwrap();
         assert!(after > next, "next_run must move strictly forward");
@@ -569,7 +578,9 @@ fn every_5min_fires_exactly_three_times_across_15min_advance() {
 #[test]
 fn failure_backoff_is_anchored_to_mock_now() {
     let (mut store, clock) = mock_store(T0);
-    let job = store.create(make_params("backoff", "ws", "0 * * * *")).unwrap();
+    let job = store
+        .create(make_params("backoff", "ws", "0 * * * *"))
+        .unwrap();
     clock.advance_ms(60_000);
     let now = store.now_ms();
     store
@@ -586,7 +597,9 @@ fn failure_backoff_is_anchored_to_mock_now() {
 #[test]
 fn update_run_status_stamps_finished_at_from_mock_clock() {
     let (mut store, clock) = mock_store(T0);
-    let job = store.create(make_params("stamp", "ws", "0 * * * *")).unwrap();
+    let job = store
+        .create(make_params("stamp", "ws", "0 * * * *"))
+        .unwrap();
     store
         .record_run(&job.id, run("r1", T0, CronRunStatus::Running))
         .unwrap();

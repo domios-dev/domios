@@ -18,12 +18,8 @@ pub async fn mesh_sync(
         (s, e.to_string())
     })?;
 
-    // Identify the gossip sender so we can record them as a voucher on
-    // every peer they tell us about. The auth_middleware already accepted
-    // the bearer token; re-verify here only to recover the sender_id —
-    // that's the only authoritative way to know which paired peer is
-    // talking to us. Fall through silently if it doesn't parse so we don't
-    // break gossip on auth-token format changes.
+    // Re-verify sender token here only to recover authoritative sender_id for peer bookkeeping.
+    // If parsing fails, fail soft so new token formats don't disrupt gossip.
     let sender_id = sender_id_from_headers(&state, &headers);
 
     let mut mesh = state.mesh.lock();
@@ -61,7 +57,11 @@ pub async fn mesh_sync(
 
     let mesh = state.mesh.lock();
     let our_payload = mesh.build_sync_payload();
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     Ok(Json(serde_json::to_value(our_payload).unwrap()))
 }
 
@@ -340,9 +340,7 @@ mod tests {
 
     #[test]
     fn mesh_announce_is_open() {
-        // Inbound announce doesn't go through the access-level gate — auth
-        // already requires a paired peer's signed token, and the apply step
-        // verifies sender_id matches body.instance_id.
+        // Access gate already validates signed token; re-verify sender_id during apply for relay safety.
         assert!(!path_requires_full_access("POST", "/api/mesh/announce"));
     }
 

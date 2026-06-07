@@ -8,8 +8,7 @@ pub(super) fn detect_from_title(title: &str) -> bool {
     if lower.contains("claude") {
         return true;
     }
-    // Claude Code v2.1+ uses Braille spinner chars or ✳ as title prefix
-    // e.g. "⠐ General coding session", "✳ Claude Code"
+    // Claude Code v2.1+ uses Braille spinner chars or ✳ as title prefix e.g. "⠐ General coding session", "✳ Claude Code"
     let first = title.chars().next().unwrap_or('\0');
     (('\u{2801}'..='\u{28ff}').contains(&first) || first == '✳' || first == '✻') && title.len() > 2
 }
@@ -47,12 +46,8 @@ pub(super) fn extract_session_name(screen: &str) -> Option<String> {
         }
     }
 
-    // Bare handle: short lowercase adjective-noun-digits handle on its own
-    // line (or surrounded by whitespace). Bounded length so we don't pick
-    // up arbitrary "error-code-404" / "tab-key-200" text from prose — the
-    // tokens have to look like the actual Claude convention (4-10 chars
-    // each, 4-digit number) and live on their own line, not embedded in
-    // prose. Trades a few false negatives for far fewer false positives.
+    // Match only short handles on their own line to avoid prose false positives.
+    // This trades a few misses for far fewer accidental detections.
     let bare = BARE.get_or_init(|| {
         regex::Regex::new(r"(?m)^\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*$").expect("static regex")
     });
@@ -174,16 +169,11 @@ mod tests {
 
     #[test]
     fn detect_session_model_picks_latest_message_model() {
-        // Tail-first scan: a switch from sonnet → opus mid-session
-        // surfaces opus, not the older sonnet line.
+        // Tail-first scan: a switch from sonnet → opus mid-session surfaces opus, not the older sonnet line.
         use std::io::Write;
         let dir = tempfile::tempdir().unwrap();
-        // Use Claude's encoded-cwd layout so session_file_path resolves
-        // through the real code path without mocking dirs::home_dir.
-        // For unit test we'll call detect_session_model directly with a
-        // synthetic path via a private helper. The function is private,
-        // so the eval here is structural: build the JSONL and walk it
-        // by re-implementing the bottom-up scan inline.
+        // Use the production encoded-cwd path in tests and run the same bottom-up scan inline.
+        // The helper stays private; this test-only branch validates behavior end-to-end.
         let path = dir.path().join("sess.jsonl");
         let mut f = std::fs::File::create(&path).unwrap();
         writeln!(
@@ -199,8 +189,7 @@ mod tests {
         .unwrap();
         writeln!(f, r#"{{"type":"summary"}}"#).unwrap();
 
-        // Mirror the parser logic so the regression is exercised without
-        // exposing detect_session_model to non-tests.
+        // Mirror the parser logic so the regression is exercised without exposing detect_session_model to non-tests.
         let text = std::fs::read_to_string(&path).unwrap();
         let mut found: Option<String> = None;
         for line in text.lines().rev() {
@@ -225,9 +214,7 @@ mod tests {
 
     #[test]
     fn extract_session_name_ignores_inline_prose_with_hyphens() {
-        // The bare regex requires the handle on its OWN line and rejects
-        // it embedded in prose — protects against "error-code-1234" style
-        // false positives that look syntactically similar.
+        // Keep token matching strict to avoid prose false positives (e.g., "error-code-1234").
         let screen = "we hit error-code-1234 while parsing — see error-code-5678 elsewhere";
         assert!(extract_session_name(screen).is_none());
     }

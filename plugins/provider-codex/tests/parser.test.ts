@@ -94,5 +94,53 @@ eq(contextual[0].tagName, "environment_context", "environment_context tag");
 assert(contextual[0].content.includes("<current_date>2026-05-25</current_date>"), "environment_context content kept");
 eq(contextual[1].content, "да просто интересно как работает это вообще?", "actual user text preserved");
 
+const codexRuntimeNoise = parseJsonlSession([
+  JSON.stringify({
+    type: "response_item",
+    timestamp: "2026-06-06T18:30:54.000Z",
+    payload: {
+      type: "message",
+      id: "bootstrap",
+      role: "user",
+      content: [{
+        type: "input_text",
+        text: "# AGENTS.md instructions for /Users/rollacode/.codeterm-dev/general\n\n<INSTRUCTIONS>\n# AGENTS.md\n\nUse the repo rules.\n</INSTRUCTIONS>",
+      }],
+    },
+  }),
+  JSON.stringify({
+    type: "response_item",
+    timestamp: "2026-06-06T18:31:02.000Z",
+    payload: {
+      type: "message",
+      id: "real-user",
+      role: "user",
+      content: [{ type: "input_text", text: "Йо?" }],
+    },
+  }),
+  JSON.stringify({
+    type: "event_msg",
+    timestamp: "2026-06-06T18:31:05.000Z",
+    payload: {
+      type: "agent_message",
+      message: "Йо. Я на месте.",
+    },
+  }),
+  JSON.stringify({
+    type: "response_item",
+    timestamp: "2026-06-06T18:31:05.000Z",
+    payload: {
+      type: "message",
+      id: "assistant-final",
+      role: "assistant",
+      content: [{ type: "output_text", text: "Йо. Я на месте." }],
+    },
+  }),
+].join("\n"));
+
+eq(codexRuntimeNoise.map((m) => m.type), ["user", "assistant"], "codex bootstrap and duplicate assistant noise hidden");
+eq(codexRuntimeNoise[0].content, "Йо?", "codex real user turn starts chat");
+eq(codexRuntimeNoise[1].content, "Йо. Я на месте.", "codex assistant kept once");
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

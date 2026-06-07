@@ -1,9 +1,9 @@
 //! CronStore CRUD: create / read / update / delete + run history recording.
 
 use super::{
-    compute_backoff, compute_next_run_jittered_at, default_max_history,
-    parse_oneshot_schedule_at, validate_schedule, validate_tz, CronCreateParams, CronJob,
-    CronRunInfo, CronRunStatus, CronStore, CronUpdateParams, MAX_CONSECUTIVE_FAILURES,
+    compute_backoff, compute_next_run_jittered_at, default_max_history, parse_oneshot_schedule_at,
+    validate_schedule, validate_tz, CronCreateParams, CronJob, CronRunInfo, CronRunStatus,
+    CronStore, CronUpdateParams, MAX_CONSECUTIVE_FAILURES,
 };
 
 impl CronStore {
@@ -315,10 +315,8 @@ impl CronStore {
             }
         }
 
-        // Observability parity: terminal states (Failed/Cancelled) get a
-        // "Cron run completed" log line just like Success runs do (which
-        // are emitted by service::cron_complete). Without this, dashboards
-        // and grep-based observability miss every Failed/Cancelled run.
+        // Observability parity: terminal states (Failed/Cancelled) get a "Cron run completed" log line just like Success runs do (which are emitted by
+        // service::cron_complete). Without this, dashboards and grep-based observability miss every Failed/Cancelled run.
         let elapsed_ms = started_at.map(|s| now.saturating_sub(s));
         match status {
             CronRunStatus::Failed | CronRunStatus::Cancelled => {

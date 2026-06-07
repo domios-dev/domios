@@ -2,8 +2,7 @@ use tauri::{AppHandle, Emitter};
 
 #[tauri::command]
 pub fn get_windows_build_number() -> u32 {
-    // Build number is constant for the OS lifetime — cache to avoid spawning
-    // cmd.exe on every TerminalPane mount (~1s on Win11 with Defender).
+    // Build number is constant for the OS lifetime — cache to avoid spawning cmd.exe on every TerminalPane mount (~1s on Win11 with Defender).
     static CACHED: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
     *CACHED.get_or_init(|| {
         #[cfg(target_os = "windows")]
@@ -46,18 +45,24 @@ pub fn get_network_info(
 ) -> Result<serde_json::Value, String> {
     let local_ip =
         crate::api::routes::local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
-    // Single source of truth: read the cached value populated by
-    // `mesh::discovery::detect_tailscale` from the periodic refresh loop.
-    // Avoids duplicating the probe logic (which lacked IP validation,
-    // the GUI-bridge fallback, and a timeout).
+    // Single source of truth: read the cached value populated by `mesh::discovery::detect_tailscale` from the periodic refresh loop. Avoids
+    // duplicating the probe logic (which lacked IP validation, the GUI-bridge fallback, and a timeout).
     let tailscale_ip = mesh.lock().tailscale_ip.clone();
+    let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
+    let tailscale_https_url = if crate::mesh::discovery::tailscale_serve_https_enabled() {
+        tailscale_dns.as_ref().map(|dns| format!("https://{}", dns))
+    } else {
+        None
+    };
     let port = state.lock().api.port;
     Ok(serde_json::json!({
         "local_ip": local_ip,
         "tailscale_ip": tailscale_ip,
+        "tailscale_dns": tailscale_dns,
         "api_port": port,
         "api_url": format!("http://{}:{}", local_ip, port),
         "tailscale_url": tailscale_ip.as_ref().map(|ip| format!("http://{}:{}", ip, port)),
+        "tailscale_https_url": tailscale_https_url,
     }))
 }
 
@@ -181,10 +186,13 @@ pub fn suggest_install_pwsh(
 /// state: "loaded" — WebGL addon attached successfully
 ///        "context_lost" — GPU context dropped (xterm will fall back)
 ///        "failed" — WebGL addon constructor threw
+///        "skipped_macos" / "skipped_test_mode" — deliberate DOM renderer
 #[tauri::command]
 pub fn report_webgl_status(state: String, detail: Option<String>) {
     match state.as_str() {
         "loaded" => log::info!("[webgl] addon loaded"),
+        "skipped_macos" => log::info!("[webgl] skipped on macOS — DOM renderer active"),
+        "skipped_test_mode" => log::info!("[webgl] skipped in test mode"),
         "context_lost" => log::warn!("[webgl] GPU context lost — DOM fallback engaged"),
         "failed" => log::warn!(
             "[webgl] addon failed to load: {}",

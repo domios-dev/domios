@@ -17,17 +17,25 @@ use super::ServiceState;
 
 /// Start a backend read loop for the given PTY.
 ///
-/// Clones a second reader handle via `try_clone_reader` so this coexists with
-/// the frontend `read_pty` command. When both are active, whichever reads first
-/// gets the data — the frontend reader will naturally starve (return nothing)
-/// while this loop is running, which is fine for headless panes.
+/// Owns the raw PTY reader and forwards chunks to the frontend channel.
+/// Frontends must consume the forwarded channel or OutputBuffer tail, never
+/// clone/read the raw PTY master in parallel.
 ///
 /// Returns a `JoinHandle` that the caller can use to track or abort the task.
 pub fn start_backend_reader(svc: &ServiceState, pty_id: &str) -> Result<JoinHandle<()>, String> {
-    // Clone a reader from the PTY master — independent from the primary reader.
-    // Also set up the frontend channel so read_pty can receive forwarded bytes.
+    // Clone a reader from the PTY master — independent from the primary reader. Also set up the frontend channel so read_pty can receive forwarded
+    // bytes.
     let (reader, frontend_tx) = {
         let manager = svc.pty.lock();
+        if manager.has_backend_reader(pty_id) {
+            let id = pty_id.to_string();
+            return Ok(tokio::spawn(async move {
+                log::debug!(
+                    "[backend-reader] already active for pty {}",
+                    &id[..id.len().min(8)]
+                );
+            }));
+        }
         let session = manager
             .get_session(pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
@@ -109,9 +117,7 @@ async fn backend_read_loop(
                     }
                 }
 
-                // hidden pane only: answer CSI 6n so PowerShell doesn't hang
-                // (visible panes let xterm.js answer — double-answering races
-                //  and leaks the second response into the terminal as input)
+                // hidden pane only: answer CSI 6n so PowerShell doesn't hang (visible panes let xterm.js answer — double-answering races and leaks the second response into the terminal as input)
                 if data.windows(4).any(|w| w == b"\x1b[6n") {
                     let is_hidden = {
                         let mux = svc.mux.lock();
@@ -131,10 +137,14 @@ async fn backend_read_loop(
                 if now != prev {
                     let pane_id = svc.mux.lock().pane_id_for_pty(&pty_id);
                     if let Some(ref pid) = pane_id {
-                        crate::api::events::emit_everywhere(&svc.app_handle, "pane-status-changed", serde_json::json!({
+                        crate::api::events::emit_everywhere(
+                            &svc.app_handle,
+                            "pane-status-changed",
+                            serde_json::json!({
                                 "pane_id": pid,
                                 "status": format!("{:?}", now),
-                            }));
+                            }),
+                        );
                     }
                 }
             }
@@ -168,10 +178,14 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
     svc.agent_tracker.lock().set_dead(pty_id);
 
     if let Some(ref pid) = pane_id {
-        crate::api::events::emit_everywhere(&svc.app_handle, "pane-status-changed", serde_json::json!({
+        crate::api::events::emit_everywhere(
+            &svc.app_handle,
+            "pane-status-changed",
+            serde_json::json!({
                 "pane_id": pid,
                 "status": "Dead",
-            }));
+            }),
+        );
 
         // Cron fallback: if agent died without calling cron complete, mark as failed.
         use tauri::Manager;

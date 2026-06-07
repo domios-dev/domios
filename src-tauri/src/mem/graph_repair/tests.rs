@@ -3,8 +3,7 @@ use crate::mem::graph::{insert_relation, Relation};
 use crate::mem::store::init_schema;
 use rusqlite::Connection;
 
-// Repair primitives target legacy/dirty data that pre-dates the active-row unique index.
-// Tests intentionally drop the index so fixtures can seed the very dups these primitives clean up.
+// Repair tests include legacy rows without the active-row unique index so dup cleanup can be exercised.
 fn fresh_conn() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     init_schema(&conn).unwrap();
@@ -669,8 +668,7 @@ fn delete_entity_missing_errors() {
 #[test]
 fn delete_entity_cleans_mem_vectors() {
     let conn = fresh_conn();
-    // Create a minimal mem_vectors table (real one is vec0 virtual, but for cleanup
-    // verification a plain table is enough — same DELETE SQL works).
+    // Create a minimal mem_vectors table (real one is vec0 virtual, but for cleanup verification a plain table is enough — same DELETE SQL works).
     conn.execute_batch("CREATE TABLE mem_vectors (mem_id TEXT, embedding BLOB)")
         .unwrap();
     use crate::mem::graph::{insert_entity, Entity};
@@ -762,9 +760,8 @@ fn delete_entity_cleans_entity_aliases() {
     assert_eq!(untouched, 1, "unrelated alias rows must stay");
 }
 
-// augment_entity re-embeds via embeddings::index after the property UPDATE
-// (live behavior). Embedder model isn't loaded in unit tests, so end-to-end
-// re-embed verification lives in evals/dreamer-repair (live dev).
+// `augment_entity` re-embeds after property UPDATE in production.
+// Unit tests skip the embedder; end-to-end check happens in `evals/dreamer-repair`.
 
 #[test]
 fn delete_entity_purge_history_cascades_invalidated_relations() {

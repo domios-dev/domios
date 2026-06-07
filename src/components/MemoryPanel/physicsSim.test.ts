@@ -136,9 +136,8 @@ function legacyStep(nodes: Map<string, LegacyNode>, edges: SimEdgeInput[]): numb
 
 console.log("physicsSim tests");
 
-// #128 regression (small-n behavior preserved): below the Barnes-Hut
-// crossover the new sim must follow the legacy trajectory near-exactly —
-// same math, same iteration order, typed arrays instead of Maps.
+// Regression #128: for small N, Barnes-Hut must match legacy trajectory closely.
+// Same math and order, with typed arrays replacing Maps.
 {
   const n = BH_THRESHOLD_NODES - 4;
   const { nodes, edges } = randomGraph(n, 42);
@@ -163,8 +162,7 @@ console.log("physicsSim tests");
   );
 }
 
-// Barnes-Hut approximation quality: per-node repulsion force within a sane
-// relative error of exact on a realistic spread (θ=0.5 ⇒ typically ≤ a few %).
+// Barnes-Hut check: repulsion error vs exact should stay within a few % at θ=0.5.
 {
   const n = 500;
   const { nodes } = randomGraph(n, 7);
@@ -173,8 +171,7 @@ console.log("physicsSim tests");
   const approx = new PhysicsSim();
   approx.setGraph(nodes, []);
 
-  // One step each; with no edges and zero initial velocity the position
-  // delta after one tick is DAMPING * force — compare those deltas.
+  // One step each; with no edges and zero initial velocity the position delta after one tick is DAMPING * force — compare those deltas.
   (exact as unknown as { repulsionExact: () => void; force: Float64Array }).force.fill(0);
   (exact as unknown as { repulsionExact: () => void }).repulsionExact();
   (approx as unknown as { repulsionBarnesHut: () => void; force: Float64Array }).force.fill(0);
@@ -199,11 +196,8 @@ console.log("physicsSim tests");
   assert(`BH worst relative force error < 50% (got ${(worst * 100).toFixed(1)}%)`, worst < 0.5);
 }
 
-// Settling. Production stops a heat at MAX_TICKS_PER_HEAT (320) or at the
-// energy threshold, whichever first — so the invariants are: a small graph
-// reaches ENERGY_SLEEP outright, and a large graph's energy has collapsed to
-// a small fraction of its initial value within the 320-tick heat budget
-// (the same trajectory the legacy exact sim follows).
+// Settling keeps graph energy trajectories compatible with legacy exact-mode behavior.
+// For small graphs ENERGY_SLEEP is reached; large graphs flatten within the heat budget.
 {
   const small = randomGraph(40, 11);
   const sim = new PhysicsSim();
@@ -230,8 +224,7 @@ console.log("physicsSim tests");
   );
 }
 
-// id→index mapping survives topology changes mid-simulation (#128 risk:
-// index packing must not teleport surviving nodes).
+// Topology changes must keep stable id→index mapping so surviving nodes retain identity.
 {
   const sim = new PhysicsSim();
   sim.setGraph(

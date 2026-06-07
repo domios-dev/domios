@@ -47,8 +47,10 @@ setup_env() {
 
 # --- Kill dev instance only (never prod) ---
 kill_dev() {
+  kill_web_watch 2>/dev/null || true
   if [[ "$OSTYPE" == darwin* ]]; then
     pgrep -f "target/debug/codeterm" | xargs kill 2>/dev/null || true
+    pgrep -f "pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json" | xargs kill 2>/dev/null || true
     lsof -ti:1420 | xargs kill -9 2>/dev/null || true
   else
     local dev_pid
@@ -76,6 +78,52 @@ install_cli_to() {
     cp cli/target/release/codeterm.exe "$bin_dir/codeterm.exe"
   fi
   echo "CLI installed to $bin_dir"
+}
+
+start_dev_wait_process() {
+  local log="$1"
+  local cmd=(pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json)
+  if [[ "$OSTYPE" == darwin* ]] && command -v script >/dev/null 2>&1; then
+    # macOS Tauri dev is more reliable with a controlling pseudo-tty. Plain
+    # `nohup pnpm tauri dev` can report healthy, then exit as the launcher shell
+    # tears down; `script` keeps the dev command in a pty while still detaching.
+    nohup script -q "$log" "${cmd[@]}" </dev/null >/dev/null 2>&1 &
+  else
+    nohup bash -lc 'exec pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json' \
+      </dev/null >> "$log" 2>&1 &
+  fi
+  echo $!
+}
+
+# /web browser clients are served the static dist/ bundle, NOT vite HMR.
+# Watch-rebuild it so phone/browser mirrors pick up frontend edits on reload.
+start_web_watch() {
+  kill_web_watch
+  nohup pnpm exec vite build --watch </dev/null >> /tmp/codeterm-web-watch.log 2>&1 &
+  echo $! > /tmp/codeterm-web-watch.pid
+  echo "Web bundle watcher started (dist/ auto-rebuilds, log /tmp/codeterm-web-watch.log)"
+}
+
+kill_web_watch() {
+  if [ -f /tmp/codeterm-web-watch.pid ]; then
+    kill "$(cat /tmp/codeterm-web-watch.pid)" 2>/dev/null || true
+    rm -f /tmp/codeterm-web-watch.pid
+  fi
+  if [[ "$OSTYPE" == darwin* ]]; then
+    pgrep -f "vite build --watch" | xargs kill 2>/dev/null || true
+  fi
+}
+
+dev_health_status() {
+  curl -s --max-time 2 http://127.0.0.1:7686/api/health 2>/dev/null || true
+}
+
+dev_listener_pid() {
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    lsof -tiTCP:7686 -sTCP:LISTEN 2>/dev/null | head -1 || true
+  else
+    netstat -ano 2>/dev/null | grep ":7686.*LISTEN" | awk '{print $5}' | head -1 || true
+  fi
 }
 
 # Auto-install node deps if lockfile is newer than node_modules
@@ -136,6 +184,7 @@ case "$CMD" in
     # first-launch embedded extract is skipped so ~/.codeterm/plugins/
     # doesn't shadow the workspace.
     export CODETERM_DEV=1
+    start_web_watch
 
     WAIT=0
     for arg in "${@:2}"; do
@@ -147,9 +196,7 @@ case "$CMD" in
     if [ "$WAIT" -eq 1 ]; then
       LOG=/tmp/codeterm-dev.log
       : > "$LOG"
-      ( pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json >> "$LOG" 2>&1 ) &
-      DEV_PID=$!
-      disown "$DEV_PID" 2>/dev/null || true
+      DEV_PID=$(start_dev_wait_process "$LOG")
       echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
       DEADLINE=$(( $(date +%s) + 300 ))
       while : ; do
@@ -163,12 +210,35 @@ case "$CMD" in
           tail -25 "$LOG"
           exit 1
         fi
-        HEALTH=$(curl -s --max-time 2 http://127.0.0.1:7686/api/health 2>/dev/null || true)
+        HEALTH=$(dev_health_status)
         if [ -n "$HEALTH" ]; then
           SHA=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('build','')[:8])" 2>/dev/null || true)
           STATUS=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
           if [ "$STATUS" = "ok" ]; then
-            echo "Dev ready: build $SHA, pid $DEV_PID"
+            STABLE=1
+            for _ in 1 2 3 4; do
+              sleep 2
+              if ! kill -0 "$DEV_PID" 2>/dev/null; then
+                STABLE=0
+                break
+              fi
+              if [ -z "$(dev_listener_pid)" ]; then
+                STABLE=0
+                break
+              fi
+              HEALTH=$(dev_health_status)
+              STATUS=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+              if [ "$STATUS" != "ok" ]; then
+                STABLE=0
+                break
+              fi
+            done
+            if [ "$STABLE" != "1" ]; then
+              echo "Dev process became unhealthy immediately after reporting ready. Last log lines:"
+              tail -25 "$LOG"
+              exit 1
+            fi
+            echo "Dev ready: build $SHA, launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
             exit 0
           fi
         fi
