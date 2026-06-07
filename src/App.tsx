@@ -140,8 +140,13 @@ function AppInner() {
     spawnClaudeTab,
   } = useMultiplexer();
 
-  // Git info for the focused pane — drives the per-pane GitBubble (no extra polling).
-  const focusedGitInfo = useGitInfo(state.focused_pane_id);
+  // Git info for the visible pane — after a restore nothing is focused yet,
+  // so fall back to the active workspace's active tab.
+  const activeWs = state.workspaces.find((w) => w.id === state.active_workspace_id);
+  const activeTabPaneId =
+    activeWs?.tabs.find((t) => t.id === activeWs.active_tab_id)?.pane_id ?? null;
+  const gitPaneId = state.focused_pane_id ?? activeTabPaneId;
+  const focusedGitInfo = useGitInfo(gitPaneId);
 
   // When user focuses any pane (via sidebar click, Ctrl+Tab, etc), return to workspace view
   const lastFocusedRef = useRef(state.focused_pane_id);
@@ -681,7 +686,7 @@ function AppInner() {
                   fontConfig={config.font}
                   terminalConfig={config.terminal}
                   usageEnabledByProvider={usageEnabledByProvider}
-                  gitInfo={state.focused_pane_id === tab.pane_id ? focusedGitInfo : null}
+                  gitInfo={gitPaneId === tab.pane_id ? focusedGitInfo : null}
                   onOpenGit={openGit}
                   api={config.api}
                   workspaceCwd={ws.cwd ?? null}

@@ -63,7 +63,8 @@ export function TabContent({
           terminalConfig={terminalConfig}
         />
       </div>
-      {isFocused && onOpenGit && api && (
+      {/* Tab chrome, not focus chrome — the tab is only visible when active. */}
+      {onOpenGit && api && (
         <GitBubble
           info={gitInfo ?? null}
           cwd={pane.cwd ?? workspaceCwd ?? null}
