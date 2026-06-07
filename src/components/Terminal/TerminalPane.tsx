@@ -507,7 +507,8 @@ export function TerminalPane({
           <PaneSessionChat
             paneId={paneId}
             onError={() => {
-              setClientPaneUiMode(paneId, "terminal");
+              // Automatic fallback, NOT a user choice: never write the
+              // client-mode store here or the pane gets pinned to terminal.
               setUiMode("terminal");
             }}
             onOpenTerminalFallback={() => {
