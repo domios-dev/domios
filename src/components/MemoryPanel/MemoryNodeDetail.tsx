@@ -3,6 +3,7 @@ import type { ApiConfig } from "../../lib/types";
 import type { MemEdge, MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
 import { deleteItem, fetchItemFull, patchItem, type ItemPatch } from "./memoryApi";
+import { UI_BUTTON, UI_INPUT, UI_TEXT } from "../shared/design";
 
 interface Props {
   api: ApiConfig;
@@ -178,10 +179,11 @@ export function MemoryNodeDetail({
     [addTag, tagInput, edit.tags.length],
   );
 
-  const inputClass =
-    "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded text-inherit px-1.5 py-1 text-xs font-[inherit] box-border";
-  const btnClass =
-    "bg-transparent border border-[var(--ct-border)] text-inherit px-2.5 py-1 rounded text-[11px] cursor-pointer";
+  const inputClass = `${UI_INPUT.full} text-[10px] text-inherit`;
+  const btnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} text-[11px]`;
+  const sectionLabelClass = UI_TEXT.sectionLabel;
+  const rowButtonClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} flex items-center gap-1.5 text-left w-full hover:bg-[var(--ct-hover)]`;
+  const mutedTextClass = "text-[10px] opacity-50";
 
   return (
     <>
@@ -242,7 +244,7 @@ export function MemoryNodeDetail({
       </div>
 
       <div>
-        <div className="text-[10px] opacity-60 mb-[3px]">Summary</div>
+        <div className={sectionLabelClass}>Summary</div>
         {editing ? (
           <textarea
             rows={3}
@@ -256,7 +258,7 @@ export function MemoryNodeDetail({
       </div>
 
       <div>
-        <div className="text-[10px] opacity-60 mb-[3px]">
+        <div className={sectionLabelClass}>
           Body {loadingBody && <span>(loading…)</span>}
         </div>
         {editing ? (
@@ -275,7 +277,7 @@ export function MemoryNodeDetail({
 
       {editing && (
         <div>
-          <div className="text-[10px] opacity-60 mb-[3px]">Area</div>
+          <div className={sectionLabelClass}>Area</div>
           <input
             className={inputClass}
             value={edit.area}
@@ -285,7 +287,7 @@ export function MemoryNodeDetail({
       )}
 
       <div>
-        <div className="text-[10px] opacity-60 mb-[3px]">
+        <div className={sectionLabelClass}>
           Importance: {editing ? edit.importance.toFixed(1) : (node.importance ?? 0).toFixed(1)}
         </div>
         {editing ? (
@@ -302,7 +304,7 @@ export function MemoryNodeDetail({
       </div>
 
       <div>
-        <div className="text-[10px] opacity-60 mb-[3px]">Tags</div>
+        <div className={sectionLabelClass}>Tags</div>
         <div className="flex flex-wrap gap-1">
           {(editing ? edit.tags : node.tags ?? []).map((t) => (
             <span
@@ -335,18 +337,18 @@ export function MemoryNodeDetail({
 
       {!editing && (
         <div>
-          <div className="text-[10px] opacity-60 mb-[3px]">
+          <div className={sectionLabelClass}>
             Related ({neighbors.length})
           </div>
           {neighbors.length === 0 ? (
-            <div className="text-[10px] opacity-50">orphan — no edges</div>
+            <div className={mutedTextClass}>orphan — no edges</div>
           ) : (
             <div className="flex flex-col gap-0.5 max-h-[260px] overflow-y-auto">
               {neighbors.map((nb, i) => (
                 <button
                   key={`${nb.dir}-${nb.id}-${nb.rel}-${i}`}
                   onClick={() => onSelectNode(nb.id)}
-                  className="flex items-center gap-1.5 text-left text-[11px] px-1.5 py-0.5 rounded hover:bg-[var(--ct-hover)] cursor-pointer w-full"
+                  className={`${rowButtonClass} cursor-pointer`}
                   title={nb.id}
                 >
                   <span
@@ -371,7 +373,7 @@ export function MemoryNodeDetail({
 
       {!editing && (
         <div>
-          <div className="text-[10px] opacity-60 mb-[3px]">Stats</div>
+          <div className={sectionLabelClass}>Stats</div>
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] opacity-75">
             <span title="Has vector embedding for semantic search">
               embedding: {node.has_vector ? "✓" : "—"}
@@ -394,13 +396,13 @@ export function MemoryNodeDetail({
       )}
 
       {(node.created_at || node.updated_at) && !editing && (
-        <div className="text-[10px] opacity-50">
+        <div className={mutedTextClass}>
           {node.created_at && <div>created: {node.created_at}</div>}
           {node.updated_at && <div>updated: {node.updated_at}</div>}
         </div>
       )}
 
-      <div className="text-[10px] opacity-50 break-all">{node.id}</div>
+      <div className={`${mutedTextClass} break-all`}>{node.id}</div>
 
       <div className="flex gap-1.5 mt-auto flex-wrap">
         {editing ? (
