@@ -330,7 +330,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   const handleServiceClick = (s: Service) =>
     setDrawerState({ kind: "service", id: s.id });
   return (
-    <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)]">
+    <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
       <div className="flex items-center gap-0 px-4 py-0 text-[13px] bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] ct-hscroll whitespace-nowrap">
         <div className="flex items-center gap-3 mr-4 shrink-0">
           <strong>Mesh</strong>
