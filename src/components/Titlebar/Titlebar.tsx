@@ -8,21 +8,17 @@ import { isMac } from "../../lib/keybindings";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { MeshPresenceTray } from "./MeshPresenceTray";
 import { UpdateBadge } from "../UpdateBadge";
-import { UI_PANEL, UI_BUTTON } from "../shared/design";
+import { UI_BUTTON } from "../shared/design";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
   onNewTab?: () => void;
-  workspaceName?: string;
-  tabTitle?: string;
   theme?: ThemeConfig;
   onOpenSettingsAbout?: () => void;
 }
 
 export function Titlebar({
   onToggleSidebar,
-  workspaceName,
-  tabTitle,
   theme: _theme,
   onOpenSettingsAbout,
 }: TitlebarProps) {
@@ -63,28 +59,12 @@ export function Titlebar({
         {/* Web mirror: peer switcher, top-left per spec */}
         {!isTauri && <WebPeerPicker />}
 
-        {/* Breadcrumb */}
-        <div className={`${UI_PANEL.toolbarTitle} ml-1`} data-tauri-drag-region>
-          <span className="text-[var(--ct-muted)]" data-tauri-drag-region>
-            CodeTerm
-          </span>
-          {workspaceName && (
-            <>
-              <Chevron />
-              <span className="text-[var(--ct-muted-fg)]" data-tauri-drag-region>
-                {workspaceName}
-              </span>
-            </>
-          )}
-          {tabTitle && (
-            <>
-              <Chevron />
-              <span className="text-[var(--ct-fg)]" data-tauri-drag-region>
-                {tabTitle}
-              </span>
-            </>
-          )}
-        </div>
+        <span
+          className="ml-1 text-[11px] text-[var(--ct-muted)]"
+          data-tauri-drag-region
+        >
+          CodeTerm
+        </span>
       </div>
 
       {/* Spacer — drag region */}
@@ -230,16 +210,3 @@ function WindowsControls({
   );
 }
 
-// ── Shared ────────────────────────────────────────────────────────────
-
-function Chevron() {
-  return (
-    <svg
-      width="12" height="12" viewBox="0 0 16 16" fill="none"
-      stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"
-      className="text-[var(--ct-muted)] opacity-50 shrink-0"
-    >
-      <path d="M6 4l4 4-4 4" />
-    </svg>
-  );
-}
