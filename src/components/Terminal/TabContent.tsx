@@ -8,6 +8,8 @@ import type {
   TerminalConfigSettings,
 } from "../../lib/types";
 import { UsageBubble } from "../Usage/UsageBubble";
+import { GitBubble } from "../GitPanel/GitBubble";
+import type { GitInfo } from "../../hooks/useGitInfo";
 
 interface TabContentProps {
   pane: Pane | undefined;
@@ -18,6 +20,8 @@ interface TabContentProps {
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
   usageEnabledByProvider?: Record<string, boolean>;
+  gitInfo?: GitInfo | null;
+  onOpenGit?: (repoRoot: string) => void;
 }
 
 export function TabContent({
@@ -29,11 +33,16 @@ export function TabContent({
   fontConfig,
   terminalConfig,
   usageEnabledByProvider,
+  gitInfo,
+  onOpenGit,
 }: TabContentProps) {
   if (!pane) return null;
   if (!isPaneVisible(pane)) return null;
 
   const usageProvider = pane.agent_type ?? null;
+  const usageVisible = !!usageProvider && usageEnabledByProvider?.[usageProvider] === true;
+  // Sit just left of the UsageBubble (right: 8px) when it's showing.
+  const gitRightOffset = usageVisible ? 132 : 8;
 
   return (
     <PaneWrapper paneId={pane.id} isFocused={isFocused}>
@@ -51,10 +60,13 @@ export function TabContent({
           terminalConfig={terminalConfig}
         />
       </div>
+      {isFocused && onOpenGit && (
+        <GitBubble info={gitInfo ?? null} rightOffset={gitRightOffset} onClick={onOpenGit} />
+      )}
       {usageProvider && (
         <UsageBubble
           provider={usageProvider}
-          trackingEnabled={usageEnabledByProvider?.[usageProvider] === true}
+          trackingEnabled={usageVisible}
         />
       )}
     </PaneWrapper>
