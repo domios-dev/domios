@@ -18,6 +18,7 @@ interface PairedPeer {
   addresses: PeerAddress[];
   api_port: number;
   online: boolean;
+  https_url?: string | null;
 }
 interface MeshPeers {
   paired: PairedPeer[];
@@ -27,8 +28,10 @@ interface PeerWebToken {
   token: string;
 }
 
-/** Tailscale address preferred (stable across networks), then the rest. */
+/** HTTPS front first (an https-origin page can't fetch http hosts — mixed
+ * content), then tailscale IP (stable across networks), then the rest. */
 function peerUrl(peer: PairedPeer): string | null {
+  if (peer.https_url) return peer.https_url;
   const addr =
     peer.addresses.find((a) => a.is_tailscale) ?? peer.addresses[0];
   return addr ? `http://${addr.ip}:${peer.api_port}` : null;

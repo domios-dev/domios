@@ -158,6 +158,11 @@ pub struct PeerAnnounce {
     pub api_port: u16,
     #[serde(default = "default_true")]
     pub online: bool,
+    /// `https://<host>.<tailnet>.ts.net` when the sender fronts its API with
+    /// tailscale serve — lets https-origin browsers target it without
+    /// mixed-content blocking.
+    #[serde(default)]
+    pub https_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -203,6 +208,9 @@ pub struct PairedPeer {
     #[serde(default)]
     pub access_level: AccessLevel,
     pub version: Option<String>,
+    /// Peer's tailscale-serve HTTPS front, learned from its announces.
+    #[serde(default)]
+    pub https_url: Option<String>,
     /// Runtime-only miss counter; not persisted to disk or sent over API.
     #[serde(skip)]
     pub consecutive_misses: u8,
