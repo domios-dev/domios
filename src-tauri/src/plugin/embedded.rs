@@ -24,20 +24,18 @@ pub fn ids() -> Vec<&'static str> {
 }
 
 /// Extract every system plugin embedded in the binary into
-/// `<user_plugins_dir>/<id>/` if not already present. Returns the
-/// list of ids actually written. **Never** overwrites existing
-/// directories — see `extract_to`. Intended for first-launch
-/// bootstrap; channel-based updates take over from there.
-///
-/// Quiet-no-op behaviours:
-///   - `<user_plugins_dir>/<id>/` already exists → skipped.
-///   - `dirs::home_dir()` returned None → caller passes whatever it
-///     resolved; this function just writes wherever told.
+/// `<user_plugins_dir>/<id>/`, creating it when absent and **upgrading
+/// it in place when the bundled version is strictly newer** than the
+/// installed one (the CodeTerm-app-upgrade path). Returns the ids
+/// actually written or upgraded. A channel update that is already ahead
+/// of the bundle is left untouched — see `sync_to`. Intended for
+/// first-launch / post-upgrade bootstrap; channel-based updates take
+/// over from there.
 pub fn bootstrap_into(user_plugins_dir: &std::path::Path) -> std::io::Result<Vec<String>> {
     std::fs::create_dir_all(user_plugins_dir)?;
     let mut written = Vec::new();
     for id in ids() {
-        if extract_to(id, user_plugins_dir)? {
+        if sync_to(id, user_plugins_dir)? {
             written.push(id.to_string());
         }
     }
@@ -59,6 +57,57 @@ pub fn extract_to(id: &str, dst_root: &std::path::Path) -> std::io::Result<bool>
     std::fs::create_dir_all(&dst)?;
     write_dir(plugin, &dst)?;
     Ok(true)
+}
+
+/// Create-or-upgrade variant of `extract_to`: writes when the target
+/// is absent, overwrites when the embedded bundle is a strictly newer
+/// semver than what is installed, and otherwise leaves it alone (never
+/// downgrades a channel-updated bundle). Returns whether bytes changed.
+pub fn sync_to(id: &str, dst_root: &std::path::Path) -> std::io::Result<bool> {
+    let Some(plugin) = EMBEDDED.get_dir(id) else {
+        return Ok(false);
+    };
+    let dst = dst_root.join(id);
+    if dst.exists() {
+        let newer = match (embedded_version(id), installed_version(&dst)) {
+            (Some(e), Some(i)) => embedded_is_newer(&e, &i),
+            _ => false,
+        };
+        if !newer {
+            return Ok(false);
+        }
+        std::fs::remove_dir_all(&dst)?;
+    }
+    std::fs::create_dir_all(&dst)?;
+    write_dir(plugin, &dst)?;
+    Ok(true)
+}
+
+fn manifest_version(bytes: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    value.get("version")?.as_str().map(String::from)
+}
+
+fn embedded_version(id: &str) -> Option<String> {
+    let plugin = EMBEDDED.get_dir(id)?;
+    let file = plugin
+        .files()
+        .find(|f| f.path().file_name().and_then(|n| n.to_str()) == Some("plugin.json"))?;
+    manifest_version(file.contents())
+}
+
+fn installed_version(dir: &std::path::Path) -> Option<String> {
+    manifest_version(&std::fs::read(dir.join("plugin.json")).ok()?)
+}
+
+fn embedded_is_newer(embedded: &str, installed: &str) -> bool {
+    match (
+        semver::Version::parse(embedded),
+        semver::Version::parse(installed),
+    ) {
+        (Ok(e), Ok(i)) => e > i,
+        _ => false,
+    }
 }
 
 fn write_dir(dir: &Dir<'_>, dst: &std::path::Path) -> std::io::Result<()> {
@@ -146,5 +195,33 @@ mod tests {
             second.is_empty(),
             "second bootstrap should be a no-op, got {second:?}"
         );
+    }
+
+    /// An installed bundle older than the embedded one is upgraded in place.
+    #[test]
+    fn sync_upgrades_when_embedded_newer() {
+        let tmp = tempfile::tempdir().unwrap();
+        let Some(id) = ids().first().copied() else {
+            return;
+        };
+        let dst = tmp.path().join(id);
+        std::fs::create_dir_all(&dst).unwrap();
+        std::fs::write(dst.join("plugin.json"), br#"{"id":"stub","version":"0.0.1"}"#).unwrap();
+        assert!(sync_to(id, tmp.path()).unwrap(), "older install must upgrade");
+        assert_ne!(installed_version(&dst).as_deref(), Some("0.0.1"));
+    }
+
+    /// A channel-updated bundle newer than the embedded one is never downgraded.
+    #[test]
+    fn sync_skips_when_installed_newer() {
+        let tmp = tempfile::tempdir().unwrap();
+        let Some(id) = ids().first().copied() else {
+            return;
+        };
+        let dst = tmp.path().join(id);
+        std::fs::create_dir_all(&dst).unwrap();
+        std::fs::write(dst.join("plugin.json"), br#"{"id":"stub","version":"9999.0.0"}"#).unwrap();
+        assert!(!sync_to(id, tmp.path()).unwrap(), "newer install must not downgrade");
+        assert_eq!(installed_version(&dst).as_deref(), Some("9999.0.0"));
     }
 }

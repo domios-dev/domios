@@ -12,6 +12,7 @@ use crate::data_root;
 
 const SYSTEM_CHANNEL_NAME: &str = "codeterm-core";
 const DEFAULT_SYSTEM_CHANNEL_URL: &str = "https://github.com/rollacode/codeterm.git#develop:plugins";
+const SYSTEM_PLUGIN_IDS: [&str; 3] = ["claude", "codex", "opencode"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ChannelRegistry {
@@ -59,6 +60,8 @@ struct PluginManifest {
     version: Option<String>,
     #[serde(default, rename = "displayName")]
     display_name: Option<String>,
+    #[serde(default, rename = "minCodeterm")]
+    min_codeterm: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -76,6 +79,8 @@ struct ChannelPlugin {
     path: Option<String>,
     #[serde(default)]
     source: Option<serde_json::Value>,
+    #[serde(default, rename = "minCodeterm")]
+    min_codeterm: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -91,6 +96,8 @@ struct InstalledPluginRow {
     last_change: Option<LastChange>,
     state: String,
     source: Option<InstallSource>,
+    system: bool,
+    removable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +121,19 @@ struct ChannelDiffRow {
     local_manifest_hash: Option<String>,
     remote_manifest_hash: Option<String>,
     drift: String,
+    compatible: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked_reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ChannelListRow {
+    name: String,
+    url: String,
+    path: String,
+    kind: ChannelKind,
+    system: bool,
+    removable: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -220,6 +240,9 @@ fn install_command(
             installed_at: now_rfc3339(),
             last_change: Some(last_change_for_install(version, None)),
         };
+        if let Err(reason) = compat_check(manifest_min_codeterm(&source).as_deref()) {
+            return Err(format!("plugin '{install_id}' {reason}"));
+        }
         let before = manifest_version(&plugin_dir(&install_id)).ok().flatten();
         let result = install_from_dir(&source, &install_id, Some(&record));
         audit_plugin_result(
@@ -254,6 +277,9 @@ fn install_command(
         installed_at: now_rfc3339(),
         last_change: Some(last_change_for_install(version, Some(channel_name.clone()))),
     };
+    if let Err(reason) = compat_check(manifest_min_codeterm(&source_dir).as_deref()) {
+        return Err(format!("plugin '{id}' {reason}"));
+    }
     let before = manifest_version(&plugin_dir(&id)).ok().flatten();
     let result = install_from_dir(&source_dir, &id, Some(&record));
     audit_plugin_result(
@@ -319,6 +345,9 @@ fn update_one(id: &str) -> Result<(), String> {
                 last_change: Some(last_change_for_update(before.clone(), after.clone(), Some(channel.clone()))),
                 ..record
             };
+            if let Err(reason) = compat_check(manifest_min_codeterm(&source).as_deref()) {
+                return Err(format!("plugin '{id}' {reason}"));
+            }
             let result = install_from_dir(&source, id, Some(&next_record));
             audit_plugin_result("update", Some(id), Some(&channel), before, after, &result);
             result
@@ -336,6 +365,9 @@ fn update_one(id: &str) -> Result<(), String> {
                 last_change: Some(last_change_for_update(before.clone(), after.clone(), Some(channel.clone()))),
                 ..record
             };
+            if let Err(reason) = compat_check(manifest_min_codeterm(&source).as_deref()) {
+                return Err(format!("plugin '{id}' {reason}"));
+            }
             let result = install_from_dir(&source, id, Some(&next_record));
             audit_plugin_result("update", Some(id), Some(&channel), before, after, &result);
             result
@@ -366,10 +398,19 @@ fn update_system_command(id: Option<String>) -> Result<serde_json::Value, String
         None => manifest.plugins,
     };
     let mut updated = Vec::new();
+    let mut blocked = Vec::new();
     for plugin in requested {
         let id = plugin.id.clone();
         let plugin_path = plugin_path(&plugin)?;
         let source_dir = channel_path.join(&plugin_path);
+        let min = plugin
+            .min_codeterm
+            .clone()
+            .or_else(|| manifest_min_codeterm(&source_dir));
+        if let Err(reason) = compat_check(min.as_deref()) {
+            blocked.push(format!("system plugin '{id}' {reason}"));
+            continue;
+        }
         let version = plugin.version;
         let record = InstallRecord {
             id: id.clone(),
@@ -394,7 +435,11 @@ fn update_system_command(id: Option<String>) -> Result<serde_json::Value, String
         result?;
         updated.push(id);
     }
-    let warnings = removed_system_channel_warnings(&updated)?;
+    if updated.is_empty() && !blocked.is_empty() {
+        return Err(blocked.join("; "));
+    }
+    let mut warnings = removed_system_channel_warnings(&updated)?;
+    warnings.extend(blocked);
     Ok(serde_json::json!({
         "ok": true,
         "message": format!("Updated {} system plugin(s)", updated.len()),
@@ -488,9 +533,54 @@ fn list_installed() -> Result<serde_json::Value, String> {
                 "installed".to_string()
             },
             source: record.map(|r| r.source),
+            system: is_reserved_system_id(&id),
+            removable: !is_reserved_system_id(&id),
         });
     }
+    merge_system_rows(&mut rows);
     Ok(serde_json::json!({ "plugins": rows }))
+}
+
+// System provider plugins are intrinsic: always present and non-removable, even
+// when not extracted to disk (dev, or a fresh prod before bootstrap).
+fn merge_system_rows(rows: &mut Vec<InstalledPluginRow>) {
+    let present: std::collections::BTreeSet<String> =
+        rows.iter().map(|r| r.id.clone()).collect();
+    for id in SYSTEM_PLUGIN_IDS {
+        if !present.contains(id) {
+            rows.push(virtual_system_row(id));
+        }
+    }
+    rows.sort_by(|a, b| system_rank(&a.id).cmp(&system_rank(&b.id)).then_with(|| a.id.cmp(&b.id)));
+}
+
+fn system_rank(id: &str) -> (u8, usize) {
+    SYSTEM_PLUGIN_IDS
+        .iter()
+        .position(|s| *s == id)
+        .map(|p| (0, p))
+        .unwrap_or((1, 0))
+}
+
+fn virtual_system_row(id: &str) -> InstalledPluginRow {
+    InstalledPluginRow {
+        id: id.to_string(),
+        version: system_channel_version(id),
+        display_name: None,
+        path: String::new(),
+        install_path: String::new(),
+        install_time: None,
+        manifest_hash: None,
+        verified: true,
+        last_change: None,
+        state: "bundled".to_string(),
+        source: Some(InstallSource::SystemChannel {
+            channel: SYSTEM_CHANNEL_NAME.to_string(),
+            path: format!("provider-{id}"),
+        }),
+        system: true,
+        removable: false,
+    }
 }
 
 fn add_channel(url: &str, name_override: Option<String>) -> Result<serde_json::Value, String> {
@@ -535,8 +625,38 @@ fn add_channel(url: &str, name_override: Option<String>) -> Result<serde_json::V
 
 fn list_channels() -> Result<serde_json::Value, String> {
     let reg = read_channel_registry().unwrap_or_default();
-    let channels: Vec<_> = reg.channels.values().collect();
-    Ok(serde_json::json!({ "channels": channels }))
+    let mut rows: Vec<ChannelListRow> = reg
+        .channels
+        .values()
+        .map(|ch| ChannelListRow {
+            name: ch.name.clone(),
+            url: ch.url.clone(),
+            path: ch.path.clone(),
+            kind: ch.kind.clone(),
+            system: ch.name == SYSTEM_CHANNEL_NAME,
+            removable: ch.name != SYSTEM_CHANNEL_NAME,
+        })
+        .collect();
+    // The system marketplace is intrinsic — listed without a network fetch even
+    // before it has been registered/cloned.
+    if !rows.iter().any(|r| r.name == SYSTEM_CHANNEL_NAME) {
+        rows.push(virtual_system_channel());
+    }
+    rows.sort_by(|a, b| {
+        u8::from(b.system).cmp(&u8::from(a.system)).then_with(|| a.name.cmp(&b.name))
+    });
+    Ok(serde_json::json!({ "channels": rows }))
+}
+
+fn virtual_system_channel() -> ChannelListRow {
+    ChannelListRow {
+        name: SYSTEM_CHANNEL_NAME.to_string(),
+        url: system_channel_url(),
+        path: String::new(),
+        kind: ChannelKind::Git,
+        system: true,
+        removable: false,
+    }
 }
 
 fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, String> {
@@ -577,6 +697,14 @@ fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, String> {
                 local_manifest_hash.as_deref(),
                 remote_manifest_hash.as_deref(),
             );
+            let remote_min = plugin
+                .min_codeterm
+                .clone()
+                .or_else(|| manifest_min_codeterm(&remote_dir));
+            let (compatible, blocked_reason) = match compat_check(remote_min.as_deref()) {
+                Ok(()) => (true, None),
+                Err(reason) => (false, Some(reason)),
+            };
             if drift != "up_to_date" {
                 audit_drift_detected(
                     &ch.name,
@@ -596,6 +724,8 @@ fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, String> {
                 local_manifest_hash,
                 remote_manifest_hash,
                 drift,
+                compatible,
+                blocked_reason,
             });
         }
         if temp.exists() {
@@ -710,10 +840,7 @@ fn materialize_registered_channel(ch: &ChannelRecord, dest: &Path) -> Result<(),
 }
 
 fn ensure_system_channel() -> Result<(), String> {
-    let url = std::env::var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_SYSTEM_CHANNEL_URL.to_string());
+    let url = system_channel_url();
     let mut reg = read_channel_registry().unwrap_or_default();
     let needs_add = match reg.channels.get(SYSTEM_CHANNEL_NAME) {
         Some(ch) => ch.url != url,
@@ -1249,7 +1376,56 @@ fn run_git_in<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<(), String>
 }
 
 fn is_reserved_system_id(id: &str) -> bool {
-    matches!(id, "claude" | "codex" | "opencode")
+    SYSTEM_PLUGIN_IDS.contains(&id)
+}
+
+fn system_channel_url() -> String {
+    std::env::var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_SYSTEM_CHANNEL_URL.to_string())
+}
+
+fn app_version() -> Option<String> {
+    std::env::var("CODETERM_VERSION")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+}
+
+fn manifest_min_codeterm(dir: &Path) -> Option<String> {
+    read_plugin_manifest(dir).ok().and_then(|m| m.min_codeterm)
+}
+
+fn compat_reason(min: &str, app: Option<&str>) -> String {
+    match app {
+        Some(app) => format!("requires CodeTerm \u{2265} {min}, but this is {app}"),
+        None => format!("requires CodeTerm \u{2265} {min}"),
+    }
+}
+
+// Fail-open when min is absent or the running version is unknown (raw CLI with
+// no daemon); only block when we positively know app < min.
+fn compat_check(min: Option<&str>) -> Result<(), String> {
+    let Some(min) = min else { return Ok(()) };
+    let Some(app) = app_version() else { return Ok(()) };
+    if version_cmp(&app, min).is_lt() {
+        Err(compat_reason(min, Some(&app)))
+    } else {
+        Ok(())
+    }
+}
+
+// Best-effort version for a system plugin not on disk: read the system channel
+// cache manifest if it has already been fetched. Never triggers a network call.
+fn system_channel_version(id: &str) -> Option<String> {
+    let reg = read_channel_registry().ok()?;
+    let ch = reg.channels.get(SYSTEM_CHANNEL_NAME)?;
+    let manifest = read_channel_manifest(Path::new(&ch.path)).ok()?;
+    manifest
+        .plugins
+        .into_iter()
+        .find(|p| p.id == id)
+        .and_then(|p| p.version)
 }
 
 fn is_verified_install(id: &str, record: Option<&InstallRecord>) -> bool {
@@ -1426,7 +1602,13 @@ mod store_index_tests {
             assert_eq!(first["updated"], serde_json::json!(["extra-system"]));
             assert!(plugin_dir("extra-system").join("plugin.json").exists());
             let listed = list_installed().unwrap();
-            assert_eq!(listed["plugins"][0]["verified"], serde_json::json!(true));
+            let extra = listed["plugins"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["id"] == serde_json::json!("extra-system"))
+                .expect("installed system plugin should be listed");
+            assert_eq!(extra["verified"], serde_json::json!(true));
 
             write_channel(&source, SYSTEM_CHANNEL_NAME, &[]);
             let second = update_system_command(None).expect("removal warning does not uninstall");
@@ -1449,7 +1631,113 @@ mod store_index_tests {
             let ids = installed_ids().unwrap();
             assert_eq!(ids, vec!["real".to_string()]);
             let listed = list_installed().unwrap();
-            assert_eq!(listed["plugins"].as_array().unwrap().len(), 1);
+            let rows = listed["plugins"].as_array().unwrap();
+            // One real on-disk plugin + the always-present system intrinsics.
+            let non_system: Vec<_> = rows.iter().filter(|p| p["system"] != serde_json::json!(true)).collect();
+            assert_eq!(non_system.len(), 1);
+            assert_eq!(non_system[0]["id"], serde_json::json!("real"));
+            assert!(rows.iter().any(|p| p["id"] == serde_json::json!("claude") && p["removable"] == serde_json::json!(false)));
+        });
+    }
+
+    #[test]
+    fn list_installed_injects_locked_system_rows_when_dir_empty() {
+        with_data_root(|_root| {
+            let listed = list_installed().unwrap();
+            let rows = listed["plugins"].as_array().unwrap();
+            for id in SYSTEM_PLUGIN_IDS {
+                let row = rows
+                    .iter()
+                    .find(|p| p["id"] == serde_json::json!(id))
+                    .unwrap_or_else(|| panic!("system plugin {id} must be listed"));
+                assert_eq!(row["system"], serde_json::json!(true));
+                assert_eq!(row["removable"], serde_json::json!(false));
+                assert_eq!(row["state"], serde_json::json!("bundled"));
+            }
+        });
+    }
+
+    #[test]
+    fn list_channels_injects_locked_system_channel_when_registry_empty() {
+        with_data_root(|_root| {
+            let listed = list_channels().unwrap();
+            let core = listed["channels"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["name"] == serde_json::json!(SYSTEM_CHANNEL_NAME))
+                .expect("system channel must be listed")
+                .clone();
+            assert_eq!(core["system"], serde_json::json!(true));
+            assert_eq!(core["removable"], serde_json::json!(false));
+        });
+    }
+
+    #[test]
+    fn compat_check_blocks_only_when_app_older_than_min() {
+        let _guard = env_lock().lock().unwrap();
+        let prev = std::env::var("CODETERM_VERSION").ok();
+
+        std::env::set_var("CODETERM_VERSION", "1.3.2");
+        assert!(compat_check(Some("1.0.0")).is_ok());
+        assert!(compat_check(Some("1.3.2")).is_ok());
+        let err = compat_check(Some("2.0.0")).unwrap_err();
+        assert!(err.contains("2.0.0") && err.contains("1.3.2"), "got: {err}");
+
+        // Fail-open: unknown running version never blocks.
+        std::env::remove_var("CODETERM_VERSION");
+        assert!(compat_check(Some("99.0.0")).is_ok());
+        // No declared minimum never blocks.
+        std::env::set_var("CODETERM_VERSION", "1.0.0");
+        assert!(compat_check(None).is_ok());
+
+        restore_env("CODETERM_VERSION", prev);
+    }
+
+    #[test]
+    fn install_from_channel_refuses_incompatible_min_codeterm() {
+        with_data_root(|_root| {
+            // env_lock is already held by with_data_root — set directly, restore at end.
+            let prev_v = std::env::var("CODETERM_VERSION").ok();
+            std::env::set_var("CODETERM_VERSION", "1.0.0");
+
+            let cache = channels_root().join("needychan");
+            std::fs::create_dir_all(cache.join("provider-needy")).unwrap();
+            std::fs::write(
+                cache.join("channel.json"),
+                serde_json::json!({
+                    "schemaVersion": 1,
+                    "name": "needychan",
+                    "plugins": [{"id":"needy","version":"1.0.0","path":"provider-needy","minCodeterm":"2.0.0"}]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            std::fs::write(
+                cache.join("provider-needy/plugin.json"),
+                serde_json::json!({"id":"needy","version":"1.0.0","minCodeterm":"2.0.0"}).to_string(),
+            )
+            .unwrap();
+            std::fs::write(cache.join("provider-needy/plugin.js"), "module.exports={};").unwrap();
+            write_channel_registry(&ChannelRegistry {
+                channels: BTreeMap::from([(
+                    "needychan".to_string(),
+                    ChannelRecord {
+                        name: "needychan".to_string(),
+                        url: format!("file://{}", cache.display()),
+                        path: cache.display().to_string(),
+                        kind: ChannelKind::Local,
+                    },
+                )]),
+            })
+            .unwrap();
+
+            let err = install_command(Some("needy".to_string()), None, None, Some("needychan".to_string()))
+                .unwrap_err();
+            assert!(err.contains("requires CodeTerm"), "got: {err}");
+            assert!(!plugin_dir("needy").exists(), "incompatible plugin must not be installed");
+
+            restore_env("CODETERM_VERSION", prev_v);
         });
     }
 }

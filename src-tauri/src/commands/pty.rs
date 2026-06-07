@@ -101,6 +101,10 @@ pub async fn spawn_pty(
         "CODETERM_SOCKET_PATH".to_string(),
         crate::socket::server::socket_display_path(),
     );
+    env_vars.insert(
+        "CODETERM_VERSION".to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+    );
     // Pass token/port to REST callbacks to avoid silent 401s.
     let api_cfg = config_state.lock().api.clone();
     if let Ok(port) = std::env::var("CODETERM_API_PORT") {
