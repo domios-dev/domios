@@ -1,13 +1,5 @@
-// `mem run-worker` subprocess.
-//
-// Opens knowledge.db directly (multi-process WAL) and runs one phase of
-// dreaming or the librarian inline, then exits. The supervisor in the
-// daemon spawns this so a panic / OOM / hang in the maintenance pass
-// cannot take the API down.
-//
-// Graph mutations route through codeterm-mem-store (see Track 3 of v1.1.23).
-// mem_items / mem_fts / mem_vectors SQL stays inline here on purpose — keeping
-// the CLI free of the codeterm_lib dependency means it stays standalone.
+// `mem run-worker` processes one dreaming/librarian batch directly in knowledge.db.
+// It exits after one pass; supervisor runs it to isolate maintenance failures.
 
 use crate::data_dir_name;
 
@@ -243,10 +235,8 @@ fn worker_dreaming_deep(conn: &rusqlite::Connection) -> Result<WorkerDreamReport
     })
 }
 
-// ---------------------------------------------------------------------------
-// Graph normalize phase. All graph SQL routes through codeterm-mem-store.
-// Constants + Levenshtein helpers stay here as caller-owned policy + pure utils.
-// ---------------------------------------------------------------------------
+// Graph normalize phase:
+// Policy and Levenshtein helpers are local; Graph SQL stays in codeterm-mem-store.
 
 const NORMALIZE_PROTECTED_TYPES: &[&str] = &["kind", "area", "agent", "workspace"];
 const NORMALIZE_ORPHAN_AGE_DAYS: i64 = 14;
@@ -306,9 +296,7 @@ fn worker_dreaming_normalize(conn: &rusqlite::Connection) -> Result<serde_json::
         conn, &now,
     ).map_err(|e| format!("broken invalidate: {}", e))?;
 
-    // Symmetric pass: revive edges whose targets reappeared. SQL guards on
-    // both endpoints existing in entities/mem_items, so this is never blind —
-    // only edges whose collateral cause is gone come back.
+// Symmetric pass revives only edges with both endpoints still present.
     let revive_report = codeterm_mem_store::graph::revive_broken(
         conn,
         codeterm_mem_store::graph::ReviveBrokenOptions { since: None, dry_run: false },
@@ -582,9 +570,7 @@ fn librarian_sync_one(
         "UPDATE mem_fts SET body = ?1 WHERE mem_id = ?2",
         rusqlite::params![&content, &item.id],
     ).map_err(|e| format!("update fts: {}", e))?;
-    // Drop any stale embedding so the daemon's reindex_missing pass picks
-    // it up on the next startup tick. Done via vec0 virtual table — the
-    // sqlite-vec auto-extension was registered before Connection::open.
+    // Drop stale embeddings so next startup tick can rebuild vector index.
     let _ = conn.execute(
         "DELETE FROM mem_vectors WHERE mem_id = ?1",
         rusqlite::params![&item.id],
@@ -764,8 +750,7 @@ mod tests {
 
     #[test]
     fn build_skill_id_non_ascii_does_not_panic() {
-        // Chinese characters are 3 bytes each → 14 chars × 3 = 42 bytes
-        // slicing at byte 40 would panic without the fix
+        // Non-ASCII can be 3-byte; keep guard to avoid panic on byte slicing.
         let long_chinese = "技能技能技能技能技能技能技能技能技能技能技能技能技能技能"; // 14 × 3 = 42 bytes as slug
         let result = std::panic::catch_unwind(|| build_skill_id(long_chinese));
         assert!(result.is_ok(), "should not panic on non-ASCII skill names");

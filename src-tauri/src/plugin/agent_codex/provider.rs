@@ -30,6 +30,11 @@ impl CodexProvider {
 
     /// Root sessions directory: ~/.codex/sessions/
     fn sessions_root() -> Option<PathBuf> {
+        if let Ok(path) = std::env::var("CODETERM_CODEX_SESSIONS_ROOT") {
+            if !path.is_empty() {
+                return Some(PathBuf::from(path));
+            }
+        }
         let home = dirs::home_dir()?;
         Some(home.join(".codex").join("sessions"))
     }
@@ -141,10 +146,8 @@ impl AgentProvider for CodexProvider {
     }
 
     fn detect_from_output(&self, text: &str) -> bool {
-        // Startup banner — fires reliably the moment codex launches, even
-        // before any permission prompt. Used when the user runs `codex`
-        // manually inside a shell pane that was previously labelled with
-        // another provider.
+        // Startup banner — fires reliably the moment codex launches, even before any permission prompt. Used when the user runs `codex` manually
+        // inside a shell pane that was previously labelled with another provider.
         text.contains("OpenAI Codex")
             || text.contains("permissions: YOLO mode")
             || text.contains("permissions: read-only")
@@ -193,9 +196,8 @@ impl AgentProvider for CodexProvider {
             };
             let fallback_uuid = extract_session_uuid(stem).map(String::from);
 
-            // First line carries session_meta with the authoritative id + cwd.
-            // Falls back to filename-derived uuid when the first line is not
-            // session_meta (older codex rollouts, truncated files, etc.).
+            // First line carries session_meta with the authoritative id + cwd. Falls back to filename-derived uuid when the first line is not session_meta
+            // (older codex rollouts, truncated files, etc.).
             let (session_id, cwd) = read_session_meta(path).unwrap_or((None, None));
             let session_id = session_id.or(fallback_uuid);
             let Some(session_id) = session_id else { return };
@@ -212,8 +214,7 @@ impl AgentProvider for CodexProvider {
                 session_id,
                 provider: "codex".to_string(),
                 project_path: cwd,
-                // Codex has no sessions-index.json; titles/summaries would
-                // need full-file parsing. Leave None for v1.
+                // Codex has no sessions-index.json; titles/summaries would need full-file parsing. Leave None for v1.
                 title: None,
                 summary: None,
                 file_path: path.to_string_lossy().to_string(),
@@ -276,9 +277,7 @@ impl AgentProvider for CodexProvider {
                 continue;
             }
 
-            // CodeTerm injects a few system-shaped prompts as role=user at
-            // session start (AGENTS.md, worker bootstraps, environment
-            // context). Mark them meta so cross-provider search skips them.
+            // CodeTerm injects a few system-shaped prompts as role=user at session start (AGENTS.md, worker bootstraps, environment context). Mark them meta so cross-provider search skips them.
             let is_meta = role == "user" && is_codeterm_injection(&text);
 
             let ts = v
@@ -312,10 +311,8 @@ impl AgentProvider for CodexProvider {
         let recency_limit = max_age.unwrap_or_else(|| Duration::from_secs(300));
         let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
 
-        // Walk YYYY/MM/DD directories — collects (stem, modified_time)
-        // The cwd filter is applied lazily during the walk so we don't read
-        // every JSONL header in the tree; only candidates that pass age +
-        // exclude get their first line parsed.
+        // Walk YYYY/MM/DD directories — collects (stem, modified_time) The cwd filter is applied lazily during the walk so we don't read every JSONL
+        // header in the tree; only candidates that pass age + exclude get their first line parsed.
         collect_jsonl_files(&root, &mut sessions, &now, &recency_limit, exclude, cwd, 0);
 
         sessions.sort_by(|a, b| b.1.cmp(&a.1));
@@ -323,6 +320,16 @@ impl AgentProvider for CodexProvider {
         sessions
             .first()
             .and_then(|(stem, _)| extract_session_uuid(stem).map(|s| s.to_string()))
+    }
+
+    fn detect_active_session(&self, cwd: &str, current_sid: &str) -> Option<String> {
+        let current_path = self.session_file_path(cwd, current_sid);
+        let current_ts = current_path
+            .as_ref()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .and_then(|m| m.modified().or_else(|_| m.created()).ok())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        latest_session_for_cwd(cwd, Some(current_sid), current_ts)
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
@@ -426,9 +433,7 @@ impl AgentProvider for CodexProvider {
     }
 
     fn preserves_context_on_resume(&self) -> bool {
-        // Codex `resume` starts a fresh process and replays only the user
-        // turns from the rollout file — context is partially reconstructed,
-        // not preserved like Claude's JSONL replay.
+        // Codex `resume` starts a fresh process and replays only the user turns from the rollout file — context is partially reconstructed, not preserved like Claude's JSONL replay.
         false
     }
 
@@ -456,21 +461,17 @@ impl AgentProvider for CodexProvider {
         ]
     }
 
-    // No notifications_schema — Codex notifications fire via the PTY
-    // event pipeline without any per-user configuration, so surfacing
-    // a status card was just noise.
+    // No notifications_schema — Codex notifications fire via the PTY event pipeline without any per-user configuration, so surfacing a status card was just noise.
 }
 
 /// Extract UUID from a codex session filename stem.
 /// Format: `rollout-YYYY-MM-DDTHH-MM-SS-<UUID>` → returns the UUID part.
 /// Codex `resume` command expects the UUID, not the full filename.
 fn extract_session_uuid(stem: &str) -> Option<&str> {
-    // Pattern: rollout-YYYY-MM-DDTHH-MM-SS-UUID
-    // The timestamp part is "YYYY-MM-DDTHH-MM-SS" (19 chars after "rollout-")
+    // Pattern: rollout-YYYY-MM-DDTHH-MM-SS-UUID The timestamp part is "YYYY-MM-DDTHH-MM-SS" (19 chars after "rollout-")
     let prefix = "rollout-";
     let rest = stem.strip_prefix(prefix)?;
-    // Timestamp: 10 date chars + T + 8 time chars = 19
-    // Then a dash separator before UUID
+    // Timestamp: 10 date chars + T + 8 time chars = 19 Then a dash separator before UUID
     if rest.len() > 20 && rest.as_bytes()[19] == b'-' {
         Some(&rest[20..])
     } else {
@@ -531,10 +532,8 @@ fn collect_jsonl_files(
                     }
                 }
             }
-            // cwd filter — read only the session_meta header (first line) and
-            // match `payload.cwd`. Without this, parallel codex panes in the
-            // same workspace see candidates from sibling cwds and pick the
-            // wrong rollout, then loop forever in the atomic-claim retry path.
+            // cwd filter — read only the session_meta header (first line) and match `payload.cwd`. Without this, parallel codex panes in the same
+            // workspace see candidates from sibling cwds and pick the wrong rollout, then loop forever in the atomic-claim retry path.
             if !cwd_filter.is_empty() && !rollout_cwd_matches(&entry.path(), cwd_filter) {
                 continue;
             }
@@ -662,6 +661,53 @@ fn read_session_meta(path: &std::path::Path) -> Option<(Option<String>, Option<S
     Some((id, cwd))
 }
 
+fn latest_session_for_cwd(
+    cwd: &str,
+    exclude_sid: Option<&str>,
+    after: std::time::SystemTime,
+) -> Option<String> {
+    let root = CodexProvider::sessions_root()?;
+    if !root.exists() {
+        return None;
+    }
+    let mut best: Option<(String, std::time::SystemTime)> = None;
+    walk_jsonl_recursive(&root, 0, &mut |path| {
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            return;
+        };
+        let (meta_sid, meta_cwd) = read_session_meta(path).unwrap_or((None, None));
+        let Some(recorded_cwd) = meta_cwd else {
+            return;
+        };
+        if !paths_equivalent(&recorded_cwd, cwd) {
+            return;
+        }
+        let sid = meta_sid.or_else(|| extract_session_uuid(stem).map(String::from));
+        let Some(sid) = sid else { return };
+        if exclude_sid == Some(sid.as_str()) {
+            return;
+        }
+        let Ok(meta) = std::fs::metadata(path) else {
+            return;
+        };
+        let ts = match meta.modified().or_else(|_| meta.created()) {
+            Ok(ts) => ts,
+            Err(_) => return,
+        };
+        if ts <= after {
+            return;
+        }
+        if best
+            .as_ref()
+            .map(|(_, best_ts)| ts > *best_ts)
+            .unwrap_or(true)
+        {
+            best = Some((sid, ts));
+        }
+    });
+    best.map(|(sid, _)| sid)
+}
+
 /// Tail-scan a codex jsonl for the latest `turn_context.payload.model`.
 /// Codex writes a fresh turn_context every interaction, so the last one is
 /// the active model — including post-`/model` swap.
@@ -716,8 +762,7 @@ fn codex_short_label(model_id: &str) -> String {
             return c.next().unwrap().to_ascii_uppercase().to_string() + c.as_str();
         }
     }
-    // GPT family: keep version + variant suffix so the badge can distinguish
-    // gpt-5 from gpt-4o / gpt-5-mini / etc. Cap at the first two segments.
+    // GPT family: keep version + variant suffix so the badge can distinguish gpt-5 from gpt-4o / gpt-5-mini / etc. Cap at the first two segments.
     if m.starts_with("gpt") {
         let head: String = m.split('-').take(2).collect::<Vec<_>>().join("-");
         return format!("GPT{}", head.trim_start_matches("gpt"));

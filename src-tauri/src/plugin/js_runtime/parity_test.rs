@@ -31,9 +31,7 @@ fn load_js(id: &str) -> JsProvider {
     load_one(&manifest).unwrap_or_else(|e| panic!("load {id} plugin: {e}"))
 }
 
-// ────────────────────────────────────────────────────────────────────
-// Claude parity
-// ────────────────────────────────────────────────────────────────────
+// Claude parity.
 
 mod claude {
     use super::*;
@@ -198,9 +196,7 @@ mod claude {
             return;
         }
         let (n, j) = pair();
-        // Realistic Claude JSONL snippet: assistant with array content,
-        // user with string content, plus a non-message line that must
-        // be dropped by both impls.
+        // Realistic Claude JSONL snippet: assistant with array content, user with string content, plus a non-message line that must be dropped by both impls.
         let jsonl = "{\"type\":\"summary\",\"x\":1}\n\
             {\"type\":\"user\",\"isMeta\":false,\"message\":{\"role\":\"user\",\"content\":\"please refactor this\"},\"timestamp\":\"2026-05-01T10:00:00Z\"}\n\
             {\"type\":\"assistant\",\"isMeta\":false,\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Sure, I'll refactor it.\"},{\"type\":\"tool_use\",\"id\":\"x\"}]}}\n\
@@ -348,8 +344,7 @@ mod claude {
         }
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("settings.json");
-        // Pre-existing settings with: a user hook (must survive), a
-        // stale codeterm v1 hook (must be removed), and an unrelated key.
+        // Pre-existing settings with: a user hook (must survive), a stale codeterm v1 hook (must be removed), and an unrelated key.
         std::fs::write(
             &settings,
             r#"{
@@ -406,8 +401,7 @@ mod claude {
             &std::fs::read_to_string(dir.path().join("settings.json")).unwrap(),
         )
         .unwrap();
-        // Mirroring native: Notification + Stop dropped; PreCompact +
-        // SessionStart kept (mem continuity).
+        // Mirroring native: Notification + Stop dropped; PreCompact + SessionStart kept (mem continuity).
         let n = json["hooks"]["Notification"].as_array().unwrap();
         let s = json["hooks"]["Stop"].as_array().unwrap();
         let pc = json["hooks"]["PreCompact"].as_array().unwrap();
@@ -440,8 +434,7 @@ mod claude {
         let first = std::fs::read_to_string(dir.path().join("settings.json")).unwrap();
         provider.ensure_integration_on_startup(7686);
         let second = std::fs::read_to_string(dir.path().join("settings.json")).unwrap();
-        // Second pass must NOT duplicate hooks — checkIntegration sees
-        // installed=true and skips re-write.
+        // Second pass must NOT duplicate hooks — checkIntegration sees installed=true and skips re-write.
         assert_eq!(first, second);
     }
 
@@ -486,9 +479,7 @@ mod claude {
         };
         let nat = n.build_launch_command(&params);
         let js = j.build_launch_command(&params);
-        // Same env preamble + same trailing claude invocation. The JS
-        // form uses cross-platform host primitives so it should match
-        // native byte-for-byte for the no-task case.
+        // Same env preamble + same trailing claude invocation. The JS form uses cross-platform host primitives so it should match native byte-for-byte for the no-task case.
         assert_eq!(nat, js, "native vs js launch mismatch");
     }
 
@@ -536,8 +527,7 @@ mod claude {
             headless: true,
             ..Default::default()
         });
-        // Pull the task-file path out of the pipe prefix and verify the
-        // bytes the plugin wrote round-trip byte-exact to the task body.
+        // Pull the task-file path out of the pipe prefix and verify the bytes the plugin wrote round-trip byte-exact to the task body.
         let token = if cfg!(target_os = "windows") {
             cmd.split("Get-Content '")
                 .nth(1)
@@ -638,9 +628,7 @@ mod claude {
         }
         let j = load_js("claude");
 
-        // Mixed JSONL: summary (drop), user text (1 block), assistant with
-        // text + thinking + tool_use (3 blocks), user tool_result (1 block),
-        // and a malformed line (drop).
+        // Mixed JSONL: summary (drop), user text (1 block), assistant with text + thinking + tool_use (3 blocks), user tool_result (1 block), and a malformed line (drop).
         let jsonl = concat!(
             r#"{"type":"summary","x":1}"#,
             "\n",
@@ -738,16 +726,14 @@ mod claude {
             return;
         }
         let j = load_js("claude");
-        // Each line ends in \n. Contains emoji (4 bytes UTF-8 each) so
-        // byte counts diverge from char counts.
+        // Each line ends in \n. Contains emoji (4 bytes UTF-8 each) so byte counts diverge from char counts.
         let line1 =
             "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hello 🚀 мир 你好\"}}";
         let line2 = "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"reply 🎉\"}}";
         let jsonl = format!("{}\n{}\n", line1, line2);
         let tmp = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(tmp.path(), &jsonl).unwrap();
-        // First read consumes the whole file. new_offset must equal
-        // the BYTE length of jsonl, not a code-unit count.
+        // First read consumes the whole file. new_offset must equal the BYTE length of jsonl, not a code-unit count.
         let delta = j.parse_session_delta(tmp.path(), 0);
         assert_eq!(
             delta.new_offset,
@@ -763,9 +749,7 @@ mod claude {
 
     #[test]
     fn parse_session_delta_advances_offset_when_plugin_blows_up() {
-        // Defensive: feed the plugin malformed JSONL bytes. Plugin
-        // catch-blocks each line, but the test asserts the tailer
-        // doesn't get stuck at the same offset.
+        // Defensive: feed the plugin malformed JSONL bytes. Plugin catch-blocks each line, but the test asserts the tailer doesn't get stuck at the same offset.
         if !ws_exists() {
             return;
         }
@@ -774,16 +758,13 @@ mod claude {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(tmp.path(), bad).unwrap();
         let delta = j.parse_session_delta(tmp.path(), 0);
-        // No valid messages — but offset must advance to file end so
-        // we don't busy-loop on the same bytes.
+        // No valid messages — but offset must advance to file end so we don't busy-loop on the same bytes.
         assert_eq!(delta.messages.len(), 0);
         assert_eq!(delta.new_offset, bad.as_bytes().len() as u64);
     }
 }
 
-// ────────────────────────────────────────────────────────────────────
-// Codex parity
-// ────────────────────────────────────────────────────────────────────
+// Codex parity.
 
 mod codex {
     use super::*;
@@ -952,9 +933,8 @@ mod codex {
             return;
         }
         let dir = tempfile::tempdir().unwrap();
-        // Plugin honours `CODETERM_CODEX_SESSIONS_ROOT` to avoid hitting
-        // the user's real `~/.codex/sessions` during tests. (dirs::home_dir
-        // ignores HOME env on Windows, so HOME redirect would be ineffective.)
+        // Plugin honours `CODETERM_CODEX_SESSIONS_ROOT` to avoid hitting the user's real `~/.codex/sessions` during tests. (dirs::home_dir ignores
+        // HOME env on Windows, so HOME redirect would be ineffective.)
         let sessions_root = dir.path().join("codex-sessions");
         let sessions = sessions_root.join("2026").join("04").join("12");
         std::fs::create_dir_all(&sessions).unwrap();
@@ -1064,9 +1044,7 @@ mod codex {
     }
 }
 
-// ────────────────────────────────────────────────────────────────────
-// Opencode parity
-// ────────────────────────────────────────────────────────────────────
+// Opencode parity.
 
 mod opencode {
     use super::*;
@@ -1098,9 +1076,8 @@ mod opencode {
             return;
         }
         let (n, j) = pair();
-        // Native + JS both require a two-part fingerprint: marker
-        // (opencode/OpenCode) AND a TUI/prompt signal (box-drawing or a
-        // permission line). Bare mentions or bare signals must NOT match.
+        // Native + JS both require a two-part fingerprint: marker (opencode/OpenCode) AND a TUI/prompt signal (box-drawing or a permission line). Bare
+        // mentions or bare signals must NOT match.
         let cases = [
             ("opencode\nPermission required for tool call", true),
             ("OpenCode Zen ┃ banner", true),
@@ -1202,8 +1179,7 @@ mod opencode {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_millis() as i64;
-            // 3 live sessions for our cwd at decreasing time_created;
-            // 1 archived; 1 in another dir; 1 explicitly old.
+            // 3 live sessions for our cwd at decreasing time_created; 1 archived; 1 in another dir; 1 explicitly old.
             conn.execute(
                 "INSERT INTO session VALUES (?1, ?2, ?3, NULL)",
                 rusqlite::params!["ses_new", cwd_fwd, now - 1000],
@@ -1310,8 +1286,7 @@ mod opencode {
         let model = provider.detect_session_model("/proj/foo", "ses_new");
         assert_eq!(model.as_deref(), Some("anthropic/claude-opus-4-7"));
 
-        // detectActiveSession returns the session id with the most recent
-        // message in the cwd.
+        // detectActiveSession returns the session id with the most recent message in the cwd.
         let active = provider.detect_active_session("/proj/foo", "");
         assert_eq!(active.as_deref(), Some("ses_new"));
 
@@ -1322,9 +1297,7 @@ mod opencode {
     }
 }
 
-// ────────────────────────────────────────────────────────────────────
-// Loader behaviour
-// ────────────────────────────────────────────────────────────────────
+// Loader behaviour.
 
 #[test]
 fn all_workspace_plugins_load() {

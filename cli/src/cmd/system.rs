@@ -89,8 +89,7 @@ fn enable_autostart(binary_override: Option<&str>) -> Result<serde_json::Value, 
     let bin = resolve_app_binary(binary_override)?;
     let bin_str = bin.to_string_lossy().to_string();
 
-    // PowerShell wrapper: only launches if codeterm.exe isn't already running.
-    // Drives both the ONLOGON trigger and the every-5-minute repeat.
+    // PowerShell wrapper: only launches if codeterm.exe isn't already running. Drives both the ONLOGON trigger and the every-5-minute repeat.
     let ps_command = format!(
         "if (-not (Get-Process -Name CodeTerm -ErrorAction SilentlyContinue)) {{ Start-Process -FilePath '{}' }}",
         bin_str.replace('\'', "''")
@@ -106,8 +105,7 @@ fn enable_autostart(binary_override: Option<&str>) -> Result<serde_json::Value, 
         "/SC", "MINUTE", "/MO", "5", "/F", "/RL", "LIMITED",
     ])?;
 
-    // schtasks accepts one trigger per /Create; second task gives instant
-    // logon launch while the 5-minute task covers post-logon crashes.
+    // schtasks accepts one trigger per /Create; second task gives instant logon launch while the 5-minute task covers post-logon crashes.
     let logon_name = format!("{}-Logon", WIN_TASK_NAME);
     let _ = run_schtasks(&["/Delete", "/TN", &logon_name, "/F"]);
     let _ = run_schtasks(&[
@@ -412,9 +410,8 @@ mod tests {
 
     #[test]
     fn macos_plist_escapes_path_with_spaces_inside_xml_string() {
-        // We don't escape — XML <string> happily contains spaces. This
-        // pins the assumption so a future "helpful" change doesn't add
-        // shell-style quoting that would actually break the plist parser.
+        // We don't escape — XML <string> happily contains spaces. This pins the assumption so a future "helpful" change doesn't add shell-style
+        // quoting that would break the plist parser.
         let plist = build_macos_plist("com.codeterm.app", "/Applications/Code Term.app/Contents/MacOS/CodeTerm");
         assert!(plist.contains("<string>/Applications/Code Term.app/Contents/MacOS/CodeTerm</string>"));
     }

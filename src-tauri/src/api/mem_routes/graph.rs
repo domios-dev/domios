@@ -546,8 +546,7 @@ mod tests {
 
     #[test]
     fn accepts_future_entity_prefixes() {
-        // Anything shaped like type_slug works — validation must not lock
-        // the API to today's ontology.
+        // Anything shaped like type_slug works — validation must not lock the API to today's ontology.
         for id in ["org_alpha", "team_alpha", "flow_step_one"] {
             assert!(validate_canonical(id).is_ok(), "should accept: {}", id);
         }

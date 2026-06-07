@@ -4,11 +4,8 @@ use super::ServiceContext;
 
 impl ServiceContext {
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
-        // Tear down the chat tailer (if any) BEFORE pane state goes away —
-        // the tailer thread reads provider/cwd/session_id from the mux on
-        // its first iteration; once close_pane drops the entry, future
-        // polls would see Provider::None and bail anyway, but explicit
-        // stop joins the thread cleanly and frees the JSONL handle.
+        // Tear down the chat tailer (if any) BEFORE pane state goes away — the tailer thread reads provider/cwd/session_id from the mux on its first
+        // iteration; once close_pane drops the entry, future polls would see Provider::None and bail anyway, but explicit stop joins the thread cleanly and frees the JSONL handle.
         self.chat_registry.stop(pane_id);
 
         let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
@@ -130,11 +127,8 @@ impl ServiceContext {
         if prev.is_none() && next.is_some() {
             self.replay_inbound_buffer(pane_id, next.as_deref().unwrap_or(""));
         }
-        // Trigger session polling on every fresh None→Some OR Some→Some(diff)
-        // transition so codex/opencode panes (no OSC title emit, never trip
-        // the xterm-based frontend detection) still get an agent_session_id
-        // saved without depending on each provider hitting a permission prompt
-        // before their `detect_from_output` patterns can match.
+        // Trigger session polling on every fresh None→Some OR Some→Some(diff) transition so codex/opencode panes (no OSC title emit, never trip the
+        // xterm-based frontend detection) still get an agent_session_id saved without depending on each provider hitting a permission prompt before their `detect_from_output` patterns can match.
         if let Some(new_type) = next {
             if prev.as_deref() != Some(new_type.as_str()) {
                 self.kick_off_session_detection(pane_id, &new_type);
@@ -142,8 +136,7 @@ impl ServiceContext {
                 self.refresh_session_model_once(pane_id, &new_type);
             }
         } else {
-            // Drop friendly name on agent clear; keep the last-seen model
-            // so the tab doesn't flicker blank between sessions.
+            // Drop friendly name on agent clear; keep the last-seen model so the tab doesn't flicker blank between sessions.
             let mut mux = self.mux.lock();
             if let Some(pane) = mux.get_pane_mut(pane_id) {
                 pane.agent_session_name = None;
@@ -234,8 +227,7 @@ impl ServiceContext {
             )
         };
         let Some(cwd) = cwd else { return };
-        // If the provider rolled the live session out from under us (opencode
-        // /model swap), point the pane at the new sid before scanning models.
+        // If the provider rolled the live session out from under us (opencode /model swap), point the pane at the new sid before scanning models.
         if let Some(ref current) = session_id {
             if let Some(new_sid) = self
                 .agent_registry
@@ -347,8 +339,7 @@ impl ServiceContext {
         let agent_id = agent_id.to_string();
         std::thread::spawn(move || {
             let step = std::time::Duration::from_millis(750);
-            // 30 attempts × 750ms = ~22s — same magnitude as readiness
-            // strategy, long enough for the splash to settle on slow hosts.
+            // 30 attempts × 750ms = ~22s — same magnitude as readiness strategy, long enough for the splash to settle on slow hosts.
             for _ in 0..30u32 {
                 std::thread::sleep(step);
                 let (pty_id, already, current_agent) = {
@@ -455,15 +446,10 @@ impl ServiceContext {
         let svc = self.clone();
         let pane_id = pane_id.to_string();
         let agent_id = agent_id.to_string();
-        // Wall-clock floor for session matches. Sessions created BEFORE this
-        // detection thread spawned are never the right answer for a fresh
-        // pane — they belong to whatever pane was running before. Without
-        // this floor, a fresh pane in a busy cwd would happily claim a
-        // session created seconds earlier by a sibling/rehydrated pane.
+        // Wall-clock floor for session matches. Sessions created BEFORE this detection thread spawned are never the right answer for a fresh pane —
+        // they belong to whatever pane was running before. Without this floor, a fresh pane in a busy cwd would happily claim a session created seconds earlier by a sibling/rehydrated pane.
         let detection_started = std::time::SystemTime::now();
-        // Tiny grace so a session created a hair before set_pane_agent_type
-        // (e.g. provider TUI starts ~ms before our agent_type write lands)
-        // still matches.
+        // Tiny grace so a session created a hair before set_pane_agent_type (e.g. provider TUI starts ~ms before our agent_type write lands) still matches.
         let grace = std::time::Duration::from_secs(2);
         std::thread::spawn(move || {
             // 15min budget — codex writes its rollout only on first user message.
@@ -489,11 +475,8 @@ impl ServiceContext {
                     return;
                 }
                 let Some(cwd) = cwd else { continue };
-                // Dynamic max_age: only consider sessions created since this
-                // detection thread spawned (plus a small grace). As the
-                // thread ages, the window grows naturally — any session the
-                // matching CLI process is going to create will fall in it,
-                // anything older won't.
+                // Dynamic max_age: only consider sessions created since this detection thread spawned (plus a small grace). As the thread ages, the window
+                // grows naturally — any session the matching CLI process is going to create will fall in it, anything older won't.
                 let elapsed = std::time::SystemTime::now()
                     .duration_since(detection_started)
                     .unwrap_or(std::time::Duration::ZERO);
@@ -503,11 +486,8 @@ impl ServiceContext {
                     .with_provider(&agent_id, |p| p.detect_session_id(&cwd, &exclude, max_age))
                     .flatten();
                 if let Some(sid) = sid {
-                    // Atomic claim under the mux lock — between releasing the
-                    // lock above and detection returning, another pane's
-                    // detector may have already saved the same sid (it shows
-                    // up in `other_session_ids` only after the save). Re-check
-                    // and skip if claimed; otherwise commit.
+                    // Atomic claim under the mux lock — between releasing the lock above and detection returning, another pane's detector may have already saved
+                    // the same sid (it shows up in `other_session_ids` only after the save). Re-check and skip if claimed; otherwise commit.
                     enum ClaimOutcome {
                         Wrote,
                         AlreadySet,
@@ -643,8 +623,7 @@ impl ServiceContext {
             had
         };
 
-        // Transition PromptDetector to Cooldown — suppresses re-detection of the
-        // same prompt from PTY output that hasn't been cleared yet.
+        // Transition PromptDetector to Cooldown — suppresses re-detection of the same prompt from PTY output that hasn't been cleared yet.
         self.prompt_detector.lock().mark_responded(pane_id);
 
         // Only send to PTY if there was an actual prompt — prevents phantom input

@@ -28,8 +28,7 @@ const KNOWN_SUBCOMMANDS: &[&str] = &[
     "-h",
     "--version",
     "-V",
-    // Global flags from cli/src/args/cli.rs that may precede a subcommand.
-    // Without these, `codeterm --json mem search foo` would be silently
+    // Global flags from cli/src/args/cli.rs that may precede a subcommand. Without these, `codeterm --json mem search foo` would be silently
     // swallowed by the GUI binary on macOS (regression of #51).
     "--json",
     "--mesh",
@@ -176,8 +175,7 @@ mod tests {
 
     #[test]
     fn detects_all_clap_top_level_subcommands() {
-        // Mirror Commands enum in cli/src/args/cli.rs. Adding a new top-level
-        // subcommand without updating KNOWN_SUBCOMMANDS regresses #51.
+        // Mirror Commands enum in cli/src/args/cli.rs. Adding a new top-level subcommand without updating KNOWN_SUBCOMMANDS regresses #51.
         for name in [
             "identify",
             "capabilities",
@@ -209,9 +207,8 @@ mod tests {
 
     #[test]
     fn detects_global_flags_before_subcommand() {
-        // `codeterm --json mem search foo` and `codeterm --mesh peer mem ls`:
-        // the first arg is a global flag, not a subcommand. Without these
-        // entries the GUI binary silently swallows the launch.
+        // `codeterm --json mem search foo` and `codeterm --mesh peer mem ls`: the first arg is a global flag, not a subcommand. Without these entries
+        // the GUI binary silently swallows the launch.
         for name in ["--json", "--mesh"] {
             assert!(
                 is_cli_invocation(name),

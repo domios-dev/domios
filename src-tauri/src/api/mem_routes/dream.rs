@@ -41,8 +41,7 @@ pub async fn mem_dream(
 
     let phase = p.phase.as_deref().unwrap_or("all").to_lowercase();
 
-    // recluster is opt-in only: never part of "all", never cron-driven.
-    // Runs in-process so the LLM call has direct access to the mem manager.
+    // recluster is opt-in only: never part of "all", never cron-driven. Runs in-process so the LLM call has direct access to the mem manager.
     if phase == "recluster" {
         return run_recluster_inline(&state).await;
     }
@@ -70,11 +69,8 @@ pub async fn mem_dream(
         reports.push(report);
     }
 
-    // Calibration sweep is now a server-side phase, not an LLM-driven stage.
-    // The dreamer used to be instructed to invoke it from STAGE D, but the
-    // model routinely skipped the Bash call and fabricated the result; running
-    // it here makes the sweep authoritative and lands real history rows the
-    // LLM can read for the diary's CALIBRATION line.
+    // Calibration sweep is now a server-side phase, not an LLM-driven stage. The dreamer used to be instructed to invoke it from STAGE D, but the
+    // Run calibration directly in daemon to ensure results are real and history rows are durable.
     if phase == "all" {
         let svc = state.svc.clone();
         let calib = tokio::task::spawn_blocking(move || {

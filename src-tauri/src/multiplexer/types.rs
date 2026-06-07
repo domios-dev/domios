@@ -88,6 +88,11 @@ pub struct Pane {
     /// Timestamp when agent_type was set — grace period for idle-poll exit detection.
     #[serde(skip, default)]
     pub agent_set_at: Option<std::time::Instant>,
+    /// True while launch_agent boots the agent TUI in this pane. A booting
+    /// TUI silently swallows bracket-paste input, so sends wait this out.
+    /// Runtime-only: never persisted (a restart clears any stale true).
+    #[serde(skip, default)]
+    pub agent_booting: bool,
     /// Agent session ID for resume (e.g. Claude Code session).
     #[serde(
         skip_serializing_if = "Option::is_none",

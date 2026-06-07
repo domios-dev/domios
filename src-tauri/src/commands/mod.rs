@@ -1,5 +1,4 @@
-// Shared inline types used as command return types live here so external
-// callers can reference them as `commands::DirCompletion`, etc.
+// Public command return DTOs for external callers (e.g. `commands::DirCompletion`).
 
 #[derive(serde::Serialize)]
 pub struct DirCompletion {
@@ -13,6 +12,7 @@ mod completions;
 mod cron;
 mod hooks;
 mod pane;
+mod plugins;
 mod pty;
 mod services;
 mod skills;
@@ -30,6 +30,7 @@ pub use completions::*;
 pub use cron::*;
 pub use hooks::*;
 pub use pane::*;
+pub use plugins::*;
 pub use pty::*;
 pub use services::*;
 pub use skills::*;

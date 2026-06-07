@@ -7,9 +7,11 @@ import {
 } from "react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
+import { IS_WEB, webJson } from "../../lib/webApi";
 import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
 import { shouldDefaultNewAgentPaneToChat } from "../../lib/chatUiMode";
+import { setClientPaneUiMode } from "../../lib/clientPaneUiMode";
 import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
@@ -155,8 +157,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         .then((s) => {
           if (s && s.workspaces.length > 0) {
             dispatch({ type: "SET_STATE", state: s });
-            // After layout change (e.g. split via API), trigger pane resize
-            // so all xterm instances refit to their new container size
+            // Resize panes after layout changes so xterms fit new container sizes.
             requestAnimationFrame(() => {
               window.dispatchEvent(new Event("codeterm-pane-resize"));
             });
@@ -169,19 +170,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     window.addEventListener("codeterm-refresh-mux-state", refreshMuxState);
     unlisteners.push(() => window.removeEventListener("codeterm-refresh-mux-state", refreshMuxState));
 
-    // Backend is the single source of truth for `focused_pane_id`. Any change
-    // (CLI `codeterm pane focus`, REST, or service-layer fallback when the
-    // currently focused pane is closed) arrives here. Background events
-    // (worker spawn, PTY chunks) DO NOT emit `pane-focused`, so the UI focus
-    // is never stolen by background work.
+    // Backend owns `focused_pane_id`; background events don't emit `pane-focused`.
+    // Focus updates come only from CLI/REST or service fallback when the pane closes.
     listen<{ pane_id: string }>("pane-focused", (event) => {
       const paneId = event.payload.pane_id;
       if (stateRef.current.panes[paneId]) {
         dispatch({ type: "SET_FOCUSED_PANE", paneId });
       } else {
-        // Race window: focus event arrived before structural state. Backend
-        // delays the emit by 75 ms to let `mux-state-changed` win, but in case
-        // the merge is still in flight, retry once after another tick.
+        // Focus may arrive before full state merge; retry once after a short delay.
         setTimeout(() => {
           if (stateRef.current.panes[paneId]) {
             dispatch({ type: "SET_FOCUSED_PANE", paneId });
@@ -246,9 +242,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         workspaceId,
         tabId: tabInfo.id,
       });
-      // User clicked "New Tab" — that's an explicit gesture, focus the new
-      // pane. Reducer no longer auto-focuses on ADD_TAB so background-spawned
-      // tabs (orchestrator, worker) don't steal focus, only this path does.
+      // Explicit New Tab click focuses the new pane; background spawns don't.
       invoke("mux_set_focused_pane", { paneId: tabInfo.pane_id }).catch(() => {});
       refreshFromBackend();
     } catch (e) {
@@ -258,9 +252,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const createWorkspace = useCallback(async (name: string, cwd?: string) => {
     try {
-      // Backend `service::create_workspace` normalizes the cwd and reuses an
-      // existing workspace with the same folder (spawning a new tab there
-      // instead of duplicating).
+      // Reuse existing workspace for the same cwd; avoid duplicate tabs.
       await invoke("mux_create_workspace", { name, cwd: cwd ?? null, activate: true });
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s && s.workspaces.length > 0) dispatch({ type: "SET_STATE", state: s });
@@ -304,6 +296,21 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const spawnAgentTab = useCallback(async (workspaceId: string, agentId: string, skipPermissions: boolean, cwd?: string) => {
     try {
+      // Web UI delegates full agent spawn to the daemon.
+      if (IS_WEB) {
+        const spawned = await webJson<{ pane_id: string }>("POST", "/api/agents/spawn", {
+          agent: agentId,
+          workspace_id: workspaceId,
+          cwd,
+          skip_permissions: skipPermissions,
+          activate: true,
+        });
+        if (shouldDefaultNewAgentPaneToChat(agentId)) {
+          setClientPaneUiMode(spawned.pane_id, "chat");
+        }
+        refreshFromBackend();
+        return;
+      }
       invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId, activate: true });
@@ -311,21 +318,16 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         setPendingCwd(tabInfo.pane_id, cwd);
         await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd });
       }
-      // Mark the pane with its agent_type up front. Codex / OpenCode don't
-      // emit OSC terminal titles and only show their `detect_from_output`
-      // markers when a permission prompt comes up — without an early tag
-      // their session_id is never saved, and resume after restart silently
-      // bails. Setting agent_type here also kicks off the backend's
-      // session-detection polling loop in `set_pane_agent_type`.
+      // Set `agent_type` early so detect_from_output can save session IDs.
       invoke("mux_set_pane_agent_type", { paneId: tabInfo.pane_id, agentType: agentId }).catch(() => {});
       if (shouldDefaultNewAgentPaneToChat(agentId)) {
-        invoke("mux_set_chat_view", { paneId: tabInfo.pane_id, enabled: true }).catch(() => {});
+        setClientPaneUiMode(tabInfo.pane_id, "chat");
       }
       const cmd = await invoke<string>("build_agent_launch_command", { agentId, skipPermissions });
       setPendingCommand(tabInfo.pane_id, cmd);
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
-      // User-initiated agent spawn → focus into the new tab (same rationale as createTab).
+      // User-initiated spawns should focus the new tab.
       invoke("mux_set_focused_pane", { paneId: tabInfo.pane_id }).catch(() => {});
       refreshFromBackend();
     } catch (e) {
@@ -407,8 +409,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const setFocusedPane = useCallback((paneId: string) => {
     // Optimistic local update for snappy click feedback.
     dispatch({ type: "SET_FOCUSED_PANE", paneId });
-    // Authoritative — backend re-emits `pane-focused` (idempotent if same id).
-    // Keeps backend-side `focused_pane_id` in sync with the user's selection.
+    // Backend re-emits `pane-focused` and keeps `focused_pane_id` authoritative.
     invoke("mux_set_focused_pane", { paneId }).catch(() => {});
   }, []);
 

@@ -4,13 +4,14 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use tower_http::{catch_panic::CatchPanicLayer, cors::CorsLayer};
+use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, cors::CorsLayer};
 
 use super::{
-    agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, health_routes,
-    hook_routes, logs_routes, mem_routes, mesh_routes, network_routes, notification_routes,
-    pane_chat_routes, pane_routes, pasteboard_routes, services_routes, session_routes,
-    theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
+    agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, fs_routes,
+    health_routes, hook_routes, logs_routes, mem_routes, mesh_routes, network_routes,
+    notification_routes, pane_chat_routes, pane_routes, pasteboard_routes, services_routes,
+    session_routes, theme_routes, updater_routes, usage_routes, web_routes, webhook_routes,
+    workspace_routes,
 };
 
 #[derive(Clone)]
@@ -23,6 +24,7 @@ pub struct AppState {
     pub config: crate::config::ConfigState,
     pub mesh: crate::MeshStateHandle,
     pub keepawake: crate::KeepAwakeStateHandle,
+    pub resize_owner: crate::ResizeOwnerState,
     /// Some only in debug builds started with CODETERM_TEST_CLOCK=1 —
     /// powers /api/debug/clock time travel for the cron e2e suite.
     pub test_clock: Option<std::sync::Arc<crate::cron::clock::MockClock>>,
@@ -36,6 +38,8 @@ pub fn create_router(state: AppState) -> Router {
     let router = Router::new()
         .route("/api/health", get(health_routes::health))
         .route("/api/identify", get(health_routes::identify))
+        .route("/api/fs/list-dir", get(fs_routes::list_dir))
+        .route("/api/fs/mkdir", post(fs_routes::mkdir))
         .route(
             "/api/workspaces",
             get(workspace_routes::list_workspaces).post(workspace_routes::create_workspace),
@@ -86,6 +90,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/usage", get(pane_routes::get_pane_usage))
         .route("/api/panes/{id}/exec", post(pane_routes::exec_in_pane))
         .route("/api/panes/{id}/resize", post(pane_routes::resize_pane))
+        .route(
+            "/api/panes/{id}/resize-owner",
+            post(web_routes::claim_resize_owner),
+        )
         .route("/api/panes/{id}/chat/start", post(pane_chat_routes::start))
         .route("/api/panes/{id}/chat/stop", post(pane_chat_routes::stop))
         .route(
@@ -187,7 +195,10 @@ pub fn create_router(state: AppState) -> Router {
             get(agent_routes::list_agent_providers),
         )
         .route("/api/debug/clock", get(debug_routes::clock_status))
-        .route("/api/debug/clock/advance", post(debug_routes::clock_advance))
+        .route(
+            "/api/debug/clock/advance",
+            post(debug_routes::clock_advance),
+        )
         // Web mirror: IPC equivalents + the SSE event stream.
         .route("/api/mux/state", get(web_routes::mux_state))
         .route(
@@ -198,16 +209,41 @@ pub fn create_router(state: AppState) -> Router {
             "/api/workspaces/{id}/tabs/{tab_id}/close",
             post(web_routes::tab_close),
         )
-        .route("/api/panes/{id}/chat-view", post(web_routes::pane_chat_view))
+        .route(
+            "/api/panes/{id}/chat-view",
+            post(web_routes::pane_chat_view),
+        )
         .route(
             "/api/mesh/peers/{id}/services",
             get(web_routes::peer_services),
         )
         .route("/api/events/stream", get(web_routes::events_stream))
+        .route(
+            "/api/panes/{id}/chat-raw/start",
+            post(web_routes::chat_raw_start),
+        )
+        .route(
+            "/api/panes/{id}/chat-raw/stop",
+            post(web_routes::chat_raw_stop),
+        )
+        .route(
+            "/api/panes/{id}/chat-raw/backfill",
+            post(web_routes::chat_raw_backfill),
+        )
+        .route(
+            "/api/upload",
+            post(web_routes::upload)
+                // Voice notes and attached files: axum's 2MB default is too small; cap at 200MB so a runaway client can't fill the disk.
+                .layer(axum::extract::DefaultBodyLimit::max(200 * 1024 * 1024)),
+        )
         .route("/api/pty/{id}/read", get(web_routes::pty_read))
         .route("/api/pty/{id}/write", post(web_routes::pty_write))
         .route("/api/pty/{id}/resize", post(web_routes::pty_resize))
         .route("/api/session/save", post(session_routes::save_session_api))
+        .route(
+            "/api/providers",
+            get(agent_routes::list_agent_providers_public),
+        )
         .route(
             "/api/sessions/search",
             get(session_routes::search_sessions_api),
@@ -277,6 +313,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/debug/sign", get(mesh_routes::mesh_debug_sign))
         .route("/api/mesh/status", get(mesh_routes::mesh_status))
         .route("/api/mesh/peers", get(mesh_routes::mesh_peers))
+        .route("/api/mesh/web-token", get(mesh_routes::mesh_web_token))
+        .route(
+            "/api/mesh/peers/{id}/web-token",
+            get(mesh_routes::mesh_peer_web_token),
+        )
         .route("/api/mesh/discover", post(mesh_routes::mesh_discover))
         .route("/api/mesh/connect", post(mesh_routes::mesh_connect_peer))
         .route("/api/mesh/approve", post(mesh_routes::mesh_approve_peer))
@@ -426,6 +467,15 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/dream/report", get(mem_routes::mem_dream_report))
         .route("/api/mem/graph/full", get(mem_routes::mem_graph_full))
         .route(
+            "/api/mem/graph/labels",
+            get(mem_routes::mem_graph_labels),
+        )
+        .route("/api/mem/graph/edges", get(mem_routes::mem_graph_edges))
+        .route(
+            "/api/mem/graph/layout/rebuild",
+            post(mem_routes::mem_graph_layout_rebuild),
+        )
+        .route(
             "/api/mem/pinned-positions",
             get(mem_routes::mem_pinned_positions_list),
         )
@@ -511,13 +561,36 @@ pub fn create_router(state: AppState) -> Router {
             get(logs_routes::list_logs).delete(logs_routes::delete_logs),
         );
 
-    // Web mirror: serve the built React bundle at /web with an SPA
-    // fallback (deep links resolve to index.html). Public route — the
-    // auth middleware skips /web; all API calls remain token-gated.
+    // gzip-scoped snapshot route: 100k-node payloads compress ~4:1. Kept on its
+    // own sub-router so compression only runs for this large response.
+    let router = router.merge(
+        Router::new()
+            .route(
+                "/api/mem/graph/snapshot",
+                get(mem_routes::mem_graph_snapshot),
+            )
+            .layer(CompressionLayer::new()),
+    );
+
+    // Web mirror: serve the built React bundle at /web with an SPA fallback (deep links resolve to index.html). Public route — the auth middleware
+    // skips /web; all API calls remain token-gated.
     let router = if let Some(dist) = &state.web_dist {
-        let serve = tower_http::services::ServeDir::new(dist)
-            .fallback(tower_http::services::ServeFile::new(dist.join("index.html")));
-        router.nest_service("/web", serve)
+        let serve = tower_http::services::ServeDir::new(dist).fallback(
+            tower_http::services::ServeFile::new(dist.join("index.html")),
+        );
+        // no-cache = revalidate every load (304s via Last-Modified). Installed
+        // iOS web apps otherwise heuristically cache index.html and miss updates.
+        let serve = tower_http::set_header::SetResponseHeader::overriding(
+            serve,
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache"),
+        );
+        router
+            .route(
+                "/web/manifest.webmanifest",
+                get(web_routes::web_manifest),
+            )
+            .nest_service("/web", serve)
     } else {
         router
     };
@@ -599,6 +672,5 @@ pub(crate) fn check_auth(
     Ok(())
 }
 
-// Re-exports preserve the `crate::api::routes::*` import paths used by
-// commands.rs, update::self_update.rs, secrets/api.rs, etc.
+// Re-export route handlers so modules like commands/update/secrets keep stable imports.
 pub use super::network_routes::local_ip_address;

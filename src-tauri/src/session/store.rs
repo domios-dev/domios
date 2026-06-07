@@ -96,8 +96,7 @@ impl SessionStore {
             let _ = self.rotate_backup(&path);
         }
         let json = serde_json::to_string_pretty(snapshot).map_err(|e| e.to_string())?;
-        // Atomic write: tmp file then rename. fs::write directly into last.json
-        // is NOT crash-safe — a kill mid-write (Windows reboot, OOM, BSOD)
+        // Atomic write: tmp file then rename. fs::write directly into last.json is NOT crash-safe — a kill mid-write (Windows reboot, OOM, BSOD)
         // truncates the live file and the next boot loses every workspace.
         fs::write(&tmp, json.as_bytes()).map_err(|e| format!("write {}: {}", tmp.display(), e))?;
         fs::rename(&tmp, &path).map_err(|e| format!("rename → {}: {}", path.display(), e))

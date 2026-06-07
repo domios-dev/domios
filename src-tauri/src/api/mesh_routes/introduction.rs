@@ -115,7 +115,11 @@ pub async fn mesh_introduce(
     let _ = mesh.save();
     drop(mesh);
 
-    crate::api::events::emit_everywhere(&state.svc.app_handle, "mesh-state-changed", serde_json::Value::Null);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
 
     let mesh = state.mesh.lock();
     Ok(Json(serde_json::json!({
@@ -133,9 +137,8 @@ pub async fn mesh_introduce(
 mod tests {
     #[test]
     fn introduction_creates_pending_not_paired() {
-        // Logic-level check: when a peer is introduced, it must go to pending_requests,
-        // not directly into paired_peers. This is enforced by the code change below.
-        // The field `introduced_by` is set to the sender's instance_id.
+        // Logic-level check: when a peer is introduced, it must go to pending_requests, not directly into paired_peers. This is enforced by the code
+        // change below. The field `introduced_by` is set to the sender's instance_id.
         let sender = "peer-alice";
         let introduced = "peer-bob";
         let request = crate::mesh::types::PairingRequest {

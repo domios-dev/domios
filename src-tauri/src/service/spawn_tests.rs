@@ -115,10 +115,8 @@ fn from_agent_params_carries_model_into_spec() {
 
 #[test]
 fn to_agent_params_carries_model_as_dedicated_field() {
-    // Model travels as a dedicated `model` field through SpawnAgentParams,
-    // not as `--model X` baked into args. `build_agent_command` then asks
-    // the provider via `model_launch_args` to render the correct flag
-    // syntax (`-m X` for codex/opencode, `--model X` for claude).
+    // Model travels as a dedicated `model` field through SpawnAgentParams, not as `--model X` baked into args. `build_agent_command` then asks the
+    // provider via `model_launch_args` to render the correct flag syntax (`-m X` for codex/opencode, `--model X` for claude).
     let mut spec = agent_spec("claude");
     if let PaneCommand::Agent(ref mut a) = spec.command {
         a.model = Some("opus".into());
@@ -160,8 +158,8 @@ fn to_agent_params_fails_on_shell_spec() {
 
 #[test]
 fn can_spawn_none_round_trips_through_params() {
-    // Caller didn't pass --can-spawn → spec.can_spawn=None → params.can_spawn=None.
-    // This tells set_pane_role to keep the role's default (Orchestrator=true, Worker=false).
+    // Caller didn't pass --can-spawn → spec.can_spawn=None → params.can_spawn=None. This tells set_pane_role to keep the role's default
+    // (Orchestrator=true, Worker=false).
     let mut spec = agent_spec("claude");
     if let PaneCommand::Agent(ref mut a) = spec.command {
         a.role = Some("Orchestrator".into());
@@ -184,11 +182,8 @@ fn can_spawn_some_false_explicitly_overrides() {
 
 #[test]
 fn from_agent_params_preserves_can_spawn_option() {
-    // CLI/REST/socket pass `can_spawn: Option<bool>` straight through —
-    // None means "don't override the role's default", Some(b) means
-    // "user said --can-spawn=b explicitly". The spec must NOT collapse
-    // None → Some(false) (the pre-fix-#42 behavior that clobbered
-    // Orchestrator default to false on every spawn).
+    // CLI/REST/socket pass `can_spawn: Option<bool>` straight through — None means "don't override the role's default", Some(b) means "user said
+    // --can-spawn=b explicitly". The spec must NOT collapse None → Some(false) (the pre-fix-#42 behavior that clobbered Orchestrator default to false on every spawn).
     let mut p = SpawnAgentParams {
         agent: Some("claude".into()),
         agent_name: None,
@@ -278,22 +273,15 @@ fn spawn_agent_params_from_json_parses_activate_true() {
 
 #[test]
 fn spawn_agent_params_from_json_no_activate_means_none() {
-    // Regression for the focus-steal bug: CLI / API spawns that don't
-    // pass activate must end up as None (default false) — they no
-    // longer steal focus just because they don't set a role.
+    // Regression for the focus-steal bug: CLI / API spawns that don't pass activate must end up as None (default false) — they no longer steal focus just because they don't set a role.
     let json = serde_json::json!({"agent": "claude", "task": "do work"});
     let p = SpawnAgentParams::from_json(&json).unwrap();
     assert!(p.activate.is_none());
     assert!(p.role.is_none(), "no role + no activate is the bug case");
 }
 
-// ── mux-state-level activation gating ──────────────────────────────
-//
-// The spawn paths in `service::spawn` and `service::orchestrator` both
-// gate `mux.set_active_tab(...)` on `activate.unwrap_or(false)`. The
-// asserts below mirror that predicate so a future edit that flips the
-// default to `true` (or restores `role.is_none()` as the gate) trips a
-// test instead of silently re-introducing the focus-steal bug.
+// Activation checks are centralized on `activate.unwrap_or(false)`.
+// Tests mirror the predicate to prevent future focus-steal regressions from default changes.
 
 fn would_activate(spec: &AgentSpawnSpec) -> bool {
     spec.activate.unwrap_or(false)
@@ -321,10 +309,8 @@ fn spawn_with_activate_false_does_not_steal_focus() {
 
 #[test]
 fn spawn_with_no_role_and_no_activate_does_not_steal_focus() {
-    // Regression: pre-fix the predicate was `role.is_none()`, so any
-    // CLI/API/cron/bench spawn (which legitimately has no role) stole
-    // user focus. With opt-in activate, role=None + activate=None must
-    // leave focus untouched.
+    // Regression: pre-fix the predicate was `role.is_none()`, so any CLI/API/cron/bench spawn (which legitimately has no role) stole user focus.
+    // With opt-in activate, role=None + activate=None must leave focus untouched.
     let spec = AgentSpawnSpec {
         provider: "claude".into(),
         role: None,

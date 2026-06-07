@@ -346,8 +346,7 @@ impl ServiceContext {
                     pane.report_target_pane_id = Some(rtid.clone());
                 }
             }
-            // Record the spawning agent for report routing fallback,
-            // independent of explicit --parent / role hierarchy.
+            // Record the spawning agent for report routing fallback, independent of explicit --parent / role hierarchy.
             if let Some(ref sb) = params.spawned_by_pane_id {
                 if !sb.is_empty() {
                     if let Some(pane) = mux.get_pane_mut(&result.1) {
@@ -380,18 +379,11 @@ impl ServiceContext {
         // 4. Rename pane immediately (metadata only)
         self.rename_pane(&pane_id, title)?;
 
-        // 4b. Pin agent_type up-front. Codex / OpenCode TUIs don't emit OSC
-        //     terminal-title sequences and their `detect_from_output` patterns
-        //     only match permission prompts — without an early tag the pane
-        //     stays agent_type=None and `set_pane_agent_type`'s session-id
-        //     poller never starts, so we silently lose the session_id and
-        //     the pane fails to resume after restart. Setting it here covers
-        //     the CLI/socket spawn path; the frontend menu spawn fires the
-        //     same `mux_set_pane_agent_type` from `spawnAgentTab`.
+        // Pin agent_type before launch so detect_from_output can start session-id polling.
+        // Without this tag, restarts can lose session_id and resume fails silently.
         self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.to_string());
 
-        // 4c. Pin agent_session_id for resume up-front: we know the id from
-        //     the user's request, so don't wait for detect_session_id polling.
+        // 4c. Pin agent_session_id for resume up-front: we know the id from the user's request, so don't wait for detect_session_id polling.
         if let Some(ref sid) = params.resume_session_id {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
@@ -443,9 +435,18 @@ pub(crate) fn launch_agent_in_background(
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     let registry = svc.agent_registry.clone();
+    // A booting TUI silently swallows bracket-paste — gate sends (send_text_when_ready) until the background launch clears this. Set BEFORE the
+    // thread spawns: callers get the pane id immediately and may send right away.
+    if let Some(p) = svc.mux.lock().get_pane_mut(&pane_id) {
+        p.agent_booting = true;
+    }
     std::thread::spawn(move || {
-        // 1. Wait for PTY (frontend creates it after mux-state-changed).
-        //    If frontend doesn't create it (cron/headless tabs), spawn from backend.
+        let set_booting = |value: bool| {
+            if let Some(p) = svc.mux.lock().get_pane_mut(&pane_id) {
+                p.agent_booting = value;
+            }
+        };
+        // 1. Wait for PTY (frontend creates it after mux-state-changed). If frontend doesn't create it (cron/headless tabs), spawn from backend.
         let frontend_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let pty_id = loop {
             if let Some(pid) = svc
@@ -514,6 +515,7 @@ pub(crate) fn launch_agent_in_background(
                         );
                         // Clean up the orphaned pane — it has no PTY and is unreachable
                         let _ = svc.close_tab(&ws_id, &tab_id);
+                        set_booting(false);
                         if let Some(tx) = ready_tx {
                             let _ = tx.send(Err(format!("backend PTY spawn failed: {}", e)));
                         }
@@ -543,8 +545,7 @@ pub(crate) fn launch_agent_in_background(
             }
         }
 
-        // 3. Send launch command (verified). Shell prompt was already polled in step 2,
-        //    so require_prompt_first=false avoids a redundant wait.
+        // 3. Send launch command (verified). Shell prompt was already polled in step 2, so require_prompt_first=false avoids a redundant wait.
         let launch_opts = crate::service::inject_verify::VerifyOpts {
             require_prompt_first: false,
             verify_echo: true,
@@ -553,16 +554,14 @@ pub(crate) fn launch_agent_in_background(
             echo_timeout: std::time::Duration::from_secs(3),
             submit_timeout: std::time::Duration::from_secs(15),
         };
-        // Use the provider's submit strategy: TUI providers (claude/codex/opencode)
-        // hand the shell off to a TUI on launch, so a "new shell prompt" never
-        // appears — TuiInputDrained is the right signal there.
+        // Use the provider's submit strategy: TUI providers (claude/codex/opencode) hand the shell off to a TUI on launch, so a "new shell prompt"
+        // never appears — TuiInputDrained is the right signal there.
         let launch_strategy = registry
             .with_provider(&agent_cmd, |p| p.verify_submit_strategy())
             .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
                 timeout: std::time::Duration::from_secs(15),
             });
-        // Use shell dispatch (bash script on Unix, bracketed paste on Windows) so
-        // bash 3.2 hosts (macOS Intel system shell) never see raw ESC markers
+        // Use shell dispatch (bash script on Unix, bracketed paste on Windows) so bash 3.2 hosts (macOS Intel system shell) never see raw ESC markers
         // (#93 — keeps shell-level launch off the bracketed-paste path).
         if let Err(e) =
             svc.send_shell_spawn_verified(&pty_id, &launch_cmd, launch_strategy, launch_opts)
@@ -573,14 +572,14 @@ pub(crate) fn launch_agent_in_background(
                 pty_id,
                 e
             );
+            set_booting(false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(format!("launch_cmd failed: {}", e)));
             }
             return;
         }
 
-        // 4. For PtyInput delivery, send task immediately — verified send already
-        //    gated on receiver-side completion of the launch command.
+        // 4. For PtyInput delivery, send task immediately — verified send already gated on receiver-side completion of the launch command.
         let is_pty_input = matches!(delivery, TaskDelivery::PtyInput);
         if is_pty_input {
             if let Some(ref task_text) = task {
@@ -616,6 +615,7 @@ pub(crate) fn launch_agent_in_background(
                         pty_id,
                         e
                     );
+                    set_booting(false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(format!("task delivery failed: {}", e)));
                     }
@@ -624,6 +624,7 @@ pub(crate) fn launch_agent_in_background(
             }
         }
 
+        set_booting(false);
         log::info!("launch_agent: agent ready in pane {}", pane_id);
         if let Some(tx) = ready_tx {
             let _ = tx.send(Ok(()));
@@ -867,8 +868,7 @@ mod tests {
 
     #[test]
     fn test_build_with_model_uses_provider_specific_flag() {
-        // claude → `--model X`, codex/opencode → `-m X`. The CLI flag is
-        // provider-agnostic; the right syntax comes from `model_launch_args`.
+        // claude → `--model X`, codex/opencode → `-m X`. The CLI flag is provider-agnostic; the right syntax comes from `model_launch_args`.
         let reg = AgentRegistry::new();
         reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
         reg.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
@@ -943,8 +943,7 @@ mod tests {
         // For non-claude agents, build_agent_command does NOT embed the task
         let params = make_params("aider", Some("review this code"));
         let cmd = build_agent_command("aider", &params, Some("review this code"), &reg);
-        // Non-claude: task is NOT added to the command (it's sent separately via PTY)
-        // The function just puts agent_cmd + args
+        // Non-claude: task is NOT added to the command (it's sent separately via PTY) The function just puts agent_cmd + args
         assert_eq!(cmd, "aider");
     }
 }

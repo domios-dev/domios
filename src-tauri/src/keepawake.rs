@@ -349,8 +349,8 @@ pub fn start(
     duration_secs: Option<u64>,
     display: Option<bool>,
 ) -> Result<KeepAwakeStatus, String> {
-    // Stop any existing session first. Don't emit an intermediate "off" state —
-    // a `start` call is a single atomic transition from the frontend's view.
+    // Stop any existing session first. Don't emit an intermediate "off" state — a `start` call is a single atomic transition from the frontend's
+    // view.
     stop_inner(state);
 
     let display = display.unwrap_or(false);
@@ -529,9 +529,7 @@ mod platform {
                 // Reset execution state
                 SetThreadExecutionState(ES_CONTINUOUS);
 
-                // If timer expired naturally (not stopped early), clear shared
-                // state — but only if we still own it. A fresh start() could
-                // have replaced us in the tiny window after recv_timeout.
+                // On natural expiry, clear shared state only if still owned; a rapid restart may replace the owner.
                 if !stopped_early {
                     clear_if_owner(&state, session_id, &app);
                 }
@@ -555,10 +553,8 @@ mod platform {
         app: AppHandle,
         session_id: u64,
     ) -> Result<(), String> {
-        // Spawn eagerly so failure surfaces as an Err before we record any
-        // session state. The shell wrapper owns the real caffeinate process
-        // and terminates it if CodeTerm disappears and launchd reparents the
-        // wrapper to PID 1.
+        // Spawn eagerly so failure surfaces as an Err before we record any session state. The shell wrapper owns the real caffeinate process and
+        // terminates it if CodeTerm disappears and launchd reparents the wrapper to PID 1.
         let (child, caffeinate_pid) = spawn_keepawake_child(display, session_id)?;
         let child_pid = child.id();
         register_child(child_pid, display, true);
@@ -566,8 +562,7 @@ mod platform {
             register_child(pid, display, false);
         }
 
-        // Share the Child between the worker thread and the error cleanup
-        // path. Whichever gets there first takes it and reaps it.
+        // Share the Child between the worker thread and the error cleanup path. Whichever gets there first takes it and reaps it.
         let child_slot = Arc::new(Mutex::new(Some(child)));
         let child_for_thread = Arc::clone(&child_slot);
 
@@ -596,8 +591,7 @@ mod platform {
             })
             .map(|_| ())
             .map_err(|e| {
-                // Thread spawn failed after caffeinate was already running —
-                // reap it here so we don't orphan the child process.
+                // Thread spawn failed after caffeinate was already running — reap it here so we don't orphan the child process.
                 if let Some(mut c) = child_slot.lock().take() {
                     let _ = c.kill();
                     let _ = c.wait();

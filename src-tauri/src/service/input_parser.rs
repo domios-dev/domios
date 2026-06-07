@@ -244,9 +244,7 @@ mod tests {
     #[test]
     fn long_line_does_not_match_then_recovers() {
         let p = InputParser::new(registry());
-        // Overflow without newline → buffer is poisoned. Even if the bytes
-        // happen to start with "codex", the line never resolves on the next
-        // Enter because we lost data.
+        // Overflow without newline → buffer is poisoned. Even if the bytes happen to start with "codex", the line never resolves on the next Enter because we lost data.
         let mut huge = Vec::new();
         huge.extend_from_slice(b"codex");
         huge.extend(std::iter::repeat(b'a').take(MAX_BUFFERED_LINE));

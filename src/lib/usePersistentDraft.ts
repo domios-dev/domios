@@ -18,8 +18,7 @@ function writeDraft(key: string, value: string) {
       window.localStorage.removeItem(key);
     }
   } catch {
-    // Draft persistence is best-effort. Private mode/quota failures should
-    // never block typing or sending.
+    // Draft persistence is best-effort. Private mode/quota failures should never block typing or sending.
   }
 }
 

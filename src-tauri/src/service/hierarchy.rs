@@ -73,15 +73,11 @@ impl ServiceContext {
             }),
         );
 
-        // Inject into the target PTY only when the target is a real pane
-        // (parent / report_target / spawner). The system inbox has no PTY,
-        // and bouncing back to the reporter's own pane is the bug we just
-        // fixed — guard against that explicitly.
+        // Inject into the target PTY only when the target is a real pane (parent / report_target / spawner). The system inbox has no PTY, and bouncing
+        // back to the reporter's own pane is the bug we just fixed — guard against that explicitly.
         if let Some(ref target_id) = target_opt {
             if target_id != pane_id {
-                // Include a short pane id alongside the title so the user can
-                // disambiguate concurrent runs of the same job (e.g. two
-                // overlapping cron fires that share `cron:my-job`).
+                // Include a short pane id alongside the title so the user can disambiguate concurrent runs of the same job (e.g. two overlapping cron fires that share `cron:my-job`).
                 let short_pane = pane_id.split('-').next().unwrap_or(pane_id);
                 let notify_msg = format!(
                     "[Report from {} pane={}] {}",
@@ -143,7 +139,6 @@ impl ServiceContext {
             title: pane.title.clone(),
         })
     }
-
 }
 
 /// Storage key used when a report cannot be routed to any specific pane
@@ -204,13 +199,8 @@ mod tests {
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::{AgentRole, Orientation};
 
-    // ── Report round-trip: child submits → parent lists ──
-    //
-    // These reproduce the bug where `codeterm agent reports` returns
-    // "No reports." even though `codeterm agent report` succeeded and
-    // injected `[Report from …]` into the parent pane. They lock down
-    // the contract: the key the reporter writes under MUST match the
-    // key the parent queries with.
+    // Enforce report key symmetry: reporter writes and parent query must use the same key.
+    // This avoids "report succeeded" with empty parent results.
 
     fn build_orchestrator_with_worker(worker_title: &str) -> (MultiplexerState, String, String) {
         let (mut mux, orch) = MultiplexerState::new();
@@ -301,8 +291,7 @@ mod tests {
         let (mut mux, orch) = MultiplexerState::new();
         // Simulate the spawning agent — it lives in its own pane elsewhere.
         let spawner = mux.create_pane();
-        // Top-level orchestrator has no parent and no report_target,
-        // but `agent spawn` recorded who asked for it.
+        // Top-level orchestrator has no parent and no report_target, but `agent spawn` recorded who asked for it.
         if let Some(pane) = mux.get_pane_mut(&orch) {
             pane.spawned_by_pane_id = Some(spawner.clone());
         }
@@ -317,10 +306,8 @@ mod tests {
 
     #[test]
     fn never_routes_back_to_self_when_all_targets_unset() {
-        // Top-level orchestrator with no parent / no report_target / no spawner.
-        // The previous implementation walked the parent chain and returned the
-        // pane's own id, so reports got injected into the orchestrator's own
-        // PTY and `agent reports` against the spawning agent stayed empty.
+        // Top-level orchestrator with no parent / no report_target / no spawner. The previous implementation walked the parent chain and returned the
+        // pane's own id, so reports got injected into the orchestrator's own PTY and `agent reports` against the spawning agent stayed empty.
         let (mux, orch) = MultiplexerState::new();
         let (_, target) = resolve_report_target(&mux, &orch).unwrap();
         assert!(
@@ -332,8 +319,7 @@ mod tests {
 
     #[test]
     fn never_routes_back_to_self_even_when_targets_point_at_self() {
-        // Defensive: if any field accidentally points at the reporter itself,
-        // that field is skipped — reports should never bounce.
+        // Defensive: if any field accidentally points at the reporter itself, that field is skipped — reports should never bounce.
         let (mut mux, orch) = MultiplexerState::new();
         if let Some(pane) = mux.get_pane_mut(&orch) {
             pane.parent_pane_id = Some(orch.clone());
@@ -372,9 +358,7 @@ mod tests {
         assert!(err.contains("Pane not found"), "got: {}", err);
     }
 
-    // ── Report message format ──
-    // submit_report builds the notify body without a trailing CR — Enter is
-    // sent as a separate delayed raw write by send_text's bracket-paste path.
+    // ── Report message format ── submit_report builds the notify body without a trailing CR — Enter is sent as a separate delayed raw write by send_text's bracket-paste path.
 
     fn format_report(from_title: &str, message: &str) -> String {
         format!("[Report from {}] {}", from_title, message)
@@ -388,9 +372,8 @@ mod tests {
 
     #[test]
     fn report_format_no_trailing_cr() {
-        // Enter is delivered as a separate write by send_text — the body
-        // itself must NOT contain trailing \r, otherwise Claude's prompt
-        // submits before the bracket-paste end marker is processed.
+        // Enter is delivered as a separate write by send_text — the body itself must NOT contain trailing \r, otherwise Claude's prompt submits before
+        // the bracket-paste end marker is processed.
         let msg = format_report("Worker-1", "done");
         assert!(!msg.ends_with('\r'), "Report body must not end with \\r");
     }

@@ -18,8 +18,7 @@ export function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Capture phase so the listener fires before any inner stopPropagation
-    // (xterm's canvas, child components) can swallow the event. Left + right
+    // Capture phase so the listener fires before any inner stopPropagation (xterm's canvas, child components) can swallow the event. Left + right
     // mousedown both close — `mousedown` covers right-click outside too.
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {

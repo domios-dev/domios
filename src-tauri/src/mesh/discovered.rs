@@ -153,11 +153,15 @@ mod tests {
     /// erase the vouchers — that erasure kept auto-approve from ever firing.
     #[test]
     fn udp_sighting_preserves_gossip_vouchers() {
-        let after_gossip =
-            merge_sighting(None, gossip_sighting("p1", "mediator", &["100.64.0.9"]), 100);
+        let after_gossip = merge_sighting(
+            None,
+            gossip_sighting("p1", "mediator", &["100.64.0.9"]),
+            100,
+        );
         assert_eq!(after_gossip.vouched_by, vec!["mediator".to_string()]);
 
-        let after_udp = merge_sighting(Some(&after_gossip), udp_sighting("p1", "192.168.1.50"), 110);
+        let after_udp =
+            merge_sighting(Some(&after_gossip), udp_sighting("p1", "192.168.1.50"), 110);
         assert_eq!(
             after_udp.vouched_by,
             vec!["mediator".to_string()],
@@ -169,9 +173,13 @@ mod tests {
     /// Tailscale address learned via gossip must survive the merge.
     #[test]
     fn udp_sighting_preserves_known_addresses() {
-        let after_gossip =
-            merge_sighting(None, gossip_sighting("p1", "mediator", &["100.64.0.9"]), 100);
-        let after_udp = merge_sighting(Some(&after_gossip), udp_sighting("p1", "192.168.1.50"), 110);
+        let after_gossip = merge_sighting(
+            None,
+            gossip_sighting("p1", "mediator", &["100.64.0.9"]),
+            100,
+        );
+        let after_udp =
+            merge_sighting(Some(&after_gossip), udp_sighting("p1", "192.168.1.50"), 110);
         let ips: Vec<&str> = after_udp.addresses.iter().map(|a| a.ip.as_str()).collect();
         assert!(ips.contains(&"192.168.1.50"));
         assert!(ips.contains(&"100.64.0.9"), "gossip address dropped");
@@ -181,7 +189,11 @@ mod tests {
     #[test]
     fn gossip_does_not_downgrade_direct_method() {
         let direct = merge_sighting(None, udp_sighting("p1", "192.168.1.50"), 100);
-        let merged = merge_sighting(Some(&direct), gossip_sighting("p1", "m", &["100.64.0.9"]), 110);
+        let merged = merge_sighting(
+            Some(&direct),
+            gossip_sighting("p1", "m", &["100.64.0.9"]),
+            110,
+        );
         assert_eq!(merged.discovery_method, DiscoveryMethod::Udp);
 
         let upgraded = merge_sighting(Some(&merged), udp_sighting("p1", "192.168.1.50"), 120);
@@ -191,8 +203,16 @@ mod tests {
     #[test]
     fn vouchers_union_sorted_dedup() {
         let a = merge_sighting(None, gossip_sighting("p1", "zeta", &["100.64.0.9"]), 100);
-        let b = merge_sighting(Some(&a), gossip_sighting("p1", "alpha", &["100.64.0.9"]), 110);
-        let c = merge_sighting(Some(&b), gossip_sighting("p1", "alpha", &["100.64.0.9"]), 120);
+        let b = merge_sighting(
+            Some(&a),
+            gossip_sighting("p1", "alpha", &["100.64.0.9"]),
+            110,
+        );
+        let c = merge_sighting(
+            Some(&b),
+            gossip_sighting("p1", "alpha", &["100.64.0.9"]),
+            120,
+        );
         assert_eq!(c.vouched_by, vec!["alpha".to_string(), "zeta".to_string()]);
     }
 
@@ -213,7 +233,9 @@ mod tests {
         assert_eq!(again.addresses.len(), 1);
     }
 
-    fn discovered_map(entries: &[(&str, &str)]) -> std::collections::HashMap<String, DiscoveredPeer> {
+    fn discovered_map(
+        entries: &[(&str, &str)],
+    ) -> std::collections::HashMap<String, DiscoveredPeer> {
         entries
             .iter()
             .map(|(id, name)| {

@@ -26,17 +26,15 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         log::error!("Failed to start socket server: {}", e);
     }
 
-    // Initialize cron store and scheduler. Debug builds started with
-    // CODETERM_TEST_CLOCK=1 get a MockClock (driven via /api/debug/clock)
-    // so the e2e suite can time-travel; release builds never do.
-    let test_clock: Option<Arc<cron::clock::MockClock>> = if cfg!(debug_assertions)
-        && std::env::var("CODETERM_TEST_CLOCK").as_deref() == Ok("1")
-    {
-        log::warn!("[cron] CODETERM_TEST_CLOCK=1 — cron runs on a mock clock");
-        Some(cron::clock::MockClock::new())
-    } else {
-        None
-    };
+    // Initialize cron store and scheduler. Debug builds started with CODETERM_TEST_CLOCK=1 get a MockClock (driven via /api/debug/clock) so the
+    // e2e suite can time-travel; release builds never do.
+    let test_clock: Option<Arc<cron::clock::MockClock>> =
+        if cfg!(debug_assertions) && std::env::var("CODETERM_TEST_CLOCK").as_deref() == Ok("1") {
+            log::warn!("[cron] CODETERM_TEST_CLOCK=1 — cron runs on a mock clock");
+            Some(cron::clock::MockClock::new())
+        } else {
+            None
+        };
     let cron_store = match &test_clock {
         Some(clock) => cron::store::CronStore::new_with_clock(clock.clone()),
         None => cron::store::CronStore::new(),
@@ -44,8 +42,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
     let cron_state: CronState = Arc::new(Mutex::new(cron_store));
     let cron_wake: CronWake = Arc::new(std::sync::Condvar::new());
 
-    // Auto-install bundled mem dreaming cron if not present. Idempotent
-    // by name. Schedule "0 3 * * *" + ±90min jitter (anti-anti-cheat).
+    // Auto-install bundled mem dreaming cron if not present. Idempotent by name. Schedule "0 3 * * *" + ±90min jitter (anti-anti-cheat).
     {
         let mut cs = cron_state.lock();
         match mem::dreaming::ensure_dreaming_cron(&mut cs) {
@@ -53,9 +50,8 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             Ok(false) => log::debug!("[mem] dreaming cron already present"),
             Err(e) => log::warn!("[mem] failed to install dreaming cron: {}", e),
         }
-        // Librarian now runs as a CLI subprocess via the mem supervisor.
-        // Remove the legacy LLM-based cron from any older install so we don't
-        // keep burning tokens to wrap a single bash command.
+        // Librarian now runs as a CLI subprocess via the mem supervisor. Remove the legacy LLM-based cron from any older install so we don't keep
+        // burning tokens to wrap a single bash command.
         if mem::dreaming::remove_legacy_librarian_cron(&mut cs) {
             log::info!("[mem] removed legacy librarian cron (replaced by direct loop)");
         }
@@ -96,6 +92,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                 config: states.config.clone(),
                 mesh: states.mesh.clone(),
                 keepawake: states.keepawake.clone(),
+                resize_owner: states.resize_owner.clone(),
                 test_clock: test_clock.clone(),
                 events: states.event_broadcaster.clone(),
                 web_dist: resolve_web_dist(),
@@ -105,11 +102,8 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             let port = api_config.port;
             // Set CODETERM_API_PORT so PTY children (and Claude hooks) know the correct port
             std::env::set_var("CODETERM_API_PORT", port.to_string());
-            // Capture the secrets handle so we can run any one-time
-            // async init (e.g. Bitwarden auto-unlock from stored master
-            // password) BEFORE the listener accepts connections. Without
-            // this gate, /api/secrets/status would briefly serve a stale
-            // "Locked" while init was still running on a parallel task.
+            // Capture the secrets handle so can run any one-time async init (e.g. Bitwarden auto-unlock from stored master password) BEFORE the listener
+            // accepts connections. Without this gate, /api/secrets/status would briefly serve a stale "Locked" while init was still running on a parallel task.
             let secrets_for_init = service_state.secrets.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Builder::new_multi_thread()
@@ -202,9 +196,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         super::bridge::spawn_telegram_bridge(service_state.clone());
     }
 
-    // If the previous instance was killed by `update --apply --after-update`,
-    // pick up the queued message and inject it into the general pane once the
-    // agent is ready.
+    // If the previous instance was killed by `update --apply --after-update`, pick up the queued message and inject it into the general pane once the agent is ready.
     update::post_update::spawn(service_state.clone());
 }
 

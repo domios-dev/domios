@@ -1,7 +1,7 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
-import { invoke } from "../../lib/bridge";
+import { invoke, IS_WEB, resetWebPtyTail } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 
@@ -16,6 +16,9 @@ export interface UsePtyConnectionOptions {
   onShellReady: () => void;
   onOutputChunk: (text: string) => void;
   jiggleResize: (ptyId: string) => void;
+  localFitEnabled?: boolean;
+  ioEnabled?: boolean;
+  resizeClientId?: string;
 }
 
 export interface UsePtyConnectionReturn {
@@ -33,8 +36,18 @@ export function usePtyConnection({
   onShellReady,
   onOutputChunk,
   jiggleResize,
+  localFitEnabled = true,
+  ioEnabled = true,
+  resizeClientId,
 }: UsePtyConnectionOptions): UsePtyConnectionReturn {
   const { state } = useMultiplexer();
+  const localFitEnabledRef = useRef(localFitEnabled);
+  // Web resets the tail cursor once per mount; toggles resume it.
+  const webReplayedPtysRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    localFitEnabledRef.current = localFitEnabled;
+  }, [localFitEnabled]);
 
   const writePty = useCallback((data: string) => {
     const id = connectedPtyRef.current;
@@ -43,7 +56,7 @@ export function usePtyConnection({
 
   useEffect(() => {
     const term = termRef.current;
-    if (!term || !termReady) return;
+    if (!term || !termReady || !ioEnabled) return;
 
     // Already connected to a PTY
     if (connectedPtyRef.current !== null) {
@@ -62,7 +75,13 @@ export function usePtyConnection({
       connectedPtyRef.current = predictedId;
 
       // Replay full ANSI history on mount so scrollback survives remounts.
-      if (ptyId) {
+      // Web replays via the tail: cursor reset makes the first read return history.
+      if (ptyId && IS_WEB) {
+        if (!webReplayedPtysRef.current.has(ptyId)) {
+          webReplayedPtysRef.current.add(ptyId);
+          resetWebPtyTail(ptyId);
+        }
+      } else if (ptyId) {
         let restored = false;
         try {
           const raw = await invoke<string>("get_pane_history_raw", { paneId });
@@ -90,6 +109,7 @@ export function usePtyConnection({
           }
         }
         requestAnimationFrame(() => {
+          if (!localFitEnabledRef.current) return;
           try {
             fitAddonRef.current?.fit();
             if (ptyId) jiggleResize(ptyId);
@@ -100,6 +120,7 @@ export function usePtyConnection({
       // Read loop with flow control
       let reading = true;
       let firstData = true;
+      let staleRespawnStarted = false;
       const WRITE_HIGH_WATERMARK = 128 * 1024;
       let pendingBytes = 0;
       let readPaused = false;
@@ -141,24 +162,53 @@ export function usePtyConnection({
               if (firstData) {
                 firstData = false;
                 requestAnimationFrame(() => {
+                  if (!localFitEnabledRef.current) return;
                   try { fitAddonRef.current?.fit(); } catch { /* ignore */ }
                 });
               }
             }
-          } catch {
+          } catch (e) {
             if (reading) {
-              term.writeln("\r\n\x1b[90m[Process exited]\x1b[0m");
+              const message = e instanceof Error ? e.message : String(e);
+              const stalePty =
+                !!ptyId && (message.includes("PTY not found") || message.includes("PTY closed"));
+
+              if (stalePty && !staleRespawnStarted && !disposed) {
+                staleRespawnStarted = true;
+                reading = false;
+                connectedPtyRef.current = null;
+                term.writeln("\r\n\x1b[90m[PTY disappeared, reconnecting...]\x1b[0m");
+
+                try {
+                  const cols = Math.max(term.cols, 80);
+                  const rows = Math.max(term.rows, 24);
+                  const paneData = state.panes[paneId];
+                  const cwd = consumePendingCwd(paneId) || paneData?.cwd || undefined;
+                  const spawnedId = await invoke<string>("spawn_pty", {
+                    cols,
+                    rows,
+                    cwd,
+                    paneId,
+                  });
+                  if (!disposed) {
+                    onPtySpawned?.(paneId, spawnedId);
+                    connectedPtyRef.current = null;
+                  }
+                } catch (respawnError) {
+                  console.warn("Failed to respawn stale PTY:", respawnError);
+                  term.writeln("\r\n\x1b[31m[Failed to reconnect PTY]\x1b[0m");
+                }
+              } else {
+                term.writeln("\r\n\x1b[90m[Process exited]\x1b[0m");
+              }
             }
             break;
           }
         }
       };
-      readLoop();
-      cleanupFns.push(() => { reading = false; });
-
       // Resize sync
       const onResizeDisposable = term.onResize(({ cols, rows }) => {
-        invoke("resize_pty", { ptyId: predictedId, cols, rows });
+        invoke("resize_pty", { ptyId: predictedId, cols, rows, clientId: resizeClientId });
       });
       cleanupFns.push(() => onResizeDisposable.dispose());
 
@@ -172,7 +222,8 @@ export function usePtyConnection({
           cols, rows, predictedId, cwd, paneId,
         });
         if (disposed) {
-          invoke("kill_pty", { ptyId: spawnedId }).catch(() => {});
+          // spawn_pty links the PTY to the pane before it resolves. If this component unmounts during a chat/terminal mode switch or tab remount,
+          // killing here leaves backend pane state pointing at a dead PTY. Pane/tab close paths own real teardown.
           return;
         }
         onPtySpawned?.(paneId, spawnedId);
@@ -188,16 +239,25 @@ export function usePtyConnection({
 
         // Sync PTY size with actual xterm dimensions
         requestAnimationFrame(() => {
+          if (!localFitEnabledRef.current) return;
           try {
             fitAddonRef.current?.fit();
             const actualCols = term.cols;
             const actualRows = term.rows;
             if (actualCols > 0 && actualRows > 0) {
-              invoke("resize_pty", { ptyId: predictedId, cols: actualCols, rows: actualRows });
+              invoke("resize_pty", {
+                ptyId: predictedId,
+                cols: actualCols,
+                rows: actualRows,
+                clientId: resizeClientId,
+              });
             }
           } catch { /* ignore */ }
         });
       }
+
+      readLoop();
+      cleanupFns.push(() => { reading = false; });
     };
 
     setupAndConnect().catch((e) => {
@@ -210,7 +270,7 @@ export function usePtyConnection({
       for (const fn of cleanupFns) fn();
       connectedPtyRef.current = null;
     };
-  }, [ptyId, paneId, termReady, onPtySpawned]);
+  }, [ptyId, paneId, termReady, ioEnabled, resizeClientId, onPtySpawned]);
 
   return { writePty };
 }

@@ -64,8 +64,7 @@ impl MultiplexerState {
                         .tabs
                         .iter()
                         .filter(|tab| {
-                            // Skip hidden worker panes — they're ephemeral and shouldn't
-                            // persist across restarts. Prevents ghost tabs in sidebar.
+                            // Skip hidden worker panes — they're ephemeral and shouldn't persist across restarts. Prevents ghost tabs in sidebar.
                             !self
                                 .panes
                                 .get(&tab.pane_id)
@@ -197,6 +196,7 @@ impl MultiplexerState {
                     protected: false,
                     connected_services: vec![],
                     agent_set_at: None,
+                    agent_booting: false,
                     hidden: false,
                     show_in_tabbar: true,
                     worker_id: None,

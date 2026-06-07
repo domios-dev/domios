@@ -158,6 +158,11 @@ pub struct PeerAnnounce {
     pub api_port: u16,
     #[serde(default = "default_true")]
     pub online: bool,
+    /// `https://<host>.<tailnet>.ts.net` when the sender fronts its API with
+    /// tailscale serve — lets https-origin browsers target it without
+    /// mixed-content blocking.
+    #[serde(default)]
+    pub https_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -203,6 +208,9 @@ pub struct PairedPeer {
     #[serde(default)]
     pub access_level: AccessLevel,
     pub version: Option<String>,
+    /// Peer's tailscale-serve HTTPS front, learned from its announces.
+    #[serde(default)]
+    pub https_url: Option<String>,
     /// Runtime-only miss counter; not persisted to disk or sent over API.
     #[serde(skip)]
     pub consecutive_misses: u8,
@@ -238,8 +246,8 @@ pub enum Permission {
     Admin,
 }
 
-// ── Pairing protocol ────────────────────────────────────────────────
-// Clean Ed25519-only pairing: exchange public keys, no DH/encrypted tokens.
+// Pairing protocol.
+// Ed25519-only pairing: exchange public keys, no DH/encrypted tokens.
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -499,8 +507,7 @@ mod tests {
 
     #[test]
     fn sanitize_addresses_drops_unparseable_strings() {
-        // The actual poison strings observed in the wild from a broken
-        // `tailscale ip -4` GUI bridge: error text on stdout instead of an IP.
+        // The actual poison strings observed in the wild from a broken `tailscale ip -4` GUI bridge: error text on stdout instead of an IP.
         let poisoned = vec![
             PeerAddress {
                 ip: "Tailscale daemon is not running.".into(),
@@ -563,8 +570,7 @@ mod tests {
 
     #[test]
     fn proactive_sync_fires_on_reconnect_regardless_of_last_sync() {
-        // offline→online transition always triggers sync to refresh gossip
-        // immediately; previous last_sync timestamp is irrelevant.
+        // offline→online transition always triggers sync to refresh gossip immediately; previous last_sync timestamp is irrelevant.
         assert!(should_proactive_sync(true, false, 1000, None, 60));
         assert!(should_proactive_sync(true, false, 1000, Some(999), 60));
         assert!(should_proactive_sync(true, false, 1000, Some(0), 60));
@@ -572,29 +578,29 @@ mod tests {
 
     #[test]
     fn proactive_sync_fires_when_last_sync_unknown_for_steady_online_peer() {
-        // First iteration after a state where peer was already online but
-        // we have no record of having synced — must sync to populate the map.
+        // First iteration after a state where peer was already online but we have no record of having synced — must sync to populate the map.
         assert!(should_proactive_sync(true, true, 1000, None, 60));
     }
 
     #[test]
     fn proactive_sync_fires_when_interval_elapsed() {
-        // Peer steady online and last_sync ≥ interval ago → sync to refresh
-        // gossip-discovered peers' last_seen before TTL eviction.
+        // Peer steady online and last_sync ≥ interval ago → sync to refresh gossip-discovered peers' last_seen before TTL eviction.
         assert!(should_proactive_sync(true, true, 1060, Some(1000), 60));
         assert!(should_proactive_sync(true, true, 1500, Some(1000), 60));
     }
 
     #[test]
     fn proactive_sync_skips_when_recently_synced() {
-        // Peer steady online and last_sync < interval ago → skip to avoid
-        // hammering paired peers. Network traffic stays bounded.
+        // Peer steady online and last_sync < interval ago → skip to avoid hammering paired peers. Network traffic stays bounded.
         assert!(!should_proactive_sync(true, true, 1059, Some(1000), 60));
         assert!(!should_proactive_sync(true, true, 1001, Some(1000), 60));
         assert!(!should_proactive_sync(true, true, 1000, Some(1000), 60));
     }
 
-    fn pairing_request_with(from_address: &str, from_addresses: Vec<PeerAddress>) -> PairingRequest {
+    fn pairing_request_with(
+        from_address: &str,
+        from_addresses: Vec<PeerAddress>,
+    ) -> PairingRequest {
         PairingRequest {
             request_id: "r1".into(),
             from_instance_id: "peer-a".into(),
@@ -647,9 +653,8 @@ mod tests {
 
     #[test]
     fn proactive_sync_handles_clock_skew_via_saturating_sub() {
-        // If now < last_sync (clock went backwards from system update or
-        // similar), saturating_sub yields 0 — interval comparison fails,
-        // we skip. Sane behavior: don't blast sync requests after clock skew.
+        // If now < last_sync (clock went backwards from system update or similar), saturating_sub yields 0 — interval comparison fails, we skip. Sane
+        // behavior: don't blast sync requests after clock skew.
         assert!(!should_proactive_sync(true, true, 500, Some(1000), 60));
     }
 }

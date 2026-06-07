@@ -12,6 +12,7 @@ pub mod calibration;
 pub mod dream;
 pub mod graph;
 pub mod items;
+pub mod layout;
 pub mod pinned;
 pub mod sync;
 pub mod workers;
@@ -25,6 +26,9 @@ pub use graph::{
     mem_graph_repair_find_entities, mem_graph_repair_find_relations,
     mem_graph_repair_merge_relations, mem_graph_repair_orphan_blobs,
     mem_graph_repair_orphan_vectors, mem_graph_timeline, mem_graph_traverse, mem_graph_tunnels,
+};
+pub use layout::{
+    mem_graph_edges, mem_graph_labels, mem_graph_layout_rebuild, mem_graph_snapshot,
 };
 pub use items::{
     mem_activity_recent, mem_check_duplicate, mem_delete, mem_flush, mem_forget_area, mem_get,

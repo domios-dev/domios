@@ -1,5 +1,4 @@
-// Reuse the runtime hash function — single source of truth, no risk
-// of build-time vs runtime drift.
+// Reuse the runtime hash function — single source of truth, no risk of build-time vs runtime drift.
 #[path = "src/plugin/bundle_hash.rs"]
 mod bundle_hash;
 
@@ -14,18 +13,8 @@ fn main() {
 
     generate_system_plugin_hashes();
 
-    // Embed the Common Controls v6 manifest into EVERY target on
-    // Windows (bins + test runners). tauri-build only embeds it into
-    // the main bin via tauri-winres, which leaves `cargo test --lib`
-    // exes without it — and without the manifest, comctl32.dll v6
-    // entry points (TaskDialogIndirect, etc) aren't resolved at load
-    // time and the test binary fails with STATUS_ENTRYPOINT_NOT_FOUND
-    // (0xc0000139). See tauri-apps/tauri#14580.
-    //
-    // Two pieces:
-    //  1. Tell tauri-build NOT to embed its own app manifest (would
-    //     conflict with mt.exe on merge → c1010070 parse error).
-    //  2. Tell linker to embed ours via /MANIFEST:EMBED + /MANIFESTINPUT.
+    // Ensure all Windows targets (including test binaries) get the Common Controls v6 manifest.
+    // tauri-winres misses test runners, so linker embedding uses /MANIFEST:EMBED + /MANIFESTINPUT.
     #[cfg(windows)]
     {
         println!("cargo:rerun-if-changed=windows-app-manifest.xml");
@@ -41,10 +30,51 @@ fn main() {
             .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
         tauri_build::try_build(attrs).expect("failed to run tauri-build");
     }
+    #[cfg(target_os = "macos")]
+    {
+        embed_macos_info_plist();
+    }
     #[cfg(not(windows))]
     {
         tauri_build::build();
     }
+}
+
+#[cfg(target_os = "macos")]
+fn embed_macos_info_plist() {
+    let profile = std::env::var("PROFILE").unwrap_or_default();
+    let is_debug = profile == "debug";
+    let identifier = if is_debug {
+        "com.codeterm.dev"
+    } else {
+        "com.codeterm.app"
+    };
+    let name = if is_debug { "CodeTerm Dev" } else { "CodeTerm" };
+    let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR not set"));
+    let plist = out_dir.join("embedded-Info.plist");
+    let body = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key>
+  <string>codeterm</string>
+  <key>CFBundleIdentifier</key>
+  <string>{identifier}</string>
+  <key>CFBundleName</key>
+  <string>{name}</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>CodeTerm records voice notes so they can be attached to chat messages.</string>
+</dict>
+</plist>
+"#,
+    );
+    std::fs::write(&plist, body).expect("write embedded macOS Info.plist");
+    println!("cargo:rerun-if-changed=Info.plist");
+    println!(
+        "cargo:rustc-link-arg=-Wl,-sectcreate,__TEXT,__info_plist,{}",
+        plist.display()
+    );
 }
 
 /// Walk `<repo>/plugins/provider-*/`, hash each bundle canonically, and
@@ -53,8 +83,6 @@ fn main() {
 /// fails the build — the hash table is load-bearing for the system-
 /// plugin trust model.
 fn generate_system_plugin_hashes() {
-    use std::path::Path;
-
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     // src-tauri/.. = repo root.
     let plugins_root = manifest_dir
@@ -63,8 +91,7 @@ fn generate_system_plugin_hashes() {
         .join("plugins");
 
     if !plugins_root.is_dir() {
-        // Cargo publish / packaged source without plugins/ — emit an
-        // empty table so the binary still links.
+        // Cargo publish / packaged source without plugins/ — emit an empty table so the binary still links.
         write_table(&[]);
         return;
     }
@@ -92,17 +119,15 @@ fn generate_system_plugin_hashes() {
         }
         let id = dir_name.trim_start_matches("provider-").to_string();
 
-        // Sanity check: plugin.json#id must match folder name. Catches
-        // copy-paste mistakes at build time.
+        // Sanity check: plugin.json#id must match folder name. Catches copy-paste mistakes at build time.
         verify_id_matches_folder(&path, &id);
 
         let h = bundle_hash::hash_bundle(&path)
             .unwrap_or_else(|e| panic!("hash plugin {}: {e}", path.display()));
         entries.push((id.clone(), h));
 
-        // Mirror the canonical (filtered) bundle into OUT_DIR for the
-        // include_dir! macro in src/plugin/embedded.rs. Filter mirrors
-        // bundle_hash's skip-set so the embed matches what was hashed.
+        // Mirror the canonical (filtered) bundle into OUT_DIR for the include_dir! macro in src/plugin/embedded.rs. Filter mirrors bundle_hash's
+        // skip-set so the embed matches what was hashed.
         copy_filtered(&path, &embed_root.join(&id))
             .unwrap_or_else(|e| panic!("copy plugin {} into OUT_DIR: {e}", path.display()));
 
@@ -149,13 +174,10 @@ fn copy_filtered(src: &std::path::Path, dst: &std::path::Path) -> std::io::Resul
 fn verify_id_matches_folder(plugin_dir: &std::path::Path, expected_id: &str) {
     let manifest_path = plugin_dir.join("plugin.json");
     let Ok(text) = std::fs::read_to_string(&manifest_path) else {
-        // No manifest yet — let the runtime loader complain. build.rs
-        // shouldn't fail just because a partially-scaffolded plugin
-        // dir exists.
+        // No manifest yet — let the runtime loader complain. build.rs shouldn't fail just because a partially-scaffolded plugin dir exists.
         return;
     };
-    // Light parse — avoid pulling in serde_json as a build-dep just
-    // for this one check.
+    // Light parse — avoid pulling in serde_json as a build-dep just for this one check.
     let needle = "\"id\"";
     let Some(idx) = text.find(needle) else { return };
     let after = &text[idx + needle.len()..];

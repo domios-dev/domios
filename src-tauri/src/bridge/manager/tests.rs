@@ -335,8 +335,7 @@ async fn disabled_cfg_preserves_legacy_format() {
 #[tokio::test]
 async fn non_voice_attachments_not_transcribed() {
     voice_transcribe::reset_health_cache();
-    // Daemon URL points nowhere; if we accidentally hit it, the test fails
-    // because we'd see fallback path. With photo kind we never call it.
+    // Daemon URL points nowhere; if we accidentally hit it, the test fails because we'd see fallback path. With photo kind we never call it.
     let cfg = enabled_cfg("http://127.0.0.1:1");
 
     let body = build_message_body(&photo_msg("/tmp/pic.jpg"), &cfg).await;

@@ -1,9 +1,10 @@
 //! Tauri sink for raw JSONL text deltas. Emits `pane-chat-raw-{id}`
 //! events; the frontend parses with the TS-side `parseJsonlSession`.
+//! Mirrored to the SSE bus so the web mirror's chat view streams too.
 
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use crate::service::pane_chat::tailer::RawTextSink;
 
@@ -24,9 +25,11 @@ impl RawTextSink for TauriRawSink {
             pane_id,
             text: &text,
         };
-        if let Err(e) = self.app.emit(&event, &payload) {
-            log::warn!("[pane_chat.raw] emit {} failed: {}", event, e);
-        }
+        crate::api::events::emit_everywhere(
+            &self.app,
+            &event,
+            serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
+        );
     }
 }
 

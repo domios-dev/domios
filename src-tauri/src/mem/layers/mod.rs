@@ -193,8 +193,7 @@ fn collect_l1_candidates(
     scored.truncate(PASS2_LIMIT);
     let ranked_ids: Vec<String> = scored.iter().map(|r| r.id.clone()).collect();
 
-    // N+1 load is acceptable for ≤150 items. Don't batch prematurely —
-    // store::get also handles blob inflation and source-freshness debounce.
+    // N+1 load is acceptable for ≤150 items. Don't batch prematurely — store::get also handles blob inflation and source-freshness debounce.
     let pinned = load_items(conn, blobs_dir, &pinned_ids)?;
     let ranked = load_items(conn, blobs_dir, &ranked_ids)?;
 

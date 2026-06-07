@@ -230,8 +230,7 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
         }
     };
 
-    // Re-stat after the read so the cached mtime reflects the file content we
-    // actually parsed — not the mtime we sampled before reading.
+    // Re-stat after the read so the cached mtime reflects the file content we parsed — not the mtime we sampled before reading.
     let cached_mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
     override_cache().write().insert(
         provider_id.to_string(),
@@ -450,10 +449,8 @@ See `docs/MODELS.md` in the CodeTerm repository for the long-form reference
 mod tests {
     use super::*;
 
-    // The registry is a process-global static — tests run in parallel
-    // against it. Use a unique provider id per test (and clean up after)
-    // so no test depends on the registry being empty or seeing another
-    // test's writes.
+    // The registry is a process-global static — tests run in parallel against it. Use a unique provider id per test (and clean up after) so no
+    // test depends on the registry being empty or seeing another test's writes.
 
     #[test]
     fn register_and_read_back() {
@@ -484,9 +481,7 @@ mod tests {
 
     #[test]
     fn merge_replaces_same_id_keeps_position_and_appends_new() {
-        // Built-ins: opus, sonnet, haiku in that order.
-        // User override: re-titles sonnet, adds custom finetune.
-        // Expectation: order [opus, sonnet-renamed, haiku, my-finetune].
+        // Built-ins: opus, sonnet, haiku in that order. User override: re-titles sonnet, adds custom finetune. Expectation: order [opus, sonnet-renamed, haiku, my-finetune].
         let builtin = vec![
             ModelInfo {
                 id: "opus".into(),

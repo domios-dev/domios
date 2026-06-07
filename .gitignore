@@ -26,3 +26,4 @@ src-tauri/bundled-embed-libs/
 /.claude/*
 !/.claude/skills/
 !/.claude/settings.local.json
+test-results/

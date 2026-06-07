@@ -21,12 +21,8 @@ pub use pinned::*;
 pub use query::*;
 pub use schema::init_schema;
 
-// ── Phase C: history audit trail ────────────────────────────────────
-//
-// A thread-local actor label is used to avoid plumbing `changed_by: &str`
-// through every single mutation call site. HTTP handlers, extraction
-// workers, and dreaming each wrap their store calls in a
-// [`with_changed_by`] guard; defaults to "user" when unset.
+// Use a thread-local actor label so callers don't pass `changed_by` on every mutation.
+// REST handlers, workers, and dreaming wrap store calls in `with_changed_by`; default is `"user"`.
 
 thread_local! {
     static CHANGED_BY: std::cell::RefCell<String> = std::cell::RefCell::new(String::from("user"));

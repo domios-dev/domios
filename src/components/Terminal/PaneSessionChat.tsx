@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { listen, type UnlistenFn } from "../../lib/bridge";
+import { ComposerActions, useWebFileDrop } from "./ComposerActions";
 import { Paperclip, Terminal, X } from "lucide-react";
 import { MessageBubble } from "@codeterm/chat-ui";
 import { parseJsonlSession as parseClaudeJsonlSession } from "@codeterm/provider-claude/src/parser";
@@ -14,6 +15,7 @@ import { detectChatPrefix, type ChatOrigin } from "../../lib/chatPrefixes";
 import { useMultiplexer } from "../../store/multiplexer";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useTauriFileDrop } from "../../hooks/terminal";
 import {
   filterSlashCommands,
@@ -22,13 +24,13 @@ import {
 import type { ModelInfo, ProviderDescriptor } from "../../lib/types";
 import type { PendingPrompt } from "../../lib/types";
 
-// Optimistic messages auto-prune after this if the JSONL never echoes
-// them back — catches sends that silently dropped (claude in a permission
-// dialog, paste mis-targeted, agent crashed). User can still see them
-// during the window so they know the click registered.
+// Optimistic messages auto-expire by TTL when JSONL never echoes them back.
 const OPTIMISTIC_TTL_MS = 60_000;
 const INITIAL_VISIBLE_MESSAGES = 220;
 const VISIBLE_MESSAGE_STEP = 160;
+const COMPOSER_MIN_HEIGHT = 20;
+const COMPOSER_SINGLE_LINE_THRESHOLD = 28;
+const COMPOSER_MAX_HEIGHT = 150;
 const CLI_FALLBACK_COMMANDS = new Set([
   "/usage",
   "/config",
@@ -39,21 +41,35 @@ const CLI_FALLBACK_COMMANDS = new Set([
   "/permissions",
   "/help",
 ]);
-const FALLBACK_CLAUDE_MODELS: ModelInfo[] = [
-  { id: "opus", display_name: "Claude Opus 4.7 (1M context)", description: "Most capable for complex work." },
-  { id: "sonnet", display_name: "Claude Sonnet 4.6", description: "Best for everyday tasks." },
-  { id: "haiku", display_name: "Claude Haiku 4.5", description: "Fastest for quick answers." },
-];
-const LIVE_TERMINAL_LINES = 10;
-const LIVE_TERMINAL_MAX_CHARS = 1800;
-// Temporarily off: the live terminal preview popping above the composer on
-// agent activity was distracting. Flip to re-enable (also re-enables polling).
-const LIVE_TERMINAL_PREVIEW_ENABLED = false;
+
+function composerHeight(el: HTMLTextAreaElement, value: string): number {
+  const hasExplicitLineBreak = value.includes("\n");
+  if (!hasExplicitLineBreak && el.scrollHeight <= COMPOSER_SINGLE_LINE_THRESHOLD) {
+    return COMPOSER_MIN_HEIGHT;
+  }
+  return Math.min(Math.max(el.scrollHeight, COMPOSER_MIN_HEIGHT), COMPOSER_MAX_HEIGHT);
+}
+
+function isMicrophonePermissionError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("needs https")) return false;
+  return (
+    normalized.includes("microphone") ||
+    normalized.includes("mic api") ||
+    normalized.includes("media device") ||
+    normalized.includes("getusermedia") ||
+    normalized.includes("notallowederror") ||
+    normalized.includes("denied permission") ||
+    normalized.includes("permission denied") ||
+    normalized.includes("not allowed by the user agent")
+  );
+}
 
 interface ChatStartResult {
   text: string;
   offset: number;
   start_offset?: number;
+  pending?: boolean;
 }
 
 interface RawDeltaEvent {
@@ -68,10 +84,12 @@ interface Props {
   onToggleTerminalFallback?: () => void;
 }
 
+
 function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void }) {
   const name = path.split(/[\\/]/).pop() || path;
   return (
     <div
+      data-testid="attachment-chip"
       className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono"
       style={{
         background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, transparent)",
@@ -90,6 +108,83 @@ function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void
       >
         <X size={10} />
       </button>
+    </div>
+  );
+}
+
+function ComposerBubbleRow({
+  attachments,
+  onRemove,
+  onToggleTerminalFallback,
+  terminalActive,
+  pendingPrompt,
+}: {
+  attachments: string[];
+  onRemove: (path: string) => void;
+  onToggleTerminalFallback?: () => void;
+  terminalActive: boolean;
+  pendingPrompt?: PendingPrompt | null;
+}) {
+  if (attachments.length === 0 && !onToggleTerminalFallback) return null;
+  const visible = attachments.slice(0, 4);
+  const overflow = attachments.length - visible.length;
+  return (
+    <div
+      data-testid="composer-bubble-row"
+      className="mb-2 flex max-h-[3.6rem] flex-wrap items-center gap-1 overflow-hidden"
+    >
+      {onToggleTerminalFallback && (
+        <button
+          type="button"
+          data-testid="terminal-fallback-bubble"
+          data-terminal-fallback-toggle="true"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onToggleTerminalFallback()}
+          className="inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs font-mono hover:brightness-110"
+          style={{
+            background: "color-mix(in srgb, var(--ct-bg, #0d1117) 88%, white 5%)",
+            borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 28%, transparent)",
+            color: "var(--ct-muted-fg)",
+          }}
+          title="Toggle terminal fallback"
+        >
+          <Terminal size={12} />
+          <span>terminal</span>
+          {terminalActive && !pendingPrompt && (
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ background: "var(--ct-green, #3fb950)" }}
+            />
+          )}
+          {pendingPrompt && (
+            <span
+              className="ml-1 rounded px-1 py-0.5 text-[10px]"
+              style={{
+                background: "color-mix(in srgb, var(--ct-yellow, #d29922) 18%, transparent)",
+                color: "var(--ct-yellow, #d29922)",
+              }}
+            >
+              waiting
+            </span>
+          )}
+        </button>
+      )}
+      {visible.map((p) => (
+        <AttachmentChip key={p} path={p} onRemove={() => onRemove(p)} />
+      ))}
+      {overflow > 0 && (
+        <span
+          data-testid="attachment-overflow-bubble"
+          className="inline-flex h-7 items-center rounded-full border px-2 text-xs font-mono"
+          style={{
+            background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 10%, transparent)",
+            borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
+            color: "var(--ct-muted-fg)",
+          }}
+        >
+          and {overflow} more
+        </span>
+      )}
     </div>
   );
 }
@@ -167,16 +262,10 @@ function groupToolResults(messages: ChatMessage[]): ChatMessage[] {
   return grouped;
 }
 
-function terminalPreview(text: string): string {
-  const lines = text
-    .replace(/\r/g, "")
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .filter((line) => line.trim().length > 0);
-  const tail = lines.slice(-LIVE_TERMINAL_LINES).join("\n");
-  return tail.length > LIVE_TERMINAL_MAX_CHARS
-    ? tail.slice(-LIVE_TERMINAL_MAX_CHARS)
-    : tail;
+function formatModelSwitch(format: string, modelId: string): string {
+  return format.includes("{model}")
+    ? format.replaceAll("{model}", modelId)
+    : `${format} ${modelId}`;
 }
 
 export function PaneSessionChat({
@@ -193,33 +282,74 @@ export function PaneSessionChat({
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = usePersistentDraft(`pane-session-chat:${paneId}`);
   const [sending, setSending] = useState(false);
-  const [composerError, setComposerError] = useState<string | null>(null);
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [modelOptions, setModelOptions] = useState<ModelInfo[]>(FALLBACK_CLAUDE_MODELS);
+  const [providerDescriptor, setProviderDescriptor] = useState<ProviderDescriptor | null>(null);
+  const [modelOptions, setModelOptions] = useState<ModelInfo[]>([]);
   const [modelHighlight, setModelHighlight] = useState(0);
-  const [liveTerminal, setLiveTerminal] = useState("");
+  const [terminalActive, setTerminalActive] = useState(false);
+  const touchMode = useTouchOptimizedUi();
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const terminalTextRef = useRef<string | null>(null);
+  const terminalActiveTimerRef = useRef<number | null>(null);
   const sendInFlightRef = useRef(false);
+  const onErrorRef = useRef(onError);
   // chatRootRef scopes the drag-drop zone to the entire chat pane.
   const chatRootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
   const suggestions = useMemo(
     () => filterSlashCommands(input.split("\n")[0] || ""),
     [input],
   );
-  const { state: muxState, setFocusedPane } = useMultiplexer();
-  const paneProvider = muxState.panes[paneId]?.agent_type ?? "claude";
+  const { state: muxState, setFocusedPane, addNotification } = useMultiplexer();
+  const paneProvider = muxState.panes[paneId]?.agent_type ?? null;
+
+  const showComposerError = useCallback((message: string) => {
+    addNotification({
+      pane_id: paneId,
+      workspace_id: null,
+      title: isMicrophonePermissionError(message) ? "Microphone unavailable" : "Chat error",
+      body: isMicrophonePermissionError(message)
+        ? `${message} Open microphone permissions in Settings if needed.`
+        : message,
+      level: "Error",
+    });
+  }, [addNotification, paneId]);
 
   const refocusComposer = useCallback(() => {
-    requestAnimationFrame(() => textareaRef.current?.focus());
-    window.setTimeout(() => textareaRef.current?.focus(), 0);
+    const focus = () => textareaRef.current?.focus({ preventScroll: true });
+    if (!textareaRef.current) return;
+    focus();
+    requestAnimationFrame(() => {
+      if (document.activeElement !== textareaRef.current) {
+        focus();
+      }
+    });
+    window.setTimeout(() => {
+      if (document.activeElement !== textareaRef.current) {
+        focus();
+      }
+    }, 0);
   }, []);
+
+  const [composerFocused, setComposerFocused] = useState(false);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const next = composerHeight(el, input);
+    el.style.height = `${next}px`;
+  }, [input]);
 
   // Open picker when first line starts with / and there are matches.
   useEffect(() => {
@@ -233,28 +363,35 @@ export function PaneSessionChat({
     invoke<ProviderDescriptor[]>("list_agent_providers")
       .then((providers) => {
         if (cancelled) return;
-        const claude = providers.find((provider) => provider.id === "claude");
-        if (claude?.available_models?.length) {
-          setModelOptions(claude.available_models);
-          const defaultIndex = claude.default_model
-            ? claude.available_models.findIndex((model) => model.id === claude.default_model)
+        const provider = providers.find((candidate) => candidate.id === paneProvider) ?? null;
+        setProviderDescriptor(provider);
+        const models = provider?.available_models ?? [];
+        setModelOptions(models);
+        if (models.length) {
+          const defaultIndex = provider?.default_model
+            ? models.findIndex((model) => model.id === provider.default_model)
             : -1;
           setModelHighlight(defaultIndex >= 0 ? defaultIndex : 0);
+        } else {
+          setModelHighlight(0);
         }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [paneProvider]);
 
   // Append paths to the attachment list, de-duping.
   const addAttachments = useCallback((paths: string[]) => {
-    if (paths.length === 0) return;
+    const cleanPaths = paths
+      .map((p) => p.trim())
+      .filter((p, i, all) => p.length > 0 && all.indexOf(p) === i);
+    if (cleanPaths.length === 0) return;
     setAttachments((prev) => {
       const seen = new Set(prev);
       const next = [...prev];
-      for (const p of paths) {
+      for (const p of cleanPaths) {
         if (!seen.has(p)) {
           seen.add(p);
           next.push(p);
@@ -264,6 +401,11 @@ export function PaneSessionChat({
     });
   }, []);
 
+  // A fresh agent pane reports pending=true (no JSONL session yet) — render
+  // the normal empty chat (sends ride the PTY) and re-run this effect when
+  // the mux snapshot delivers the session id.
+  const agentSessionId = muxState.panes[paneId]?.agent_session_id ?? null;
+
   useEffect(() => {
     let cancelled = false;
     let unlisten: UnlistenFn | null = null;
@@ -271,10 +413,12 @@ export function PaneSessionChat({
       try {
         const res = await invoke<ChatStartResult>("chat_start", { paneId });
         if (cancelled) return;
+        setError(null);
         setRawText(res.text || "");
         setEarliestOffset(res.start_offset ?? 0);
         setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
         setLoading(false);
+        if (res.pending) return;
         unlisten = await listen<RawDeltaEvent>(
           `pane-chat-raw-${paneId}`,
           (ev) => {
@@ -289,7 +433,7 @@ export function PaneSessionChat({
         const msg = e instanceof Error ? e.message : String(e);
         setError(msg);
         setLoading(false);
-        onError?.(msg);
+        onErrorRef.current?.(msg);
       }
     })();
     return () => {
@@ -297,7 +441,7 @@ export function PaneSessionChat({
       unlisten?.();
       void invoke("chat_stop", { paneId }).catch(() => {});
     };
-  }, [paneId, onError]);
+  }, [paneId, agentSessionId]);
 
   useEffect(() => {
     if (error?.includes("chat_send_raw")) setError(null);
@@ -314,9 +458,8 @@ export function PaneSessionChat({
     return parseClaudeJsonlSession(rawText);
   }, [rawText, paneProvider]);
 
-  // Drop optimistic messages once the same user turn appears in JSONL.
-  // Claude may wrap/normalize user input, so match by normalized text +
-  // attachment fingerprint with a substring fallback for noisy wrappers.
+  // Drop optimistic entries once equivalent parsed user input appears in JSONL.
+  // Match uses normalized text plus attachment fingerprint.
   const matchesParsedUser = useCallback(
     (optimisticMessage: ChatMessage, recentParsed: ChatMessage[]) => {
       return matchesRecentUserMessage(optimisticMessage, recentParsed);
@@ -338,15 +481,7 @@ export function PaneSessionChat({
 
   const currentPtyId = muxState.panes[paneId]?.pty_id ?? null;
   const pendingPrompt: PendingPrompt | null = muxState.panes[paneId]?.pending_prompt ?? null;
-  const paneStatus = muxState.paneStatuses[paneId];
-  const shouldPollTerminal = Boolean(
-    LIVE_TERMINAL_PREVIEW_ENABLED
-      && currentPtyId
-      && (paneStatus === "Working" || pendingPrompt || sending || optimistic.length > 0),
-  );
-  // Compact "agent is doing something" signal for the Terminal button —
-  // replaces the old live preview that popped above the composer.
-  const agentBusy = paneStatus === "Working" || sending;
+  const terminalHasAttention = terminalActive || Boolean(pendingPrompt);
 
   const enrichedMessages = useMemo(() => {
     return allMessages.slice(-visibleMessageCount).map((m) => {
@@ -383,39 +518,53 @@ export function PaneSessionChat({
         setEarliestOffset(res.start_offset);
       }
     } catch (e) {
-      setComposerError(e instanceof Error ? e.message : String(e));
+      showComposerError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoadingOlder(false);
     }
   }, [earliestOffset, hiddenMessageCount, loadingOlder, paneId]);
 
   useEffect(() => {
-    if (!shouldPollTerminal) {
-      setLiveTerminal("");
+    if (!currentPtyId) {
+      terminalTextRef.current = null;
+      setTerminalActive(false);
       return;
     }
     let cancelled = false;
     const poll = async () => {
       try {
         const text = await invoke<string>("get_pane_text", { paneId, formatted: false });
-        if (!cancelled) setLiveTerminal(terminalPreview(text));
+        if (cancelled) return;
+        const previous = terminalTextRef.current;
+        terminalTextRef.current = text;
+        if (previous !== null && previous !== text) {
+          setTerminalActive(true);
+          if (terminalActiveTimerRef.current) {
+            window.clearTimeout(terminalActiveTimerRef.current);
+          }
+          terminalActiveTimerRef.current = window.setTimeout(() => {
+            setTerminalActive(false);
+            terminalActiveTimerRef.current = null;
+          }, 3_000);
+        }
       } catch {
-        if (!cancelled) setLiveTerminal("");
+        if (!cancelled) setTerminalActive(false);
       }
     };
     void poll();
-    const id = window.setInterval(() => void poll(), 900);
+    const id = window.setInterval(() => void poll(), 1_500);
     return () => {
       cancelled = true;
       window.clearInterval(id);
+      if (terminalActiveTimerRef.current) {
+        window.clearTimeout(terminalActiveTimerRef.current);
+        terminalActiveTimerRef.current = null;
+      }
     };
-  }, [paneId, shouldPollTerminal]);
+  }, [currentPtyId, paneId]);
 
-  // Garbage-collect optimistic state once a parsed user message contains
-  // it, AND drop optimistic entries older than OPTIMISTIC_TTL_MS as a
-  // safety net — if the send silently dropped (claude in permission
-  // dialog, paste mis-targeted, agent crashed) we don't want a stale
-  // bubble pinned at the bottom forever.
+  // Garbage-collect optimistic items as soon as JSONL catches up.
+  // Also clear stale entries after TTL to avoid forever-pinned bubbles.
   useEffect(() => {
     if (optimistic.length === 0) return;
     const now = Date.now();
@@ -443,8 +592,7 @@ export function PaneSessionChat({
     }
   }, [allMessages]);
 
-  // Tick the TTL-pruner every 10s so stale optimistic messages clear
-  // even if no JSONL chunks have arrived to nudge the other effect.
+  // Poll TTL cleanup every 10s so stale optimistic messages clear even without new JSONL.
   useEffect(() => {
     if (optimistic.length === 0) return;
     const id = setInterval(() => {
@@ -469,21 +617,42 @@ export function PaneSessionChat({
     onPaths: (paths) => addAttachments(paths),
   });
 
-  async function send() {
+  // Web drag-drop uploads to daemon, then attaches server paths; Tauri uses native paths.
+  const { dragOver: webDragOver, handlers: webDropHandlers } = useWebFileDrop(
+    addAttachments,
+    showComposerError,
+  );
+
+  async function send(extraAttachments: string[] = []) {
     const text = input.trim();
-    if ((!text && attachments.length === 0) || sending || sendInFlightRef.current) return;
+    const cleanExtraAttachments = extraAttachments
+      .map((p) => p.trim())
+      .filter((p, i, all) => p.length > 0 && all.indexOf(p) === i);
+    const allAttachments = [...attachments];
+    for (const p of cleanExtraAttachments) {
+      if (!allAttachments.includes(p)) allAttachments.push(p);
+    }
+    if ((!text && allAttachments.length === 0) || sending || sendInFlightRef.current) return;
     sendInFlightRef.current = true;
     setSending(true);
-    setComposerError(null);
-    // Compose: text + each quoted path separated by spaces — same pipeline
-    // as useTauriFileDrop pasting into xterm.
-    const pathLines = attachments.map(quotePathForPaste).join(" ");
+    // Compose text + quoted paths in one payload; same pipeline as useTauriFileDrop.
+    const pathLines = allAttachments.map(quotePathForPaste).join(" ");
     const composed = text && pathLines
       ? `${text} ${pathLines}`
       : text || pathLines;
-    if (attachments.length === 0 && composed.trim() === "/model") {
+    if (allAttachments.length === 0 && composed.trim() === "/model") {
       setInput("");
-      setModelPickerOpen(true);
+      if (modelOptions.length === 0 || !providerDescriptor?.model_switch_format) {
+        showComposerError(
+          providerDescriptor && modelOptions.length === 0
+            ? `${providerDescriptor.display_name} does not publish switchable models.`
+            : providerDescriptor
+              ? `${providerDescriptor.display_name} does not support live model switching.`
+              : "This provider does not publish switchable models.",
+        );
+      } else {
+        setModelPickerOpen(true);
+      }
       setPickerOpen(false);
       sendInFlightRef.current = false;
       setSending(false);
@@ -496,17 +665,17 @@ export function PaneSessionChat({
         id: `opt-${Date.now()}`,
         type: "user",
         content: composed,
-        // `timestamp` doubles as the optimistic-sentAt clock — we read
-        // it back as a number for TTL pruning. ChatMessage.timestamp is
-        // typed `string` so we stringify; the millis fit comfortably.
+        // Store optimistic send time as a stringified millis value for TTL pruning.
         timestamp: String(Date.now()),
       },
     ]);
+    // Invariant: sending clears the draft but focus MUST stay in the composer —
+    // the mobile keyboard must not dismiss and desktop must not need a re-click.
     setInput("");
     setAttachments([]);
     refocusComposer();
     try {
-      const fallbackCommand = attachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
+      const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
       if (fallbackCommand) {
         if (!currentPtyId) throw new Error("Pane has no PTY");
         onOpenTerminalFallback?.();
@@ -515,7 +684,7 @@ export function PaneSessionChat({
         await invoke("chat_send_text", { paneId, text: composed, enter: true });
       }
     } catch (e) {
-      setComposerError(e instanceof Error ? e.message : String(e));
+      showComposerError(e instanceof Error ? e.message : String(e));
     } finally {
       sendInFlightRef.current = false;
       setSending(false);
@@ -523,14 +692,12 @@ export function PaneSessionChat({
     }
   }
 
-  // Bug 3: shared paste handler callable from both textarea onPaste and
-  // the window-level listener. Uses plain ClipboardEvent (not React's).
+  // Shared paste handler for textarea + window listener (plain ClipboardEvent, not React's).
   const handlePasteEvent = useCallback(async (e: ClipboardEvent) => {
     const cd = e.clipboardData;
     if (!cd) return;
 
-    // 1. OS-native file references (Ctrl+V on a copied file in Explorer/Finder)
-    //    via the Tauri command that bridges CF_HDROP / NSPasteboardTypeFileURL.
+    // 1) OS-native file refs via Tauri (Explorer/Finder, NSPasteboardTypeFileURL).
     try {
       const paths = await invoke<string[]>("read_clipboard_files");
       if (paths && paths.length > 0) {
@@ -575,8 +742,7 @@ export function PaneSessionChat({
     // 3. Otherwise — let the textarea's default paste behaviour handle text.
   }, [addAttachments]);
 
-  // Bug 3: window-level paste listener so Ctrl+V works without textarea focus.
-  // Only fires when the active element is inside this chat root.
+  // Window paste listener for Ctrl+V without focus; only active inside chat root.
   useEffect(() => {
     const onWindowPaste = (e: ClipboardEvent) => {
       if (
@@ -609,18 +775,25 @@ export function PaneSessionChat({
 
   const chooseModel = useCallback(
     async (model: ModelInfo) => {
-      setComposerError(null);
       setModelPickerOpen(false);
       setInput("");
       try {
-        await sendRawToPty(`/model ${model.id}\r`);
+        const format = providerDescriptor?.model_switch_format;
+        if (!format) {
+          throw new Error(
+            providerDescriptor
+              ? `${providerDescriptor.display_name} does not support live model switching.`
+              : "This provider does not support live model switching.",
+          );
+        }
+        await sendRawToPty(`${formatModelSwitch(format, model.id)}\r`);
       } catch (e) {
-        setComposerError(e instanceof Error ? e.message : String(e));
+        showComposerError(e instanceof Error ? e.message : String(e));
       } finally {
         refocusComposer();
       }
     },
-    [refocusComposer, sendRawToPty],
+    [providerDescriptor, refocusComposer, sendRawToPty, showComposerError],
   );
 
   if (error) {
@@ -644,12 +817,25 @@ export function PaneSessionChat({
   return (
     <div
       ref={chatRootRef}
-      className="w-full h-full flex flex-col"
+      className="w-full h-full flex flex-col relative"
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
       }}
+      {...webDropHandlers}
     >
+      {webDragOver && (
+        <div
+          data-testid="web-drop-overlay"
+          className="absolute inset-0 z-20 flex items-center justify-center border-2 border-dashed pointer-events-none"
+          style={{
+            borderColor: "var(--ct-accent, #58a6ff)",
+            background: "color-mix(in srgb, var(--ct-bg, #0d1117) 70%, transparent)",
+          }}
+        >
+          <span className="text-sm font-mono">Drop files to attach</span>
+        </div>
+      )}
       <div
         ref={scrollRef}
         onScroll={(e) => {
@@ -657,8 +843,16 @@ export function PaneSessionChat({
           const dist = el.scrollHeight - (el.scrollTop + el.clientHeight);
           atBottomRef.current = dist < 50;
         }}
-        className="flex-1 min-h-0 overflow-y-auto p-3"
+        // overscroll-contain: rubber-banding at the list edge must not chain into a page scroll — iOS dismisses the keyboard on page scrolls.
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3"
       >
+        {touchMode && (
+          <div
+            aria-hidden="true"
+            className="shrink-0"
+            style={{ height: "calc(1.25rem + var(--ct-safe-top, 0px))" }}
+          />
+        )}
         {(hiddenMessageCount > 0 || earliestOffset > 0) && (
           <div className="sticky top-0 z-10 flex justify-center pb-2">
             <button
@@ -696,6 +890,8 @@ export function PaneSessionChat({
           return (
             <div
               key={msg.id}
+              data-testid="chat-message"
+              data-message-role={msg.type}
               style={isPending ? { opacity: 0.55 } : undefined}
               title={isPending ? "sending… (echo expected within 60s)" : undefined}
             >
@@ -709,47 +905,12 @@ export function PaneSessionChat({
         style={{
           borderColor:
             "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+          // Keyboard open (touch + focused): it covers the home indicator, so the safe-area bottom pad would render as a dead stripe under the input.
+          paddingBottom: touchMode && composerFocused
+            ? "0.5rem"
+            : "var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)))",
         }}
       >
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <button
-            type="button"
-            data-terminal-fallback-toggle="true"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => (onToggleTerminalFallback ?? onOpenTerminalFallback)?.()}
-            className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-mono hover:brightness-125"
-            style={{
-              background: pendingPrompt
-                ? "color-mix(in srgb, var(--ct-yellow, #d29922) 12%, var(--ct-surface))"
-                : "var(--ct-surface)",
-              color: pendingPrompt ? "var(--ct-fg)" : "var(--ct-muted-fg)",
-              border: pendingPrompt
-                ? "1px solid color-mix(in srgb, var(--ct-yellow, #d29922) 42%, transparent)"
-                : "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 25%, transparent)",
-            }}
-            title={pendingPrompt ? pendingPrompt.question : "Open terminal fallback"}
-          >
-            <Terminal size={13} />
-            Terminal
-            {agentBusy && !pendingPrompt && (
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full animate-pulse"
-                style={{ background: "var(--ct-green, #3fb950)" }}
-              />
-            )}
-            {pendingPrompt && (
-              <span
-                className="ml-1 rounded px-1 py-0.5 text-[10px]"
-                style={{
-                  background: "color-mix(in srgb, var(--ct-yellow, #d29922) 18%, transparent)",
-                  color: "var(--ct-yellow, #d29922)",
-                }}
-              >
-                waiting input
-              </span>
-            )}
-          </button>
-        </div>
         {modelPickerOpen && (
           <div
             className="mb-2 rounded-md border p-2 shadow-lg"
@@ -760,7 +921,7 @@ export function PaneSessionChat({
           >
             <div className="flex items-center justify-between gap-2 mb-2">
               <div className="text-xs font-medium truncate" style={{ color: "var(--ct-fg)" }}>
-                Select Claude model
+                Select {providerDescriptor?.display_name ?? "provider"} model
               </div>
               <button
                 type="button"
@@ -805,139 +966,118 @@ export function PaneSessionChat({
             </div>
           </div>
         )}
-        {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-2">
-            {attachments.map((p) => (
-              <AttachmentChip
-                key={p}
-                path={p}
-                onRemove={() =>
-                  setAttachments((prev) => prev.filter((x) => x !== p))
-                }
-              />
-            ))}
-          </div>
-        )}
-        {composerError && (
-          <div
-            className="mb-2 rounded border px-2 py-1 text-xs font-mono"
-            style={{
-              background: "color-mix(in srgb, #f85149 14%, transparent)",
-              borderColor: "color-mix(in srgb, #f85149 38%, transparent)",
-              color: "var(--ct-fg, #c9d1d9)",
-            }}
-          >
-            {composerError}
-          </div>
-        )}
-        {liveTerminal && (
-          <button
-            type="button"
-            data-terminal-fallback-toggle="true"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onOpenTerminalFallback?.()}
-            className="mb-2 block w-full rounded border px-2 py-1.5 text-left text-xs hover:brightness-110"
-            style={{
-              background: "color-mix(in srgb, var(--ct-bg, #0d1117) 88%, white 4%)",
-              borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
-              color: "var(--ct-muted-fg)",
-            }}
-            title="Open terminal fallback"
-          >
-            <div className="mb-1 flex items-center gap-1.5 font-mono text-[11px]">
-              <Terminal size={12} />
-              <span>Terminal activity</span>
-            </div>
-            <pre
-              className="m-0 max-h-28 overflow-hidden whitespace-pre-wrap font-mono leading-snug"
-              style={{ color: "var(--ct-fg)" }}
-            >
-              {liveTerminal}
-            </pre>
-          </button>
-        )}
+        <ComposerBubbleRow
+          attachments={attachments}
+          onRemove={(p) => setAttachments((prev) => prev.filter((x) => x !== p))}
+          onToggleTerminalFallback={onToggleTerminalFallback}
+          terminalActive={terminalHasAttention}
+          pendingPrompt={pendingPrompt}
+        />
         {/* Bug 4: relative wrapper so SlashPicker positions above textarea */}
-        <div className="relative">
-          <SlashPicker
-            suggestions={pickerOpen ? suggestions : []}
-            highlighted={pickerHighlight}
-            onPick={pickSuggestion}
-          />
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (modelPickerOpen) {
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setModelHighlight((h) => Math.min(h + 1, modelOptions.length - 1));
-                  return;
-                }
-                if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setModelHighlight((h) => Math.max(h - 1, 0));
-                  return;
-                }
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  const model = modelOptions[modelHighlight];
-                  if (model) void chooseModel(model);
-                  return;
-                }
-                if (e.key === "Escape") {
-                  e.preventDefault();
+        <div data-testid="composer-row" className="relative">
+          <ComposerActions
+            onAttach={addAttachments}
+            onSend={() => void send()}
+            onSendWithAttachments={(paths) => void send(paths)}
+            onError={showComposerError}
+            sendDisabled={sending || (!input.trim() && attachments.length === 0)}
+            hasText={input.trim().length > 0 || attachments.length > 0}
+          >
+            <SlashPicker
+              suggestions={pickerOpen ? suggestions : []}
+              highlighted={pickerHighlight}
+              onPick={pickSuggestion}
+            />
+            <textarea
+              data-testid="chat-composer"
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (touchMode && e.key === "Enter" && !e.shiftKey) {
+                  setPickerOpen(false);
                   setModelPickerOpen(false);
                   return;
                 }
-              }
-              if (pickerOpen) {
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setPickerHighlight((h) => Math.min(h + 1, suggestions.length - 1));
-                  return;
-                }
-                if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setPickerHighlight((h) => Math.max(h - 1, 0));
-                  return;
-                }
-                if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-                  e.preventDefault();
-                  if (e.key === "Enter" && cliFallbackCommandPayload(input)) {
-                    void send();
+                if (modelPickerOpen) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setModelHighlight((h) => Math.min(h + 1, modelOptions.length - 1));
                     return;
                   }
-                  const cmd = suggestions[pickerHighlight];
-                  if (cmd) pickSuggestion(cmd);
-                  return;
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setModelHighlight((h) => Math.max(h - 1, 0));
+                    return;
+                  }
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    const model = modelOptions[modelHighlight];
+                    if (model) void chooseModel(model);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setModelPickerOpen(false);
+                    return;
+                  }
                 }
-                if (e.key === "Escape") {
+                if (pickerOpen) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setPickerHighlight((h) => Math.min(h + 1, suggestions.length - 1));
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setPickerHighlight((h) => Math.max(h - 1, 0));
+                    return;
+                  }
+                  if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+                    e.preventDefault();
+                    if (e.key === "Enter" && cliFallbackCommandPayload(input)) {
+                      void send();
+                      return;
+                    }
+                    const cmd = suggestions[pickerHighlight];
+                    if (cmd) pickSuggestion(cmd);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setPickerOpen(false);
+                    return;
+                  }
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  setPickerOpen(false);
-                  return;
+                  void send();
                 }
-              }
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
-            placeholder={pendingPrompt
-              ? "Agent may be waiting in the terminal."
-              : "Type a message…  (Enter to send, Shift+Enter for newline. Drag files or paste images.)"}
-            rows={2}
-            disabled={sending}
-            className="w-full resize-none rounded p-2 text-sm font-mono outline-none"
-            style={{
-              background:
-                "color-mix(in srgb, var(--ct-bg, #0d1117) 80%, white 5%)",
-              color: "var(--ct-fg, #c9d1d9)",
-              border:
-                "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
-            }}
-          />
+              }}
+              onFocus={() => setComposerFocused(true)}
+              onBlur={() => setComposerFocused(false)}
+              onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
+              placeholder={pendingPrompt
+                ? "Agent may be waiting in the terminal."
+                : "Message"}
+              rows={1}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="sentences"
+              spellCheck={false}
+              enterKeyHint={touchMode ? "enter" : "send"}
+              inputMode="text"
+              // Never disabled/readOnly while sending: iOS hides the keyboard for both. Double-send is guarded by sendInFlightRef.
+              className="block w-full min-h-5 flex-1 self-center resize-none bg-transparent py-0 pr-1 text-[15px] leading-5 outline-none placeholder:text-[var(--ct-muted-fg)]"
+              style={{
+                color: "var(--ct-fg, #c9d1d9)",
+                border: "none",
+                lineHeight: `${COMPOSER_MIN_HEIGHT}px`,
+                margin: 0,
+                overflowY: "hidden",
+              }}
+            />
+          </ComposerActions>
         </div>
       </div>
     </div>

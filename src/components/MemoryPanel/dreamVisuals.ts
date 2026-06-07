@@ -172,9 +172,7 @@ export interface DreamPalette {
   ink: string;
 }
 
-// Build palettes from the live theme palette at call time so the cards stay
-// complementary to whatever theme the user has on. Pulls ANSI colours from
-// CSS vars set by App.tsx (--ct-blue/magenta/cyan/green/yellow/red + bright_*).
+// Build palettes from current theme CSS vars so cards remain theme-aligned.
 function readVar(name: string, fallback: string): string {
   if (typeof document === "undefined") return fallback;
   const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -211,13 +209,11 @@ function isLightHex(hex: string): boolean {
 
 function paletteFromAccent(accent: string, bg: string): DreamPalette {
   const light = isLightHex(bg);
-  // Tint the surface toward the accent. On dark themes the gradient stays
-  // dark and saturated; on light themes the gradient is a soft tint of the
-  // accent so the card reads as a coloured paper card.
+  // Tint surface to accent while keeping contrast:
+  // dark themes keep saturation, light themes use a softer tint.
   const tinted = blendHex(bg, accent, light ? 0.10 : 0.18);
   const deep = light ? blendHex(bg, accent, 0.18) : darken(tinted, 0.85);
-  // On dark backgrounds, ink is the accent washed toward white so it pops.
-  // On light backgrounds, ink stays dark so the body is readable.
+  // On dark backgrounds, ink is the accent washed toward white so it pops. On light backgrounds, ink stays dark so the body is readable.
   const ink = light
     ? blendHex(accent, "#101216", 0.78)
     : blendHex(accent, "#ffffff", 0.65);
@@ -247,9 +243,8 @@ function blendHex(a: string, b: string, t: number): string {
   return `#${[r, g, bl].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
-// 8 stable slots — pulled from the live theme so cards stay complementary
-// to whatever colours the user picked. Cached per call to avoid re-reading
-// CSS vars 8x per card render.
+// Use 8 deterministic palette slots from live theme vars.
+// Cache this per render call to avoid repeated CSS var reads.
 function dreamPalettes(): DreamPalette[] {
   const bg = readVar("--ct-bg", "#0d1117");
   const accents = [
@@ -300,10 +295,8 @@ const LOG_RE = /<log>([\s\S]*?)<\/log>/i;
 const ICON_RE = /<icon>\s*([a-z][a-z0-9-]*)\s*<\/icon>/i;
 const MOOD_RE = /<mood>\s*([^<\n]+?)\s*<\/mood>/i;
 
-// Pulls the structured `<insight>` / `<log>` / `<icon>` / `<mood>` blocks
-// out of a dream body. Falls back to treating the whole body as insight
-// when the blocks are absent (legacy entries written before the prompt
-// change).
+// Parse dream body blocks (`<insight>`, `<log>`, `<icon>`, `<mood>`).
+// If none are present, treat full body as insight.
 export function parseDream(body: string): ParsedDream {
   if (!body) return { insight: "", log: null, icon: null, mood: null };
   const insightMatch = body.match(INSIGHT_RE);
@@ -321,9 +314,8 @@ export function parseDream(body: string): ParsedDream {
   return { insight: body.trim(), log: null, icon: null, mood: null };
 }
 
-// Map of icon slug → lucide component for slugs the dreamer is allowed to
-// pick. Same set of icons exposed in the prompt; keeping a closed list
-// avoids the dreamer inventing slugs the bundle doesn't ship.
+// Map allowed icon slugs to Lucide components.
+// Keep this list closed to prompt-discovered values.
 const NAMED_ICONS: Record<string, LucideIcon> = {
   moon: Moon,
   sparkles: Sparkles,

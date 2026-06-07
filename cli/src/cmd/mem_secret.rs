@@ -1,9 +1,8 @@
 use crate::cmd::print::print_human;
 use crate::MemSecretAction;
 
-// Run a `codeterm mem secret …` subcommand. Talks to `/api/secrets/*` on
-// the daemon. Exit codes are tuned for scripting: `3` = locked, `4` =
-// logged-out, `5` = not found, `6` = backend unavailable.
+// `codeterm mem secret` maps API outcomes to stable script exit codes.
+// `3`=locked, `4`=logged-out, `5`=not found, `6`=backend unavailable.
 pub fn handle_mem_secret(
     json_mode: bool,
     http: &reqwest::blocking::Client,
@@ -170,19 +169,14 @@ pub fn handle_mem_secret(
             print_or_exit(status, body);
         }
         MemSecretAction::Unlock { email, password } => {
-            // Master password resolution order:
-            //   1. --password flag (worst — visible to other users via `ps`)
-            //   2. stdin (preferred for scripted use)
-            //   3. neither — try server-side auto-unlock from the master
-            //      password persisted on previous successful login
+            // Master password resolution order: 1. --password flag (worst — visible to other users via `ps`) 2. stdin (preferred for scripted use) 3.
+            // neither — try server-side auto-unlock from the master password persisted on previous successful login
             let resolved: Option<String> = match password {
                 Some(p) => Some(p),
                 None => {
                     use std::io::IsTerminal;
                     if std::io::stdin().is_terminal() {
-                        // Interactive shell — don't block waiting for stdin
-                        // bytes that the user never piped. Fall through to
-                        // server-side auto-unlock attempt.
+                        // Interactive shell — don't block waiting for stdin bytes that the user never piped. Fall through to server-side auto-unlock attempt.
                         None
                     } else {
                         let mut s = String::new();
@@ -204,8 +198,7 @@ pub fn handle_mem_secret(
                 );
                 print_or_exit(status, body);
             } else {
-                // Auto-unlock with stored creds. Daemon returns ok=false if
-                // nothing's stored — surface that as a clear error.
+                // Auto-unlock with stored creds. Daemon returns ok=false if nothing's stored — surface that as a clear error.
                 let (status, body) = send_request(
                     http.post(format!("{}/api/secrets/auto-unlock", base))
                         .json(&serde_json::json!({})),

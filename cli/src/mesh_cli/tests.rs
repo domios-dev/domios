@@ -227,8 +227,8 @@ fn mem_graph_create_relays_with_server_key_names() {
     assert_eq!(p, "/api/mem/graph/entities");
     let body: serde_json::Value = serde_json::from_str(&b.unwrap()).unwrap();
     assert_eq!(body["id"], "person_kai");
-    // Server's GraphCreateEntityBody deserializes `type` (serde rename) + `properties`.
-    // The mesh payload must use those names, NOT the CLI-local `entity_type`/`props`.
+        // Use server JSON keys (`type`, `properties`) here.
+        // Reject local aliases like `entity_type`/`props`.
     assert_eq!(body["type"], "Person");
     assert_eq!(body["properties"]["name"], "Kai");
     assert!(body.get("entity_type").is_none(), "stale key leaked: {}", body);
@@ -256,9 +256,7 @@ fn agent_models_relays_to_providers_endpoint() {
 #[test]
 fn mesh_cron_create_forwards_all_advanced_fields() {
     use crate::CronAction;
-    // Regression for the mesh path silently dropping once/jitter/tz/timeout/
-    // creator. Both transports build the body via args::cron::cron_create_body,
-    // so the advanced flags must survive over --mesh.
+        // Keep advanced cron flags on both mesh and local paths.
     let cmd = Commands::Cron {
         action: CronAction::Create {
             name: "Nightly".into(),
@@ -291,8 +289,7 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
 #[test]
 fn mesh_local_only_mem_subcommands_are_rejected_not_misrouted() {
     use crate::MemAction;
-    // Local-only mem subcommands must surface an honest error over mesh, not a
-    // misleading /api/mem/stats fallback that reads as success.
+    // Mesh must return errors for local-only mem commands, not fake /api/mem/stats.
     let cmd = Commands::Mem {
         action: MemAction::RunWorker { kind: "dreaming-light".into(), db_path: None },
     };
@@ -337,4 +334,20 @@ fn send_text_is_fire_and_forget_on_mesh() {
         body.get("verify").is_none(),
         "send-text must never carry verify — the flag has been removed (#101)"
     );
+}
+
+/// `web link` embeds the LOCAL token — relaying would mint a link with
+/// the wrong credentials, so it must refuse honestly over --mesh.
+#[test]
+fn web_link_is_local_only_over_mesh() {
+    let cmd = Commands::Web {
+        action: crate::args::misc::WebAction::Link {
+            host: None,
+            port: None,
+            query: false,
+        },
+    };
+    let (m, p, _) = cli_command_to_api(&cmd);
+    assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
+    assert!(p.contains("local-only"));
 }

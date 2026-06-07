@@ -1,12 +1,5 @@
-// Claude Code provider plugin.
-//
-// Pure logic (detection, parsing, slash commands) plus host-API-driven
-// I/O (bridge rule install via host.writeFile). Filesystem helpers come
-// from the embedded `host` global injected by the JS runtime — see
-// docs/plans/relay/20-provider-plugins-ts.md.
-//
-// Activate with CODETERM_JS_PROVIDERS=claude to let this shadow the
-// native provider; default is native.
+// Claude Code provider plugin: detection/parsing/slash commands in plugin logic,
+// host APIs for side effects like bridge rule install (`host.writeFile`).
 
 function manifest() {
   try { return JSON.parse(host.manifestJson() || "null"); } catch (e) { return null; }
@@ -153,21 +146,14 @@ module.exports.default = {
   },
 
   buildPromptResponse: function (optionIndex) {
-    // Claude TUI supports vim j/k navigation — simpler and more reliable
-    // than arrow keys. Each step is a single keypress.
-    // 'j' = 0x6a → base64 "ag==", '\r' = 0x0d → "DQ=="
+  // Claude TUI uses vim-style single-key navigation.
     var steps = [];
     for (var i = 0; i < optionIndex; i++) steps.push("ag==");
     steps.push("DQ==");
     return steps;
   },
 
-  // Full launch parity with native: env preamble + per-OS stdin-pipe
-  // for headless task delivery + task-file inline for visible mode.
-  //
-  // Stays portable across macOS/Linux/Windows via host.platform()
-  // selection of NULL_DEV, shell quoting, and the BOM prefix that
-  // PowerShell needs to parse the temp file as UTF-8.
+  // Launch command parity for native behavior across OS-specific execution modes.
   buildLaunchCommand: function (params) {
     var p = params || {};
     var win = host.platform() === "windows";
@@ -210,8 +196,7 @@ module.exports.default = {
       parts.push("--agent");
       parts.push(host.shell.quoteFor(p.agentName, host.platform()));
     }
-    // --session-id is silently ignored by claude in -p mode; only emit
-    // it for visible launches.
+    // --session-id is ignored in -p mode; emit only for visible launches.
     if (!useStdinPipe && p.sessionId) {
       parts.push("--session-id");
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
@@ -237,10 +222,7 @@ module.exports.default = {
     return parts.join(" ");
   },
 
-  // Walk the session JSONL bottom-up: surface the latest `message.model`
-  // OR a "Set model to X" line written by /model. Tail-only — for a
-  // multi-MB session, reading the whole file each time would burn CPU
-  // on every focused-poll tick.
+  // Tail session JSONL to find latest model (`message.model` or `Set model to ...`).
   detectSessionModel: function (cwd, sessionId) {
     var path = claudeSessionFilePath(cwd, sessionId);
     if (!path || !host.fs.fileExists(path)) return null;
@@ -264,10 +246,7 @@ module.exports.default = {
     return null;
   },
 
-  // JSONL → SessionMessage. Mirrors Rust agent_claude::parse_session_messages:
-  // - skip lines without `type: "user"|"assistant"`
-  // - content may be a string OR an array of `{type, text}` blocks
-  // - `isMeta` mirrored from JSONL `isMeta` field
+  // Parse `user`/`assistant` lines and map content blocks to SessionMessage.
   parseSessionMessages: function (text) {
     var out = [];
     var lines = String(text || "").split("\n");
@@ -308,9 +287,8 @@ module.exports.default = {
     return out;
   },
 
-  // Rust hands us a string that ends on a complete line. Plugin's
-  // job is just per-line JSON.parse + shape into RichMessage[]. Byte
-  // offsets are entirely Rust's concern now.
+  // Rust provides complete lines; plugin parses JSON and builds RichMessage[].
+  // Byte offsets stay in Rust.
   parseSessionDelta: function (chunk) {
     var out = [];
     var lines = String(chunk || "").split("\n");
@@ -357,17 +335,13 @@ module.exports.default = {
     return { messages: out };
   },
 
-  // Resolve the JSONL file path for (cwd, sessionId). Same convention
-  // as `claudeSessionFilePath` below (the module-level helper); exposed
-  // as a plugin method so the Rust `AgentProvider::session_jsonl_path`
-  // can ask the plugin instead of duplicating the encoding rule.
+  // Keep JSONL path encoding aligned with `claudeSessionFilePath`.
   sessionJsonlPath: function (cwd, sessionId) {
     if (!sessionId) return null;
     return claudeSessionFilePath(cwd, sessionId);
   },
 
-  // Writes `~/.claude/rules/codeterm.md` (path declared in manifest.rule.path).
-  // Pure plugin code — Rust only provides host.expandHome + host.writeFile.
+  // Write bridge rule to `~/.claude/rules/codeterm.md` via host APIs.
   installBridgeRule: function (payload) {
     var m = manifest();
     var rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/codeterm.md";
@@ -395,16 +369,8 @@ module.exports.default = {
     return { ok: false, error: "removeFile failed for " + expanded };
   },
 
-  // ── ~/.claude/settings.json hooks integration ───────────────────────
-  //
-  // Claude POSTs back to CodeTerm on Notification / Stop / PreCompact /
-  // SessionStart events. We write curl-based hook entries into the
-  // user's settings.json, tagged with `_source: "codeterm-hook-v2"`
-  // so we can recognise our own entries on re-install or uninstall.
-  //
-  // All paths come from manifest.integration.settingsPath; the per-OS
-  // NULL_DEV comes from host.platform(). Plugin is 100% portable across
-  // OSes — no Rust-side helpers required.
+  // Manage Claude settings hooks for Notification, Stop, PreCompact, SessionStart.
+  // Hooks use `_source: "codeterm-hook-v2"` and manifest paths for stable lifecycle.
 
   checkIntegration: function () {
     var m = manifest();
@@ -498,9 +464,7 @@ module.exports.default = {
       SessionStart:  newEntry("", sessionStartCmd, 5000),
     };
 
-    // Drop any prior codeterm-installed entries (any version) before
-    // appending the current ones — keeps the file from accumulating
-    // pre-v2 stragglers.
+    // Remove existing codeterm hooks before appending to avoid stale leftovers.
     var keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
     for (var i = 0; i < keys.length; i++) {
       var k = keys[i];
@@ -526,9 +490,7 @@ module.exports.default = {
     if (!path || !host.fileExists(path)) return { ok: true };
     var json = host.fs.readJson(path);
     if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: true };
-    // Native impl only drops Notification + Stop on uninstall (keeps
-    // PreCompact + SessionStart alone — historical behaviour for mem
-    // continuity). Mirror that.
+    // Uninstall removes Notification + Stop only; keeps PreCompact + SessionStart.
     var keys = ["Notification", "Stop"];
     for (var i = 0; i < keys.length; i++) {
       var k = keys[i];
@@ -546,12 +508,8 @@ module.exports.default = {
   },
 };
 
-// ── Session-file / model-label helpers ────────────────────────────────
-//
-// Native parity: `~/.claude/projects/<dash-encoded-cwd>/<sid>.jsonl`.
-// dash_encoded means '/', '\', ':' all become '-'. Matches the native
-// `crate::plugin::js_runtime::manifest::encode_cwd_dashed` path that
-// JsProvider uses for session_file_path.
+// Session-file/model-label helpers aligned with native `~/.claude/projects`.
+// `encode_cwd_dashed` maps path separators to `-` and matches JsProvider path rules.
 function claudeSessionFilePath(cwd, sessionId) {
   var m = manifest();
   var root = (m && m.sessions && m.sessions.rootDir) || "~/.claude/projects";
@@ -564,8 +522,7 @@ function claudeSessionFilePath(cwd, sessionId) {
 }
 
 function encodeCwdDashed(cwd) {
-  // Native parity: every non-alphanumeric char → '-'. Matches
-  // JsProvider::encode_cwd_dashed exactly.
+  // Match native behavior: map non-alphanumeric characters to '-'.
   return String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
 }
 
@@ -626,18 +583,12 @@ function capitalize(s) {
   return s.charAt(0).toUpperCase() + s.substring(1).toLowerCase();
 }
 
-// ── Task-file helpers ─────────────────────────────────────────────────
-//
-// Native ShellSyntax::write_task_temp uses a short uuid suffix and on
-// Windows prefixes the file with a UTF-8 BOM so PowerShell parses the
-// content as UTF-8 regardless of system locale. host.fs.writeTempFile
-// gives us the path; we control the bytes inside.
+// Task-file helpers: write to host temp files with provider-specific suffixes.
+// Windows adds a UTF-8 BOM so PowerShell parses task bodies correctly.
 function writeTaskTempFile(task) {
   var suffix = ".ct-task-" + randomShortHex(8);
   var win = host.platform() === "windows";
-  // Windows PowerShell parses files as UTF-8 only when they start
-  // with the U+FEFF byte-order mark — prepend it so non-ASCII task
-  // bodies survive the round-trip through `Get-Content -Encoding UTF8`.
+  // PowerShell reads UTF-8 reliably only with BOM; prepend it for Windows task files.
   var body = win ? "﻿" + task : task;
   return host.fs.writeTempFile(body, suffix);
 }
@@ -649,7 +600,7 @@ function randomShortHex(len) {
   return out;
 }
 
-// ── Hook recognition helpers ──────────────────────────────────────────
+// Hook recognition helpers.
 var CODETERM_HOOK_MARKER = "codeterm-hook-v2";
 
 function isCodetermHook(entry) {

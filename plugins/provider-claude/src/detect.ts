@@ -13,10 +13,8 @@
 
 import type { DetectionSample } from "../../../src/lib/plugins/types";
 
-// Claude's working-spinner uses the full Braille range U+2800..U+28FF
-// as activity glyphs prefixed before the task name. Matching the whole
-// range is simpler than listing the specific dots and survives Claude
-// adding new ones.
+// Claude working spinner uses Braille chars U+2800..U+28FF in status lines.
+// Match the full range to keep pace with future glyph additions.
 export const titlePattern = /claude|^[⠀-⣿✱✳✻] /i;
 
 export const noisePatterns: RegExp[] = [
@@ -37,8 +35,7 @@ export const noisePatterns: RegExp[] = [
 
 export function detect(sample: DetectionSample): boolean {
   if (sample.title && titlePattern.test(sample.title)) return true;
-  // PTY-byte fingerprint — Claude's TUI footer is the cheapest signal
-  // we can match on without false positives against plain shells.
+  // PTY-byte fingerprint: CLAUDE footer text is cheap and low-noise compared to plain shell output.
   if (
     sample.bytes.includes("? for shortcuts") ||
     sample.bytes.includes("esc to interrupt") ||

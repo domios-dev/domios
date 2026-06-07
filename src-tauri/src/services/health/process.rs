@@ -47,8 +47,7 @@ fn check_label(label: &str) -> HealthStatus {
 
 #[cfg(target_os = "windows")]
 fn check_label(label: &str) -> HealthStatus {
-    // Tauri daemon is GUI-subsystem; spawning console children without
-    // CREATE_NO_WINDOW flashes a fresh conhost every probe interval.
+    // Tauri daemon is GUI-subsystem; spawning console children without CREATE_NO_WINDOW flashes a fresh conhost every probe interval.
     let mut cmd = Command::new("tasklist");
     cmd.args(["/FO", "CSV", "/NH"]);
     crate::process_util::no_window_std(&mut cmd);
@@ -175,8 +174,7 @@ mod tests {
 
     #[test]
     fn windows_csv_window_title_fragment_misses() {
-        // tasklist /V column 9 is window title; substring search would have caught
-        // it. Our CSV-column-0 parser must not.
+        // tasklist /V column 9 is window title; substring search would have caught it. Our CSV-column-0 parser must not.
         let line = r#""explorer.exe","4321","Console","1","45,678 K","Running","DOMAIN\user","0:00:01","claude project""#;
         assert!(!windows_image_name_matches(line, "claude"));
     }

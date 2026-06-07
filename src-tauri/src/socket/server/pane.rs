@@ -66,11 +66,8 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("enter"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
-            // Resolve target via the alias-aware lookup so short ids
-            // (`--pane ce9bce56`) and tab labels both work.
-            // get_pane() takes only exact UUIDs, so prior to this we'd
-            // silently drop the [from ...] prefix whenever the user
-            // passed a short id.
+            // Resolve target via the alias-aware lookup so short ids (`--pane ce9bce56`) and tab labels both work. get_pane() takes only exact UUIDs, so
+            // prior to this we'd silently drop the [from...] prefix whenever the user passed a short id.
             let (resolved_target, target_has_agent) = {
                 let m = mux.lock();
                 let resolved = m

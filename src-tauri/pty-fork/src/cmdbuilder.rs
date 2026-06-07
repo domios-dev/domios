@@ -421,8 +421,7 @@ impl CommandBuilder {
             let cwd: &Path = cwd.as_ref();
             let mut errors = vec![];
 
-            // If the requested executable is explicitly relative to cwd,
-            // then check only there.
+            // If the requested executable is explicitly relative to cwd, then check only there.
             if is_cwd_relative_path(exe_path) {
                 let abs_path = cwd.join(exe_path);
 
@@ -510,8 +509,7 @@ impl CommandBuilder {
         let mut cmd = if self.is_default_prog() {
             let mut cmd = std::process::Command::new(&shell);
 
-            // Run the shell as a login shell by prefixing the shell's
-            // basename with `-` and setting that as argv0
+            // Run the shell as a login shell by prefixing the shell's basename with `-` and setting that as argv0
             let basename = shell.rsplit('/').next().unwrap_or(&shell);
             cmd.arg0(&format!("-{}", basename));
             cmd
@@ -588,12 +586,9 @@ impl CommandBuilder {
                     return candidate.into_os_string();
                 }
 
-                // otherwise try tacking on some extensions.
-                // Note that this really replaces the extension in the
-                // user specified path, so this is potentially wrong.
+                // otherwise try tacking on some extensions. Note that this really replaces the extension in the user specified path, so this is potentially wrong.
                 for ext in std::env::split_paths(&extensions) {
-                    // PATHEXT includes the leading `.`, but `with_extension`
-                    // doesn't want that
+                    // PATHEXT includes the leading `.`, but `with_extension` doesn't want that
                     let ext = ext.to_str().expect("PATHEXT entries must be utf8");
                     let path = path.join(&exe).with_extension(&ext[1..]);
                     if path.exists() {
@@ -678,8 +673,7 @@ impl CommandBuilder {
 
         Self::append_quoted(&exe, &mut cmdline);
 
-        // Ensure that we nul terminate the module name, otherwise we'll
-        // ask CreateProcessW to start something random!
+        // Ensure that we nul terminate the module name, otherwise we'll ask CreateProcessW to start something random!
         let mut exe: Vec<u16> = exe.encode_wide().collect();
         exe.push(0);
 
@@ -697,8 +691,8 @@ impl CommandBuilder {
         Ok((exe, cmdline))
     }
 
-    // Borrowed from https://github.com/hniksic/rust-subprocess/blob/873dfed165173e52907beb87118b2c0c05d8b8a1/src/popen.rs#L1117
-    // which in turn was translated from ArgvQuote at http://tinyurl.com/zmgtnls
+    // Borrowed from https://github.com/hniksic/rust-subprocess/blob/873dfed165173e52907beb87118b2c0c05d8b8a1/src/popen.rs#L1117 which in turn was
+    // translated from ArgvQuote at http://tinyurl.com/zmgtnls
     fn append_quoted(arg: &OsStr, cmdline: &mut Vec<u16>) {
         if !arg.is_empty()
             && !arg.encode_wide().any(|c| {

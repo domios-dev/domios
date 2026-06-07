@@ -9,6 +9,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { chromium, type Browser, type Page } from "@playwright/test";
+import fs from "node:fs";
 import path from "node:path";
 
 export const API_BASE = "http://127.0.0.1:7686";
@@ -37,10 +38,21 @@ export async function isCdpUp(): Promise<boolean> {
   }
 }
 
+// A bare "bash" resolves to WSL's System32 stub when the runner is launched
+// from PowerShell — build.sh then dies in a WSL world. Pin git-bash.
+const BASH_EXE =
+  process.platform === "win32"
+    ? ["C:\\Program Files\\Git\\bin\\bash.exe", "C:\\Program Files (x86)\\Git\\bin\\bash.exe"].find(
+        (p) => fs.existsSync(p),
+      ) ??
+      (() => {
+        throw new Error("git-bash not found — install Git for Windows");
+      })()
+    : "bash";
+
 function bash(args: string[], timeoutMs: number): void {
   // build.sh is the only sanctioned entry point (never raw cargo/pnpm tauri).
-  // Requires git-bash on PATH — the standard CodeTerm dev setup on Windows.
-  execFileSync("bash", args, {
+  execFileSync(BASH_EXE, args, {
     cwd: REPO_ROOT,
     stdio: "inherit",
     timeout: timeoutMs,
@@ -133,16 +145,37 @@ export interface UiSession {
  * shell has actually rendered — on a cold start the WebView is up while
  * Vite is still compiling, so the page can be blank for many seconds. */
 export async function connectUi(): Promise<UiSession> {
-  const browser = await chromium.connectOverCDP(CDP_BASE);
-  const pages = browser.contexts().flatMap((c) => c.pages());
-  const page =
-    pages.find((p) => /localhost|tauri/.test(p.url())) ??
-    pages[0] ??
-    (() => {
-      throw new Error("no page exposed over CDP — dev console window missing?");
-    })();
-  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-  // First terminal mounts after session restore + PTY spawn.
-  await page.waitForSelector(".xterm", { state: "visible", timeout: 90_000 });
-  return { browser, page };
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    let browser: Browser | undefined;
+    try {
+      await ensureDevConsole();
+      browser = await chromium.connectOverCDP(CDP_BASE);
+      const pages = browser.contexts().flatMap((c) => c.pages()).filter((p) => !p.isClosed());
+      const page =
+        pages.find((p) => /localhost|tauri/.test(p.url())) ??
+        pages[0] ??
+        (() => {
+          throw new Error("no page exposed over CDP — dev console window missing?");
+        })();
+      await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+      // First terminal mounts after session restore + PTY spawn. A pane left in
+      // chat-view hides its xterm and shows the composer — both prove the shell
+      // is alive.
+      await page
+        .locator('.xterm:visible, [data-testid="chat-composer"]')
+        .first()
+        .waitFor({ state: "visible", timeout: 90_000 });
+      return { browser, page };
+    } catch (e) {
+      lastError = e;
+      await browser?.close().catch(() => {});
+      const msg = String(e);
+      if (!/Target page|context or browser has been closed|no page exposed/.test(msg) || attempt === 3) {
+        throw e;
+      }
+      killDevConsole();
+    }
+  }
+  throw lastError;
 }

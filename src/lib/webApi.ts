@@ -3,16 +3,16 @@
  *
  * In WEB mode (no Tauri) the React app talks to a CodeTerm daemon over
  * plain HTTP. The default target is the daemon that served /web (same
- * origin). The peer picker can flip the target to any paired peer's own
- * address — peers can't verify each other's browser sessions (mesh auth
- * is Ed25519-signed or the peer's own api token, and browsers can't
- * sign), so each peer gets its OWN token, stored per host.
+ * origin). The peer picker can flip the target to a paired peer by asking
+ * the current daemon to mint the target's web token over the signed mesh
+ * channel, then storing that token per host.
  */
 
 export const IS_WEB =
   typeof window !== "undefined" && !("__TAURI_INTERNALS__" in window);
 
 const HOST_KEY = "codeterm-web-host";
+const HOST_NAME_KEY = "codeterm-web-host-name";
 const TOKEN_PREFIX = "codeterm-web-token:";
 
 /** Origin the SPA was served from — the "self" peer. */
@@ -25,12 +25,26 @@ export function apiHost(): string {
   return sessionStorage.getItem(HOST_KEY) ?? selfHost();
 }
 
-export function setApiHost(host: string | null): void {
+export function setApiHost(host: string | null, name?: string): void {
   if (host === null || host === selfHost()) {
     sessionStorage.removeItem(HOST_KEY);
+    sessionStorage.removeItem(HOST_NAME_KEY);
   } else {
     sessionStorage.setItem(HOST_KEY, host);
+    // The friendly name is only knowable at switch time: the target daemon
+    // doesn't list ITSELF in /api/mesh/peers, so post-reload lookups by
+    // host would fall back to the raw IP.
+    if (name) {
+      sessionStorage.setItem(HOST_NAME_KEY, name);
+    } else {
+      sessionStorage.removeItem(HOST_NAME_KEY);
+    }
   }
+}
+
+/** Friendly name of the switched-to host, captured at switch time. */
+export function apiHostName(): string | null {
+  return sessionStorage.getItem(HOST_NAME_KEY);
 }
 
 export function tokenFor(host: string): string | null {
@@ -69,6 +83,30 @@ export async function webFetch(
   const token = currentToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(`${apiHost()}${path}`, { ...init, headers });
+}
+
+/**
+ * Upload a browser file/blob to the daemon host; returns the server-side
+ * path the agent CLI can read. Content-Type stays unset so the browser
+ * writes the multipart boundary itself.
+ */
+export async function webUpload(
+  file: Blob,
+  filename: string,
+): Promise<{ path: string; size: number }> {
+  const form = new FormData();
+  form.append("file", file, filename);
+  const headers = new Headers();
+  const token = currentToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(`${apiHost()}/api/upload`, {
+    method: "POST",
+    headers,
+    body: form,
+  });
+  const text = await res.text();
+  if (!res.ok) throw new WebApiError(res.status, "/api/upload", text);
+  return JSON.parse(text) as { path: string; size: number };
 }
 
 export async function webJson<T>(

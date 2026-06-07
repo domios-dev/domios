@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "./lib/bridge";
+import { IS_WEB } from "./lib/webApi";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
@@ -14,6 +15,7 @@ import { CommandPalette, buildDefaultCommands } from "./components/CommandPalett
 import { CrashReportToast } from "./components/CrashReportToast";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useConfig } from "./hooks/useConfig";
+import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useAgentProviders } from "./hooks/useAgentProviders";
 import {
   MultiplexerProvider,
@@ -24,8 +26,7 @@ import { matchesBinding, isMac } from "./lib/keybindings";
 import { blendColor, deriveColor } from "./lib/colors";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { pasteToPane } from "./lib/panePasteRegistry";
-// TODO: Agent Swarm Visualization — future feature
-// import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
+// TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
 /**
  * Derive CSS custom properties from a ThemeConfig so the entire UI
@@ -66,11 +67,11 @@ function themeToCSS(theme: ThemeConfig): Record<string, string> {
 
 function AppInner() {
   useAgentProviders();
-  // Phones start with the sidebar collapsed; the hamburger opens it as an
-  // overlay (see the wrapper at the render site).
+  // Phones start with the sidebar collapsed; the hamburger opens it as an overlay (see the wrapper at the render site).
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 640,
   );
+  const keyboardInset = useKeyboardInset();
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh">("workspace");
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
@@ -78,6 +79,7 @@ function AppInner() {
   const [mountedSettings, setMountedSettings] = useState(false);
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
+  const [mountedTabIds, setMountedTabIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
@@ -107,10 +109,8 @@ function AppInner() {
   // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
   const { config, updateConfig, theme } = useConfig();
 
-  // Resolve usage-tracking toggle once per config change so every pane's
-  // UsageBubble can read it via prop instead of subscribing to config
-  // events on its own (the per-bubble `useConfig` was multiplying invokes
-  // by pane count and made the webview unresponsive after many resumes).
+  // Resolve usage-tracking toggle once per config change so every pane's UsageBubble can read it via prop instead of subscribing to config
+  // events on its own (the per-bubble `useConfig` was multiplying invokes by pane count and made the webview unresponsive after many resumes).
   const usageEnabledByProvider = useMemo(() => {
     const out: Record<string, boolean> = {};
     for (const [pid, pc] of Object.entries(config.agents ?? {})) {
@@ -178,6 +178,30 @@ function AppInner() {
     () => activeWs?.tabs.find((t) => t.id === activeWs.active_tab_id),
     [activeWs],
   );
+  useEffect(() => {
+    if (!activeTab?.id) return;
+    setMountedTabIds((prev) => {
+      if (prev.has(activeTab.id)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab.id);
+      return next;
+    });
+  }, [activeTab?.id]);
+  useEffect(() => {
+    const liveTabIds = new Set(state.workspaces.flatMap((ws) => ws.tabs.map((tab) => tab.id)));
+    setMountedTabIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (liveTabIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [state.workspaces]);
 
   const handleNewTab = useCallback(() => {
     if (!activeWs) return;
@@ -280,16 +304,8 @@ function AppInner() {
         if (sel) navigator.clipboard.writeText(sel).catch(() => {});
         return;
       }
-      // App-wide paste: works when the CodeTerm window is focused regardless
-      // of where the inner focus is (titlebar, sidebar, document body, an
-      // unfocused pane). Matches plain Cmd+V / Ctrl+V AND the configured
-      // kb.paste (default Ctrl+Shift+V).
-      //
-      // Skips when an actual editable element owns focus — xterm helper
-      // textarea has its own attachCustomKeyEventHandler that calls
-      // routeClipboardToTerm directly, and real <input>/<textarea>/
-      // contenteditable elements should keep native browser paste. Both
-      // cases would otherwise double-paste against this fallback.
+      // App-wide paste works across titlebar/sidebar/chat as long as the main window is focused.
+      // Target the active terminal tab pane and skip native editable controls to avoid double-paste.
       const plainPaste = e.code === "KeyV" && !e.shiftKey && !e.altKey
         && (isMac ? e.metaKey : e.ctrlKey);
       if (plainPaste || matchesBinding(e, kb.paste)) {
@@ -302,11 +318,8 @@ function AppInner() {
         );
         if (isXtermFocused || isInputFocused) return;
 
-        // Target the ACTIVE TAB'S pane, not the global focused_pane_id.
-        // focused_pane_id can stay set on a pane from a previous tab even
-        // after the user switched tabs — pasting there means the text
-        // lands in an invisible terminal. The active tab's pane is what
-        // the user perceives as "the selected one" they're looking at.
+        // Target the ACTIVE TAB'S pane, not the global focused_pane_id. focused_pane_id can stay set on a pane from a previous tab even after the user
+        // switched tabs — pasting there means the text lands in an invisible terminal. The active tab's pane is what the user perceives as "the selected one" they're looking at.
         const st = stateRef.current;
         const ws = st.workspaces.find((w) => w.id === st.active_workspace_id);
         const tab = ws?.tabs.find((t) => t.id === ws.active_tab_id);
@@ -355,12 +368,7 @@ function AppInner() {
         return;
       }
 
-      // TODO: Swarm overlay — future feature
-      // if (matchesBinding(e, "Mod+Shift+G")) {
-      //   e.preventDefault();
-      //   setSwarmVisible((v) => !v);
-      //   return;
-      // }
+      // TODO: Swarm overlay — future feature if (matchesBinding(e, "Mod+Shift+G")) { e.preventDefault(); setSwarmVisible((v) => !v); return; }
 
       // Pane focus navigation (uses config bindings)
       if (matchesBinding(e, kb.focus_pane_left) || matchesBinding(e, kb.focus_pane_right) ||
@@ -483,8 +491,7 @@ function AppInner() {
   const themeStyles = useMemo(() => themeToCSS(theme), [theme]);
   const isCRT = theme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
 
-  // Set color-scheme + theme vars on documentElement so portals (modals,
-  // popups rendered into document.body via createPortal) inherit them.
+  // Set color-scheme + theme vars on documentElement so portals (modals, popups rendered into document.body via createPortal) inherit them.
   useEffect(() => {
     const hex = theme.background.replace("#", "");
     const r = parseInt(hex.substring(0, 2), 16);
@@ -499,21 +506,40 @@ function AppInner() {
 
   return (
     <div
-      className={`flex flex-col w-screen h-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
+      className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
       style={{
         ...themeStyles,
         backgroundColor: theme.background,
         color: theme.foreground,
+        // 100% of #root, which owns viewport sizing (dvh + safe-area padding in index.html). keyboardInset
+        // covers iOS Safari, where the keyboard shrinks only the VISUAL viewport and dvh stays put (see useKeyboardInset).
+        height: keyboardInset ? `calc(100% - ${keyboardInset}px)` : "100%",
+        "--ct-composer-bottom-padding": keyboardInset
+          ? "0.5rem"
+          : "calc(0.5rem + var(--ct-safe-bottom, 0px))",
       } as React.CSSProperties}
     >
-      <Titlebar
-        onToggleSidebar={() => setSidebarOpen((v) => !v)}
-        onNewTab={handleNewTab}
-        workspaceName={activeWs?.name}
-        tabTitle={activeTab?.title}
-        theme={theme}
-        onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
-      />
+      {/* Web mirror strips the chrome: no titlebar row — the sidebar is
+          the whole shell (host picker + keep-awake live there). */}
+      {!IS_WEB && (
+        <Titlebar
+          onToggleSidebar={() => setSidebarOpen((v) => !v)}
+          onNewTab={handleNewTab}
+          theme={theme}
+          onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
+        />
+      )}
+      {IS_WEB && !sidebarOpen && (
+        <button
+          data-testid="web-sidebar-open"
+          onClick={() => setSidebarOpen(true)}
+          className="fixed left-2 z-50 flex items-center justify-center w-11 h-11 rounded-md bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)]"
+          style={{ top: "calc(0.5rem + var(--ct-safe-top, 0px))" }}
+          title="Open sidebar"
+        >
+          ☰
+        </button>
+      )}
 
       <div className="flex flex-1 min-h-0 relative">
         {sidebarOpen && (
@@ -524,7 +550,8 @@ function AppInner() {
               className="sm:hidden fixed inset-0 z-30 bg-black/40"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl flex min-h-0">
+            {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
+            <div className="max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0">
               <Sidebar
                 onOpenSettings={() => setSettingsOpen(true)}
                 onOpenMemory={() => setMemoryOpen(true)}
@@ -608,6 +635,8 @@ function AppInner() {
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
                 const isActiveTab = ws.id === state.active_workspace_id && tab.id === ws.active_tab_id;
+                const shouldMountTab = isActiveTab || mountedTabIds.has(tab.id);
+                if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && isActiveTab;
                 return (
               <div

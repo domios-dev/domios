@@ -42,8 +42,7 @@ function tick() {
     stopLoop();
     return;
   }
-  // Adaptive cadence (#128): a big graph's step can exceed the frame
-  // budget; stretching the interval by the measured step time bounds the
+  // Adaptive cadence (#128): a big graph's step can exceed the frame budget; stretching the interval by the measured step time bounds the
   // worker's CPU share instead of pegging a core at 100%.
   const delay = Math.max(TICK_INTERVAL_MS, stepMs * DUTY_FACTOR);
   timer = setTimeout(tick, delay);

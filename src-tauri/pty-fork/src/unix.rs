@@ -57,10 +57,8 @@ fn openpty(size: PtySize) -> anyhow::Result<(UnixMasterPty, UnixSlavePty)> {
         fd: PtyFd(unsafe { FileDescriptor::from_raw_fd(slave) }),
     };
 
-    // Ensure that these descriptors will get closed when we execute
-    // the child process.  This is done after constructing the Pty
-    // instances so that we ensure that the Ptys get drop()'d if
-    // the cloexec() functions fail (unlikely!).
+    // Ensure that these descriptors will get closed when we execute the child process. This is done after constructing the Pty instances so that
+    // we ensure that the Ptys get drop()'d if the cloexec() functions fail (unlikely!).
     cloexec(master.fd.as_raw_fd())?;
     cloexec(slave.fd.as_raw_fd())?;
 
@@ -94,10 +92,8 @@ impl Read for PtyFd {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
         match self.0.read(buf) {
             Err(ref e) if e.raw_os_error() == Some(libc::EIO) => {
-                // EIO indicates that the slave pty has been closed.
-                // Treat this as EOF so that std::io::Read::read_to_string
-                // and similar functions gracefully terminate when they
-                // encounter this condition
+                // EIO indicates that the slave pty has been closed. Treat this as EOF so that std::io::Read::read_to_string and similar functions gracefully
+                // terminate when they encounter this condition
                 Ok(0)
             }
             x => x,
@@ -113,9 +109,7 @@ fn tty_name(fd: RawFd) -> Option<PathBuf> {
 
         if res == libc::ERANGE {
             if buf.len() > 64 * 1024 {
-                // on macOS, if the buf is "too big", ttyname_r can
-                // return ERANGE, even though that is supposed to
-                // indicate buf is "too small".
+                // on macOS, if the buf is "too big", ttyname_r can return ERANGE, even though that is supposed to indicate buf is "too small".
                 return None;
             }
             buf.resize(buf.len() * 2, 0 as std::ffi::c_char);
@@ -150,10 +144,8 @@ fn tty_name(fd: RawFd) -> Option<PathBuf> {
 /// to provide the list of open fds.  Any errors in enumerating or closing
 /// the fds are silently ignored.
 pub fn close_random_fds() {
-    // FreeBSD, macOS and presumably other BSDish systems have /dev/fd as
-    // a directory listing the current fd numbers for the process.
-    //
-    // On Linux, /dev/fd is a symlink to /proc/self/fd
+    // FreeBSD, macOS and presumably other BSDish systems have /dev/fd as a directory listing the current fd numbers for the process. On Linux,
+    // /dev/fd is a symlink to /proc/self/fd
     if let Ok(dir) = std::fs::read_dir("/dev/fd") {
         let mut fds = vec![];
         for entry in dir {
@@ -236,9 +228,7 @@ impl PtyFd {
                 .stdout(self.as_stdio()?)
                 .stderr(self.as_stdio()?)
                 .pre_exec(move || {
-                    // Clean up a few things before we exec the program
-                    // Clear out any potentially problematic signal
-                    // dispositions that we might have inherited
+                    // Clean up a few things before we exec the program Clear out any potentially problematic signal dispositions that we might have inherited
                     for signo in &[
                         libc::SIGCHLD,
                         libc::SIGHUP,
@@ -258,16 +248,12 @@ impl PtyFd {
                         return Err(io::Error::last_os_error());
                     }
 
-                    // Clippy wants us to explicitly cast TIOCSCTTY using
-                    // type::from(), but the size and potentially signedness
-                    // are system dependent, which is why we're using `as _`.
-                    // Suppress this lint for this section of code.
+                    // Clippy wants us to explicitly cast TIOCSCTTY using type::from(), but the size and potentially signedness are system dependent, which is why
+                    // we're using `as _`. Suppress this lint for this section of code.
                     #[allow(clippy::cast_lossless)]
                     if controlling_tty {
-                        // Set the pty as the controlling terminal.
-                        // Failure to do this means that delivery of
-                        // SIGWINCH won't happen when we resize the
-                        // terminal, among other undesirable effects.
+                        // Set the pty as the controlling terminal. Failure to do this means that delivery of SIGWINCH won't happen when we resize the terminal, among
+                        // other undesirable effects.
                         if libc::ioctl(0, libc::TIOCSCTTY as _, 0) == -1 {
                             return Err(io::Error::last_os_error());
                         }
@@ -285,11 +271,8 @@ impl PtyFd {
 
         let mut child = cmd.spawn()?;
 
-        // Ensure that we close out the slave fds that Child retains;
-        // they are not what we need (we need the master side to reference
-        // them) and won't work in the usual way anyway.
-        // In practice these are None, but it seems best to be move them
-        // out in case the behavior of Command changes in the future.
+        // Ensure that we close out the slave fds that Child retains; they are not what we need (we need the master side to reference them) and won't
+        // work in the usual way anyway. these are None, but it seems best to be move them out in case the behavior of Command changes in the future.
         child.stdin.take();
         child.stdout.take();
         child.stderr.take();
@@ -394,8 +377,7 @@ impl Drop for UnixMasterWriter {
     fn drop(&mut self) {
         let mut t: libc::termios = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
         if unsafe { libc::tcgetattr(self.fd.0.as_raw_fd(), &mut t) } == 0 {
-            // EOF is only interpreted after a newline, so if it is set,
-            // we send a newline followed by EOF.
+            // EOF is only interpreted after a newline, so if it is set, we send a newline followed by EOF.
             let eot = t.c_cc[libc::VEOF];
             if eot != 0 {
                 let _ = self.fd.0.write_all(&[b'\n', eot]);

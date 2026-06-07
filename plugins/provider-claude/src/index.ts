@@ -18,14 +18,8 @@ import { parseJsonlSession } from "./parser";
 import { Renderer } from "./renderer";
 import { statusOf } from "./status";
 
-// ── Per-line adapter ─────────────────────────────────────────────
-//
-// The original Claude parser was designed to process a whole JSONL
-// file at once (it carries per-message indexing for stable ids). For
-// the plugin contract we expose a per-line `parseLine` that runs the
-// same parser on one line and returns whichever ChatMessages it
-// produced, wrapped as ProviderEvents. The `payload` carries the full
-// ChatMessage so renderers don't lose any fidelity.
+// Per-line adapter: plugin contract parses one JSONL line at a time.
+// Parse full-session ownership stays in the plugin while messages are emitted as ProviderEvents.
 
 function parseLine(line: string): ProviderEvent[] {
   if (!line.trim()) return [];
@@ -38,9 +32,7 @@ function parseLine(line: string): ProviderEvent[] {
 }
 
 function chatMessageTypeToEventKind(type: string): string {
-  // Map the legacy ChatMessage.type → plugin-API ProviderEvent.kind.
-  // Keep names stable so status.ts and downstream consumers can
-  // pattern-match without coupling to renderer internals.
+  // Keep legacy ChatMessage.type → ProviderEvent.kind mapping for stable downstream pattern matching.
   switch (type) {
     case "user":
       return "user_message";
@@ -75,8 +67,7 @@ const plugin: ProviderPlugin = {
   statusOf,
   Renderer,
   actions: [
-    // Bare-bones for now. Provider-specific slash commands the user
-    // can trigger from pane chrome go here.
+    // Bare-bones for now. Provider-specific slash commands the user can trigger from pane chrome go here.
     {
       id: "compact",
       label: "/compact",
@@ -91,9 +82,7 @@ const plugin: ProviderPlugin = {
   noisePatterns,
   titlePattern,
   imageSend: {
-    // Claude Code reads from the OS clipboard when it sees Ctrl+V
-    // (0x16). Sending the file path as raw text doesn't trigger image
-    // upload — clipboard is the only reliable channel.
+    // Use OS clipboard paste for image insertion; raw file paths are not treated as images.
     method: "clipboard-paste",
     pasteKeystroke: "\x16",
   },

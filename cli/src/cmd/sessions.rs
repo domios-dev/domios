@@ -8,8 +8,7 @@ fn shell_quote(s: &str) -> String {
     }
 }
 
-// Minimal unix-ts-to-"YYYY-MM-DD HH:MM" formatter (UTC). Avoids pulling
-// chrono into the CLI crate just for a date label.
+// UTC date helper: unix-ts -> "YYYY-MM-DD HH:MM", no chrono dependency in CLI.
 fn format_unix_ts(ts: i64) -> String {
     if ts <= 0 {
         return "?".into();
@@ -88,10 +87,7 @@ pub fn handle_sessions(
                 if !project.is_empty() {
                     println!("  project: {}", project);
                 }
-                // Claude's `--resume` scans the CURRENT cwd's encoded project
-                // dir, so you must `cd` to `project_path` first or the JSONL
-                // won't be found even though we just located it. Include the
-                // cd step in the hint when we know the path.
+                // Claude resolves --resume by encoded cwd, so include a `cd <project_path>` hint when known.
                 let resume_cmd = match provider_id {
                     "claude" => format!("claude --resume {}", sid),
                     "codex" => format!("codex resume {}", sid),

@@ -288,8 +288,7 @@ pub fn rank_panes<'a>(pattern: &str, panes: &'a [serde_json::Value]) -> Vec<(i32
             let agent = field(p, "agent_type");
             let model = field(p, "agent_session_model");
             let mut score = 0i32;
-            // id prefix only counts at ≥4 chars — one-letter needles like "a"
-            // otherwise match ~6% of all UUIDs and drown the real result.
+            // id prefix only counts at ≥4 chars — one-letter needles like "a" otherwise match ~6% of all UUIDs and drown the real result.
             if needle.len() >= 4 && id.starts_with(&needle) { score += 100; }
             score += score_field(&sname, &needle, &needle_translit, 80, 50);
             score += score_field(&tab_title, &needle, &needle_translit, 75, 45);
@@ -340,10 +339,8 @@ fn sfield<'a>(v: &'a serde_json::Value, key: &str) -> &'a str {
 }
 
 fn strip_separators(s: &str) -> String {
-    // Apostrophes get inserted by `deunicode` for Cyrillic soft signs
-    // (Дальтон → Dal'ton); strip them so the compact match still hits a
-    // plain "Dalton" tab. Same for whitespace / dash / underscore which
-    // commonly differ between user input and stored titles.
+    // Apostrophes get inserted by `deunicode` for Cyrillic soft signs (Дальтон → Dal'ton); strip them so the compact match still hits a plain
+    // "Dalton" tab. Same for whitespace / dash / underscore which commonly differ between user input and stored titles.
     s.chars()
         .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_' && *c != '\'')
         .collect()
@@ -374,9 +371,7 @@ fn score_field(haystack: &str, needle: &str, needle_translit: &str, exact: i32, 
 /// so the user gets the same info they see in the sidebar.
 pub fn format_pane_row(p: &serde_json::Value) -> String {
     let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-    // One label — the sidebar name. Tab title wins (that's what the user
-    // sees and what `pane rename` updates); falls back to pane.title only
-    // when the tab title is missing.
+    // One label — the sidebar name. Tab title wins (that's what the user sees and what `pane rename` updates); falls back to pane.title only when the tab title is missing.
     let label = {
         let tab_title = p.get("tab_title").and_then(|v| v.as_str()).unwrap_or("");
         let pane_title = p.get("title").and_then(|v| v.as_str()).unwrap_or("");
@@ -400,8 +395,8 @@ pub fn render_pane_tree(panes: &[serde_json::Value]) -> String {
         model: String,
         parent: Option<String>,
     }
-    // Group by workspace. BTreeMap keeps a stable (name, id) ordering so the
-    // output doesn't reshuffle between calls (panes arrive HashMap-unordered).
+    // Group by workspace. BTreeMap keeps a stable (name, id) ordering so the output doesn't reshuffle between calls (panes arrive
+    // HashMap-unordered).
     let mut groups: std::collections::BTreeMap<(String, String), Vec<Row>> =
         std::collections::BTreeMap::new();
     for p in panes {
@@ -438,8 +433,7 @@ pub fn render_pane_tree(panes: &[serde_json::Value]) -> String {
             out.push_str(&format!("{}  {}\n", name, ws_id));
         }
 
-        // Nest by parent within the workspace. A pane whose parent lives in
-        // another workspace (or has none) is a root here.
+        // Nest by parent within the workspace. A pane whose parent lives in another workspace (or has none) is a root here.
         let ids: std::collections::HashSet<&str> = rows.iter().map(|r| r.id.as_str()).collect();
         let mut children: std::collections::HashMap<&str, Vec<usize>> =
             std::collections::HashMap::new();
@@ -565,9 +559,7 @@ mod tests {
 
     #[test]
     fn tab_title_matches_friendly_name() {
-        // Regression: user searches "dalton" (workspace-tree label), expects
-        // the matching pane back. Before tab_title was wired in, the matcher
-        // ignored it and returned "No panes match".
+        // Regression: use workspace-tree tab title in matching so labels like "dalton" still find the expected pane.
         let panes = vec![
             json!({"id": "11111111", "title": "claude-with-text", "tab_title": "Dalton"}),
             json!({"id": "22222222", "title": "silent-claude",    "tab_title": "Thomson"}),
@@ -579,8 +571,7 @@ mod tests {
 
     #[test]
     fn tab_title_contains_outranks_title_contains() {
-        // Tab title is more user-facing than the raw pane.title; "fib" should
-        // hit Fibonacci's tab over a pane that just has "fib" in its title.
+        // Tab title is more user-facing than the raw pane.title; "fib" should hit Fibonacci's tab over a pane that just has "fib" in its title.
         let panes = vec![
             json!({"id": "aa11", "title": "ignore-me-fib"}),
             json!({"id": "bb22", "title": "claude", "tab_title": "Fibonacci"}),
@@ -591,8 +582,7 @@ mod tests {
 
     #[test]
     fn model_field_is_searchable() {
-        // Asking for "sonnet" or "haiku" finds panes currently running that
-        // model — covers the "which tabs have opus available?" workflow.
+        // Asking for "sonnet" or "haiku" finds panes currently running that model — covers the "which tabs have opus available?" workflow.
         let panes = vec![
             json!({"id": "p1111111", "title": "t1", "agent_type": "claude",  "agent_session_model": "Sonnet"}),
             json!({"id": "p2222222", "title": "t2", "agent_type": "opencode","agent_session_model": "Deepseek"}),
@@ -634,9 +624,7 @@ mod tests {
 
     #[test]
     fn latin_needle_matches_cyrillic_tab_title() {
-        // Reverse direction: pane name is Cyrillic, user types Latin needle.
-        // deunicode renders Андрей → "Andrei" (Library of Congress style), so
-        // the test uses that romanization.
+        // Reverse matching uses deunicode romanization so Cyrillic pane names can be found by Latin input.
         let panes = vec![
             json!({"id": "33333333", "title": "claude", "tab_title": "Андрей"}),
             json!({"id": "44444444", "title": "claude", "tab_title": "Misha"}),

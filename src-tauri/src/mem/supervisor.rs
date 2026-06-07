@@ -518,8 +518,7 @@ mod tests {
     /// needing the CLI binary to be built first.
     #[test]
     fn cli_source_still_declares_run_worker() {
-        // Clap derives live in cli/src/args/mem.rs (extracted in PR 99f4948 / a624ae7);
-        // dispatch logic + kind strings still live in cli/src/main.rs.
+        // Clap derives live in cli/src/args/mem.rs (extracted in PR 99f4948 / a624ae7); dispatch logic + kind strings still live in cli/src/main.rs.
         let args_src = include_str!("../../../cli/src/args/mem.rs");
         assert!(
             args_src.contains(r#"#[clap(name = "run-worker")]"#),
