@@ -8,6 +8,7 @@ import { NotificationToastContainer } from "./components/Notifications/Notificat
 import { SettingsPanel, type SectionId } from "./components/Settings/SettingsPanel";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
+import { GitPanel } from "./components/GitPanel/GitPanel";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
@@ -72,18 +73,21 @@ function AppInner() {
     () => typeof window === "undefined" || window.innerWidth > 640,
   );
   const keyboardInset = useKeyboardInset();
-  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh">("workspace");
+  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "git">("workspace");
+  const [gitRepoCwd, setGitRepoCwd] = useState<string | null>(null);
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
   const [mountedSettings, setMountedSettings] = useState(false);
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
+  const [mountedGit, setMountedGit] = useState(false);
   const [mountedTabIds, setMountedTabIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
     if (mainView === "mesh") setMountedMesh(true);
+    if (mainView === "git") setMountedGit(true);
   }, [mainView]);
   const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
@@ -105,6 +109,10 @@ function AppInner() {
       const open = typeof next === "function" ? next(wasOpen) : next;
       return open ? "mesh" : "workspace";
     });
+  }, []);
+  const openGit = useCallback((repoRoot: string) => {
+    setGitRepoCwd(repoRoot);
+    setMainView("git");
   }, []);
   // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
   const { config, updateConfig, theme } = useConfig();
@@ -132,8 +140,8 @@ function AppInner() {
     spawnClaudeTab,
   } = useMultiplexer();
 
-  // Git info hook (side effects: updates git status in state)
-  useGitInfo(state.focused_pane_id);
+  // Git info for the focused pane — drives the per-pane GitBubble (no extra polling).
+  const focusedGitInfo = useGitInfo(state.focused_pane_id);
 
   // When user focuses any pane (via sidebar click, Ctrl+Tab, etc), return to workspace view
   const lastFocusedRef = useRef(state.focused_pane_id);
@@ -631,6 +639,22 @@ function AppInner() {
               />
             </div>
           )}
+          {mountedGit && (
+            <div
+              className="absolute inset-0"
+              style={{
+                zIndex: mainView === "git" ? 2 : 0,
+                visibility: mainView === "git" ? "visible" : "hidden",
+                pointerEvents: mainView === "git" ? "auto" : "none",
+              }}
+            >
+              <GitPanel
+                api={config.api}
+                cwd={gitRepoCwd}
+                onClose={() => setMainView("workspace")}
+              />
+            </div>
+          )}
           {state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
@@ -657,6 +681,8 @@ function AppInner() {
                   fontConfig={config.font}
                   terminalConfig={config.terminal}
                   usageEnabledByProvider={usageEnabledByProvider}
+                  gitInfo={state.focused_pane_id === tab.pane_id ? focusedGitInfo : null}
+                  onOpenGit={openGit}
                 />
               </div>
                 );

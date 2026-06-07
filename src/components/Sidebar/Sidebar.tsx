@@ -50,7 +50,7 @@ interface SidebarProps {
   onOpenMemory?: () => void;
   onOpenMesh?: () => void;
   onNavigateToTab?: () => void;
-  mainView?: "workspace" | "settings" | "memory" | "mesh";
+  mainView?: "workspace" | "settings" | "memory" | "mesh" | "git";
   config?: AppConfig;
 }
 
