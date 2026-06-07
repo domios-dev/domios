@@ -53,6 +53,23 @@ export async function loadCachedSnapshot(): Promise<GraphSnapshot | null> {
   });
 }
 
+export async function clearCachedSnapshot(): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).delete(KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch {
+      resolve();
+    } finally {
+      db.close();
+    }
+  });
+}
+
 export async function saveCachedSnapshot(snapshot: GraphSnapshot): Promise<void> {
   const db = await openDb();
   if (!db) return;

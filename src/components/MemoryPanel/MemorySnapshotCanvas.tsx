@@ -10,10 +10,13 @@ import type { MemEdge, MemNode } from "./types";
 import type { Pulse } from "./useActivityPulses";
 import type { NodeIndex } from "./snapshotLogic";
 import {
+  EDGE_DETAIL_RATIO,
   edgeCandidates,
+  inViewport,
   isZoomedOut,
   labelCandidates,
   overviewNodes,
+  SMALL_GRAPH_THRESHOLD,
   type Bounds,
 } from "./snapshotLogic";
 import type { SnapshotEdge, SnapshotNode } from "./snapshotTypes";
@@ -31,6 +34,7 @@ interface Props {
 const SELECTION_COLOR = "#c9d1d9";
 const EDGE_RGB = "100,116,139";
 const CLUSTER_COLOR = "#5b6472";
+const GHOST_COLOR = "rgba(91,100,114,0.08)";
 const LOD_DEBOUNCE_MS = 120;
 
 function nodeSize(importance: number): number {
@@ -72,6 +76,8 @@ export function MemorySnapshotCanvas({
   const fetchedEdgesRef = useRef<Set<string>>(new Set());
   const [labelTick, setLabelTick] = useState(0);
   const [egoEdges, setEgoEdges] = useState<SnapshotEdge[]>([]);
+  // Selected node + its 1-hop neighborhood; everything else renders ghosted.
+  const egoSetRef = useRef<Set<string> | null>(null);
 
   const [selectedIdInternal, setSelectedIdInternal] = useState<string | null>(null);
   const selectedId =
@@ -134,9 +140,25 @@ export function MemorySnapshotCanvas({
             zIndex: 1,
           };
         }
+        const ego = egoSetRef.current;
+        if (ego && !ego.has(node)) {
+          return { ...data, color: GHOST_COLOR, label: "", zIndex: 0 };
+        }
         const label = (data.label as string) ?? "";
+        if (ego) {
+          // 1-hop neighbor: full color, show its title when we have it.
+          return { ...data, label: labelsRef.current.get(node) ?? label, zIndex: 1 };
+        }
         // Cluster aggregates keep their label; item labels appear only when fetched.
         return { ...data, label: data.isCluster ? label : "" };
+      },
+      edgeReducer: (edge, data) => {
+        const sel = selectedIdRef.current;
+        if (!sel || !egoSetRef.current) return data;
+        const g = graphRef.current;
+        if (!g) return data;
+        const touches = g.extremities(edge).includes(sel);
+        return touches ? { ...data, zIndex: 1 } : { ...data, hidden: true };
       },
     });
     sigmaRef.current = sigma;
@@ -202,28 +224,36 @@ export function MemorySnapshotCanvas({
     if (!graph || !sigma) return;
     const idx = indexRef.current;
     const ratio = sigma.getCamera().ratio;
-    const zoomedOut = isZoomedOut(ratio);
+    const zoomedOut = isZoomedOut(ratio, idx.byId.size);
+    const hadExtent = graph.order > 0;
 
     graph.clear();
 
     if (zoomedOut) {
       buildClusterView(graph, idx);
-    } else {
-      const bounds = viewportBounds(sigma);
-      buildDetailView(graph, idx, bounds, labelsRef.current);
-      applyRealEdges(graph, edgesByNodeRef.current);
-      applyEgoEdges(graph, selectedIdRef.current, edgesByNodeRef.current);
-      void fetchViewportData(api, idx, bounds);
+      sigma.refresh();
+      return;
     }
+    // Viewport filtering needs a valid extent — skip it for small graphs
+    // and on the first build, when viewportToGraph has nothing to map against.
+    const small = idx.byId.size <= SMALL_GRAPH_THRESHOLD;
+    const bounds = small || !hadExtent ? null : viewportBounds(sigma);
+    buildDetailView(graph, idx, bounds, labelsRef.current);
+    // Mass edges only when zoomed in deep — the overview stays a clean map;
+    // the selected node's ego edges are always visible.
+    const showEdges = ratio <= EDGE_DETAIL_RATIO;
+    if (showEdges) applyRealEdges(graph, edgesByNodeRef.current);
+    applyEgoEdges(graph, selectedIdRef.current, edgesByNodeRef.current);
     sigma.refresh();
+    void fetchViewportData(api, idx, bounds ?? viewportBounds(sigma), showEdges);
   }, [api]);
 
   // Lazy fetch for the viewport: labels + edges, dedupe, cache, max 500/req.
   const fetchViewportData = useCallback(
-    async (a: ApiConfig, idx: NodeIndex, bounds: Bounds) => {
+    async (a: ApiConfig, idx: NodeIndex, bounds: Bounds, wantEdges: boolean) => {
       const nodes = [...idx.byId.values()];
       const labelIds = labelCandidates(nodes, bounds, fetchedLabelsRef.current);
-      const edgeIds = edgeCandidates(nodes, bounds, fetchedEdgesRef.current);
+      const edgeIds = wantEdges ? edgeCandidates(nodes, bounds, fetchedEdgesRef.current) : [];
       if (labelIds.length) {
         for (const id of labelIds) fetchedLabelsRef.current.add(id);
         try {
@@ -273,6 +303,21 @@ export function MemorySnapshotCanvas({
       if (timer != null) window.clearTimeout(timer);
     };
   }, [rebuildGraph]);
+
+  // Selection + its 1-hop neighborhood; everything outside renders ghosted.
+  useEffect(() => {
+    if (!selectedId) {
+      egoSetRef.current = null;
+    } else {
+      const set = new Set<string>([selectedId]);
+      for (const e of egoEdges) {
+        set.add(e.from);
+        set.add(e.to);
+      }
+      egoSetRef.current = set;
+    }
+    sigmaRef.current?.refresh({ skipIndexation: true });
+  }, [selectedId, egoEdges]);
 
   // Selected node → always fetch + show its ego edges.
   useEffect(() => {
@@ -546,13 +591,11 @@ function buildClusterView(graph: Graph, idx: NodeIndex) {
 function buildDetailView(
   graph: Graph,
   idx: NodeIndex,
-  bounds: Bounds,
+  bounds: Bounds | null,
   labels: Map<string, string>,
 ) {
   for (const n of idx.byId.values()) {
-    if (n.x < bounds.minX || n.x > bounds.maxX || n.y < bounds.minY || n.y > bounds.maxY) {
-      continue;
-    }
+    if (!inViewport(n, bounds)) continue;
     addItemNode(graph, n, labels.get(n.id) ?? "");
   }
 }

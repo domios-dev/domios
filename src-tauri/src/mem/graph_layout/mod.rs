@@ -4,6 +4,9 @@
 //! the surface available when the feature is off.
 
 pub mod cache;
+pub mod cluster;
+pub mod linlog;
+pub mod louvain;
 pub mod placement;
 pub mod project;
 pub mod snapshot;
