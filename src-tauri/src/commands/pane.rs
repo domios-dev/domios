@@ -233,6 +233,9 @@ pub struct ChatStartResult {
     pub text: String,
     pub start_offset: u64,
     pub offset: u64,
+    /// Agent pane exists but its session hasn't been created yet — render an empty chat and retry once the mux reports a session id.
+    #[serde(default)]
+    pub pending: bool,
 }
 
 #[tauri::command]
@@ -254,10 +257,15 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
         let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
         let cwd = pane.cwd.clone().unwrap_or_default();
-        let sid = pane
-            .agent_session_id
-            .clone()
-            .ok_or("pane has no session_id yet")?;
+        let Some(sid) = pane.agent_session_id.clone() else {
+            // Fresh agent pane: the session file appears with the first agent reply.
+            return Ok(ChatStartResult {
+                text: String::new(),
+                start_offset: 0,
+                offset: 0,
+                pending: true,
+            });
+        };
         (provider, cwd, sid, t.elapsed().as_millis())
     };
 
@@ -370,6 +378,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         text,
         start_offset: aligned_start as u64,
         offset: total,
+        pending: false,
     })
 }
 
