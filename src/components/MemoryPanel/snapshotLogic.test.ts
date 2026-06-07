@@ -5,6 +5,7 @@ import {
   inViewport,
   isZoomedOut,
   labelCandidates,
+  SMALL_GRAPH_THRESHOLD,
   overviewNodes,
   LOD_CLUSTER_RATIO,
   LOD_OVERVIEW_IMPORTANCE,
@@ -56,9 +57,14 @@ const FULL: Bounds = { minX: -1000, maxX: 1000, minY: -1000, maxY: 1000 };
 
 // --- LOD thresholds ---
 console.log("isZoomedOut threshold");
-assert("ratio above threshold = zoomed out", isZoomedOut(LOD_CLUSTER_RATIO + 0.01));
-assert("ratio at threshold = not zoomed out", !isZoomedOut(LOD_CLUSTER_RATIO));
-assert("ratio below threshold = not zoomed out", !isZoomedOut(0.2));
+const BIG = SMALL_GRAPH_THRESHOLD + 1;
+assert("big graph above ratio = zoomed out", isZoomedOut(LOD_CLUSTER_RATIO + 0.01, BIG));
+assert("big graph at ratio = not zoomed out", !isZoomedOut(LOD_CLUSTER_RATIO, BIG));
+assert("big graph below ratio = not zoomed out", !isZoomedOut(0.2, BIG));
+assert("small graph never zoomed out", !isZoomedOut(10, SMALL_GRAPH_THRESHOLD));
+
+console.log("\ninViewport null bounds = no filtering");
+assert("null bounds passes all", inViewport(node("n", { x: 9999, y: -9999 }), null));
 
 console.log("\noverviewNodes keeps only top-importance anchors");
 {

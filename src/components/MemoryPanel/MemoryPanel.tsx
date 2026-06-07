@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { List, Network } from "lucide-react";
+import { List, Network, RefreshCw } from "lucide-react";
 import { MemoryCanvas } from "./MemoryCanvas";
 import { MemorySnapshotCanvas } from "./MemorySnapshotCanvas";
 import { MemoryListTab } from "./MemoryListTab";
@@ -238,14 +238,26 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           </div>
         )}
         {activeTab === "inspect" && (
-          <button
-            type="button"
-            onClick={() => setInspectView(inspectView === "graph" ? "list" : "graph")}
-            className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} absolute bottom-4 left-1/2 -translate-x-1/2 z-10 gap-1.5 backdrop-blur-md shadow-lg`}
-          >
-            {inspectView === "graph" ? <List size={12} /> : <Network size={12} />}
-            {inspectView === "graph" ? "List" : "Graph"}
-          </button>
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setInspectView(inspectView === "graph" ? "list" : "graph")}
+              className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`}
+            >
+              {inspectView === "graph" ? <List size={12} /> : <Network size={12} />}
+              {inspectView === "graph" ? "List" : "Graph"}
+            </button>
+            {inspectView === "graph" && useSnapshot && (
+              <button
+                type="button"
+                title="Drop cached layout and refetch"
+                onClick={() => void snapshot.refresh()}
+                className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`}
+              >
+                <RefreshCw size={12} />
+              </button>
+            )}
+          </div>
         )}
         {activeTab === "activity" && (
           <MemoryActivityTab

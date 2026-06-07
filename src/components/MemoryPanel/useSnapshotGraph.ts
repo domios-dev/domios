@@ -7,7 +7,7 @@ import {
   fetchSnapshotDelta,
   isTauriEnv,
 } from "./memoryApi";
-import { loadCachedSnapshot, saveCachedSnapshot } from "./snapshotCache";
+import { clearCachedSnapshot, loadCachedSnapshot, saveCachedSnapshot } from "./snapshotCache";
 import {
   applyDelta,
   indexSnapshot,
@@ -24,6 +24,7 @@ export interface UseSnapshotGraphResult {
   status: SnapshotStatus;
   stats: GraphSnapshot["stats"] | null;
   error: string | null;
+  refresh: () => Promise<void>;
 }
 
 export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
@@ -33,6 +34,24 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
   const [error, setError] = useState<string | null>(null);
   const indexRef = useRef<NodeIndex | null>(null);
   indexRef.current = index;
+  const apiRef = useRef(api);
+  apiRef.current = api;
+
+  // Hard refresh: drop the IndexedDB cache and pull a fresh full snapshot.
+  const refresh = async () => {
+    await clearCachedSnapshot();
+    try {
+      const snap = await fetchSnapshot(apiRef.current);
+      setIndex(indexSnapshot(snap));
+      setStats(snap.stats);
+      setStatus("ready");
+      setError(null);
+      void saveCachedSnapshot(snap);
+    } catch (e) {
+      if (e instanceof SnapshotUnavailableError) setStatus("unavailable");
+      else setError(String(e));
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -151,5 +170,5 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
     };
   }, [api]);
 
-  return { index, status, stats, error };
+  return { index, status, stats, error, refresh };
 }

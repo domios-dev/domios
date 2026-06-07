@@ -2,8 +2,10 @@
 
 import type { DeltaChanged, GraphSnapshot, SnapshotNode } from "./snapshotTypes";
 
-// Camera ratio above this threshold = zoomed out → cluster-aggregate view.
-export const LOD_CLUSTER_RATIO = 1.5;
+// Sigma ratio 1 = whole graph visible; zooming IN shrinks the ratio.
+export const LOD_CLUSTER_RATIO = 0.5;
+// Graphs at or below this node count always render the full detail view.
+export const SMALL_GRAPH_THRESHOLD = 5000;
 // Min importance rank kept as item nodes while zoomed out (overview anchors).
 export const LOD_OVERVIEW_IMPORTANCE = 4;
 // Cap on labels requested per /labels batch (matches backend MAX_IDS).
@@ -12,6 +14,9 @@ export const LABEL_BATCH_CAP = 500;
 export const EDGE_BATCH_CAP = 500;
 // Min importance for a viewport node to qualify for a lazy label fetch.
 export const LABEL_MIN_IMPORTANCE = 2;
+// Real edges render only when zoomed in at least this deep — the full-graph
+// view stays a clean node map instead of an all-edges hairball.
+export const EDGE_DETAIL_RATIO = 0.7;
 
 export interface NodeIndex {
   byId: Map<string, SnapshotNode>;
@@ -60,7 +65,8 @@ export function applyDelta(prev: NodeIndex, delta: DeltaChanged): NodeIndex {
   return { ...prev, byId, layoutVersion: delta.layout_version, seq: delta.seq };
 }
 
-export function isZoomedOut(cameraRatio: number): boolean {
+export function isZoomedOut(cameraRatio: number, nodeCount: number): boolean {
+  if (nodeCount <= SMALL_GRAPH_THRESHOLD) return false;
   return cameraRatio > LOD_CLUSTER_RATIO;
 }
 
@@ -76,14 +82,16 @@ export interface Bounds {
   maxY: number;
 }
 
-export function inViewport(n: SnapshotNode, b: Bounds): boolean {
+// Null bounds = no filtering (small graph / first build before extent exists).
+export function inViewport(n: SnapshotNode, b: Bounds | null): boolean {
+  if (!b) return true;
   return n.x >= b.minX && n.x <= b.maxX && n.y >= b.minY && n.y <= b.maxY;
 }
 
 // Viewport nodes that deserve a lazy label fetch, highest importance first, capped.
 export function labelCandidates(
   nodes: SnapshotNode[],
-  bounds: Bounds,
+  bounds: Bounds | null,
   alreadyFetched: Set<string>,
   cap: number = LABEL_BATCH_CAP,
 ): string[] {
@@ -103,7 +111,7 @@ export function labelCandidates(
 // Viewport node ids that need their real edges, capped, skipping cached ones.
 export function edgeCandidates(
   nodes: SnapshotNode[],
-  bounds: Bounds,
+  bounds: Bounds | null,
   alreadyFetched: Set<string>,
   cap: number = EDGE_BATCH_CAP,
 ): string[] {

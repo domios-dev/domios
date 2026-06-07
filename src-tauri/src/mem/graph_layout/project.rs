@@ -58,22 +58,22 @@ pub fn load_entity_ids(conn: &rusqlite::Connection) -> Result<Vec<String>, Strin
 }
 
 /// Project 384-dim vectors to 2D via the annembed UMAP-style pipeline.
-/// Returns points in the same order as `vectors`.
+/// Returns (points, knn adjacency), both indexed in `vectors` order.
 /// macOS-only: annembed's LAPACK backend is the Accelerate framework.
 #[cfg(all(feature = "embeddings", target_os = "macos"))]
-fn project_2d(vectors: &[Vec<f32>]) -> Result<Vec<(f32, f32)>, String> {
+fn project_2d(vectors: &[Vec<f32>]) -> Result<(Vec<(f32, f32)>, Vec<Vec<usize>>), String> {
     use annembed::fromhnsw::kgraph_from_hnsw_all;
     use annembed::prelude::*;
     use hnsw_rs::prelude::{DistCosine, Hnsw};
 
     let n = vectors.len();
     if n == 0 {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
     // Tiny inputs can't form a meaningful neighborhood graph — fall back to a
     // deterministic line so the cache still gets positions.
     if n < 16 {
-        return Ok((0..n).map(|i| (i as f32, 0.0)).collect());
+        return Ok(((0..n).map(|i| (i as f32, 0.0)).collect(), vec![Vec::new(); n]));
     }
 
     let max_nb_conn = 16usize;
@@ -85,6 +85,31 @@ fn project_2d(vectors: &[Vec<f32>]) -> Result<Vec<(f32, f32)>, String> {
 
     let kgraph =
         kgraph_from_hnsw_all::<f32, DistCosine, f64>(&hnsw, 15).map_err(|e| format!("kgraph: {e}"))?;
+
+    // Mutual-kNN adjacency in original data-id space: keep an edge only when
+    // both endpoints list each other. Sparser than raw kNN → label propagation
+    // finds fine-grained communities instead of two giant blobs.
+    let mut directed: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    for (idx, edges) in kgraph.get_neighbours().iter().enumerate() {
+        let Some(&from) = kgraph.get_data_id_from_idx(idx) else {
+            continue;
+        };
+        for e in edges {
+            if let Some(&to) = kgraph.get_data_id_from_idx(e.node) {
+                directed[from].insert(to);
+            }
+        }
+    }
+    let mut knn: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for from in 0..n {
+        for &to in &directed[from] {
+            if from < to && directed[to].contains(&from) {
+                knn[from].push(to);
+                knn[to].push(from);
+            }
+        }
+    }
+
     let mut params = EmbedderParams::default();
     params.asked_dim = 2;
     let mut embedder = Embedder::new(&kgraph, params);
@@ -96,7 +121,7 @@ fn project_2d(vectors: &[Vec<f32>]) -> Result<Vec<(f32, f32)>, String> {
     for i in 0..n {
         out.push((emb[[i, 0]] as f32, emb[[i, 1]] as f32));
     }
-    Ok(out)
+    Ok((out, knn))
 }
 
 /// Run the full projection and swap the cache. Returns the new layout_version.
@@ -108,9 +133,69 @@ pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64,
     log::info!("[graph_layout] full projection: {n} primary vectors");
 
     let raw: Vec<Vec<f32>> = vectors.iter().map(|(_, v)| v.clone()).collect();
-    let projected = project_2d(&raw)?;
-    let normalized = placement::normalize(&projected);
-    let clusters = placement::grid_cluster(&normalized);
+    let (projected, knn) = project_2d(&raw)?;
+    let mut normalized = placement::normalize(&projected);
+
+    // LinLog refinement: shorten drawn relation edges (fewer crossings) while
+    // mutual-kNN edges keep the semantic neighborhoods from drifting apart.
+    let id_index: HashMap<&str, usize> = vectors
+        .iter()
+        .enumerate()
+        .map(|(i, (id, _))| (id.as_str(), i))
+        .collect();
+    let adj = load_active_adjacency(conn)?;
+    let mut edges: Vec<super::linlog::WeightedEdge> = Vec::new();
+    for (from, tos) in &adj {
+        let Some(&a) = id_index.get(from.as_str()) else {
+            continue;
+        };
+        for to in tos {
+            let Some(&b) = id_index.get(to.as_str()) else {
+                continue;
+            };
+            if a < b {
+                edges.push(super::linlog::WeightedEdge { a, b, weight: 2.0 });
+            }
+        }
+    }
+    for (a, nbs) in knn.iter().enumerate() {
+        for &b in nbs {
+            if a < b {
+                edges.push(super::linlog::WeightedEdge { a, b, weight: 0.3 });
+            }
+        }
+    }
+    super::linlog::refine(&mut normalized, &edges);
+    let mut normalized = placement::normalize(&normalized);
+
+    // Primary clustering: Louvain communities over the relation graph — the
+    // drawn edges define the clusters. Nodes without relations join the
+    // community their embedding kNN neighbors vote for; still-unattached
+    // nodes fall back to kNN label propagation communities.
+    let relation_edges: Vec<super::louvain::LouvainEdge> = edges
+        .iter()
+        .filter(|e| e.weight > 0.5)
+        .map(|e| super::louvain::LouvainEdge { a: e.a, b: e.b, weight: e.weight })
+        .collect();
+    let mut clusters = if relation_edges.is_empty() {
+        super::cluster::label_propagation(&knn)
+    } else {
+        let mut has_edge = vec![false; n];
+        for e in &relation_edges {
+            has_edge[e.a] = true;
+            has_edge[e.b] = true;
+        }
+        let mut labels = super::louvain::louvain(n, &relation_edges);
+        super::cluster::attach_by_neighbors(&mut labels, &has_edge, &knn);
+        labels
+    };
+    super::cluster::split_oversized(&mut clusters, &normalized);
+    super::cluster::merge_small(&mut clusters, &normalized);
+    super::cluster::centroid_pull(&mut normalized, &clusters);
+    let relation_pairs: Vec<(usize, usize)> =
+        relation_edges.iter().map(|e| (e.a, e.b)).collect();
+    super::cluster::snap_leaves(&mut normalized, &relation_pairs);
+    let normalized = placement::normalize(&normalized);
 
     let mut positions: HashMap<String, Position> = HashMap::with_capacity(n);
     for (i, (id, _)) in vectors.iter().enumerate() {
