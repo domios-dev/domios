@@ -69,6 +69,7 @@ interface ChatStartResult {
   text: string;
   offset: number;
   start_offset?: number;
+  pending?: boolean;
 }
 
 interface RawDeltaEvent {
@@ -400,6 +401,11 @@ export function PaneSessionChat({
     });
   }, []);
 
+  // A fresh agent pane reports pending=true (no JSONL session yet) — render
+  // the normal empty chat (sends ride the PTY) and re-run this effect when
+  // the mux snapshot delivers the session id.
+  const agentSessionId = muxState.panes[paneId]?.agent_session_id ?? null;
+
   useEffect(() => {
     let cancelled = false;
     let unlisten: UnlistenFn | null = null;
@@ -407,10 +413,12 @@ export function PaneSessionChat({
       try {
         const res = await invoke<ChatStartResult>("chat_start", { paneId });
         if (cancelled) return;
+        setError(null);
         setRawText(res.text || "");
         setEarliestOffset(res.start_offset ?? 0);
         setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
         setLoading(false);
+        if (res.pending) return;
         unlisten = await listen<RawDeltaEvent>(
           `pane-chat-raw-${paneId}`,
           (ev) => {
@@ -433,7 +441,7 @@ export function PaneSessionChat({
       unlisten?.();
       void invoke("chat_stop", { paneId }).catch(() => {});
     };
-  }, [paneId]);
+  }, [paneId, agentSessionId]);
 
   useEffect(() => {
     if (error?.includes("chat_send_raw")) setError(null);
