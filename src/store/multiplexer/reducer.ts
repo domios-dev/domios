@@ -43,7 +43,7 @@ export type Action =
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
     case "SET_STATE": {
-      // Backend is authoritative for state; one pane per tab means no split-ratio to preserve.
+      // Backend is authoritative; one pane per tab means no split ratio.
       const mergedWorkspaces = action.state.workspaces;
       const mergedPanes = { ...action.state.panes };
       for (const [id, backendPane] of Object.entries(mergedPanes)) {
@@ -163,7 +163,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     }
 
     case "ADD_TAB": {
-      // Do not auto-focus on tab creation; caller decides (UI clicks do, background spawns don't).
+      // Caller decides focus on tab creation; don't auto-focus here.
       return {
         ...state,
         workspaces: state.workspaces.map((ws) =>
@@ -233,7 +233,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     }
 
     case "SET_FOCUSED_PANE":
-      // Ignore focus updates for unknown panes; state merge may be in flight (retry once).
+      // Ignore focus updates for unknown panes while state merge is in flight.
       if (action.paneId && !state.panes[action.paneId]) return state;
       return { ...state, focused_pane_id: action.paneId };
 

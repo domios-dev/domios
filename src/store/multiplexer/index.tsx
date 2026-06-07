@@ -296,7 +296,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const spawnAgentTab = useCallback(async (workspaceId: string, agentId: string, skipPermissions: boolean, cwd?: string) => {
     try {
-      // Web UI cannot launch the pane client-side; delegate full agent spawn to the daemon.
+      // Web UI delegates full agent spawn to the daemon.
       if (IS_WEB) {
         const spawned = await webJson<{ pane_id: string }>("POST", "/api/agents/spawn", {
           agent: agentId,
@@ -318,7 +318,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         setPendingCwd(tabInfo.pane_id, cwd);
         await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd });
       }
-      // Set `agent_type` immediately so detect_from_output can save session IDs for resume.
+      // Set `agent_type` early so detect_from_output can save session IDs.
       invoke("mux_set_pane_agent_type", { paneId: tabInfo.pane_id, agentType: agentId }).catch(() => {});
       if (shouldDefaultNewAgentPaneToChat(agentId)) {
         setClientPaneUiMode(tabInfo.pane_id, "chat");
@@ -327,7 +327,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       setPendingCommand(tabInfo.pane_id, cmd);
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
-      // User-initiated agent spawn → focus into the new tab (same rationale as createTab).
+      // User-initiated spawns should focus the new tab.
       invoke("mux_set_focused_pane", { paneId: tabInfo.pane_id }).catch(() => {});
       refreshFromBackend();
     } catch (e) {

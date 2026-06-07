@@ -464,8 +464,7 @@ module.exports.default = {
       SessionStart:  newEntry("", sessionStartCmd, 5000),
     };
 
-    // Remove existing codeterm hook entries before appending new ones,
-    // so old v2 leftovers don't accumulate.
+    // Remove existing codeterm hooks before appending to avoid stale leftovers.
     var keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
     for (var i = 0; i < keys.length; i++) {
       var k = keys[i];
