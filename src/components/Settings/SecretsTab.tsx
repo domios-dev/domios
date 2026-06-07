@@ -5,6 +5,7 @@ import type { AppConfig, SecretsConfig } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { setPendingCommand } from "../../lib/pendingCommands";
 import { SettingsCard, SettingsPill } from "./shared";
+import { UI_BUTTON, UI_INPUT, UI_TEXT } from "../shared/design";
 
 type SecretsBackend = "local" | "bitwarden" | "mock";
 
@@ -367,8 +368,12 @@ export function SecretsTab({
     );
   }, [status]);
 
-  const inputClass =
-    "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
+  const inputClass = `${UI_INPUT.full} text-xs`;
+  const statusBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} text-[10px]`;
+  const applyBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`;
+  const primaryBtnClass = `${UI_BUTTON.primary} ${UI_BUTTON.compact} text-[10px]`;
+  const dangerBtnClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} border border-[var(--ct-red)]/40 text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10`;
+  const sectionLabelClass = UI_TEXT.sectionTitle;
 
   return (
     <div className="flex flex-col gap-5">
@@ -381,7 +386,7 @@ export function SecretsTab({
             <button
               onClick={refreshStatus}
               disabled={statusBusy}
-              className="text-[10px] px-2 py-0.5 rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] disabled:opacity-50"
+              className={`${statusBtnClass} disabled:opacity-50`}
             >
               refresh
             </button>
@@ -395,7 +400,7 @@ export function SecretsTab({
         }
       >
         <div className="space-y-1">
-          <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">Backend</div>
+          <div className={sectionLabelClass}>Backend</div>
           <select
             value={backend}
             onChange={(e) => void setBackend(e.target.value as SecretsBackend)}
@@ -416,7 +421,7 @@ export function SecretsTab({
 
         {backend === "bitwarden" && (
           <div className="space-y-1">
-            <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">
+            <div className={sectionLabelClass}>
               Server URL
             </div>
             <div className="flex gap-2">
@@ -431,7 +436,7 @@ export function SecretsTab({
               <button
                 onClick={() => void saveServerUrl()}
                 disabled={serverUrlInput.trim() === bitwardenServerUrl}
-                className="text-xs px-3 py-1.5 rounded border border-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:cursor-not-allowed"
+                className={`${applyBtnClass} disabled:opacity-40 disabled:cursor-not-allowed`}
               >
                 Apply
               </button>
@@ -461,12 +466,12 @@ export function SecretsTab({
                         className={inputClass}
                         required
                       />
-                      <button
-                        type="submit"
-                        className="text-xs px-3 py-1.5 rounded bg-[var(--ct-accent)] text-[var(--ct-bg)] hover:opacity-90 whitespace-nowrap"
-                      >
-                        Save
-                      </button>
+                    <button
+                      type="submit"
+                      className={`${primaryBtnClass} whitespace-nowrap`}
+                    >
+                      Save
+                    </button>
                     </form>
                     <div className="text-[10px] text-[var(--ct-muted-fg)]">
                       Stored as 0600 file in <code className="font-mono">~/.codeterm/secrets/bitwarden-master.env</code>. Copy to mesh peers for fleet-wide auto-unlock.
@@ -487,7 +492,7 @@ export function SecretsTab({
           <div className="flex items-center gap-2 pt-1">
             <button
               onClick={logout}
-              className="text-[11px] px-3 py-1.5 rounded border border-[var(--ct-red)]/40 text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10"
+              className={dangerBtnClass}
             >
               Sign out
             </button>
@@ -507,7 +512,7 @@ export function SecretsTab({
               <div className="flex items-center gap-2 pt-1">
                 <button
                   onClick={() => void installBitwardenCli()}
-                  className="text-xs px-3 py-1.5 rounded bg-[var(--ct-accent)] text-[var(--ct-bg)] hover:opacity-90 font-medium"
+                  className={`${primaryBtnClass} font-medium`}
                 >
                   Install Bitwarden CLI
                 </button>
@@ -531,13 +536,17 @@ export function SecretsTab({
           <div className="flex gap-1 text-[11px]">
             <button
               onClick={() => setActiveTab("password")}
-              className={`px-2.5 py-1 rounded border ${activeTab === "password" ? "bg-[var(--ct-accent)] text-[var(--ct-bg)] border-[var(--ct-accent)]" : "bg-transparent text-[var(--ct-muted-fg)] border-[var(--ct-border)]"}`}
+              className={`${UI_BUTTON.compact} border ${
+                activeTab === "password" ? UI_BUTTON.primary : UI_BUTTON.ghost
+              }`}
             >
               Password
             </button>
             <button
               onClick={() => setActiveTab("apikey")}
-              className={`px-2.5 py-1 rounded border ${activeTab === "apikey" ? "bg-[var(--ct-accent)] text-[var(--ct-bg)] border-[var(--ct-accent)]" : "bg-transparent text-[var(--ct-muted-fg)] border-[var(--ct-border)]"}`}
+              className={`${UI_BUTTON.compact} border ${
+                activeTab === "apikey" ? UI_BUTTON.primary : UI_BUTTON.ghost
+              }`}
             >
               API key
             </button>
@@ -571,7 +580,7 @@ export function SecretsTab({
               />
               <button
                 type="submit"
-                className="text-xs px-3 py-1.5 rounded bg-[var(--ct-accent)] text-[var(--ct-bg)] hover:opacity-90"
+                className={primaryBtnClass}
               >
                 Sign in
               </button>
@@ -608,7 +617,7 @@ export function SecretsTab({
               />
               <button
                 type="submit"
-                className="text-xs px-3 py-1.5 rounded bg-[var(--ct-accent)] text-[var(--ct-bg)] hover:opacity-90"
+                className={primaryBtnClass}
               >
                 Sign in with API key
               </button>
@@ -633,7 +642,7 @@ export function SecretsTab({
               setMasterPassword("dev-only");
               submitPasswordLogin(new Event("submit") as unknown as React.FormEvent);
             }}
-            className="text-xs px-3 py-1.5 rounded bg-[var(--ct-accent)] text-[var(--ct-bg)] hover:opacity-90"
+            className={primaryBtnClass}
           >
             Activate mock store
           </button>
@@ -664,7 +673,7 @@ export function SecretsTab({
             {backend === "bitwarden" && (
               <>
                 <div className="space-y-1">
-                  <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">Organization</div>
+                  <div className={sectionLabelClass}>Organization</div>
                   <select
                     value={cfg.default_organization}
                     onChange={(e) => setDefaultOrg(e.target.value)}
@@ -679,7 +688,7 @@ export function SecretsTab({
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">Collection</div>
+                  <div className={sectionLabelClass}>Collection</div>
                   <select
                     value={cfg.default_collection}
                     onChange={(e) => setDefaultColl(e.target.value)}
@@ -699,7 +708,7 @@ export function SecretsTab({
             <div className="flex gap-2 pt-1">
               <button
                 onClick={logout}
-                className="text-xs px-3 py-1.5 rounded border border-[var(--ct-red)]/40 text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10"
+                className={dangerBtnClass}
               >
                 Sign out
               </button>
@@ -712,7 +721,7 @@ export function SecretsTab({
             headerRight={
               <button
                 onClick={refreshItems}
-                className="text-[10px] px-2 py-0.5 rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+                className={statusBtnClass}
               >
                 refresh
               </button>

@@ -8,6 +8,7 @@ import {
 } from "./meshApi";
 import { CronDrawerSection } from "./CronDrawerSection";
 import { AddServiceWizard } from "./AddServiceWizard";
+import { UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
 
 type AccessLevel = "full" | "read_only" | "agent_isolated";
 
@@ -31,11 +32,9 @@ interface Props {
   onActionDone: () => void;
 }
 
-const PANEL_BASE =
-  "fixed top-9 right-0 bottom-0 bg-[var(--ct-titlebar-bg)] border-l border-[var(--ct-border)] p-4 flex flex-col gap-3 z-50 overflow-auto";
-
+const PANEL_BASE = UI_PANEL.drawerBase;
 const CLOSE_BUTTON_CLASS =
-  "text-[var(--ct-fg)] bg-[var(--ct-bg)] border border-[var(--ct-border)] hover:border-[var(--ct-accent)] hover:text-[var(--ct-accent)] cursor-pointer rounded w-7 h-7 flex items-center justify-center text-lg leading-none";
+  `${UI_PANEL.drawerClose} border border-[var(--ct-border)] hover:border-[var(--ct-accent)] hover:text-[var(--ct-accent)]`;
 
 function DrawerBackdrop({ onClose }: { onClose: () => void }) {
   useEffect(() => {
@@ -45,6 +44,7 @@ function DrawerBackdrop({ onClose }: { onClose: () => void }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
   return (
     <div
       className="fixed top-9 left-0 right-0 bottom-0 bg-black/30 z-40"
@@ -63,24 +63,28 @@ export function ServiceDrawer({
   onActionDone,
 }: Props) {
   if (!state) return null;
+
   if (state.kind === "peer") {
     const isSelf = state.id === thisMachineName;
     const peer = peers.find((p) => p.name === state.id) ?? (isSelf
       ? { instance_id: "self", name: thisMachineName, ip: thisMachineIp ?? "", api_port: 0, online: true, access_level: "full", last_seen: null } satisfies PeerStatus
       : null);
     if (!peer) return null;
+
     return (
       <PeerDrawer
         peer={peer}
         isSelf={isSelf}
-        services={services.filter((s) => isSelf ? !s.source_peer : s.source_peer === state.id)}
+        services={services.filter((s) => (isSelf ? !s.source_peer : s.source_peer === state.id))}
         onClose={onClose}
         onActionDone={onActionDone}
       />
     );
   }
+
   const service = services.find((s) => s.id === state.id);
   if (!service) return null;
+
   return (
     <SvcDrawer
       service={service}
@@ -105,6 +109,12 @@ function PeerDrawer({
 }) {
   const [busy, setBusy] = useState(false);
   const [showAddWizard, setShowAddWizard] = useState(false);
+  const badgeClass = "rounded text-[9px] px-1.5 py-0.5";
+  const sectionTextClass = `${UI_TEXT.metaMuted} text-[10px]`;
+  const sectionSelectClass = `${UI_INPUT.full} text-[10px] px-2 py-1`;
+  const peerActionBtnClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} border`;
+  const peerActionDangerClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} border border-[var(--ct-red)]/40 text-[var(--ct-red)]`;
+  const sectionListClass = "bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded p-2 flex flex-col gap-1 text-[10px]";
 
   const handleDisconnect = async () => {
     if (!confirm(`Disconnect from ${peer.name}?`)) return;
@@ -141,124 +151,128 @@ function PeerDrawer({
     <>
       <DrawerBackdrop onClose={onClose} />
       <div className={PANEL_BASE} style={{ width: 360 }}>
-      <div className="flex items-center justify-between">
-        <strong className="text-[var(--ct-fg)] truncate">{peer.name}</strong>
-        <button
-          onClick={onClose}
-          className={CLOSE_BUTTON_CLASS}
-          title="Close (Esc)"
-        >
-          ×
-        </button>
-      </div>
-
-      <div className="flex gap-1.5 flex-wrap">
-        {isSelf ? (
-          <span className="bg-[var(--ct-accent)] text-[var(--ct-bg)] px-1.5 py-0.5 rounded text-[9px] font-medium">
-            this machine
-          </span>
-        ) : (
-          <>
-            <span className="bg-[var(--ct-green)] text-[var(--ct-bg)] px-1.5 py-0.5 rounded text-[9px] font-medium">
-              paired
-            </span>
-            <span
-              className={`px-1.5 py-0.5 rounded text-[9px] ${peer.online ? "bg-[var(--ct-green)] text-[var(--ct-bg)]" : "bg-[var(--ct-bg)] text-[var(--ct-muted)]"}`}
-            >
-              {peer.online ? "online" : "offline"}
-            </span>
-            <span className="bg-[var(--ct-bg)] text-[var(--ct-muted)] px-1.5 py-0.5 rounded text-[9px]">
-              {peer.access_level}
-            </span>
-          </>
-        )}
-      </div>
-
-      <Section label="IP">
-        <div className="font-mono text-[10px] text-[var(--ct-fg)]">
-          {peer.ip || "(no address)"}
-        </div>
-      </Section>
-
-      <Section label="Instance ID">
-        <div className="font-mono text-[10px] text-[var(--ct-muted-fg)] break-all">
-          {peer.instance_id}
-        </div>
-      </Section>
-
-      {!isSelf && (
-        <Section label="Access level">
-          <select
-            value={peer.access_level}
-            disabled={busy}
-            onChange={(e) =>
-              handleAccessChange(e.target.value as AccessLevel)
-            }
-            className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-[10px] text-[var(--ct-fg)] w-full"
+        <div className="flex items-center justify-between">
+          <strong className="text-[var(--ct-fg)] truncate">{peer.name}</strong>
+          <button
+            onClick={onClose}
+            className={CLOSE_BUTTON_CLASS}
+            title="Close (Esc)"
           >
-            <option value="full">full</option>
-            <option value="read_only">read_only</option>
-            <option value="agent_isolated">agent_isolated</option>
-          </select>
-        </Section>
-      )}
+            ×
+          </button>
+        </div>
 
-      <Section label={`Services on this peer (${services.length})`}>
-        <div className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded p-2 flex flex-col gap-1 text-[10px]">
-          {services.length === 0 && (
-            <span className="text-[var(--ct-muted)] italic">
-              none registered
+        <div className="flex gap-1.5 flex-wrap">
+          {isSelf ? (
+            <span className={`${badgeClass} bg-[var(--ct-accent)] text-[var(--ct-bg)] font-medium`}>
+              this machine
             </span>
-          )}
-          {services.map((s) => (
-            <div key={s.id} className="flex items-center gap-1.5">
+          ) : (
+            <>
+              <span className={`${badgeClass} bg-[var(--ct-green)] text-[var(--ct-bg)] font-medium`}>
+                paired
+              </span>
               <span
-                className="w-1.5 h-1.5 rounded-full"
-                style={{
-                  background: healthColor(s.health.status),
-                }}
-              />
-              <span className="text-[var(--ct-fg)]">{s.name}</span>
-              <span className="text-[var(--ct-muted)]">· {s.kind}</span>
-            </div>
-          ))}
+                className={`${badgeClass} ${peer.online ? "bg-[var(--ct-green)] text-[var(--ct-bg)]" : "bg-[var(--ct-bg)] text-[var(--ct-muted)]"}`}
+              >
+                {peer.online ? "online" : "offline"}
+              </span>
+              <span className={`${badgeClass} bg-[var(--ct-bg)] text-[var(--ct-muted)]`}>
+                {peer.access_level}
+              </span>
+            </>
+          )}
         </div>
-      </Section>
 
-      <div className="mt-auto flex flex-col gap-1.5">
-        {isSelf && (
-          <button
-            onClick={() => setShowAddWizard(true)}
-            className="py-1.5 bg-transparent text-[var(--ct-accent)] border border-dashed border-[var(--ct-accent)] rounded text-[10px] cursor-pointer hover:bg-[var(--ct-accent)]/10"
-          >
-            + Add service
-          </button>
-        )}
-        <div className="flex gap-1.5">
-          <button
-            onClick={onActionDone}
-            disabled={busy}
-            className="flex-1 py-1.5 bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded text-[10px] cursor-pointer disabled:opacity-50"
-          >
-            Refresh
-          </button>
-          {!isSelf && (
-            <button
-              onClick={handleDisconnect}
+        <Section label="IP">
+          <div className={`${sectionTextClass} text-[var(--ct-fg)]`}>
+            {peer.ip || "(no address)"}
+          </div>
+        </Section>
+
+        <Section label="Instance ID">
+          <div className={`${sectionTextClass} text-[var(--ct-muted-fg)] break-all`}>
+            {peer.instance_id}
+          </div>
+        </Section>
+
+        {!isSelf && (
+          <Section label="Access level">
+            <select
+              value={peer.access_level}
               disabled={busy}
-              className="flex-1 py-1.5 bg-[var(--ct-red)] text-[var(--ct-bg)] border-none rounded text-[10px] cursor-pointer font-medium disabled:opacity-50"
+              onChange={(e) =>
+                handleAccessChange(e.target.value as AccessLevel)
+              }
+              className={sectionSelectClass}
             >
-              Disconnect
+              <option value="full">full</option>
+              <option value="read_only">read_only</option>
+              <option value="agent_isolated">agent_isolated</option>
+            </select>
+          </Section>
+        )}
+
+        <Section label={`Services on this peer (${services.length})`}>
+          <div className={sectionListClass}>
+            {services.length === 0 && (
+              <span className="text-[var(--ct-muted)] italic">
+                none registered
+              </span>
+            )}
+            {services.map((s) => (
+              <div key={s.id} className="flex items-center gap-1.5">
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{
+                    background: healthColor(s.health.status),
+                  }}
+                />
+                <span className="text-[var(--ct-fg)]">{s.name}</span>
+                <span className="text-[var(--ct-muted)]">· {s.kind}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <div className="mt-auto flex flex-col gap-1.5">
+          {isSelf && (
+            <button
+              onClick={() => setShowAddWizard(true)}
+              className={`${peerActionBtnClass} text-[var(--ct-accent)] border-dashed border-[var(--ct-accent)] hover:bg-[var(--ct-accent)]/10`}
+            >
+              + Add service
             </button>
           )}
+          <div className="flex gap-1.5">
+            <button
+              onClick={onActionDone}
+              disabled={busy}
+              className={`${peerActionBtnClass} flex-1 disabled:opacity-50`}
+            >
+              Refresh
+            </button>
+            {!isSelf && (
+              <button
+                onClick={handleDisconnect}
+                disabled={busy}
+                className={`${peerActionDangerClass} flex-1 disabled:opacity-50`}
+              >
+                Disconnect
+              </button>
+            )}
+          </div>
         </div>
-      </div>
-      {showAddWizard && (
-        <AddServiceWizard
-          onClose={() => setShowAddWizard(false)}
-          onCreated={() => { onActionDone(); setShowAddWizard(false); }}
-        />
-      )}
+
+        {showAddWizard && (
+          <AddServiceWizard
+            onClose={() => setShowAddWizard(false)}
+            onCreated={() => {
+              onActionDone();
+              setShowAddWizard(false);
+            }}
+          />
+        )}
       </div>
     </>
   );
@@ -275,6 +289,12 @@ function SvcDrawer({
 }) {
   const [showToken, setShowToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const sectionTextClass = `${UI_TEXT.metaMuted} text-[10px]`;
+  const sectionHealthClass = `${sectionTextClass} text-[var(--ct-fg)] flex flex-col gap-0.5`;
+  const serviceActionBtnClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} border`;
+  const serviceActionDangerClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} bg-[var(--ct-red)] text-[var(--ct-bg)] border-none font-medium`;
+  const pillClass = "rounded px-1.5 py-0.5 text-[9px]";
+  const tokenCardClass = "bg-[var(--ct-bg)] border border-[var(--ct-yellow)] rounded p-2 text-[10px]";
 
   const handleProbe = async () => {
     setBusy(true);
@@ -326,148 +346,148 @@ function SvcDrawer({
     <>
       <DrawerBackdrop onClose={onClose} />
       <div className={PANEL_BASE} style={{ width: 400 }}>
-      <div className="flex items-center justify-between">
-        <strong className="text-[var(--ct-fg)] truncate">{service.name}</strong>
-        <button
-          onClick={onClose}
-          className={CLOSE_BUTTON_CLASS}
-          title="Close (Esc)"
-        >
-          ×
-        </button>
-      </div>
+        <div className="flex items-center justify-between">
+          <strong className="text-[var(--ct-fg)] truncate">{service.name}</strong>
+          <button
+            onClick={onClose}
+            className={CLOSE_BUTTON_CLASS}
+            title="Close (Esc)"
+          >
+            ×
+          </button>
+        </div>
 
-      <div className="flex gap-1.5 flex-wrap">
-        <span className="bg-[var(--ct-bg)] text-[var(--ct-muted-fg)] px-1.5 py-0.5 rounded text-[9px]">
-          {service.kind}
-        </span>
-        <span
-          className="px-1.5 py-0.5 rounded text-[9px] font-medium text-[var(--ct-bg)]"
-          style={{ background: healthColor(service.health.status) }}
-        >
-          {service.health.status}
-        </span>
-        {service.push_enabled && (
-          <span className="bg-[var(--ct-accent)] text-[var(--ct-bg)] px-1.5 py-0.5 rounded text-[9px] font-medium">
-            push
+        <div className="flex gap-1.5 flex-wrap">
+          <span className={`${pillClass} bg-[var(--ct-bg)] text-[var(--ct-muted-fg)]`}>
+            {service.kind}
           </span>
-        )}
-        {!service.enabled && (
-          <span className="bg-[var(--ct-yellow)] text-[var(--ct-bg)] px-1.5 py-0.5 rounded text-[9px] font-medium">
-            disabled
+          <span
+            className={`${pillClass} font-medium text-[var(--ct-bg)]`}
+            style={{ background: healthColor(service.health.status) }}
+          >
+            {service.health.status}
           </span>
-        )}
-      </div>
+          {service.push_enabled && (
+            <span className={`${pillClass} bg-[var(--ct-accent)] text-[var(--ct-bg)] font-medium`}>
+              push
+            </span>
+          )}
+          {!service.enabled && (
+            <span className={`${pillClass} bg-[var(--ct-yellow)] text-[var(--ct-bg)] font-medium`}>
+              disabled
+            </span>
+          )}
+        </div>
 
-      <Section label="Health">
-        <div className="text-[10px] text-[var(--ct-fg)] flex flex-col gap-0.5">
-          <div>
-            mode: <span className="font-mono">{service.health_mode}</span>
-            {service.health.latency_ms != null && (
-              <>
-                {" · "}
-                latency:{" "}
-                <span className="font-mono">{service.health.latency_ms}ms</span>
-              </>
+        <Section label="Health">
+          <div className={sectionHealthClass}>
+            <div>
+              mode: <span className="font-mono">{service.health_mode}</span>
+              {service.health.latency_ms != null && (
+                <>
+                  {" · "}
+                  latency:{" "}
+                  <span className="font-mono">{service.health.latency_ms}ms</span>
+                </>
+              )}
+            </div>
+            {service.health.version && (
+              <div>
+                version:{" "}
+                <span className="font-mono">{service.health.version}</span>
+              </div>
+            )}
+            {service.health.uptime_secs != null && (
+              <div>
+                uptime:{" "}
+                <span className="font-mono">{service.health.uptime_secs}s</span>
+              </div>
+            )}
+            {service.health.probed_at != null && (
+              <div className="text-[var(--ct-muted)]">
+                probed: {fmtTime(service.health.probed_at)}
+              </div>
             )}
           </div>
-          {service.health.version && (
-            <div>
-              version:{" "}
-              <span className="font-mono">{service.health.version}</span>
-            </div>
-          )}
-          {service.health.uptime_secs != null && (
-            <div>
-              uptime:{" "}
-              <span className="font-mono">{service.health.uptime_secs}s</span>
-            </div>
-          )}
-          {service.health.probed_at != null && (
-            <div className="text-[var(--ct-muted)]">
-              probed: {fmtTime(service.health.probed_at)}
-            </div>
-          )}
-        </div>
-      </Section>
-
-      {service.url && (
-        <Section label="URL">
-          <a
-            href={service.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono text-[10px] text-[var(--ct-blue)] underline break-all hover:opacity-80"
-          >
-            {service.url}
-          </a>
         </Section>
-      )}
-      {service.host && (
-        <Section label="Host / Port">
-          <div className="font-mono text-[10px] text-[var(--ct-fg)]">
-            {service.host}
-            {service.port != null ? `:${service.port}` : ""}
-          </div>
-        </Section>
-      )}
-      {service.process_label && (
-        <Section label="Process label">
-          <div className="font-mono text-[10px] text-[var(--ct-fg)] break-all">
-            {service.process_label}
-          </div>
-        </Section>
-      )}
-      {service.script_path && (
-        <Section label="Script path">
-          <div className="font-mono text-[10px] text-[var(--ct-fg)] break-all">
-            {service.script_path}
-          </div>
-        </Section>
-      )}
 
-      {isCron && (
-        <CronDrawerSection service={service} onUpdate={onActionDone} />
-      )}
-
-      {showToken && (
-        <div className="bg-[var(--ct-bg)] border border-[var(--ct-yellow)] rounded p-2 text-[10px]">
-          <div className="text-[var(--ct-yellow)] font-bold mb-1">
-            New token (save NOW — will not be shown again):
-          </div>
-          <div className="font-mono break-all select-all text-[var(--ct-fg)]">
-            {showToken}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-auto flex flex-col gap-1.5">
-        {!isCron && (
-          <button
-            onClick={handleProbe}
-            disabled={busy}
-            className="py-1.5 bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded text-[10px] cursor-pointer disabled:opacity-50"
-          >
-            Probe now
-          </button>
+        {service.url && (
+          <Section label="URL">
+            <a
+              href={service.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${sectionTextClass} text-[var(--ct-blue)] underline break-all hover:opacity-80`}
+            >
+              {service.url}
+            </a>
+          </Section>
         )}
-        {service.push_enabled && (
-          <button
-            onClick={handleRotate}
-            disabled={busy}
-            className="py-1.5 bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded text-[10px] cursor-pointer disabled:opacity-50"
-          >
-            Rotate push token
-          </button>
+        {service.host && (
+          <Section label="Host / Port">
+            <div className={`${sectionTextClass} text-[var(--ct-fg)]`}>
+              {service.host}
+              {service.port != null ? `:${service.port}` : ""}
+            </div>
+          </Section>
         )}
-        <button
-          onClick={handleDelete}
-          disabled={busy}
-          className="py-1.5 bg-[var(--ct-red)] text-[var(--ct-bg)] border-none rounded text-[10px] cursor-pointer font-medium disabled:opacity-50"
-        >
-          Delete service
-        </button>
-      </div>
+        {service.process_label && (
+          <Section label="Process label">
+            <div className={`${sectionTextClass} text-[var(--ct-fg)] break-all`}>
+              {service.process_label}
+            </div>
+          </Section>
+        )}
+        {service.script_path && (
+          <Section label="Script path">
+            <div className={`${sectionTextClass} text-[var(--ct-fg)] break-all`}>
+              {service.script_path}
+            </div>
+          </Section>
+        )}
+
+        {isCron && (
+          <CronDrawerSection service={service} onUpdate={onActionDone} />
+        )}
+
+        {showToken && (
+          <div className={tokenCardClass}>
+            <div className="text-[var(--ct-yellow)] font-bold mb-1">
+              New token (save NOW — will not be shown again):
+            </div>
+            <div className="font-mono break-all select-all text-[var(--ct-fg)]">
+              {showToken}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-auto flex flex-col gap-1.5">
+          {!isCron && (
+            <button
+              onClick={handleProbe}
+              disabled={busy}
+              className={`${serviceActionBtnClass} flex-1 disabled:opacity-50`}
+            >
+              Probe now
+            </button>
+          )}
+          {service.push_enabled && (
+            <button
+              onClick={handleRotate}
+              disabled={busy}
+              className={`${serviceActionBtnClass} flex-1 disabled:opacity-50`}
+            >
+              Rotate push token
+            </button>
+          )}
+          <button
+            onClick={handleDelete}
+            disabled={busy}
+            className={`${serviceActionDangerClass} disabled:opacity-50`}
+          >
+            Delete service
+          </button>
+        </div>
       </div>
     </>
   );
@@ -481,8 +501,8 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="text-[10px] flex flex-col gap-1">
-      <div className="text-[var(--ct-muted)] uppercase tracking-wide text-[9px]">
+    <div className={UI_PANEL.section}>
+      <div className={UI_PANEL.sectionLabel}>
         {label}
       </div>
       {children}
