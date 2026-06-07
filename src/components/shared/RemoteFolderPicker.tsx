@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, Folder, Home, Loader2, RefreshCw, X } from "lucide-react";
+import { ChevronLeft, Folder, FolderPlus, Home, Loader2, RefreshCw, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 
 interface DirEntry {
@@ -39,6 +39,8 @@ export function RemoteFolderPicker({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
+  const [newFolderName, setNewFolderName] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async (nextPath: string) => {
     setLoading(true);
@@ -61,6 +63,26 @@ export function RemoteFolderPicker({
   useEffect(() => {
     void load(initialPath || "");
   }, [initialPath, load]);
+
+  const createFolder = useCallback(async () => {
+    const name = newFolderName?.trim();
+    if (!name || !path) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const created = await invoke<{ path: string }>("fs_mkdir", {
+        parent: path,
+        name,
+      });
+      setNewFolderName(null);
+      // Jump straight into the new folder — that's what you made it for.
+      await load(created.path);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreating(false);
+    }
+  }, [newFolderName, path, load]);
 
   const rootItems = useMemo(() => {
     const items = listing?.roots ?? [];
@@ -127,6 +149,16 @@ export function RemoteFolderPicker({
             <RefreshCw size={13} />
             Refresh
           </button>
+          <button
+            type="button"
+            data-testid="folder-picker-new"
+            disabled={loading || !path}
+            onClick={() => setNewFolderName((v) => (v === null ? "" : null))}
+            className="flex h-8 items-center gap-1 rounded px-2 text-xs hover:bg-[var(--ct-hover)] disabled:opacity-40"
+          >
+            <FolderPlus size={13} />
+            New folder
+          </button>
           <label className="ml-auto flex h-8 items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]">
             <input
               type="checkbox"
@@ -137,6 +169,33 @@ export function RemoteFolderPicker({
             Hidden
           </label>
         </div>
+
+        {newFolderName !== null && (
+          <form
+            className="flex gap-2 border-b border-[var(--ct-border)] px-3 py-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void createFolder();
+            }}
+          >
+            <input
+              autoFocus
+              data-testid="folder-picker-new-name"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              className="min-w-0 flex-1 rounded border border-[var(--ct-border)] bg-[var(--ct-bg)] px-2 py-1.5 text-xs outline-none"
+              placeholder="New folder name"
+            />
+            <button
+              type="submit"
+              data-testid="folder-picker-new-create"
+              disabled={creating || !newFolderName.trim()}
+              className="rounded border border-[var(--ct-accent,#58a6ff)] px-3 text-xs text-[var(--ct-accent,#58a6ff)] hover:bg-[var(--ct-hover)] disabled:opacity-40"
+            >
+              {creating ? "Creating…" : "Create"}
+            </button>
+          </form>
+        )}
 
         <form
           className="flex gap-2 border-b border-[var(--ct-border)] px-3 py-2"

@@ -159,7 +159,7 @@ fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
             {
                 return true;
             }
-            if path == "/api/fs/list-dir"
+            if (path == "/api/fs/list-dir" || path == "/api/fs/mkdir")
                 && (perms.contains(&Permission::ManageWorkspaces)
                     || perms.contains(&Permission::SpawnAgents))
             {

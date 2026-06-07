@@ -39,6 +39,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/health", get(health_routes::health))
         .route("/api/identify", get(health_routes::identify))
         .route("/api/fs/list-dir", get(fs_routes::list_dir))
+        .route("/api/fs/mkdir", post(fs_routes::mkdir))
         .route(
             "/api/workspaces",
             get(workspace_routes::list_workspaces).post(workspace_routes::create_workspace),
