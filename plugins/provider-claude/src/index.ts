@@ -9,53 +9,18 @@
 
 import type {
   ProviderPlugin,
-  ProviderEvent,
   DetectionSample,
 } from "../../../src/lib/plugins/types";
+import { makeLineParser } from "../../../src/lib/plugins/messageEvents";
 
 import { detect, titlePattern, noisePatterns } from "./detect";
 import { parseJsonlSession } from "./parser";
 import { Renderer } from "./renderer";
 import { statusOf } from "./status";
 
-// Per-line adapter: plugin contract parses one JSONL line at a time.
-// Parse full-session ownership stays in the plugin while messages are emitted as ProviderEvents.
-
-function parseLine(line: string): ProviderEvent[] {
-  if (!line.trim()) return [];
-  const messages = parseJsonlSession(line);
-  return messages.map(m => ({
-    kind: chatMessageTypeToEventKind(m.type),
-    ts: m.timestamp ? Date.parse(m.timestamp) || undefined : undefined,
-    payload: m,
-  }));
-}
-
-function chatMessageTypeToEventKind(type: string): string {
-  // Keep legacy ChatMessage.type → ProviderEvent.kind mapping for stable downstream pattern matching.
-  switch (type) {
-    case "user":
-      return "user_message";
-    case "assistant":
-      return "assistant_text";
-    case "tool_call":
-      return "tool_call";
-    case "tool_result":
-      return "tool_result";
-    case "thinking":
-      return "thinking";
-    case "status":
-      return "status";
-    case "system":
-      return "system";
-    case "local_command":
-      return "local_command";
-    case "image":
-      return "assistant_image";
-    default:
-      return type;
-  }
-}
+// Plugin contract streams one JSONL line at a time; full-session parsing stays
+// in the plugin, the ChatMessage -> ProviderEvent mapping is shared.
+const parseLine = makeLineParser(parseJsonlSession);
 
 const plugin: ProviderPlugin = {
   meta: {
