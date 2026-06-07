@@ -168,7 +168,7 @@
   font-size: 12px;
 }
 
-/* ---------- wide-layout draggable divider ---------- */
+/* ---------- draggable dividers (both axes) ---------- */
 .ct-git-divider {
   flex: 0 0 8px;
   position: relative;
@@ -192,6 +192,139 @@
 .ct-git-divider:active::before {
   width: 2px;
   background: var(--ct-accent, #6366f1);
+}
+.ct-git-divider--h {
+  flex: 0 0 8px;
+  margin: -4px 0;
+  cursor: row-resize;
+}
+.ct-git-divider--h::before {
+  top: 50%;
+  bottom: auto;
+  left: 0;
+  right: 0;
+  width: auto;
+  height: 1px;
+  transform: translateY(-50%);
+}
+.ct-git-divider--h:hover::before,
+.ct-git-divider--h:active::before {
+  width: auto;
+  height: 2px;
+  background: var(--ct-accent, #6366f1);
+}
+
+/* ---------- diff modal (medium windowed / narrow fullscreen) ---------- */
+.ct-git-diffmodal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  padding-top: max(24px, var(--ct-safe-top, 0px));
+  padding-bottom: max(24px, var(--ct-safe-bottom, 0px));
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(3px) saturate(120%);
+  backdrop-filter: blur(3px) saturate(120%);
+  animation: ct-git-modal-fade 160ms ease-out;
+}
+.ct-git-diffmodal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 920px;
+  max-height: 100%;
+  overflow: hidden;
+  border-radius: var(--ct-radius-lg, 12px);
+  border: 1px solid color-mix(in srgb, var(--ct-fg, #c9d1d9) 14%, transparent);
+  background: var(--ct-bg, #0d1117);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  animation: ct-git-modal-in 160ms ease-out;
+}
+.ct-git-diffmodal-overlay.is-fullscreen {
+  padding: 0;
+  padding-top: var(--ct-safe-top, 0px);
+  padding-bottom: var(--ct-safe-bottom, 0px);
+  background: var(--ct-bg, #0d1117);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.ct-git-diffmodal-overlay.is-fullscreen .ct-git-diffmodal {
+  max-width: none;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  animation: ct-git-modal-up 160ms ease-out;
+}
+.ct-git-diffmodal-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ct-border, #30363d);
+  background: var(--ct-titlebar-bg, #161b22);
+}
+.ct-git-diffmodal-head .path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-family: var(--ct-font-mono);
+  font-size: 12px;
+  color: var(--ct-fg, #c9d1d9);
+  user-select: text;
+}
+.ct-git-diffmodal-head .stats {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 6px;
+  font-family: var(--ct-font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ct-git-diffmodal-head .stats .add {
+  color: var(--ct-green, #34d399);
+}
+.ct-git-diffmodal-head .stats .del {
+  color: var(--ct-red, #f87171);
+}
+.ct-git-diffmodal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+@keyframes ct-git-modal-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ct-git-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes ct-git-modal-up {
+  from {
+    transform: translateY(24px);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 /* ---------- multi-repo switcher ---------- */
@@ -232,18 +365,30 @@
   max-width: 100px;
 }
 .ct-git-repos-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 30;
+  position: fixed;
+  z-index: 120;
   min-width: 200px;
   max-height: 320px;
   overflow: auto;
   padding: 4px;
   border-radius: 8px;
-  border: 1px solid var(--ct-border, #30363d);
-  background: var(--ct-titlebar-bg, #161b22);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  border: 1px solid color-mix(in srgb, var(--ct-fg, #c9d1d9) 14%, transparent);
+  background: color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 82%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  transform-origin: top left;
+  animation: ct-git-menu-in 120ms ease-out;
+}
+@keyframes ct-git-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .ct-git-repos-item {
   display: flex;

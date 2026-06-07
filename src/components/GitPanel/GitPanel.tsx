@@ -14,18 +14,18 @@ import { GraphView } from "./GraphView";
 import {
   CommitDetail,
   CommitMetaHeader,
-  DiffPane,
   FileList,
   useCommitFiles,
 } from "./CommitDetail";
+import { DiffModal } from "./DiffModal";
 import { RepoSwitcher } from "./RepoSwitcher";
-import { useGitLayout } from "./useGitLayout";
-import { useSplitRatio } from "./useSplitRatio";
+import { useGitLayout, type GitLayoutMode } from "./useGitLayout";
+import { useDragRatio } from "./useDragRatio";
 import { UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
 
 const PAGE = 300;
 
-// Narrow drill-down levels: 1 commits → 2 files → 3 diff.
+// Narrow drill-down levels: 1 commits → 2 files → 3 diff (DiffModal fullscreen).
 type NarrowLevel = 1 | 2 | 3;
 
 interface GitPanelProps {
@@ -119,7 +119,6 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
         setSelectedPath(null);
         return 2;
       }
-      if (l === 2) return 1;
       return 1;
     });
   }, []);
@@ -129,13 +128,16 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
       const inField =
         e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
       if (e.key !== "Escape" || inField) return;
+      // Medium-mode modal owns its own Escape; only close panel here when no
+      // overlay/drill is active.
+      if (mode === "medium" && selectedPath) return;
       e.preventDefault();
       if (narrow && level > 1) back();
       else onClose();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose, narrow, level, back]);
+  }, [onClose, narrow, level, back, mode, selectedPath]);
 
   const loadMore = useCallback(async () => {
     if (!activeCwd || !graph) return;
@@ -169,13 +171,18 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
     [narrow],
   );
 
+  const closeDiff = useCallback(() => {
+    setSelectedPath(null);
+    if (narrow) setLevel(2);
+  }, [narrow]);
+
   const selectedCommit = useMemo(
     () => graph?.commits.find((c) => c.sha === selectedSha) ?? null,
     [graph, selectedSha],
   );
 
   const backTitle = narrow && level === 3 ? "Files" : narrow && level === 2 ? "Commits" : null;
-  // Split mode makes no sense narrow — force unified there.
+  // Split mode is meaningless on the narrow fullscreen diff — force unified there.
   const effectiveSplit = narrow ? false : split;
 
   return (
@@ -211,7 +218,7 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
         <span className="text-[11px] opacity-60 truncate min-w-0 flex-1" title={activeCwd ?? ""}>
           {activeCwd}
         </span>
-        {!narrow && (
+        {mode === "wide" && (
           <button
             type="button"
             onClick={() => setSplit((v) => !v)}
@@ -249,50 +256,53 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
         )}
         {activeCwd && loading && !graph && <Centered text="Loading commit graph…" />}
         {activeCwd && graph && !notRepo && (
-          narrow ? (
-            <NarrowBody
-              api={api}
-              cwd={activeCwd}
-              graph={graph}
-              level={level}
-              selectedSha={selectedSha}
-              selectedPath={selectedPath}
-              selectedCommit={selectedCommit}
-              hasMore={hasMore}
-              loadingMore={loadingMore}
-              onLoadMore={() => void loadMore()}
-              onSelectCommit={onSelectCommit}
-              onSelectFile={onSelectFile}
-            />
-          ) : (
-            <WideBody
-              api={api}
-              cwd={activeCwd}
-              graph={graph}
-              selectedSha={selectedSha}
-              split={effectiveSplit}
-              hasMore={hasMore}
-              loadingMore={loadingMore}
-              onLoadMore={() => void loadMore()}
-              onSelectCommit={onSelectCommit}
-            />
-          )
+          <PanelBody
+            api={api}
+            cwd={activeCwd}
+            mode={mode}
+            graph={graph}
+            level={level}
+            selectedSha={selectedSha}
+            selectedPath={selectedPath}
+            selectedCommit={selectedCommit}
+            split={effectiveSplit}
+            onToggleSplit={() => setSplit((v) => !v)}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            onLoadMore={() => void loadMore()}
+            onSelectCommit={onSelectCommit}
+            onSelectFile={onSelectFile}
+            onCloseDiff={closeDiff}
+          />
         )}
       </div>
     </div>
   );
 }
 
-interface WideBodyProps {
+interface PanelBodyProps {
   api: ApiConfig;
   cwd: string;
+  mode: GitLayoutMode;
   graph: GitGraphResponse;
+  level: NarrowLevel;
   selectedSha: string | null;
+  selectedPath: string | null;
+  selectedCommit: GitCommit | null;
   split: boolean;
+  onToggleSplit: () => void;
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
   onSelectCommit: (sha: string) => void;
+  onSelectFile: (path: string) => void;
+  onCloseDiff: () => void;
+}
+
+function PanelBody(props: PanelBodyProps) {
+  if (props.mode === "wide") return <WideBody {...props} />;
+  if (props.mode === "narrow") return <NarrowBody {...props} />;
+  return <MediumBody {...props} />;
 }
 
 function WideBody({
@@ -300,14 +310,20 @@ function WideBody({
   cwd,
   graph,
   selectedSha,
+  selectedPath,
   split,
   hasMore,
   loadingMore,
   onLoadMore,
   onSelectCommit,
-}: WideBodyProps) {
+  onSelectFile,
+}: PanelBodyProps) {
   const boxRef = useRef<HTMLDivElement>(null);
-  const { ratio, onPointerDown, reset } = useSplitRatio(boxRef);
+  const { ratio, onPointerDown, reset } = useDragRatio(boxRef, {
+    storageKey: "ct-git-split",
+    axis: "x",
+    minPx: 280,
+  });
 
   return (
     <div ref={boxRef} className="absolute inset-0 flex min-h-0">
@@ -330,7 +346,14 @@ function WideBody({
       />
       <div className="flex-1 min-w-0">
         {selectedSha ? (
-          <CommitDetail api={api} cwd={cwd} sha={selectedSha} split={split} />
+          <CommitDetail
+            api={api}
+            cwd={cwd}
+            sha={selectedSha}
+            split={split}
+            selectedPath={selectedPath}
+            onSelectFile={onSelectFile}
+          />
         ) : (
           <Centered text="Select a commit." />
         )}
@@ -339,21 +362,71 @@ function WideBody({
   );
 }
 
-interface NarrowBodyProps {
-  api: ApiConfig;
-  cwd: string;
-  graph: GitGraphResponse;
-  level: NarrowLevel;
-  selectedSha: string | null;
-  selectedPath: string | null;
-  selectedCommit: GitCommit | null;
-  hasMore: boolean;
-  loadingMore: boolean;
-  onLoadMore: () => void;
-  onSelectCommit: (sha: string) => void;
-  onSelectFile: (path: string) => void;
+// Medium: graph | v-divider | file list (full height). File click → DiffModal.
+function MediumBody({
+  api,
+  cwd,
+  graph,
+  selectedSha,
+  selectedPath,
+  selectedCommit,
+  split,
+  onToggleSplit,
+  hasMore,
+  loadingMore,
+  onLoadMore,
+  onSelectCommit,
+  onSelectFile,
+  onCloseDiff,
+}: PanelBodyProps) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const { ratio, onPointerDown, reset } = useDragRatio(boxRef, {
+    storageKey: "ct-git-split",
+    axis: "x",
+    minPx: 240,
+  });
+
+  return (
+    <div ref={boxRef} className="absolute inset-0 flex min-h-0">
+      <div className="relative min-w-0" style={{ flex: `0 0 ${ratio * 100}%` }}>
+        <GraphView
+          commits={graph.commits}
+          selectedSha={selectedSha}
+          onSelect={onSelectCommit}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={onLoadMore}
+        />
+      </div>
+      <div
+        className="ct-git-divider"
+        onPointerDown={onPointerDown}
+        onDoubleClick={reset}
+        role="separator"
+        aria-orientation="vertical"
+      />
+      <div className="flex-1 min-w-0">
+        {selectedSha && selectedCommit ? (
+          <FilesWithDiff
+            api={api}
+            cwd={cwd}
+            sha={selectedSha}
+            commit={selectedCommit}
+            selectedPath={selectedPath}
+            split={split}
+            onToggleSplit={onToggleSplit}
+            onSelectFile={onSelectFile}
+            onCloseDiff={onCloseDiff}
+          />
+        ) : (
+          <Centered text="Select a commit." />
+        )}
+      </div>
+    </div>
+  );
 }
 
+// Narrow: drill-down 1→2→3. Level 3 reuses DiffModal in fullscreen variant.
 function NarrowBody({
   api,
   cwd,
@@ -367,7 +440,8 @@ function NarrowBody({
   onLoadMore,
   onSelectCommit,
   onSelectFile,
-}: NarrowBodyProps) {
+  onCloseDiff,
+}: PanelBodyProps) {
   if (level === 1) {
     return (
       <div className="absolute inset-0 pb-[var(--ct-safe-bottom,0px)]">
@@ -383,40 +457,61 @@ function NarrowBody({
       </div>
     );
   }
-  if (level === 2) {
-    return selectedSha && selectedCommit ? (
-      <NarrowFiles
+  if (selectedSha && selectedCommit) {
+    return (
+      <FilesWithDiff
         api={api}
         cwd={cwd}
         sha={selectedSha}
         commit={selectedCommit}
-        selectedPath={selectedPath}
+        selectedPath={level === 3 ? selectedPath : null}
+        split={false}
+        onToggleSplit={() => {}}
         onSelectFile={onSelectFile}
+        onCloseDiff={onCloseDiff}
+        fullscreen
+        touch
       />
-    ) : (
-      <Centered text="Select a commit." />
     );
   }
-  return selectedSha && selectedPath ? (
-    <div className="absolute inset-0 overflow-auto pb-[var(--ct-safe-bottom,0px)]">
-      <DiffPane api={api} cwd={cwd} sha={selectedSha} path={selectedPath} split={false} />
-    </div>
-  ) : (
-    <Centered text="Select a file." />
-  );
+  return <Centered text="Select a commit." />;
 }
 
-interface NarrowFilesProps {
+interface FilesWithDiffProps {
   api: ApiConfig;
   cwd: string;
   sha: string;
   commit: GitCommit;
   selectedPath: string | null;
+  split: boolean;
+  onToggleSplit: () => void;
   onSelectFile: (path: string) => void;
+  onCloseDiff: () => void;
+  fullscreen?: boolean;
+  touch?: boolean;
 }
 
-function NarrowFiles({ api, cwd, sha, commit, selectedPath, onSelectFile }: NarrowFilesProps) {
+// File list (medium/narrow) with the DiffModal layered over it when a file is
+// selected. Shared so medium and narrow drive the exact same diff component.
+function FilesWithDiff({
+  api,
+  cwd,
+  sha,
+  commit,
+  selectedPath,
+  split,
+  onToggleSplit,
+  onSelectFile,
+  onCloseDiff,
+  fullscreen,
+  touch,
+}: FilesWithDiffProps) {
   const { files, error, loading } = useCommitFiles(api, cwd, sha);
+  const selectedFile = useMemo(
+    () => files.find((f) => f.path === selectedPath) ?? null,
+    [files, selectedPath],
+  );
+
   return (
     <div className="absolute inset-0 overflow-auto pb-[var(--ct-safe-bottom,0px)]">
       <CommitMetaHeader commit={commit} />
@@ -426,8 +521,20 @@ function NarrowFiles({ api, cwd, sha, commit, selectedPath, onSelectFile }: Narr
         loading={loading}
         selectedPath={selectedPath}
         onSelect={onSelectFile}
-        touch
+        touch={touch}
       />
+      {selectedFile && (
+        <DiffModal
+          api={api}
+          cwd={cwd}
+          sha={sha}
+          file={selectedFile}
+          split={split}
+          onToggleSplit={onToggleSplit}
+          onClose={onCloseDiff}
+          fullscreen={fullscreen}
+        />
+      )}
     </div>
   );
 }
