@@ -312,19 +312,19 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
         .flatten()
         .ok_or("provider has no JSONL")?;
-    if !path.exists() {
-        return Err(format!(
-            "JSONL not found for pane session {}: {}",
-            session_id,
-            path.display()
-        ));
-    }
     let path_ms = path_started.elapsed().as_millis();
 
     // Read the tail (~512KB) so toggle reveals plenty of context. The TS parser is fast even at 1MB — no need for a smaller window.
+    // A missing file is NOT an error: the session id is detected from CLI output
+    // before the provider writes the first JSONL line. Tail from byte 0 so the
+    // history streams in as deltas the moment the file appears.
     let snapshot_window: u64 = 512 * 1024;
     let read_started = std::time::Instant::now();
-    let bytes = std::fs::read(&path).map_err(|e| format!("read jsonl: {e}"))?;
+    let bytes = if path.exists() {
+        std::fs::read(&path).map_err(|e| format!("read jsonl: {e}"))?
+    } else {
+        Vec::new()
+    };
     let total = bytes.len() as u64;
     let start = total.saturating_sub(snapshot_window) as usize;
     // Align start to a line boundary — handing the parser a partial first line forces it to discard data that would otherwise render.
