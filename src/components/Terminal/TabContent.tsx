@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { TerminalPane } from "./TerminalPane";
 import { isPaneVisible } from "../MemoryPanel/workerFocusStore";
 import type {
+  ApiConfig,
   Pane,
   ThemeConfig,
   FontConfig,
   TerminalConfigSettings,
 } from "../../lib/types";
 import { UsageBubble } from "../Usage/UsageBubble";
+import { GitBubble } from "../GitPanel/GitBubble";
+import type { GitInfo } from "../../hooks/useGitInfo";
 
 interface TabContentProps {
   pane: Pane | undefined;
@@ -18,6 +21,10 @@ interface TabContentProps {
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
   usageEnabledByProvider?: Record<string, boolean>;
+  gitInfo?: GitInfo | null;
+  onOpenGit?: (repoRoot: string) => void;
+  api?: ApiConfig;
+  workspaceCwd?: string | null;
 }
 
 export function TabContent({
@@ -29,11 +36,16 @@ export function TabContent({
   fontConfig,
   terminalConfig,
   usageEnabledByProvider,
+  gitInfo,
+  onOpenGit,
+  api,
+  workspaceCwd,
 }: TabContentProps) {
   if (!pane) return null;
   if (!isPaneVisible(pane)) return null;
 
   const usageProvider = pane.agent_type ?? null;
+  const usageVisible = !!usageProvider && usageEnabledByProvider?.[usageProvider] === true;
 
   return (
     <PaneWrapper paneId={pane.id} isFocused={isFocused}>
@@ -51,10 +63,19 @@ export function TabContent({
           terminalConfig={terminalConfig}
         />
       </div>
+      {/* Tab chrome, not focus chrome — the tab is only visible when active. */}
+      {onOpenGit && api && (
+        <GitBubble
+          info={gitInfo ?? null}
+          cwd={pane.cwd ?? workspaceCwd ?? null}
+          api={api}
+          onClick={onOpenGit}
+        />
+      )}
       {usageProvider && (
         <UsageBubble
           provider={usageProvider}
-          trackingEnabled={usageEnabledByProvider?.[usageProvider] === true}
+          trackingEnabled={usageVisible}
         />
       )}
     </PaneWrapper>
