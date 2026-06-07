@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { GitCommit, GitRef } from "./gitApi";
+import { type GitCommit, type GitRef, WORKDIR_SHA } from "./gitApi";
 import { assignLanes, laneColorVar, type GraphRow } from "./laneGraph";
 
 const ROW_H_DESKTOP = 26;
@@ -15,6 +15,7 @@ interface GraphViewProps {
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
+  dirty?: boolean;
   touch?: boolean;
 }
 
@@ -25,6 +26,7 @@ export function GraphView({
   hasMore,
   loadingMore,
   onLoadMore,
+  dirty,
   touch,
 }: GraphViewProps) {
   const rowH = touch ? ROW_H_TOUCH : ROW_H_DESKTOP;
@@ -54,6 +56,14 @@ export function GraphView({
 
   return (
     <div className="absolute inset-0 overflow-auto">
+      {dirty && (
+        <WorkdirRow
+          railWidth={railWidth}
+          rowH={rowH}
+          selected={selectedSha === WORKDIR_SHA}
+          onSelect={() => onSelect(WORKDIR_SHA)}
+        />
+      )}
       {rows.map((row, i) => {
         const commit = commitBySha.get(row.sha)!;
         return (
@@ -208,6 +218,41 @@ function GraphRowView({
         <span className="ct-git-author">{commit.author}</span>
         <span className="ct-git-sha">{commit.sha.slice(0, 7)}</span>
         <span className="ct-git-date">{relativeDate(commit.date)}</span>
+      </div>
+    </div>
+  );
+}
+
+// Pinned pseudo-row above HEAD: amber dot, no lane rails, distinct styling.
+function WorkdirRow({
+  railWidth,
+  rowH,
+  selected,
+  onSelect,
+}: {
+  railWidth: number;
+  rowH: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const dotX = laneX(0);
+  const midY = rowH / 2;
+  return (
+    <div
+      className={`ct-git-row ct-git-row--workdir${selected ? " is-selected" : ""}`}
+      style={{ height: rowH }}
+      onClick={onSelect}
+    >
+      <svg
+        className="ct-git-rail"
+        width={railWidth}
+        height={rowH}
+        style={{ flex: `0 0 ${railWidth}px` }}
+      >
+        <circle cx={dotX} cy={midY} r={DOT_R} fill="var(--ct-yellow, #fbbf24)" />
+      </svg>
+      <div className="ct-git-meta">
+        <span className="ct-git-subject ct-git-workdir-label">Uncommitted changes</span>
       </div>
     </div>
   );

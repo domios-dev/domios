@@ -24,6 +24,7 @@ interface TabContentProps {
   gitInfo?: GitInfo | null;
   onOpenGit?: (repoRoot: string) => void;
   api?: ApiConfig;
+  workspaceCwd?: string | null;
 }
 
 export function TabContent({
@@ -38,6 +39,7 @@ export function TabContent({
   gitInfo,
   onOpenGit,
   api,
+  workspaceCwd,
 }: TabContentProps) {
   if (!pane) return null;
   if (!isPaneVisible(pane)) return null;
@@ -62,7 +64,12 @@ export function TabContent({
         />
       </div>
       {isFocused && onOpenGit && api && (
-        <GitBubble info={gitInfo ?? null} cwd={pane.cwd} api={api} onClick={onOpenGit} />
+        <GitBubble
+          info={gitInfo ?? null}
+          cwd={pane.cwd ?? workspaceCwd ?? null}
+          api={api}
+          onClick={onOpenGit}
+        />
       )}
       {usageProvider && (
         <UsageBubble

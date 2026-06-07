@@ -52,8 +52,17 @@ export function GitBubble({ info, cwd, api, onClick }: GitBubbleProps) {
   const isRepo = !!info?.branch;
   if (!isRepo && childRepos.length === 0) return null;
 
-  const label = isRepo ? info!.branch! : `${childRepos.length} repos`;
-  const target = isRepo ? info!.repo_root : cwd!;
+  // Single discovered repo reads like a normal branch pill; many → a count.
+  const label = isRepo
+    ? info!.branch!
+    : childRepos.length === 1
+      ? (childRepos[0].branch ?? childRepos[0].name)
+      : `${childRepos.length} repos`;
+  const target = isRepo
+    ? info!.repo_root
+    : childRepos.length === 1
+      ? childRepos[0].path
+      : cwd!;
 
   return (
     <div

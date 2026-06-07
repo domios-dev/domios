@@ -472,6 +472,210 @@ pub async fn git_workdir_diff(
     ))
 }
 
+#[derive(Serialize, Debug, PartialEq)]
+pub(crate) struct WorkdirFile {
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    old_path: Option<String>,
+    status: String,
+    added: Option<u64>,
+    deleted: Option<u64>,
+}
+
+/// Map a porcelain XY status pair to our coarse status vocabulary.
+fn classify_porcelain(xy: &[u8]) -> &'static str {
+    if xy.len() < 2 {
+        return "modified";
+    }
+    let x = xy[0];
+    let y = xy[1];
+    if x == b'?' && y == b'?' {
+        return "untracked";
+    }
+    // Conflict states per `git status` docs: any side U, or DD / AA.
+    if x == b'U' || y == b'U' || (x == b'D' && y == b'D') || (x == b'A' && y == b'A') {
+        return "conflicted";
+    }
+    if x == b'R' || y == b'R' {
+        return "renamed";
+    }
+    if x == b'D' || y == b'D' {
+        return "deleted";
+    }
+    // Index side set (and not unmodified/untracked) → staged.
+    if x != b' ' && x != b'?' {
+        return "staged";
+    }
+    "modified"
+}
+
+/// Parse `git status --porcelain=v1 -z`: NUL-separated entries; a rename entry
+/// ("R" in XY) is immediately followed by a second NUL-separated field holding
+/// the old path. Returns `(path, old_path, status)` tuples.
+fn parse_status_porcelain(stdout: &[u8]) -> Vec<(String, Option<String>, &'static str)> {
+    let mut out = Vec::new();
+    let mut fields = stdout.split(|&b| b == 0).filter(|f| !f.is_empty());
+    while let Some(entry) = fields.next() {
+        if entry.len() < 3 {
+            continue;
+        }
+        let xy = &entry[0..2];
+        let path = String::from_utf8_lossy(&entry[3..]).to_string();
+        let status = classify_porcelain(xy);
+        if status == "renamed" {
+            // The old path is the next NUL-separated field in -z output.
+            let old_path = fields
+                .next()
+                .map(|f| String::from_utf8_lossy(f).to_string());
+            out.push((path, old_path, status));
+        } else {
+            out.push((path, None, status));
+        }
+    }
+    out
+}
+
+/// Index `git diff --numstat HEAD` by path → (added, deleted), `-` → None (binary).
+fn parse_numstat_counts(stdout: &[u8]) -> std::collections::HashMap<String, (Option<u64>, Option<u64>)> {
+    let mut map = std::collections::HashMap::new();
+    for line in String::from_utf8_lossy(stdout).lines() {
+        let line = line.trim_end();
+        if line.is_empty() {
+            continue;
+        }
+        let mut parts = line.splitn(3, '\t');
+        let (Some(a), Some(d), Some(p)) = (parts.next(), parts.next(), parts.next()) else {
+            continue;
+        };
+        let added = if a == "-" { None } else { a.parse().ok() };
+        let deleted = if d == "-" { None } else { d.parse().ok() };
+        // numstat encodes renames as `old => new`; key on the resolved new path.
+        let path = split_rename(p).map(|(_, new)| new).unwrap_or_else(|| p.to_string());
+        map.insert(path, (added, deleted));
+    }
+    map
+}
+
+fn merge_workdir_files(
+    statuses: Vec<(String, Option<String>, &'static str)>,
+    counts: &std::collections::HashMap<String, (Option<u64>, Option<u64>)>,
+) -> Vec<WorkdirFile> {
+    statuses
+        .into_iter()
+        .map(|(path, old_path, status)| {
+            // Untracked files have no numstat-vs-HEAD counts.
+            let (added, deleted) = if status == "untracked" {
+                (None, None)
+            } else {
+                counts.get(&path).copied().unwrap_or((None, None))
+            };
+            WorkdirFile {
+                path,
+                old_path,
+                status: status.to_string(),
+                added,
+                deleted,
+            }
+        })
+        .collect()
+}
+
+pub async fn git_workdir_files(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<CwdQuery>,
+) -> Result<Json<Vec<WorkdirFile>>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    ensure_repo(&q.cwd).await?;
+
+    let status = run_git(
+        &q.cwd,
+        &["-c", "core.quotePath=false", "status", "--porcelain=v1", "-z"],
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !status.status_ok {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, status.stderr));
+    }
+
+    let numstat = run_git(
+        &q.cwd,
+        &["-c", "core.quotePath=false", "diff", "--numstat", "HEAD"],
+    )
+    .await
+    .map(|o| parse_numstat_counts(&o.stdout))
+    .unwrap_or_default();
+
+    let files = merge_workdir_files(parse_status_porcelain(&status.stdout), &numstat);
+    Ok(Json(files))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct RevertFileBody {
+    cwd: String,
+    path: String,
+}
+
+/// First mutating git endpoint — surgical, arg-vector only, `--` guards the path.
+pub async fn git_revert_file(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RevertFileBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    ensure_repo(&body.cwd).await?;
+
+    if body.path.is_empty() || body.path.contains("..") || body.path.starts_with('-') {
+        return Err((StatusCode::BAD_REQUEST, "invalid path".to_string()));
+    }
+
+    // Look up the file's porcelain status before mutating.
+    let status = run_git(
+        &body.cwd,
+        &[
+            "-c",
+            "core.quotePath=false",
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--",
+            &body.path,
+        ],
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !status.status_ok {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, status.stderr));
+    }
+    let entry_status = parse_status_porcelain(&status.stdout)
+        .into_iter()
+        .find(|(p, _, _)| *p == body.path)
+        .map(|(_, _, s)| s);
+    match entry_status {
+        Some("untracked") => {
+            return Err((
+                StatusCode::CONFLICT,
+                "untracked file — delete it manually".to_string(),
+            ))
+        }
+        Some("conflicted") => {
+            return Err((
+                StatusCode::CONFLICT,
+                "conflicted file — resolve it manually".to_string(),
+            ))
+        }
+        _ => {}
+    }
+
+    let out = run_git(&body.cwd, &["checkout", "HEAD", "--", &body.path])
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !out.status_ok {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, out.stderr));
+    }
+    Ok(Json(serde_json::json!({ "reverted": true })))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct ReposQuery {
     cwd: String,

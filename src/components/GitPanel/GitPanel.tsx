@@ -6,6 +6,7 @@ import {
   fetchGraph,
   fetchRepos,
   NotARepoError,
+  WORKDIR_SHA,
   type GitCommit,
   type GitGraphResponse,
   type RepoEntry,
@@ -16,7 +17,9 @@ import {
   CommitMetaHeader,
   FileList,
   useCommitFiles,
+  useCopyPathMenu,
 } from "./CommitDetail";
+import { WorkdirDetail, WorkdirFilesWithDiff } from "./WorkdirDetail";
 import { DiffModal } from "./DiffModal";
 import { RepoSwitcher } from "./RepoSwitcher";
 import { useGitLayout, type GitLayoutMode } from "./useGitLayout";
@@ -154,6 +157,22 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
 
   const hasMore = graph != null && graph.commits.length % PAGE === 0 && graph.commits.length > 0;
 
+  // After a revert: refetch graph to update the dirty flag without resetting
+  // the selection. If the tree is clean now, drop the workdir selection to HEAD.
+  const onReverted = useCallback(async () => {
+    if (!activeCwd) return;
+    try {
+      const g = await fetchGraph(api, activeCwd, PAGE, 0);
+      setGraph((cur) => (cur ? { ...g, commits: cur.commits } : g));
+      if (!g.dirty) {
+        setSelectedSha((cur) => (cur === WORKDIR_SHA ? (g.commits[0]?.sha ?? null) : cur));
+        setSelectedPath(null);
+      }
+    } catch {
+      /* ignore — keep current graph */
+    }
+  }, [api, activeCwd]);
+
   const onSelectCommit = useCallback(
     (sha: string) => {
       setSelectedSha(sha);
@@ -273,6 +292,7 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
             onSelectCommit={onSelectCommit}
             onSelectFile={onSelectFile}
             onCloseDiff={closeDiff}
+            onReverted={onReverted}
           />
         )}
       </div>
@@ -297,6 +317,7 @@ interface PanelBodyProps {
   onSelectCommit: (sha: string) => void;
   onSelectFile: (path: string) => void;
   onCloseDiff: () => void;
+  onReverted: () => void;
 }
 
 function PanelBody(props: PanelBodyProps) {
@@ -317,6 +338,7 @@ function WideBody({
   onLoadMore,
   onSelectCommit,
   onSelectFile,
+  onReverted,
 }: PanelBodyProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const { ratio, onPointerDown, reset } = useDragRatio(boxRef, {
@@ -324,6 +346,8 @@ function WideBody({
     axis: "x",
     minPx: 280,
   });
+
+  const isWorkdir = selectedSha === WORKDIR_SHA;
 
   return (
     <div ref={boxRef} className="absolute inset-0 flex min-h-0">
@@ -335,6 +359,7 @@ function WideBody({
           hasMore={hasMore}
           loadingMore={loadingMore}
           onLoadMore={onLoadMore}
+          dirty={graph.dirty}
         />
       </div>
       <div
@@ -344,8 +369,17 @@ function WideBody({
         role="separator"
         aria-orientation="vertical"
       />
-      <div className="flex-1 min-w-0">
-        {selectedSha ? (
+      <div className="relative flex-1 min-w-0">
+        {isWorkdir ? (
+          <WorkdirDetail
+            api={api}
+            cwd={cwd}
+            split={split}
+            selectedPath={selectedPath}
+            onSelectFile={onSelectFile}
+            onReverted={onReverted}
+          />
+        ) : selectedSha ? (
           <CommitDetail
             api={api}
             cwd={cwd}
@@ -378,6 +412,7 @@ function MediumBody({
   onSelectCommit,
   onSelectFile,
   onCloseDiff,
+  onReverted,
 }: PanelBodyProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const { ratio, onPointerDown, reset } = useDragRatio(boxRef, {
@@ -385,6 +420,8 @@ function MediumBody({
     axis: "x",
     minPx: 240,
   });
+
+  const isWorkdir = selectedSha === WORKDIR_SHA;
 
   return (
     <div ref={boxRef} className="absolute inset-0 flex min-h-0">
@@ -396,6 +433,7 @@ function MediumBody({
           hasMore={hasMore}
           loadingMore={loadingMore}
           onLoadMore={onLoadMore}
+          dirty={graph.dirty}
         />
       </div>
       <div
@@ -405,8 +443,19 @@ function MediumBody({
         role="separator"
         aria-orientation="vertical"
       />
-      <div className="flex-1 min-w-0">
-        {selectedSha && selectedCommit ? (
+      <div className="relative flex-1 min-w-0">
+        {isWorkdir ? (
+          <WorkdirFilesWithDiff
+            api={api}
+            cwd={cwd}
+            selectedPath={selectedPath}
+            split={split}
+            onToggleSplit={onToggleSplit}
+            onSelectFile={onSelectFile}
+            onCloseDiff={onCloseDiff}
+            onReverted={onReverted}
+          />
+        ) : selectedSha && selectedCommit ? (
           <FilesWithDiff
             api={api}
             cwd={cwd}
@@ -441,6 +490,7 @@ function NarrowBody({
   onSelectCommit,
   onSelectFile,
   onCloseDiff,
+  onReverted,
 }: PanelBodyProps) {
   if (level === 1) {
     return (
@@ -452,9 +502,26 @@ function NarrowBody({
           hasMore={hasMore}
           loadingMore={loadingMore}
           onLoadMore={onLoadMore}
+          dirty={graph.dirty}
           touch
         />
       </div>
+    );
+  }
+  if (selectedSha === WORKDIR_SHA) {
+    return (
+      <WorkdirFilesWithDiff
+        api={api}
+        cwd={cwd}
+        selectedPath={level === 3 ? selectedPath : null}
+        split={false}
+        onToggleSplit={() => {}}
+        onSelectFile={onSelectFile}
+        onCloseDiff={onCloseDiff}
+        onReverted={onReverted}
+        fullscreen
+        touch
+      />
     );
   }
   if (selectedSha && selectedCommit) {
@@ -507,6 +574,7 @@ function FilesWithDiff({
   touch,
 }: FilesWithDiffProps) {
   const { files, error, loading } = useCommitFiles(api, cwd, sha);
+  const copyMenu = useCopyPathMenu();
   const selectedFile = useMemo(
     () => files.find((f) => f.path === selectedPath) ?? null,
     [files, selectedPath],
@@ -521,8 +589,10 @@ function FilesWithDiff({
         loading={loading}
         selectedPath={selectedPath}
         onSelect={onSelectFile}
+        onContextMenu={copyMenu.open}
         touch={touch}
       />
+      {copyMenu.node}
       {selectedFile && (
         <DiffModal
           api={api}
