@@ -1,6 +1,7 @@
 {
   "id": "opencode",
   "version": "0.1.0",
+  "minCodeterm": "1.0.0",
   "displayName": "OpenCode",
   "binaryName": "opencode",
   "cliBinary": "opencode",

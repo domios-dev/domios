@@ -38,7 +38,7 @@ tier         = "native"            # required: "native" | "process" | "wasm"
 entrypoint   = "python3 main.py"   # optional — used by the (not-yet-implemented) process host
 wasm_module  = "plugin.wasm"       # optional — used by the (not-yet-implemented) WASM host
 platforms    = ["windows", "macos", "linux"]  # optional, omit = universal
-min_codeterm = "0.10.0"            # optional, currently not enforced
+min_codeterm = "0.10.0"            # optional; native tier not enforced (channel plugins are — see below)
 
 [capabilities]
 commands        = ["my-plugin"]    # CLI subcommands (declared only; no CLI host yet)
@@ -228,3 +228,39 @@ exist in the code today**. Do not build plugins that depend on them:
 
 For the full target design, see
 [`plans/plugin-architecture.md`](plans/plugin-architecture.md).
+
+## System plugins, the core marketplace, and compatibility
+
+Provider plugins (`claude`, `codex`, `opencode`) ship two ways at once and are
+treated as **intrinsic**: they always appear in the Plugins UI and are
+non-removable, in both dev and prod, with no network access needed just to list
+them.
+
+- **Bundled with the app.** `build.rs` mirrors `plugins/provider-*/` into the
+  binary; on daemon startup `embedded::bootstrap_into` extracts them to
+  `~/.codeterm/plugins/<id>/`. The extract is **upgrade-aware**: a CodeTerm app
+  upgrade re-writes a provider only when the bundled `version` is strictly newer
+  than what is installed, so it never downgrades a channel update that is already
+  ahead. (Skipped under `CODETERM_DEV=1` — dev keeps workspace sources
+  authoritative and relies on the virtual rows below.)
+- **The core marketplace.** The `codeterm-core` channel
+  (`DEFAULT_SYSTEM_CHANNEL_URL`, overridable via
+  `CODETERM_SYSTEM_PLUGIN_CHANNEL_URL`) lets providers update **without
+  reinstalling CodeTerm**: `codeterm plugin update <id>` / `update-system`
+  git-pulls the channel subtree and replaces the bundle in place.
+- **Virtual rows.** `plugin list` always emits the three provider ids
+  (`system: true`, `removable: false`); when one is not on disk it is shown as a
+  `state: "bundled"` virtual row. `plugin channel list` always emits
+  `codeterm-core` (`system: true`, `removable: false`) without a fetch. The CLI
+  `--force` flag remains the only way to remove a system entry; the UI never
+  offers it.
+
+### Compatibility gate (`minCodeterm`)
+
+Each provider `plugin.json` and each `channel.json` entry may declare
+`"minCodeterm": "<semver>"`. On install/update the CLI compares it against the
+running app version (passed in as `CODETERM_VERSION`) and **refuses** an
+incompatible version with a clear reason instead of installing it. `channel
+diff` rows carry `compatible` + `blocked_reason`, so the UI renders an
+"incompatible — needs CodeTerm ≥ X" badge in place of the Install/Update button.
+If `CODETERM_VERSION` is absent (raw CLI with no daemon) the gate fails open.
