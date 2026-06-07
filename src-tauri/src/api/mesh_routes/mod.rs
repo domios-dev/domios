@@ -197,10 +197,14 @@ pub async fn mesh_peer_web_token(
                         "Peer returned an empty web token".to_string(),
                     ));
                 }
+                // Prefer the peer's tailscale-serve HTTPS front: an
+                // https-origin browser cannot fetch an http:// host
+                // (mixed content), so the plain IP would brick the switch.
+                let browser_host = peer.https_url.clone().unwrap_or(base);
                 return Ok(Json(serde_json::json!({
                     "ok": true,
                     "peer_id": id,
-                    "host": base,
+                    "host": browser_host,
                     "token": body.token,
                 })));
             }

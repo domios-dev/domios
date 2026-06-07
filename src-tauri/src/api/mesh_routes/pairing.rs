@@ -164,6 +164,7 @@ pub async fn do_approve(
             is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
             version: None,
+            https_url: None,
             consecutive_misses: 0,
         };
         m.paired_peers
@@ -254,6 +255,7 @@ pub async fn mesh_pair_accept(
             is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
             version: None,
+            https_url: None,
             consecutive_misses: 0,
         };
         mesh.paired_peers
