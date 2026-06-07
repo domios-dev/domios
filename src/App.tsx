@@ -142,9 +142,9 @@ function AppInner() {
 
   // Git info for the visible pane — after a restore nothing is focused yet,
   // so fall back to the active workspace's active tab.
-  const activeWs = state.workspaces.find((w) => w.id === state.active_workspace_id);
+  const gitWs = state.workspaces.find((w) => w.id === state.active_workspace_id);
   const activeTabPaneId =
-    activeWs?.tabs.find((t) => t.id === activeWs.active_tab_id)?.pane_id ?? null;
+    gitWs?.tabs.find((t) => t.id === gitWs.active_tab_id)?.pane_id ?? null;
   const gitPaneId = state.focused_pane_id ?? activeTabPaneId;
   const focusedGitInfo = useGitInfo(gitPaneId);
 
