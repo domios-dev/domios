@@ -122,6 +122,29 @@ GitPanel with that cwd; the panel drives all further fetches itself.
 - Manual on dev: open panel on the codeterm repo itself (rich history with
   merges), verify rails, refs, diffs, selection, web mirror.
 
+## Amendment v2 (2026-06-07, post-first-use feedback)
+
+User feedback: repo dropdown dead, diff column starved for width on mid-size
+windows, dividers must be draggable everywhere.
+
+1. **RepoSwitcher menu via portal.** Root cause of the dead dropdown: the
+   menu is absolutely positioned inside the toolbar, which is `ct-hscroll`
+   (`overflow-x: auto`) — the menu gets clipped to the toolbar's height.
+   Fix: render the menu through `createPortal(document.body)` anchored to
+   the trigger rect; close on outside-click, Escape, scroll, resize.
+2. **Three layout modes** (panel-width container query):
+   - **wide ≥1000px**: graph | draggable v-divider | detail; inside detail a
+     draggable h-divider between file list and diff (both ratios persisted:
+     `ct-git-split`, `ct-git-hsplit`).
+   - **medium 560–999px**: graph | v-divider | file list only. Clicking a
+     file opens the diff in a **modal overlay**: fixed inset with backdrop
+     blur, slide-up entrance, header = filename + stats + unified/split
+     toggle + close; Escape/backdrop click closes; diff text selectable.
+   - **narrow <560px**: drill-down navigation as before; level 3 reuses the
+     same DiffModal fullscreen so the diff experience is one component.
+3. **Divider affordance**: 1px line, 8px hit zone, accent highlight on
+   hover/drag, `cursor: col-resize`/`row-resize`; double-click resets.
+
 ## Rollout
 
 Single PR-sized change on `feat/git-viewer`; no schema, no config, no

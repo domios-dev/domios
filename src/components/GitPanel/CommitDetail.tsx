@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DiffView, DiffModeEnum } from "@git-diff-view/react";
 import "@git-diff-view/react/styles/diff-view.css";
 import type { ApiConfig } from "../../lib/types";
@@ -8,6 +8,7 @@ import {
   type GitCommit,
   type GitCommitFile,
 } from "./gitApi";
+import { useDragRatio } from "./useDragRatio";
 import { UI_TEXT } from "../shared/design";
 
 interface CommitDetailProps {
@@ -15,31 +16,47 @@ interface CommitDetailProps {
   cwd: string;
   sha: string;
   split: boolean;
+  selectedPath: string | null;
+  onSelectFile: (path: string) => void;
 }
 
-// Wide-layout detail: file list + diff side by side. Owns file fetching.
-export function CommitDetail({ api, cwd, sha, split }: CommitDetailProps) {
+// Wide-layout detail: file list stacked over diff, draggable h-divider between.
+// Selection is controlled by the panel so it survives layout-mode crossings.
+export function CommitDetail({ api, cwd, sha, split, selectedPath, onSelectFile }: CommitDetailProps) {
   const { files, error, loading } = useCommitFiles(api, cwd, sha);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const { ratio, onPointerDown, reset } = useDragRatio(boxRef, {
+    storageKey: "ct-git-hsplit",
+    axis: "y",
+    minPx: 120,
+    defaultRatio: 0.35,
+  });
 
-  useEffect(() => {
-    setSelectedPath(files[0]?.path ?? null);
-  }, [files]);
+  // Wide always shows a diff: fall back to the first file for display only,
+  // without writing panel state (so leaving wide doesn't auto-open the modal).
+  const effectivePath = selectedPath ?? files[0]?.path ?? null;
 
   return (
-    <div className="flex h-full min-h-0">
-      <div className="w-64 shrink-0 overflow-auto border-r border-[var(--ct-border)]">
+    <div ref={boxRef} className="flex flex-col h-full min-h-0">
+      <div className="overflow-auto min-h-0" style={{ flex: `0 0 ${ratio * 100}%` }}>
         <FileList
           files={files}
           error={error}
           loading={loading}
-          selectedPath={selectedPath}
-          onSelect={setSelectedPath}
+          selectedPath={effectivePath}
+          onSelect={onSelectFile}
         />
       </div>
-      <div className="flex-1 min-w-0 overflow-auto">
-        {selectedPath ? (
-          <DiffPane api={api} cwd={cwd} sha={sha} path={selectedPath} split={split} />
+      <div
+        className="ct-git-divider ct-git-divider--h"
+        onPointerDown={onPointerDown}
+        onDoubleClick={reset}
+        role="separator"
+        aria-orientation="horizontal"
+      />
+      <div className="flex-1 min-h-0 overflow-auto">
+        {effectivePath ? (
+          <DiffPane api={api} cwd={cwd} sha={sha} path={effectivePath} split={split} />
         ) : (
           <div className={`p-4 ${UI_TEXT.meta}`}>Select a file to view its diff.</div>
         )}
