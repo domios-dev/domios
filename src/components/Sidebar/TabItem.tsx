@@ -33,6 +33,7 @@ interface TabItemProps {
   orchestrators?: Pane[];
   isAppearing?: boolean;
   isClosing?: boolean;
+  touchMode?: boolean;
 }
 
 export function TabItem({
@@ -50,6 +51,7 @@ export function TabItem({
   orchestrators: _orchestrators,
   isAppearing,
   isClosing,
+  touchMode = false,
 }: TabItemProps) {
   const agentProvider = getAgentProvider(pane?.agent_type);
   const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
@@ -134,8 +136,12 @@ export function TabItem({
     <div
       ref={tabRef}
       onClick={onClick}
-      draggable
+      draggable={!touchMode}
       onDragStart={(e) => {
+        if (touchMode) {
+          e.preventDefault();
+          return;
+        }
         e.dataTransfer.setData("text/plain", JSON.stringify({
           tabId: tab.id,
           fromWorkspaceId: workspaceId,
@@ -143,7 +149,9 @@ export function TabItem({
         e.dataTransfer.effectAllowed = "move";
       }}
       className={`
-        sidebar-tab group flex items-center justify-between pl-4 pr-2 py-1.5 cursor-pointer transition-colors relative
+        sidebar-tab group flex items-center justify-between cursor-pointer transition-colors relative
+        ${touchMode ? "sidebar-tab-touch" : ""}
+        ${touchMode ? "min-h-14 pl-5 pr-2 py-3" : "pl-4 pr-2 py-1.5"}
         ${animClass}
         ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
@@ -158,7 +166,7 @@ export function TabItem({
           }}
         />
       )}
-      <div className="flex items-center gap-2 min-w-0 relative z-[1]">
+      <div className={`flex items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
         {hasAgent ? (
           <AgentIcon
             // Pass agent_type directly — AgentIcon resolves via the
@@ -168,11 +176,11 @@ export function TabItem({
             // drop-in plugin to a "claude" fallback icon.
             providerId={pane?.agent_type ?? "claude"}
             working={status === "Working"}
-            className={`shrink-0 leading-none ${isSubPane ? "text-[10px]" : "text-[12px]"}`}
+            className={`shrink-0 leading-none ${touchMode ? "text-[15px]" : isSubPane ? "text-[10px]" : "text-[12px]"}`}
             title={status === "Working" ? `${agentProvider?.displayName || "Agent"} working...` : status === "Waiting" ? `${agentProvider?.displayName || "Agent"} — waiting for input` : agentProvider?.displayName || "Agent"}
           />
         ) : (
-          <TerminalIcon className={`shrink-0 ${isSubPane ? "scale-90" : ""}`} />
+          <TerminalIcon className={`shrink-0 ${touchMode ? "scale-110" : isSubPane ? "scale-90" : ""}`} />
         )}
         {editing ? (
           <input
@@ -197,7 +205,7 @@ export function TabItem({
           />
         ) : (
           <span
-            className={`text-xs truncate ${isActive ? "font-medium" : ""}`}
+            className={`${touchMode ? "text-[14px]" : "text-xs"} truncate ${isActive ? "font-medium" : ""}`}
             onDoubleClick={(e) => { e.stopPropagation(); setEditName(tab.title); setEditing(true); }}
           >
             {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
@@ -236,7 +244,7 @@ export function TabItem({
       </div>
       {/* Right slot: model badge by default, 3-dot menu on hover (layered) */}
       <div className="shrink-0 relative z-[1] flex items-center">
-        {pane?.agent_session_model && (
+        {pane?.agent_session_model && !touchMode && (
           <span
             className="sidebar-tab-badge px-1 py-0 text-[8px] leading-tight rounded font-mono uppercase tracking-wider border border-[var(--ct-border)] text-[var(--ct-muted-fg)]"
             title={pane.agent_session_model}
@@ -247,13 +255,17 @@ export function TabItem({
         {menuItems.length > 0 && (
           <DropdownMenu
             items={menuItems}
-            className="sidebar-tab-close absolute inset-y-0 right-0 flex items-center"
+            className={
+              touchMode
+                ? "flex h-11 w-11 items-center justify-center"
+                : "sidebar-tab-close absolute inset-y-0 right-0 flex items-center"
+            }
             trigger={
               <button
-                className="w-5 h-5 flex items-center justify-center rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-border)] transition-colors"
+                className={`${touchMode ? "h-11 w-11 text-[var(--ct-muted-fg)]" : "w-5 h-5 text-[var(--ct-muted-fg)]"} flex items-center justify-center rounded hover:text-[var(--ct-fg)] hover:bg-[var(--ct-border)] transition-colors`}
                 title="Tab actions"
               >
-                <span className="text-[13px] leading-none font-bold">⋮</span>
+                <span className={`${touchMode ? "text-[20px]" : "text-[13px]"} leading-none font-bold`}>⋮</span>
               </button>
             }
           />

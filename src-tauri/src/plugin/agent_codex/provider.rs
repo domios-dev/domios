@@ -713,7 +713,11 @@ fn latest_session_for_cwd(
         if ts <= after {
             return;
         }
-        if best.as_ref().map(|(_, best_ts)| ts > *best_ts).unwrap_or(true) {
+        if best
+            .as_ref()
+            .map(|(_, best_ts)| ts > *best_ts)
+            .unwrap_or(true)
+        {
             best = Some((sid, ts));
         }
     });

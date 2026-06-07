@@ -145,6 +145,13 @@ pub async fn spawn_pty(
     if let Some(ref pid) = pane_id {
         svc.link_pty(pid, pty_id.clone());
     }
+    if let Err(e) = crate::service::pty_lifecycle::start_backend_reader(&svc, &pty_id) {
+        log::warn!(
+            "[spawn_pty] failed to start backend reader for {}: {}",
+            &pty_id[..pty_id.len().min(8)],
+            e
+        );
+    }
 
     // Auto-resume: if this pane has a saved session_id, resume it after shell is ready.
     // This runs in backend so it works even for non-visible tabs.
@@ -607,11 +614,38 @@ fn parse_pty_input(
 #[tauri::command]
 pub async fn resize_pty(
     state: tauri::State<'_, PtyState>,
+    resize_owner: tauri::State<'_, crate::ResizeOwnerState>,
     pty_id: String,
     cols: u16,
     rows: u16,
+    client_id: Option<String>,
 ) -> Result<(), String> {
+    if let Some(client_id) = client_id.as_deref() {
+        if !resize_owner.lock().is_owner(&pty_id, client_id) {
+            return Ok(());
+        }
+    }
     resize_pty_core(&state, pty_id, cols, rows)
+}
+
+#[tauri::command]
+pub async fn claim_resize_owner(
+    resize_owner: tauri::State<'_, crate::ResizeOwnerState>,
+    events: tauri::State<'_, crate::api::events::EventBroadcasterState>,
+    pane_id: String,
+    pty_id: String,
+    client_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<crate::resize_owner::ResizeOwner, String> {
+    let owner = resize_owner
+        .lock()
+        .claim(pane_id, pty_id, client_id, cols, rows);
+    events.publish(crate::api::events::SystemEvent::Generic {
+        event_type: "pty-resize-owner-changed".to_string(),
+        data: serde_json::to_value(&owner).unwrap_or_default(),
+    });
+    Ok(owner)
 }
 
 /// Shared by the Tauri command and the web mirror's POST /api/pty/{id}/resize.

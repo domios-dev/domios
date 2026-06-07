@@ -161,6 +161,12 @@ fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
             {
                 return true;
             }
+            if path == "/api/fs/list-dir"
+                && (perms.contains(&Permission::ManageWorkspaces)
+                    || perms.contains(&Permission::SpawnAgents))
+            {
+                return true;
+            }
             if path.starts_with("/api/crons") && perms.contains(&Permission::ManageCrons) {
                 return true;
             }

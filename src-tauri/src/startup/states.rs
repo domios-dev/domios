@@ -15,8 +15,8 @@ use crate::session::store::SessionStore;
 use crate::session::SessionState;
 use crate::{
     agent, api, keepawake, mesh, service, update, AgentTrackerState, KeepAwakeStateHandle,
-    MeshStateHandle, OutputBufferState, PtyState, ReportStoreState, ScreenStateHandle,
-    UpdateStateHandle,
+    MeshStateHandle, OutputBufferState, PtyState, ReportStoreState, ResizeOwnerState,
+    ScreenStateHandle, UpdateStateHandle,
 };
 
 /// All shared application states, grouped for easier passing between init functions.
@@ -34,6 +34,7 @@ pub(crate) struct AppStates {
     pub(crate) update: UpdateStateHandle,
     pub(crate) mesh: MeshStateHandle,
     pub(crate) keepawake: KeepAwakeStateHandle,
+    pub(crate) resize_owner: ResizeOwnerState,
 }
 
 /// Create and initialize all application states.
@@ -53,6 +54,9 @@ pub(crate) fn init_states() -> AppStates {
         Arc::new(Mutex::new(agent::reports::ReportStore::new(200)));
     let event_broadcaster: api::events::EventBroadcasterState =
         Arc::new(api::events::EventBroadcaster::new());
+    let resize_owner: ResizeOwnerState = Arc::new(Mutex::new(
+        crate::resize_owner::ResizeOwnerRegistry::default(),
+    ));
 
     // Initialize mesh state
     let mesh_config = config_state.lock().mesh.clone();
@@ -142,5 +146,6 @@ pub(crate) fn init_states() -> AppStates {
         update: update_state,
         mesh: mesh_state,
         keepawake: keepawake::new_state(),
+        resize_owner,
     }
 }

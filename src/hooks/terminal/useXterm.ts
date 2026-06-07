@@ -18,6 +18,8 @@ const E2E_TEST_MODE = shouldEnableXtermA11yMode({
   viteCodeTermTest: import.meta.env.VITE_CODETERM_TEST,
   locationSearch: typeof window !== "undefined" ? window.location.search : "",
 });
+const MACOS_WEBGL_DISABLED = typeof navigator !== "undefined"
+  && /Mac/.test(navigator.platform);
 
 export interface UseXtermOptions {
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -116,6 +118,8 @@ export function useXterm({
       // Harness runs read terminal text from the accessibility DOM; the
       // WebGL renderer is skipped so it can't fight screenReaderMode.
       invoke("report_webgl_status", { state: "skipped_test_mode", detail: null }).catch(() => {});
+    } else if (MACOS_WEBGL_DISABLED) {
+      invoke("report_webgl_status", { state: "skipped_macos", detail: null }).catch(() => {});
     } else
     try {
       const webgl = new WebglAddon();

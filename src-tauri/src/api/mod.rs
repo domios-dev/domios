@@ -7,6 +7,7 @@ pub mod bridge_routes;
 pub mod config_routes;
 pub mod cron_routes;
 pub mod debug_routes;
+pub mod fs_routes;
 pub mod health_routes;
 pub mod hook_routes;
 pub mod logs_routes;

@@ -17,10 +17,9 @@ use super::ServiceState;
 
 /// Start a backend read loop for the given PTY.
 ///
-/// Clones a second reader handle via `try_clone_reader` so this coexists with
-/// the frontend `read_pty` command. When both are active, whichever reads first
-/// gets the data — the frontend reader will naturally starve (return nothing)
-/// while this loop is running, which is fine for headless panes.
+/// Owns the raw PTY reader and forwards chunks to the frontend channel.
+/// Frontends must consume the forwarded channel or OutputBuffer tail, never
+/// clone/read the raw PTY master in parallel.
 ///
 /// Returns a `JoinHandle` that the caller can use to track or abort the task.
 pub fn start_backend_reader(svc: &ServiceState, pty_id: &str) -> Result<JoinHandle<()>, String> {
@@ -28,6 +27,15 @@ pub fn start_backend_reader(svc: &ServiceState, pty_id: &str) -> Result<JoinHand
     // Also set up the frontend channel so read_pty can receive forwarded bytes.
     let (reader, frontend_tx) = {
         let manager = svc.pty.lock();
+        if manager.has_backend_reader(pty_id) {
+            let id = pty_id.to_string();
+            return Ok(tokio::spawn(async move {
+                log::debug!(
+                    "[backend-reader] already active for pty {}",
+                    &id[..id.len().min(8)]
+                );
+            }));
+        }
         let session = manager
             .get_session(pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?;

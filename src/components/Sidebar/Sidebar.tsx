@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { IS_WEB } from "../../lib/webApi";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import { KeepAwakeTray } from "../Titlebar/KeepAwakeTray";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
 import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
@@ -12,6 +13,7 @@ import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
+import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
 
@@ -86,6 +88,11 @@ export function Sidebar({
   const [agentSpawnModal, setAgentSpawnModal] = useState<
     { folder: string; agentId: string; workspaceId: string } | null
   >(null);
+  const [folderPicker, setFolderPicker] = useState<{
+    title: string;
+    initialPath?: string | null;
+    onSelect: (path: string) => void;
+  } | null>(null);
   const [claudeSkipPerms, setClaudeSkipPerms] = useState(() => {
     try { return localStorage.getItem("codeterm-claude-skip-perms") === "true"; } catch { return false; }
   });
@@ -105,11 +112,18 @@ export function Sidebar({
     if (!folder) {
       const provider = getAgentProvider(agentId);
       if (IS_WEB) {
-        // Native folder picker is Tauri-only — ask for the path directly.
-        folder =
-          window
-            .prompt(`Project folder for ${provider?.displayName ?? agentId} (on the CodeTerm machine):`, "")
-            ?.trim() || null;
+        setFolderPicker({
+          title: `Project folder for ${provider?.displayName ?? agentId}`,
+          initialPath: workspaceCwd,
+          onSelect: (path) => {
+            if (claudeRememberChoice) {
+              spawnAgentTab(workspaceId, agentId, claudeSkipPerms, path);
+            } else {
+              setAgentSpawnModal({ folder: path, agentId, workspaceId });
+            }
+          },
+        });
+        return;
       } else {
         try {
           folder = await open({
@@ -167,13 +181,14 @@ export function Sidebar({
   const handleNewWorkspace = useCallback(async () => {
     let folder: string | null;
     if (IS_WEB) {
-      // The native folder picker is a Tauri dialog — a browser can't
-      // browse the daemon's filesystem, so ask for the path directly.
-      folder = window.prompt(
-        "Workspace folder path on the CodeTerm machine:",
-        "",
-      );
-      folder = folder?.trim() || null;
+      setFolderPicker({
+        title: "Workspace folder",
+        onSelect: async (path) => {
+          const basename = path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
+          await createWorkspace(basename, path);
+        },
+      });
+      return;
     } else {
       try {
         folder = await open({ directory: true, multiple: false, title: "Choose workspace folder" });
@@ -231,7 +246,8 @@ export function Sidebar({
   }, [sidebarWidth]);
 
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const isCompact = sidebarWidth < 100;
+  const touchMode = useTouchOptimizedUi();
+  const isCompact = !touchMode && sidebarWidth < 100;
 
   // Track tabs for appear/close animations
   const prevTabIdsRef = useRef<Set<string>>(new Set());
@@ -297,6 +313,7 @@ export function Sidebar({
     <>
       <aside
         ref={sidebarRef}
+        data-touch-mode={touchMode ? "true" : "false"}
         className="shrink-0 bg-[var(--ct-sidebar-bg)] flex flex-col select-none overflow-hidden relative"
         style={{ width: sidebarWidth, boxShadow: "inset -0.5px 0 0 var(--ct-border-subtle)" }}
       >
@@ -424,6 +441,7 @@ export function Sidebar({
                       }
                     } catch { /* ignore */ }
                   }}
+                  touchMode={touchMode}
                 />
                 {/* Animated expand/collapse using grid-template-rows */}
                 <div
@@ -494,6 +512,7 @@ export function Sidebar({
                               orchestrators={wsOrchestrators}
                               isAppearing={isAppearing}
                               isClosing={isClosing}
+                              touchMode={touchMode}
                             />
                             {childTabs.map((ct, ci) => renderTab(ct, ci, depth + 1))}
                           </div>
@@ -557,6 +576,7 @@ export function Sidebar({
                         }}
                         pane={atFirstPane}
                         orchestrators={wsOrchestrators}
+                        touchMode={touchMode}
                       />
                     );
                   })()
@@ -635,6 +655,18 @@ export function Sidebar({
           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--ct-accent)] transition-colors"
         />
       </aside>
+
+      {folderPicker && (
+        <RemoteFolderPicker
+          title={folderPicker.title}
+          initialPath={folderPicker.initialPath}
+          onCancel={() => setFolderPicker(null)}
+          onSelect={(path) => {
+            setFolderPicker(null);
+            folderPicker.onSelect(path);
+          }}
+        />
+      )}
 
       {/* Agent spawn modal */}
       {agentSpawnModal && (

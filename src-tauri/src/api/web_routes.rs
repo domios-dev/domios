@@ -3,13 +3,14 @@
 //! these), plus the SSE event stream that replaces Tauri event emits.
 
 use axum::{
-    extract::{Path, State as AxumState},
+    extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
     Json,
 };
 use futures_core::Stream;
 use serde::Deserialize;
+use std::time::{Duration, SystemTime};
 
 use crate::api::routes::{check_auth, AppState};
 
@@ -125,18 +126,38 @@ pub async fn events_stream(
 
 // ── PTY over HTTP — the browser terminal's read/write/resize loop ──
 
-/// Long-poll one chunk of PTY output (same semantics as the Tauri
-/// `read_pty` the desktop read-loop uses; bytes as a JSON number array).
+#[derive(Deserialize)]
+pub(crate) struct PtyTailQuery {
+    offset: Option<u64>,
+}
+
+/// Browser-safe PTY mirror. Unlike the Tauri `read_pty` command, this never
+/// reads the PTY master. It tails bytes already captured in OutputBuffer, so
+/// web clients cannot steal terminal output from the desktop webview.
 pub async fn pty_read(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(pty_id): Path<String>,
-) -> Result<Json<Vec<u8>>, (StatusCode, String)> {
+    Query(query): Query<PtyTailQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let data = crate::commands::read_pty_core(&state.svc, pty_id)
-        .await
-        .map_err(|e| (StatusCode::GONE, e))?;
-    Ok(Json(data))
+    let mut offset = {
+        let buf = state.svc.output_buf.lock();
+        query.offset.unwrap_or_else(|| buf.total_written(&pty_id))
+    };
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
+    loop {
+        let (data, next_offset) = state.svc.output_buf.lock().read_since(&pty_id, offset);
+        offset = next_offset;
+        if !data.is_empty() || tokio::time::Instant::now() >= deadline {
+            return Ok(Json(serde_json::json!({
+                "data": data,
+                "offset": offset,
+            })));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 #[derive(Deserialize)]
@@ -160,6 +181,7 @@ pub async fn pty_write(
 pub(crate) struct PtyResizeBody {
     cols: u16,
     rows: u16,
+    client_id: Option<String>,
 }
 
 pub async fn pty_resize(
@@ -169,13 +191,51 @@ pub async fn pty_resize(
     Json(body): Json<PtyResizeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    if let Some(client_id) = body.client_id.as_deref() {
+        if !state.resize_owner.lock().is_owner(&pty_id, client_id) {
+            return Ok(Json(serde_json::json!({"ok": true, "ignored": true})));
+        }
+    }
     crate::commands::resize_pty_core(&state.svc.pty, pty_id, body.cols, body.rows)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[derive(Deserialize)]
+pub(crate) struct ResizeOwnerBody {
+    pty_id: String,
+    client_id: String,
+    cols: u16,
+    rows: u16,
+}
+
+pub async fn claim_resize_owner(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(pane_id): Path<String>,
+    Json(body): Json<ResizeOwnerBody>,
+) -> Result<Json<crate::resize_owner::ResizeOwner>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let owner =
+        state
+            .resize_owner
+            .lock()
+            .claim(pane_id, body.pty_id, body.client_id, body.cols, body.rows);
+    state
+        .events
+        .publish(crate::api::events::SystemEvent::Generic {
+            event_type: "pty-resize-owner-changed".to_string(),
+            data: serde_json::to_value(&owner).unwrap_or_default(),
+        });
+    Ok(Json(owner))
+}
+
 // ── uploads — browser attachments (files, voice notes) land on the
 //    daemon host so the agent CLI can read them by path ──
+
+const UPLOAD_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+const UPLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
+const UPLOAD_TARGET_BYTES: u64 = 384 * 1024 * 1024;
 
 /// Strip anything that could escape the uploads dir or break a shell-quoted
 /// paste; keep the extension so the receiving agent can tell what it got.
@@ -195,6 +255,60 @@ fn sanitize_filename(name: &str) -> String {
     }
 }
 
+struct UploadEntry {
+    path: std::path::PathBuf,
+    modified: SystemTime,
+    size: u64,
+}
+
+async fn cleanup_uploads_dir(dir: &std::path::Path) {
+    let now = SystemTime::now();
+    let Ok(mut rd) = tokio::fs::read_dir(dir).await else {
+        return;
+    };
+    let mut entries: Vec<UploadEntry> = Vec::new();
+    let mut total = 0_u64;
+
+    while let Ok(Some(entry)) = rd.next_entry().await {
+        let path = entry.path();
+        let Ok(meta) = entry.metadata().await else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        let size = meta.len();
+        if now
+            .duration_since(modified)
+            .map(|age| age > UPLOAD_TTL)
+            .unwrap_or(false)
+        {
+            let _ = tokio::fs::remove_file(&path).await;
+            continue;
+        }
+        total = total.saturating_add(size);
+        entries.push(UploadEntry {
+            path,
+            modified,
+            size,
+        });
+    }
+
+    if total <= UPLOAD_MAX_BYTES {
+        return;
+    }
+    entries.sort_by_key(|e| e.modified);
+    for entry in entries {
+        if total <= UPLOAD_TARGET_BYTES {
+            break;
+        }
+        if tokio::fs::remove_file(&entry.path).await.is_ok() {
+            total = total.saturating_sub(entry.size);
+        }
+    }
+}
+
 pub async fn upload(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -205,6 +319,7 @@ pub async fn upload(
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    cleanup_uploads_dir(&dir).await;
     while let Some(field) = multipart
         .next_field()
         .await

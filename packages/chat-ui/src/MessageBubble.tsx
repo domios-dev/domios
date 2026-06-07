@@ -495,7 +495,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   // Image message (standalone, legacy) — compact placeholder
   if (message.type === "image") {
     return (
-      <div className="mb-1.5 max-w-4xl mx-auto">
+      <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
         <ImageBadge />
       </div>
     );
@@ -546,8 +546,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     })() : null;
 
     return (
-      <div className={`flex mb-3 max-w-4xl mx-auto ${origin ? "justify-start" : "justify-end"}`}>
-        <div className="min-w-0 max-w-[75%]">
+      <div className={`flex mb-3 w-full max-w-4xl min-w-0 mx-auto ${origin ? "justify-start" : "justify-end"}`}>
+        <div className="min-w-0 max-w-[75%] sm:max-w-[75%]">
           {originHeader}
           <div
             className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 text-sm select-text cursor-text border ${TEXT_WRAP_CLASS}`}
@@ -622,9 +622,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   // Assistant message — left-aligned, NO bubble, clean prose
   if (message.type === "assistant") {
     return (
-      <div className="mb-3 max-w-4xl mx-auto">
+      <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto">
         <div
-          className={`text-sm leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
+          className={`min-w-0 max-w-full text-sm leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
           style={{ color: "var(--ct-fg)" }}
         >
           {renderedContent}
@@ -637,9 +637,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     const label = message.tagName || message.systemSubtype || "system";
     const isCaveat = message.tagName === "local-command-caveat";
     return (
-      <div className="mb-2 max-w-4xl mx-auto">
+      <div className="mb-2 w-full max-w-4xl min-w-0 mx-auto">
         <div
-          className="inline-flex flex-col gap-1 rounded-md px-2.5 py-1.5 text-xs border"
+          className="inline-flex max-w-full min-w-0 flex-col gap-1 rounded-md px-2.5 py-1.5 text-xs border"
           style={{
             background: isCaveat
               ? "color-mix(in srgb, var(--ct-yellow, #d29922) 7%, var(--ct-surface, #161b22) 93%)"
@@ -692,8 +692,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       const todos = message.toolInput!.todos as Array<{ content: string; status: string; id?: string }>;
       const STATUS_ICON: Record<string, string> = { pending: "⏳", in_progress: "🚧", completed: "✅" };
       return (
-        <div className="mb-1.5 max-w-4xl mx-auto">
-          <div className="inline-flex flex-col gap-0.5 rounded-md px-2.5 py-1.5" style={{ background: "var(--ct-surface)" }}>
+        <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
+          <div className="inline-flex max-w-full min-w-0 flex-col gap-0.5 rounded-md px-2.5 py-1.5" style={{ background: "var(--ct-surface)" }}>
             <span className="text-[10px] font-medium mb-0.5" style={{ color: "var(--ct-muted-fg)" }}>TodoWrite</span>
             {todos.map((t, i) => (
               <div key={t.id ?? i} className="flex items-start gap-1.5 text-xs" style={{ color: "var(--ct-fg)" }}>
@@ -711,7 +711,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     const resultText = message.toolResult;
 
     return (
-      <div className="mb-1.5 max-w-4xl mx-auto">
+      <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
         <div className="inline-flex flex-col max-w-[min(52rem,100%)]">
           <button
             onClick={() => setExpanded(!expanded)}
@@ -750,7 +750,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
           {expanded && (
             <div
-              className="mt-1 w-full rounded-md border border-[var(--ct-border)] p-2 text-xs"
+              className="mt-1 w-full min-w-0 max-w-full rounded-md border border-[var(--ct-border)] p-2 text-xs"
               style={{ background: "color-mix(in srgb, var(--ct-bg, #0d1117) 88%, black 4%)" }}
             >
               {toolContent ? (
@@ -788,10 +788,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     const hasMore = contentLines.length > 2;
 
     return (
-      <div className="mb-1.5 max-w-4xl mx-auto pl-4">
+      <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto pl-4">
         <button
           onClick={() => setExpanded(!expanded)}
-          className="inline-flex items-start gap-1.5 text-left rounded-md px-2.5 py-1 text-xs max-w-md transition-colors duration-150 hover:brightness-110"
+          className="inline-flex max-w-full min-w-0 items-start gap-1.5 text-left rounded-md px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110 sm:max-w-md"
           style={{
             color: "var(--ct-muted-fg)",
           }}
@@ -808,7 +808,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
         </button>
         {expanded && (
           <div
-            className="mt-1 ml-4 rounded-md px-3 py-2 text-xs font-mono overflow-x-auto max-h-48 overflow-y-auto border border-[var(--ct-border)]"
+            className="mt-1 ml-4 max-w-full min-w-0 rounded-md px-3 py-2 text-xs font-mono overflow-x-auto max-h-48 overflow-y-auto border border-[var(--ct-border)]"
             style={{ background: "var(--ct-bg)", color: "var(--ct-fg)" }}
           >
             <pre className={`${PRE_WRAP_CLASS} m-0`}>{message.content}</pre>
@@ -821,7 +821,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   // Thinking block — minimal, collapsed by default
   if (message.type === "thinking") {
     return (
-      <div className="mb-1.5 max-w-4xl mx-auto">
+      <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
         <button
           onClick={() => setExpanded(!expanded)}
           className="inline-flex items-center gap-1.5 text-left rounded-md px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
@@ -835,7 +835,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
         </button>
         {expanded && (
           <div
-            className="mt-1 rounded-md px-3 py-2 text-xs overflow-x-auto max-h-48 overflow-y-auto italic border border-[var(--ct-border)]"
+            className="mt-1 max-w-full min-w-0 rounded-md px-3 py-2 text-xs overflow-x-auto max-h-48 overflow-y-auto italic border border-[var(--ct-border)]"
             style={{
               background: "var(--ct-bg)",
               color: "var(--ct-muted-fg)",
@@ -853,7 +853,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   // Status message
   if (message.type === "status") {
     return (
-      <div className="flex justify-center mb-2 max-w-4xl mx-auto">
+      <div className="flex w-full max-w-4xl min-w-0 justify-center mb-2 mx-auto">
         <span
           className="text-[10px] px-2.5 py-0.5 rounded-full"
           style={{

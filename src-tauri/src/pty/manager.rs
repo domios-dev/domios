@@ -418,10 +418,20 @@ impl PtyManager {
         pty_id: &str,
     ) -> Option<tokio::sync::mpsc::Sender<Vec<u8>>> {
         let session = self.sessions.get(pty_id)?;
+        if let Some(existing) = session.backend_reader_tx.lock().unwrap().clone() {
+            return Some(existing);
+        }
         let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(Self::BACKEND_CHANNEL_CAPACITY);
         *session.backend_reader_tx.lock().unwrap() = Some(tx.clone());
         *session.backend_reader_rx.lock().unwrap() = Some(rx);
         Some(tx)
+    }
+
+    pub fn has_backend_reader(&self, pty_id: &str) -> bool {
+        self.sessions
+            .get(pty_id)
+            .and_then(|session| session.backend_reader_tx.lock().unwrap().clone())
+            .is_some()
     }
 }
 
