@@ -97,7 +97,7 @@ module.exports.default = {
     return parts.join(" ");
   },
 
-  // Opencode session detection uses sqlite (`opencode.db`) by cwd, newest-live rows first.
+  // Detect sessions via `opencode.db` using cwd and most recent row first.
 
   detectSessionId: function (cwd, exclude, maxAgeMs) {
     var db = opencodeDbPath();

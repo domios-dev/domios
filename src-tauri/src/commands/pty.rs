@@ -153,7 +153,7 @@ pub async fn spawn_pty(
             restored_from_snapshot && !is_protected && agent_type.is_some();
         let agent_type_for_fresh = agent_type.clone();
 
-            // Resume only restored-snapshot panes; direct spawn already starts via backend.
+            // Resume only restored snapshots; direct spawn uses backend start.
         if let Some(session_id) = session_id
             .filter(|_| !is_protected)
             .filter(|_| restored_from_snapshot)
@@ -181,7 +181,7 @@ pub async fn spawn_pty(
                 svc.set_and_lock_pane_agent_type(pid, provider_id.clone());
                 svc.emit_state_changed();
 
-                // Build resume command from provider config (`[agents.<id>]` + global fallback).
+                // Build resume command from provider and global fallback config.
                 let pc = crate::config::provider_config(&provider_id);
                 let _ = config_state; // global lock no longer needed for these fields
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
@@ -361,7 +361,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
     let ss = (*screen_state).clone();
     let pid = pty_id.clone();
 
-    // One readLoop owns the reader. If it is still held, clone a fresh handle via try_clone_reader.
+    // One read loop owns the reader; clone fresh via try_clone_reader if taken.
     let mut reader_to_use = {
         let mut reader_slot = session.reader.lock().unwrap();
         match reader_slot.take() {
@@ -440,7 +440,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                     }),
                 );
 
-                // Cron fallback: if agent died without calling cron complete, mark as failed
+                // Cron fallback marks failed if agent dies without cron completion.
                 use tauri::Manager;
                 if let Some(cron_state) = app.try_state::<crate::CronState>() {
                     let owner = cron_state.lock().get_pane_owner(pid).cloned();

@@ -41,7 +41,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
             rt.block_on(async {
                 let mut last_sync_secs: std::collections::HashMap<String, u64> =
                     std::collections::HashMap::new();
-                // Track last auto-pair attempt per peer; retry after AUTO_PAIR_RETRY_SECS.
+                // Track last auto-pair per peer; retry after AUTO_PAIR_RETRY_SECS.
                 let mut auto_pair_attempted: std::collections::HashMap<String, u64> =
                     std::collections::HashMap::new();
                 const AUTO_PAIR_RETRY_SECS: u64 = 60;
@@ -122,7 +122,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs();
-                        // Re-sync on reconnect and periodically so peers stay fresh under 300s TTL.
+                        // Re-sync on reconnect/periodic; keep TTL fresh.
                         let should_sync = mesh::types::should_proactive_sync(
                             online,
                             was_online,
@@ -239,7 +239,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                     status: crate::mesh::types::PairingStatus::Pending,
                                     introduced_by: None,
                                 };
-                                // Store so the accept handler can resolve target on callback
+                                // Store request for callback target resolution.
                                 m.pairing_targets.insert(
                                     req.request_id.clone(),
                                     (addr.clone(), target_port, target_id.clone()),
@@ -272,7 +272,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                         target_id,
                                         r.status()
                                     );
-                                    // Drop the stored request so we don't hold a dead entry
+                                    // Drop dead pending requests after send failures.
                                     let mut m = mesh2.lock();
                                     m.pending_requests.remove(&request.request_id);
                                     m.pairing_targets.remove(&request.request_id);
@@ -324,7 +324,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                         .subsec_nanos()
                         % 5) as u64;
                     tokio::time::sleep(Duration::from_secs(15 + jitter)).await;
-                    // Re-check each tick for `/mesh` toggle; offline skips refresh_local_addresses.
+                    // Re-check mesh toggle each tick; offline skips refresh.
                     if !cfg.lock().mesh.enabled {
                         continue;
                     }
@@ -402,7 +402,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(poll_interval);
-                // Hold tracker lock while collecting changes, then unlock before touching mux.
+                // Hold tracker lock for collect, then unlock before mux updates.
                 let changed: Vec<(String, crate::agent::status::PaneStatus)> = {
                     let mut t = tracker.lock();
                     let pty_ids = t.all_ids();
@@ -440,7 +440,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                     }
                 }
 
-                // Agent exit detection removed from idle-poll — handled in output.rs only.
+                // Exit detection moved from idle-poll to output.rs.
             }
         });
     }

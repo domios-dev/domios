@@ -149,7 +149,7 @@ module.exports.default = {
       if (cutoff !== null && f.modifiedMs !== null && f.modifiedMs < cutoff) continue;
       var meta = readSessionMeta(f.path);
       if (!meta) continue;
-      // Compare `meta.cwd` via `host.path.equal`, ignoring slash-style drift.
+      // Compare `meta.cwd` via `host.path.equal` (slash-style differences ignored).
       if (meta.cwd && !host.path.equal(meta.cwd, cwd)) continue;
       var stem = f.name.substring(0, f.name.length - 6);
       var sid = meta.sessionId || extractSessionUuid(stem);

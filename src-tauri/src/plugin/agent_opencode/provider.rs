@@ -341,8 +341,8 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn session_file_path(&self, _cwd: &str, session_id: &str) -> Option<PathBuf> {
-        // session_id is `ses_...`; scan `<project>/<session>.json` for legacy support.
-        // `opencode.db`-only installs return None here; use live DB data instead.
+        // session_id is `ses_...`; legacy path is `<project>/<session>.json`.
+        // db-only installs return None here and read live DB data.
         let root = Self::sessions_root()?;
         let target = format!("{}.json", session_id);
         find_file_by_name(&root, &target, 0)

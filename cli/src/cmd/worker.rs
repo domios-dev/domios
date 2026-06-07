@@ -235,8 +235,8 @@ fn worker_dreaming_deep(conn: &rusqlite::Connection) -> Result<WorkerDreamReport
     })
 }
 
-// Graph normalize phase.
-// Graph SQL belongs in codeterm-mem-store; policy and Levenshtein helpers stay in this worker.
+// Graph normalize phase:
+// Policy and Levenshtein helpers are local; Graph SQL stays in codeterm-mem-store.
 
 const NORMALIZE_PROTECTED_TYPES: &[&str] = &["kind", "area", "agent", "workspace"];
 const NORMALIZE_ORPHAN_AGE_DAYS: i64 = 14;
@@ -570,7 +570,7 @@ fn librarian_sync_one(
         "UPDATE mem_fts SET body = ?1 WHERE mem_id = ?2",
         rusqlite::params![&content, &item.id],
     ).map_err(|e| format!("update fts: {}", e))?;
-    // Drop stale embeddings so startup reindex_missing can rebuild via vec0 on the next tick.
+    // Drop stale embeddings so next startup tick can rebuild vector index.
     let _ = conn.execute(
         "DELETE FROM mem_vectors WHERE mem_id = ?1",
         rusqlite::params![&item.id],
@@ -750,7 +750,7 @@ mod tests {
 
     #[test]
     fn build_skill_id_non_ascii_does_not_panic() {
-        // Non-ASCII example: 3-byte chars mean byte slicing can panic; keep guard to avoid crashes.
+        // Non-ASCII can be 3-byte; keep guard to avoid panic on byte slicing.
         let long_chinese = "技能技能技能技能技能技能技能技能技能技能技能技能技能技能"; // 14 × 3 = 42 bytes as slug
         let result = std::panic::catch_unwind(|| build_skill_id(long_chinese));
         assert!(result.is_ok(), "should not panic on non-ASCII skill names");

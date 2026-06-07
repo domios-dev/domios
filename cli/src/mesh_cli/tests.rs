@@ -227,8 +227,8 @@ fn mem_graph_create_relays_with_server_key_names() {
     assert_eq!(p, "/api/mem/graph/entities");
     let body: serde_json::Value = serde_json::from_str(&b.unwrap()).unwrap();
     assert_eq!(body["id"], "person_kai");
-        // Mesh payload must use JSON field names used by the server (`type`, `properties`).
-        // Don't send CLI-local aliases like `entity_type`/`props`.
+        // Use server JSON keys (`type`, `properties`) here.
+        // Reject local aliases like `entity_type`/`props`.
     assert_eq!(body["type"], "Person");
     assert_eq!(body["properties"]["name"], "Kai");
     assert!(body.get("entity_type").is_none(), "stale key leaked: {}", body);
@@ -256,8 +256,7 @@ fn agent_models_relays_to_providers_endpoint() {
 #[test]
 fn mesh_cron_create_forwards_all_advanced_fields() {
     use crate::CronAction;
-        // Preserve advanced cron flags (once/jitter/tz/timeout/creator) over both transports.
-        // Both paths use the same body builder.
+        // Keep advanced cron flags on both mesh and local paths.
     let cmd = Commands::Cron {
         action: CronAction::Create {
             name: "Nightly".into(),
@@ -290,7 +289,7 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
 #[test]
 fn mesh_local_only_mem_subcommands_are_rejected_not_misrouted() {
     use crate::MemAction;
-    // Local-only mem commands must return an error over mesh, not a fake `/api/mem/stats` success.
+    // Mesh must return errors for local-only mem commands, not fake /api/mem/stats.
     let cmd = Commands::Mem {
         action: MemAction::RunWorker { kind: "dreaming-light".into(), db_path: None },
     };
