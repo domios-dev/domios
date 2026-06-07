@@ -132,7 +132,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
   }, [onClose, activeTab, inspectView]);
 
   return (
-    <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)]">
+    <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
       {/* Header with tabs */}
       <div className="flex items-center gap-0 px-4 py-0 text-[13px] bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] ct-hscroll whitespace-nowrap">
         <div className="flex items-center gap-3 mr-4 shrink-0">
