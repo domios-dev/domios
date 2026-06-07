@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { TerminalPane } from "./TerminalPane";
 import { isPaneVisible } from "../MemoryPanel/workerFocusStore";
 import type {
+  ApiConfig,
   Pane,
   ThemeConfig,
   FontConfig,
@@ -22,6 +23,7 @@ interface TabContentProps {
   usageEnabledByProvider?: Record<string, boolean>;
   gitInfo?: GitInfo | null;
   onOpenGit?: (repoRoot: string) => void;
+  api?: ApiConfig;
 }
 
 export function TabContent({
@@ -35,14 +37,13 @@ export function TabContent({
   usageEnabledByProvider,
   gitInfo,
   onOpenGit,
+  api,
 }: TabContentProps) {
   if (!pane) return null;
   if (!isPaneVisible(pane)) return null;
 
   const usageProvider = pane.agent_type ?? null;
   const usageVisible = !!usageProvider && usageEnabledByProvider?.[usageProvider] === true;
-  // Sit just left of the UsageBubble (right: 8px) when it's showing.
-  const gitRightOffset = usageVisible ? 132 : 8;
 
   return (
     <PaneWrapper paneId={pane.id} isFocused={isFocused}>
@@ -60,8 +61,8 @@ export function TabContent({
           terminalConfig={terminalConfig}
         />
       </div>
-      {isFocused && onOpenGit && (
-        <GitBubble info={gitInfo ?? null} rightOffset={gitRightOffset} onClick={onOpenGit} />
+      {isFocused && onOpenGit && api && (
+        <GitBubble info={gitInfo ?? null} cwd={pane.cwd} api={api} onClick={onOpenGit} />
       )}
       {usageProvider && (
         <UsageBubble

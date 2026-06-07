@@ -80,6 +80,27 @@ export async function fetchCommitFiles(
   return res.json();
 }
 
+export interface RepoEntry {
+  path: string;
+  name: string;
+  branch: string | null;
+}
+
+export async function fetchRepos(
+  api: ApiConfig,
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<RepoEntry[]> {
+  const qs = new URLSearchParams({ cwd });
+  const res = await fetch(`${baseUrl(api)}/api/git/repos?${qs}`, {
+    headers: authHeaders(api),
+    signal,
+  });
+  if (!res.ok) return [];
+  const body = (await res.json()) as { repos: RepoEntry[] };
+  return body.repos;
+}
+
 export async function fetchCommitDiff(
   api: ApiConfig,
   cwd: string,

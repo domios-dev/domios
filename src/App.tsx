@@ -683,6 +683,7 @@ function AppInner() {
                   usageEnabledByProvider={usageEnabledByProvider}
                   gitInfo={state.focused_pane_id === tab.pane_id ? focusedGitInfo : null}
                   onOpenGit={openGit}
+                  api={config.api}
                 />
               </div>
                 );

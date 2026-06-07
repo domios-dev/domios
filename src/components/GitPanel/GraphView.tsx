@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import type { GitCommit, GitRef } from "./gitApi";
 import { assignLanes, laneColorVar, type GraphRow } from "./laneGraph";
 
-const ROW_H = 26;
+const ROW_H_DESKTOP = 26;
+const ROW_H_TOUCH = 44;
 const COL_W = 14;
 const DOT_R = 4;
 const LEFT_PAD = 10;
@@ -14,6 +15,7 @@ interface GraphViewProps {
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
+  touch?: boolean;
 }
 
 export function GraphView({
@@ -23,7 +25,9 @@ export function GraphView({
   hasMore,
   loadingMore,
   onLoadMore,
+  touch,
 }: GraphViewProps) {
+  const rowH = touch ? ROW_H_TOUCH : ROW_H_DESKTOP;
   const rows = useMemo(
     () => assignLanes(commits.map((c) => ({ sha: c.sha, parents: c.parents }))),
     [commits],
@@ -59,6 +63,7 @@ export function GraphView({
             nextRow={rows[i + 1]}
             commit={commit}
             railWidth={railWidth}
+            rowH={rowH}
             selected={row.sha === selectedSha}
             onSelect={onSelect}
             childRowOf={byIndex}
@@ -90,6 +95,7 @@ interface GraphRowViewProps {
   nextRow: GraphRow | undefined;
   commit: GitCommit;
   railWidth: number;
+  rowH: number;
   selected: boolean;
   onSelect: (sha: string) => void;
   childRowOf: Map<string, number>;
@@ -100,6 +106,7 @@ function GraphRowView({
   nextRow,
   commit,
   railWidth,
+  rowH,
   selected,
   onSelect,
 }: GraphRowViewProps) {
@@ -122,17 +129,18 @@ function GraphRowView({
   }
 
   const dotX = laneX(row.col);
-  const midY = ROW_H / 2;
+  const midY = rowH / 2;
 
   return (
     <div
       className={`ct-git-row${selected ? " is-selected" : ""}`}
+      style={{ height: rowH }}
       onClick={() => onSelect(row.sha)}
     >
       <svg
         className="ct-git-rail"
         width={railWidth}
-        height={ROW_H}
+        height={rowH}
         style={{ flex: `0 0 ${railWidth}px` }}
       >
         {passThrough.map((c) => (
@@ -141,7 +149,7 @@ function GraphRowView({
             x1={laneX(c)}
             y1={0}
             x2={laneX(c)}
-            y2={ROW_H}
+            y2={rowH}
             stroke={laneColorVar(c)}
             strokeWidth={1.5}
           />
@@ -166,17 +174,17 @@ function GraphRowView({
                 x1={dotX}
                 y1={midY}
                 x2={px}
-                y2={ROW_H}
+                y2={rowH}
                 stroke={laneColorVar(c)}
                 strokeWidth={1.5}
               />
             );
           }
-          const cy = midY + (ROW_H - midY) / 2;
+          const cy = midY + (rowH - midY) / 2;
           return (
             <path
               key={`pe-${c}`}
-              d={`M ${dotX} ${midY} C ${dotX} ${cy}, ${px} ${midY}, ${px} ${ROW_H}`}
+              d={`M ${dotX} ${midY} C ${dotX} ${cy}, ${px} ${midY}, ${px} ${rowH}`}
               fill="none"
               stroke={laneColorVar(c)}
               strokeWidth={1.5}
