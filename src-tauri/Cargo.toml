@@ -68,7 +68,6 @@ which = "7"
 keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native-sync-persistent", "sync-secret-service"], optional = true }
 sqlite-vec = { version = "0.1.9", optional = true }
 fastembed = { version = "5", optional = true }
-annembed = { version = "0.1.6", optional = true, default-features = false }
 ndarray = { version = "0.17", optional = true }
 hnsw_rs = { version = "0.3", optional = true }
 codeterm-mem-store = { path = "../crates/mem-store" }
@@ -79,6 +78,9 @@ minidump-writer = "0.10"
 [features]
 default = ["embeddings", "secrets-keyring"]
 webdriver = ["tauri-plugin-webdriver"]
+# annembed (UMAP graph layout) is macOS-only: its LAPACK backend is the
+# Accelerate framework; Windows/Linux have no provider wired and fail at
+# link time. Declared in the macOS target section below.
 embeddings = ["dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
 dev-updater-allowlocal = []
 # OS-keychain persistence for the secret-store layer (macOS Security

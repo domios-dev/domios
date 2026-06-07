@@ -59,7 +59,8 @@ pub fn load_entity_ids(conn: &rusqlite::Connection) -> Result<Vec<String>, Strin
 
 /// Project 384-dim vectors to 2D via the annembed UMAP-style pipeline.
 /// Returns points in the same order as `vectors`.
-#[cfg(feature = "embeddings")]
+/// macOS-only: annembed's LAPACK backend is the Accelerate framework.
+#[cfg(all(feature = "embeddings", target_os = "macos"))]
 fn project_2d(vectors: &[Vec<f32>]) -> Result<Vec<(f32, f32)>, String> {
     use annembed::fromhnsw::kgraph_from_hnsw_all;
     use annembed::prelude::*;
@@ -99,7 +100,7 @@ fn project_2d(vectors: &[Vec<f32>]) -> Result<Vec<(f32, f32)>, String> {
 }
 
 /// Run the full projection and swap the cache. Returns the new layout_version.
-#[cfg(feature = "embeddings")]
+#[cfg(all(feature = "embeddings", target_os = "macos"))]
 pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64, String> {
     let started = std::time::Instant::now();
     let vectors = load_primary_vectors(conn)?;
@@ -135,9 +136,13 @@ pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64,
     Ok(version)
 }
 
-#[cfg(not(feature = "embeddings"))]
+#[cfg(not(all(feature = "embeddings", target_os = "macos")))]
 pub fn run_full(_conn: &rusqlite::Connection, _cache: &LayoutCache) -> Result<u64, String> {
-    Err("embeddings feature not enabled — layout projection unavailable".into())
+    Err(
+        "layout projection unavailable on this build (needs the embeddings \
+         feature and the macOS Accelerate LAPACK backend)"
+            .into(),
+    )
 }
 
 /// Entities without a vector get placed at the centroid of their graph-related
