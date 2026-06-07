@@ -70,6 +70,7 @@ sqlite-vec = { version = "0.1.9", optional = true }
 fastembed = { version = "5", optional = true }
 annembed = { version = "0.1.6", optional = true, default-features = false }
 ndarray = { version = "0.17", optional = true }
+hnsw_rs = { version = "0.3", optional = true }
 codeterm-mem-store = { path = "../crates/mem-store" }
 crash-handler = "0.6"
 crash-context = "0.6"
@@ -78,7 +79,7 @@ minidump-writer = "0.10"
 [features]
 default = ["embeddings", "secrets-keyring"]
 webdriver = ["tauri-plugin-webdriver"]
-embeddings = ["dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray"]
+embeddings = ["dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
 dev-updater-allowlocal = []
 # OS-keychain persistence for the secret-store layer (macOS Security
 # framework, Windows Credential Manager, Linux libsecret). Disable for
