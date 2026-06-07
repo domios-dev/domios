@@ -4,7 +4,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use tower_http::{catch_panic::CatchPanicLayer, cors::CorsLayer};
+use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, cors::CorsLayer};
 
 use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, fs_routes,
@@ -466,6 +466,15 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/dream/report", get(mem_routes::mem_dream_report))
         .route("/api/mem/graph/full", get(mem_routes::mem_graph_full))
         .route(
+            "/api/mem/graph/labels",
+            get(mem_routes::mem_graph_labels),
+        )
+        .route("/api/mem/graph/edges", get(mem_routes::mem_graph_edges))
+        .route(
+            "/api/mem/graph/layout/rebuild",
+            post(mem_routes::mem_graph_layout_rebuild),
+        )
+        .route(
             "/api/mem/pinned-positions",
             get(mem_routes::mem_pinned_positions_list),
         )
@@ -550,6 +559,17 @@ pub fn create_router(state: AppState) -> Router {
             "/api/logs",
             get(logs_routes::list_logs).delete(logs_routes::delete_logs),
         );
+
+    // gzip-scoped snapshot route: 100k-node payloads compress ~4:1. Kept on its
+    // own sub-router so compression only runs for this large response.
+    let router = router.merge(
+        Router::new()
+            .route(
+                "/api/mem/graph/snapshot",
+                get(mem_routes::mem_graph_snapshot),
+            )
+            .layer(CompressionLayer::new()),
+    );
 
     // Web mirror: serve the built React bundle at /web with an SPA fallback (deep links resolve to index.html). Public route — the auth middleware
     // skips /web; all API calls remain token-gated.

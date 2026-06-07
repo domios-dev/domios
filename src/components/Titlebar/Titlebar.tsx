@@ -8,6 +8,7 @@ import { isMac } from "../../lib/keybindings";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { MeshPresenceTray } from "./MeshPresenceTray";
 import { UpdateBadge } from "../UpdateBadge";
+import { UI_PANEL, UI_BUTTON } from "../shared/design";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -36,7 +37,7 @@ export function Titlebar({
   return (
     <div
       data-testid="titlebar"
-      className="flex items-center h-9 bg-[var(--ct-titlebar-bg)] select-none shrink-0"
+      className="flex items-center h-10 bg-[var(--ct-titlebar-bg)] select-none shrink-0"
       style={{ boxShadow: "inset 0 -0.5px 0 var(--ct-border-subtle)" }}
       data-tauri-drag-region
     >
@@ -53,7 +54,7 @@ export function Titlebar({
       <div className="flex items-center gap-1.5 pl-3" data-tauri-drag-region>
         <button
           onClick={onToggleSidebar}
-          className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+          className={`${UI_BUTTON.ghost} w-9 h-9`}
           title="Toggle sidebar"
         >
           <HamburgerIcon size={15} />
@@ -63,14 +64,14 @@ export function Titlebar({
         {!isTauri && <WebPeerPicker />}
 
         {/* Breadcrumb */}
-        <div className="flex items-center gap-1 ml-1" data-tauri-drag-region>
-          <span className="text-[11px] text-[var(--ct-muted)]" data-tauri-drag-region>
+        <div className={`${UI_PANEL.toolbarTitle} ml-1`} data-tauri-drag-region>
+          <span className="text-[var(--ct-muted)]" data-tauri-drag-region>
             CodeTerm
           </span>
           {workspaceName && (
             <>
               <Chevron />
-              <span className="text-[11px] text-[var(--ct-muted-fg)]" data-tauri-drag-region>
+              <span className="text-[var(--ct-muted-fg)]" data-tauri-drag-region>
                 {workspaceName}
               </span>
             </>
@@ -78,7 +79,7 @@ export function Titlebar({
           {tabTitle && (
             <>
               <Chevron />
-              <span className="text-[11px] text-[var(--ct-fg)]" data-tauri-drag-region>
+              <span className="text-[var(--ct-fg)]" data-tauri-drag-region>
                 {tabTitle}
               </span>
             </>
@@ -202,7 +203,7 @@ function WindowsControls({
     <div className="flex items-center h-full">
       <button
         onClick={onMinimize}
-        className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+        className={`${UI_BUTTON.ghost} h-full w-12`} 
         title="Minimize"
       >
         <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor">
@@ -211,7 +212,7 @@ function WindowsControls({
       </button>
       <button
         onClick={onMaximize}
-        className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+        className={`${UI_BUTTON.ghost} h-full w-12`}
         title="Maximize"
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
@@ -220,7 +221,7 @@ function WindowsControls({
       </button>
       <button
         onClick={onClose}
-        className="inline-flex items-center justify-center w-12 h-full hover:bg-[#e81123] text-[var(--ct-muted)] hover:text-white transition-colors"
+        className={`${UI_BUTTON.base} h-full w-12 text-[var(--ct-muted)] hover:text-white hover:bg-[#e81123] transition-colors`} 
         title="Close"
       >
         <CloseXIcon />

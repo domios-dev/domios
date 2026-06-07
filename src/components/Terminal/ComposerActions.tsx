@@ -494,7 +494,7 @@ export function ComposerActions({
           title="Attach file"
           disabled={uploading}
           onClick={() => fileRef.current?.click()}
-          className={`${btnBase} mb-1 h-10 w-10 rounded-full border border-white/10 text-white/90 shadow-[0_2px_10px_rgba(0,0,0,0.28)] hover:scale-[1.03] disabled:opacity-40`}
+          className={`${btnBase} ct-composer-round-button mb-1 h-10 w-10 rounded-full border border-white/10 text-white/90 shadow-[0_2px_10px_rgba(0,0,0,0.28)] hover:scale-[1.03] disabled:opacity-40`}
           style={{
             background:
               "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 82%, white 8%)",
@@ -503,7 +503,7 @@ export function ComposerActions({
           <Paperclip size={20} strokeWidth={2.3} className={uploading ? "animate-pulse" : undefined} />
         </button>
         <div
-          className="relative flex min-h-12 flex-1 items-center rounded-[1.35rem] border px-3.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+          className="ct-composer-input-shell relative flex min-h-12 flex-1 items-center rounded-[1.35rem] border px-3.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
           style={{
             background:
               "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 86%, white 7%)",
@@ -576,7 +576,7 @@ export function ComposerActions({
               if (mainIsSend) e.preventDefault();
             }}
             onClick={(e) => e.preventDefault()}
-            className={`${btnBase} absolute left-1/2 top-1/2 rounded-full border text-white ${
+            className={`${btnBase} ${voiceActive ? "" : "ct-composer-round-button"} absolute left-1/2 top-1/2 rounded-full border text-white ${
               voiceActive
                 ? "z-30 shadow-[0_18px_55px_rgba(31,111,235,0.52)]"
                 : "h-10 w-10"

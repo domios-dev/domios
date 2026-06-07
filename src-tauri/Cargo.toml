@@ -37,7 +37,7 @@ md-5 = "0.10"
 toml = "0.8"
 dirs = "6"
 axum = { version = "0.8", features = ["multipart"] }
-tower-http = { version = "0.6", features = ["catch-panic", "cors", "fs", "set-header"] }
+tower-http = { version = "0.6", features = ["catch-panic", "compression-gzip", "cors", "fs", "set-header"] }
 git2 = { version = "0.19", features = ["vendored-openssl"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
 async-stream = "0.3"
@@ -68,6 +68,8 @@ which = "7"
 keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native-sync-persistent", "sync-secret-service"], optional = true }
 sqlite-vec = { version = "0.1.9", optional = true }
 fastembed = { version = "5", optional = true }
+annembed = { version = "0.1.6", optional = true, default-features = false }
+ndarray = { version = "0.17", optional = true }
 codeterm-mem-store = { path = "../crates/mem-store" }
 crash-handler = "0.6"
 crash-context = "0.6"
@@ -76,14 +78,16 @@ minidump-writer = "0.10"
 [features]
 default = ["embeddings", "secrets-keyring"]
 webdriver = ["tauri-plugin-webdriver"]
-embeddings = ["dep:sqlite-vec", "dep:fastembed"]
+embeddings = ["dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray"]
 dev-updater-allowlocal = []
 # OS-keychain persistence for the secret-store layer (macOS Security
 # framework, Windows Credential Manager, Linux libsecret). Disable for
 # headless Linux builds without libsecret.
 secrets-keyring = ["dep:keyring"]
 
+# macOS uses the system Accelerate framework for the annembed LAPACK path.
 [target.'cfg(target_os = "macos")'.dependencies]
+annembed = { version = "0.1.6", optional = true, default-features = false, features = ["macos-accelerate"] }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
 objc2-foundation = "0.3"

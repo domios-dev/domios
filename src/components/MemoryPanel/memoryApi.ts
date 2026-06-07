@@ -1,13 +1,16 @@
 import type { ApiConfig } from "../../lib/types";
 import type { GraphFullResponse, MemItemFull } from "./types";
+import { IS_WEB, apiHost, currentToken } from "../../lib/webApi";
 
 export function baseUrl(api: ApiConfig): string {
+  if (IS_WEB) return apiHost();
   const host = api.host === "0.0.0.0" ? "127.0.0.1" : api.host;
   return `http://${host}:${api.port}`;
 }
 
 export function authHeaders(api: ApiConfig): HeadersInit {
-  return api.token ? { Authorization: `Bearer ${api.token}` } : {};
+  const token = IS_WEB ? currentToken() : api.token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export function jsonHeaders(api: ApiConfig): HeadersInit {
