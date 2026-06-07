@@ -469,7 +469,7 @@ export function ComposerActions({
           title="Attach file"
           disabled={uploading}
           onClick={() => fileRef.current?.click()}
-          className={`${btnBase} h-10 w-10 rounded-full border border-white/10 text-white/90 shadow-[0_2px_10px_rgba(0,0,0,0.28)] hover:scale-[1.03] disabled:opacity-40`}
+          className={`${btnBase} mb-1 h-10 w-10 rounded-full border border-white/10 text-white/90 shadow-[0_2px_10px_rgba(0,0,0,0.28)] hover:scale-[1.03] disabled:opacity-40`}
           style={{
             background:
               "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 82%, white 8%)",
@@ -516,7 +516,8 @@ export function ComposerActions({
             {children}
           </div>
         </div>
-        <div className="relative h-10 w-10 shrink-0">
+        {/* mb-1 optically centers the 40px buttons against the 48px single-line input (items-end row). */}
+        <div className="relative mb-1 h-10 w-10 shrink-0">
           <button
             ref={buttonRef}
             type="button"
@@ -535,6 +536,9 @@ export function ComposerActions({
               }
               if (mainIsSend) onSend();
             }}
+            onTouchStart={(e) => {
+              if (mainIsSend) e.preventDefault();
+            }}
             onPointerCancel={() => {
               if (voice.recording && voiceMode === "hold") {
                 voiceLockedFromDragRef.current = true;
@@ -542,10 +546,14 @@ export function ComposerActions({
               }
             }}
             onPointerMove={moveVoice}
+            // iOS steals composer focus via the synthesized mousedown after touchend — suppress it so the keyboard survives a send tap.
+            onTouchEnd={(e) => {
+              if (mainIsSend) e.preventDefault();
+            }}
             onClick={(e) => e.preventDefault()}
-            className={`${btnBase} rounded-full border text-white hover:scale-[1.03] active:scale-95 ${
+            className={`${btnBase} absolute left-1/2 top-1/2 rounded-full border text-white ${
               voiceActive
-                ? "absolute bottom-0 right-0 z-30 shadow-[0_18px_55px_rgba(31,111,235,0.52)]"
+                ? "z-30 shadow-[0_18px_55px_rgba(31,111,235,0.52)]"
                 : "h-10 w-10"
             } ${voiceMode === "locked" ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/20" : ""} ${
               voiceActive || mainIsSend
@@ -564,6 +572,8 @@ export function ComposerActions({
               color: voiceActive || mainIsSend ? "white" : "var(--ct-fg, #c9d1d9)",
               height: voiceActive ? "5.5rem" : undefined,
               width: voiceActive ? "5.5rem" : undefined,
+              // Constant center anchor in both states — only the size transitions, so growth radiates from the center.
+              transform: "translate(-50%, -50%)",
               touchAction: "none",
             }}
             disabled={voiceBusy || (hasText && sendDisabled)}

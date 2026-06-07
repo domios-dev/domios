@@ -557,6 +557,13 @@ pub fn create_router(state: AppState) -> Router {
         let serve = tower_http::services::ServeDir::new(dist).fallback(
             tower_http::services::ServeFile::new(dist.join("index.html")),
         );
+        // no-cache = revalidate every load (304s via Last-Modified). Installed
+        // iOS web apps otherwise heuristically cache index.html and miss updates.
+        let serve = tower_http::set_header::SetResponseHeader::overriding(
+            serve,
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache"),
+        );
         router
             .route(
                 "/web/manifest.webmanifest",

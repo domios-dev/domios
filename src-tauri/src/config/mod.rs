@@ -188,7 +188,7 @@ fn ensure_api_token(mut config: AppConfig, path: Option<&std::path::Path>) -> Ap
 
 /// Resolve theme: if config has a named theme, load its colors as a base,
 /// then apply any user-specified color overrides on top.
-fn resolve_theme(config: &mut AppConfig) {
+pub(crate) fn resolve_theme(config: &mut AppConfig) {
     let theme_name = config.theme.name.clone();
     if let Some(base) = schema::get_any_theme(&theme_name) {
         // For each color field, if the user didn't set it (empty or serde default), use the built-in theme color.
