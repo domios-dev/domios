@@ -70,7 +70,7 @@ export function PwaSetup() {
   return (
     <div
       data-testid="pwa-install-hint"
-      className="fixed inset-x-0 bottom-0 z-50 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] pointer-events-none"
+      className="fixed inset-x-0 bottom-0 z-50 p-3 pb-[calc(0.75rem+var(--ct-safe-bottom,0px))] pointer-events-none"
     >
       <div className="mx-auto max-w-md rounded-lg border border-[var(--ct-border,#30363d)] bg-[var(--ct-titlebar-bg,#161b22)] text-[var(--ct-fg,#e6edf3)] p-3 shadow-xl flex items-start gap-3 pointer-events-auto">
         <img src="./icons/pwa-192.png" alt="" className="w-9 h-9 rounded-lg shrink-0" />

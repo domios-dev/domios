@@ -29,9 +29,16 @@
         overflow: hidden;
         background: transparent;
       }
+      /* Single source for safe-area insets. The script below overrides these
+         with JS-probed px values in standalone mode, where env() is unreliable
+         on cold start (WebKit bug 274773). */
+      :root {
+        --ct-safe-top: env(safe-area-inset-top, 0px);
+        --ct-safe-bottom: env(safe-area-inset-bottom, 0px);
+      }
       /* Non-zero only when content extends under the status bar (installed
          web app / fullscreen); 0 in regular browsers and Tauri. */
-      #root { padding-top: env(safe-area-inset-top, 0px); }
+      #root { padding-top: var(--ct-safe-top); }
       /* .standalone is set by an inline script below — iOS home-screen apps
          don't reliably match the display-mode media query. 100vh is the ONLY
          unit correct from PWA cold start: 100dvh initializes wrong until a
@@ -49,23 +56,66 @@
       }
     </style>
     <script>
-      if (
-        navigator.standalone === true ||
-        window.matchMedia("(display-mode: standalone)").matches
-      ) {
+      (function () {
+        if (
+          navigator.standalone !== true &&
+          !window.matchMedia("(display-mode: standalone)").matches
+        ) {
+          return;
+        }
         document.documentElement.classList.add("standalone");
         // WebKit bug 274773: env(safe-area-inset-*) can stay 0 on standalone
-        // cold start. Re-applying viewport-fit forces recalculation.
+        // cold start, and a single viewport-fit toggle is not always enough.
+        // Probe the resolved values into --ct-safe-* and keep re-toggling
+        // until WebKit reports a real top inset (iOS portrait always has one).
+        var root = document.documentElement;
         var meta = document.querySelector('meta[name="viewport"]');
         var content = meta.getAttribute("content");
-        meta.setAttribute(
-          "content",
-          content.replace("viewport-fit=cover", "viewport-fit=auto")
-        );
-        requestAnimationFrame(function () {
-          meta.setAttribute("content", content);
+        function probe(prop) {
+          var el = document.createElement("div");
+          el.style.cssText =
+            "position:fixed;top:0;left:0;width:0;visibility:hidden;" +
+            "pointer-events:none;height:env(" + prop + ",0px)";
+          root.appendChild(el);
+          var v = el.offsetHeight;
+          el.remove();
+          return v;
+        }
+        function apply() {
+          var top = probe("safe-area-inset-top");
+          root.style.setProperty("--ct-safe-top", top + "px");
+          root.style.setProperty(
+            "--ct-safe-bottom",
+            probe("safe-area-inset-bottom") + "px"
+          );
+          return top;
+        }
+        var attempts = 0;
+        function kick() {
+          meta.setAttribute(
+            "content",
+            content.replace("viewport-fit=cover", "viewport-fit=auto")
+          );
+          requestAnimationFrame(function () {
+            meta.setAttribute("content", content);
+            requestAnimationFrame(function () {
+              var stale =
+                apply() === 0 &&
+                navigator.standalone === true &&
+                window.matchMedia("(orientation: portrait)").matches;
+              if (stale && ++attempts < 6) setTimeout(kick, 150 * attempts);
+            });
+          });
+        }
+        kick();
+        window.addEventListener("resize", apply);
+        window.addEventListener("orientationchange", function () {
+          setTimeout(apply, 300);
         });
-      }
+        document.addEventListener("visibilitychange", function () {
+          if (!document.hidden) apply();
+        });
+      })();
     </script>
   </head>
   <body>

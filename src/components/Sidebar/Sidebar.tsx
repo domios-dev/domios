@@ -583,14 +583,14 @@ export function Sidebar({
           {(config?.ui?.memory_tab_enabled ?? true) && (
             <button
               onClick={onOpenMemory}
-              className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
+              className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                 mainView === "memory"
                   ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                   : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
               }`}
               title="Memory Graph (Ctrl+Shift+M)"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
                 <circle cx="12" cy="5" r="2" />
                 <circle cx="5" cy="19" r="2" />
                 <circle cx="19" cy="19" r="2" />
@@ -599,21 +599,21 @@ export function Sidebar({
                 <line x1="10.5" y1="14.5" x2="6.5" y2="17.5" />
                 <line x1="13.5" y1="14.5" x2="17.5" y2="17.5" />
               </svg>
-              {!isCompact && <span className="text-[11px]">Memory</span>}
+              {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Memory</span>}
             </button>
           )}
           {(config?.ui?.mesh_tab_enabled ?? true) && (
             <button
               data-testid="nav-mesh"
               onClick={onOpenMesh}
-              className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
+              className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                 mainView === "mesh"
                   ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                   : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
               }`}
               title="Mesh"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
                 <circle cx="12" cy="12" r="2" />
                 <circle cx="4" cy="6" r="2" />
                 <circle cx="20" cy="6" r="2" />
@@ -624,21 +624,21 @@ export function Sidebar({
                 <line x1="6" y1="18" x2="10.5" y2="13" />
                 <line x1="18" y1="18" x2="13.5" y2="13" />
               </svg>
-              {!isCompact && <span className="text-[11px]">Mesh</span>}
+              {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Mesh</span>}
             </button>
           )}
           <button
             data-testid="nav-settings"
             onClick={onOpenSettings}
-            className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
+            className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
               mainView === "settings"
                 ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                 : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
             }`}
             title="Settings (Ctrl+,)"
           >
-            <GearIcon className="shrink-0" />
-            {!isCompact && <span className="text-[11px]">Settings</span>}
+            <GearIcon size={touchMode ? 18 : 14} className="shrink-0" />
+            {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Settings</span>}
           </button>
         </div>
         {/* Resize handle */}

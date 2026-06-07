@@ -11,11 +11,15 @@ import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
 import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 
-const TAB_BASE =
-  "px-3 py-2 text-xs border-b-2 bg-transparent cursor-pointer capitalize";
-const TAB_ACTIVE = `${TAB_BASE} border-[var(--ct-accent)] text-[var(--ct-fg)]`;
-const TAB_INACTIVE = `${TAB_BASE} border-transparent text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]`;
+const TAB_BASE = "shrink-0 border-b-2 bg-transparent cursor-pointer capitalize";
+const tabClass = (active: boolean, touch: boolean) =>
+  `${TAB_BASE} ${touch ? "px-4 py-3 text-sm" : "px-3 py-2 text-xs"} ${
+    active
+      ? "border-[var(--ct-accent)] text-[var(--ct-fg)]"
+      : "border-transparent text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+  }`;
 
 const TABS: MeshTab[] = ["map", "activity", "network"];
 
@@ -249,6 +253,7 @@ function normalizeTab(t: unknown): MeshTab {
 }
 
 export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
+  const touchUi = useTouchOptimizedUi();
   const goOnline = async () => {
     await onConfigUpdate({ ...config, mesh: { ...config.mesh, enabled: true } });
   };
@@ -326,8 +331,8 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     setDrawerState({ kind: "service", id: s.id });
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)]">
-      <div className="flex items-center gap-0 px-4 py-0 text-[13px] bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)]">
-        <div className="flex items-center gap-3 mr-4">
+      <div className="flex items-center gap-0 px-4 py-0 text-[13px] bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] ct-hscroll whitespace-nowrap">
+        <div className="flex items-center gap-3 mr-4 shrink-0">
           <strong>Mesh</strong>
           <span className="text-[11px] opacity-70">
             {data.error
@@ -348,7 +353,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
               key={tab}
               data-testid={`mesh-tab-${tab}`}
               onClick={() => setActiveTab(tab)}
-              className={activeTab === tab ? TAB_ACTIVE : TAB_INACTIVE}
+              className={tabClass(activeTab === tab, touchUi)}
             >
               {tab}
             </button>
