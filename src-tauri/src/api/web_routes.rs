@@ -123,6 +123,55 @@ pub async fn events_stream(
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
+// ── PWA manifest — served per-token because installed iOS web apps get a storage container separate from Safari ──
+
+#[derive(Deserialize)]
+pub(crate) struct ManifestQuery {
+    token: Option<String>,
+}
+
+/// Public like the rest of /web. Echoes the token into start_url only when
+/// it matches the configured API token, so the installed app launches
+/// pre-authenticated; otherwise start_url falls back to the plain mirror.
+pub async fn web_manifest(
+    AxumState(state): AxumState<AppState>,
+    Query(query): Query<ManifestQuery>,
+) -> impl axum::response::IntoResponse {
+    let configured = state.config.lock().api.token.clone();
+    let token_ok = matches!(
+        (&query.token, &configured),
+        (Some(q), Some(c)) if !q.is_empty() && q == c
+    );
+    let start_url = if token_ok {
+        let token = query.token.as_deref().unwrap_or_default();
+        let encoded: String = url::form_urlencoded::byte_serialize(token.as_bytes()).collect();
+        format!("/web/#token={encoded}")
+    } else {
+        "/web/".to_string()
+    };
+    let manifest = serde_json::json!({
+        "name": "CodeTerm",
+        "short_name": "CodeTerm",
+        "id": "/web/",
+        "start_url": start_url,
+        "scope": "/web/",
+        "display": "standalone",
+        "background_color": "#0d1117",
+        "theme_color": "#0d1117",
+        "icons": [
+            { "src": "/web/icons/pwa-192.png", "sizes": "192x192", "type": "image/png" },
+            { "src": "/web/icons/pwa-512.png", "sizes": "512x512", "type": "image/png" },
+        ],
+    });
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "application/manifest+json",
+        )],
+        manifest.to_string(),
+    )
+}
+
 // ── PTY over HTTP — the browser terminal's read/write/resize loop ──
 
 #[derive(Deserialize)]

@@ -8,6 +8,7 @@ import {
   setTokenFor,
   webJson,
 } from "../../lib/webApi";
+import { PwaSetup } from "./PwaSetup";
 
 type GateState = "checking" | "need-token" | "ready";
 
@@ -74,7 +75,13 @@ export function WebGate({ children }: { children: ReactNode }) {
     }
   }, [draft]);
 
-  if (state === "ready") return <>{children}</>;
+  if (state === "ready")
+    return (
+      <>
+        {children}
+        {IS_WEB && <PwaSetup />}
+      </>
+    );
 
   return (
     <div className="flex items-center justify-center h-screen bg-[var(--ct-bg,#0d1117)] text-[var(--ct-fg,#e6edf3)]">

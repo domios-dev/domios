@@ -163,6 +163,11 @@ export function TerminalPane({
 
   const touchUi = useTouchOptimizedUi();
   const showTerminalKeyBar = touchUi && uiMode === "terminal" && termReady;
+  const fallbackChat = uiMode === "chat" && terminalFallbackOpen;
+  const mobileSheet = fallbackChat && touchUi;
+  const SHEET_TOP = "calc(env(safe-area-inset-top, 0px) + 0.75rem)";
+  const SHEET_HEADER = "2.5rem";
+  const SHEET_FOOTER = "calc(4.25rem + env(safe-area-inset-bottom, 0px))";
 
   useEffect(() => {
     if (uiMode !== "chat") {
@@ -213,8 +218,8 @@ export function TerminalPane({
     return () => window.removeEventListener("codeterm-pane-ui-mode", handler);
   }, [paneId, chatSupported, sessionReadyForChat]);
 
-  // Native Tauri drop gives real file paths and uses the same `term.paste` path as keyboard paste.
-  // Bracketed-paste behavior is still respected when chat is not active on this pane.
+  // Tauri file-drop uses the same `term.paste` path as keyboard paste.
+  // Bracketed-paste rules stay active when chat is off.
   const { isDragOver: isFileDragOver } = useTauriFileDrop({
     containerRef,
     enabled: termReady && uiMode === "terminal",
@@ -225,8 +230,7 @@ export function TerminalPane({
     },
   });
 
-  // Tracks "user is dragging non-file content (text from another app) over this pane". Tauri's drag-drop covers FILE drags, HTML dragenter
-  // covers everything else (selected text from a browser, etc.). Combined visually.
+  // Track non-file drag overlay too (browser text drags). Tauri handles files, HTML dragenter handles text.
   const [isTextDragOver, setIsTextDragOver] = useState(false);
   const showDropOverlay = (isFileDragOver || isTextDragOver) && termReady && uiMode === "terminal";
 
@@ -238,8 +242,7 @@ export function TerminalPane({
     onInputData: completion.feedInput,
   });
 
-  // On return from chat mode, re-fit xterm once so stale off-screen layout does not persist.
-  // This keeps terminal size/PTY in sync during visibility transitions.
+  // On chat→terminal return, refit xterm once so layout and PTY size stay synchronized.
   useEffect(() => {
     if (uiMode !== "terminal" || !termReady) return;
     const raf = requestAnimationFrame(() => {
@@ -381,19 +384,18 @@ export function TerminalPane({
       onMouseDown={handleClick}
       onContextMenu={handleContextMenu}
       onDragEnter={(e) => {
-        // Only flip for drags carrying actual draggable data — ignores DOM drag interactions from internal UI (resizing splits, etc.) which don't put anything on `dataTransfer.types`.
+        // Only set overlay for real drags with transferable data.
         if (e.dataTransfer.types.length > 0) setIsTextDragOver(true);
       }}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
       onDragLeave={(e) => {
-        // dragleave fires when moving between children too. Only clear when the cursor truly leaves the pane bounds — relatedTarget is null (or outside `currentTarget`) on a real exit.
+        // Clear overlay only when the cursor leaves pane bounds.
         if (!e.relatedTarget || !(e.currentTarget as Node).contains(e.relatedTarget as Node)) {
           setIsTextDragOver(false);
         }
       }}
       onDrop={(e) => {
-        // File drops are handled by Tauri's native drag-drop (useTauriFileDrop). This handler covers plain-text drops (drag selection from browser,
-        // etc.). Routes through term.paste so the bracketed-paste wrap is governed by xterm's live mode state — same pipeline as every other paste path.
+        // Text-only drags go through term.paste to keep bracketed mode.
         e.preventDefault();
         e.stopPropagation();
         setIsTextDragOver(false);
@@ -414,11 +416,7 @@ export function TerminalPane({
         />
       )}
 
-      {/* xterm container — always mounted at full size so the FitAddon
-          never sees a 0×0 box (display:none triggers ResizeObserver with
-          clientWidth=0 → fit() reshapes to 1 column → garbled buffer on
-          return). visibility:hidden preserves layout dimensions so xterm
-          stays correctly sized while the chat view is on top. */}
+      {/* Keep terminal mounted full size + visibility hidden to keep FitAddon dimensions valid on return. */}
       <div
         ref={containerRef}
         className="absolute inset-0"
@@ -426,23 +424,28 @@ export function TerminalPane({
           padding: 8,
           opacity: shell.overlayVisible ? 0 : 1,
           transition: "opacity 0.3s ease-in",
-          top: uiMode === "chat" && terminalFallbackOpen ? "auto" : 0,
-          right: uiMode === "chat" && terminalFallbackOpen ? 12 : 0,
-          bottom: uiMode === "chat" && terminalFallbackOpen
-            ? "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))"
-            : showTerminalKeyBar ? "3.5rem" : 0,
-          left: uiMode === "chat" && terminalFallbackOpen ? 12 : 0,
-          height: uiMode === "chat" && terminalFallbackOpen
-            ? "min(38dvh, 320px)"
-            : "auto",
-          borderRadius: uiMode === "chat" && terminalFallbackOpen ? 6 : 0,
-          border: uiMode === "chat" && terminalFallbackOpen
+          top: mobileSheet
+            ? `calc(${SHEET_TOP} + ${SHEET_HEADER})`
+            : fallbackChat ? "auto" : 0,
+          right: fallbackChat ? (mobileSheet ? 10 : 12) : 0,
+          bottom: mobileSheet
+            ? `calc(0.75rem + ${SHEET_FOOTER})`
+            : fallbackChat
+              ? "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))"
+              : showTerminalKeyBar ? "3.5rem" : 0,
+          left: fallbackChat ? (mobileSheet ? 10 : 12) : 0,
+          height: fallbackChat && !mobileSheet ? "min(38dvh, 320px)" : "auto",
+          borderRadius: mobileSheet ? 0 : fallbackChat ? 6 : 0,
+          border: fallbackChat
             ? "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)"
             : "none",
+          borderTop: mobileSheet ? "none" : undefined,
+          borderBottom: mobileSheet ? "none" : undefined,
           background: "var(--ct-bg, #0d1117)",
           visibility: terminalVisible ? "visible" : "hidden",
           pointerEvents: terminalVisible ? "auto" : "none",
           zIndex: terminalFallbackOpen ? 4 : uiMode === "terminal" ? 1 : 0,
+          animation: mobileSheet ? "ct-sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1)" : undefined,
         }}
         onClick={() => termRef.current?.focus()}
       />
@@ -455,6 +458,19 @@ export function TerminalPane({
         </div>
       )}
 
+      {mobileSheet && (
+        <div
+          className="absolute inset-0"
+          style={{
+            zIndex: 3,
+            background: "rgba(0, 0, 0, 0.6)",
+            backdropFilter: "blur(2px)",
+            WebkitBackdropFilter: "blur(2px)",
+            animation: "ct-backdrop-in 160ms ease-out",
+          }}
+        />
+      )}
+
       {/* Chat is conditionally mounted so the per-pane tailer thread on
           the backend only starts when the user actually flipped into
           chat mode — not for every pane in the workspace. */}
@@ -462,7 +478,6 @@ export function TerminalPane({
         <div className="absolute inset-0" style={{ zIndex: 2 }}>
           <PaneSessionChat
             paneId={paneId}
-            terminalFallbackOpen={terminalFallbackOpen}
             onError={() => {
               setClientPaneUiMode(paneId, "terminal");
               setUiMode("terminal");
@@ -482,7 +497,7 @@ export function TerminalPane({
         </div>
       )}
 
-      {uiMode === "chat" && terminalFallbackOpen && (
+      {fallbackChat && !mobileSheet && (
         <div ref={fallbackShellRef} className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
           <div
             className="absolute left-3 right-3 h-7 flex items-center justify-between px-2 rounded-t-md pointer-events-auto"
@@ -509,6 +524,65 @@ export function TerminalPane({
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {mobileSheet && (
+        <div ref={fallbackShellRef} className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
+          {/* Sheet header: grabber, live title, native Done */}
+          <div
+            className="absolute pointer-events-auto flex items-center justify-between px-3"
+            style={{
+              top: SHEET_TOP,
+              left: 10,
+              right: 10,
+              height: SHEET_HEADER,
+              background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
+              border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+              borderBottom: "none",
+              borderRadius: "14px 14px 0 0",
+              boxShadow: "0 -8px 40px rgba(0,0,0,0.5)",
+              animation: "ct-sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1)",
+            }}
+          >
+            <div
+              className="absolute left-1/2 -translate-x-1/2 top-1.5 h-1 w-9 rounded-full"
+              style={{ background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 35%, transparent)" }}
+            />
+            <span className="flex items-center gap-1.5 text-xs font-mono pt-1.5" style={{ color: "var(--ct-fg, #c9d1d9)" }}>
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--ct-green, #3fb950)" }} />
+              terminal
+            </span>
+            <button
+              type="button"
+              data-testid="terminal-sheet-done"
+              className="h-10 px-2 -mr-2 pt-1.5 text-sm font-medium select-none touch-manipulation active:opacity-60"
+              style={{ background: "transparent", border: "none", color: "var(--ct-accent, #58a6ff)" }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setTerminalFallbackOpen(false)}
+            >
+              Done
+            </button>
+          </div>
+          {/* Sheet footer: integrated key bar */}
+          <div
+            className="absolute pointer-events-auto px-3 pt-2.5"
+            style={{
+              bottom: "0.75rem",
+              left: 10,
+              right: 10,
+              height: SHEET_FOOTER,
+              paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom, 0px))",
+              background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
+              border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+              borderTop: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",
+              borderRadius: "0 0 14px 14px",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
+              animation: "ct-sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1)",
+            }}
+          >
+            <TerminalKeyBar onSendKey={writePty} />
           </div>
         </div>
       )}
