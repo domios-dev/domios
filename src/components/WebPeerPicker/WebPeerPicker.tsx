@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   apiHost,
+  apiHostName,
   selfHost,
   setApiHost,
   setTokenFor,
@@ -77,10 +78,12 @@ export function WebPeerPicker() {
   const currentPeer = peers.find((p) => peerUrl(p) === current);
   const label = onSelf
     ? "this host"
-    : (currentPeer?.instance_name ?? current.replace(/^https?:\/\//, ""));
+    : (currentPeer?.instance_name ??
+      apiHostName() ??
+      current.replace(/^https?:\/\//, ""));
 
-  const switchTo = useCallback((target: string | null) => {
-    setApiHost(target);
+  const switchTo = useCallback((target: string | null, name?: string) => {
+    setApiHost(target, name);
     // Full reload: clean slate per host — no stale panes/mesh/chat data from the previous peer, and the SSE stream reattaches naturally.
     window.location.reload();
   }, []);
@@ -96,7 +99,7 @@ export function WebPeerPicker() {
       );
       const target = minted.host || fallbackUrl;
       setTokenFor(target, minted.token);
-      switchTo(target);
+      switchTo(target, peer.instance_name);
     } catch (e) {
       setSwitchError(`Could not switch to ${peer.instance_name}: ${String(e).slice(0, 160)}`);
       setSwitchingPeer(null);

@@ -12,6 +12,7 @@ export const IS_WEB =
   typeof window !== "undefined" && !("__TAURI_INTERNALS__" in window);
 
 const HOST_KEY = "codeterm-web-host";
+const HOST_NAME_KEY = "codeterm-web-host-name";
 const TOKEN_PREFIX = "codeterm-web-token:";
 
 /** Origin the SPA was served from — the "self" peer. */
@@ -24,12 +25,26 @@ export function apiHost(): string {
   return sessionStorage.getItem(HOST_KEY) ?? selfHost();
 }
 
-export function setApiHost(host: string | null): void {
+export function setApiHost(host: string | null, name?: string): void {
   if (host === null || host === selfHost()) {
     sessionStorage.removeItem(HOST_KEY);
+    sessionStorage.removeItem(HOST_NAME_KEY);
   } else {
     sessionStorage.setItem(HOST_KEY, host);
+    // The friendly name is only knowable at switch time: the target daemon
+    // doesn't list ITSELF in /api/mesh/peers, so post-reload lookups by
+    // host would fall back to the raw IP.
+    if (name) {
+      sessionStorage.setItem(HOST_NAME_KEY, name);
+    } else {
+      sessionStorage.removeItem(HOST_NAME_KEY);
+    }
   }
+}
+
+/** Friendly name of the switched-to host, captured at switch time. */
+export function apiHostName(): string | null {
+  return sessionStorage.getItem(HOST_NAME_KEY);
 }
 
 export function tokenFor(host: string): string | null {
