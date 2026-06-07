@@ -557,7 +557,12 @@ pub fn create_router(state: AppState) -> Router {
         let serve = tower_http::services::ServeDir::new(dist).fallback(
             tower_http::services::ServeFile::new(dist.join("index.html")),
         );
-        router.nest_service("/web", serve)
+        router
+            .route(
+                "/web/manifest.webmanifest",
+                get(web_routes::web_manifest),
+            )
+            .nest_service("/web", serve)
     } else {
         router
     };

@@ -9,6 +9,14 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
     />
     <title>CodeTerm</title>
+    <!-- PWA/home-screen metas: manifest link is injected at runtime by
+         PwaSetup with the API token baked into start_url. -->
+    <meta name="theme-color" content="#0d1117" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="CodeTerm" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <style>
       html, body, #root {
         margin: 0;
@@ -20,6 +28,12 @@
         height: 100dvh;
         overflow: hidden;
         background: transparent;
+      }
+      /* Installed (standalone) web app: content extends under the iOS status
+         bar (black-translucent), so pad the top inset and fill it with bg. */
+      @media all and (display-mode: standalone) {
+        html, body { background: #0d1117; }
+        #root { padding-top: env(safe-area-inset-top, 0px); }
       }
     </style>
   </head>
