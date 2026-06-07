@@ -1,12 +1,8 @@
 use super::InstallMethod;
 use serde::{Deserialize, Serialize};
 
-// Public mirror — anonymous-readable, no PAT required. Was previously
-// pointed at rollacode/codeterm (private) with an embedded UPDATER_TOKEN
-// baked into the binary at compile time via option_env!. That coupled
-// CLI `update --check` to a token that (a) leaked into every shipped
-// binary and (b) wasn't usable by anonymous downloaders following the
-// returned download_url — they hit 404 on the private repo.
+// Anonymous users check a public releases endpoint.
+// Do not bake updater tokens into shipped binaries; that breaks public download flows.
 const GITHUB_API: &str = "https://api.github.com/repos/rollacode/codeterm-releases/releases/latest";
 pub(super) const GITHUB_REPO: &str = "rollacode/codeterm-releases";
 

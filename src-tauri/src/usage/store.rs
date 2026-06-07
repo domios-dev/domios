@@ -22,8 +22,8 @@ pub struct UsageSnapshotRow {
     pub weekly_resets_at: Option<i64>,
 }
 
-// Keep enough history for the projection baseline (90-day lookback × ~30
-// samples per active day). Storage cost is trivial (~80B per row).
+// Keep up to a 90-day baseline (~30 samples/day) per provider.
+// Storage is small (~80B per row).
 const MAX_ROWS_PER_PROVIDER: i64 = 10_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

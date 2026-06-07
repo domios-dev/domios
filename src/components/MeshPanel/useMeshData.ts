@@ -87,8 +87,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
   const inFlightRef = useRef(false);
 
   const loadAll = useCallback(async () => {
-    // Peer fetches can take several seconds (multi-address walk on a dying
-    // peer); don't stack a new cycle on top of a running one.
+    // Peer fetches can take several seconds (multi-address walk on a dying peer); don't stack a new cycle on top of a running one.
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     setData((d) => ({ ...d, loading: true }));
@@ -112,8 +111,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
         }),
       );
 
-      // Vouched-but-not-yet-paired peers: render in the Paired section with
-      // "will auto-pair when online" so users don't see a manual button.
+      // Vouched-but-not-yet-paired peers: render in the Paired section with "will auto-pair when online" so users don't see a manual button.
       const pairedIds = new Set(paired.map((p) => p.instance_id));
       const pairedNamesById = new Map(paired.map((p) => [p.instance_id, p.name] as const));
       const pending: PeerStatus[] = (meshPeers.discovered ?? [])
@@ -132,9 +130,8 @@ export function useMeshData(refreshKey: number): MeshDataResult {
             .filter((n): n is string => Boolean(n)),
         }));
 
-      // Query every paired peer — the daemon decides whether to hit the
-      // network or serve its last-known cache, so offline peers still
-      // contribute (stale-flagged) services instead of vanishing (#119/#127).
+      // Query every paired peer — the daemon decides whether to hit the network or serve its last-known cache, so offline peers still contribute
+      // (stale-flagged) services instead of vanishing (#119/#127).
       const remotePromises = paired
         .filter((p) => p.ip)
         .map(async (p): Promise<PeerFetchResult> => {

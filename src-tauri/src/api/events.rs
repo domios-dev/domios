@@ -268,8 +268,7 @@ mod tests {
                 duration_secs: i,
             });
         }
-        // Channel capacity is 256; oldest entries are dropped. First recv
-        // should signal Lagged, then continue yielding the remaining tail.
+        // Channel capacity is 256; oldest entries are dropped. First recv should signal Lagged, then continue yielding the remaining tail.
         let first = rx.recv().await;
         assert!(matches!(first, Err(broadcast::error::RecvError::Lagged(_))));
     }

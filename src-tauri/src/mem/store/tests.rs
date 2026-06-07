@@ -518,8 +518,7 @@ fn migration_creates_pinned_positions_idempotently() {
     let conn = Connection::open_in_memory().unwrap();
     init_schema(&conn).unwrap();
     init_schema(&conn).unwrap();
-    // mem_items must NOT carry layout columns anymore — positions live
-    // in graph_pinned_positions or in the force-sim worker.
+    // mem_items must NOT carry layout columns anymore — positions live in graph_pinned_positions or in the force-sim worker.
     let mem_cols: Vec<String> = conn
         .prepare("PRAGMA table_info(mem_items)")
         .unwrap()

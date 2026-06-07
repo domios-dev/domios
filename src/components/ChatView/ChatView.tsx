@@ -11,11 +11,8 @@ import type { ChatMessage } from "@codeterm/provider-claude/src/parser";
 import { AlertTriangle, File } from "lucide-react";
 import { SendIcon, ChevronUpIcon } from "../Icons";
 
-// TODO(api-chat): ChatView is reserved for future direct-API chat mode
-// (pick a model, talk to LLMs via HTTP — no PTY in the middle).
-// Terminal/JSONL parsing was removed — the view currently only renders
-// user-sent optimistic messages + pending prompts. Wire the API path here
-// when the feature lands; keep the input/attachments/prompt UI as the shell.
+// ChatView is a placeholder for future direct API chat mode (pick model, call /chat directly).
+// Current UI shows only local optimistic input while PTY path remains unchanged.
 
 interface ChatViewProps {
   paneId: string;
@@ -126,8 +123,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
 
-  // Prompt subscription — event-driven, no polling. Kept so permission
-  // prompts still surface in the chat view (approve/deny dialogs).
+  // Prompt subscription — event-driven, no polling. Kept so permission prompts still surface in the chat view (approve/deny dialogs).
   useEffect(() => {
     let active = true;
 
@@ -274,10 +270,8 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     const items = Array.from(e.clipboardData.items);
     const fileItems = items.filter(item => item.kind === "file");
 
-    // Real filesystem paths from the clipboard ALWAYS win over getAsFile() blobs.
-    // macOS Cmd+C of a Finder file puts a file URL on the pasteboard but
-    // getAsFile() yields a generic 1024x1024 PNG icon, not the file's bytes.
-    // The same is true for some Windows Explorer file copies.
+    // Clipboard filesystem paths always win over `getAsFile()` blobs.
+    // Finder/Explorer copies often provide icon placeholders instead of real file bytes.
     const pathsFromClipboard = extractFilePathsFromClipboard(e.clipboardData);
 
     if (pathsFromClipboard.length > 0) {
@@ -293,8 +287,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     }
 
     if (fileItems.length > 0) {
-      // No path on the clipboard — these are real in-memory bytes
-      // (e.g. Shift+Cmd+Ctrl+4 screenshot, or a "copy image" from a webpage).
+      // No path on the clipboard — these are real in-memory bytes (e.g. Shift+Cmd+Ctrl+4 screenshot, or a "copy image" from a webpage).
       e.preventDefault();
       for (const item of fileItems) {
         const blob = item.getAsFile();

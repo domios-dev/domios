@@ -34,9 +34,7 @@ function toLegacyConfig(id: string): AgentProviderConfig | undefined {
   return {
     id: p.meta.id,
     displayName: p.meta.displayName,
-    // Fallback regex matches nothing — plugins without a titlePattern
-    // (rare) rely on PTY-byte detection only, which the host runs
-    // through `detectProvider()` in the plugin registry.
+    // Fallback regex matches nothing — plugins without a titlePattern (rare) rely on PTY-byte detection only, which the host runs through `detectProvider()` in the plugin registry.
     titlePattern: p.titlePattern ?? /^_____never_match_____$/,
     imageSend: p.imageSend,
     noisePatterns: p.noisePatterns,

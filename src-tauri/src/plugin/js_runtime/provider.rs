@@ -109,9 +109,7 @@ impl JsProvider {
         vm: Arc<PluginVm>,
         trust: ProviderTrust,
     ) -> Self {
-        // Register the plugin's models with the catalog so settings UI
-        // and `default_model()` resolve through the same plumbing as
-        // native providers.
+        // Register the plugin's models with the catalog so settings UI and `default_model()` resolve through the same plumbing as native providers.
         if !manifest.models.is_empty() {
             crate::agent::model_catalog::register(
                 &manifest.id,
@@ -255,8 +253,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn has_event_markers(&self, chunk: &str) -> bool {
-        // Default: arrows / proceed / 1./2. heuristic from trait, but
-        // let the plugin override when it has its own fingerprints.
+        // Default: arrows / proceed / 1./2. heuristic from trait, but let the plugin override when it has its own fingerprints.
         if let Some(v) = self.try_call::<bool>("hasEventMarkers", &[json!(chunk)]) {
             return v;
         }
@@ -268,10 +265,8 @@ impl AgentProvider for JsProvider {
     }
 
     fn detect_events(&self, text: &str) -> Vec<crate::agent::detector::AgentEvent> {
-        // Plugin returns a vec of event-name strings ("permission_request",
-        // "completed", ...). For v1 we only support permission_request via
-        // the universal detector — anything else returned by the plugin is
-        // simply ignored until the AgentEvent enum grows new variants.
+        // Plugin returns a vec of event-name strings ("permission_request", "completed", ...). For v1 we only support permission_request via the
+        // universal detector — anything else returned by the plugin is ignored until the AgentEvent enum grows new variants.
         let names: Vec<String> = self
             .try_call::<Vec<String>>("detectEvents", &[json!(text)])
             .unwrap_or_default();
@@ -312,9 +307,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn build_prompt_response(&self, option_index: usize) -> Vec<Vec<u8>> {
-        // Plugin returns a list of base64-encoded byte strings, one per
-        // PTY write step. Lets plugins emit vim j/k, arrow keys, escape
-        // sequences — whatever the TUI expects.
+        // Plugin returns a list of base64-encoded byte strings, one per PTY write step. Lets plugins emit vim j/k, arrow keys, escape sequences — whatever the TUI expects.
         if let Some(steps) =
             self.try_call::<Vec<String>>("buildPromptResponse", &[json!(option_index)])
         {
@@ -375,10 +368,8 @@ impl AgentProvider for JsProvider {
         exclude: &[String],
         max_age: Option<Duration>,
     ) -> Option<String> {
-        // Plugin can do its own detection (sqlite, filename heuristics,
-        // whatever its provider needs). Falls back to the generic dir
-        // walk driven by manifest.sessions.* when the plugin doesn't
-        // implement `detectSessionId`.
+        // Plugin can do its own detection (sqlite, filename heuristics, whatever its provider needs). Falls back to the generic dir walk driven by
+        // manifest.sessions.* when the plugin doesn't implement `detectSessionId`.
         let max_age_ms = max_age.map(|d| d.as_millis() as i64).unwrap_or(0);
         if let Some(v) = self.try_call::<Option<String>>(
             "detectSessionId",
@@ -425,9 +416,8 @@ impl AgentProvider for JsProvider {
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
-        // Plugin can enumerate via sqlite, recursive walk, network call,
-        // whatever. Falls back to the manifest-driven single-level
-        // listing when the plugin doesn't implement `enumerateSessions`.
+        // Plugin can enumerate via sqlite, recursive walk, network call, whatever. Falls back to the manifest-driven single-level listing when the
+        // plugin doesn't implement `enumerateSessions`.
         if let Some(list) = self.try_call::<Vec<SerdeSessionMetadata>>("enumerateSessions", &[]) {
             return list
                 .into_iter()
@@ -470,10 +460,8 @@ impl AgentProvider for JsProvider {
                 let modified_ts = meta
                     .as_ref()
                     .and_then(|m| provider::fs_time_to_unix(m.modified().ok()));
-                // Ask the plugin to dig title/summary/project_path out of
-                // the session file. We pass the path string — the plugin
-                // may choose to ignore (e.g. plain JSONL provider that
-                // only cares about per-line cwd via parse_session_messages).
+                // Ask the plugin to dig title/summary/project_path out of the session file. We pass the path string — the plugin may choose to ignore (e.g.
+                // plain JSONL provider that only cares about per-line cwd via parse_session_messages).
                 let extra: Option<Value> =
                     self.try_call("describeSession", &[json!(file_path_buf.to_string_lossy())]);
                 let title = extra
@@ -547,11 +535,8 @@ impl AgentProvider for JsProvider {
             };
         }
         let slice = &bytes[from_offset as usize..];
-        // Find the LAST '\n' byte in the slice — everything up to and
-        // including it is a guaranteed complete-line region; bytes after
-        // are a partial line we hold back for the next poll. The plugin
-        // never sees the partial part, so byte/code-unit mismatches in
-        // JS string indexing can't corrupt the offset.
+        // Find the LAST '\n' byte in the slice — everything up to and including it is a guaranteed complete-line region; bytes after are a partial
+        // line we hold back for the next poll. The plugin never sees the partial part, so byte/code-unit mismatches in JS string indexing can't corrupt the offset.
         let last_nl = match slice.iter().rposition(|&b| b == b'\n') {
             Some(idx) => idx,
             None => {
@@ -563,11 +548,8 @@ impl AgentProvider for JsProvider {
         };
         let consumed_bytes = (last_nl + 1) as u64;
         let complete_slice = &slice[..consumed_bytes as usize];
-        // UTF-8 decode for JS. lossy is OK here — by definition we
-        // only do it on a slice that ends on a \n byte boundary; any
-        // U+FFFD substitutions land inside line bodies, which the
-        // plugin's per-line JSON.parse will reject. Byte-count is no
-        // longer trusted from JS; we computed it above.
+        // UTF-8 decode for JS. lossy is OK here — by definition we only do it on a slice that ends on a \n byte boundary; any U+FFFD substitutions
+        // land inside line bodies, which the plugin's per-line JSON.parse will reject. Byte-count is no longer trusted from JS; we computed it above.
         let chunk = String::from_utf8_lossy(complete_slice).to_string();
         #[derive(serde::Deserialize)]
         struct JsDelta {
@@ -581,11 +563,8 @@ impl AgentProvider for JsProvider {
                 messages: d.messages,
             },
             None => {
-                // I4: surface plugin failures instead of busy-looping on
-                // the same broken bytes. Advance the offset past this
-                // chunk anyway — yes, we lose the messages, but the
-                // tailer escapes the infinite-retry trap. The warning
-                // from try_call is enough audit trail.
+                // I4: surface plugin failures instead of busy-looping on the same broken bytes. Advance the offset past this chunk anyway — yes, we lose the
+                // messages, but the tailer escapes the infinite-retry trap. The warning from try_call is enough audit trail.
                 log::warn!(
                     "[parse_session_delta] plugin '{}' returned no delta for {} bytes at offset {} — skipping window",
                     self.manifest.id, consumed_bytes, from_offset
@@ -683,8 +662,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {
-        // Plugin-provided schema (richer) takes precedence; otherwise
-        // assemble standard sections from manifest data.
+        // Plugin-provided schema (richer) takes precedence; otherwise assemble standard sections from manifest data.
         if let Some(schema) = self.try_call::<Vec<SettingField>>("settingsSchema", &[]) {
             return schema;
         }
@@ -697,10 +675,8 @@ impl AgentProvider for JsProvider {
     }
 
     fn install_bridge_rule(&self, payload: &str) -> Result<(), String> {
-        // Plugin returns { ok: true } or { ok: false, error: "..." }.
-        // If the plugin doesn't export `installBridgeRule`, fall back to
-        // writing manifest.rule.path when present — keeps the contract
-        // honest for plugins that declared the path but skipped the JS.
+        // Plugin returns { ok: true } or { ok: false, error: "..." }. If the plugin doesn't export `installBridgeRule`, fall back to writing
+        // manifest.rule.path when present — keeps the contract honest for plugins that declared the path but skipped the JS.
         if let Some(r) = self.try_call_result("installBridgeRule", &[json!(payload)]) {
             return r;
         }
@@ -748,9 +724,8 @@ impl AgentProvider for JsProvider {
     }
 
     fn ensure_integration_on_startup(&self, api_port: u16) {
-        // Plugin owns the dance if it implements `ensureIntegrationOnStartup`;
-        // otherwise check-then-install. Either way, swallow errors — a
-        // missing or failed hook install must not block startup.
+        // Plugin owns the dance if it implements `ensureIntegrationOnStartup`; otherwise check-then-install. Either way, swallow errors — a missing or
+        // failed hook install must not block startup.
         if let Some(r) = self.try_call_result("ensureIntegrationOnStartup", &[json!(api_port)]) {
             let _ = r;
             return;
@@ -1163,8 +1138,7 @@ mod tests {
 
     #[test]
     fn _unused_import_guard() {
-        // Keep the encode helper exercised so the test suite reflects its
-        // production use in sessions_dir().
+        // Keep the encode helper exercised so the test suite reflects its production use in sessions_dir().
         let _ = encode_cwd_dashed("/home/x/proj");
         let _ = json!(null);
     }

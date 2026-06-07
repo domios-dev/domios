@@ -69,11 +69,8 @@ export function WorkspaceItem({
 
   const { config } = useConfig();
   const agentsConfig = config.agents ?? {};
-  // Backend descriptors — single source of truth across bundled +
-  // user-installed JS plugins. Frontend `getAllProviders()` only knew
-  // about plugins with a `src/index.ts` FE module, which left
-  // drop-in `~/.codeterm/plugins/<id>/plugin.js` plugins invisible
-  // in the workspace menu.
+  // Backend descriptors — single source of truth across bundled + user-installed JS plugins. Frontend `getAllProviders()` only knew about
+  // plugins with a `src/index.ts` FE module, which left drop-in `~/.codeterm/plugins/<id>/plugin.js` plugins invisible in the workspace menu.
   const { providers } = useAgentProviders();
 
   const menuItems: DropdownMenuItem[] = useMemo(() => {

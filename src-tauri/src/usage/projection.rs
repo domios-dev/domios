@@ -43,10 +43,8 @@ const SHAPE_PAIR_DELTA_MAX: f64 = 25.0;
 /// avoid serving stale data across DST shifts / clock changes.
 const BASELINE_CACHE_TTL_S: i64 = 6 * 60 * 60;
 
-// Default daily profile = office hours 9:00–20:00, peak mid-morning + mid-afternoon,
-// taper to 0 by 20:00. Shape is normalized later; relative values matter, not absolute.
-// At 19:00 the cumulative share is ~0.95, so projection only adds a sliver for the
-// remaining hour instead of stretching activity through midnight.
+// Default daily profile: office hours 9:00–20:00 with peak mid-day and zero at 20:00.
+// Shape is normalized later; absolute levels are intentionally conservative near midnight.
 const DEFAULT_HOURLY_WEEKDAY: [f64; 24] = [
     // 0  1   2   3   4   5   6
     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // 7  8    9    10   11   12   13
@@ -276,8 +274,7 @@ fn compute_weekly(
     } else {
         baseline.wd_hour_share
     };
-    // Prefer per-DOW total when we have enough samples for today's DOW, else
-    // fall back to the weekend/weekday bucket average.
+    // Prefer per-DOW total when we have enough samples for today's DOW, else fall back to the weekend/weekday bucket average.
     let hist_today_total = if baseline.dow_n[today_dow as usize] >= 3 {
         baseline.dow_total[today_dow as usize]
     } else if today_is_we {
@@ -293,11 +290,8 @@ fn compute_weekly(
     share_used += shape[cur_hour] * minute_frac;
     share_used = share_used.clamp(0.0, 1.0);
 
-    // Estimate today's full-day total by combining observed pace with the
-    // historical prior. Trust the prior more early in the day, less late
-    // (when the day's shape has mostly played out and extrapolation is solid).
-    // Then floor at today_so_far so we never project less than what's already
-    // happened — if the user is burning faster than the prior, re-anchor.
+    // Blend observed pace with historical prior, then floor at today's current total.
+    // Increase weight of live shape as the day matures.
     let est_today_total: f64 = if share_used >= 0.05 && today_so_far > 0.0 {
         let extrapolated = today_so_far / share_used;
         let hist_weight = (1.0 - share_used).clamp(0.2, 0.8);
@@ -315,10 +309,8 @@ fn compute_weekly(
     let rest_of_today = (est_today_total - today_so_far).max(0.0);
     let end_of_today = current_pct + rest_of_today;
 
-    // Per-DOW estimate for each future day: blend today's pace-relative scale
-    // with the historical DOW-specific average. The "scale factor" is how today's
-    // observed total compares to what's typical for today's DOW — if today is
-    // running 1.2× usual Monday, project 1.2× usual Tuesday too.
+    // Per-DOW estimate for each future day: blend today's pace-relative scale with the historical DOW-specific average. The "scale factor" is how
+    // today's observed total compares to what's typical for today's DOW — if today is running 1.2× usual Monday, project 1.2× usual Tuesday too.
     let today_dow_hist = if baseline.dow_n[today_dow as usize] >= 3 {
         baseline.dow_total[today_dow as usize]
     } else if today_is_we {
@@ -353,9 +345,8 @@ fn compute_weekly(
         cursor += DAY_MS;
     }
 
-    // For the response API: report the bucket-averaged weekday/weekend numbers
-    // (legacy compatibility) AND expose per-DOW so the frontend bar chart can
-    // paint each future day with its own height.
+    // For the response API: report the bucket-averaged weekday/weekend numbers (legacy compatibility) AND expose per-DOW so the frontend bar chart
+    // can paint each future day with its own height.
     let est_wd_total = (1..=5).map(|d| dow_estimate(d)).sum::<f64>() / 5.0;
     let est_we_total = (dow_estimate(0) + dow_estimate(6)) / 2.0;
     let dow_estimates: [f64; 7] = std::array::from_fn(|d| dow_estimate(d));
@@ -657,9 +648,8 @@ fn compute_baseline(
             .filter_map(Result::ok)
             .collect();
 
-        // Bucket samples per local day. Each day records hour-of-sample increments
-        // (consecutive sample deltas attributed to the later sample's hour). This
-        // works on sparse histories — even one sample per hour produces signal.
+        // Bucket samples per local day; assign each delta to the later sample's local hour.
+        // This works on sparse histories — even one sample per hour produces signal.
         let mut day_buckets: HashMap<String, (bool, [f64; 24], Vec<(i64, f64, Option<i64>)>)> =
             HashMap::new();
         for (day, dow, captured_at, pct, resets_at) in samples {
@@ -671,12 +661,8 @@ fn compute_baseline(
             entry.2.push((captured_at, pct, resets_at));
         }
 
-        // Per-day: track day_total (no shape-filter — captures off-device
-        // jumps so vacation weeks / multi-device usage still feed median)
-        // and hours[] (filtered — clean shape signal). These diverge by
-        // design: total tells us "how much did this day cost in absolute %",
-        // shape tells us "how is that cost normally distributed across hours
-        // when we observe it live".
+        // Track both totals and shape separately: totals catch large off-device jumps,
+        // shape keeps the intra-day hour distribution signal stable.
         let mut day_hours: HashMap<String, (bool, [f64; 24], f64)> = HashMap::new();
         let mut day_dows: HashMap<String, usize> = HashMap::new();
         for (day, (is_we, _empty_hours, mut samples)) in day_buckets {
@@ -701,10 +687,8 @@ fn compute_baseline(
                 }
                 // ALWAYS counts toward day total (capture genuine activity).
                 day_total += delta;
-                // SHAPE-only filter: attributing a giant off-device jump to
-                // one hour distorts the per-hour curve. Cap how much one pair
-                // can contribute to hours[] without losing the magnitude
-                // from day_total.
+                // SHAPE-only filter: attributing a giant off-device jump to one hour distorts the per-hour curve. Cap how much one pair can contribute to
+                // hours[] without losing the magnitude from day_total.
                 let gap_ms = ts_b - ts_a;
                 if gap_ms > SHAPE_PAIR_GAP_MS || delta > SHAPE_PAIR_DELTA_MAX {
                     continue;
@@ -715,8 +699,7 @@ fn compute_baseline(
             day_hours.insert(day, (is_we, hours, day_total));
         }
 
-        // Per day: normalize to shape (sum=1), then average across same dow-group.
-        // For totals we collect the per-day list to take a MEDIAN later —
+        // Per day: normalize to shape (sum=1), then average across same dow-group. For totals we collect the per-day list to take a MEDIAN later —
         // robust against vacation weeks / odd outliers that would bias a mean.
         let mut wd_share_sum = [0.0_f64; 24];
         let mut we_share_sum = [0.0_f64; 24];

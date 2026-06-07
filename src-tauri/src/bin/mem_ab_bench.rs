@@ -23,8 +23,7 @@ struct TestCase {
 }
 
 fn load_cases() -> Vec<TestCase> {
-    // Queries targeting items in evals/seeds/loaded.py (first 50 items).
-    // `expect` is a list of keywords — a hit counts if any title+body in top-3
+    // Queries targeting items in evals/seeds/loaded.py (first 50 items). `expect` is a list of keywords — a hit counts if any title+body in top-3
     // contains ≥2 of them (or ≥1 for short expect lists).
     let raw = r#"[
         {"id":"K01","cat":"keyword","q":"PgBouncer connection pooling","expect":["pgbouncer","pooling","bouncer"]},

@@ -253,9 +253,8 @@ export function buildYearBuckets(rows: UsageSnapshot[], now: number): Bucket[] {
 
 export function activeWeeklyCycle(rows: UsageSnapshot[]): { start: number; end: number } {
   const now = Date.now();
-  // Only trust a reset timestamp if it's still in the future. Stale rows from
-  // a previous cycle would otherwise put us in a "cycle that already ended"
-  // and future-day buckets would render off the chart's right edge.
+  // Only trust a reset timestamp if it's still in the future. Stale rows from a previous cycle would otherwise put us in a "cycle that already
+  // ended" and future-day buckets would render off the chart's right edge.
   const withReset = rows.find(
     (r) => r.weekly_resets_at != null && r.weekly_resets_at > now,
   );

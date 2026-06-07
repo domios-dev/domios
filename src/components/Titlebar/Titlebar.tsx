@@ -26,8 +26,7 @@ export function Titlebar({
   onOpenSettingsAbout,
 }: TitlebarProps) {
   void _theme;
-  // Window chrome controls only exist in the Tauri shell; the browser tab
-  // owns its own window in web-mirror mode.
+  // Window chrome controls only exist in the Tauri shell; the browser tab owns its own window in web-mirror mode.
   const isTauri = "__TAURI_INTERNALS__" in window;
   const appWindow = isTauri ? getCurrentWindow() : null;
   const handleMinimize = useCallback(() => appWindow?.minimize(), [appWindow]);

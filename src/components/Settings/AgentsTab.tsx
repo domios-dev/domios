@@ -141,8 +141,7 @@ export function AgentProviderScreen({
   const { providers, loading, error } = useAgentProviders();
   const provider = providers.find((p) => p.id === providerId) ?? null;
 
-  // If a plugin was deactivated mid-navigation, pop back to the Agents
-  // overview so the user isn't stuck on a dead provider detail.
+  // If a plugin was deactivated mid-navigation, pop back to the Agents overview so the user isn't stuck on a dead provider detail.
   useEffect(() => {
     if (!loading && !provider) onProviderGone();
   }, [loading, provider, onProviderGone]);

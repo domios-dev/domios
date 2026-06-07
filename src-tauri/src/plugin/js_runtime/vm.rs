@@ -50,13 +50,8 @@ const PLUGIN_PREAMBLE: &str = r#"
     quote:    host.shellQuote,
     quoteFor: host.shellQuoteFor,
   };
-  // Cross-platform path helpers. Plugins doing session detection get
-  // burned by slash/case mismatches between "what the CLI wrote" (often
-  // OS-native form) and "what codeterm passes" (usually forward-slash).
-  // Use these instead of comparing strings directly:
-  //   host.path.equal(metaCwd, paneCwd)         // semantic eq
-  //   host.path.normalize(p)                    // canonical key form
-  //   host.md5(host.path.toNative(paneCwd))     // hash like the IDE does
+  // Normalize/slurp path variants (native vs forwarded slash forms) before comparisons.
+  // Session detection depends on semantic equality, not raw string equality.
   host.path = {
     isWindows: host.platform() === "windows",
     toForwardSlash: function (p) { return String(p || "").replace(/\\/g, "/"); },
@@ -132,13 +127,10 @@ struct Inner {
     // Order matters: context must be dropped before runtime.
     _ctx: Context,
     _rt: Runtime,
-    // We re-create a fresh context per call would be expensive; instead
-    // the bundle's exports live as globals (`__plugin__.detectFromTitle`,
-    // ...) after the initial load. `call` reads them on demand.
+    // We re-create a fresh context per call would be expensive; instead the bundle's exports live as globals (`__plugin__.detectFromTitle`, ...)
+    // after the initial load. `call` reads them on demand.
     bundle_source: String,
-    // Manifest JSON string returned to the plugin via `host.manifest()`.
-    // Preserved across reload so the post-reload plugin still sees its
-    // declared paths.
+    // Manifest JSON string returned to the plugin via `host.manifest()`. Preserved across reload so the post-reload plugin still sees its declared paths.
     manifest_json: Option<String>,
 }
 
@@ -190,18 +182,8 @@ impl PluginVm {
         let rt = Runtime::new().map_err(|e| VmError::RuntimeInit(e.to_string()))?;
         let ctx = Context::full(&rt).map_err(|e| VmError::RuntimeInit(e.to_string()))?;
 
-        // Bootstrap: install the plugin's exports onto globalThis as
-        // `__plugin__`. esbuild output uses `module.exports.default = ...`
-        // when configured for cjs; for esm it'd be `export default`. We
-        // standardise on a tiny IIFE that the host wraps around the
-        // bundle so plugin authors just `export default { ... }` and the
-        // bootstrap turns that into a global.
-        //
-        // Author-side: their source contains `export default { detectFromTitle(...) {...} }`.
-        // Build-side: esbuild bundles into a single file with the default
-        // export. We then evaluate the bundle inside a wrapping function
-        // that captures the default export and exposes it as
-        // `globalThis.__plugin__`.
+        // Normalize plugin exports to `globalThis.__plugin__` for both cjs and esm bundles.
+        // esbuild builds a default-export object; we unwrap it through a tiny bootstrap IIFE.
         let bootstrap = format!(
             r#"
             globalThis.__plugin__ = (function() {{
@@ -313,9 +295,7 @@ pub fn call_json<R: serde::de::DeserializeOwned>(
             .catch(&ctx)
             .map_err(|_| VmError::MissingFunction(method.to_string()))?;
 
-        // Encode args as a single JSON string, parse inside the VM,
-        // spread into the call. This avoids per-arg Value construction
-        // and keeps the bridge boundary simple.
+        // Encode args as a single JSON string, parse inside the VM, spread into the call. This avoids per-arg Value construction and keeps the bridge boundary simple.
         let args_json = serde_json::to_string(args)
             .map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
         ctx.globals()
@@ -333,8 +313,7 @@ pub fn call_json<R: serde::de::DeserializeOwned>(
                     throw new Error('not a function: ' + {name:?});
                 }}
                 const out = fn.apply(globalThis.__plugin__, args);
-                // Promise returns aren't supported here — providers
-                // declare sync methods only.
+                // Promise returns aren't supported here — providers declare sync methods only.
                 if (out && typeof out.then === 'function') {{
                     throw new Error({name:?} + ' returned a Promise; plugin methods must be synchronous');
                 }}
@@ -471,8 +450,7 @@ mod tests {
 
     #[test]
     fn esm_export_default_style() {
-        // esbuild output for `export default { ... }` produces
-        // `module.exports.default = ...` after the bootstrap interpret.
+        // esbuild output for `export default { ... }` produces `module.exports.default = ...` after the bootstrap interpret.
         let vm = fixture(
             r#"
             // Pretend this is esbuild output for `export default { ... }`
@@ -488,10 +466,8 @@ mod tests {
 
     #[test]
     fn preamble_exposes_host_fs_and_host_manifest() {
-        // Plugin uses ONLY the convenience surface — no JSON.parse,
-        // no raw *Json suffix calls. If the preamble didn't load,
-        // host.fs / host.manifest would be undefined and these
-        // calls would throw TypeError.
+        // Plugin uses ONLY the convenience surface — no JSON.parse, no raw *Json suffix calls. If the preamble didn't load, host.fs / host.manifest
+        // would be undefined and these calls would throw TypeError.
         let vm = PluginVm::from_source_with(
             "test",
             r#"

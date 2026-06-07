@@ -11,15 +11,18 @@ import {
   useTerminalInput,
   useAgentDetection,
   useTauriFileDrop,
+  useTouchScroll,
 } from "../../hooks/terminal";
 import { quotePathForPaste, routeClipboardToTerm } from "../../lib/clipboardPaste";
 import { registerPanePaste } from "../../lib/panePasteRegistry";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import {
   getClientPaneUiMode,
   listenClientPaneUiMode,
   setClientPaneUiMode,
 } from "../../lib/clientPaneUiMode";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
+import { TerminalKeyBar } from "./TerminalKeyBar";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
 import { PaneSessionChat } from "./PaneSessionChat";
@@ -138,7 +141,7 @@ export function TerminalPane({
   });
 
   // --- PTY connection ---
-  usePtyConnection({
+  const { writePty } = usePtyConnection({
     termRef, fitAddonRef, connectedPtyRef, paneId, ptyId, termReady,
     onPtySpawned,
     onShellReady: shell.markReady,
@@ -154,6 +157,12 @@ export function TerminalPane({
 
   // --- Agent detection ---
   useAgentDetection({ termRef, paneId, termReady });
+
+  // --- Touch swipe scrolling (xterm has no native touch scroll) ---
+  useTouchScroll({ containerRef, termRef, termReady });
+
+  const touchUi = useTouchOptimizedUi();
+  const showTerminalKeyBar = touchUi && uiMode === "terminal" && termReady;
 
   useEffect(() => {
     if (uiMode !== "chat") {
@@ -204,11 +213,8 @@ export function TerminalPane({
     return () => window.removeEventListener("codeterm-pane-ui-mode", handler);
   }, [paneId, chatSupported, sessionReadyForChat]);
 
-  // --- Tauri native drag-drop (provides real file paths, no byte copy) ---
-  // Routes through term.paste so xterm wraps with bracketed-paste markers
-  // only when the running app has enabled bracketed mode — same single
-  // pipeline as keyboard paste. Suppressed when chat is on top so drops
-  // fall into the composer instead.
+  // Native Tauri drop gives real file paths and uses the same `term.paste` path as keyboard paste.
+  // Bracketed-paste behavior is still respected when chat is not active on this pane.
   const { isDragOver: isFileDragOver } = useTauriFileDrop({
     containerRef,
     enabled: termReady && uiMode === "terminal",
@@ -219,9 +225,8 @@ export function TerminalPane({
     },
   });
 
-  // Tracks "user is dragging non-file content (text from another app) over
-  // this pane". Tauri's drag-drop covers FILE drags, HTML dragenter covers
-  // everything else (selected text from a browser, etc.). Combined visually.
+  // Tracks "user is dragging non-file content (text from another app) over this pane". Tauri's drag-drop covers FILE drags, HTML dragenter
+  // covers everything else (selected text from a browser, etc.). Combined visually.
   const [isTextDragOver, setIsTextDragOver] = useState(false);
   const showDropOverlay = (isFileDragOver || isTextDragOver) && termReady && uiMode === "terminal";
 
@@ -233,12 +238,8 @@ export function TerminalPane({
     onInputData: completion.feedInput,
   });
 
-  // Force xterm refit + repaint + PTY resize on return-from-chat. Belt-
-  // and-suspenders on top of visibility:hidden — if anything (a stale
-  // ResizeObserver tick, a layout race) left xterm with the wrong
-  // dimensions while it was off-screen, this restores them and
-  // re-renders the visible region. Triggered on the *transition* into
-  // terminal mode only, not on every render.
+  // On return from chat mode, re-fit xterm once so stale off-screen layout does not persist.
+  // This keeps terminal size/PTY in sync during visibility transitions.
   useEffect(() => {
     if (uiMode !== "terminal" || !termReady) return;
     const raf = requestAnimationFrame(() => {
@@ -298,7 +299,8 @@ export function TerminalPane({
       if (!target) return;
       if (
         target instanceof Element
-        && target.closest("[data-terminal-fallback-toggle='true']")
+        && (target.closest("[data-terminal-fallback-toggle='true']")
+          || target.closest("[data-terminal-keys='true']"))
       ) {
         return;
       }
@@ -339,12 +341,8 @@ export function TerminalPane({
     return () => window.removeEventListener("codeterm-toggle-search", handler);
   }, [paneId]);
 
-  // --- App-wide paste routing ---
-  // Register this pane's paste fn in the global registry so App.tsx's
-  // window-level Ctrl+V handler can target whichever pane is currently
-  // focused, regardless of where the inner DOM focus is. Synchronous
-  // function-call lookup — no event bus race, no remount window where
-  // the dispatch falls into a void.
+  // Register this pane in global paste registry so app-level Ctrl/Cmd+V always targets focused pane.
+  // Direct function lookup avoids event-bus race conditions and remount windows.
   useEffect(() => {
     return registerPanePaste(paneId, () => {
       const term = termRef.current;
@@ -383,26 +381,19 @@ export function TerminalPane({
       onMouseDown={handleClick}
       onContextMenu={handleContextMenu}
       onDragEnter={(e) => {
-        // Only flip for drags carrying actual draggable data — ignores DOM
-        // drag interactions from internal UI (resizing splits, etc.) which
-        // don't put anything on `dataTransfer.types`.
+        // Only flip for drags carrying actual draggable data — ignores DOM drag interactions from internal UI (resizing splits, etc.) which don't put anything on `dataTransfer.types`.
         if (e.dataTransfer.types.length > 0) setIsTextDragOver(true);
       }}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
       onDragLeave={(e) => {
-        // dragleave fires when moving between children too. Only clear when
-        // the cursor truly leaves the pane bounds — relatedTarget is null
-        // (or outside `currentTarget`) on a real exit.
+        // dragleave fires when moving between children too. Only clear when the cursor truly leaves the pane bounds — relatedTarget is null (or outside `currentTarget`) on a real exit.
         if (!e.relatedTarget || !(e.currentTarget as Node).contains(e.relatedTarget as Node)) {
           setIsTextDragOver(false);
         }
       }}
       onDrop={(e) => {
-        // File drops are handled by Tauri's native drag-drop (useTauriFileDrop).
-        // This handler covers plain-text drops (drag selection from browser,
-        // etc.). Routes through term.paste so the bracketed-paste wrap is
-        // governed by xterm's live mode state — same pipeline as every
-        // other paste path.
+        // File drops are handled by Tauri's native drag-drop (useTauriFileDrop). This handler covers plain-text drops (drag selection from browser,
+        // etc.). Routes through term.paste so the bracketed-paste wrap is governed by xterm's live mode state — same pipeline as every other paste path.
         e.preventDefault();
         e.stopPropagation();
         setIsTextDragOver(false);
@@ -439,7 +430,7 @@ export function TerminalPane({
           right: uiMode === "chat" && terminalFallbackOpen ? 12 : 0,
           bottom: uiMode === "chat" && terminalFallbackOpen
             ? "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))"
-            : 0,
+            : showTerminalKeyBar ? "3.5rem" : 0,
           left: uiMode === "chat" && terminalFallbackOpen ? 12 : 0,
           height: uiMode === "chat" && terminalFallbackOpen
             ? "min(38dvh, 320px)"
@@ -455,6 +446,15 @@ export function TerminalPane({
         }}
         onClick={() => termRef.current?.focus()}
       />
+      {showTerminalKeyBar && (
+        <div
+          className="absolute left-2 right-2"
+          style={{ bottom: "calc(0.5rem + var(--ct-composer-bottom-padding, 0rem))", zIndex: 3 }}
+        >
+          <TerminalKeyBar onSendKey={writePty} />
+        </div>
+      )}
+
       {/* Chat is conditionally mounted so the per-pane tailer thread on
           the backend only starts when the user actually flipped into
           chat mode — not for every pane in the workspace. */}
@@ -462,6 +462,7 @@ export function TerminalPane({
         <div className="absolute inset-0" style={{ zIndex: 2 }}>
           <PaneSessionChat
             paneId={paneId}
+            terminalFallbackOpen={terminalFallbackOpen}
             onError={() => {
               setClientPaneUiMode(paneId, "terminal");
               setUiMode("terminal");

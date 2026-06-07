@@ -32,10 +32,8 @@ export class InputTracker {
         } else if (i < data.length) {
           // Other ESC + char — skip one
         }
-        // Don't lose confidence on escape sequences — they come from
-        // terminal focus events, PSReadLine syntax highlighting, etc.
-        // Only arrow keys (history) should lose confidence, but we can't
-        // reliably distinguish, so keep confident and rely on feedOutput reset.
+        // Don't lose confidence on escape sequences — they come from terminal focus events, PSReadLine syntax highlighting, etc. Only arrow keys
+        // (history) should lose confidence, but can't reliably distinguish, so keep confident and rely on feedOutput reset.
       } else if (ch === "\x03" || ch === "\x04") {
         // Ctrl+C / Ctrl+D — reset
         this.line = "";
@@ -60,8 +58,8 @@ export class InputTracker {
                       .replace(/\x1b[()][0-9A-Z]/g, "")    // charset sequences
                       .replace(/[\r\x00-\x08\x0e-\x1f]/g, ""); // control chars
 
-    // Only reset on actual new prompt — must contain newline + prompt char at end
-    // This avoids resetting mid-typing when shell sends syntax highlighting
+    // Only reset on actual new prompt — must contain newline + prompt char at end This avoids resetting mid-typing when shell sends syntax
+    // highlighting
     if (!clean.includes("\n")) return;
 
     const lastLine = clean.split("\n").pop()?.trimEnd() || "";
@@ -72,8 +70,7 @@ export class InputTracker {
       lastLine.endsWith("%") ||
       lastLine.endsWith("\u{276f}") // ❯
     ) {
-      // Only reset if user hasn't typed anything recently
-      // (prompt after command execution, not inline syntax highlight refresh)
+      // Only reset if user hasn't typed anything recently (prompt after command execution, not inline syntax highlight refresh)
       if (this.line === "" || clean.includes("\r\n") || clean.includes("\n\n")) {
         this.line = "";
         this.confident = true;

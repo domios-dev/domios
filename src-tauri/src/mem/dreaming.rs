@@ -227,17 +227,14 @@ fn deep_expire_tier(conn: &Connection, kind: &str, days: i64) -> Result<u64, Str
     Ok(n)
 }
 
-// Graph normalize phase. Test-only mirror — graph mutations route through
-// codeterm-mem-store; the merge-pass orchestration (Levenshtein loop) is
-// kept here so the CLI worker and this module behave identically against the
-// same DB. Constants live in the CLI worker (caller-owned policy).
+// Graph normalize test-only mirror so CLI worker and backend share graph
+// normalization logic and same `codeterm-mem-store` behavior.
 
 #[cfg(test)]
 const NORMALIZE_PROTECTED_TYPES: &[&str] = &["kind", "area", "agent", "workspace"];
 #[cfg(test)]
 const NORMALIZE_ORPHAN_AGE_DAYS: i64 = 14;
-// Thresholds calibrated for typo-class similarity. Nickname↔fullname pairs
-// (e.g. tima↔timofey) yield ratios ~0.4 and are intentionally ignored.
+// Typo thresholds tuned so near-matches like "tima" vs "timofey" (~0.4) stay ignored.
 #[cfg(test)]
 const NORMALIZE_RATIO_HARD: f64 = 0.85;
 #[cfg(test)]
@@ -642,8 +639,7 @@ pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
     } else {
         mem_cfg.dreaming_agent.clone()
     };
-    // Dreaming REM worker uses `dreaming_model` when set, otherwise falls
-    // back to the shared `worker_model` default ("haiku").
+    // Dreaming REM worker uses `dreaming_model` when set, otherwise falls back to the shared `worker_model` default ("haiku").
     let raw_model = if mem_cfg.dreaming_model.is_empty() {
         mem_cfg.worker_model.clone()
     } else {
@@ -651,11 +647,7 @@ pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
     };
     let model = crate::agent::models::canonicalize_short(&raw_model).to_string();
 
-    // Substitute the conditional telegram-notify step. When the config flag
-    // is enabled (default), the dreamer pushes its one-line insight to the
-    // Telegram bridge after writing the diary. When disabled, the dreamer
-    // is instructed to skip the step entirely — the diary in mem stays the
-    // durable record either way.
+    // Telegram notification is optional: enabled builds send a one-line insight, but mem diary remains the durable record either way.
     let telegram_step = if mem_cfg.dreaming_telegram_notify {
         DREAMING_TELEGRAM_STEP_ENABLED
     } else {
@@ -722,19 +714,11 @@ pub fn ensure_dreaming_cron(
                 if legacy_jitter_match {
                     j.jitter_max_ms = Some(1_800_000);
                 }
-                // Issue #96: recompute next_run after schedule/jitter migration.
-                // Without this, the on-disk next_run still reflects the legacy
-                // "0 3 * * *" + 90-min-jitter window, which is in the past
-                // relative to the new "0 6" window. On daemon startup the
-                // scheduler sees the stale value, fires a "recovery" run, and
-                // record_run then anchors the next fire to today's 06:00
-                // window — producing the double-fire pattern reported as #96.
+            // Migrated schedule: stale `next_run` can cause an extra run on startup.
+            // Recompute to avoid double-fire after migration.
                 if j.enabled && !j.oneshot {
-                    // Only overwrite next_run when compute returned a concrete
-                    // Some(_). Ok(None) means no future occurrence exists for
-                    // this schedule — clearing next_run silently would stop
-                    // the job firing, which is exactly the failure mode #96
-                    // was fixing. Log + keep the old value in that case.
+                        // Only overwrite next_run when compute returns Some(_). None means no future run exists.
+                        // Keeping old next_run avoids accidentally disabling jobs (issue #96).
                     match crate::cron::store::compute_next_run_jittered_in(
                         &j.schedule,
                         j.jitter_max_ms,
@@ -767,8 +751,7 @@ pub fn ensure_dreaming_cron(
         Some(mem_cfg.dreaming_agent.clone())
     };
 
-    // Prefer the specific `dreaming_model` override; otherwise persist the
-    // shared `worker_model` on the cron so manual executions keep parity.
+    // Prefer `dreaming_model` override; otherwise store shared `worker_model` for manual-run parity.
     let model = if !mem_cfg.dreaming_model.is_empty() {
         Some(mem_cfg.dreaming_model.clone())
     } else if !mem_cfg.worker_model.is_empty() {
@@ -1018,8 +1001,7 @@ mod tests {
 
     #[test]
     fn dreaming_telegram_step_substitution() {
-        // Enabled (default): the placeholder must expand to the real bridge-send
-        // instructions so the dreamer pushes its 🧠 brief to Telegram.
+        // Enabled (default): the placeholder must expand to the real bridge-send instructions so the dreamer pushes its 🧠 brief to Telegram.
         let enabled = crate::prompts::DREAMING_REM.replace(
             "{telegram_notify_step}",
             super::DREAMING_TELEGRAM_STEP_ENABLED,
@@ -1037,8 +1019,7 @@ mod tests {
             "placeholder must be substituted, not literal"
         );
 
-        // Disabled: the placeholder expands to an explicit "skip" directive
-        // and the bridge-send command must NOT appear in the final prompt.
+        // Disabled: the placeholder expands to an explicit "skip" directive and the bridge-send command must NOT appear in the final prompt.
         let disabled = crate::prompts::DREAMING_REM.replace(
             "{telegram_notify_step}",
             super::DREAMING_TELEGRAM_STEP_DISABLED,
@@ -1059,9 +1040,8 @@ mod tests {
 
     #[test]
     fn legacy_schedule_migration_recomputes_next_run() {
-        // Issue #96: migrating "0 3 * * *" -> "0 6 * * *" must also reset
-        // next_run, else the on-disk value points at the OLD schedule's
-        // window and the scheduler fires a recovery run on startup.
+        // Issue #96: migrating "0 3 * * *" -> "0 6 * * *" must also reset next_run, else the on-disk value points at the OLD schedule's window and the
+        // scheduler fires a recovery run on startup.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("crons.json");
         std::mem::forget(dir);
@@ -1103,8 +1083,7 @@ mod tests {
             new_next, stale_legacy_next,
             "migration must recompute next_run, not leave it anchored to the old schedule",
         );
-        // And the new value must fit the new "0 6 * * *" cadence: minute-of-hour=0
-        // plus 0..30min jitter window relative to UTC.
+        // And the new value must fit the new "0 6 * * *" cadence: minute-of-hour=0 plus 0..30min jitter window relative to UTC.
         let new_dt =
             chrono::DateTime::<chrono::Utc>::from_timestamp_millis(new_next as i64).unwrap();
         let minute = new_dt.minute();
@@ -1226,8 +1205,7 @@ mod tests {
 
     #[tokio::test]
     async fn normalize_merges_high_confidence_asymmetric_pair() {
-        // Typo-class pair: robert vs robertt. LD=1, ratio=6/7=0.857 ≥ 0.85.
-        // robertt has 1 relation, robert has 3 → robertt becomes alias of robert.
+        // Typo-class pair: robert vs robertt. LD=1, ratio=6/7=0.857 ≥ 0.85. robertt has 1 relation, robert has 3 → robertt becomes alias of robert.
         let mem = MemManager::open_in_memory().unwrap();
         {
             let c = mem.conn();
@@ -1263,8 +1241,7 @@ mod tests {
 
     #[tokio::test]
     async fn normalize_ignores_nickname_pair_below_flag_threshold() {
-        // Honest documentation: Levenshtein cannot catch nickname↔fullname
-        // (tima vs timofey). Ratio ≈ 0.43 < 0.70 → ignored entirely.
+        // Honest documentation: Levenshtein cannot catch nickname↔fullname (tima vs timofey). Ratio ≈ 0.43 < 0.70 → ignored entirely.
         let mem = MemManager::open_in_memory().unwrap();
         {
             let c = mem.conn();

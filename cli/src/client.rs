@@ -153,10 +153,8 @@ pub fn discover_socket() -> Result<String, String> {
             {
                 return Ok(normalized);
             }
-            // Either dead pipe (post-restart stale env), or mismatch with
-            // CODETERM_API_PORT (e.g. CLI invoked from a prod pane but user
-            // set API_PORT=7686 to target dev). Fall through to discovery
-            // so the port preference wins.
+            // Either dead pipe (post-restart stale env), or mismatch with CODETERM_API_PORT (e.g. CLI invoked from a prod pane but user set API_PORT=7686
+            // to target dev). Fall through to discovery so the port preference wins.
         }
     }
 
@@ -176,9 +174,7 @@ pub fn discover_socket() -> Result<String, String> {
 fn socket_is_live(name: &str) -> bool {
     #[cfg(target_os = "windows")]
     {
-        // Named pipes show up in the special \\.\pipe\ directory listing
-        // while their server is alive. Cheaper than attempting a full
-        // connect() handshake.
+        // Named pipes show up in the special \\.\pipe\ directory listing while their server is alive. Cheaper than attempting a full connect() handshake.
         let pipe_dir = "\\\\.\\pipe";
         if let Ok(entries) = std::fs::read_dir(pipe_dir) {
             for e in entries.flatten() {
@@ -289,9 +285,8 @@ fn discover_windows_pipe() -> Result<String, String> {
             Err("No CodeTerm socket found. Is CodeTerm running?".to_string())
         }
         Err(_) => {
-            // Fallback: try to list pipes via a different method.
-            // On some Windows versions, read_dir on \\.\pipe may not work.
-            // Try common PIDs approach — not reliable, so just error.
+            // Fallback to alternate pipe discovery when read_dir on `\\.\pipe` fails.
+            // The PIDs path is best effort only; some Windows builds don't support it cleanly.
             Err("Cannot scan named pipes. Set CODETERM_SOCKET_PATH env var.".to_string())
         }
     }
@@ -301,8 +296,7 @@ fn discover_windows_pipe() -> Result<String, String> {
 fn discover_unix_socket() -> Result<String, String> {
     use std::fs;
 
-    // Scan /tmp for codeterm-*.sock files and return the bare name
-    // (GenericNamespaced will prepend /tmp/ when connecting)
+    // Scan /tmp for codeterm-*.sock files and return the bare name (GenericNamespaced will prepend /tmp/ when connecting)
     if let Ok(entries) = fs::read_dir("/tmp") {
         let mut candidates: Vec<String> = entries
             .flatten()
@@ -395,9 +389,8 @@ mod tests {
 
     #[test]
     fn socket_pref_mismatch_when_prod_pipe_but_dev_requested() {
-        // The bug from #82: inherited SOCKET_PATH points at prod daemon
-        // (pid-suffixed) but user set CODETERM_API_PORT=7686 to hit dev.
-        // Must reject the inherited pipe so discovery falls through.
+        // The bug from #82: inherited SOCKET_PATH points at prod daemon (pid-suffixed) but user set CODETERM_API_PORT=7686 to hit dev. Must reject the
+        // inherited pipe so discovery falls through.
         assert!(!socket_path_matches_port_pref("codeterm-12345.sock", true));
     }
 
@@ -408,8 +401,7 @@ mod tests {
 
     #[test]
     fn is_dev_socket_does_not_match_pid_paths_with_dev_substring() {
-        // `contains("dev")` would have classified `codeterm-99987devops.sock`
-        // as dev — guard against that.
+        // `contains("dev")` would have classified `codeterm-99987devops.sock` as dev — guard against that.
         assert!(!is_dev_socket("codeterm-99987devops.sock"));
         assert!(!is_dev_socket("codeterm-developerlaptop.sock"));
         assert!(is_dev_socket("codeterm-dev"));

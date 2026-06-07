@@ -43,10 +43,8 @@ pub mod inner {
 
     static EXT_REGISTERED: Once = Once::new();
 
-    // How many inferences to run in one child before recycling it. Bounds
-    // the fastembed/ort memory leak on Windows (~100 MB per call) to a
-    // predictable ceiling (~CHILD_MAX_CALLS × 100 MB), then kills and
-    // respawns the child to drop all leaked pages.
+    // How many inferences to run in one child before recycling it. Bounds the fastembed/ort memory leak on Windows (~100 MB per call) to a
+    // predictable ceiling (~CHILD_MAX_CALLS × 100 MB), then kills and respawns the child to drop all leaked pages.
     const CHILD_MAX_CALLS: u64 = 200;
 
     #[derive(Serialize)]
@@ -123,9 +121,7 @@ pub mod inner {
     }
 
     fn codeterm_embed_path() -> Result<std::path::PathBuf, String> {
-        // Try the Tauri externalBin location first (sidecar next to main
-        // exe), then fall back to a sibling binary in the cargo target dir
-        // for `cargo run` / dev scenarios.
+        // Try the Tauri externalBin location first (sidecar next to main exe), then fall back to a sibling binary in the cargo target dir for `cargo run` / dev scenarios.
         let exe_name = if cfg!(windows) {
             "codeterm-embed.exe"
         } else {
@@ -279,8 +275,7 @@ pub mod inner {
             return paragraphs.into_iter().map(String::from).collect();
         }
 
-        // Otherwise: sliding window with smart boundary detection.
-        // Works on char indices (not bytes) to safely handle multi-byte UTF-8.
+        // Otherwise: sliding window with smart boundary detection. Works on char indices (not bytes) to safely handle multi-byte UTF-8.
         let chars: Vec<char> = preprocessed.chars().collect();
         let total_chars = chars.len();
         let chunk_chars = CHUNK_SIZE; // chars, not bytes

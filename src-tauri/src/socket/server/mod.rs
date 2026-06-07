@@ -79,9 +79,8 @@ impl JsonRpcResponse {
 /// `GenericNamespaced` on Unix prepends `/tmp/` automatically,
 /// so we only provide the bare name here.
 pub fn socket_path() -> String {
-    // Dev builds use a stable socket name (no PID) so CLI tools in existing
-    // PTY sessions survive dev server restarts. Only one dev instance at a time.
-    // Prod builds include PID to allow multiple instances.
+    // Dev builds use a stable socket name (no PID) so CLI tools in existing PTY sessions survive dev server restarts. Only one dev instance at a
+    // time. Prod builds include PID to allow multiple instances.
     #[cfg(debug_assertions)]
     {
         format!("{}.sock", crate::paths::SOCKET_PREFIX)
@@ -250,9 +249,8 @@ fn handle_connection(
                         let id = req.id.clone();
                         let id_for_panic = id.clone();
                         let method = req.method.clone();
-                        // catch_unwind so a panic inside any dispatch handler does not
-                        // silently drop the socket and leave the CLI with an "EOF while
-                        // parsing" mystery. We surface a real JSON-RPC error instead.
+                        // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
+                        // We surface a real JSON-RPC error instead.
                         let dispatched =
                             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                                 dispatch(
@@ -366,8 +364,8 @@ fn dispatch(
         _ => {}
     }
 
-    // Domain prefix → submodule. Each submodule owns its own per-method match
-    // (and returns Method-not-found for anything within its prefix it doesn't know).
+    // Domain prefix → submodule. Each submodule owns its own per-method match (and returns Method-not-found for anything within its prefix it
+    // doesn't know).
     let prefix = method.split('.').next().unwrap_or("");
     match prefix {
         "workspace" => workspace::dispatch(method, &params, mux, app, svc),

@@ -27,10 +27,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
         });
     }
 
-    // Mesh: periodic health check + stale peer cleanup. Loop is ALWAYS
-    // spawned; the body re-reads `mesh.enabled` on every tick so a CLI
-    // toggle to offline takes effect without restart (and dropping the
-    // process back to online resumes work). See `codeterm mesh offline`.
+    // Mesh loop runs continuously; `mesh.enabled` is re-read each tick.
     {
         let mesh = states.mesh.clone();
         let cfg = states.config.clone();
@@ -44,18 +41,14 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
             rt.block_on(async {
                 let mut last_sync_secs: std::collections::HashMap<String, u64> =
                     std::collections::HashMap::new();
-                // instance_id → last auto-pair attempt timestamp (secs). Retry
-                // after AUTO_PAIR_RETRY_SECS so an offline vouched peer that
-                // comes back online still gets paired without restart.
+                // Track last auto-pair attempt per peer; retry after AUTO_PAIR_RETRY_SECS.
                 let mut auto_pair_attempted: std::collections::HashMap<String, u64> =
                     std::collections::HashMap::new();
                 const AUTO_PAIR_RETRY_SECS: u64 = 60;
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                     if !cfg.lock().mesh.enabled {
-                        // Offline / invisible: don't poll peers, don't cleanup
-                        // — peers will time us out on their side via their own
-                        // ping scheduler. The Tailscale daemon is left alone.
+                        // Offline: skip peer polling/cleanup; peers timeout naturally.
                         continue;
                     }
                     mesh::discovery::cleanup_stale_peers(&mesh);
@@ -73,10 +66,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                         if peer.addresses.is_empty() {
                             continue;
                         }
-                        // Multi-address ping: peer is online if ANY of its
-                        // cached addresses responds. A single Tailscale
-                        // glitch shouldn't flip the peer to offline when
-                        // LAN is still alive (and vice versa).
+                        // Multi-address ping: online if any cached address responds.
                         let ping_result = mesh::transport::try_peer(&peer.addresses, |addr| {
                             let signed_token = signed_token.clone();
                             let port = peer.api_port;
@@ -132,10 +122,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs();
-                        // Sync on reconnect (offline→online) AND
-                        // periodically while online so gossip-discovered
-                        // peers' last_seen stays fresh against the 300s
-                        // PEER_TTL_SECS eviction in cleanup_stale_peers.
+                        // Re-sync on reconnect and periodically so peers stay fresh under 300s TTL.
                         let should_sync = mesh::types::should_proactive_sync(
                             online,
                             was_online,
@@ -177,8 +164,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                             }
                         }
                     }
-                    // Drop last_sync entries for peers no longer paired so the
-                    // map doesn't accumulate stale instance_ids forever.
+                    // Drop last_sync entries for unpaired peers.
                     let paired_ids: std::collections::HashSet<String> =
                         peers.iter().map(|p| p.instance_id.clone()).collect();
                     last_sync_secs.retain(|id, _| paired_ids.contains(id));
@@ -190,11 +176,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                         );
                     }
 
-                    // Auto-pair: for any vouched discovered peer not yet paired,
-                    // send a pair request. The remote auto-approves if we're
-                    // also vouched on their side. Failed attempts retry after
-                    // AUTO_PAIR_RETRY_SECS so an offline peer eventually pairs
-                    // when it comes back online.
+                    // Auto-pair vouched peers; retry every AUTO_PAIR_RETRY_SECS.
                     let attempt_now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
@@ -309,20 +291,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
         });
     }
 
-    // Periodic + event-driven announce — push our current addresses to every
-    // paired peer so cached records stay fresh as networks shuffle.
-    //
-    // Two layers:
-    //   1. Startup burst (~10s after boot) so peers learn our fresh IPs
-    //      before any of the periodic timers tick. Without this, a peer
-    //      that came online while we were rebooting would have to wait
-    //      out the first 90s heartbeat before discovering us.
-    //   2. Detection loop on a short cadence (15s) — if Tailscale or LAN
-    //      changed since the previous tick, announce immediately
-    //      (Tailscale up/down, VPN toggle, LAN-to-WiFi swap). Otherwise a
-    //      heartbeat announce fires every ~90s so a peer that joined
-    //      while we were quiet catches up without needing a real network
-    //      move to dislodge our cache on their side.
+                // Keep address cache fresh: startup burst, then announce loop.
     {
         let mesh = states.mesh.clone();
         let cfg = states.config.clone();
@@ -334,8 +303,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 .expect("Failed to create mesh announce runtime");
             rt.block_on(async {
                 use std::time::Duration;
-                // Startup burst — only fires if mesh is currently enabled.
-                // Going offline pre-startup-burst skips it cleanly.
+                // Startup burst runs only while mesh is enabled.
                 if cfg.lock().mesh.enabled {
                     let _ = mesh::refresh_local_addresses(&mesh);
                     let report = mesh::broadcast_announce(&mesh, None).await;
@@ -356,11 +324,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                         .subsec_nanos()
                         % 5) as u64;
                     tokio::time::sleep(Duration::from_secs(15 + jitter)).await;
-                    // Re-check on every tick so `codeterm mesh offline`
-                    // takes effect without a daemon restart. While offline
-                    // we explicitly do NOT call refresh_local_addresses —
-                    // that's what pokes Tailscale CLI / interface scan and
-                    // can keep the daemon's tun device alive.
+                    // Re-check each tick for `/mesh` toggle; offline skips refresh_local_addresses.
                     if !cfg.lock().mesh.enabled {
                         continue;
                     }
@@ -438,8 +402,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(poll_interval);
-                // Collect status changes while holding tracker lock,
-                // then release before touching mux (prevents deadlock with process_pty_output)
+                // Hold tracker lock while collecting changes, then unlock before touching mux.
                 let changed: Vec<(String, crate::agent::status::PaneStatus)> = {
                     let mut t = tracker.lock();
                     let pty_ids = t.all_ids();
@@ -473,8 +436,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                             }),
                         );
 
-                        // Agent exit detection is handled solely in output.rs (on PTY output).
-                        // Removed from idle-poll to avoid race conditions during agent startup.
+                        // Agent exits are handled in output.rs, not idle poll.
                     }
                 }
 

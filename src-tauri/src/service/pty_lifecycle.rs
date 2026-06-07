@@ -23,8 +23,8 @@ use super::ServiceState;
 ///
 /// Returns a `JoinHandle` that the caller can use to track or abort the task.
 pub fn start_backend_reader(svc: &ServiceState, pty_id: &str) -> Result<JoinHandle<()>, String> {
-    // Clone a reader from the PTY master — independent from the primary reader.
-    // Also set up the frontend channel so read_pty can receive forwarded bytes.
+    // Clone a reader from the PTY master — independent from the primary reader. Also set up the frontend channel so read_pty can receive forwarded
+    // bytes.
     let (reader, frontend_tx) = {
         let manager = svc.pty.lock();
         if manager.has_backend_reader(pty_id) {
@@ -117,9 +117,7 @@ async fn backend_read_loop(
                     }
                 }
 
-                // hidden pane only: answer CSI 6n so PowerShell doesn't hang
-                // (visible panes let xterm.js answer — double-answering races
-                //  and leaks the second response into the terminal as input)
+                // hidden pane only: answer CSI 6n so PowerShell doesn't hang (visible panes let xterm.js answer — double-answering races and leaks the second response into the terminal as input)
                 if data.windows(4).any(|w| w == b"\x1b[6n") {
                     let is_hidden = {
                         let mux = svc.mux.lock();

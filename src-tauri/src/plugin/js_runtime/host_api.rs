@@ -47,8 +47,7 @@ pub(super) fn install(ctx: &Ctx<'_>, manifest_json: Option<&str>) -> Result<(), 
     let host = rquickjs::Object::new(ctx.clone())
         .map_err(|e| VmError::Script(format!("host obj: {e}")))?;
 
-    // Tiny helper to fold the repeated `host.set(name, Func::new(closure))
-    // .map_err(|e| VmError::Script(format!("set {name}: {e}")))?` shape.
+    // Tiny helper to fold the repeated `host.set(name, Func::new(closure)) .map_err(|e| VmError::Script(format!("set {name}: {e}")))?` shape.
     // Reads top-to-bottom as a flat table of (name, closure).
     macro_rules! bind {
         ($name:expr, $closure:expr) => {
@@ -125,10 +124,9 @@ pub(super) fn install(ctx: &Ctx<'_>, manifest_json: Option<&str>) -> Result<(), 
         write_temp_file(&contents, suffix.as_deref())
     });
 
-    // ── Crypto helpers ──────────────────────────────────────────────
+    // Crypto helpers.
     // MD5 hex digest of a string. Use case: cursor stores chats under
-    // `~/.cursor/chats/<md5(cwd)>/...`, so the plugin needs MD5 to
-    // resolve which chat dir belongs to the current pane's cwd.
+    // `~/.cursor/chats/<md5(cwd)>/...`, so the plugin needs MD5 to resolve which chat dir belongs to the current pane's cwd.
     bind!("md5", |s: String| -> String {
         use md5::{Digest, Md5};
         let mut h = Md5::new();

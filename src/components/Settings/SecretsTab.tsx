@@ -72,8 +72,7 @@ export function SecretsTab({
       setPendingCommand(tabInfo.pane_id, cmd);
       await invoke("mux_set_active_workspace", { workspaceId: ws.id });
       await invoke("mux_set_active_tab", { workspaceId: ws.id, tabId: tabInfo.id });
-      // Tell the host UI to switch back to the workspace view (away from
-      // Settings) so the user actually sees the install running.
+      // Tell the host UI to switch back to the workspace view (away from Settings) so the user sees the install running.
       onCloseSettings?.();
     } catch (e) {
       console.error("Failed to spawn install tab:", e);
@@ -188,9 +187,8 @@ export function SecretsTab({
     }
   }, [status?.status?.status, refreshItems, refreshOrgs, refreshColls, cfg.default_organization]);
 
-  // Single seam for "merge a partial change into integrations.secrets
-  // without clobbering siblings". Every settings handler funnels through
-  // here so we cannot accidentally drop a field (we hit that bug twice).
+  // Single seam for "merge a partial change into integrations.secrets without clobbering siblings". Every settings handler funnels through here
+  // so we cannot accidentally drop a field (we hit that bug twice).
   const patchSecrets = useCallback(
     (patch: Partial<SecretsConfig>) => {
       const merged: SecretsConfig = {

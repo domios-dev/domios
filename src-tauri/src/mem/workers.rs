@@ -302,9 +302,7 @@ pub fn save_worker_log(worker_id: &str, output: &str) -> Result<PathBuf, String>
     let dir = crate::paths::data_dir().join("mem").join("workers");
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {}", dir.display(), e))?;
     let path = dir.join(format!("{}.log", worker_id));
-    // Use the VT100 parser with worker PTY dimensions (120x40) — matches the
-    // actual terminal width so TUI elements (horizontal rules, status bars)
-    // render at the correct column width.
+    // Use worker PTY dimensions for VT100 parsing so UI lines render at correct width.
     let clean = crate::pty::ansi::clean_terminal_output_sized(output, 500, 120);
     std::fs::write(&path, clean).map_err(|e| format!("write {}: {}", path.display(), e))?;
     Ok(path)
@@ -408,9 +406,7 @@ pub fn spawn_headless(
             };
             let spec = SpawnPaneSpec {
                 visibility: PaneVisibility::Hidden,
-                // Title carries the worker intent (e.g. "mem:dreaming:rem",
-                // "mem:extract:auto:save") so [Report from <title>] is
-                // self-identifying instead of the generic "Terminal".
+                // Tag reports with worker intent in title so reports are identifiable (`mem:dreaming:rem`, etc.).
                 title: Some(format!("mem:{}", intent_title)),
                 command: PaneCommand::Agent(AgentSpawnSpec {
                     provider: agent_for_spawn,

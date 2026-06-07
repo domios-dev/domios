@@ -353,16 +353,14 @@ mod tests {
 
     #[test]
     fn tz_riga_shifts_from_utc() {
-        // "0 3 * * *" in Europe/Riga (UTC+2 winter / +3 summer) fires at
-        // 00:00-01:00 UTC depending on DST. UTC interpretation fires at 03:00 UTC.
-        // The two MUST differ by 2-3 hours, never zero.
+        // "0 3 * * *" in Europe/Riga (UTC+2 winter / +3 summer) fires at 00:00-01:00 UTC depending on DST. UTC interpretation fires at 03:00 UTC. The
+        // two MUST differ by 2-3 hours, never zero.
         let utc = compute_next_run_in("0 3 * * *", None).unwrap().unwrap();
         let riga = compute_next_run_in("0 3 * * *", Some("Europe/Riga"))
             .unwrap()
             .unwrap();
         let diff_ms = (utc as i64 - riga as i64).abs();
-        // Could be the same calendar day or different — both legitimate.
-        // The shift between them mod 24h is 2-3 hours.
+        // Could be the same calendar day or different — both legitimate. The shift between them mod 24h is 2-3 hours.
         let day_ms: i64 = 24 * 60 * 60 * 1000;
         let mod_diff = diff_ms.rem_euclid(day_ms);
         assert!(

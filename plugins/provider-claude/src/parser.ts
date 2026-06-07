@@ -40,9 +40,7 @@ export interface ChatMessage {
   attachments?: ImageAttachment[]; // images attached to user messages
 }
 
-// ---------------------------------------------------------------------------
-// JSONL session parser (primary)
-// ---------------------------------------------------------------------------
+// JSONL session parser (primary).
 
 /**
  * Parse Claude Code JSONL session data into structured chat messages.
@@ -107,8 +105,7 @@ function parseUserEntry(
           data: data && data.length < 100_000 ? data : undefined,
         });
       } else if (block.type === "tool_result") {
-        // The real Claude Code pattern: bash/grep/read output arrives as a
-        // tool_result block in the user-role turn that follows the assistant's
+        // The real Claude Code pattern: bash/grep/read output arrives as a tool_result block in the user-role turn that follows the assistant's
         // tool_use. Surface it so groupToolResults can attach it to the card.
         messages.push(toolResultMessage(block, messages.length, timestamp));
       }
@@ -342,9 +339,7 @@ function summarizeInput(input: Record<string, unknown> | null | undefined): stri
   return JSON.stringify(input).slice(0, 60);
 }
 
-// ---------------------------------------------------------------------------
-// Terminal output parser (fallback)
-// ---------------------------------------------------------------------------
+// Terminal output parser (fallback).
 
 // Known tool names that appear after the marker
 const TOOL_NAMES = new Set([

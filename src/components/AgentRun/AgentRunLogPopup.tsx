@@ -37,8 +37,8 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
       .catch(() => {});
   }, [api, worker.worker_id, isTerminal]);
 
-  // Run the fallback log through the SAME stream parser as live runs so completed
-  // sessions render with collapsed thinking, tool calls, and tool results.
+  // Run the fallback log through the SAME stream parser as live runs so completed sessions render with collapsed thinking, tool calls, and tool
+  // results.
   const fallbackEvents = useMemo(() => {
     if (!fallbackText) return [];
     const parser = new ClaudeStreamParser();

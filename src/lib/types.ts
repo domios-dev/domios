@@ -425,9 +425,8 @@ export interface AppConfig {
   ui?: UiConfig;
 }
 
-// ── Plugin self-presentation wire types (Chunk B) ──────────────────
-// Mirror `src-tauri/src/agent/provider.rs`. Frontend reads these via
-// the `list_agent_providers` Tauri command / REST endpoint.
+// Provider descriptor wire types mirror `src-tauri/src/agent/provider.rs`.
+// Frontend consumes them via `list_agent_providers`.
 
 export interface ModelInfo {
   id: string;

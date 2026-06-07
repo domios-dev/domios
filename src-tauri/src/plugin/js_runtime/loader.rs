@@ -106,10 +106,8 @@ pub fn load_one(manifest_path: &Path) -> Result<JsProvider, String> {
     let vm = PluginVm::load_with_manifest(&manifest.id, &entry, manifest_json)
         .map_err(|e| format!("VM init for {}: {e}", manifest.id))?;
 
-    // Trust check: compute the bundle hash and compare against the
-    // build-time SYSTEM_PLUGIN_HASHES table. CODETERM_DEV=1 bypasses
-    // — every plugin is treated as third-party in dev so live edits
-    // don't trip the verifier.
+    // Trust check: compute the bundle hash and compare against the build-time SYSTEM_PLUGIN_HASHES table. CODETERM_DEV=1 bypasses — every plugin
+    // is treated as third-party in dev so live edits don't trip the verifier.
     let bundle_dir = manifest_path
         .parent()
         .ok_or_else(|| "manifest has no parent dir".to_string())?;
@@ -337,8 +335,7 @@ mod tests {
             assert_eq!(p.trust(), ProviderTrust::ThirdParty, "case 1");
         }
 
-        // Case 2: system id with custom content → Unverified. Skipped
-        // if the table is empty (cargo-publish edge case).
+        // Case 2: system id with custom content → Unverified. Skipped if the table is empty (cargo-publish edge case).
         if let Some((sys_id, _)) = crate::plugin::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
             let root = tempfile::tempdir().unwrap();
             let dir = root.path().join(*sys_id);

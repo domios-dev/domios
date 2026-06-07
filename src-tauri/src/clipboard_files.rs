@@ -14,10 +14,8 @@
 
 #[tauri::command]
 pub async fn read_clipboard_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
-    // app is only consumed by the macOS NSPasteboard main-thread hop;
-    // suppress the unused-warning on other platforms instead of cfg-gating
-    // the parameter itself — Tauri's generate_handler! expands to a fixed
-    // arity and rejects a parameter that disappears under #[cfg].
+    // app is only consumed by the macOS NSPasteboard main-thread hop; suppress the unused-warning on other platforms instead of cfg-gating the
+    // parameter itself — Tauri's generate_handler! expands to a fixed arity and rejects a parameter that disappears under #[cfg].
     let _ = &app;
 
     #[cfg(target_os = "windows")]

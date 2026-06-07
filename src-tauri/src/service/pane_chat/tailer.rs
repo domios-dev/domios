@@ -102,10 +102,8 @@ pub fn spawn_tailer(
         let mut missing_streak = 0u32;
         let mut cached_path: Option<PathBuf> = None;
         while !stop.load(Ordering::Acquire) {
-            // Re-resolve the JSONL path each iteration. Cheap (plugin
-            // call + string concat) and lets the plugin transparently
-            // handle session-file rotation. The `cached_path` is only
-            // for logging — we always re-ask the plugin.
+            // Re-resolve the JSONL path each iteration. Cheap (plugin call + string concat) and lets the plugin transparently handle session-file
+            // rotation. The `cached_path` is only for logging — we always re-ask the plugin.
             let path: Option<PathBuf> = registry
                 .with_provider(&cfg.provider_id, |p| {
                     p.session_jsonl_path(&cfg.cwd, &cfg.session_id)
@@ -137,9 +135,8 @@ pub fn spawn_tailer(
                     path.display()
                 );
                 cached_path = Some(path.clone());
-                // TODO: future improvement — also re-fetch pane.agent_session_id
-                // from mux so an opencode model-swap that mints a new session
-                // retargets the tailer. Today the session_id is fixed at spawn.
+                // TODO: future improvement — also re-fetch pane.agent_session_id from mux so an opencode model-swap that mints a new session retargets the
+                // tailer. Today the session_id is fixed at spawn.
             }
             if !path.exists() {
                 missing_streak += 1;
@@ -152,9 +149,7 @@ pub fn spawn_tailer(
             }
             missing_streak = 0;
             let from = off.load(Ordering::Acquire);
-            // I4: parse_session_delta is fault-tolerant — it advances
-            // offset past chunks the plugin couldn't handle, so we
-            // never busy-loop on broken bytes.
+            // I4: parse_session_delta is fault-tolerant — it advances offset past chunks the plugin couldn't handle, so we never busy-loop on broken bytes.
             let delta = registry
                 .with_provider(&cfg.provider_id, |p| p.parse_session_delta(&path, from))
                 .unwrap_or_else(|| crate::agent::chat_types::SessionDelta {
@@ -178,11 +173,7 @@ pub fn spawn_tailer(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Raw-text tailer — emits the raw bytes since last poll. The frontend
-// parses with the TS plugin's `parseJsonlSession`. Parses on the JS side
-// keep parser ownership in the plugin bundle (one source of truth).
-// ---------------------------------------------------------------------------
+// Raw-text tailer emits byte chunks only; JS parses JSONL via `parseJsonlSession`.
 
 pub struct RawTailConfig {
     pub pane_id: String,
@@ -232,8 +223,7 @@ pub fn spawn_raw_tailer(cfg: RawTailConfig, sink: Arc<dyn RawTextSink>) -> Taile
                     sink.emit(&cfg.pane_id, text);
                 }
             } else if total < from {
-                // File rotated/truncated. Reset to beginning so the next poll
-                // re-streams from byte 0 rather than spinning past EOF.
+                // File rotated/truncated. Reset to beginning so the next poll re-streams from byte 0 rather than spinning past EOF.
                 log::info!(
                     "[pane_chat.raw] file shrank ({} → {}); resetting offset",
                     from,

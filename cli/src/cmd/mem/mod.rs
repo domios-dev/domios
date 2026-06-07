@@ -4,8 +4,7 @@ use crate::{
     MemSkillAction, MemWorkerAction,
 };
 
-// Lightweight frontmatter parser for SKILL.md.
-// Recognises `title:`, `area:`, `tags:` (comma-separated) between leading `---` lines.
+// Parse optional SKILL.md frontmatter (`title`, `area`, `tags`) between --- separators.
 fn strip_skill_frontmatter(body: &str) -> &str {
     let mut lines = body.lines();
     if lines.next().map(|l| l.trim()) != Some("---") { return body; }
@@ -334,8 +333,7 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                         std::process::exit(1);
                     }
                 };
-                // Optional YAML-ish frontmatter parse: between two --- lines at top.
-                // Picks `title:`, `area:`, `tags:` (comma list) if present.
+                // Optional YAML-ish frontmatter parse: between two --- lines at top. Picks `title:`, `area:`, `tags:` (comma list) if present.
                 let (fm_title, fm_area, fm_tags) = parse_skill_frontmatter(&body);
                 // Title priority: frontmatter → first H1 → folder name.
                 let title = fm_title.or_else(|| body.lines()
@@ -590,10 +588,8 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/repair/delete-entity", base), &payload)
             }
-            // Local-only mutations + reads that benefit from direct DB access:
-            // route through the same dispatcher as main() so a future reorder
-            // of main.rs cannot turn this into a panic in production. The
-            // run_* helpers exit; the line after never runs.
+            // Local-only mutations + reads that benefit from direct DB access: route through the same dispatcher as main() so a future reorder of main.rs
+            // cannot turn this into a panic in production. The run_* helpers exit; the line after never runs.
             ref local @ (MemGraphAction::Route { .. }
             | MemGraphAction::PurgeInvalidated { .. }
             | MemGraphAction::ReviveBroken { .. }
@@ -763,8 +759,7 @@ fn run_mem_tail(
             if !follow {
                 return;
             }
-            // In follow mode we remember the newest updated_at we've printed
-            // and poll with `since` every 500ms.
+            // In follow mode we remember the newest updated_at we've printed and poll with `since` every 500ms.
             let mut last_seen: Option<String> = rows
                 .iter()
                 .filter_map(|r| r.get("updated_at").and_then(|v| v.as_str()).map(String::from))

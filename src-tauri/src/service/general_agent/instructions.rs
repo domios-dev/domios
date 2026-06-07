@@ -246,8 +246,7 @@ mod tests {
         std::env::set_var("HOME", &dir);
         std::env::set_var("USERPROFILE", &dir);
 
-        // Hold the mem connection lock for the duration of the test —
-        // simulates a long-running embed/extract worker stalled on it.
+        // Hold the mem connection lock for the duration of the test — simulates a long-running embed/extract worker stalled on it.
         let _conn_guard = mem.conn().lock();
 
         let started = Arc::new(AtomicBool::new(false));
@@ -259,8 +258,7 @@ mod tests {
             // This call WILL block on conn.lock(); the parent must not.
             generate_instructions("claude", Some(&mem_clone));
         });
-        // `spawn` returns immediately; the parent is not blocked even
-        // though the spawned closure is parked on the conn lock.
+        // `spawn` returns immediately; the parent is not blocked even though the spawned closure is parked on the conn lock.
         let elapsed = t0.elapsed();
         assert!(
             elapsed < Duration::from_millis(500),
@@ -270,9 +268,7 @@ mod tests {
         // Give the new thread a moment to enter run state and confirm it did.
         std::thread::sleep(Duration::from_millis(50));
         assert!(started.load(Ordering::SeqCst), "spawned thread must run");
-        // We deliberately leak the join handle — releasing _conn_guard
-        // when the test exits unblocks the spawned thread, but waiting
-        // on it would couple the test to wake_up's runtime cost.
+        // We deliberately leak the join handle — releasing _conn_guard when the test exits unblocks the spawned thread, but waiting on it would couple the test to wake_up's runtime cost.
         std::mem::drop(handle);
     }
 

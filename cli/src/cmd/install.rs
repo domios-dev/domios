@@ -1,10 +1,5 @@
-// Install codeterm from a local NSIS installer file (Windows).
-// Spawns a detached helper that survives the death of the calling daemon
-// (the CLI is usually invoked from a codeterm-managed PTY — killing the
-// daemon would otherwise take the CLI with it before install completes).
-// If `continue_prompt` is set, the helper polls `/api/health` until the
-// new daemon is up, then sends the prompt to `continue_pane` so the agent
-// resumes work with that text as the next user message.
+// Detached NSIS install helper keeps running after CLI exits.
+// If continuation is set, wait for API readiness and forward text to `continue_pane`.
 #[cfg(target_os = "windows")]
 pub fn run_install_from_file(
     installer_path: &str,
@@ -37,8 +32,8 @@ pub fn run_install_from_file(
         std::process::id()
     ));
 
-    // Continuation prompt is delivered via a temp file to avoid quoting hell
-    // through cmd.exe — read it back with `--continue-from-file` after restart.
+// Use a temp file for continuation text to avoid cmd.exe quoting issues.
+// Resume from it with `--continue-from-file` after restart.
     let continue_file = continue_prompt.map(|text| {
         let p = std::env::temp_dir().join(format!(
             "codeterm-continuation-{}.txt",

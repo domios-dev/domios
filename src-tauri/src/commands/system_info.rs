@@ -2,8 +2,7 @@ use tauri::{AppHandle, Emitter};
 
 #[tauri::command]
 pub fn get_windows_build_number() -> u32 {
-    // Build number is constant for the OS lifetime — cache to avoid spawning
-    // cmd.exe on every TerminalPane mount (~1s on Win11 with Defender).
+    // Build number is constant for the OS lifetime — cache to avoid spawning cmd.exe on every TerminalPane mount (~1s on Win11 with Defender).
     static CACHED: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
     *CACHED.get_or_init(|| {
         #[cfg(target_os = "windows")]
@@ -46,10 +45,8 @@ pub fn get_network_info(
 ) -> Result<serde_json::Value, String> {
     let local_ip =
         crate::api::routes::local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
-    // Single source of truth: read the cached value populated by
-    // `mesh::discovery::detect_tailscale` from the periodic refresh loop.
-    // Avoids duplicating the probe logic (which lacked IP validation,
-    // the GUI-bridge fallback, and a timeout).
+    // Single source of truth: read the cached value populated by `mesh::discovery::detect_tailscale` from the periodic refresh loop. Avoids
+    // duplicating the probe logic (which lacked IP validation, the GUI-bridge fallback, and a timeout).
     let tailscale_ip = mesh.lock().tailscale_ip.clone();
     let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
     let tailscale_https_url = if crate::mesh::discovery::tailscale_serve_https_enabled() {

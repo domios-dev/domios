@@ -44,8 +44,7 @@ async fn run(svc: &ServiceState) -> Result<(), String> {
         text.len()
     );
 
-    // Wait up to 60s for the General Agent pane to appear and have a live
-    // PTY. The GA spawn task starts in start_servers but the agent process
+    // Wait up to 60s for the General Agent pane to appear and have a live PTY. The GA spawn task starts in start_servers but the agent process
     // takes a few seconds to come up after restart.
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
     let mut pane_id: Option<String> = None;

@@ -328,20 +328,15 @@ impl ServiceContext {
     /// and must not race against `link_pty` overwrites swapping `pane.pty_id`
     /// out from under the send.
     pub fn send_text_to_pty(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        // Feed the input parser the logical payload BEFORE the bracket-paste
-        // bytes hit the PTY. Bracketed paste wraps `text` with ESC sequences
-        // that would confuse the parser if it tried to recover the typed line
-        // from the raw write. The parser already sees Tauri's `write_pty` for
-        // direct keystrokes; this covers the API/CLI `send-text` path so a
-        // user-typed launch command works whether typed in the UI or scripted.
+        // Feed parsed text before bracket-paste ESCs so parser state stays stable.
+        // This keeps API/CLI launched commands reliable when a launch is typed manually.
         self.feed_input_parser(pty_id, text, enter);
         let paste = format!("\x1b[200~{}\x1b[201~", text);
         self.pty.lock().write(pty_id, paste.as_bytes())?;
 
         if enter {
-            // Send \r as a separate raw write after a short delay.
-            // TUI apps (Claude Code/ink) process bracket paste asynchronously —
-            // \r concatenated with paste end or sent immediately is swallowed.
+            // Send \r as a separate raw write after a short delay. TUI apps (Claude Code/ink) process bracket paste asynchronously — \r concatenated with
+            // paste end or sent immediately is swallowed.
             let pty = self.pty.clone();
             let pty_id = pty_id.to_string();
             if tokio::runtime::Handle::try_current().is_ok() {
@@ -414,9 +409,7 @@ impl ServiceContext {
             })?;
         let bytes_written = paste.len();
 
-        // Echo verify: informational only. Timeout means we couldn't confirm,
-        // not that the paste failed. PtyUnknown is the only real failure here
-        // and surfaces as PtyClosed.
+        // Echo verify: informational only. Timeout means we couldn't confirm, not that the paste failed. PtyUnknown is the only real failure here and surfaces as PtyClosed.
         let echo_observed = if opts.verify_echo {
             match wait_for_echo(
                 &self.screen_state,
@@ -442,12 +435,9 @@ impl ServiceContext {
             false
         };
 
-        // Enter ALWAYS fires when the caller asked for it. This is the
-        // load-bearing line — no early-return above this point can skip it
-        // unless the PTY is already gone.
+        // Enter ALWAYS fires when the caller asked for it. This is the load-bearing line — no early-return above this point can skip it unless the PTY is already gone.
         let submit_observed = if enter {
-            // Brief settle: TUIs (claude/codex/opencode) buffer bracket paste async;
-            // a same-instant \r can be eaten.
+            // Brief settle: TUIs (claude/codex/opencode) buffer bracket paste async; a same-instant \r can eaten.
             std::thread::sleep(std::time::Duration::from_millis(120));
             self.pty
                 .lock()
@@ -765,8 +755,7 @@ pub struct SendBatchItem {
 mod tests {
     use super::*;
 
-    // ── Helper: captures the enter-append logic from send_text / send_text_batch ──
-    // This mirrors the exact logic in ServiceContext::send_text
+    // ── Helper: captures the enter-append logic from send_text / send_text_batch ── This mirrors the exact logic in ServiceContext::send_text
     fn apply_enter(text: &str, enter: bool) -> String {
         if enter && !text.ends_with('\r') && !text.ends_with('\n') {
             format!("{}\r", text)

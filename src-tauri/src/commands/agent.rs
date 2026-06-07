@@ -46,13 +46,11 @@ pub fn install_provider_in_pane(
     // 3. Create tab + activate it so the user sees the install run.
     let (tab_id, pane_id) = svc.create_tab(&ws_id)?;
 
-    // 4. Name the pane "Install <provider>" at the User level so auto-rename
-    //    doesn't overwrite it once npm/brew prints output.
+    // 4. Name the pane "Install <provider>" at the User level so auto-rename doesn't overwrite it once npm/brew prints output.
     let _ = svc.rename_pane(&pane_id, &format!("Install {}", provider_id));
 
-    // 5. Background: wait for the PTY to land (frontend creates it on
-    //    mux-state-changed), wait for shell prompt readiness, then send
-    //    the install command. Mirrors `launch_agent_in_background`.
+    // 5. Background: wait for the PTY to land (frontend creates it on mux-state-changed), wait for shell prompt readiness, then send the install
+    // command. Mirrors `launch_agent_in_background`.
     let svc_clone = (*svc).clone();
     let pane_id_clone = pane_id.clone();
     std::thread::spawn(move || {
@@ -121,8 +119,7 @@ pub fn check_cli_installed(binary: String) -> Result<bool, String> {
     if binary.is_empty() {
         return Ok(false);
     }
-    // Reject anything that looks like a shell metacharacter — `binary` comes
-    // from a frontend-supplied provider id and we don't want it interpreted
+    // Reject anything that looks like a shell metacharacter — `binary` comes from a frontend-supplied provider id and we don't want it interpreted
     // as a path traversal or compound command.
     if binary.chars().any(|c| {
         matches!(
@@ -146,11 +143,8 @@ pub fn check_cli_installed(binary: String) -> Result<bool, String> {
         return Ok(true);
     }
 
-    // Windows fallback: some agent CLIs (Cursor) only ship a Linux binary, so
-    // users install them inside WSL. Probe `wsl which <binary>` so the
-    // Settings card reports "installed" once the user has the binary
-    // available in their default WSL distro. Skips silently when WSL itself
-    // is missing — keeps the "not installed" answer authoritative.
+    // Windows can store some CLIs only in WSL; check `wsl which <binary>` in that case.
+    // If WSL is unavailable, keep the card's "not installed" state authoritative.
     #[cfg(target_os = "windows")]
     {
         let mut wsl = std::process::Command::new("wsl");

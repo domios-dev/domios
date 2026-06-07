@@ -224,10 +224,8 @@ impl BitwardenStore {
             .await
             .map_err(|e| SecretError::Backend { message: e })?;
         let data = resp.into_data()?;
-        // bw status --response wraps the real payload in
-        // { "object": "template", "template": { status, serverUrl, … } }
-        // (modern) or returns it flat (legacy). The shared envelope
-        // helper handles both shapes plus the {data: ...} list wrapper.
+        // bw status --response wraps the real payload in { "object": "template", "template": { status, serverUrl, … } } (modern) or returns it flat
+        // (legacy). The shared envelope helper handles both shapes plus the {data: ...} list wrapper.
         serde_json::from_value(unwrap_data_envelope(data)).map_err(|e| SecretError::Backend {
             message: format!("parse bw status: {}", e),
         })

@@ -102,19 +102,16 @@ fn tailer_streams_new_messages_as_file_grows() {
         return;
     }
 
-    // Lay out <tmp>/projects/<dash-encoded-cwd>/<sid>.jsonl so the
-    // synthetic plugin (sessions.rootDir = tmp) resolves it correctly.
+    // Lay out <tmp>/projects/<dash-encoded-cwd>/<sid>.jsonl so the synthetic plugin (sessions.rootDir = tmp) resolves it correctly.
     let tmp = TempDir::new().unwrap();
     let cwd = "/proj/tail-demo";
     let sid = "sess-tail-001";
-    // Dash-encoding: every non-alphanumeric becomes '-'. "/proj/tail-demo"
-    // → "-proj-tail-demo".
+    // Dash-encoding: every non-alphanumeric becomes '-'. "/proj/tail-demo" → "-proj-tail-demo".
     let proj_dir = tmp.path().join("-proj-tail-demo");
     std::fs::create_dir_all(&proj_dir).unwrap();
     let jsonl = proj_dir.join(format!("{sid}.jsonl"));
 
-    // First write — must be picked up on the FIRST poll because the
-    // tailer starts from offset 0.
+    // First write — must be picked up on the FIRST poll because the tailer starts from offset 0.
     std::fs::write(
         &jsonl,
         "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n",
@@ -173,8 +170,7 @@ fn tailer_streams_new_messages_as_file_grows() {
 
 #[test]
 fn tailer_skips_when_provider_returns_no_jsonl_path() {
-    // Register a noop provider that doesn't implement session_jsonl_path.
-    // The tailer thread should bail out cleanly without panicking.
+    // Register a noop provider that doesn't implement session_jsonl_path. The tailer thread should bail out cleanly without panicking.
     use crate::agent::provider::{
         AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,
     };
@@ -239,10 +235,8 @@ fn tailer_skips_when_provider_returns_no_jsonl_path() {
         sink.clone() as Arc<dyn DeltaSink>,
     );
 
-    // Tailer thread should exit on its own when session_jsonl_path is None.
-    // We don't have a direct "did it exit" signal, but shutdown() joins
-    // the thread — if it's stuck in a loop, the test hangs and that
-    // surfaces the bug. Give it 500ms to fully spin up + return.
+    // Tailer stops itself when `session_jsonl_path` is None.
+    // If shutdown can't join within test timing, it indicates a stuck thread.
     std::thread::sleep(Duration::from_millis(500));
     handle.shutdown();
 
@@ -250,9 +244,7 @@ fn tailer_skips_when_provider_returns_no_jsonl_path() {
     assert_eq!(sink.msgs.lock().len(), 0);
 }
 
-// Regression: dropping a TailerHandle must stop its polling thread. Without
-// the `Drop` impl, ChatRegistry::insert's idempotent-skip (and remount races)
-// leak orphan tailers that keep emitting — duplicating every chat message.
+// Dropping TailerHandle must stop polling. Without this, orphan tailers keep emitting during remount races.
 #[test]
 fn dropping_handle_stops_the_raw_tailer() {
     use std::io::Write;

@@ -272,24 +272,21 @@ impl SecretStore for LocalStore {
     }
 
     async fn unlock(&self, _creds: UnlockCredentials) -> Result<(), SecretError> {
-        // Local backend has no separate unlock — the OS keychain is unlocked
-        // by the user's login session. We treat unlock as a probe: if the
-        // index loads and the keychain is reachable, we're good.
+        // Local backend has no separate unlock — the OS keychain is unlocked by the user's login session. We treat unlock as a probe: if the index
+        // loads and the keychain is reachable, we're good.
         self.require_available()?;
         let _ = self.index.load()?;
         Ok(())
     }
 
     async fn lock(&self) -> Result<(), SecretError> {
-        // Nothing to seal — entries are gated by the OS keychain itself.
-        // We could clear an in-memory cache here in the future.
+        // Nothing to seal — entries are gated by the OS keychain itself. We could clear an in-memory cache here in the future.
         self.require_available()?;
         Ok(())
     }
 
     async fn logout(&self) -> Result<(), SecretError> {
-        // Local store has no remote session. Logout is a no-op; the user
-        // may delete individual entries explicitly.
+        // Local store has no remote session. Logout is a no-op; the user may delete individual entries explicitly.
         self.require_available()?;
         Ok(())
     }
@@ -421,8 +418,7 @@ impl SecretStore for LocalStore {
             .ok_or(SecretError::NotFound)?
             .clone();
         let key = entry.name.to_lowercase();
-        // Best-effort: drop the keychain entry first. If it's already gone
-        // we still want the index to converge.
+        // Best-effort: drop the keychain entry first. If it's already gone we still want the index to converge.
         let _ = self.keychain.delete(&Self::keychain_account(&entry.name));
         index.entries.remove(&key);
         self.index.save(&index)?;
@@ -531,8 +527,7 @@ mod tests {
         s.save(req("k", "v")).await.unwrap();
         s.delete("k").await.unwrap();
         assert!(matches!(s.get("k").await, Err(SecretError::NotFound)));
-        // Idempotency: deleting twice should not panic, but a second
-        // delete on a missing entry is NotFound.
+        // Idempotency: deleting twice should not panic, but a second delete on a missing entry is NotFound.
         assert!(matches!(s.delete("k").await, Err(SecretError::NotFound)));
     }
 
@@ -615,8 +610,7 @@ mod tests {
 
     #[tokio::test]
     async fn index_never_serializes_secret_material() {
-        // Capture what the store actually writes to its index storage
-        // and assert the secret value is nowhere in it.
+        // Capture what the store writes to its index storage and assert the secret value is nowhere in it.
         let captured: std::sync::Arc<parking_lot::Mutex<Vec<String>>> =
             std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
 

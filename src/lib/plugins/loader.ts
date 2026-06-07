@@ -16,12 +16,8 @@
 import { register } from "./registry";
 import type { ProviderPlugin } from "./types";
 
-// `eager: true` makes Vite inline the imports rather than returning
-// promise-returning thunks — we want all plugins ready before the
-// first pane mounts so no fallback flash happens.
-//
-// Pattern matches every workspace plugin's entry point. Adding a new
-// `plugins/provider-<x>/src/index.ts` is zero-touch for the loader.
+// `eager: true` makes Vite inline the imports rather than returning promise-returning thunks — we want all plugins ready before the first pane
+// mounts so no fallback flash happens. Pattern matches every workspace plugin's entry point. Adding a new `plugins/provider-<x>/src/index.ts` is zero-touch for the loader.
 const modules = import.meta.glob<{ default: ProviderPlugin }>(
   "/plugins/*/src/index.ts",
   { eager: true },
@@ -45,8 +41,7 @@ export function loadBundledPlugins(): void {
   }
 }
 
-// In dev, HMR re-runs this module when a plugin module changes. We
-// re-register everything; consumers re-render via `useRegistryVersion`.
+// In dev, HMR re-runs this module when a plugin module changes. We re-register everything; consumers re-render via `useRegistryVersion`.
 if (import.meta.hot) {
   import.meta.hot.accept(() => {
     loaded = false;

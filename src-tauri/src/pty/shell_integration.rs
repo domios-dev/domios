@@ -21,8 +21,8 @@ pub fn ensure_scripts() {
         return;
     }
 
-    // ── zsh integration ──────────────────────────────────────────
-    // ZDOTDIR trick: this .zshrc sources the user's real config then adds our hook
+    // zsh integration.
+    // this.zshrc sources the user's real config then adds our hook.
     let zshrc = dir.join(".zshrc");
     let zshrc_content = r#"# CodeTerm shell integration — do not edit
 # Restore original ZDOTDIR and source user config
@@ -56,8 +56,8 @@ fi
 "#;
     let _ = std::fs::write(&zshenv, zshenv_content);
 
-    // ── bash integration ─────────────────────────────────────────
-    // Sourced via BASH_ENV for non-login, or via --rcfile trick
+    // bash integration.
+    // Sourced via BASH_ENV for non-login, or via --rcfile trick.
     let bashrc = dir.join("bashrc");
     let bashrc_content = r#"# CodeTerm shell integration — do not edit
 # Source user's bashrc first
@@ -92,14 +92,11 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
             }
             cmd.env("ZDOTDIR", dir.to_string_lossy().as_ref());
         } else if shell.contains("bash") {
-            // For bash: set PROMPT_COMMAND directly as env var for login shells,
-            // and BASH_ENV for non-interactive subshells
+            // For bash: set PROMPT_COMMAND directly as env var for login shells, and BASH_ENV for non-interactive subshells
             let bashrc_path = dir.join("bashrc");
             if bashrc_path.exists() {
                 cmd.env("BASH_ENV", bashrc_path.to_string_lossy().as_ref());
-                // For interactive login bash, BASH_ENV isn't sourced.
-                // We use ENV as a fallback marker; the --rcfile approach won't
-                // work with login shells. Instead, set PROMPT_COMMAND directly.
+                // For interactive login bash, BASH_ENV isn't sourced. We use ENV as a fallback marker; the --rcfile approach won't work with login shells. Instead, set PROMPT_COMMAND directly.
                 cmd.env(
                     "PROMPT_COMMAND",
                     r#"printf '\033]7;file://%s%s\033\\' "$(hostname)" "$PWD""#,
@@ -118,12 +115,8 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
     {
         let shell_lower = shell.to_lowercase();
         if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
-            // Inline `function prompt {...}` as a constant `-Command` string.
-            // AMSI caches its scan by content hash, so after the first spawn
-            // subsequent spawns skip re-scanning. A file-based dot-source
-            // (`-Command ". 'path.ps1'"`) regressed this: the outer command
-            // string still gets scanned, and dot-source triggers extra
-            // ExecutionPolicy + ScriptBlock logging evaluation on every spawn.
+            // Inline `function prompt {...}` as a constant `-Command` for AMSI cache reuse.
+            // Dot-source commands force extra AMSI/policy logging each spawn, so avoid them.
             cmd.arg("-NoExit");
             cmd.arg("-Command");
             cmd.arg(

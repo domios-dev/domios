@@ -34,8 +34,7 @@ pub struct OpenCodeProvider;
 
 impl OpenCodeProvider {
     pub fn new() -> Self {
-        // Register fallback list as the "built-in" — actual list is fetched
-        // dynamically from `opencode models` when no override file exists.
+        // Register fallback models; fetch `opencode models` when no override exists.
         crate::agent::model_catalog::register(
             "opencode",
             crate::agent::model_catalog::RegisteredDefaults {
@@ -95,17 +94,8 @@ impl OpenCodeProvider {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
         .ok()?;
-        // Be liberal with errors — schema drift in newer opencode versions
-        // shouldn't blow up the codeterm daemon. If the query fails, fall
-        // through to the legacy filesystem walk.
-        // Filter on `time_created` (not `time_updated`) so that resuming an
-        // older session — which bumps `time_updated` to now — doesn't make it
-        // re-eligible for the next fresh pane in the same directory. Each
-        // newly-spawned opencode pane should pick up only sessions that were
-        // *created* during this detection window. Order by `time_created DESC`
-        // for the same reason.
-        // Pane stores cwd with forward slashes; opencode db keeps native
-        // separators (\ on Windows). Match both.
+        // Prefer SQL, but fallback to legacy filesystem if schema is missing.
+        // Match by both slash styles and prefer `time_created` ordering.
         let cwd_fwd = cwd.replace('\\', "/");
         let cwd_bwd = cwd.replace('/', "\\");
         let mut stmt = conn
@@ -331,11 +321,8 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn detect_from_output(&self, text: &str) -> bool {
-        // OpenCode TUI writes a distinctive box-drawn banner at startup and
-        // emits "Permission required" on tool calls. Require literal
-        // "opencode" or the TUI's box characters to avoid cross-firing with
-        // claude. "approve" is excluded — overlaps codex's "approve network
-        // access" prompts.
+        // Detect OpenCode from exact output markers.
+        // Exclude generic "approve" prompts to avoid false positives from Claude/Codex.
         let has_marker =
             text.contains("opencode") || text.contains("OpenCode") || text.contains("OpenCode Zen");
         has_marker
@@ -354,18 +341,15 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn session_file_path(&self, _cwd: &str, session_id: &str) -> Option<PathBuf> {
-        // session_id is `ses_XXXXXXXX...`. Walk projectID subdirs and find
-        // <projectID>/<session_id>.json. Returns None on modern opencode
-        // installs where sessions live only in `opencode.db` — the runtime
-        // never calls `session_file_path` for those (we override
-        // `session_exists` to check the db directly).
+        // session_id is `ses_...`; scan `<project>/<session>.json` for legacy support.
+        // `opencode.db`-only installs return None here; use live DB data instead.
         let root = Self::sessions_root()?;
         let target = format!("{}.json", session_id);
         find_file_by_name(&root, &target, 0)
     }
 
     fn session_exists(&self, _cwd: &str, session_id: &str) -> bool {
-        // Modern opencode: db is authoritative.
+        // Prefer db when available.
         if Self::db_session_exists(session_id) {
             return true;
         }
@@ -381,10 +365,7 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn detect_active_session(&self, cwd: &str, current_sid: &str) -> Option<String> {
-        // Opencode-zen spawns a fresh session row on `/model` swap. If the db
-        // holds a session for this cwd whose latest assistant message is
-        // newer than anything the pane's current_sid has produced, hand back
-        // that newer sid so the focused-poller can claim it.
+        // `/model` can point to a newer session; prefer that one.
         let latest = Self::db_newest_session_for_cwd(cwd)?;
         if latest == current_sid {
             None
@@ -463,9 +444,8 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn parse_session_messages(&self, file_path: &Path) -> Vec<SessionMessage> {
-        // file_path points at session/<projectID>/<sessionID>.json — but the
-        // actual conversation lives in message/<sessionID>/ + part/<messageID>/.
-        // Recover sessionID from the file stem.
+        // file_path points to session metadata; session ID comes from file stem.
+        // Messages live under message/<session_id>/part/*.
         let session_id = match file_path.file_stem().and_then(|s| s.to_str()) {
             Some(s) => s,
             None => return Vec::new(),
@@ -544,8 +524,7 @@ impl AgentProvider for OpenCodeProvider {
             if chunks.is_empty() {
                 continue;
             }
-            // Sort parts by filename — opencode part ids carry timestamp
-            // monotonically so lexical sort = chronological.
+            // Sort parts by filename; part IDs are already timestamp-ordered.
             chunks.sort_by(|a, b| a.0.cmp(&b.0));
             let body: String = chunks
                 .into_iter()
@@ -553,8 +532,7 @@ impl AgentProvider for OpenCodeProvider {
                 .collect::<Vec<_>>()
                 .join(" ");
 
-            // Treat CodeTerm boot-time injections as meta so they don't
-            // pollute cross-provider session search.
+            // Treat boot-time injections as meta to avoid polluting session search.
             let is_meta = role == "user" && is_codeterm_injection(&body);
 
             let ts = info
@@ -574,8 +552,7 @@ impl AgentProvider for OpenCodeProvider {
             ));
         }
 
-        // Stable order: by timestamp asc, then by filename order via the
-        // initial walk (already deterministic per-fs).
+        // Stable ordering: timestamp asc, then filename.
         out.sort_by(|a, b| a.1.unwrap_or(0).cmp(&b.1.unwrap_or(0)));
         out.into_iter().map(|(m, _)| m).collect()
     }
@@ -586,10 +563,8 @@ impl AgentProvider for OpenCodeProvider {
         exclude: &[String],
         max_age: Option<Duration>,
     ) -> Option<String> {
-        // Modern opencode (≥0.x with sqlite migration) keeps sessions in
-        // `opencode.db`. Try that first — when the db exists it's the
-        // authoritative store; the fs walk below is dead data on those
-        // installs.
+        // Modern installs store sessions in `opencode.db`; query it first.
+        // Filesystem walk is fallback only when db data is absent.
         if let Some(id) = Self::db_latest_session(cwd, exclude, max_age) {
             return Some(id);
         }
@@ -632,7 +607,7 @@ impl AgentProvider for OpenCodeProvider {
                     Some(i) => i,
                     None => continue,
                 };
-                // Only consider sessions whose authoritative cwd matches.
+        // Keep only sessions with matching cwd.
                 if info.directory.as_deref() != Some(cwd) {
                     continue;
                 }
@@ -656,9 +631,7 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn build_resume_command(&self, session_id: &str, _skip_permissions: bool) -> Option<String> {
-        // OpenCode resume goes through the TUI, which doesn't accept
-        // --dangerously-skip-permissions; per-session permission rules
-        // are persisted on the session JSON instead. Keep the flag off.
+        // Resume is TUI-only; never forward `--dangerously-skip-permissions`.
         let parts = vec![
             "opencode".to_string(),
             "--session".to_string(),
@@ -743,27 +716,21 @@ impl AgentProvider for OpenCodeProvider {
 
     fn install_command(&self, platform: &str) -> Option<String> {
         match platform {
-            // The official one-liner from opencode.ai/install — works on macOS
-            // and Linux. Pulls a static binary into ~/.opencode/bin/.
+            // macOS/Linux: use upstream script (`curl ... | bash`).
             "macos" | "linux" => Some("curl -fsSL https://opencode.ai/install | bash".into()),
-            // Upstream removed the .ps1 installer; the canonical npm package
-            // works on stock Windows + Node and matches the claude/codex flow.
+            // Windows: use npm package path; upstream PowerShell installer is removed.
             "windows" => Some("npm install -g opencode-ai".into()),
             _ => None,
         }
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {
-        // User override wins outright (skip the dynamic CLI fetch).
+            // Use user override model list first.
         if let Some(o) = crate::agent::model_catalog::try_override("opencode") {
             return o;
         }
-        // OpenCode auths into many backends (Anthropic, OpenAI, GitHub Copilot,
-        // OpenRouter, OpenCode-hosted, …) — the live list depends on what the
-        // user actually logged into. Don't hardcode: shell out to
-        // `opencode models`, parse plain stdout (one `provider/model` id per
-        // line), cache for 5 minutes. Fall back to a static seed list if the
-        // CLI is missing or fails so settings_schema still has options to show.
+        // Read live model list from `opencode models` so it matches current backend auth.
+        // Cache models for 5 minutes; fallback to static defaults on error.
         if let Some(cached) = cached_opencode_models() {
             return cached;
         }
@@ -782,8 +749,7 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn preserves_context_on_resume(&self) -> bool {
-        // OpenCode `--session` replays the full session storage (messages
-        // + parts) into the new TUI, similar to Claude's JSONL replay.
+        // `--session` replays full session storage (messages + parts) on resume.
         true
     }
 
@@ -810,16 +776,12 @@ impl AgentProvider for OpenCodeProvider {
         ]
     }
 
-    // No notifications_schema — Opencode notifications fire via the PTY
-    // event pipeline without any per-user configuration, so surfacing
-    // a status card was just noise.
+    // Opencode notifications are already PTY-driven; extra notifications UI isn't needed.
 }
 
-// ── Internal helpers ────────────────────────────────────────────────
+// Internal helpers.
 
-/// Tab-badge label for an opencode modelID. Known families collapse to
-/// a single word; opencode-zen codenames ("big-pickle", "small-cucumber")
-/// stay as-is — that's how opencode itself shows them.
+/// Collapse common model family names for compact tab badges.
 fn opencode_short_label(model_id: &str) -> String {
     let m = model_id.to_ascii_lowercase();
     for fam in [
@@ -830,8 +792,7 @@ fn opencode_short_label(model_id: &str) -> String {
             return capitalize_family(fam);
         }
     }
-    // opencode-zen codenames (big-pickle, small-cucumber, …): keep first
-    // two segments at most so the badge stays compact.
+        // Keep up to two segments for opencode-zen labels.
     let trimmed: String = model_id.split('-').take(2).collect::<Vec<_>>().join("-");
     if trimmed.len() <= 14 {
         trimmed

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { listen, type UnlistenFn } from "../../lib/bridge";
 import { ComposerActions, useWebFileDrop } from "./ComposerActions";
+import { TerminalKeyBar } from "./TerminalKeyBar";
 import { Paperclip, Terminal, X } from "lucide-react";
 import { MessageBubble } from "@codeterm/chat-ui";
 import { parseJsonlSession as parseClaudeJsonlSession } from "@codeterm/provider-claude/src/parser";
@@ -24,10 +25,8 @@ import {
 import type { ModelInfo, ProviderDescriptor } from "../../lib/types";
 import type { PendingPrompt } from "../../lib/types";
 
-// Optimistic messages auto-prune after this if the JSONL never echoes
-// them back — catches sends that silently dropped (claude in a permission
-// dialog, paste mis-targeted, agent crashed). User can still see them
-// during the window so they know the click registered.
+// Optimistic messages are removed after TTL if JSONL never echoes them.
+// Covers drops during permission prompts, bad paste routing, or agent crashes.
 const OPTIMISTIC_TTL_MS = 60_000;
 const INITIAL_VISIBLE_MESSAGES = 220;
 const VISIBLE_MESSAGE_STEP = 160;
@@ -84,7 +83,9 @@ interface Props {
   onError?: (msg: string) => void;
   onOpenTerminalFallback?: () => void;
   onToggleTerminalFallback?: () => void;
+  terminalFallbackOpen?: boolean;
 }
+
 
 function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void }) {
   const name = path.split(/[\\/]/).pop() || path;
@@ -274,6 +275,7 @@ export function PaneSessionChat({
   onError,
   onOpenTerminalFallback,
   onToggleTerminalFallback,
+  terminalFallbackOpen = false,
 }: Props) {
   const [rawText, setRawText] = useState<string>("");
   const [earliestOffset, setEarliestOffset] = useState(0);
@@ -445,9 +447,8 @@ export function PaneSessionChat({
     return parseClaudeJsonlSession(rawText);
   }, [rawText, paneProvider]);
 
-  // Drop optimistic messages once the same user turn appears in JSONL.
-  // Claude may wrap/normalize user input, so match by normalized text +
-  // attachment fingerprint with a substring fallback for noisy wrappers.
+  // Drop optimistic entries once equivalent parsed user input appears in JSONL.
+  // Match uses normalized text plus attachment fingerprint.
   const matchesParsedUser = useCallback(
     (optimisticMessage: ChatMessage, recentParsed: ChatMessage[]) => {
       return matchesRecentUserMessage(optimisticMessage, recentParsed);
@@ -551,11 +552,8 @@ export function PaneSessionChat({
     };
   }, [currentPtyId, paneId]);
 
-  // Garbage-collect optimistic state once a parsed user message contains
-  // it, AND drop optimistic entries older than OPTIMISTIC_TTL_MS as a
-  // safety net — if the send silently dropped (claude in permission
-  // dialog, paste mis-targeted, agent crashed) we don't want a stale
-  // bubble pinned at the bottom forever.
+  // Garbage-collect optimistic items as soon as JSONL catches up.
+  // Also clear stale entries after TTL to avoid forever-pinned bubbles.
   useEffect(() => {
     if (optimistic.length === 0) return;
     const now = Date.now();
@@ -583,8 +581,7 @@ export function PaneSessionChat({
     }
   }, [allMessages]);
 
-  // Tick the TTL-pruner every 10s so stale optimistic messages clear
-  // even if no JSONL chunks have arrived to nudge the other effect.
+  // Poll TTL cleanup every 10s so stale optimistic messages clear even without new JSONL.
   useEffect(() => {
     if (optimistic.length === 0) return;
     const id = setInterval(() => {
@@ -609,8 +606,7 @@ export function PaneSessionChat({
     onPaths: (paths) => addAttachments(paths),
   });
 
-  // Web: browser drag-drop uploads to the daemon, then attaches the
-  // server-side path (Tauri gets native paths from useTauriFileDrop).
+  // Web: browser drag-drop uploads to the daemon, then attaches the server-side path (Tauri gets native paths from useTauriFileDrop).
   const { dragOver: webDragOver, handlers: webDropHandlers } = useWebFileDrop(
     addAttachments,
     showComposerError,
@@ -625,8 +621,7 @@ export function PaneSessionChat({
     if ((!text && allAttachments.length === 0) || sending || sendInFlightRef.current) return;
     sendInFlightRef.current = true;
     setSending(true);
-    // Compose: text + each quoted path separated by spaces — same pipeline
-    // as useTauriFileDrop pasting into xterm.
+    // Compose: text + each quoted path separated by spaces — same pipeline as useTauriFileDrop pasting into xterm.
     const pathLines = allAttachments.map(quotePathForPaste).join(" ");
     const composed = text && pathLines
       ? `${text} ${pathLines}`
@@ -656,9 +651,8 @@ export function PaneSessionChat({
         id: `opt-${Date.now()}`,
         type: "user",
         content: composed,
-        // `timestamp` doubles as the optimistic-sentAt clock — we read
-        // it back as a number for TTL pruning. ChatMessage.timestamp is
-        // typed `string` so we stringify; the millis fit comfortably.
+        // `timestamp` doubles as the optimistic-sentAt clock — we read it back as a number for TTL pruning. ChatMessage.timestamp is typed `string` so
+        // we stringify; the millis fit comfortably.
         timestamp: String(Date.now()),
       },
     ]);
@@ -683,14 +677,13 @@ export function PaneSessionChat({
     }
   }
 
-  // Bug 3: shared paste handler callable from both textarea onPaste and
-  // the window-level listener. Uses plain ClipboardEvent (not React's).
+  // Bug 3: shared paste handler callable from both textarea onPaste and the window-level listener. Uses plain ClipboardEvent (not React's).
   const handlePasteEvent = useCallback(async (e: ClipboardEvent) => {
     const cd = e.clipboardData;
     if (!cd) return;
 
-    // 1. OS-native file references (Ctrl+V on a copied file in Explorer/Finder)
-    //    via the Tauri command that bridges CF_HDROP / NSPasteboardTypeFileURL.
+    // 1. OS-native file references (Ctrl+V on a copied file in Explorer/Finder) via the Tauri command that bridges CF_HDROP /
+    // NSPasteboardTypeFileURL.
     try {
       const paths = await invoke<string[]>("read_clipboard_files");
       if (paths && paths.length > 0) {
@@ -735,8 +728,7 @@ export function PaneSessionChat({
     // 3. Otherwise — let the textarea's default paste behaviour handle text.
   }, [addAttachments]);
 
-  // Bug 3: window-level paste listener so Ctrl+V works without textarea focus.
-  // Only fires when the active element is inside this chat root.
+  // Bug 3: window-level paste listener so Ctrl+V works without textarea focus. Only fires when the active element is inside this chat root.
   useEffect(() => {
     const onWindowPaste = (e: ClipboardEvent) => {
       if (
@@ -958,6 +950,12 @@ export function PaneSessionChat({
           terminalActive={terminalHasAttention}
           pendingPrompt={pendingPrompt}
         />
+        {touchMode && terminalFallbackOpen && (
+          <TerminalKeyBar
+            className="mb-2"
+            onSendKey={(data) => void sendRawToPty(data).catch(() => {})}
+          />
+        )}
         {/* Bug 4: relative wrapper so SlashPicker positions above textarea */}
         <div data-testid="composer-row" className="relative">
           <ComposerActions

@@ -93,8 +93,7 @@ pub async fn events_stream(
         loop {
             match rx.recv().await {
                 Ok(ev) => {
-                    // Generic carries a real frontend event name inside —
-                    // surface that, not the literal "generic".
+                    // Generic carries a real frontend event name inside — surface that, not the literal "generic".
                     let (event_type, data) = match &ev {
                         crate::api::events::SystemEvent::Generic { event_type, data } => {
                             (event_type.clone(), data.clone())
@@ -148,6 +147,10 @@ pub async fn pty_read(
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
     loop {
+        // Message avoids "PTY not found"/"PTY closed" — those trigger frontend respawn.
+        if state.svc.pty.lock().get_session(&pty_id).is_none() {
+            return Err((StatusCode::NOT_FOUND, "pty session ended".to_string()));
+        }
         let (data, next_offset) = state.svc.output_buf.lock().read_since(&pty_id, offset);
         offset = next_offset;
         if !data.is_empty() || tokio::time::Instant::now() >= deadline {
@@ -230,8 +233,7 @@ pub async fn claim_resize_owner(
     Ok(Json(owner))
 }
 
-// ── uploads — browser attachments (files, voice notes) land on the
-//    daemon host so the agent CLI can read them by path ──
+// ── uploads — browser attachments are copied onto daemon host for agent CLI path reads.
 
 const UPLOAD_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const UPLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;

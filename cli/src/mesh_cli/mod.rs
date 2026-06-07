@@ -1,11 +1,5 @@
-//! Mesh CLI dispatch — relay local commands to a paired peer via /api/mesh/relay.
-//!
-//! Submodules:
-//! - `auth`     — Ed25519 signing for outbound peer requests
-//! - `update`   — two-step `update --apply` over mesh (force-check then install)
-//! - `relay`    — generic relay envelope + peer URL resolution
-//! - `api_map`  — translate any local CLI command to its API method+path+body
-//! - `parse`    — small input parsers (ip[:port])
+//! Mesh CLI dispatch: relay local commands to paired peers via /api/mesh/relay.
+//! Submodules: auth, update, relay, api_map, parse.
 
 use clap::Subcommand;
 
@@ -156,8 +150,7 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         }
     };
 
-    // `update --apply` over mesh is a two-step (force-check then install) flow,
-    // not a single relay call.
+    // `update --apply` is a two-step flow: force-check then install.
     if let Commands::Update { action, check, apply, channel, manifest_url, after_update } = &cli.command {
         let resolved = update::resolve_update_action(action.as_ref(), *check, *apply, channel.clone(), manifest_url.clone(), after_update.clone());
         if let UpdateAction::Install { auto: true, manifest_url, from_file: _, continue_prompt: _, continue_pane: _, after_update } = &resolved {
@@ -166,9 +159,8 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         }
     }
 
-    // pane search needs the peer's list ranked by the local fuzzy matcher —
-    // a plain relay would print every pane on the peer with no ranking,
-    // ignoring the user's pattern entirely. Fetch raw, then rank.
+    // pane search needs local fuzzy ranking; relay-only output has no relevance ordering.
+    // Fetch raw list then rank locally for predictable results.
     if let Commands::Pane { action: super::PaneAction::Search { pattern } } = &cli.command {
         let panes = relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", "/api/panes", None);
         let arr = panes.as_array().cloned().unwrap_or_default();
@@ -176,8 +168,7 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         return;
     }
 
-    // `pane list` renders the same workspace-grouped tree as the local path —
-    // relay the raw list, then format it here so local and mesh output match.
+    // `pane list` reuses local formatter: relay raw list, then format locally.
     if !cli.json {
         if let Commands::Pane { action: super::PaneAction::List { agents } } = &cli.command {
             let panes = relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", "/api/panes", None);

@@ -1,6 +1,4 @@
-// Codex provider plugin. Detection + slash commands + rollout-tree
-// session enumeration via host.fs.walkDir + host.fs.sqliteQuery for
-// the modern sqlite-backed install.
+// Codex provider plugin: detect/parse/slash commands plus rollout-tree session discovery.
 
 var TITLE_RE = /codex/i;
 var OUTPUT_FINGERPRINTS = [
@@ -106,20 +104,14 @@ module.exports.default = {
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
     }
-    // session_id may be a UUID OR a rollout filename stem; native impl
-    // extracts the UUID. We do the same so callers can pass either.
+    // session_id accepts UUID or rollout filename stem.
     var uuid = extractSessionUuid(sessionId) || sessionId;
     parts.push(host.shell.quote(uuid));
     return parts.join(" ");
   },
 
-  // ── Rollout-tree session detection ─────────────────────────────────
-  //
-  // Codex stores sessions as `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`.
-  // Each file's first line is `session_meta` with the authoritative
-  // session UUID + cwd. We walk the tree once per call and lazily
-  // peek each candidate's header — cheap enough for the volumes
-  // observed in practice (hundreds of sessions, not thousands).
+  // Rollout-tree detection: scan `~/.codex/sessions/.../rollout-*.jsonl`
+  // and read only `session_meta` headers on first file match.
 
   sessionFilePath: function (_cwd, sessionId) {
     var root = codexSessionsRoot();
@@ -138,8 +130,7 @@ module.exports.default = {
     return hit;
   },
 
-  // Chat UI consumes the generic JSONL-session hook. Codex rollout
-  // files are already JSONL, so use the same lookup as sessionFilePath.
+  // Chat uses generic JSONL-session hook; codex paths resolve via sessionFilePath.
   sessionJsonlPath: function (cwd, sessionId) {
     return this.sessionFilePath(cwd, sessionId);
   },
@@ -158,9 +149,7 @@ module.exports.default = {
       if (cutoff !== null && f.modifiedMs !== null && f.modifiedMs < cutoff) continue;
       var meta = readSessionMeta(f.path);
       if (!meta) continue;
-      // codex writes cwd in OS-native form; codeterm passes forward-slash.
-      // host.path.equal normalises both sides so the slash convention
-      // can drift without breaking detection.
+      // Compare `meta.cwd` via `host.path.equal`, ignoring slash-style drift.
       if (meta.cwd && !host.path.equal(meta.cwd, cwd)) continue;
       var stem = f.name.substring(0, f.name.length - 6);
       var sid = meta.sessionId || extractSessionUuid(stem);
@@ -227,10 +216,7 @@ module.exports.default = {
     return out;
   },
 
-  // Latest `turn_context.payload.model` in the JSONL tail. Codex writes
-  // a turn_context record at the start of every assistant turn — so the
-  // last one wins. Short-label result ("Codex" / "GPT-5.5" / "Sonnet")
-  // matches the native badge convention.
+  // Read tail-most `turn_context.payload.model` and map to short model labels.
   detectSessionModel: function (cwd, sessionId) {
     var path = this.sessionFilePath(cwd, sessionId);
     if (!path) return null;
@@ -249,9 +235,7 @@ module.exports.default = {
     return null;
   },
 
-  // Mirrors native parse_session_messages: response_item type with
-  // payload.type === "message", role user|assistant, content blocks of
-  // type input_text|output_text|text.
+  // Mirror native parse_session_messages for response_item message blocks.
   parseSessionMessages: function (text) {
     var out = [];
     var lines = String(text || "").split("\n");
@@ -293,9 +277,7 @@ module.exports.default = {
   },
 };
 
-// Function expressions (not declarations) — keep QuickJS strict-mode
-// parser happy and avoid the "function declarations can't appear in
-// single-statement context" error when bundlers re-wrap our source.
+// Use function expressions for QuickJS strict-mode compatibility with bundler rewrites.
 var endsWith = function (s, suffix) {
   return s.length >= suffix.length
     && s.substring(s.length - suffix.length) === suffix;
@@ -321,8 +303,7 @@ var extractSessionUuid = function (stem) {
   return rest.substring(20);
 };
 
-// Short tab-badge label for a codex model id ("gpt-5-codex" → "Codex",
-// "gpt-5" → "GPT-5", "claude-sonnet-4-6" → "Sonnet").
+// Shorten common model ids for tab badges (Codex / GPT / Sonnet etc.).
 var codexShortLabel = function (modelId) {
   var m = String(modelId || "").toLowerCase();
   if (m.indexOf("codex") !== -1) return "Codex";
@@ -340,8 +321,7 @@ var codexShortLabel = function (modelId) {
   return first.charAt(0).toUpperCase() + first.substring(1);
 };
 
-// Read first line, parse as JSON, return {sessionId, cwd} when the
-// header is a session_meta record. Returns null otherwise.
+// Read first JSONL line, return {sessionId, cwd} only when type is `session_meta`.
 var readSessionMeta = function (path) {
   var contents = host.fs.readFile(path);
   if (!contents) return null;

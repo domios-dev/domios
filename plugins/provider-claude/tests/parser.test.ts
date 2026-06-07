@@ -24,9 +24,7 @@ function eq(actual: unknown, expected: unknown, name: string) {
   assert(a === e, name, `expected ${e}, got ${a}`);
 }
 
-// ---------------------------------------------------------------------------
 // parseJsonlSession
-// ---------------------------------------------------------------------------
 
 console.log("\n--- parseJsonlSession ---\n");
 
@@ -130,10 +128,8 @@ console.log("\n--- parseJsonlSession ---\n");
   assert(!msgs[0].content.endsWith("..."), "7b. tool_result short: no ellipsis");
 }
 
-// 7c. Tool result in a USER message -- the real Claude Code pattern: the
-// assistant emits tool_use, the result arrives as a tool_result block in
-// the following user-role message. Must still parse + carry tool_use_id so
-// the UI can attach output to the matching tool card.
+// In Claude JSONL, `tool_use` appears before a tool result that arrives as the next USER message.
+// Keep tool_use_id in parsed UI events so results can attach to the original tool card.
 {
   const input = `{"type":"user","uuid":"u_tr","timestamp":"2025-01-01T00:00:05Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_b1","content":"line one\\nline two\\nfinal line"}]}}`;
   const msgs = parseJsonlSession(input);
@@ -277,9 +273,7 @@ console.log("\n--- parseJsonlSession ---\n");
   eq(msgs[0].systemSubtype, "local_command", "14e. system local_command: subtype");
 }
 
-// ---------------------------------------------------------------------------
 // type:"message" entries (role-based dispatch)
-// ---------------------------------------------------------------------------
 
 console.log("\n--- type:message entries ---\n");
 
@@ -348,9 +342,7 @@ console.log("\n--- type:message entries ---\n");
   eq(msgs[3].type, "assistant", "14h. interleaved: 4th assistant");
 }
 
-// ---------------------------------------------------------------------------
 // parseTerminalOutput
-// ---------------------------------------------------------------------------
 
 console.log("\n--- parseTerminalOutput ---\n");
 
@@ -420,14 +412,12 @@ console.log("\n--- parseTerminalOutput ---\n");
   eq(msgs2.length, 0, "20. whitespace input: no messages");
 }
 
-// ---------------------------------------------------------------------------
 // Attachment marker safety tests
-// ---------------------------------------------------------------------------
 
 console.log("\n--- Attachment marker safety ---\n");
 
-// The marker format is: \x00«file:/path» — NUL + guillemets
-// Verify it never matches normal text
+// The marker format is: \x00«file:/path» — NUL + guillemets.
+// Verify it never matches normal text.
 const ATTACH_RE = /\x00\u00ABfile:([^\u00BB]+)\u00BB/g;
 
 // 21. Normal text with brackets — no false match
@@ -483,9 +473,7 @@ const ATTACH_RE = /\x00\u00ABfile:([^\u00BB]+)\u00BB/g;
   eq(matches[0][1], "/Users/foo/My Documents/file.pdf", "27. path with spaces: full path");
 }
 
-// ---------------------------------------------------------------------------
 // Summary
-// ---------------------------------------------------------------------------
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) throw new Error(`${failed} tests failed`);

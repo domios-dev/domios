@@ -4,8 +4,7 @@ use crate::usage::store::UsageStore;
 const RESETS_A: i64 = 9_000_000_000_000;
 const RESETS_B: i64 = 9_000_000_000_001;
 
-// Unique provider per test to avoid the static BASELINE_CACHE bleeding between
-// parallel test threads.
+// Unique provider per test to avoid the static BASELINE_CACHE bleeding between parallel test threads.
 fn unique_provider(tag: &str) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -231,10 +230,8 @@ fn cache_invalidate_forces_recompute() {
 
 #[test]
 fn shape_skips_offdevice_jump_pair() {
-    // Setup: 5 normal pairs during the morning (1h apart, 4% each), then
-    // ONE giant pair after a 6h gap with 35% delta (off-device work).
-    // The shape must NOT pin the 35% to a single hour — that pair gets
-    // dropped from per-hour aggregation entirely.
+    // Setup: 5 normal pairs during the morning (1h apart, 4% each), then ONE giant pair after a 6h gap with 35% delta (off-device work). The shape
+    // must NOT pin the 35% to a single hour — that pair gets dropped from per-hour aggregation entirely.
     let p = unique_provider("offdev");
     let s = store();
     let today_start = local_start_of_day_ms(chrono::Utc::now().timestamp_millis());
@@ -276,9 +273,8 @@ fn shape_skips_offdevice_jump_pair() {
 
 #[test]
 fn median_resists_vacation_outlier() {
-    // 10 weeks at ~28% Monday + 1 vacation week at 4% Monday.
-    // Mean would be ~26%, median should be ~28% — vacation doesn't drag.
-    // Realistic sampling: 8 samples through the day (~4% per pair).
+    // 10 weeks at ~28% Monday + 1 vacation week at 4% Monday. Mean would be ~26%, median should be ~28% — vacation doesn't drag. Realistic
+    // sampling: 8 samples through the day (~4% per pair).
     let p = unique_provider("vac");
     let s = store();
     let today_start = local_start_of_day_ms(chrono::Utc::now().timestamp_millis());
@@ -411,8 +407,7 @@ fn day_actuals_emits_one_bucket_per_cycle_day() {
     let now = now_at_hour(15);
     let cycle_end = now + 5 * DAY_MS;
     let actuals = compute_day_actuals(&s, &p, None, now, cycle_end).unwrap();
-    // 7 days back from cycle_end, aligned to local-start-of-day → at least 7,
-    // possibly 8 if the cycle's start time crossed a midnight boundary.
+    // 7 days back from cycle_end, aligned to local-start-of-day → at least 7, possibly 8 if the cycle's start time crossed a midnight boundary.
     assert!(
         (7..=8).contains(&actuals.len()),
         "got {} buckets",
@@ -426,8 +421,7 @@ fn day_actuals_emits_one_bucket_per_cycle_day() {
 
 #[test]
 fn day_actuals_sparse_history_attributes_only_observed_spend() {
-    // Cycle started 7 days ago. Only days 3–today have polling data.
-    // The first two empty days must stay None (not inherit cumulative).
+    // Cycle started 7 days ago. Only days 3–today have polling data. The first two empty days must stay None (not inherit cumulative).
     let p = unique_provider("actuals-sparse");
     let s = store();
     let now = now_at_hour(15);
@@ -478,9 +472,8 @@ fn day_actuals_sparse_history_attributes_only_observed_spend() {
         .iter()
         .find(|a| a.day_start_ms == today_start)
         .unwrap();
-    // Bridge 14→14 = 0 + within-day no pairs (just one sample at now) → 0?
-    // Actually two samples: yest-22:00 (gets filtered by day_start cutoff) and now.
-    // So today has 1 sample. Bridge 14→22 (within 2h gap) = +8. Total 8.
+    // Bridge 14→14 = 0 + within-day no pairs (just one sample at now) → 0? two samples: yest-22:00 (gets filtered by day_start cutoff) and now. So
+    // today has 1 sample. Bridge 14→22 (within 2h gap) = +8. Total 8.
     assert!(today_bucket.pct.is_some());
     let v = today_bucket.pct.unwrap();
     assert!((v - 8.0).abs() < 0.01, "today bucket got {}", v);
@@ -495,8 +488,7 @@ fn day_actuals_sparse_history_attributes_only_observed_spend() {
 
 #[test]
 fn day_actuals_skip_other_cycle_rows() {
-    // A snapshot from a different cycle (RESETS_B) appearing within this
-    // cycle's day window must not contribute to that day's delta.
+    // A snapshot from a different cycle (RESETS_B) appearing within this cycle's day window must not contribute to that day's delta.
     let p = unique_provider("actuals-cycle-filter");
     let s = store();
     let now = now_at_hour(15);

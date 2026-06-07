@@ -9,9 +9,8 @@ export interface UseAgentDetectionOptions {
   termReady: boolean;
 }
 
-// Identity (`agent_type`) is owned by the backend: spawn paths lock it, and
-// `commands::pty::write_pty` parses typed launch commands. This hook only
-// renders OSC titles into the pane title — it never sets agent_type.
+// Backend owns `agent_type` from spawn path and parsed launch commands.
+// This hook only renders OSC titles; it does not set agent_type.
 export function useAgentDetection({
   termRef,
   paneId,

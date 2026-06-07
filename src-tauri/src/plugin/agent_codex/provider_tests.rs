@@ -80,8 +80,7 @@ fn codex_launch_interactive_skip_perms() {
         headless: false,
         session_id: None,
     });
-    // Codex CLI removed --full-auto; the surviving skip-approvals flag is
-    // --dangerously-bypass-approvals-and-sandbox (same one codex exec uses).
+    // Codex CLI removed --full-auto; the surviving skip-approvals flag is --dangerously-bypass-approvals-and-sandbox (same one codex exec uses).
     assert_eq!(cmd, "codex --dangerously-bypass-approvals-and-sandbox");
 }
 
@@ -324,17 +323,15 @@ fn codex_settings_schema_round_trips_as_json() {
 
 #[test]
 fn codex_does_not_contribute_notifications_card() {
-    // Codex notifications fire automatically via the PTY event pipeline
-    // — no user-facing setting to render. Keeping the Notifications tab
-    // free of "auto-enabled, no setup required" cards keeps the UI honest.
+    // Codex notifications fire automatically via the PTY event pipeline — no user-facing setting to render. Keeping the Notifications tab free of
+    // "auto-enabled, no setup required" cards keeps the UI honest.
     let p = CodexProvider::new();
     assert!(p.notifications_schema().is_empty());
     assert!(p.describe().notifications_schema.is_empty());
 }
 
-// Meta filter — these strings are injections CodeTerm writes to a codex
-// session as role=user. Session search must mark them is_meta so they
-// don't pollute results with our own bootstrap noise.
+// Meta filter for CodeTerm bootstrap lines injected into codex sessions.
+// Tag them is_meta so search can ignore its own bootstrap noise.
 #[test]
 fn is_codeterm_injection_matches_known_boot_prompts() {
     assert!(is_codeterm_injection(
@@ -362,8 +359,7 @@ fn is_codeterm_injection_leaves_real_user_messages_alone() {
     assert!(!is_codeterm_injection("fix the bug in parser.rs"));
     assert!(!is_codeterm_injection("why did the deploy fail?"));
     assert!(!is_codeterm_injection("# TODO list\n- ship v2"));
-    // User could paste the literal strings inside a question — that's
-    // legitimate. Strict `starts_with` keeps false positives low.
+    // User could paste the literal strings inside a question — that's legitimate. Strict `starts_with` keeps false positives low.
     assert!(!is_codeterm_injection(
         "looking at <INSTRUCTIONS> — what does it mean"
     ));

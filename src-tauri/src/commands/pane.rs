@@ -3,10 +3,8 @@ use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
 use crate::ScreenStateHandle;
 
-// NOTE: `crate::agent::chat_types::{RichMessage, SessionDelta}` and the
-// parallel `spawn_tailer` / `DeltaSink` path are reserved for future
-// non-UI consumers (mem worker, mesh log shipping, etc.). The chat UI
-// uses the raw-text tailer below — the TS plugin owns parsing.
+// NOTE: keep `RichMessage`/`SessionDelta` and `spawn_tailer`/`DeltaSink`
+// for future non-UI consumers. Frontend uses raw-text tailer + TS parser today.
 
 #[tauri::command]
 pub async fn get_pane_output(
@@ -225,9 +223,7 @@ pub fn read_session_jsonl(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Chat UI mode — thin Tauri wrappers over the pane_chat service.
-// ---------------------------------------------------------------------------
 
 #[derive(serde::Serialize)]
 pub struct ChatStartResult {
@@ -265,10 +261,8 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         (provider, cwd, sid, t.elapsed().as_millis())
     };
 
-    // Chat view is a reader for the tab's saved conversation, not a session
-    // detector. A provider may still report that the live process has rolled
-    // to a newer backing session (Codex resume starts a fresh rollout). Only
-    // accept that provider-owned handoff when no sibling pane already owns it.
+    // Chat view is a reader for the tab's saved conversation, not a session detector. A provider may still report that the live process has rolled
+    // to a newer backing session (Codex resume starts a fresh rollout). Only accept that provider-owned handoff when no sibling pane already owns it.
     let detect_started = std::time::Instant::now();
     if let Some(active_sid) = svc
         .agent_registry
@@ -319,15 +313,13 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     }
     let path_ms = path_started.elapsed().as_millis();
 
-    // Read the tail (~512KB) so toggle reveals plenty of context. The TS
-    // parser is fast even at 1MB — no need for a smaller window.
+    // Read the tail (~512KB) so toggle reveals plenty of context. The TS parser is fast even at 1MB — no need for a smaller window.
     let snapshot_window: u64 = 512 * 1024;
     let read_started = std::time::Instant::now();
     let bytes = std::fs::read(&path).map_err(|e| format!("read jsonl: {e}"))?;
     let total = bytes.len() as u64;
     let start = total.saturating_sub(snapshot_window) as usize;
-    // Align start to a line boundary — handing the parser a partial
-    // first line forces it to discard data that would otherwise render.
+    // Align start to a line boundary — handing the parser a partial first line forces it to discard data that would otherwise render.
     let aligned_start = if start == 0 {
         0
     } else {
@@ -340,9 +332,8 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     let text = String::from_utf8_lossy(&bytes[aligned_start..]).to_string();
     let read_ms = read_started.elapsed().as_millis();
 
-    // Multiple webviews can attach to the same pane. The tailer is per pane,
-    // but subscriptions are per client; share the existing worker when one is
-    // already running so one client's stop() cannot kill another's stream.
+    // Multiple webviews can attach to the same pane. The tailer is per pane, but subscriptions are per client; share the existing worker when one
+    // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
     if !svc.chat_registry.acquire(&pane_id) {
         let sink = crate::service::pane_chat::raw_text_sink::make_sink(svc.app_handle.clone());

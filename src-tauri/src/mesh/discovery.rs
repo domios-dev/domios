@@ -24,7 +24,7 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-// ── mDNS ───────────────────────────────────────────────────────────────
+// ── mDNS ──
 
 /// Initialize mDNS daemon and start browsing for peers.
 /// Does NOT register our service — call `register_mdns_service` separately.

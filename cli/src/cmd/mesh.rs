@@ -360,9 +360,8 @@ fn set_mesh_enabled(
     enabled: bool,
     json: bool,
 ) {
-    // Use the key/value form so we touch ONLY mesh.enabled — sending a
-    // partial `{"mesh": {...}}` would replace the whole `[mesh]` table and
-    // lose instance_name, broadcast_duration_secs, etc.
+    // Use the key/value form so we touch ONLY mesh.enabled — sending a partial `{"mesh": {...}}` would replace the whole `[mesh]` table and lose
+    // instance_name, broadcast_duration_secs, etc.
     let body = serde_json::json!({"key": "mesh.enabled", "value": enabled});
     let resp = http
         .patch(format!("{}/api/config", base))
