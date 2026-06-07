@@ -246,6 +246,15 @@ body {
   background-color: rgba(239, 68, 68, 0.15);
 }
 
+.sidebar-tab-touch .sidebar-tab-badge {
+  display: none;
+}
+
+.sidebar-tab-touch .sidebar-tab-close {
+  opacity: 1;
+  transform: scale(1);
+}
+
 /* When the tab is too narrow to fit a comfortable badge alongside the
    title, hide the badge so the title doesn't get squeezed. ⋮ menu still
    appears on hover (overlay). */
@@ -421,4 +430,3 @@ body {
   50%  { transform: rotate(180deg) scale(0.88); opacity: 0.75; }
   100% { transform: rotate(360deg) scale(1);    opacity: 1;   }
 }
-

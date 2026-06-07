@@ -95,6 +95,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                 config: states.config.clone(),
                 mesh: states.mesh.clone(),
                 keepawake: states.keepawake.clone(),
+                resize_owner: states.resize_owner.clone(),
                 test_clock: test_clock.clone(),
                 events: states.event_broadcaster.clone(),
                 web_dist: resolve_web_dist(),

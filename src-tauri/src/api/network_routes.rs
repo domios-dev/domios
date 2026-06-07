@@ -16,9 +16,7 @@ pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_j
     let tailscale_ip = state.mesh.lock().tailscale_ip.clone();
     let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
     let tailscale_https_url = if crate::mesh::discovery::tailscale_serve_https_enabled() {
-        tailscale_dns
-            .as_ref()
-            .map(|dns| format!("https://{}", dns))
+        tailscale_dns.as_ref().map(|dns| format!("https://{}", dns))
     } else {
         None
     };

@@ -11,6 +11,7 @@ export interface UseTerminalResizeOptions {
   termReady: boolean;
   isFocused: boolean;
   resizeEnabled?: boolean;
+  resizeClientId?: string;
 }
 
 export interface UseTerminalResizeReturn {
@@ -25,6 +26,7 @@ export function useTerminalResize({
   termReady,
   isFocused,
   resizeEnabled = true,
+  resizeClientId,
 }: UseTerminalResizeOptions): UseTerminalResizeReturn {
   // ConPTY resize jiggle: shrink by 1 col then restore to force SIGWINCH
   const jigglePendingRef = useRef(false);
@@ -34,11 +36,11 @@ export function useTerminalResize({
     const cols = term.cols, rows = term.rows;
     if (cols <= 1 || rows <= 0) return;
     jigglePendingRef.current = true;
-    invoke("resize_pty", { ptyId, cols: cols - 1, rows })
+    invoke("resize_pty", { ptyId, cols: cols - 1, rows, clientId: resizeClientId })
       .then(() => new Promise<void>(r => setTimeout(r, 100)))
-      .then(() => invoke("resize_pty", { ptyId, cols, rows }))
+      .then(() => invoke("resize_pty", { ptyId, cols, rows, clientId: resizeClientId }))
       .finally(() => { jigglePendingRef.current = false; });
-  }, [termRef]);
+  }, [termRef, resizeClientId]);
 
   // ResizeObserver + debounce + self-heal + HMR + visibility
   useEffect(() => {
@@ -112,7 +114,12 @@ export function useTerminalResize({
           const term = termRef.current;
           const currentPtyId = connectedPtyRef.current;
           if (term && currentPtyId && term.cols > 0 && term.rows > 0) {
-            invoke("resize_pty", { ptyId: currentPtyId, cols: term.cols, rows: term.rows });
+            invoke("resize_pty", {
+              ptyId: currentPtyId,
+              cols: term.cols,
+              rows: term.rows,
+              clientId: resizeClientId,
+            });
           }
         } catch { /* ignore */ }
       });
@@ -128,7 +135,7 @@ export function useTerminalResize({
       hmrCleanup?.();
       window.removeEventListener("codeterm-pane-resize", handlePaneResize);
     };
-  }, [termReady, resizeEnabled, containerRef, termRef, fitAddonRef, connectedPtyRef, jiggleResize]);
+  }, [termReady, resizeEnabled, resizeClientId, containerRef, termRef, fitAddonRef, connectedPtyRef, jiggleResize]);
 
   // Refit + focus when pane becomes focused
   useEffect(() => {

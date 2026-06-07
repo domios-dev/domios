@@ -23,6 +23,7 @@ pub mod plugin;
 pub mod process_util;
 pub mod prompts;
 pub mod pty;
+pub mod resize_owner;
 pub mod secrets;
 pub mod service;
 pub mod services;
@@ -55,6 +56,7 @@ pub use cron::scheduler::{CronState, CronWake};
 pub type UpdateStateHandle = Arc<Mutex<update::UpdateState>>;
 pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
+pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
 
 pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
 
@@ -132,6 +134,7 @@ pub fn run() {
         .manage(states.update.clone())
         .manage(states.mesh.clone())
         .manage(states.keepawake.clone())
+        .manage(states.resize_owner.clone())
         // ServiceState is added in .setup() after AppHandle is available
         .invoke_handler(tauri::generate_handler![
             // PTY commands
@@ -148,6 +151,7 @@ pub fn run() {
             commands::wait_shell_ready,
             commands::read_session_jsonl,
             commands::resize_pty,
+            commands::claim_resize_owner,
             commands::kill_pty,
             commands::get_pane_git_info,
             commands::suggest_install_pwsh,

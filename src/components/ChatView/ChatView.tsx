@@ -3,6 +3,7 @@ import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { useTauriFileDrop } from "../../hooks/terminal";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { extractFilePathsFromClipboard } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { MessageBubble } from "@codeterm/chat-ui";
@@ -66,6 +67,7 @@ function mimeFromPath(p: string): string {
 
 export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: ChatViewProps) {
   const provider = getAgentProvider(agentType);
+  const touchMode = useTouchOptimizedUi();
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = usePersistentDraft(`chat-view:${paneId}`);
   const [isLoading, _setIsLoading] = useState(false);
@@ -371,6 +373,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
+        if (touchMode) return;
         e.preventDefault();
         sendMessage();
       }
@@ -380,7 +383,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         toggleExpand();
       }
     },
-    [sendMessage],
+    [sendMessage, touchMode],
   );
 
   return (
@@ -591,12 +594,14 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             autoCorrect="off"
             autoCapitalize="sentences"
             spellCheck={false}
-            enterKeyHint="send"
+            enterKeyHint={touchMode ? "enter" : "send"}
             inputMode="text"
-            className="flex-1 bg-transparent border-none outline-none resize-none text-sm leading-5 placeholder:text-[var(--ct-muted)]"
+            className="block flex-1 self-center bg-transparent border-none outline-none resize-none text-sm leading-5 placeholder:text-[var(--ct-muted)]"
             style={{
               color: "var(--ct-fg, #c9d1d9)",
               fontFamily: "inherit",
+              lineHeight: "20px",
+              margin: 0,
               maxHeight: inputExpanded ? "none" : "120px",
               minHeight: "20px",
               height: inputExpanded ? "100%" : undefined,

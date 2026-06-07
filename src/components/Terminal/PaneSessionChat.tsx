@@ -15,6 +15,7 @@ import { detectChatPrefix, type ChatOrigin } from "../../lib/chatPrefixes";
 import { useMultiplexer } from "../../store/multiplexer";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useTauriFileDrop } from "../../hooks/terminal";
 import {
   filterSlashCommands,
@@ -30,6 +31,9 @@ import type { PendingPrompt } from "../../lib/types";
 const OPTIMISTIC_TTL_MS = 60_000;
 const INITIAL_VISIBLE_MESSAGES = 220;
 const VISIBLE_MESSAGE_STEP = 160;
+const COMPOSER_MIN_HEIGHT = 20;
+const COMPOSER_SINGLE_LINE_THRESHOLD = 28;
+const COMPOSER_MAX_HEIGHT = 150;
 const CLI_FALLBACK_COMMANDS = new Set([
   "/usage",
   "/config",
@@ -40,6 +44,14 @@ const CLI_FALLBACK_COMMANDS = new Set([
   "/permissions",
   "/help",
 ]);
+
+function composerHeight(el: HTMLTextAreaElement, value: string): number {
+  const hasExplicitLineBreak = value.includes("\n");
+  if (!hasExplicitLineBreak && el.scrollHeight <= COMPOSER_SINGLE_LINE_THRESHOLD) {
+    return COMPOSER_MIN_HEIGHT;
+  }
+  return Math.min(Math.max(el.scrollHeight, COMPOSER_MIN_HEIGHT), COMPOSER_MAX_HEIGHT);
+}
 
 function isMicrophonePermissionError(message: string): boolean {
   const normalized = message.toLowerCase();
@@ -54,16 +66,6 @@ function isMicrophonePermissionError(message: string): boolean {
     normalized.includes("permission denied") ||
     normalized.includes("not allowed by the user agent")
   );
-}
-
-function openMicrophoneSettings() {
-  const platform = navigator.platform.toLowerCase();
-  const url = platform.includes("mac") || platform.includes("iphone") || platform.includes("ipad")
-    ? "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
-    : platform.includes("win")
-      ? "ms-settings:privacy-microphone"
-      : "about:preferences#privacy";
-  void invoke("open_url", { url });
 }
 
 interface ChatStartResult {
@@ -281,7 +283,6 @@ export function PaneSessionChat({
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = usePersistentDraft(`pane-session-chat:${paneId}`);
   const [sending, setSending] = useState(false);
-  const [composerError, setComposerError] = useState<string | null>(null);
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -291,6 +292,7 @@ export function PaneSessionChat({
   const [modelOptions, setModelOptions] = useState<ModelInfo[]>([]);
   const [modelHighlight, setModelHighlight] = useState(0);
   const [terminalActive, setTerminalActive] = useState(false);
+  const touchMode = useTouchOptimizedUi();
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -309,21 +311,40 @@ export function PaneSessionChat({
     () => filterSlashCommands(input.split("\n")[0] || ""),
     [input],
   );
-  const { state: muxState, setFocusedPane } = useMultiplexer();
+  const { state: muxState, setFocusedPane, addNotification } = useMultiplexer();
   const paneProvider = muxState.panes[paneId]?.agent_type ?? null;
 
+  const showComposerError = useCallback((message: string) => {
+    addNotification({
+      pane_id: paneId,
+      workspace_id: null,
+      title: isMicrophonePermissionError(message) ? "Microphone unavailable" : "Chat error",
+      body: isMicrophonePermissionError(message)
+        ? `${message} Open microphone permissions in Settings if needed.`
+        : message,
+      level: "Error",
+    });
+  }, [addNotification, paneId]);
+
   const refocusComposer = useCallback(() => {
+    if (touchMode) return;
     const focus = () => textareaRef.current?.focus({ preventScroll: true });
     focus();
     requestAnimationFrame(focus);
     window.setTimeout(focus, 0);
+  }, [touchMode]);
+
+  const blurComposerForTouchScroll = useCallback(() => {
+    if (document.activeElement === textareaRef.current) {
+      textareaRef.current?.blur();
+    }
   }, []);
 
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = "0px";
-    const next = Math.min(Math.max(el.scrollHeight, 28), 150);
+    el.style.height = "auto";
+    const next = composerHeight(el, input);
     el.style.height = `${next}px`;
   }, [input]);
 
@@ -485,7 +506,7 @@ export function PaneSessionChat({
         setEarliestOffset(res.start_offset);
       }
     } catch (e) {
-      setComposerError(e instanceof Error ? e.message : String(e));
+      showComposerError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoadingOlder(false);
     }
@@ -592,7 +613,7 @@ export function PaneSessionChat({
   // server-side path (Tauri gets native paths from useTauriFileDrop).
   const { dragOver: webDragOver, handlers: webDropHandlers } = useWebFileDrop(
     addAttachments,
-    (msg) => setComposerError(msg),
+    showComposerError,
   );
 
   async function send(extraAttachments: string[] = []) {
@@ -604,7 +625,6 @@ export function PaneSessionChat({
     if ((!text && allAttachments.length === 0) || sending || sendInFlightRef.current) return;
     sendInFlightRef.current = true;
     setSending(true);
-    setComposerError(null);
     // Compose: text + each quoted path separated by spaces — same pipeline
     // as useTauriFileDrop pasting into xterm.
     const pathLines = allAttachments.map(quotePathForPaste).join(" ");
@@ -614,7 +634,7 @@ export function PaneSessionChat({
     if (allAttachments.length === 0 && composed.trim() === "/model") {
       setInput("");
       if (modelOptions.length === 0 || !providerDescriptor?.model_switch_format) {
-        setComposerError(
+        showComposerError(
           providerDescriptor && modelOptions.length === 0
             ? `${providerDescriptor.display_name} does not publish switchable models.`
             : providerDescriptor
@@ -644,7 +664,7 @@ export function PaneSessionChat({
     ]);
     setInput("");
     setAttachments([]);
-    refocusComposer();
+    if (!touchMode) refocusComposer();
     try {
       const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
       if (fallbackCommand) {
@@ -655,11 +675,11 @@ export function PaneSessionChat({
         await invoke("chat_send_text", { paneId, text: composed, enter: true });
       }
     } catch (e) {
-      setComposerError(e instanceof Error ? e.message : String(e));
+      showComposerError(e instanceof Error ? e.message : String(e));
     } finally {
       sendInFlightRef.current = false;
       setSending(false);
-      refocusComposer();
+      if (!touchMode) refocusComposer();
     }
   }
 
@@ -749,7 +769,6 @@ export function PaneSessionChat({
 
   const chooseModel = useCallback(
     async (model: ModelInfo) => {
-      setComposerError(null);
       setModelPickerOpen(false);
       setInput("");
       try {
@@ -763,12 +782,12 @@ export function PaneSessionChat({
         }
         await sendRawToPty(`${formatModelSwitch(format, model.id)}\r`);
       } catch (e) {
-        setComposerError(e instanceof Error ? e.message : String(e));
+        showComposerError(e instanceof Error ? e.message : String(e));
       } finally {
         refocusComposer();
       }
     },
-    [providerDescriptor, refocusComposer, sendRawToPty],
+    [providerDescriptor, refocusComposer, sendRawToPty, showComposerError],
   );
 
   if (error) {
@@ -813,6 +832,7 @@ export function PaneSessionChat({
       )}
       <div
         ref={scrollRef}
+        onTouchMove={blurComposerForTouchScroll}
         onScroll={(e) => {
           const el = e.currentTarget;
           const dist = el.scrollHeight - (el.scrollTop + el.clientHeight);
@@ -938,41 +958,13 @@ export function PaneSessionChat({
           terminalActive={terminalHasAttention}
           pendingPrompt={pendingPrompt}
         />
-        {composerError && (
-          <div
-            data-testid="chat-composer-error"
-            className="mb-2 flex items-center justify-between gap-2 rounded border px-2 py-1 text-xs font-mono"
-            style={{
-              background: "color-mix(in srgb, #f85149 14%, transparent)",
-              borderColor: "color-mix(in srgb, #f85149 38%, transparent)",
-              color: "var(--ct-fg, #c9d1d9)",
-            }}
-          >
-            <span className="min-w-0">{composerError}</span>
-            {isMicrophonePermissionError(composerError) && (
-              <button
-                type="button"
-                data-testid="chat-composer-open-mic-settings"
-                onClick={openMicrophoneSettings}
-                className="shrink-0 rounded border px-2 py-0.5 text-[11px] hover:brightness-110"
-                style={{
-                  background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)",
-                  borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 42%, transparent)",
-                  color: "var(--ct-fg, #c9d1d9)",
-                }}
-              >
-                Open Settings
-              </button>
-            )}
-          </div>
-        )}
         {/* Bug 4: relative wrapper so SlashPicker positions above textarea */}
         <div data-testid="composer-row" className="relative">
           <ComposerActions
             onAttach={addAttachments}
             onSend={() => void send()}
             onSendWithAttachments={(paths) => void send(paths)}
-            onError={(msg) => setComposerError(msg)}
+            onError={showComposerError}
             sendDisabled={sending || (!input.trim() && attachments.length === 0)}
             hasText={input.trim().length > 0 || attachments.length > 0}
           >
@@ -987,6 +979,11 @@ export function PaneSessionChat({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
+                if (touchMode && e.key === "Enter" && !e.shiftKey) {
+                  setPickerOpen(false);
+                  setModelPickerOpen(false);
+                  return;
+                }
                 if (modelPickerOpen) {
                   if (e.key === "ArrowDown") {
                     e.preventDefault();
@@ -1043,15 +1040,6 @@ export function PaneSessionChat({
                 }
               }}
               onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
-              onFocus={(e) => {
-                // Mobile: the on-screen keyboard can leave the composer below
-                // the fold; nudge it back into the visible viewport.
-                window.setTimeout(
-                  () =>
-                    e.target.scrollIntoView({ block: "end", behavior: "smooth" }),
-                  50,
-                );
-              }}
               placeholder={pendingPrompt
                 ? "Agent may be waiting in the terminal."
                 : "Message"}
@@ -1060,13 +1048,16 @@ export function PaneSessionChat({
               autoCorrect="off"
               autoCapitalize="sentences"
               spellCheck={false}
-              enterKeyHint="send"
+              enterKeyHint={touchMode ? "enter" : "send"}
               inputMode="text"
               disabled={sending}
-              className="w-full min-h-6 flex-1 resize-none bg-transparent py-0 pr-1 text-[15px] leading-6 outline-none placeholder:text-[var(--ct-muted-fg)]"
+              className="block w-full min-h-5 flex-1 self-center resize-none bg-transparent py-0 pr-1 text-[15px] leading-5 outline-none placeholder:text-[var(--ct-muted-fg)]"
               style={{
                 color: "var(--ct-fg, #c9d1d9)",
                 border: "none",
+                lineHeight: `${COMPOSER_MIN_HEIGHT}px`,
+                margin: 0,
+                overflowY: "hidden",
               }}
             />
           </ComposerActions>

@@ -24,15 +24,19 @@ import { IS_WEB, webUpload } from "../../lib/webApi";
 function pickAudioMime(): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
   // iOS Safari records mp4/aac; everything else does webm/opus.
-  return ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) =>
+  return ["audio/ogg;codecs=opus", "audio/ogg", "audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) =>
     MediaRecorder.isTypeSupported(m),
   );
 }
 
 function audioExt(mime: string): string {
-  if (mime.includes("mp4")) return "m4a";
   if (mime.includes("ogg")) return "ogg";
+  if (mime.includes("mp4")) return "m4a";
   return "webm";
+}
+
+function pointInRect(x: number, y: number, rect: DOMRect | undefined): boolean {
+  return rect != null && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
 
 function microphoneErrorMessage(error: unknown): string {
@@ -246,22 +250,45 @@ export function ComposerActions({
   children,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const cancelHintRef = useRef<HTMLDivElement>(null);
   const [uploading, setUploading] = useState(false);
   const [voiceMode, setVoiceMode] = useState<"hold" | "locked" | null>(null);
+  const [voicePressed, setVoicePressed] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const voiceStartXRef = useRef<number | null>(null);
   const voiceStartYRef = useRef<number | null>(null);
+  const voicePointerXRef = useRef<number | null>(null);
+  const voicePointerYRef = useRef<number | null>(null);
   const voiceLockedFromDragRef = useRef(false);
+  const activePointerIdRef = useRef<number | null>(null);
+  const voiceModeRef = useRef<typeof voiceMode>(voiceMode);
+  const voiceBusyRef = useRef(voiceBusy);
   const voice = useVoiceRecorder(onError);
+  const voiceRecordingRef = useRef(voice.recording);
+
+  useEffect(() => {
+    voiceModeRef.current = voiceMode;
+    voiceBusyRef.current = voiceBusy;
+    voiceRecordingRef.current = voice.recording;
+  }, [voiceMode, voiceBusy, voice.recording]);
+
+  function resetVoicePointer() {
+    activePointerIdRef.current = null;
+    voiceStartXRef.current = null;
+    voiceStartYRef.current = null;
+    voicePointerXRef.current = null;
+    voicePointerYRef.current = null;
+    voiceLockedFromDragRef.current = false;
+  }
 
   async function finishVoice(sendAfter: boolean) {
     if (voiceBusy) return;
     setVoiceBusy(true);
     const paths = await voice.stop();
     setVoiceMode(null);
-    voiceStartXRef.current = null;
-    voiceStartYRef.current = null;
-    voiceLockedFromDragRef.current = false;
+    setVoicePressed(false);
+    resetVoicePointer();
     setVoiceBusy(false);
     if (paths.length === 0) return;
     if (sendAfter) {
@@ -276,9 +303,8 @@ export function ComposerActions({
     setVoiceBusy(true);
     await voice.stop(true);
     setVoiceMode(null);
-    voiceStartXRef.current = null;
-    voiceStartYRef.current = null;
-    voiceLockedFromDragRef.current = false;
+    setVoicePressed(false);
+    resetVoicePointer();
     setVoiceBusy(false);
   }
 
@@ -287,88 +313,131 @@ export function ComposerActions({
       onSend();
       return;
     }
+    setVoicePressed(true);
+    activePointerIdRef.current = e.pointerId;
     e.currentTarget.setPointerCapture(e.pointerId);
     voiceStartXRef.current = e.clientX;
     voiceStartYRef.current = e.clientY;
+    voicePointerXRef.current = e.clientX;
+    voicePointerYRef.current = e.clientY;
     voiceLockedFromDragRef.current = false;
     const started = await voice.start();
     if (started) {
+      if (activePointerIdRef.current !== e.pointerId) {
+        const paths = await voice.stop();
+        setVoiceMode(null);
+        setVoicePressed(false);
+        resetVoicePointer();
+        if (paths.length > 0) onSendWithAttachments(paths);
+        return;
+      }
       setVoiceMode("hold");
+      const pointerX = voicePointerXRef.current;
+      const pointerY = voicePointerYRef.current;
+      if (
+        pointerX != null &&
+        pointerY != null &&
+        !pointInRect(pointerX, pointerY, e.currentTarget.getBoundingClientRect())
+      ) {
+        voiceLockedFromDragRef.current = true;
+        setVoiceMode("locked");
+        return;
+      }
       if (e.buttons !== 1) {
         const paths = await voice.stop();
         setVoiceMode(null);
-        voiceStartXRef.current = null;
-        voiceStartYRef.current = null;
-        voiceLockedFromDragRef.current = false;
+        setVoicePressed(false);
+        resetVoicePointer();
         if (paths.length > 0) onSendWithAttachments(paths);
       }
     } else {
-      voiceStartXRef.current = null;
-      voiceStartYRef.current = null;
-      voiceLockedFromDragRef.current = false;
+      setVoicePressed(false);
+      resetVoicePointer();
       try {
         e.currentTarget.releasePointerCapture(e.pointerId);
       } catch {
         /* already released */
       }
-    }
-  }
-
-  function releaseVoice(e: PointerEvent<HTMLButtonElement>) {
-    if (!voice.recording) return;
-    if (voiceMode === "locked") {
-      if (voiceLockedFromDragRef.current) {
-        voiceLockedFromDragRef.current = false;
-        try {
-          e.currentTarget.releasePointerCapture(e.pointerId);
-        } catch {
-          /* already released */
-        }
-        return;
-      }
-      void finishVoice(true);
-      return;
-    }
-    if (voiceMode !== "hold") return;
-    if (voiceLockedFromDragRef.current) {
-      voiceLockedFromDragRef.current = false;
-      setVoiceMode("locked");
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch {
-        /* already released */
-      }
-      return;
-    }
-    const rect = e.currentTarget.getBoundingClientRect();
-    const inside =
-      e.clientX >= rect.left &&
-      e.clientX <= rect.right &&
-      e.clientY >= rect.top &&
-      e.clientY <= rect.bottom;
-    if (inside) {
-      void finishVoice(true);
-    } else {
-      voiceLockedFromDragRef.current = true;
-      setVoiceMode("locked");
     }
   }
 
   function moveVoice(e: PointerEvent<HTMLButtonElement>) {
-    if (!voice.recording || voiceMode !== "hold" || voiceStartXRef.current == null || voiceStartYRef.current == null) return;
-    const dx = e.clientX - voiceStartXRef.current;
-    const dy = e.clientY - voiceStartYRef.current;
-    if (dx <= -95) {
-      void cancelVoice();
-      return;
-    }
-    if (Math.abs(dx) > 28 || Math.abs(dy) > 28) {
+    if (!voice.recording || voiceStartXRef.current == null || voiceStartYRef.current == null) return;
+    voicePointerXRef.current = e.clientX;
+    voicePointerYRef.current = e.clientY;
+    if (voiceMode !== "hold") return;
+    if (!pointInRect(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect())) {
       voiceLockedFromDragRef.current = true;
       setVoiceMode("locked");
     }
   }
 
+  useEffect(() => {
+    function onWindowPointerMove(e: globalThis.PointerEvent) {
+      if (activePointerIdRef.current !== e.pointerId) return;
+      voicePointerXRef.current = e.clientX;
+      voicePointerYRef.current = e.clientY;
+      if (!voiceRecordingRef.current) return;
+      if (voiceModeRef.current !== "hold") return;
+      const buttonRect = buttonRef.current?.getBoundingClientRect();
+      if (!pointInRect(e.clientX, e.clientY, buttonRect)) {
+        voiceLockedFromDragRef.current = true;
+        setVoiceMode("locked");
+      }
+    }
+
+    function onWindowPointerUp(e: globalThis.PointerEvent) {
+      if (activePointerIdRef.current !== e.pointerId) return;
+      const button = buttonRef.current;
+      if (button?.hasPointerCapture(e.pointerId)) {
+        try {
+          button.releasePointerCapture(e.pointerId);
+        } catch {
+          /* already released */
+        }
+      }
+      if (!voiceRecordingRef.current) {
+        setVoicePressed(false);
+        resetVoicePointer();
+        return;
+      }
+      if (pointInRect(e.clientX, e.clientY, cancelHintRef.current?.getBoundingClientRect())) {
+        void cancelVoice();
+        return;
+      }
+      if (voiceModeRef.current === "locked") {
+        void finishVoice(true);
+        return;
+      }
+      if (pointInRect(e.clientX, e.clientY, button?.getBoundingClientRect())) {
+        void finishVoice(true);
+      } else {
+        setVoiceMode("locked");
+      }
+    }
+
+    function onWindowPointerCancel(e: globalThis.PointerEvent) {
+      if (activePointerIdRef.current !== e.pointerId) return;
+      if (voiceRecordingRef.current) {
+        setVoiceMode("locked");
+      } else {
+        setVoicePressed(false);
+        resetVoicePointer();
+      }
+    }
+
+    window.addEventListener("pointermove", onWindowPointerMove);
+    window.addEventListener("pointerup", onWindowPointerUp);
+    window.addEventListener("pointercancel", onWindowPointerCancel);
+    return () => {
+      window.removeEventListener("pointermove", onWindowPointerMove);
+      window.removeEventListener("pointerup", onWindowPointerUp);
+      window.removeEventListener("pointercancel", onWindowPointerCancel);
+    };
+  }, []);
+
   const mainIsSend = hasText || voiceMode === "locked";
+  const voiceActive = voicePressed || voice.recording;
   const mainTitle = mainIsSend
     ? voiceMode === "locked"
       ? "Stop, attach, and send voice note"
@@ -393,23 +462,23 @@ export function ComposerActions({
           });
         }}
       />
-      <div className="flex w-full items-end gap-2">
+      <div className="relative flex w-full items-end gap-1.5">
         <button
           type="button"
           data-testid="composer-attach-button"
           title="Attach file"
           disabled={uploading}
           onClick={() => fileRef.current?.click()}
-          className={`${btnBase} h-11 w-11 rounded-full border border-white/10 text-white/90 shadow-[0_2px_10px_rgba(0,0,0,0.28)] hover:scale-[1.03] disabled:opacity-40`}
+          className={`${btnBase} h-10 w-10 rounded-full border border-white/10 text-white/90 shadow-[0_2px_10px_rgba(0,0,0,0.28)] hover:scale-[1.03] disabled:opacity-40`}
           style={{
             background:
               "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 82%, white 8%)",
           }}
         >
-          <Paperclip size={22} strokeWidth={2.3} className={uploading ? "animate-pulse" : undefined} />
+          <Paperclip size={20} strokeWidth={2.3} className={uploading ? "animate-pulse" : undefined} />
         </button>
         <div
-          className="relative flex min-h-11 flex-1 items-end rounded-[1.45rem] border px-4 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+          className="relative flex min-h-12 flex-1 items-center rounded-[1.35rem] border px-3.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
           style={{
             background:
               "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 86%, white 7%)",
@@ -419,6 +488,7 @@ export function ComposerActions({
         >
           {voice.recording ? (
             <div
+              ref={cancelHintRef}
               data-testid="composer-voice-cancel-hint"
               role="button"
               tabIndex={0}
@@ -432,7 +502,7 @@ export function ComposerActions({
                   void cancelVoice();
                 }
               }}
-              className="absolute inset-1 z-10 flex items-center justify-center rounded-[1.2rem] text-[14px] font-medium text-[var(--ct-fg)]"
+              className="absolute inset-1 z-10 flex min-h-10 items-center justify-center rounded-[1.1rem] text-[13px] font-medium text-[var(--ct-fg)]"
               style={{
                 background:
                   "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 92%, var(--ct-red, #f85149) 10%)",
@@ -442,58 +512,69 @@ export function ComposerActions({
               Cancel recording
             </div>
           ) : null}
-          <div className={voice.recording ? "w-full opacity-0 pointer-events-none" : "w-full"}>
+          <div className={voice.recording ? "relative flex w-full items-center opacity-0 pointer-events-none" : "relative flex w-full items-center"}>
             {children}
           </div>
         </div>
-        <button
-          type="button"
-          data-testid={mainIsSend ? "composer-send-button" : "composer-voice-button"}
-          title={mainTitle}
-          onPointerDown={(e) => {
-            if (mainIsSend) {
-              e.preventDefault();
-              return;
-            }
-            void startVoice(e);
-          }}
-          onPointerUp={(e) => {
-            if (voice.recording) {
-              releaseVoice(e);
-              return;
-            }
-            if (mainIsSend) onSend();
-          }}
-          onPointerCancel={() => {
-            if (voice.recording && voiceMode === "hold") {
-              voiceLockedFromDragRef.current = true;
-              setVoiceMode("locked");
-            }
-          }}
-          onPointerMove={moveVoice}
-          onClick={(e) => e.preventDefault()}
-          className={`${btnBase} h-12 w-12 rounded-full border text-white hover:scale-[1.03] active:scale-95 ${
-            voice.recording ? "z-20 scale-[2.35] shadow-[0_18px_55px_rgba(31,111,235,0.52)]" : ""
-          } ${voiceMode === "locked" ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/20" : ""} ${
-            voice.recording || mainIsSend
-              ? "shadow-[0_5px_18px_rgba(31,111,235,0.35)]"
-              : "shadow-[0_2px_10px_rgba(0,0,0,0.28)]"
-          } disabled:opacity-40`}
-          style={{
-            background:
-              voice.recording || mainIsSend
-                ? "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)"
-                : "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 78%, white 9%)",
-            borderColor:
-              voice.recording || mainIsSend
-                ? "rgba(255,255,255,0.18)"
-                : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 24%, transparent)",
-            color: voice.recording || mainIsSend ? "white" : "var(--ct-fg, #c9d1d9)",
-          }}
-          disabled={voiceBusy || (hasText && sendDisabled)}
-        >
-          {mainIsSend ? <SendHorizontal size={23} fill="currentColor" /> : <Mic size={22} />}
-        </button>
+        <div className="relative h-10 w-10 shrink-0">
+          <button
+            ref={buttonRef}
+            type="button"
+            data-testid={mainIsSend ? "composer-send-button" : "composer-voice-button"}
+            title={mainTitle}
+            onPointerDown={(e) => {
+              if (mainIsSend) {
+                e.preventDefault();
+                return;
+              }
+              void startVoice(e);
+            }}
+            onPointerUp={() => {
+              if (voice.recording || voicePressed) {
+                return;
+              }
+              if (mainIsSend) onSend();
+            }}
+            onPointerCancel={() => {
+              if (voice.recording && voiceMode === "hold") {
+                voiceLockedFromDragRef.current = true;
+                setVoiceMode("locked");
+              }
+            }}
+            onPointerMove={moveVoice}
+            onClick={(e) => e.preventDefault()}
+            className={`${btnBase} rounded-full border text-white hover:scale-[1.03] active:scale-95 ${
+              voiceActive
+                ? "absolute bottom-0 right-0 z-30 shadow-[0_18px_55px_rgba(31,111,235,0.52)]"
+                : "h-10 w-10"
+            } ${voiceMode === "locked" ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/20" : ""} ${
+              voiceActive || mainIsSend
+                ? "shadow-[0_5px_18px_rgba(31,111,235,0.35)]"
+                : "shadow-[0_2px_10px_rgba(0,0,0,0.28)]"
+            } disabled:opacity-40`}
+            style={{
+              background:
+                voiceActive || mainIsSend
+                  ? "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)"
+                  : "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 78%, white 9%)",
+              borderColor:
+                voiceActive || mainIsSend
+                  ? "rgba(255,255,255,0.18)"
+                  : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 24%, transparent)",
+              color: voiceActive || mainIsSend ? "white" : "var(--ct-fg, #c9d1d9)",
+              height: voiceActive ? "5.5rem" : undefined,
+              width: voiceActive ? "5.5rem" : undefined,
+              touchAction: "none",
+            }}
+            disabled={voiceBusy || (hasText && sendDisabled)}
+          >
+            {mainIsSend ? (
+              <SendHorizontal size={voiceActive ? 34 : 20} fill="currentColor" />
+            ) : (
+              <Mic size={voiceActive ? 32 : 20} />
+            )}
+          </button>
+        </div>
       </div>
       {voice.recording && (
         <span

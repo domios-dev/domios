@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { IS_WEB, listen } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
@@ -30,6 +30,7 @@ import {
   type PaneUiMode,
 } from "../../lib/chatUiMode";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
+import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
 
 interface TerminalPaneProps {
   paneId: string;
@@ -97,6 +98,22 @@ export function TerminalPane({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
+  const terminalOwnsLivePty = !IS_WEB || terminalVisible;
+  const resizeClientId = useMemo(() => getResizeClientId(), []);
+  const claimTerminalOwnership = useCallback(() => {
+    if (!terminalOwnsLivePty) return;
+    const term = termRef.current;
+    const ptyIdNow = connectedPtyRef.current ?? ptyId ?? null;
+    if (!term || !ptyIdNow || term.cols <= 0 || term.rows <= 0) return;
+    void claimResizeOwner(paneId, ptyIdNow, resizeClientId, term.cols, term.rows)
+      .then(() => invoke("resize_pty", {
+        ptyId: ptyIdNow,
+        cols: term.cols,
+        rows: term.rows,
+        clientId: resizeClientId,
+      }))
+      .catch(() => {});
+  }, [paneId, ptyId, resizeClientId, terminalOwnsLivePty, termRef, connectedPtyRef]);
 
   // --- Resize handling ---
   const { jiggleResize } = useTerminalResize({
@@ -107,6 +124,7 @@ export function TerminalPane({
     termReady,
     isFocused,
     resizeEnabled: terminalVisible,
+    resizeClientId,
   });
 
   // --- Shell integration (readiness, CWD, pending commands) ---
@@ -130,6 +148,8 @@ export function TerminalPane({
     },
     jiggleResize,
     localFitEnabled: terminalVisible,
+    ioEnabled: terminalOwnsLivePty,
+    resizeClientId,
   });
 
   // --- Agent detection ---
@@ -140,6 +160,12 @@ export function TerminalPane({
       void invoke("chat_stop", { paneId }).catch(() => {});
     }
   }, [paneId, uiMode]);
+
+  useEffect(() => {
+    if (isFocused && terminalOwnsLivePty) {
+      claimTerminalOwnership();
+    }
+  }, [isFocused, terminalOwnsLivePty, claimTerminalOwnership]);
 
   useEffect(() => {
     const defaultMode: PaneUiMode = chatSupported
@@ -224,13 +250,20 @@ export function TerminalPane({
         term.refresh(0, term.rows - 1);
         const ptyId = connectedPtyRef.current;
         if (ptyId && term.cols > 0 && term.rows > 0) {
-          void invoke("resize_pty", { ptyId, cols: term.cols, rows: term.rows });
+          void claimResizeOwner(paneId, ptyId, resizeClientId, term.cols, term.rows)
+            .then(() => invoke("resize_pty", {
+              ptyId,
+              cols: term.cols,
+              rows: term.rows,
+              clientId: resizeClientId,
+            }))
+            .catch(() => {});
         }
       } catch { /* ignore */ }
       termRef.current?.focus();
     });
     return () => cancelAnimationFrame(raf);
-  }, [uiMode, termReady, termRef, fitAddonRef, connectedPtyRef]);
+  }, [uiMode, termReady, paneId, resizeClientId, termRef, fitAddonRef, connectedPtyRef]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || !termReady) return;
@@ -243,13 +276,20 @@ export function TerminalPane({
         term.refresh(0, term.rows - 1);
         const ptyId = connectedPtyRef.current;
         if (ptyId && term.cols > 0 && term.rows > 0) {
-          void invoke("resize_pty", { ptyId, cols: term.cols, rows: term.rows });
+          void claimResizeOwner(paneId, ptyId, resizeClientId, term.cols, term.rows)
+            .then(() => invoke("resize_pty", {
+              ptyId,
+              cols: term.cols,
+              rows: term.rows,
+              clientId: resizeClientId,
+            }))
+            .catch(() => {});
         }
       } catch { /* ignore */ }
       term.focus();
     });
     return () => cancelAnimationFrame(raf);
-  }, [terminalFallbackOpen, termReady, termRef, fitAddonRef, connectedPtyRef]);
+  }, [terminalFallbackOpen, termReady, paneId, resizeClientId, termRef, fitAddonRef, connectedPtyRef]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || uiMode !== "chat") return;
@@ -274,8 +314,9 @@ export function TerminalPane({
 
   const handleClick = useCallback(() => {
     onFocus?.(paneId);
+    claimTerminalOwnership();
     termRef.current?.focus();
-  }, [onFocus, paneId, termRef]);
+  }, [onFocus, paneId, termRef, claimTerminalOwnership]);
 
   // --- Pane status events ---
   useEffect(() => {

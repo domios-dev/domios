@@ -25,6 +25,7 @@ export { IS_WEB };
 
 type Args = Record<string, unknown>;
 type Mapper = (args: Args) => Promise<unknown>;
+const webPtyOffsets = new Map<string, number>();
 
 const enc = encodeURIComponent;
 const s = (args: Args, key: string): string => String(args[key] ?? "");
@@ -151,14 +152,34 @@ const HTTP_MAP: Record<string, Mapper> = {
   cron_update: (a) => webJson("PATCH", `/api/crons/${enc(s(a, "id"))}`, a.params ?? a),
 
   // ── PTY (browser terminal I/O loop) ──
-  read_pty: (a) => webJson("GET", `/api/pty/${enc(s(a, "ptyId"))}/read`),
+  read_pty: async (a) => {
+    const ptyId = s(a, "ptyId");
+    const offset = webPtyOffsets.get(ptyId);
+    const suffix = offset == null ? "" : `?offset=${offset}`;
+    const resp = await webJson<{ data: number[]; offset: number }>(
+      "GET",
+      `/api/pty/${enc(ptyId)}/read${suffix}`,
+    );
+    webPtyOffsets.set(ptyId, resp.offset);
+    return resp.data;
+  },
   write_pty_string: (a) =>
     webJson("POST", `/api/pty/${enc(s(a, "ptyId"))}/write`, { data: a.data }),
-  // Web mirrors are read-only for PTY geometry. The desktop/Tauri client owns
-  // real PTY resize so a phone-sized webview cannot reflow the shared daemon
-  // PTY and glitch the desktop console. A future explicit "take control"
-  // gesture can call the REST resize endpoint directly.
-  resize_pty: async () => ({ ok: true, resize_owner: "desktop" }),
+  resize_pty: (a) => {
+    if (!a.clientId) return Promise.resolve({ ok: true, ignored: true });
+    return webJson("POST", `/api/pty/${enc(s(a, "ptyId"))}/resize`, {
+      cols: a.cols,
+      rows: a.rows,
+      client_id: a.clientId,
+    });
+  },
+  claim_resize_owner: (a) =>
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/resize-owner`, {
+      pty_id: a.ptyId,
+      client_id: a.clientId,
+      cols: a.cols,
+      rows: a.rows,
+    }),
 
   // ── keepawake (sidebar toggle in web) ──
   keepawake_status: () => webJson("GET", "/api/keepawake"),
@@ -170,6 +191,11 @@ const HTTP_MAP: Record<string, Mapper> = {
   keepawake_stop: () => webJson("POST", "/api/keepawake/stop"),
 
   // ── misc with real endpoints ──
+  fs_list_dir: (a) =>
+    webJson(
+      "GET",
+      `/api/fs/list-dir?path=${enc(s(a, "path"))}&show_hidden=${a.showHidden ? "true" : "false"}`,
+    ),
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
   save_session: () => webJson("POST", "/api/session/save"),
 };

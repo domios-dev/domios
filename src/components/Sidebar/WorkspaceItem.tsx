@@ -24,6 +24,7 @@ interface WorkspaceItemProps {
   hasWaiting: boolean;
   onDragOver?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
+  touchMode?: boolean;
 }
 
 export function WorkspaceItem({
@@ -41,6 +42,7 @@ export function WorkspaceItem({
   hasWaiting,
   onDragOver,
   onDrop,
+  touchMode = false,
 }: WorkspaceItemProps) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(workspace.name);
@@ -116,7 +118,8 @@ export function WorkspaceItem({
       data-workspace-id={workspace.id}
       data-workspace-name={workspace.name}
       className={`
-        group flex items-center justify-between px-1 py-2 cursor-pointer transition-colors
+        group flex items-center justify-between cursor-pointer transition-colors
+        ${touchMode ? "min-h-14 px-2 py-3" : "px-1 py-2"}
         ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
         ${hasWaiting ? "bg-[var(--ct-yellow)]/10" : ""}
         ${dragOver ? "bg-[var(--ct-accent)]/20" : ""}
@@ -132,14 +135,14 @@ export function WorkspaceItem({
         onDrop?.(e);
       }}
     >
-      <div className="flex items-center gap-1 min-w-0">
+      <div className={`flex items-center min-w-0 ${touchMode ? "gap-2" : "gap-1"}`}>
         {/* Chevron toggle — rotates on expand/collapse */}
         <button
           onClick={(e) => {
             e.stopPropagation();
             onToggleExpand();
           }}
-          className="flex items-center justify-center w-4 h-4 shrink-0 text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] transition-colors"
+          className={`${touchMode ? "w-8 h-8" : "w-4 h-4"} flex items-center justify-center shrink-0 text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] transition-colors`}
           title={isExpanded ? "Collapse" : "Expand"}
         >
           <svg
@@ -157,7 +160,7 @@ export function WorkspaceItem({
           </svg>
         </button>
         {/* Icon + name (click to activate, double-click to rename) */}
-        <div className="flex items-center gap-2 min-w-0" onClick={onClick}>
+        <div className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`} onClick={onClick}>
           {workspace.protected ? (
             <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
               <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
@@ -173,10 +176,10 @@ export function WorkspaceItem({
               onBlur={commitRename}
               onKeyDown={handleKeyDown}
               onClick={(e) => e.stopPropagation()}
-              className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
+              className={`${touchMode ? "text-sm py-1" : "text-xs py-0"} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 w-full outline-none`}
             />
           ) : (
-            <span className="text-xs font-medium truncate" onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
+            <span className={`${touchMode ? "text-[14px]" : "text-xs"} font-medium truncate`} onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
               {workspace.name}
             </span>
           )}
@@ -193,13 +196,17 @@ export function WorkspaceItem({
       {/* 3-dot menu — visible on hover */}
       <DropdownMenu
         items={menuItems}
-        className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+        className={
+          touchMode
+            ? "shrink-0 flex h-11 w-11 items-center justify-center"
+            : "shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+        }
         trigger={
           <button
-            className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+            className={`${touchMode ? "h-11 w-11" : "w-5 h-5"} flex items-center justify-center rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors`}
             title="Workspace actions"
           >
-            <span className="text-[13px] leading-none font-bold">⋮</span>
+            <span className={`${touchMode ? "text-[20px]" : "text-[13px]"} leading-none font-bold`}>⋮</span>
           </button>
         }
       />

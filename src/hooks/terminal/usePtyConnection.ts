@@ -17,6 +17,8 @@ export interface UsePtyConnectionOptions {
   onOutputChunk: (text: string) => void;
   jiggleResize: (ptyId: string) => void;
   localFitEnabled?: boolean;
+  ioEnabled?: boolean;
+  resizeClientId?: string;
 }
 
 export interface UsePtyConnectionReturn {
@@ -35,6 +37,8 @@ export function usePtyConnection({
   onOutputChunk,
   jiggleResize,
   localFitEnabled = true,
+  ioEnabled = true,
+  resizeClientId,
 }: UsePtyConnectionOptions): UsePtyConnectionReturn {
   const { state } = useMultiplexer();
   const localFitEnabledRef = useRef(localFitEnabled);
@@ -50,7 +54,7 @@ export function usePtyConnection({
 
   useEffect(() => {
     const term = termRef.current;
-    if (!term || !termReady) return;
+    if (!term || !termReady || !ioEnabled) return;
 
     // Already connected to a PTY
     if (connectedPtyRef.current !== null) {
@@ -194,12 +198,9 @@ export function usePtyConnection({
           }
         }
       };
-      readLoop();
-      cleanupFns.push(() => { reading = false; });
-
       // Resize sync
       const onResizeDisposable = term.onResize(({ cols, rows }) => {
-        invoke("resize_pty", { ptyId: predictedId, cols, rows });
+        invoke("resize_pty", { ptyId: predictedId, cols, rows, clientId: resizeClientId });
       });
       cleanupFns.push(() => onResizeDisposable.dispose());
 
@@ -238,11 +239,19 @@ export function usePtyConnection({
             const actualCols = term.cols;
             const actualRows = term.rows;
             if (actualCols > 0 && actualRows > 0) {
-              invoke("resize_pty", { ptyId: predictedId, cols: actualCols, rows: actualRows });
+              invoke("resize_pty", {
+                ptyId: predictedId,
+                cols: actualCols,
+                rows: actualRows,
+                clientId: resizeClientId,
+              });
             }
           } catch { /* ignore */ }
         });
       }
+
+      readLoop();
+      cleanupFns.push(() => { reading = false; });
     };
 
     setupAndConnect().catch((e) => {
@@ -255,7 +264,7 @@ export function usePtyConnection({
       for (const fn of cleanupFns) fn();
       connectedPtyRef.current = null;
     };
-  }, [ptyId, paneId, termReady, onPtySpawned]);
+  }, [ptyId, paneId, termReady, ioEnabled, resizeClientId, onPtySpawned]);
 
   return { writePty };
 }

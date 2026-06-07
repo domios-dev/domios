@@ -7,10 +7,11 @@ use axum::{
 use tower_http::{catch_panic::CatchPanicLayer, cors::CorsLayer};
 
 use super::{
-    agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, health_routes,
-    hook_routes, logs_routes, mem_routes, mesh_routes, network_routes, notification_routes,
-    pane_chat_routes, pane_routes, pasteboard_routes, services_routes, session_routes,
-    theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
+    agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, fs_routes,
+    health_routes, hook_routes, logs_routes, mem_routes, mesh_routes, network_routes,
+    notification_routes, pane_chat_routes, pane_routes, pasteboard_routes, services_routes,
+    session_routes, theme_routes, updater_routes, usage_routes, web_routes, webhook_routes,
+    workspace_routes,
 };
 
 #[derive(Clone)]
@@ -23,6 +24,7 @@ pub struct AppState {
     pub config: crate::config::ConfigState,
     pub mesh: crate::MeshStateHandle,
     pub keepawake: crate::KeepAwakeStateHandle,
+    pub resize_owner: crate::ResizeOwnerState,
     /// Some only in debug builds started with CODETERM_TEST_CLOCK=1 —
     /// powers /api/debug/clock time travel for the cron e2e suite.
     pub test_clock: Option<std::sync::Arc<crate::cron::clock::MockClock>>,
@@ -36,6 +38,7 @@ pub fn create_router(state: AppState) -> Router {
     let router = Router::new()
         .route("/api/health", get(health_routes::health))
         .route("/api/identify", get(health_routes::identify))
+        .route("/api/fs/list-dir", get(fs_routes::list_dir))
         .route(
             "/api/workspaces",
             get(workspace_routes::list_workspaces).post(workspace_routes::create_workspace),
@@ -86,6 +89,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/usage", get(pane_routes::get_pane_usage))
         .route("/api/panes/{id}/exec", post(pane_routes::exec_in_pane))
         .route("/api/panes/{id}/resize", post(pane_routes::resize_pane))
+        .route(
+            "/api/panes/{id}/resize-owner",
+            post(web_routes::claim_resize_owner),
+        )
         .route("/api/panes/{id}/chat/start", post(pane_chat_routes::start))
         .route("/api/panes/{id}/chat/stop", post(pane_chat_routes::stop))
         .route(

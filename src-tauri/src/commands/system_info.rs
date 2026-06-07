@@ -53,9 +53,7 @@ pub fn get_network_info(
     let tailscale_ip = mesh.lock().tailscale_ip.clone();
     let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
     let tailscale_https_url = if crate::mesh::discovery::tailscale_serve_https_enabled() {
-        tailscale_dns
-            .as_ref()
-            .map(|dns| format!("https://{}", dns))
+        tailscale_dns.as_ref().map(|dns| format!("https://{}", dns))
     } else {
         None
     };
@@ -191,10 +189,13 @@ pub fn suggest_install_pwsh(
 /// state: "loaded" — WebGL addon attached successfully
 ///        "context_lost" — GPU context dropped (xterm will fall back)
 ///        "failed" — WebGL addon constructor threw
+///        "skipped_macos" / "skipped_test_mode" — deliberate DOM renderer
 #[tauri::command]
 pub fn report_webgl_status(state: String, detail: Option<String>) {
     match state.as_str() {
         "loaded" => log::info!("[webgl] addon loaded"),
+        "skipped_macos" => log::info!("[webgl] skipped on macOS — DOM renderer active"),
+        "skipped_test_mode" => log::info!("[webgl] skipped in test mode"),
         "context_lost" => log::warn!("[webgl] GPU context lost — DOM fallback engaged"),
         "failed" => log::warn!(
             "[webgl] addon failed to load: {}",
