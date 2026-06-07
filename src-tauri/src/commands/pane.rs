@@ -74,9 +74,17 @@ pub async fn get_pane_git_info(
     mux: tauri::State<'_, MuxState>,
     pane_id: String,
 ) -> Result<Option<GitInfo>, String> {
+    // Agent panes never emit OSC7 — fall back to their workspace's cwd.
     let cwd = {
         let mux = mux.lock();
-        mux.get_pane(&pane_id).and_then(|p| p.cwd.clone())
+        mux.get_pane(&pane_id)
+            .and_then(|p| p.cwd.clone())
+            .or_else(|| {
+                mux.list_workspaces()
+                    .into_iter()
+                    .find(|ws| ws.pane_ids.iter().any(|p| p == &pane_id))
+                    .and_then(|ws| ws.cwd)
+            })
     };
     let Some(cwd) = cwd else { return Ok(None) };
     Ok(
