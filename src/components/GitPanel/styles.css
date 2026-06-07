@@ -167,7 +167,7 @@
 /* ---------- bubble ---------- */
 .ct-git-bubble {
   position: absolute;
-  top: 6px;
+  top: calc(6px + var(--ct-safe-top, 0px));
   z-index: 5;
   height: 16px;
   display: inline-flex;
