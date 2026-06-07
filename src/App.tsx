@@ -525,8 +525,6 @@ function AppInner() {
         <Titlebar
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
           onNewTab={handleNewTab}
-          workspaceName={activeWs?.name}
-          tabTitle={activeTab?.title}
           theme={theme}
           onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
         />
