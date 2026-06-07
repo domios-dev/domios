@@ -75,6 +75,52 @@ fn root_entries() -> Vec<DirEntry> {
     }]
 }
 
+#[derive(Deserialize)]
+pub(crate) struct MkdirBody {
+    parent: String,
+    name: String,
+}
+
+/// Create one new directory inside an existing one — the picker's
+/// "New folder". Same trust model as list_dir: a console-token holder
+/// can already run arbitrary shell commands.
+pub async fn mkdir(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<MkdirBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+
+    let name = body.name.trim();
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|'])
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Invalid folder name: {name:?}"),
+        ));
+    }
+    let parent = expand_path(Some(body.parent));
+    if !parent.is_dir() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("Parent is not a directory: {}", display_path(&parent)),
+        ));
+    }
+    let target = parent.join(name);
+    if target.exists() {
+        return Err((StatusCode::CONFLICT, format!("Already exists: {name}")));
+    }
+    std::fs::create_dir(&target)
+        .map_err(|e| (StatusCode::FORBIDDEN, format!("Create failed: {e}")))?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "path": display_path(&target),
+    })))
+}
+
 pub async fn list_dir(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
