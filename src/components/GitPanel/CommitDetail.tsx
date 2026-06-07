@@ -5,11 +5,43 @@ import type { ApiConfig } from "../../lib/types";
 import {
   fetchCommitDiff,
   fetchCommitFiles,
+  fetchWorkdirDiff,
   type GitCommit,
   type GitCommitFile,
+  WORKDIR_SHA,
 } from "./gitApi";
 import { useDragRatio } from "./useDragRatio";
+import { ContextMenu } from "../Terminal/ContextMenu";
 import { UI_TEXT } from "../shared/design";
+
+// Right-click "Copy path" menu for commit file rows (no revert on history).
+export function useCopyPathMenu() {
+  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  const open = (e: React.MouseEvent, file: DisplayFile) => {
+    e.preventDefault();
+    setMenu({ x: e.clientX, y: e.clientY, path: file.path });
+  };
+  const close = () => setMenu(null);
+  const node = menu ? (
+    <ContextMenu
+      x={menu.x}
+      y={menu.y}
+      actions={[{ label: "Copy path", onClick: () => void navigator.clipboard?.writeText(menu.path) }]}
+      onClose={close}
+    />
+  ) : null;
+  return { open, node };
+}
+
+// Display shape shared by commit files and workdir files. Counts are nullable
+// because untracked/binary entries have no numstat.
+export interface DisplayFile {
+  path: string;
+  old_path?: string | null;
+  added: number | null;
+  deleted: number | null;
+  status?: string;
+}
 
 interface CommitDetailProps {
   api: ApiConfig;
@@ -24,6 +56,7 @@ interface CommitDetailProps {
 // Selection is controlled by the panel so it survives layout-mode crossings.
 export function CommitDetail({ api, cwd, sha, split, selectedPath, onSelectFile }: CommitDetailProps) {
   const { files, error, loading } = useCommitFiles(api, cwd, sha);
+  const copyMenu = useCopyPathMenu();
   const boxRef = useRef<HTMLDivElement>(null);
   const { ratio, onPointerDown, reset } = useDragRatio(boxRef, {
     storageKey: "ct-git-hsplit",
@@ -45,7 +78,9 @@ export function CommitDetail({ api, cwd, sha, split, selectedPath, onSelectFile 
           loading={loading}
           selectedPath={effectivePath}
           onSelect={onSelectFile}
+          onContextMenu={copyMenu.open}
         />
+        {copyMenu.node}
       </div>
       <div
         className="ct-git-divider ct-git-divider--h"
@@ -96,15 +131,33 @@ export function useCommitFiles(api: ApiConfig, cwd: string, sha: string) {
 }
 
 interface FileListProps {
-  files: GitCommitFile[];
+  files: DisplayFile[];
   error: string | null;
   loading: boolean;
   selectedPath: string | null;
   onSelect: (path: string) => void;
+  onContextMenu?: (e: React.MouseEvent, file: DisplayFile) => void;
+  // Path currently showing the inline revert confirm (workdir only).
+  confirmPath?: string | null;
+  onConfirmRevert?: (path: string) => void;
+  onCancelRevert?: () => void;
+  showStatus?: boolean;
   touch?: boolean;
 }
 
-export function FileList({ files, error, loading, selectedPath, onSelect, touch }: FileListProps) {
+export function FileList({
+  files,
+  error,
+  loading,
+  selectedPath,
+  onSelect,
+  onContextMenu,
+  confirmPath,
+  onConfirmRevert,
+  onCancelRevert,
+  showStatus,
+  touch,
+}: FileListProps) {
   return (
     <>
       {loading && <div className={`p-3 ${UI_TEXT.meta}`}>Loading files…</div>}
@@ -112,33 +165,102 @@ export function FileList({ files, error, loading, selectedPath, onSelect, touch 
       {!loading && !error && files.length === 0 && (
         <div className={`p-3 ${UI_TEXT.meta}`}>No file changes.</div>
       )}
-      {files.map((f) => (
-        <button
-          key={f.path}
-          type="button"
-          onClick={() => onSelect(f.path)}
-          className={`w-full text-left px-3 flex items-center gap-2 text-[12px] border-b border-[color-mix(in_srgb,var(--ct-border)_35%,transparent)] ${
-            touch ? "py-2.5 min-h-[40px]" : "py-1.5"
-          } ${
-            selectedPath === f.path
-              ? "bg-[color-mix(in_srgb,var(--ct-accent)_16%,transparent)]"
-              : "hover:bg-[color-mix(in_srgb,var(--ct-fg)_5%,transparent)]"
-          }`}
-        >
-          <FileStat added={f.added} deleted={f.deleted} />
-          <span className="flex-1 min-w-0 truncate text-[var(--ct-fg)]">
-            {f.old_path ? (
-              <span title={`${f.old_path} → ${f.path}`}>
-                <span className="text-[var(--ct-muted)]">{basename(f.old_path)} → </span>
-                {basename(f.path)}
-              </span>
-            ) : (
-              <span title={f.path}>{f.path}</span>
-            )}
-          </span>
-        </button>
-      ))}
+      {files.map((f) =>
+        confirmPath === f.path ? (
+          <RevertConfirmRow
+            key={f.path}
+            file={f}
+            touch={touch}
+            onConfirm={() => onConfirmRevert?.(f.path)}
+            onCancel={() => onCancelRevert?.()}
+          />
+        ) : (
+          <button
+            key={f.path}
+            type="button"
+            onClick={() => onSelect(f.path)}
+            onContextMenu={onContextMenu ? (e) => onContextMenu(e, f) : undefined}
+            className={`w-full text-left px-3 flex items-center gap-2 text-[12px] border-b border-[color-mix(in_srgb,var(--ct-border)_35%,transparent)] ${
+              touch ? "py-2.5 min-h-[40px]" : "py-1.5"
+            } ${
+              selectedPath === f.path
+                ? "bg-[color-mix(in_srgb,var(--ct-accent)_16%,transparent)]"
+                : "hover:bg-[color-mix(in_srgb,var(--ct-fg)_5%,transparent)]"
+            }`}
+          >
+            {showStatus && f.status && <StatusBadge status={f.status} />}
+            <FileStat added={f.added} deleted={f.deleted} />
+            <span className="flex-1 min-w-0 truncate text-[var(--ct-fg)]">
+              {f.old_path ? (
+                <span title={`${f.old_path} → ${f.path}`}>
+                  <span className="text-[var(--ct-muted)]">{basename(f.old_path)} → </span>
+                  {basename(f.path)}
+                </span>
+              ) : (
+                <span title={f.path}>{f.path}</span>
+              )}
+            </span>
+          </button>
+        ),
+      )}
     </>
+  );
+}
+
+function RevertConfirmRow({
+  file,
+  touch,
+  onConfirm,
+  onCancel,
+}: {
+  file: DisplayFile;
+  touch?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className={`w-full px-3 flex items-center gap-2 text-[12px] border-b border-[color-mix(in_srgb,var(--ct-border)_35%,transparent)] bg-[color-mix(in_srgb,var(--ct-yellow)_12%,transparent)] ${
+        touch ? "py-2.5 min-h-[40px]" : "py-1.5"
+      }`}
+    >
+      <span className="flex-1 min-w-0 truncate text-[var(--ct-fg)]">
+        Revert {basename(file.path)}?
+      </span>
+      <button
+        type="button"
+        onClick={onConfirm}
+        title="Confirm revert"
+        className="shrink-0 px-1.5 text-[var(--ct-green)] hover:opacity-80"
+      >
+        ✓
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        title="Cancel"
+        className="shrink-0 px-1.5 text-[var(--ct-red)] hover:opacity-80"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  staged: "S",
+  modified: "M",
+  untracked: "U",
+  deleted: "D",
+  renamed: "R",
+  conflicted: "C",
+};
+
+function StatusBadge({ status }: { status: string }) {
+  return (
+    <span className={`ct-git-status-badge kind-${status}`} title={status}>
+      {STATUS_LABEL[status] ?? status.slice(0, 1).toUpperCase()}
+    </span>
   );
 }
 
@@ -155,11 +277,11 @@ export function CommitMetaHeader({ commit }: { commit: GitCommit }) {
   );
 }
 
-function FileStat({ added, deleted }: { added: number; deleted: number }) {
+function FileStat({ added, deleted }: { added: number | null; deleted: number | null }) {
   return (
     <span className="font-mono text-[10px] tabular-nums shrink-0 flex gap-1.5">
-      <span className="text-[var(--ct-green)]">+{added}</span>
-      <span className="text-[var(--ct-red)]">−{deleted}</span>
+      <span className="text-[var(--ct-green)]">+{added ?? "–"}</span>
+      <span className="text-[var(--ct-red)]">−{deleted ?? "–"}</span>
     </span>
   );
 }
@@ -188,7 +310,11 @@ export function DiffPane({ api, cwd, sha, path, split }: DiffPaneProps) {
     setLoading(true);
     setError(null);
     setPatch(null);
-    fetchCommitDiff(api, cwd, sha, path, ctrl.signal)
+    const fetcher =
+      sha === WORKDIR_SHA
+        ? fetchWorkdirDiff(api, cwd, path, ctrl.signal)
+        : fetchCommitDiff(api, cwd, sha, path, ctrl.signal);
+    fetcher
       .then((text) => {
         if (active) setPatch(text);
       })

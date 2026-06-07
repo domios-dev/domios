@@ -275,6 +275,145 @@ async fn merge_diff_uses_first_parent() {
     assert!(!is_merge(cwd, &root_sha).await);
 }
 
+#[test]
+fn porcelain_parses_modified_untracked_rename() {
+    // modified (unstaged), untracked, and a staged rename (R + old-path field).
+    let raw = b" M src/main.rs\x00?? new.txt\x00R  old.txt\x00renamed.txt\x00";
+    let parsed = parse_status_porcelain(raw);
+    assert_eq!(parsed.len(), 3, "got {:?}", parsed);
+
+    assert_eq!(parsed[0].0, "src/main.rs");
+    assert!(parsed[0].1.is_none());
+    assert_eq!(parsed[0].2, "modified");
+
+    assert_eq!(parsed[1].0, "new.txt");
+    assert_eq!(parsed[1].2, "untracked");
+
+    // In -z output the rename's NEW path is the entry, the OLD path follows.
+    assert_eq!(parsed[2].0, "old.txt");
+    assert_eq!(parsed[2].1.as_deref(), Some("renamed.txt"));
+    assert_eq!(parsed[2].2, "renamed");
+}
+
+#[test]
+fn porcelain_classify_states() {
+    assert_eq!(classify_porcelain(b"??"), "untracked");
+    assert_eq!(classify_porcelain(b"UU"), "conflicted");
+    assert_eq!(classify_porcelain(b"DD"), "conflicted");
+    assert_eq!(classify_porcelain(b"AA"), "conflicted");
+    assert_eq!(classify_porcelain(b"R "), "renamed");
+    assert_eq!(classify_porcelain(b" D"), "deleted");
+    assert_eq!(classify_porcelain(b"M "), "staged");
+    assert_eq!(classify_porcelain(b" M"), "modified");
+}
+
+#[test]
+fn merge_workdir_untracked_has_null_counts() {
+    let statuses = vec![
+        ("a.txt".to_string(), None, "modified"),
+        ("new.txt".to_string(), None, "untracked"),
+    ];
+    let mut counts = std::collections::HashMap::new();
+    counts.insert("a.txt".to_string(), (Some(3u64), Some(1u64)));
+    let files = merge_workdir_files(statuses, &counts);
+    let a = files.iter().find(|f| f.path == "a.txt").unwrap();
+    assert_eq!(a.added, Some(3));
+    assert_eq!(a.deleted, Some(1));
+    let n = files.iter().find(|f| f.path == "new.txt").unwrap();
+    assert!(n.added.is_none() && n.deleted.is_none());
+}
+
+#[tokio::test]
+async fn workdir_files_against_fixture() {
+    if !git_available() {
+        return;
+    }
+    let tmp = build_fixture();
+    let p = tmp.path();
+    let cwd = p.to_str().unwrap();
+
+    // Modify a tracked file and create an untracked one.
+    write(p, "renamed.txt", "one\ntwo\nthree\nfour\nfive\nsix\n");
+    write(p, "fresh.txt", "brand new\n");
+
+    let status = run_git(
+        cwd,
+        &["-c", "core.quotePath=false", "status", "--porcelain=v1", "-z"],
+    )
+    .await
+    .unwrap();
+    let numstat = run_git(cwd, &["-c", "core.quotePath=false", "diff", "--numstat", "HEAD"])
+        .await
+        .map(|o| parse_numstat_counts(&o.stdout))
+        .unwrap();
+    let files = merge_workdir_files(parse_status_porcelain(&status.stdout), &numstat);
+
+    let modified = files.iter().find(|f| f.path == "renamed.txt").unwrap();
+    assert_eq!(modified.status, "modified");
+    assert_eq!(modified.added, Some(1));
+
+    let untracked = files.iter().find(|f| f.path == "fresh.txt").unwrap();
+    assert_eq!(untracked.status, "untracked");
+    assert!(untracked.added.is_none());
+}
+
+#[tokio::test]
+async fn revert_restores_tracked_file() {
+    if !git_available() {
+        return;
+    }
+    let tmp = build_fixture();
+    let p = tmp.path();
+    let cwd = p.to_str().unwrap();
+
+    let original = std::fs::read_to_string(p.join("renamed.txt")).unwrap();
+    write(p, "renamed.txt", "garbage edit\n");
+    assert_ne!(std::fs::read_to_string(p.join("renamed.txt")).unwrap(), original);
+
+    // Status of the file must not classify as untracked/conflicted.
+    let status = run_git(
+        cwd,
+        &["-c", "core.quotePath=false", "status", "--porcelain=v1", "-z", "--", "renamed.txt"],
+    )
+    .await
+    .unwrap();
+    let cls = parse_status_porcelain(&status.stdout)
+        .into_iter()
+        .find(|(pp, _, _)| pp == "renamed.txt")
+        .map(|(_, _, s)| s);
+    assert_eq!(cls, Some("modified"));
+
+    let out = run_git(cwd, &["checkout", "HEAD", "--", "renamed.txt"])
+        .await
+        .unwrap();
+    assert!(out.status_ok, "checkout failed: {}", out.stderr);
+    assert_eq!(std::fs::read_to_string(p.join("renamed.txt")).unwrap(), original);
+}
+
+#[tokio::test]
+async fn revert_untracked_is_refused() {
+    if !git_available() {
+        return;
+    }
+    let tmp = build_fixture();
+    let p = tmp.path();
+    let cwd = p.to_str().unwrap();
+    write(p, "fresh.txt", "brand new\n");
+
+    let status = run_git(
+        cwd,
+        &["-c", "core.quotePath=false", "status", "--porcelain=v1", "-z", "--", "fresh.txt"],
+    )
+    .await
+    .unwrap();
+    let cls = parse_status_porcelain(&status.stdout)
+        .into_iter()
+        .find(|(pp, _, _)| pp == "fresh.txt")
+        .map(|(_, _, s)| s);
+    // The endpoint maps this to a 409; here we assert the discriminating status.
+    assert_eq!(cls, Some("untracked"));
+}
+
 #[tokio::test]
 async fn ensure_repo_rejects_non_repo() {
     if !git_available() {

@@ -684,6 +684,7 @@ function AppInner() {
                   gitInfo={state.focused_pane_id === tab.pane_id ? focusedGitInfo : null}
                   onOpenGit={openGit}
                   api={config.api}
+                  workspaceCwd={ws.cwd ?? null}
                 />
               </div>
                 );

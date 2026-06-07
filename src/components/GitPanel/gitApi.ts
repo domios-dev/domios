@@ -101,6 +101,64 @@ export async function fetchRepos(
   return body.repos;
 }
 
+export const WORKDIR_SHA = "__workdir__";
+
+export type GitWorkdirStatus =
+  | "staged"
+  | "modified"
+  | "untracked"
+  | "deleted"
+  | "renamed"
+  | "conflicted";
+
+export interface GitWorkdirFile {
+  path: string;
+  old_path?: string | null;
+  status: GitWorkdirStatus;
+  added: number | null;
+  deleted: number | null;
+}
+
+export async function fetchWorkdirFiles(
+  api: ApiConfig,
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<GitWorkdirFile[]> {
+  const qs = new URLSearchParams({ cwd });
+  const res = await fetch(`${baseUrl(api)}/api/git/workdir-files?${qs}`, {
+    headers: authHeaders(api),
+    signal,
+  });
+  if (res.status === 404) throw new NotARepoError("not a git repository");
+  if (!res.ok) throw new Error(`git workdir files failed: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+export async function fetchWorkdirDiff(
+  api: ApiConfig,
+  cwd: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const qs = new URLSearchParams({ cwd, path });
+  const res = await fetch(`${baseUrl(api)}/api/git/workdir-diff?${qs}`, {
+    headers: authHeaders(api),
+    signal,
+  });
+  if (res.status === 404) throw new NotARepoError("not a git repository");
+  if (!res.ok) throw new Error(`git workdir diff failed: ${res.status} ${await res.text()}`);
+  return res.text();
+}
+
+export async function revertFile(api: ApiConfig, cwd: string, path: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/git/revert-file`, {
+    method: "POST",
+    headers: { ...authHeaders(api), "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd, path }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `revert failed: ${res.status}`);
+}
+
 export async function fetchCommitDiff(
   api: ApiConfig,
   cwd: string,

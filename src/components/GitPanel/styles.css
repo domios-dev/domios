@@ -75,6 +75,56 @@
   user-select: text;
 }
 
+/* ---------- uncommitted-changes pseudo-row ---------- */
+.ct-git-row--workdir {
+  border-bottom: 1px dashed color-mix(in srgb, var(--ct-yellow, #fbbf24) 30%, transparent);
+}
+.ct-git-workdir-label {
+  font-style: italic;
+  color: var(--ct-yellow, #fbbf24);
+}
+
+/* ---------- workdir file status badges ---------- */
+.ct-git-status-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-family: var(--ct-font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1;
+  border: 1px solid transparent;
+}
+.ct-git-status-badge.kind-staged {
+  color: var(--ct-green, #34d399);
+  border-color: color-mix(in srgb, var(--ct-green, #34d399) 45%, transparent);
+}
+.ct-git-status-badge.kind-modified {
+  color: var(--ct-yellow, #fbbf24);
+  border-color: color-mix(in srgb, var(--ct-yellow, #fbbf24) 45%, transparent);
+}
+.ct-git-status-badge.kind-untracked {
+  color: var(--ct-muted-fg, #8b949e);
+  border-color: color-mix(in srgb, var(--ct-muted-fg, #8b949e) 45%, transparent);
+}
+.ct-git-status-badge.kind-deleted {
+  color: var(--ct-red, #f87171);
+  border-color: color-mix(in srgb, var(--ct-red, #f87171) 45%, transparent);
+}
+.ct-git-status-badge.kind-renamed {
+  color: var(--ct-blue, #6ea8fe);
+  border-color: color-mix(in srgb, var(--ct-blue, #6ea8fe) 45%, transparent);
+}
+.ct-git-status-badge.kind-conflicted {
+  color: var(--ct-red, #f87171);
+  border-color: color-mix(in srgb, var(--ct-red, #f87171) 60%, transparent);
+  background: color-mix(in srgb, var(--ct-red, #f87171) 12%, transparent);
+}
+
 /* ---------- ref chips ---------- */
 .ct-git-chip {
   flex: 0 0 auto;

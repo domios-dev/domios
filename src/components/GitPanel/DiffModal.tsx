@@ -2,15 +2,14 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Columns2, Rows3, X } from "lucide-react";
 import type { ApiConfig } from "../../lib/types";
-import { DiffPane } from "./CommitDetail";
-import type { GitCommitFile } from "./gitApi";
+import { DiffPane, type DisplayFile } from "./CommitDetail";
 import { UI_BUTTON } from "../shared/design";
 
 interface DiffModalProps {
   api: ApiConfig;
   cwd: string;
   sha: string;
-  file: GitCommitFile;
+  file: DisplayFile;
   split: boolean;
   onToggleSplit: () => void;
   onClose: () => void;
@@ -51,8 +50,8 @@ export function DiffModal({
             {file.old_path ? `${file.old_path} → ${file.path}` : file.path}
           </span>
           <span className="stats">
-            <span className="add">+{file.added}</span>
-            <span className="del">−{file.deleted}</span>
+            <span className="add">+{file.added ?? "–"}</span>
+            <span className="del">−{file.deleted ?? "–"}</span>
           </span>
           {!fullscreen && (
             <button
