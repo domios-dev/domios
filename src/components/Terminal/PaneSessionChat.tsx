@@ -325,18 +325,22 @@ export function PaneSessionChat({
   }, [addNotification, paneId]);
 
   const refocusComposer = useCallback(() => {
-    if (touchMode) return;
     const focus = () => textareaRef.current?.focus({ preventScroll: true });
+    if (!textareaRef.current) return;
     focus();
-    requestAnimationFrame(focus);
-    window.setTimeout(focus, 0);
-  }, [touchMode]);
-
-  const blurComposerForTouchScroll = useCallback(() => {
-    if (document.activeElement === textareaRef.current) {
-      textareaRef.current?.blur();
-    }
+    requestAnimationFrame(() => {
+      if (document.activeElement !== textareaRef.current) {
+        focus();
+      }
+    });
+    window.setTimeout(() => {
+      if (document.activeElement !== textareaRef.current) {
+        focus();
+      }
+    }, 0);
   }, []);
+
+  const [composerFocused, setComposerFocused] = useState(false);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -651,9 +655,11 @@ export function PaneSessionChat({
         timestamp: String(Date.now()),
       },
     ]);
+    // Invariant: sending clears the draft but focus MUST stay in the composer —
+    // the mobile keyboard must not dismiss and desktop must not need a re-click.
     setInput("");
     setAttachments([]);
-    if (!touchMode) refocusComposer();
+    refocusComposer();
     try {
       const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
       if (fallbackCommand) {
@@ -668,7 +674,7 @@ export function PaneSessionChat({
     } finally {
       sendInFlightRef.current = false;
       setSending(false);
-      if (!touchMode) refocusComposer();
+      refocusComposer();
     }
   }
 
@@ -818,14 +824,21 @@ export function PaneSessionChat({
       )}
       <div
         ref={scrollRef}
-        onTouchMove={blurComposerForTouchScroll}
         onScroll={(e) => {
           const el = e.currentTarget;
           const dist = el.scrollHeight - (el.scrollTop + el.clientHeight);
           atBottomRef.current = dist < 50;
         }}
-        className="flex-1 min-h-0 overflow-y-auto p-3"
+        // overscroll-contain: rubber-banding at the list edge must not chain into a page scroll — iOS dismisses the keyboard on page scrolls.
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3"
       >
+        {touchMode && (
+          <div
+            aria-hidden="true"
+            className="shrink-0"
+            style={{ height: "calc(1.25rem + env(safe-area-inset-top, 0px))" }}
+          />
+        )}
         {(hiddenMessageCount > 0 || earliestOffset > 0) && (
           <div className="sticky top-0 z-10 flex justify-center pb-2">
             <button
@@ -878,8 +891,10 @@ export function PaneSessionChat({
         style={{
           borderColor:
             "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
-          paddingBottom:
-            "var(--ct-composer-bottom-padding, calc(0.5rem + env(safe-area-inset-bottom, 0px)))",
+          // Keyboard open (touch + focused): it covers the home indicator, so the safe-area bottom pad would render as a dead stripe under the input.
+          paddingBottom: touchMode && composerFocused
+            ? "0.5rem"
+            : "var(--ct-composer-bottom-padding, calc(0.5rem + env(safe-area-inset-bottom, 0px)))",
         }}
       >
         {modelPickerOpen && (
@@ -1025,6 +1040,8 @@ export function PaneSessionChat({
                   void send();
                 }
               }}
+              onFocus={() => setComposerFocused(true)}
+              onBlur={() => setComposerFocused(false)}
               onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
               placeholder={pendingPrompt
                 ? "Agent may be waiting in the terminal."
@@ -1036,7 +1053,7 @@ export function PaneSessionChat({
               spellCheck={false}
               enterKeyHint={touchMode ? "enter" : "send"}
               inputMode="text"
-              disabled={sending}
+              // Never disabled/readOnly while sending: iOS hides the keyboard for both. Double-send is guarded by sendInFlightRef.
               className="block w-full min-h-5 flex-1 self-center resize-none bg-transparent py-0 pr-1 text-[15px] leading-5 outline-none placeholder:text-[var(--ct-muted-fg)]"
               style={{
                 color: "var(--ct-fg, #c9d1d9)",

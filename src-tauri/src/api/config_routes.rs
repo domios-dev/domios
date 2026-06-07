@@ -72,8 +72,21 @@ pub async fn patch_config_api(
         ));
     }
 
-    let new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
+    let mut new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid config value"))?;
+
+    // Mirror of the Tauri update_config theme handling: a name switch loads the
+    // builtin fresh (clients send the old colors along with the new name).
+    let current_theme_name = state.config.lock().theme.name.clone();
+    if new_cfg.theme.name != current_theme_name {
+        let requested = new_cfg.theme.name.clone();
+        if let Some(mut builtin) = crate::config::schema::get_any_theme(&requested) {
+            builtin.name = requested;
+            new_cfg.theme = builtin;
+        }
+    } else {
+        crate::config::resolve_theme(&mut new_cfg);
+    }
 
     // Detect rename so can sync mesh state + push the new name to peers. Mirror of the same logic in the Tauri update_config command.
     let prev_name = state.config.lock().mesh.instance_name.clone();
@@ -87,6 +100,14 @@ pub async fn patch_config_api(
     if let Err(e) = crate::config::save_config_pub(&new_cfg) {
         log::error!("Config save failed: {}", e);
     }
+
+    // Live reload for every client: Tauri webview + web mirror SSE. Without
+    // this, browser clients save the config but never see it applied.
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "config-changed",
+        serde_json::to_value(&new_cfg).unwrap_or_default(),
+    );
 
     if mesh_disabled {
         log::info!("[mesh] disabled mid-session — stopping broadcast + marking peers offline");

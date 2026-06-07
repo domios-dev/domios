@@ -20,15 +20,28 @@ export function useKeyboardInset(): number {
     }
     const vv = window.visualViewport;
     const update = () => {
-      const gap = window.innerHeight - vv.height - vv.offsetTop;
+      // Standalone #root tracks --vv-height (see index.html), so measure the gap against the
+      // actual shell height — measuring against innerHeight would double-subtract the keyboard.
+      document.documentElement.style.setProperty(
+        "--vv-height",
+        `${Math.round(vv.height)}px`,
+      );
+      const rootHeight =
+        document.getElementById("root")?.clientHeight ?? window.innerHeight;
+      const gap = rootHeight - vv.height - vv.offsetTop;
       setInset(Math.max(0, Math.round(gap)));
+      // iOS scrolls the page when the keyboard opens — pin it so fixed chrome (sidebar burger) stays on-screen.
+      if (vv.offsetTop > 0) window.scrollTo(0, 0);
     };
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
+    // Standalone iOS sometimes restores innerHeight without a VV event — re-measure on window resize too.
+    window.addEventListener("resize", update);
     update();
     return () => {
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
     };
   }, []);
 

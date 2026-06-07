@@ -29,13 +29,44 @@
         overflow: hidden;
         background: transparent;
       }
-      /* Installed (standalone) web app: content extends under the iOS status
-         bar (black-translucent), so pad the top inset and fill it with bg. */
-      @media all and (display-mode: standalone) {
-        html, body { background: #0d1117; }
-        #root { padding-top: env(safe-area-inset-top, 0px); }
+      /* Non-zero only when content extends under the status bar (installed
+         web app / fullscreen); 0 in regular browsers and Tauri. */
+      #root { padding-top: env(safe-area-inset-top, 0px); }
+      /* .standalone is set by an inline script below — iOS home-screen apps
+         don't reliably match the display-mode media query. 100vh is the ONLY
+         unit correct from PWA cold start: 100dvh initializes wrong until a
+         device rotation, and height:100% silently breaks viewport-fit=cover
+         under black-translucent (WebKit letterboxing quirks). */
+      html.standalone, html.standalone body, html.standalone #root {
+        height: 100vh;
+        background: #0d1117;
+      }
+      /* --vv-height is fed from visualViewport (useKeyboardInset) — the shell
+         shrinks to the visible area when the keyboard opens instead of being
+         pushed off-screen. */
+      html.standalone #root {
+        height: var(--vv-height, 100vh);
       }
     </style>
+    <script>
+      if (
+        navigator.standalone === true ||
+        window.matchMedia("(display-mode: standalone)").matches
+      ) {
+        document.documentElement.classList.add("standalone");
+        // WebKit bug 274773: env(safe-area-inset-*) can stay 0 on standalone
+        // cold start. Re-applying viewport-fit forces recalculation.
+        var meta = document.querySelector('meta[name="viewport"]');
+        var content = meta.getAttribute("content");
+        meta.setAttribute(
+          "content",
+          content.replace("viewport-fit=cover", "viewport-fit=auto")
+        );
+        requestAnimationFrame(function () {
+          meta.setAttribute("content", content);
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

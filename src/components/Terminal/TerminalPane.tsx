@@ -422,6 +422,9 @@ export function TerminalPane({
         className="absolute inset-0"
         style={{
           padding: 8,
+          paddingTop: touchUi && uiMode === "terminal"
+            ? "calc(1.25rem + env(safe-area-inset-top, 0px))"
+            : 8,
           opacity: shell.overlayVisible ? 0 : 1,
           transition: "opacity 0.3s ease-in",
           top: mobileSheet

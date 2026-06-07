@@ -39,7 +39,8 @@ const s = (args: Args, key: string): string => String(args[key] ?? "");
 const HTTP_MAP: Record<string, Mapper> = {
   // ── config ──
   get_config: () => webJson("GET", "/api/config"),
-  update_config: (a) => webJson("POST", "/api/config", a.config),
+  // PATCH: the route has no POST; the handler merges top-level keys, so the full config object works as a partial.
+  update_config: (a) => webJson("PATCH", "/api/config", a.config),
   get_network_info: () => webJson("GET", "/api/network"),
 
   // ── multiplexer ──
@@ -204,6 +205,12 @@ const HTTP_MAP: Record<string, Mapper> = {
       display: a.display,
     }),
   keepawake_stop: () => webJson("POST", "/api/keepawake/stop"),
+
+  // ── themes ── REST wraps the id list in an envelope; Tauri returns it bare — unwrap.
+  list_themes: async () => {
+    const resp = await webJson<{ themes?: string[] }>("GET", "/api/themes");
+    return resp.themes ?? [];
+  },
 
   // ── misc with real endpoints ──
   fs_list_dir: (a) =>

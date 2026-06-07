@@ -511,9 +511,9 @@ function AppInner() {
         ...themeStyles,
         backgroundColor: theme.background,
         color: theme.foreground,
-        // dvh tracks the REAL visible viewport on mobile (shrinks when browser chrome / keyboard appear); vh does not. Desktop equal. keyboardInset
+        // 100% of #root, which owns viewport sizing (dvh + safe-area padding in index.html). keyboardInset
         // covers iOS Safari, where the keyboard shrinks only the VISUAL viewport and dvh stays put (see useKeyboardInset).
-        height: keyboardInset ? `calc(100dvh - ${keyboardInset}px)` : "100dvh",
+        height: keyboardInset ? `calc(100% - ${keyboardInset}px)` : "100%",
         "--ct-composer-bottom-padding": keyboardInset
           ? "0.5rem"
           : "calc(0.5rem + env(safe-area-inset-bottom, 0px))",
@@ -535,7 +535,8 @@ function AppInner() {
         <button
           data-testid="web-sidebar-open"
           onClick={() => setSidebarOpen(true)}
-          className="fixed top-2 left-2 z-50 flex items-center justify-center w-11 h-11 rounded-md bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)]"
+          className="fixed left-2 z-50 flex items-center justify-center w-11 h-11 rounded-md bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)]"
+          style={{ top: "calc(0.5rem + env(safe-area-inset-top, 0px))" }}
           title="Open sidebar"
         >
           ☰

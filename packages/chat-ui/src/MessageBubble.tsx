@@ -377,8 +377,8 @@ function renderUserContent(content: string): React.ReactNode {
         key={key++}
         className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 mt-1 text-[11px]"
         style={{
-          background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)",
-          color: "var(--ct-muted-fg)",
+          background: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 12%, transparent)",
+          color: "var(--ct-fg)",
         }}
         title={filePath}
       >
@@ -552,12 +552,14 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           <div
             className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 text-sm select-text cursor-text border ${TEXT_WRAP_CLASS}`}
             style={{
+              // The user voice is the ONE filled element in the feed — a clear accent
+              // tint so it never blends with tool traces or assistant prose.
               background: origin
-                ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 6%, var(--ct-surface, #161b22) 94%)"
-                : "color-mix(in srgb, var(--ct-accent) 10%, transparent)",
+                ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, var(--ct-surface, #161b22) 88%)"
+                : "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, var(--ct-bg, #0d1117) 78%)",
               borderColor: origin
-                ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 25%, transparent)"
-                : "color-mix(in srgb, var(--ct-accent) 20%, transparent)",
+                ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)"
+                : "color-mix(in srgb, var(--ct-accent, #58a6ff) 45%, transparent)",
               color: "var(--ct-fg)",
             }}
           >
@@ -715,14 +717,22 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
         <div className="inline-flex flex-col max-w-[min(52rem,100%)]">
           <button
             onClick={() => setExpanded(!expanded)}
-            className="inline-flex min-w-0 items-center gap-1.5 text-left rounded-md px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
+            // De-bubbled on purpose: tool activity is a thin terminal trace (hairline border,
+            // no fill, green exec glyph) so it visually recedes behind user/assistant voices.
+            className="inline-flex min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
             style={{
-              background: "var(--ct-surface)",
+              background: "transparent",
+              borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
               color: "var(--ct-muted-fg)",
             }}
           >
-            <span className="flex-shrink-0"><ToolIcon name={toolName} /></span>
-            <span className="font-medium" style={{ color: "var(--ct-fg)" }}>{message.toolName}</span>
+            <span
+              className="flex-shrink-0"
+              style={{ color: "color-mix(in srgb, var(--ct-green, #3fb950) 75%, var(--ct-fg, #c9d1d9) 25%)" }}
+            >
+              <ToolIcon name={toolName} />
+            </span>
+            <span className="font-medium font-mono" style={{ color: "var(--ct-muted-fg)" }}>{message.toolName}</span>
             {summary && (
               <span className="min-w-0 truncate opacity-60 font-mono text-[11px]">{summary}</span>
             )}
