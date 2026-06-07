@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { invoke } from "../../lib/bridge";
 import type { Notification, NotificationAction } from "../../lib/types";
 import { InfoIcon, WarningIcon, ErrorIcon } from "../Icons";
+import { UI_BUTTON } from "../shared/design";
 
 const LEVEL_STYLES: Record<Notification["level"], { border: string; icon: string }> = {
   Info: { border: "border-l-[var(--ct-accent)]", icon: "text-[var(--ct-accent)]" },
@@ -75,43 +76,36 @@ function ToastItem({ notification, onDismiss, onNavigate }: ToastItemProps) {
         ${visible ? "opacity-100 translate-x-0" : "opacity-0 translate-x-4"}
       `}
     >
-      <div className="flex items-start gap-2">
-        <LevelIcon level={notification.level} className={`shrink-0 mt-0.5 ${styles.icon}`} />
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-[var(--ct-fg)] truncate">
-            {notification.title}
-          </div>
-          {notification.body && (
-            <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5 line-clamp-2">
-              {notification.body}
+          <div className="flex items-start gap-2">
+            <LevelIcon level={notification.level} className={`shrink-0 mt-0.5 ${styles.icon}`} />
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium text-[var(--ct-fg)] truncate">
+                {notification.title}
+              </div>
+              {notification.body && (
+                <div className="text-sm text-[var(--ct-muted-fg)] mt-0.5 line-clamp-2 leading-relaxed">
+                  {notification.body}
+                </div>
+              )}
+              {hasActions && (
+                <div className="flex gap-1.5 mt-2">
+                  {notification.actions!.map((action, i) => (
+                    <button
+                      key={i}
+                      onClick={(e) => { e.stopPropagation(); runAction(action); }}
+                      className={`${i === 0 ? UI_BUTTON.primary : UI_BUTTON.ghost} px-2 py-1`}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-          {hasActions && (
-            <div className="flex gap-1.5 mt-2">
-              {notification.actions!.map((action, i) => (
-                <button
-                  key={i}
-                  onClick={(e) => { e.stopPropagation(); runAction(action); }}
-                  className={`
-                    text-[11px] px-2 py-0.5 rounded border
-                    ${i === 0
-                      ? "bg-[var(--ct-accent)] text-[var(--ct-bg)] border-[var(--ct-accent)] hover:opacity-90"
-                      : "bg-transparent text-[var(--ct-muted-fg)] border-[var(--ct-border)] hover:text-[var(--ct-fg)]"
-                    }
-                    transition-colors
-                  `}
-                >
-                  {action.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <button
-          onClick={dismiss}
-          className="shrink-0 text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] text-sm leading-none mt-0.5"
-          aria-label="Dismiss"
-        >
+            <button
+              onClick={dismiss}
+              className="shrink-0 text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] text-sm leading-none mt-0.5"
+              aria-label="Dismiss"
+            >
           ×
         </button>
       </div>

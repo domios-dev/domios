@@ -10,6 +10,7 @@ import { useActivityPulses } from "./useActivityPulses";
 import { fetchStats, isTauriEnv, type MemStats } from "./memoryApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, AppConfig } from "../../lib/types";
+import { tabClass, UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
 
 export type MemoryTab = "dreams" | "inspect" | "activity" | "settings";
 
@@ -25,14 +26,6 @@ export interface MemoryInitialState {
   workerPanelVisible: boolean;
   activeTab?: MemoryTab;
 }
-
-const TAB_BASE = "shrink-0 border-b-2 bg-transparent cursor-pointer capitalize";
-const tabClass = (active: boolean, touch: boolean) =>
-  `${TAB_BASE} ${touch ? "px-4 py-3 text-sm" : "px-3 py-2 text-xs"} ${
-    active
-      ? "border-[var(--ct-accent)] text-[var(--ct-fg)]"
-      : "border-transparent text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
-  }`;
 
 const TABS: MemoryTab[] = ["dreams", "inspect", "activity", "settings"];
 
@@ -134,7 +127,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
       {/* Header with tabs */}
-      <div className="flex items-center gap-0 px-4 py-0 text-[13px] bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] ct-hscroll whitespace-nowrap">
+      <div className={`${UI_PANEL.toolbar} gap-0 px-4 py-0 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] ct-hscroll whitespace-nowrap`}>
         <div className="flex items-center gap-3 mr-4 shrink-0">
           <strong>Memory</strong>
           <span className="text-[11px] opacity-70 max-sm:hidden">
@@ -181,8 +174,8 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           />
         )}
         {activeTab === "inspect" && inspectView === "graph" && loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-[var(--ct-muted-fg)]">
-            Loading memory graph...
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className={UI_TEXT.meta}>Loading memory graph...</span>
           </div>
         )}
         {activeTab === "inspect" && inspectView === "graph" && error && (
@@ -222,7 +215,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           <button
             type="button"
             onClick={() => setInspectView(inspectView === "graph" ? "list" : "graph")}
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full bg-[var(--ct-bg)]/80 backdrop-blur-md border border-[var(--ct-border)] text-[11px] flex items-center gap-1.5 cursor-pointer hover:border-[var(--ct-accent)] shadow-lg text-[var(--ct-fg)]"
+            className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} absolute bottom-4 left-1/2 -translate-x-1/2 z-10 gap-1.5 backdrop-blur-md shadow-lg`}
           >
             {inspectView === "graph" ? <List size={12} /> : <Network size={12} />}
             {inspectView === "graph" ? "List" : "Graph"}

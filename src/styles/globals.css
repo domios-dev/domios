@@ -208,6 +208,19 @@ body {
     height: 1.4rem !important;
   }
 
+  button.ct-composer-round-button,
+  .ct-composer-round-button.h-10 {
+    width: 2.5rem !important;
+    height: 2.5rem !important;
+    min-width: 2.5rem !important;
+    min-height: 2.5rem !important;
+    aspect-ratio: 1 / 1;
+  }
+
+  .ct-composer-input-shell {
+    min-height: 3rem !important;
+  }
+
 }
 
 /* Prevent text selection outside terminal */

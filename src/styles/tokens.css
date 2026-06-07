@@ -4,6 +4,19 @@
    ========================================================================== */
 
 :root {
+  /* Typography */
+  --ct-font-ui: "Inter", "Segoe UI", "Avenir Next", "Avenir", "Segoe UI Variable", "Helvetica Neue", sans-serif;
+  --ct-font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  --ct-font-size-sm: 0.8125rem;
+  --ct-font-size-md: 0.875rem;
+  --ct-font-size-lg: 1rem;
+  --ct-line-height: 1.45;
+
+  /* Input / control rhythm */
+  --ct-control-height: 2.125rem;
+  --ct-control-height-small: 1.875rem;
+  --ct-control-height-micro: 1.625rem;
+
   /* Timing */
   --ct-duration-instant: 50ms;
   --ct-duration-fast: 120ms;

@@ -12,14 +12,7 @@ import { useMeshData } from "./useMeshData";
 import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
-
-const TAB_BASE = "shrink-0 border-b-2 bg-transparent cursor-pointer capitalize";
-const tabClass = (active: boolean, touch: boolean) =>
-  `${TAB_BASE} ${touch ? "px-4 py-3 text-sm" : "px-3 py-2 text-xs"} ${
-    active
-      ? "border-[var(--ct-accent)] text-[var(--ct-fg)]"
-      : "border-transparent text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
-  }`;
+import { tabClass, UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
 
 const TABS: MeshTab[] = ["map", "activity", "network"];
 
@@ -37,7 +30,7 @@ interface DrawerProps {
 }
 
 const DRAWER_BTN =
-  "flex items-center gap-1 px-2 py-1 bg-transparent border-none cursor-pointer text-[11px] uppercase tracking-wider text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]";
+  `${UI_BUTTON.ghost} ${UI_BUTTON.compact} gap-1 bg-transparent border-none cursor-pointer`;
 
 function CollapsibleTablesDrawer({
   cronsCount,
@@ -179,14 +172,14 @@ function WebUiModal({
         <div className="flex items-center justify-between border-b border-[var(--ct-border)] px-4 py-2.5">
           <div>
             <div className="text-sm font-medium text-[var(--ct-fg)]">Web UI</div>
-            <div className="text-[10px] text-[var(--ct-muted-fg)]">
+            <div className={UI_TEXT.metaMuted}>
               {link.replace(/^https?:\/\//, "").replace(/[#?]token=.*/, "")}
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+            className={`${UI_BUTTON.ghost} ${UI_BUTTON.icon}`}
             title="Close"
           >
             <X size={15} />
@@ -200,7 +193,7 @@ function WebUiModal({
               <div className="text-xs text-slate-500">QR</div>
             )}
           </div>
-          <div className="w-full truncate rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-2 py-1.5 text-[10px] font-mono text-[var(--ct-muted-fg)]">
+          <div className={`${UI_INPUT.base} ${UI_INPUT.compact} ct-text-mono`}>
             {link}
           </div>
           <div className="grid w-full grid-cols-3 gap-2">
@@ -208,7 +201,7 @@ function WebUiModal({
               type="button"
               data-testid="web-ui-open"
               onClick={() => void invoke("open_url", { url: link })}
-              className="inline-flex h-9 items-center justify-center gap-1.5 rounded border border-[var(--ct-accent)] bg-[var(--ct-accent)]/18 text-xs text-[var(--ct-fg)] hover:brightness-110"
+              className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} gap-1.5`}
             >
               <ExternalLink size={14} />
               Open
@@ -217,7 +210,7 @@ function WebUiModal({
               type="button"
               data-testid="web-ui-copy"
               onClick={() => void copyText(link, "link")}
-              className="inline-flex h-9 items-center justify-center gap-1.5 rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] text-xs text-[var(--ct-fg)] hover:border-[var(--ct-accent)]"
+              className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5`}
             >
               <Copy size={14} />
               {copied === "link" ? "Copied" : "Copy link"}
@@ -227,7 +220,7 @@ function WebUiModal({
               data-testid="web-ui-copy-token"
               onClick={() => void copyText(config.api.token ?? "", "token")}
               disabled={!config.api.token}
-              className="inline-flex h-9 items-center justify-center gap-1.5 rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] text-xs text-[var(--ct-fg)] hover:border-[var(--ct-accent)] disabled:opacity-40"
+              className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 disabled:opacity-40`}
             >
               <Copy size={14} />
               {copied === "token" ? "Copied" : "Copy token"}
@@ -331,17 +324,17 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     setDrawerState({ kind: "service", id: s.id });
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
-      <div className="flex items-center gap-0 px-4 py-0 text-[13px] bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] ct-hscroll whitespace-nowrap">
+      <div className={`${UI_PANEL.toolbar} gap-0 px-4 py-0 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] ct-hscroll whitespace-nowrap`}>
         <div className="flex items-center gap-3 mr-4 shrink-0">
           <strong>Mesh</strong>
-          <span className="text-[11px] opacity-70">
+          <span className={`${UI_TEXT.meta} opacity-70`}>
             {data.error
               ? `error: ${data.error}`
               : `${data.peers.length} peer${data.peers.length === 1 ? "" : "s"} · ${data.services.length} service${data.services.length === 1 ? "" : "s"}`}
           </span>
           <button
             onClick={() => setRefreshKey((k) => k + 1)}
-            className={`text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] bg-transparent border-none cursor-pointer ${data.loading ? "animate-spin" : ""}`}
+            className={`${UI_BUTTON.ghost} ${UI_BUTTON.compact} border-none ${data.loading ? "animate-spin" : ""}`}
             title="Refresh"
           >
             ↻

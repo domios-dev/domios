@@ -567,6 +567,30 @@ pub fn run() {
                 });
             }
 
+            // Graph layout: build the projection once at startup if needed, then
+            // tick a debounced cache flush. The heavy projection runs on a
+            // blocking thread so it never stalls the async runtime.
+            {
+                let mem = service_state.mem.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(45)).await;
+                    let mem_for_build = mem.clone();
+                    let _ = tauri::async_runtime::spawn_blocking(move || {
+                        if mem_for_build.layout_needs_rebuild() {
+                            match mem_for_build.run_full_layout() {
+                                Ok(v) => log::info!("[graph_layout] startup build v{v}"),
+                                Err(e) => log::warn!("[graph_layout] startup build: {e}"),
+                            }
+                        }
+                    })
+                    .await;
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        mem.layout_flush_if_due();
+                    }
+                });
+            }
+
             // Resume extraction for items that were saved but never finished (previous run crashed mid-extraction, LLM API errored, bulk import).
             // run_extract_pending returns fast after spawning its tokio task.
             {

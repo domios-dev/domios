@@ -34,6 +34,7 @@ import { IntegrationsTab } from "./IntegrationsTab";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
 import { PluginsTab } from "./PluginsTab";
+import { UI_BUTTON, UI_PANEL } from "../shared/design";
 
 interface SettingsPanelProps {
   config: AppConfig;
@@ -184,12 +185,12 @@ export function SettingsPanel({
           }}
         />
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ct-border)] relative z-10">
+        <div className={`${UI_PANEL.toolbar} z-10`}>
           <div className="flex items-center gap-2 min-w-0">
             {top.kind !== "root" && (
               <button
                 onClick={pop}
-                className="flex items-center gap-1 px-2 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors text-[11px]"
+                className={`${UI_BUTTON.ghost} h-8 px-2`}
                 title="Back"
               >
                 <ChevronLeft size={14} className="shrink-0" />
@@ -206,7 +207,7 @@ export function SettingsPanel({
           </div>
           <button
             onClick={onClose}
-            className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+            className={`${UI_BUTTON.ghost} w-8 h-8`}
           >
             <CloseXIcon />
           </button>
