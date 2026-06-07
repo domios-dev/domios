@@ -14,13 +14,15 @@
 
 import type {
   ProviderPlugin,
-  ProviderEvent,
   RendererProps,
 } from "../../../src/lib/plugins/types";
+import { makeLineParser } from "../../../src/lib/plugins/messageEvents";
 import { parseJsonlSession } from "./parser";
 
 const titlePattern = /codex/i;
 const noisePatterns: RegExp[] = [/^[\s─━═]+$/];
+
+const parseLine = makeLineParser(parseJsonlSession);
 
 function Renderer({ raw }: RendererProps) {
   return raw();
@@ -47,32 +49,3 @@ const plugin: ProviderPlugin = {
 
 export default plugin;
 export * from "./parser";
-
-function parseLine(line: string): ProviderEvent[] {
-  if (!line.trim()) return [];
-  const messages = parseJsonlSession(line);
-  return messages.map((m) => ({
-    kind: chatMessageTypeToEventKind(m.type),
-    ts: m.timestamp ? Date.parse(m.timestamp) || undefined : undefined,
-    payload: m,
-  }));
-}
-
-function chatMessageTypeToEventKind(type: string): string {
-  switch (type) {
-    case "user":
-      return "user_message";
-    case "assistant":
-      return "assistant_text";
-    case "tool_call":
-      return "tool_call";
-    case "tool_result":
-      return "tool_result";
-    case "thinking":
-      return "thinking";
-    case "status":
-      return "status";
-    default:
-      return type;
-  }
-}
