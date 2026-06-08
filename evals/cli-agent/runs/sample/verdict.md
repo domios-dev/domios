@@ -22,11 +22,16 @@ Read via `codeterm pane chat`; judged by the model on the 5-dimension rubric.
 - [x] **macOS `/var`→`/private/var` cwd symlink** broke claude JSONL path + opencode
   session detection. Fixed: JsProvider canonicalizes cwd before dash-encoding;
   harness uses a non-`/var` sandbox cwd.
-- [ ] **opencode "remember this" → no `mem save`** (DeepSeek): the agent treats
-  "Remember this fact…" as conversational memory ("store this in my understanding
-  for the session") instead of running `codeterm mem save`. claude runs it
-  correctly with the same skill. Fix attempt: add an explicit "remember/save this
-  → `codeterm mem save`" cue to the shared `codeterm_cli.md` (skill + GA prompt).
+- [x] **opencode "remember this" → no `mem save`** (DeepSeek V4 Flash Free): the
+  agent treats "Remember this fact…" as conversational memory ("store this in my
+  context by acknowledging it") instead of running `codeterm mem save`. Added an
+  explicit "remember/save → `codeterm mem save`" cue to the shared
+  `codeterm_cli.md` — **re-ran and it did NOT change the behavior** (opencode
+  still acknowledged without saving, and skipped loading the skill that turn).
+  Conclusion: a **model-capability limitation of DeepSeek V4 Flash Free**, not a
+  doc gap. claude executes it correctly with the same skill. The doc cue is kept
+  (correct guidance; likely helps stronger models). Action: track as a known
+  provider/model weakness, not a codeterm bug.
 
 ## Aggregate
 - **claude**: 5/5 cases all-PASS, all one-shot. Strong CLI comprehension.
