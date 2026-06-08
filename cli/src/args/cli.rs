@@ -1,3 +1,10 @@
+//! SOURCE OF TRUTH for the CodeTerm CLI surface.
+//! On any change here run `codeterm cli-manifest --write` to regenerate
+//! docs/cli-manifest.json + docs/CLI.md. The tests `cli_manifest_is_fresh`,
+//! `docs_cli_md_is_fresh`, and `prompt_cli_commands_exist` (cli/src/cmd/manifest.rs)
+//! plus the chat-ui `recognize.test.ts` fail CI if anything drifts.
+//! See docs/contributing/cli.md.
+
 use clap::{Parser, Subcommand};
 
 use crate::mesh_cli::MeshAction;

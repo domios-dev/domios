@@ -1,5 +1,9 @@
 # CodeTerm CLI reference
 
+<!-- Validated against the clap tree by `prompt_cli_commands_exist`
+     (cli/src/cmd/manifest.rs). Do not document commands or flags that don't
+     exist. Full generated reference: docs/CLI.md. -->
+
 You are running inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm`. This section is the shared CLI reference — same content for the General Agent and project agents. Operational decisions about *when* to use each command live in role-specific prompts above.
 
 **Environment variables** (set automatically in every CodeTerm pane):
