@@ -72,7 +72,7 @@ Restart agent (gracefully /exit + auto-resume to pick up settings or recover)
 - `--grace_secs` — Wait this long for graceful exit before force-killing (seconds)
 - `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
 
-#### `codeterm agent set-conductor`
+#### `codeterm agent set-orchestrator`
 
 Mark a pane as orchestrator (top-level, can spawn leads/workers)
 

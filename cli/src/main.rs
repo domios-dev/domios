@@ -636,10 +636,8 @@ fn main() {
             return;
         }
 
-        Commands::Docs { name, full, head } => {
-            cmd::docs::handle(name, full, head);
-            return;
-        }
+        // Docs is handled before socket connect (embedded markdown)
+        Commands::Docs { .. } => unreachable!(),
 
         // Config is handled before socket connect (uses HTTP API)
         Commands::Config { .. } => unreachable!(),
