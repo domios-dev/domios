@@ -524,28 +524,8 @@ async fn format_attachment_line(
     att: &InboundAttachment,
     voice_cfg: &VoiceTranscribeConfig,
 ) -> String {
-    let desc = if let Some(ref name) = att.filename {
-        format!("[{}: {}]", att.kind, name)
-    } else {
-        format!("[{}]", att.kind)
-    };
-    let file_uri = format!("file://{}", att.path.replace('\\', "/"));
-
-    if att.kind == "voice" && voice_cfg.enabled && !att.path.is_empty() {
-        match voice_transcribe::transcribe(std::path::Path::new(&att.path), voice_cfg).await {
-            Ok(t) => {
-                let escaped = t.text.replace('"', "\\\"");
-                return format!("{} (voice transcript: \"{}\") {}", desc, escaped, file_uri);
-            }
-            Err(e) => {
-                log::warn!("[bridge] voice transcribe failed for {}: {}", att.path, e);
-                if !voice_cfg.fallback_raw_on_error {
-                    return format!("{} (transcription unavailable: {})", desc, e);
-                }
-            }
-        }
-    }
-    format!("{} {}", desc, file_uri)
+    voice_transcribe::format_attachment_line(&att.path, &att.kind, att.filename.as_deref(), voice_cfg)
+        .await
 }
 
 enum HookOutcome {

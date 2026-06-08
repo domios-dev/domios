@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from "react";
+import { X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { IS_WEB, listen } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
@@ -165,7 +166,8 @@ export function TerminalPane({
   const showTerminalKeyBar = touchUi && uiMode === "terminal" && termReady;
   const fallbackChat = uiMode === "chat" && terminalFallbackOpen;
   const mobileSheet = fallbackChat && touchUi;
-  const SHEET_TOP = "calc(var(--ct-safe-top, 0px) + 0.75rem)";
+  // Clears the git/usage bubbles (top: safe-top + 6px) so the sheet header never overlaps them.
+  const SHEET_TOP = "calc(var(--ct-safe-top, 0px) + 2.5rem)";
   const SHEET_HEADER = "2.5rem";
   const SHEET_FOOTER = "3.75rem";
 
@@ -586,11 +588,16 @@ export function TerminalPane({
             <button
               type="button"
               data-testid="terminal-sheet-done"
-              className="h-10 px-2 -mr-2 pt-1.5 text-sm font-medium select-none touch-manipulation active:opacity-60"
-              style={{ background: "transparent", border: "none", color: "var(--ct-accent, #58a6ff)" }}
+              className="mt-1 flex h-8 items-center gap-1 rounded-full px-3 text-[13px] font-semibold select-none touch-manipulation transition-transform active:scale-95"
+              style={{
+                background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 36%, transparent)",
+                color: "var(--ct-accent, #58a6ff)",
+              }}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setTerminalFallbackOpen(false)}
             >
+              <X size={14} strokeWidth={2.4} />
               Done
             </button>
           </div>

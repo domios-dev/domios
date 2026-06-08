@@ -143,9 +143,12 @@ impl HotReloadRegistry {
         entry_mtime: SystemTime,
     ) -> Option<String> {
         match load_one(manifest_path) {
-            Ok(provider) => {
+            Ok(mut provider) => {
                 let id = provider.manifest().id.clone();
                 let version = provider.manifest().version.clone();
+                // Registry handle so the (re)loaded JS provider can delegate
+                // unimplemented capabilities to its native fallback.
+                provider.set_registry(self.agent_registry.clone());
                 self.agent_registry.register_provider(Box::new(provider));
                 self.state.lock().insert(
                     id.clone(),

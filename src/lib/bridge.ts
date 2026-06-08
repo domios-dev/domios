@@ -130,6 +130,12 @@ const HTTP_MAP: Record<string, Mapper> = {
       text: a.text,
       enter: true,
     }),
+  transcribe_voice_attachment: async (a) => {
+    const resp = await webJson<{ line?: string }>("POST", "/api/transcribe-voice", {
+      path: s(a, "path"),
+    });
+    return resp.line ?? "";
+  },
 
   // ── mesh ──
   mesh_get_status: () => webJson("GET", "/api/mesh/status"),

@@ -218,6 +218,7 @@ pub fn create_router(state: AppState) -> Router {
             get(web_routes::peer_services),
         )
         .route("/api/events/stream", get(web_routes::events_stream))
+        .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
         .route(
             "/api/panes/{id}/chat-raw/start",
             post(web_routes::chat_raw_start),

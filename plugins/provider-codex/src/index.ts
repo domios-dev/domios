@@ -40,6 +40,7 @@ const plugin: ProviderPlugin = {
     return false;
   },
   parseLine,
+  parseSession: parseJsonlSession,
   statusOf: () => null,
   Renderer,
   actions: [],

@@ -423,6 +423,12 @@ pub struct ProviderDescriptor {
     /// a Stop button on the pane that POSTs to `/api/panes/:id/stop`.
     #[serde(default)]
     pub supports_stop: bool,
+    /// `true` when the provider can render a pane as chat — either it
+    /// stores sessions as tailable JSONL or serves structured chat from
+    /// its own store. The UI gates the chat/terminal toggle on this
+    /// instead of a hardcoded provider list.
+    #[serde(default)]
+    pub supports_chat_ui: bool,
     /// Trust status of the bundle backing this provider. `system` =
     /// shipped by CodeTerm, hash matched the build-time table.
     /// `unverified` = same id as a system plugin but the bundle on
@@ -444,7 +450,7 @@ pub enum ProviderTrust {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 4;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 5;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 pub trait AgentProvider: Send + Sync {
@@ -586,6 +592,28 @@ pub trait AgentProvider: Send + Sync {
             new_offset: _from_offset,
             messages: vec![],
         }
+    }
+
+    /// Provider serves chat as structured messages it parses itself (e.g.
+    /// sqlite) rather than a tailable JSONL file. When true, the host uses
+    /// `read_structured_chat` and a DB poller instead of `session_jsonl_path`
+    /// + the byte-offset tailer.
+    fn uses_structured_chat(&self) -> bool {
+        false
+    }
+
+    /// Read structured chat for `(cwd, session_id)`. `cursor` is an opaque
+    /// bookmark from a prior call (`None` = from the start). Returns
+    /// new-or-updated messages plus the next cursor. Like the JSONL tail,
+    /// returning the still-growing tail message again is fine — the UI merges
+    /// by message id.
+    fn read_structured_chat(
+        &self,
+        _cwd: &str,
+        _session_id: &str,
+        _cursor: Option<&str>,
+    ) -> crate::agent::chat_types::StructuredChat {
+        crate::agent::chat_types::StructuredChat::default()
     }
 
     /// Whether this agent supports hook-based detection (vs PTY parsing fallback).
@@ -876,8 +904,17 @@ pub trait AgentProvider: Send + Sync {
             install_command: self.install_command(platform),
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),
             supports_stop: self.stop_keystroke().is_some(),
+            supports_chat_ui: self.supports_chat_ui(),
             trust: self.trust(),
         }
+    }
+
+    /// Whether a pane running this provider can be shown as chat. Defaults
+    /// to "yes if it serves structured chat"; JSONL providers override to
+    /// `true`. The frontend reads this off the descriptor — no hardcoded
+    /// provider list.
+    fn supports_chat_ui(&self) -> bool {
+        self.uses_structured_chat()
     }
 
     /// Bundle trust status. Default impl returns `Unknown` (native
@@ -1011,6 +1048,7 @@ mod tests {
             install_command: Some("npm i -g testcli".into()),
             model_switch_format: Some("/model {model}".into()),
             supports_stop: true,
+            supports_chat_ui: true,
             trust: ProviderTrust::System,
         };
 

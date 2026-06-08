@@ -1,12 +1,15 @@
-const CHAT_UI_SUPPORTED_PROVIDERS = new Set(["claude", "codex"]);
+import { getAgentDescriptor } from "./agentDescriptorCache";
 
 export const CHAT_UI_DEFAULT_KEY = "codeterm-chat-ui-default-enabled";
 export const CHAT_UI_DEFAULT_PROMPTED_KEY = "codeterm-chat-ui-default-prompted";
 
 export type PaneUiMode = "terminal" | "chat";
 
+// Capability-driven: a provider supports chat when its descriptor says so
+// (JSONL sessions or structured/DB-backed chat). No hardcoded provider list.
 export function isChatUiSupported(agentType?: string | null): boolean {
-  return Boolean(agentType && CHAT_UI_SUPPORTED_PROVIDERS.has(agentType));
+  if (!agentType) return false;
+  return getAgentDescriptor(agentType)?.supports_chat_ui === true;
 }
 
 export function shouldDefaultNewAgentPaneToChat(agentType?: string | null): boolean {

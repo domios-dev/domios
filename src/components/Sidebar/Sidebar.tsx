@@ -310,7 +310,7 @@ export function Sidebar({
         ref={sidebarRef}
         data-touch-mode={touchMode ? "true" : "false"}
         className="shrink-0 bg-[var(--ct-sidebar-bg)] flex flex-col select-none overflow-hidden relative"
-        style={{ width: sidebarWidth, boxShadow: "inset -0.5px 0 0 var(--ct-border-subtle)" }}
+        style={{ width: touchMode ? Math.round(sidebarWidth * 1.3) : sidebarWidth, boxShadow: "inset -0.5px 0 0 var(--ct-border-subtle)" }}
       >
         {/* Web mirror: the titlebar is stripped, so the host picker (with
             its online dot) and keep-awake live at the top of the sidebar. */}
