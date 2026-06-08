@@ -188,7 +188,17 @@ impl JsProvider {
         let cfg = self.manifest.sessions.as_ref()?;
         let root = PluginManifest::expand_home(&cfg.root_dir)?;
         let leaf = match cfg.cwd_encoding {
-            super::CwdEncoding::DashEncoded => encode_cwd_dashed(cwd),
+            // Agents (e.g. claude) canonicalize the cwd before encoding the
+            // project dir — on macOS `/var/...` resolves to `/private/var/...`,
+            // so a raw cwd would encode to a dir that doesn't exist. Match it;
+            // fall back to the raw cwd if the path can't be resolved.
+            super::CwdEncoding::DashEncoded => {
+                let canonical = std::fs::canonicalize(cwd)
+                    .ok()
+                    .and_then(|p| p.to_str().map(String::from))
+                    .unwrap_or_else(|| cwd.to_string());
+                encode_cwd_dashed(&canonical)
+            }
             super::CwdEncoding::None => cwd.to_string(),
         };
         Some(root.join(leaf))
