@@ -94,6 +94,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/panes/{id}/resize-owner",
             post(web_routes::claim_resize_owner),
         )
+        .route("/api/panes/{id}/chat", get(pane_chat_routes::snapshot))
         .route("/api/panes/{id}/chat/start", post(pane_chat_routes::start))
         .route("/api/panes/{id}/chat/stop", post(pane_chat_routes::stop))
         .route(
