@@ -34,5 +34,40 @@ ok(recognize("codeterm-dev pane list") !== null, "codeterm-dev recognized");
 eq(recognize("codeterm cron list --json")?.path, ["cron", "list"], "known depth-2 subcommand");
 eq(recognize("codeterm agent spawn claude")?.positionals, ["claude"], "trailing word stays positional");
 
+console.log("\n--- templates ---\n");
+import { renderTemplate } from "./templates";
+
+const sent = recognize('codeterm send-text --pane bda0e267 "hi there"')!;
+eq(renderTemplate(sent).title, "Sent to pane bda0e267", "send-text title");
+eq(renderTemplate(sent, "OK (sent)").status, { ok: true, label: "delivered" }, "send-text status from result");
+
+const spawn = recognize('codeterm agent spawn claude --task "do x" --workspace ws1')!;
+eq(renderTemplate(spawn).title, "Spawned claude", "agent spawn title");
+
+eq(renderTemplate(recognize("codeterm cron list --json")!).title, "cron list", "unknown → fallback title");
+
+console.log("\n--- template paths ⊆ manifest ---\n");
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { TEMPLATE_PATHS } from "./template-paths";
+
+const manifestPath = fileURLToPath(new URL("../../../../docs/cli-manifest.json", import.meta.url));
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+
+function resolve(node: any, path: string[]): boolean {
+  let cur = node;
+  for (const seg of path) {
+    cur = (cur.subcommands ?? []).find(
+      (c: any) => c.name === seg || (c.aliases ?? []).includes(seg),
+    );
+    if (!cur) return false;
+  }
+  return true;
+}
+
+for (const path of TEMPLATE_PATHS) {
+  ok(resolve(manifest, path), `template path exists in manifest: ${path.join(" ")}`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
