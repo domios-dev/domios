@@ -77,13 +77,14 @@ impl ServiceContext {
         // back to the reporter's own pane is the bug we just fixed — guard against that explicitly.
         if let Some(ref target_id) = target_opt {
             if target_id != pane_id {
-                // Include a short pane id alongside the title so the user can disambiguate concurrent runs of the same job (e.g. two overlapping cron fires that share `cron:my-job`).
-                let short_pane = pane_id.split('-').next().unwrap_or(pane_id);
-                let notify_msg = format!(
-                    "[Report from {} pane={}] {}",
-                    from_title, short_pane, message
-                );
-                let _ = self.send_text(target_id, &notify_msg, true);
+                let model = self
+                    .mux
+                    .lock()
+                    .get_pane(pane_id)
+                    .and_then(|p| p.agent_session_model.clone());
+                let pfx = crate::service::msg_prefix::CtxPrefix::report(&from_title, pane_id)
+                    .model(model);
+                let _ = self.send_text(target_id, &pfx.wrap(message), true);
             }
         }
 

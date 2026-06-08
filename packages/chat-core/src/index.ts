@@ -16,7 +16,6 @@ export {
   matchesRecentUserMessage,
 } from "./dedupe";
 export {
-  MARKER_NS,
   MARKER_OPEN,
   MARKER_CLOSE,
   buildMarker,

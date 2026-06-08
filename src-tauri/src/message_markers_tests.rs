@@ -4,15 +4,15 @@ use super::*;
 /// `packages/chat-core/src/markers.test.ts`. If either side drifts, its test
 /// fails.
 const PARITY: &[(&str, &str)] = &[
-    ("[[ct:voice file=/u/v.webm]]привет", "voice→transcript payload"),
+    ("-=-codeterm:voice file=/u/v.webm-=-привет", "voice→transcript payload"),
     (
-        "[[ct:voice file=/u/v.webm status=untranscribed]]no daemon",
+        "-=-codeterm:voice file=/u/v.webm status=untranscribed-=-no daemon",
         "voice→untranscribed note in payload",
     ),
-    ("[[ct:photo file=/u/p.jpg name=p.jpg]]", "photo"),
-    ("[[ct:telegram user=100000001 msg=12345]]do the task", "telegram"),
-    ("[[ct:mesh peer=peer-a pane=abc12345]]hi", "mesh"),
-    ("[[ct:pane label=General%20Main pane=bda0e267]]ping", "pane label has space"),
+    ("-=-codeterm:photo file=/u/p.jpg name=p.jpg-=-", "photo"),
+    ("-=-codeterm:telegram user=100000001 msg=12345-=-do the task", "telegram"),
+    ("-=-codeterm:mesh peer=peer-a pane=abc12345-=-hi", "mesh"),
+    ("-=-codeterm:pane label=General%20Main pane=bda0e267-=-ping", "pane label has space"),
 ];
 
 #[test]
@@ -35,7 +35,7 @@ fn every_parity_wire_parses() {
 
 #[test]
 fn parse_extracts_kind_attrs_payload() {
-    let p = parse("[[ct:telegram user=100000001 msg=12345]]do the task").unwrap();
+    let p = parse("-=-codeterm:telegram user=100000001 msg=12345-=-do the task").unwrap();
     assert_eq!(p.kind, "telegram");
     assert_eq!(p.attr("user"), Some("100000001"));
     assert_eq!(p.attr("msg"), Some("12345"));
@@ -44,10 +44,11 @@ fn parse_extracts_kind_attrs_payload() {
 
 #[test]
 fn percent_encoding_round_trips_structural_chars() {
-    let nasty = "a b]]c=d%e\"f\ng";
+    let nasty = "a b c=d%e\"f\ng";
     let wire = Marker::new("pane").attr("label", nasty).build();
     // No raw structural chars leaked into the frame head.
-    assert!(!wire[..wire.find("]]").unwrap()].contains("]]"));
+    let head = &wire[OPEN.len()..wire[OPEN.len()..].find(CLOSE).unwrap() + OPEN.len()];
+    assert!(!head.contains("]]"));
     let p = parse(&wire).unwrap();
     assert_eq!(p.attr("label"), Some(nasty));
 }
@@ -64,8 +65,8 @@ fn payload_may_contain_double_brackets() {
 fn parse_none_on_plain_text() {
     assert!(parse("just a normal message").is_none());
     assert!(parse("[voice] not our format").is_none());
-    assert!(parse("[[ct:no-close kind").is_none()); // no closing ]]
-    assert!(parse("[[ct:]]payload").is_none()); // empty kind
+    assert!(parse("[[ct:pane label=Main pane=abc12345]]hello").is_none());
+    assert!(parse("-=-codeterm:-=-payload").is_none());
 }
 
 #[test]

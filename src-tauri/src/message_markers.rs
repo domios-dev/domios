@@ -4,34 +4,30 @@
 //! injects into chat messages (attachments, source prefixes, hook metadata):
 //!
 //! ```text
-//! [[ct:<kind> k=v k=v …]]<payload>
+//! -=-codeterm:<kind> k=v k=v …-=-<payload>
 //! ```
 //!
-//! The `ct:` namespace — not the brackets — is what makes a user reproducing it
-//! by accident unlikely. The sentinel lives in [`OPEN`]/[`CLOSE`] constants, so
-//! switching to a stricter form (e.g. `⟦ct:…⟧`) later is a one-line change.
+//! The `codeterm:` sentinel makes accidental reproduction unlikely.
 //!
 //! Attribute values are percent-encoded for the structural characters
-//! (`%`, space, `]`, `=`, newline, tab, `"`) so payloads/labels never break the
+//! (`%`, space, `=`, newline, tab, `"`) so payloads/labels never break the
 //! frame; everything else (notably `/`, `.`, `-` in file paths) stays readable.
 //! The TS twin is `packages/chat-core/src/markers.ts` — keep the parity fixture
 //! (`tests::PARITY`) in sync with its `markers.test.ts`.
 
 use std::collections::HashMap;
 
-pub const NS: &str = "ct";
-pub const OPEN: &str = "[[ct:";
-pub const CLOSE: &str = "]]";
+pub const OPEN: &str = "-=-codeterm:";
+pub const CLOSE: &str = "-=-";
 
 /// Percent-encode the structural characters that would otherwise break the
-/// `[[ct:…]]` frame. Readable chars (incl. `/ . -`) pass through.
+/// marker head. Readable chars (incl. `/ . -`) pass through.
 fn encode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for ch in value.chars() {
         match ch {
             '%' => out.push_str("%25"),
             ' ' => out.push_str("%20"),
-            ']' => out.push_str("%5D"),
             '=' => out.push_str("%3D"),
             '\n' => out.push_str("%0A"),
             '\t' => out.push_str("%09"),
@@ -121,8 +117,8 @@ impl ParsedMarker {
     }
 }
 
-/// Parse a marker. Returns `None` unless the text starts with `[[ct:` and has a
-/// closing `]]` — plain text falls through unchanged.
+/// Parse a marker. Returns `None` unless the text starts with a CodeTerm marker
+/// frame — plain text falls through unchanged.
 pub fn parse(text: &str) -> Option<ParsedMarker> {
     let rest = text.strip_prefix(OPEN)?;
     let close = rest.find(CLOSE)?;

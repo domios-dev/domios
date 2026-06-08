@@ -449,11 +449,8 @@ pub async fn chat_stop(svc: tauri::State<'_, ServiceState>, pane_id: String) -> 
 }
 
 /// Format an uploaded voice attachment for sending to an agent: transcribe it
-/// (via the configured transcriber daemon) and wrap as
-/// `[voice] (voice transcript: "...") file://...` — the same shape the Telegram
-/// bridge uses. The `[...]` prefix also avoids a leading `/` that some agent
-/// TUIs (opencode) treat as a command. Graceful: falls back to `[voice] file://`
-/// when transcription is off or fails.
+/// (via the configured transcriber daemon) and wrap it in the same
+/// `-=-codeterm:voice ...-=-` marker shape the Telegram bridge uses.
 #[tauri::command]
 pub async fn transcribe_voice_attachment(path: String) -> Result<String, String> {
     let cfg = crate::config::load_config().integrations.voice_transcribe;

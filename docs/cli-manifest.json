@@ -4092,9 +4092,11 @@
       ]
     },
     {
-      "name": "send-text",
+      "name": "send",
       "about": "Send text to a pane (default: current pane)",
-      "aliases": [],
+      "aliases": [
+        "send-text"
+      ],
       "args": [
         {
           "name": "from_file",
@@ -4109,7 +4111,7 @@
           "positional": false,
           "value_name": "FROM_STDIN",
           "default": null,
-          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send-text --pane X --from-stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
+          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --from-stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
           "aliases": []
         },
         {

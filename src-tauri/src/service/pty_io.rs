@@ -37,9 +37,15 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
 
 /// Windows pty + cmd.exe handle bracketed-paste markers correctly and there
 /// is no /bin/bash to script-exec with, so we keep the original behavior.
+///
+/// A sacrificial leading space absorbs PSReadLine's first-byte race: the very
+/// first content byte after the `ESC[200~` opener is dropped when the paste
+/// arrives before the bracketed-paste handler is fully armed (the
+/// `emove-Item` / `nset CLAUDECODE` launch glitch). PowerShell ignores leading
+/// whitespace, so the space is harmless whether or not it gets eaten.
 #[cfg(windows)]
 pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
-    Ok(format!("\x1b[200~{}\x1b[201~\r", cmd).into_bytes())
+    Ok(format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes())
 }
 
 impl ServiceContext {
@@ -866,6 +872,23 @@ mod tests {
     #[test]
     fn multiline_text_enter_true() {
         assert_eq!(apply_enter("line1\nline2", true), "line1\nline2\r");
+    }
+
+    // ── Windows spawn-dispatch: sacrificial leading space ──
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_spawn_dispatch_prepends_sacrificial_space() {
+        let bytes = build_spawn_dispatch("Remove-Item Env:CLAUDECODE; claude").unwrap();
+        let s = String::from_utf8(bytes).unwrap();
+        // Opener, then a space the PSReadLine first-byte race can eat without
+        // corrupting the command, then the command intact, then closer + CR.
+        assert_eq!(s, "\x1b[200~ Remove-Item Env:CLAUDECODE; claude\x1b[201~\r");
+        // If the first content byte is dropped, what survives still starts with
+        // the real command — never `emove-Item`.
+        let after_opener = &s["\x1b[200~".len()..];
+        assert!(after_opener.starts_with(' '));
+        assert!(after_opener[1..].starts_with("Remove-Item"));
     }
 
     // ── SendBatchItem deserialization ──
