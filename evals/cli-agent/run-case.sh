@@ -20,7 +20,11 @@ PY
 PROMPT="$(read_field prompt)"
 [ -z "$PROMPT" ] && { echo "no prompt for $CASE_ID"; exit 2; }
 
-TMP="$(mktemp -d)"
+# Sandbox cwd under the runs dir (NOT mktemp → /var, which macOS symlinks to
+# /private/var and breaks agents' cwd→session path/db matching). Inspectable,
+# gitignored.
+TMP="$RUNS_DIR/sandbox-$CASE_ID-$PROVIDER"
+mkdir -p "$TMP"
 WS_JSON="$(dc workspace create "bench-$CASE_ID-$PROVIDER" --cwd "$TMP" --json 2>/dev/null || echo '{}')"
 WS="$(echo "$WS_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("id",""))' 2>/dev/null || echo '')"
 SPAWN="$(dc agent spawn "$PROVIDER" --workspace "$WS" --cwd "$TMP" --title "$CASE_ID" --json 2>/dev/null || echo '{}')"
