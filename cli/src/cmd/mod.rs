@@ -5,6 +5,7 @@ pub mod docs;
 pub mod dream;
 pub mod graph_mutate;
 pub mod install;
+pub mod manifest;
 pub mod mem;
 pub mod mem_secret;
 pub mod mesh;

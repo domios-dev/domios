@@ -44,6 +44,13 @@ pub enum Commands {
     /// List all available API methods
     Capabilities,
 
+    /// Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
+    CliManifest {
+        /// Regenerate committed artifacts (docs/cli-manifest.json + docs/CLI.md)
+        #[arg(long)]
+        write: bool,
+    },
+
     /// Workspace management
     Workspace {
         #[command(subcommand)]
