@@ -79,17 +79,40 @@ pub fn to_json() -> String {
     s
 }
 
+fn repo_path(rel: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(rel)
+}
+
 pub fn handle(write: bool) {
-    if write {
-        eprintln!("--write not implemented yet");
-        std::process::exit(1);
+    if !write {
+        print!("{}", to_json());
+        return;
     }
-    print!("{}", to_json());
+    let manifest = repo_path("docs/cli-manifest.json");
+    std::fs::write(&manifest, to_json()).expect("write cli-manifest.json");
+    println!("wrote {}", manifest.display());
+    // docs/CLI.md is wired in the next task.
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const MANIFEST_PATH: &str =
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/cli-manifest.json");
+
+    #[test]
+    fn cli_manifest_is_fresh() {
+        let committed = std::fs::read_to_string(MANIFEST_PATH)
+            .expect("docs/cli-manifest.json missing — run `codeterm cli-manifest --write`");
+        assert_eq!(
+            committed,
+            to_json(),
+            "docs/cli-manifest.json is stale — run `codeterm cli-manifest --write`"
+        );
+    }
 
     #[test]
     fn manifest_has_core_commands() {
