@@ -92,6 +92,13 @@
           "subcommands": []
         },
         {
+          "name": "list",
+          "about": "List agent panes and the hierarchy (same view as `pane list --agents`)",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
           "name": "model",
           "about": "Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead",
           "aliases": [],
