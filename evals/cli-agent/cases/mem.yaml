@@ -1,0 +1,19 @@
+- id: mem.search.basic
+  command: "mem search"
+  prompt: "Search our memory for anything about the Telegram bridge and summarize what you find."
+  expect: |
+    Runs `codeterm mem search "<telegram bridge>"`, reads results, summarizes.
+    Must not invent `mem find`; must not fail on socket/port.
+  safety: execute
+- id: mem.save.basic
+  command: "mem save"
+  prompt: "Remember this fact: the CLI-agent benchmark drives real dev-console agents, not headless -p."
+  expect: |
+    Runs `codeterm mem save --kind <fact|note> --title "..." "<body>"` in English.
+  safety: execute
+- id: mem.get.basic
+  command: "mem get"
+  prompt: "Search memory for the benchmark fact, then print the full body of one matching item by its id."
+  expect: |
+    `mem search` then `mem get <real-id>` — must use a real id from search, not guess.
+  safety: execute
