@@ -32,6 +32,10 @@ Link a pane as worker under a parent
 - `--pane` — Pane ID to link (default: current focused pane)
 - `--parent` — Parent pane ID (orchestrator or lead)
 
+#### `codeterm agent list`
+
+List agent panes and the hierarchy (same view as `pane list --agents`)
+
 #### `codeterm agent model`
 
 Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead

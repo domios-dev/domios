@@ -9,6 +9,10 @@ pub enum AgentAction {
         #[arg(long)]
         pane: Option<String>,
     },
+
+    /// List agent panes and the hierarchy (same view as `pane list --agents`)
+    #[command(alias = "hierarchy")]
+    List,
     /// Link a pane as worker under a parent
     Link {
         /// Parent pane ID (orchestrator or lead)

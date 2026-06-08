@@ -63,9 +63,10 @@ Sub-panes don't spawn further sub-panes — keep the tree one level deep. For mu
 
 ```bash
 codeterm pane list                                 # workspace tree of panes; your sub-panes nest under you (--agents = agent panes only)
-                                                   # this IS the agent list / hierarchy view — there is NO `agent list` or `agent hierarchy` command
-codeterm agent providers                           # list registered providers (claude, codex, …) + default models + capabilities
-codeterm agent models <provider>                   # list models a provider accepts (e.g. agent models claude)
+codeterm agent list                                # agent panes + hierarchy (alias: `agent hierarchy`; same as `pane list --agents`)
+codeterm agent providers                           # registered providers (claude, codex, …) + default models + capabilities
+codeterm agent models <provider>                   # models a provider accepts (e.g. agent models claude)
+                                                   # providers/models/version come from these commands — never grep src/ or read source for them
 codeterm agent spawn claude --task "..." [--title T] [--workspace WS] [--mesh PEER] [--cwd PATH]
 codeterm agent report "summary"                    # report to your parent (when you ARE a sub-pane)
 codeterm agent reports                             # read your sub-panes' reports
