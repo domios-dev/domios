@@ -3855,6 +3855,212 @@
       ]
     },
     {
+      "name": "plugin",
+      "about": "Plugin management — install, update, remove, manage channels",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "channel",
+          "about": "Manage plugin channels",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Add a local path or git URL channel",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": false,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "url",
+                  "positional": true,
+                  "value_name": "URL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "diff",
+              "about": "Compare installed plugins against a channel without installing",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": true,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List registered channels",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "refresh",
+              "about": "Refresh one channel, or all channels when name is omitted",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": true,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "remove",
+              "about": "Remove a channel cache and registry entry",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "force",
+                  "positional": false,
+                  "value_name": "FORCE",
+                  "default": null,
+                  "help": "Allow removing the protected system channel registration",
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": true,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "install",
+          "about": "Install a plugin by id from channels, or directly from a local folder",
+          "aliases": [],
+          "args": [
+            {
+              "name": "channel",
+              "positional": false,
+              "value_name": "CHANNEL",
+              "default": null,
+              "help": "Disambiguate channel installs when more than one channel offers the id",
+              "aliases": []
+            },
+            {
+              "name": "from_dir",
+              "positional": false,
+              "value_name": "FROM_DIR",
+              "default": null,
+              "help": "Install from a local plugin directory",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Plugin id to install from registered channels",
+              "aliases": []
+            },
+            {
+              "name": "id_override",
+              "positional": false,
+              "value_name": "ID_OVERRIDE",
+              "default": null,
+              "help": "Override the install id. Defaults to plugin.json#id or folder name",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List installed plugins",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "remove",
+          "about": "Remove an installed plugin",
+          "aliases": [],
+          "args": [
+            {
+              "name": "force",
+              "positional": false,
+              "value_name": "FORCE",
+              "default": null,
+              "help": "Allow removing a verified/system plugin folder",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "update",
+          "about": "Update one installed plugin, or all plugins when id is omitted",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "update-system",
+          "about": "Update bundled system provider plugins from the official plugin channel",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "send-text",
       "about": "Send text to a pane (default: current pane)",
       "aliases": [],

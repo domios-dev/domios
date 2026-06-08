@@ -1101,6 +1101,76 @@ Explicit delete
 
 - `<id>` — Paste id
 
+#### `codeterm plugin`
+
+Plugin management — install, update, remove, manage channels
+
+#### `codeterm plugin channel`
+
+Manage plugin channels
+
+#### `codeterm plugin channel add`
+
+Add a local path or git URL channel
+
+- `--name` — 
+- `<url>` — 
+
+#### `codeterm plugin channel diff`
+
+Compare installed plugins against a channel without installing
+
+- `<name>` — 
+
+#### `codeterm plugin channel list`
+
+List registered channels
+
+#### `codeterm plugin channel refresh`
+
+Refresh one channel, or all channels when name is omitted
+
+- `<name>` — 
+
+#### `codeterm plugin channel remove`
+
+Remove a channel cache and registry entry
+
+- `--force` — Allow removing the protected system channel registration
+- `<name>` — 
+
+#### `codeterm plugin install`
+
+Install a plugin by id from channels, or directly from a local folder
+
+- `--channel` — Disambiguate channel installs when more than one channel offers the id
+- `--from_dir` — Install from a local plugin directory
+- `<id>` — Plugin id to install from registered channels
+- `--id_override` — Override the install id. Defaults to plugin.json#id or folder name
+
+#### `codeterm plugin list`
+
+List installed plugins
+
+#### `codeterm plugin remove`
+
+Remove an installed plugin
+
+- `--force` — Allow removing a verified/system plugin folder
+- `<id>` — 
+
+#### `codeterm plugin update`
+
+Update one installed plugin, or all plugins when id is omitted
+
+- `<id>` — 
+
+#### `codeterm plugin update-system`
+
+Update bundled system provider plugins from the official plugin channel
+
+- `<id>` — 
+
 #### `codeterm send-text`
 
 Send text to a pane (default: current pane)

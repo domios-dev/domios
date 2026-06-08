@@ -176,6 +176,61 @@ mod tests {
         );
     }
 
+    const PROMPT_PATH: &str =
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../src-tauri/prompts/codeterm_cli.md");
+
+    fn resolve<'a>(root: &'a ManifestCommand, path: &[&str]) -> Option<&'a ManifestCommand> {
+        let mut cur = root;
+        for seg in path {
+            cur = cur
+                .subcommands
+                .iter()
+                .find(|c| c.name == *seg || c.aliases.iter().any(|a| a == seg))?;
+        }
+        Some(cur)
+    }
+
+    // Every `codeterm <subcmd...>` head referenced in the prompt must resolve in
+    // the clap tree. Conservative: only flags a line whose command head matches
+    // no real command at all.
+    #[test]
+    fn prompt_cli_commands_exist() {
+        let root = build();
+        let text = std::fs::read_to_string(PROMPT_PATH).expect("read codeterm_cli.md");
+        let mut bad: Vec<String> = Vec::new();
+        for raw in text.lines() {
+            let line = raw.trim().trim_start_matches('`').trim_start_matches("$ ");
+            let Some(rest) = line.strip_prefix("codeterm ") else {
+                continue;
+            };
+            // Collect leading bare-word tokens as the candidate subcommand path.
+            let mut path: Vec<&str> = Vec::new();
+            for tok in rest.split_whitespace() {
+                if tok.starts_with('-') || tok.starts_with('"') || tok.contains('=') {
+                    break;
+                }
+                if tok.starts_with('<')
+                    || tok.chars().all(|c| c.is_ascii_uppercase() || c == '_')
+                {
+                    break; // argument placeholder (UPPERCASE / <...>)
+                }
+                path.push(tok);
+            }
+            // Trim back to the longest resolvable prefix.
+            while !path.is_empty() && resolve(&root, &path).is_none() {
+                path.pop();
+            }
+            if path.is_empty() {
+                bad.push(format!("unrecognized: {line}"));
+            }
+        }
+        assert!(
+            bad.is_empty(),
+            "prompt references unknown CLI commands:\n{}",
+            bad.join("\n")
+        );
+    }
+
     #[test]
     fn manifest_has_core_commands() {
         let m = build();
