@@ -990,6 +990,13 @@ Send a notification
 
 Pane management
 
+#### `codeterm pane chat`
+
+Read a pane's parsed chat transcript (text/thinking/tool calls/results)
+
+- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--since` — Only return messages from this index onward
+
 #### `codeterm pane close`
 
 Close a pane by ID

@@ -3494,6 +3494,30 @@
       "args": [],
       "subcommands": [
         {
+          "name": "chat",
+          "about": "Read a pane's parsed chat transcript (text/thinking/tool calls/results)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "aliases": []
+            },
+            {
+              "name": "since",
+              "positional": false,
+              "value_name": "SINCE",
+              "default": "0",
+              "help": "Only return messages from this index onward",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "close",
           "about": "Close a pane by ID",
           "aliases": [],

@@ -124,6 +124,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 let p = pane.as_deref().unwrap_or("general");
                 ("POST".into(), format!("/api/panes/{}/stop", p), Some("{}".into()))
             }
+            crate::PaneAction::Chat { pane, since } => {
+                let p = pane.as_deref().unwrap_or("general");
+                ("GET".into(), format!("/api/panes/{}/chat?since={}", p, since), None)
+            }
         },
         Commands::Paste { action } => match action {
             crate::PasteAction::Put { body, from_file, from_stdin, ttl, content_type, pop } => {
