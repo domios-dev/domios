@@ -15,6 +15,7 @@ SBROOT="$RUNS/sandboxes"; mkdir -p "$SBROOT"
 PANES="$RUNS/.panes-$(basename "$BATCH_FILE").tsv"; : > "$PANES"
 
 cleanup_bench_ws   # clean any leftovers first
+trap cleanup_bench_ws EXIT   # ALWAYS clean on exit, even if the batch errors mid-poll
 
 # id -> prompt map from all case files
 prompt_for() {  # <cid>
@@ -64,8 +65,8 @@ echo "  settled ~$((round*3))s"
 echo "── SUMMARY (cid | count | first tool calls) ──"
 while IFS=$'\t' read -r CID WS PANE PROMPT; do
   [ -n "$PANE" ] || continue
-  dc pane chat --pane "$PANE" --json > "$RUNS/$CID.json" 2>/dev/null
-  python3 evals/cli-agent/transcript-md.py "$RUNS/$CID.json" "$CID" "$PROVIDER" "$PROMPT" > "$RUNS/$CID.md" 2>/dev/null
+  dc pane chat --pane "$PANE" --json > "$RUNS/$CID.json" 2>/dev/null || true
+  python3 evals/cli-agent/transcript-md.py "$RUNS/$CID.json" "$CID" "$PROVIDER" "$PROMPT" > "$RUNS/$CID.md" 2>/dev/null || true
   python3 - "$CID" "$RUNS/$CID.json" <<'PY'
 import sys,json
 cid=sys.argv[1]
