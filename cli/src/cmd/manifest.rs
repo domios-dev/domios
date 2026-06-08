@@ -203,6 +203,11 @@ mod tests {
             let Some(rest) = line.strip_prefix("codeterm ") else {
                 continue;
             };
+            // `codeterm --version` / `--help` etc. is the root + a global flag,
+            // not a subcommand — valid, skip.
+            if rest.trim_start().starts_with('-') {
+                continue;
+            }
             // Collect leading bare-word tokens as the candidate subcommand path.
             let mut path: Vec<&str> = Vec::new();
             for tok in rest.split_whitespace() {

@@ -20,9 +20,9 @@ codeterm identify                                  # product version, build, pla
 codeterm capabilities                              # every API method this instance exposes
 codeterm docs                                      # list embedded docs; `codeterm docs MEMORY` / `docs CLI` etc. to read one
 ```
-Reach for these instead of poking `curl /api/health`, grepping source, or
-`codeterm --version` — note `--version` reports the CLI binary's own crate
-version (not the product version); `codeterm identify` is authoritative.
+Reach for these instead of poking `curl /api/health`, grepping source, or the
+`--version` flag — which reports the CLI binary's crate version, not the
+product version. `codeterm identify` is authoritative for version/build.
 
 ## Panes & workspaces
 
