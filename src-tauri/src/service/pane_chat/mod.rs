@@ -90,7 +90,7 @@ pub fn pane_chat_snapshot(
     } else {
         let path = svc
             .agent_registry
-            .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
+            .with_provider(&provider_id, |p| p.session_file_path(&cwd, &session_id))
             .flatten()
             .ok_or("provider has no JSONL and no structured chat")?;
         let delta = svc
