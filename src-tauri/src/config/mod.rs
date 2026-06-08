@@ -116,7 +116,32 @@ pub fn usage_tracking_enabled(provider_id: &str) -> bool {
 /// Load config from disk, or create default if missing.
 /// Auto-generates an API token when none is configured — the internal
 /// webview and the CLI both need it to authenticate against the REST API.
+/// Cached config read. `config.toml` is re-parsed only when its mtime changes.
+/// `load_config()` is called from many hot paths (mesh heartbeats, request
+/// handlers, bridge/secrets/voice) — a disk read + full TOML parse per call was
+/// a measurable CPU sink (profiled). `config set` rewrites the file so the mtime
+/// bumps and readers see the new value on the next call.
 pub fn load_config() -> AppConfig {
+    use std::sync::OnceLock;
+    use std::time::SystemTime;
+    static CACHE: OnceLock<Mutex<Option<(Option<SystemTime>, AppConfig)>>> = OnceLock::new();
+
+    let mtime = config_path()
+        .ok()
+        .and_then(|p| std::fs::metadata(&p).ok())
+        .and_then(|m| m.modified().ok());
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    if let Some((cached_mtime, cfg)) = cache.lock().as_ref() {
+        if *cached_mtime == mtime {
+            return cfg.clone();
+        }
+    }
+    let cfg = load_config_uncached();
+    *cache.lock() = Some((mtime, cfg.clone()));
+    cfg
+}
+
+fn load_config_uncached() -> AppConfig {
     let path = match config_path() {
         Ok(p) => p,
         Err(e) => {
