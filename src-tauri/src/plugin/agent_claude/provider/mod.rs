@@ -46,6 +46,10 @@ impl AgentProvider for ClaudeProvider {
         "claude"
     }
 
+    fn supports_chat_ui(&self) -> bool {
+        true
+    }
+
     fn display_name(&self) -> &str {
         "Claude Code"
     }

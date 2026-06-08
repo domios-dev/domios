@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::usage as opencode_usage;
+use crate::agent::chat_types::StructuredChat;
 use crate::agent::provider::{
     self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy,
     SessionMessage, SessionMetadata, SettingField, TaskDelivery, UsageSnapshot,
@@ -259,6 +260,127 @@ impl OpenCodeProvider {
         )
         .is_ok()
     }
+
+    /// Read chat parts for a session from sqlite, newest cursor onward.
+    /// Each renderable part (text/reasoning/tool) becomes one `ChatMsg`
+    /// keyed by its stable part id. `since_ms` is inclusive (`>=`) so the
+    /// still-streaming last message is re-read and its growth picked up.
+    fn db_structured_chat(session_id: &str, since_ms: i64) -> StructuredChat {
+        let Some(path) = Self::db_path() else {
+            return StructuredChat::default();
+        };
+        Self::query_structured_chat(&path, session_id, since_ms)
+    }
+
+    fn query_structured_chat(db_path: &Path, session_id: &str, since_ms: i64) -> StructuredChat {
+        let Ok(conn) = rusqlite::Connection::open_with_flags(
+            db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ) else {
+            return StructuredChat::default();
+        };
+        let Ok(mut stmt) = conn.prepare(
+            "SELECT p.id, p.time_created, p.data, m.data \
+             FROM part p JOIN message m ON m.id = p.message_id \
+             WHERE p.session_id = ?1 AND p.time_created >= ?2 \
+             ORDER BY p.time_created ASC, p.id ASC",
+        ) else {
+            return StructuredChat::default();
+        };
+        let rows = stmt.query_map(rusqlite::params![session_id, since_ms], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        });
+        let Ok(rows) = rows else {
+            return StructuredChat::default();
+        };
+
+        let mut messages = Vec::new();
+        let mut cursor = since_ms;
+        for (part_id, ts_ms, part_json, msg_json) in rows.flatten() {
+            cursor = cursor.max(ts_ms);
+            let Ok(part) = serde_json::from_str::<serde_json::Value>(&part_json) else {
+                continue;
+            };
+            let role = serde_json::from_str::<serde_json::Value>(&msg_json)
+                .ok()
+                .and_then(|m| m.get("role").and_then(|r| r.as_str()).map(String::from))
+                .unwrap_or_else(|| "assistant".to_string());
+            if let Some(msg) = part_to_chat_msg(&part, &role, part_id, ts_ms) {
+                messages.push(msg);
+            }
+        }
+
+        StructuredChat {
+            messages,
+            cursor: Some(cursor.to_string()),
+        }
+    }
+}
+
+/// Map one opencode `part` blob to a `ChatMsg`. Handles text (user/assistant
+/// by role), reasoning (thinking) and tool (tool_call); other part types
+/// (step-start/-finish, compaction, patch, file) are not rendered as chat.
+fn part_to_chat_msg(
+    part: &serde_json::Value,
+    role: &str,
+    id: String,
+    ts_ms: i64,
+) -> Option<crate::agent::chat_types::ChatMsg> {
+    use crate::agent::chat_types::ChatMsg;
+    let timestamp = Some(ts_ms.to_string());
+    match part.get("type").and_then(|t| t.as_str())? {
+        "text" => {
+            let content = part.get("text").and_then(|t| t.as_str()).unwrap_or("");
+            if content.trim().is_empty() {
+                return None;
+            }
+            let kind = if role == "user" { "user" } else { "assistant" };
+            Some(ChatMsg {
+                id,
+                kind: kind.to_string(),
+                content: content.to_string(),
+                timestamp,
+                ..Default::default()
+            })
+        }
+        "reasoning" => {
+            let content = part.get("text").and_then(|t| t.as_str()).unwrap_or("");
+            if content.trim().is_empty() {
+                return None;
+            }
+            Some(ChatMsg {
+                id,
+                kind: "thinking".to_string(),
+                content: content.to_string(),
+                timestamp,
+                ..Default::default()
+            })
+        }
+        "tool" => {
+            let tool = part.get("tool").and_then(|t| t.as_str()).unwrap_or("tool");
+            let state = part.get("state");
+            let tool_input = state.and_then(|s| s.get("input")).cloned();
+            let tool_result = state
+                .and_then(|s| s.get("output"))
+                .and_then(|o| o.as_str())
+                .map(String::from);
+            Some(ChatMsg {
+                id,
+                kind: "tool_call".to_string(),
+                content: String::new(),
+                timestamp,
+                tool_name: Some(tool.to_string()),
+                tool_input,
+                tool_result,
+            })
+        }
+        _ => None,
+    }
 }
 
 impl AgentProvider for OpenCodeProvider {
@@ -441,6 +563,20 @@ impl AgentProvider for OpenCodeProvider {
             }
         }
         out
+    }
+
+    fn uses_structured_chat(&self) -> bool {
+        true
+    }
+
+    fn read_structured_chat(
+        &self,
+        _cwd: &str,
+        session_id: &str,
+        cursor: Option<&str>,
+    ) -> StructuredChat {
+        let since_ms = cursor.and_then(|c| c.parse::<i64>().ok()).unwrap_or(0);
+        Self::db_structured_chat(session_id, since_ms)
     }
 
     fn parse_session_messages(&self, file_path: &Path) -> Vec<SessionMessage> {

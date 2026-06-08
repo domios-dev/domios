@@ -174,6 +174,47 @@ pub async fn transcribe(
     Ok(Transcript { text })
 }
 
+/// Build the agent-facing attachment line for a file, transcribing voice when
+/// enabled. Shared by the Telegram bridge and the chat composer so both emit
+/// the same `[voice] (voice transcript: "...") file://...` shape. The `[...]`
+/// prefix also keeps the message from starting with `/`, which some agent TUIs
+/// (opencode) treat as a command and refuse to submit.
+pub async fn format_attachment_line(
+    path: &str,
+    kind: &str,
+    filename: Option<&str>,
+    cfg: &VoiceTranscribeConfig,
+) -> String {
+    use crate::message_markers as mk;
+    if kind == "voice" && !path.is_empty() {
+        if !cfg.enabled {
+            // Tell the agent (and the user reading the chat) that a transcriber
+            // daemon is needed and where to find it — instead of a silent path.
+            return mk::voice(
+                path,
+                None,
+                Some("no transcriber daemon configured; run `codeterm docs TRANSCRIBE` for setup"),
+            );
+        }
+        match transcribe(Path::new(path), cfg).await {
+            Ok(t) => return mk::voice(path, Some(&t.text), None),
+            Err(e) => {
+                log::warn!("[voice] transcribe failed for {}: {}", path, e);
+                return mk::voice(
+                    path,
+                    None,
+                    Some(&format!(
+                        "transcription unavailable: {} — run `codeterm docs TRANSCRIBE` to set up a daemon",
+                        e
+                    )),
+                );
+            }
+        }
+    }
+    // Non-voice attachment (photo/document/video/…): keep the real kind.
+    mk::Marker::new(kind).attr("file", path).attr_opt("name", filename).build()
+}
+
 fn path_to_string(path: &Path) -> String {
     let buf = PathBuf::from(path);
     buf.to_string_lossy().to_string()

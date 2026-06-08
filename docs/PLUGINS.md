@@ -264,3 +264,23 @@ incompatible version with a clear reason instead of installing it. `channel
 diff` rows carry `compatible` + `blocked_reason`, so the UI renders an
 "incompatible — needs CodeTerm ≥ X" badge in place of the Install/Update button.
 If `CODETERM_VERSION` is absent (raw CLI with no daemon) the gate fails open.
+
+## Chat ingestion: JSONL vs structured (DB-backed) providers
+
+The chat tail pipeline supports two session-source shapes:
+
+- **JSONL** (claude, codex): the provider returns `session_jsonl_path()`; Rust
+  tails the file by byte offset and emits raw text on `pane-chat-raw-{pane}`;
+  the **browser** parses it (`parseJsonlSession`).
+- **Structured** (opencode, sqlite): the provider sets
+  `uses_structured_chat() = true` and implements `read_structured_chat(cwd,
+  session_id, cursor)`, returning already-parsed `ChatMsg`s (frontend
+  `ChatMessage` shape) plus an opaque cursor. Rust runs a per-pane DB poller
+  (same start/stop lifecycle as the file tailer, read-only, session-scoped)
+  that emits deltas on `pane-chat-msg-{pane}`; the browser renders them
+  directly and merges by message id. The cursor is inclusive so the
+  still-streaming tail message is re-read in place rather than duplicated.
+
+Any DB-backed provider pluginizes its chat by implementing those two trait
+methods in Rust (a JS plugin can't open the store) — no change to the JSONL
+path.

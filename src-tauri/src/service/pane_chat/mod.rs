@@ -12,10 +12,13 @@
 
 pub mod raw_text_sink;
 pub mod registry;
+pub mod structured_poller;
+pub mod structured_sink;
 pub mod tailer;
 pub mod tauri_sink;
 
 pub use registry::ChatRegistry;
+pub use structured_poller::{spawn_structured_poller, StructuredPollConfig};
 pub use tailer::{
     spawn_raw_tailer, spawn_tailer, DeltaSink, RawTailConfig, RawTextSink, TailConfig, TailerHandle,
 };

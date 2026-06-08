@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,11 @@ pub struct SessionSearchOpts {
 
 pub struct AgentRegistry {
     providers: RwLock<HashMap<String, Box<dyn AgentProvider>>>,
+    /// First provider displaced for an id (the native one a JS plugin took
+    /// authority over). Kept so a JS plugin can delegate capability methods it
+    /// doesn't implement to the native impl. Never overwritten by later
+    /// re-registrations (hot-reload), so the fallback survives plugin reloads.
+    native_fallbacks: RwLock<HashMap<String, Arc<dyn AgentProvider>>>,
 }
 
 impl AgentRegistry {
@@ -38,14 +44,32 @@ impl AgentRegistry {
     pub fn new() -> Self {
         Self {
             providers: RwLock::new(HashMap::new()),
+            native_fallbacks: RwLock::new(HashMap::new()),
         }
     }
 
-    /// Register an agent provider. Overwrites any prior provider with the same id.
+    /// The displaced native provider for `id`, if any. Used by JS providers to
+    /// delegate capabilities they don't implement (e.g. sqlite-backed chat).
+    pub fn native_fallback(&self, id: &str) -> Option<Arc<dyn AgentProvider>> {
+        self.native_fallbacks.read().get(id).cloned()
+    }
+
+    /// Register an agent provider. Overwrites any prior provider with the same
+    /// id. The FIRST displaced provider for an id is preserved as a native
+    /// fallback (a JS plugin taking authority over a native impl), so the JS
+    /// provider can delegate unimplemented capabilities to it. Later
+    /// re-registrations (hot-reload) don't disturb the recorded fallback.
     pub fn register_provider(&self, provider: Box<dyn AgentProvider>) {
         let id = provider.id().to_string();
         log::info!("[agent-registry] registered provider: {}", id);
-        self.providers.write().insert(id, provider);
+        let mut guard = self.providers.write();
+        if let Some(prev) = guard.remove(&id) {
+            self.native_fallbacks
+                .write()
+                .entry(id.clone())
+                .or_insert_with(|| Arc::from(prev));
+        }
+        guard.insert(id, provider);
     }
 
     /// Register a provider only if `id` is not already present.
@@ -76,6 +100,7 @@ impl AgentRegistry {
     pub fn unregister_provider(&self, id: &str) -> bool {
         self.providers.write().remove(id).is_some()
     }
+
 
     /// Get a provider by ID and execute a closure with it.
     /// Uses a read lock — cheap for concurrent access.

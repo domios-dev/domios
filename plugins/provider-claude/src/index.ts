@@ -29,6 +29,7 @@ const plugin: ProviderPlugin = {
   },
   detect: (sample: DetectionSample) => detect(sample),
   parseLine,
+  parseSession: parseJsonlSession,
   statusOf,
   Renderer,
   actions: [

@@ -73,6 +73,53 @@ module.exports.default = {
     return events;
   },
 
+  // Parse opencode's permission box. Its options are a single horizontal row
+  // ("Allow once  Allow always  Reject") rather than a numbered list, so the
+  // host's universal picker can't read it — the plugin owns its own format.
+  // Returns { question, options: [[label, value]] } with value = 1-based index,
+  // or null. The host navigates to the option via build_prompt_response(index).
+  parsePrompt: function (text) {
+    // Strip box borders / decorations so labels and the question stay clean
+    // regardless of how opencode frames the dialog.
+    function clean(line) {
+      return String(line)
+        .replace(/[│┃|╎╏┆┊]/g, " ")
+        .replace(/^[\s←⚠»·]+/, "")
+        .replace(/[\s·»]+$/, "")
+        .trim();
+    }
+    var lines = String(text || "").split("\n").map(clean);
+    var permIdx = -1;
+    for (var i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].indexOf("Permission required") !== -1) { permIdx = i; break; }
+    }
+    if (permIdx < 0) return null;
+
+    // Options row: the line with the action words below the prompt.
+    var optLine = null;
+    for (var j = permIdx; j < lines.length; j++) {
+      var lc = lines[j].toLowerCase();
+      if (
+        (lc.indexOf("allow") !== -1 || lc.indexOf("reject") !== -1 || lc.indexOf("deny") !== -1) &&
+        lc.indexOf("permission required") === -1
+      ) { optLine = lines[j]; break; }
+    }
+    if (!optLine) return null;
+    var labels = optLine.split(/\s{2,}/).map(function (s) { return s.trim(); }).filter(Boolean);
+    if (labels.length < 2) return null;
+    var options = labels.map(function (label, idx) { return [label, String(idx + 1)]; });
+
+    // Question: first meaningful line after the prompt, skipping the
+    // "Patterns" label and blank/decoration-only lines.
+    var question = "";
+    for (var k = permIdx + 1; k < lines.length; k++) {
+      var q = lines[k];
+      if (q && q.toLowerCase() !== "patterns") { question = q; break; }
+    }
+    if (!question) question = "Permission required";
+    return { question: question, options: options };
+  },
+
   buildLaunchCommand: function (params) {
   // `--dangerously-skip-permissions` is run-only; include only for headless tasks.
     var p = params || {};

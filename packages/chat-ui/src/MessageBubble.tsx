@@ -5,6 +5,7 @@ import type {
   ChatAttachment as ImageAttachment,
   SlashCommand,
 } from "@codeterm/chat-core";
+import { parseMarker } from "@codeterm/chat-core";
 import {
   ChevronDown, File, Image, Download,
   // Tool icons
@@ -27,6 +28,7 @@ import {
   Check,
   Maximize2,
   Minimize2,
+  Mic,             // voice note
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -475,7 +477,7 @@ function RichMarkdown({ text }: { text: string }) {
 /** Extract file path from tool args or toolInput. */
 function extractFilePath(message: ChatMessage): string | null {
   if (message.toolInput) {
-    const fp = message.toolInput.file_path as string | undefined;
+    const fp = (message.toolInput.file_path ?? message.toolInput.filePath) as string | undefined;
     if (fp) return fp;
   }
   if (message.toolArgs) {
@@ -489,6 +491,75 @@ function extractFilePath(message: ChatMessage): string | null {
     }
   }
   return null;
+}
+
+interface EditPair {
+  old: string;
+  new: string;
+}
+
+/** Extract Edit/MultiEdit before→after pairs from a tool call so the chat can
+ *  render a real diff instead of just "file updated". Handles single
+ *  old_string/new_string and the MultiEdit `edits` array, from either
+ *  `toolInput` or a JSON `toolArgs` fallback. Provider-agnostic. */
+function extractEdits(message: ChatMessage): EditPair[] {
+  let input: Record<string, unknown> | null =
+    (message.toolInput as Record<string, unknown> | undefined) ?? null;
+  if (!input && message.toolArgs) {
+    try {
+      input = JSON.parse(message.toolArgs) as Record<string, unknown>;
+    } catch {
+      input = null;
+    }
+  }
+  if (!input) return [];
+  const toPair = (e: Record<string, unknown>): EditPair | null => {
+    // Accept snake_case (claude) and camelCase (opencode et al).
+    const oldS = (e.old_string ?? e.oldString) as unknown;
+    const newS = (e.new_string ?? e.newString) as unknown;
+    if (typeof oldS !== "string" && typeof newS !== "string") return null;
+    return { old: String(oldS ?? ""), new: String(newS ?? "") };
+  };
+  if (Array.isArray(input.edits)) {
+    return input.edits
+      .map((e) => toPair(e as Record<string, unknown>))
+      .filter((e): e is EditPair => e !== null);
+  }
+  const single = toPair(input);
+  return single ? [single] : [];
+}
+
+/** Old→new diff for Edit/MultiEdit tool calls: removed lines in red, added in
+ *  green. Line-based, no LCS — clear and cheap. */
+function DiffView({ edits }: { edits: EditPair[] }) {
+  const row = (line: string, kind: "del" | "add", key: string) => (
+    <div
+      key={key}
+      className={`${PRE_WRAP_CLASS} px-1`}
+      style={{
+        background:
+          kind === "del"
+            ? "color-mix(in srgb, var(--ct-red, #f85149) 14%, transparent)"
+            : "color-mix(in srgb, var(--ct-green, #3fb950) 14%, transparent)",
+        color: "var(--ct-fg)",
+      }}
+    >
+      <span style={{ color: kind === "del" ? "var(--ct-red, #f85149)" : "var(--ct-green, #3fb950)" }}>
+        {kind === "del" ? "- " : "+ "}
+      </span>
+      {line || " "}
+    </div>
+  );
+  return (
+    <div className="font-mono text-[11px] leading-relaxed overflow-x-auto">
+      {edits.map((e, i) => (
+        <div key={i} className={i > 0 ? "mt-2 border-t border-[var(--ct-border)] pt-2" : ""}>
+          {e.old ? e.old.split("\n").map((l, j) => row(l, "del", `o${i}-${j}`)) : null}
+          {e.new ? e.new.split("\n").map((l, j) => row(l, "add", `n${i}-${j}`)) : null}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /** Truncate file path to show just filename + parent. */
@@ -1303,7 +1374,75 @@ function fileName(path: string): string {
  * Marker format: \x00«file:/path/to/file» — uses NUL + guillemets to avoid
  * false positives with any user-typed text, markdown, or code.
  */
+interface ParsedVoice {
+  transcript: string | null;
+  note: string | null;
+  fileUrl: string | null;
+  fileName: string | null;
+}
+
+/** Parse the `[voice] (voice transcript: "...") file://...` line the composer
+ *  and the Telegram bridge emit, so the chat can show a voice card instead of
+ *  the raw bracketed string. Returns null when the text isn't a voice line. */
+function parseVoiceMessage(content: string): ParsedVoice | null {
+  const m = parseMarker(content.trim());
+  if (!m || m.kind !== "voice") return null;
+  const fileUrl = m.attrs.file ?? null;
+  const untranscribed = m.attrs.status === "untranscribed";
+  const payload = m.payload.trim() || null;
+  return {
+    transcript: untranscribed ? null : payload,
+    note: untranscribed ? payload : null,
+    fileUrl,
+    fileName: fileUrl ? fileName(fileUrl) : null,
+  };
+}
+
+function VoiceCard({ v }: { v: ParsedVoice }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div
+        className="inline-flex items-center gap-1.5 text-[11px]"
+        style={{ color: "var(--ct-muted-fg)" }}
+      >
+        <Mic size={13} strokeWidth={2} />
+        <span className="opacity-80 font-medium">Voice</span>
+        {v.fileName && <span className="opacity-40 font-mono">{v.fileName}</span>}
+      </div>
+      {v.transcript ? (
+        <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{v.transcript}</pre>
+      ) : (
+        <span className="text-[11px] italic" style={{ color: "var(--ct-muted-fg)" }}>
+          {v.note ?? "voice note"}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function renderUserContent(content: string): React.ReactNode {
+  const voice = parseVoiceMessage(content);
+  if (voice) return <VoiceCard v={voice} />;
+  // Non-voice attachment markers (photo/document/video/file) → file badge.
+  const mk = parseMarker(content.trim());
+  if (mk && ["photo", "file", "document", "video", "audio", "sticker"].includes(mk.kind)) {
+    const fp = mk.attrs.file ?? "";
+    const name = mk.attrs.name || (fp ? fileName(fp) : mk.kind);
+    return (
+      <div
+        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px]"
+        style={{
+          background: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 12%, transparent)",
+          color: "var(--ct-fg)",
+        }}
+        title={fp}
+      >
+        <FileIcon />
+        <span className="font-medium">{name}</span>
+        <span className="opacity-50 uppercase">{mk.kind}</span>
+      </div>
+    );
+  }
   // Match both new marker (\x00«file:...») and legacy [attached: ...] format
   const attachRe = /(?:\x00\u00ABfile:([^\u00BB]+)\u00BB|\[attached:\s*([^\]]+)\])/g;
   const parts: React.ReactNode[] = [];
@@ -1418,11 +1557,11 @@ interface MessageBubbleProps {
 }
 
 export const MessageBubble = React.memo(function MessageBubble({ message, origin, onOriginClick }: MessageBubbleProps) {
-  // Auto-expand only for Write-style tool input (the file body the agent is
-  // writing). A bash/grep result must NOT force-expand — it shows a compact
-  // inline tail under the pill instead (full output behind the chevron).
+  // Auto-expand for Write-style tool input (the file body being written) and
+  // for Edit/MultiEdit (always show the diff). A bash/grep result must NOT
+  // force-expand — it shows a compact inline tail under the pill instead.
   const shouldAutoExpand = message.type === "tool_call"
-    && message.toolInput?.content != null;
+    && (message.toolInput?.content != null || extractEdits(message).length > 0);
   const [expanded, setExpanded] = useState(shouldAutoExpand);
   const [viewingImage, setViewingImage] = useState<ImageAttachment | null>(null);
 
@@ -1625,6 +1764,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     const command = message.toolName === "Bash" ? extractCommand(message) : null;
     const hasToolContent = message.toolInput?.content != null;
     const toolContent = hasToolContent ? String(message.toolInput!.content) : null;
+    const edits = extractEdits(message);
+    const addedLines = edits.reduce((n, e) => n + (e.new ? e.new.split("\n").length : 0), 0);
+    const removedLines = edits.reduce((n, e) => n + (e.old ? e.old.split("\n").length : 0), 0);
 
     // Build summary text
     let summary = "";
@@ -1690,6 +1832,12 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                 {lineCount(toolContent)} lines
               </span>
             )}
+            {edits.length > 0 && (
+              <span className="shrink-0 font-mono text-[11px]">
+                <span style={{ color: "var(--ct-green, #3fb950)" }}>+{addedLines}</span>{" "}
+                <span style={{ color: "var(--ct-red, #f85149)" }}>-{removedLines}</span>
+              </span>
+            )}
             <ChevronIcon expanded={expanded} className="ml-1 opacity-50" />
           </button>
 
@@ -1714,6 +1862,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             >
               {toolContent ? (
                 <CodeBlock text={toolContent} language={codeLanguage} maxHeight="24rem" />
+              ) : edits.length > 0 ? (
+                <DiffView edits={edits} />
               ) : (
                 <pre
                   className={`${PRE_WRAP_CLASS} m-0 font-mono`}

@@ -14,6 +14,7 @@ import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { CrashReportToast } from "./components/CrashReportToast";
+import { HamburgerIcon } from "./components/Icons";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
@@ -72,7 +73,7 @@ function AppInner() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 640,
   );
-  const keyboardInset = useKeyboardInset();
+  const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "git">("workspace");
   const [gitRepoCwd, setGitRepoCwd] = useState<string | null>(null);
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
@@ -527,7 +528,8 @@ function AppInner() {
         // 100% of #root, which owns viewport sizing (dvh + safe-area padding in index.html). keyboardInset
         // covers iOS Safari, where the keyboard shrinks only the VISUAL viewport and dvh stays put (see useKeyboardInset).
         height: keyboardInset ? `calc(100% - ${keyboardInset}px)` : "100%",
-        "--ct-composer-bottom-padding": keyboardInset
+        // keyboardOpen (not keyboardInset) drives this: in standalone the inset reads 0 even with the keyboard up, which would leave a dead safe-area stripe under the composer.
+        "--ct-composer-bottom-padding": keyboardOpen
           ? "0px"
           : "calc(0.5rem + var(--ct-safe-bottom, 0px))",
       } as React.CSSProperties}
@@ -546,11 +548,19 @@ function AppInner() {
         <button
           data-testid="web-sidebar-open"
           onClick={() => setSidebarOpen(true)}
-          className="fixed left-2 z-50 flex items-center justify-center w-11 h-11 rounded-md bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)]"
-          style={{ top: "calc(0.5rem + var(--ct-safe-top, 0px))" }}
+          className="fixed left-3 z-50 flex items-center justify-center w-11 h-11 rounded-full text-white shadow-[0_6px_20px_rgba(31,111,235,0.45)] border border-white/15 active:scale-95"
+          style={{
+            // Panel views (mesh/memory/settings/git) own a top header bar — slide the burger below it so it never overlaps. Animates between positions for a live feel.
+            top:
+              mainView === "workspace"
+                ? "calc(0.5rem + var(--ct-safe-top, 0px))"
+                : "calc(var(--ct-safe-top, 0px) + 3.65rem)",
+            background: "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)",
+            transition: "top 340ms cubic-bezier(0.16, 1, 0.3, 1), transform 120ms ease",
+          }}
           title="Open sidebar"
         >
-          ☰
+          <HamburgerIcon size={17} />
         </button>
       )}
 

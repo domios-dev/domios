@@ -51,10 +51,57 @@ impl ServiceContext {
     /// link the PTY). resolve_pty_id is wrapped in a 15s retry so scripts
     /// can chain `spawn → send-text` without hitting "no PTY".
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
+        use crate::agent::provider::VerifySubmitStrategy;
         self.ensure_pane_pty_for_send(pane_id)?;
         self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
         let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
+
+        // For TUI agents that need a drained-input submit (claude/codex/opencode),
+        // route through the echo+submit-verified path: wait for the paste to land
+        // before pressing Enter, then confirm submit and retry Enter if it was
+        // swallowed. The blind fixed-delay path below loses Enter on slower TUIs
+        // (opencode) — the "message typed but not sent" bug.
+        if enter {
+            let strategy = self.pane_submit_strategy(pane_id);
+            if !matches!(strategy, VerifySubmitStrategy::None) {
+                // Chat-tuned: bound the waits so the send call returns promptly.
+                let chat_strategy = match strategy {
+                    VerifySubmitStrategy::TuiInputDrained { idle_after_drain, .. } => {
+                        VerifySubmitStrategy::TuiInputDrained {
+                            timeout: std::time::Duration::from_secs(4),
+                            idle_after_drain,
+                        }
+                    }
+                    other => other,
+                };
+                let opts = crate::service::inject_verify::VerifyOpts {
+                    require_prompt_first: false,
+                    verify_echo: true,
+                    verify_submit: true,
+                    prompt_timeout: std::time::Duration::from_secs(0),
+                    echo_timeout: std::time::Duration::from_secs(3),
+                    submit_timeout: std::time::Duration::from_secs(4),
+                };
+                return self
+                    .send_text_verified(&pty_id, text, true, chat_strategy, opts)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string());
+            }
+        }
         self.send_text_to_pty(&pty_id, text, enter)
+    }
+
+    /// The pane provider's submit strategy (how to confirm input was sent).
+    fn pane_submit_strategy(&self, pane_id: &str) -> crate::agent::provider::VerifySubmitStrategy {
+        use crate::agent::provider::VerifySubmitStrategy;
+        let agent_type = self.mux.lock().get_pane(pane_id).and_then(|p| p.agent_type.clone());
+        match agent_type {
+            Some(t) => self
+                .agent_registry
+                .with_provider(&t, |p| p.verify_submit_strategy())
+                .unwrap_or(VerifySubmitStrategy::None),
+            None => VerifySubmitStrategy::None,
+        }
     }
 
     /// `send_text` that first waits out an in-flight agent boot. A booting
@@ -437,23 +484,29 @@ impl ServiceContext {
 
         // Enter ALWAYS fires when the caller asked for it. This is the load-bearing line — no early-return above this point can skip it unless the PTY is already gone.
         let submit_observed = if enter {
-            // Brief settle: TUIs (claude/codex/opencode) buffer bracket paste async; a same-instant \r can eaten.
-            std::thread::sleep(std::time::Duration::from_millis(120));
-            self.pty
-                .lock()
-                .write(pty_id, b"\r")
-                .map_err(|_| InjectionError::PtyClosed {
-                    pty_id: pty_id.to_string(),
-                })?;
-
-            // Submit verify: also informational. Timeout no longer aborts.
-            if opts.verify_submit {
-                let res = match submit_strategy {
+            // Up to 2 Enter attempts: a single \r is sometimes swallowed by a
+            // TUI still ingesting the bracket paste (notably opencode). On a
+            // verify timeout we re-send \r so the message actually submits —
+            // this is the "typed but not sent" fix.
+            let mut observed = false;
+            for attempt in 0..2 {
+                // Brief settle: TUIs buffer bracket paste async; a same-instant \r can be eaten.
+                std::thread::sleep(std::time::Duration::from_millis(120));
+                self.pty
+                    .lock()
+                    .write(pty_id, b"\r")
+                    .map_err(|_| InjectionError::PtyClosed {
+                        pty_id: pty_id.to_string(),
+                    })?;
+                if !opts.verify_submit {
+                    break;
+                }
+                let res = match &submit_strategy {
                     VerifySubmitStrategy::ShellPrompt { timeout } => wait_for_submit_shell(
                         &self.screen_state,
                         pty_id,
-                        hash_before,
-                        timeout,
+                        hash_before.clone(),
+                        *timeout,
                         tail_rows,
                     ),
                     VerifySubmitStrategy::TuiInputDrained {
@@ -463,28 +516,30 @@ impl ServiceContext {
                         &self.screen_state,
                         pty_id,
                         text,
-                        timeout,
-                        idle_after_drain,
+                        *timeout,
+                        *idle_after_drain,
                         tail_rows,
                     ),
                     VerifySubmitStrategy::None => Ok(String::new()),
                 };
                 match res {
-                    Ok(_) => true,
+                    Ok(_) => {
+                        observed = true;
+                        break;
+                    }
                     Err(HelperErr::PtyUnknown(id)) => {
                         return Err(InjectionError::PtyClosed { pty_id: id });
                     }
                     Err(HelperErr::Timeout(_)) => {
                         log::debug!(
-                            "submit verify timed out for pty {}; Enter was sent, recipient may still be processing",
-                            pty_id
+                            "submit verify timed out for pty {} (attempt {}); re-sending Enter",
+                            pty_id,
+                            attempt + 1
                         );
-                        false
                     }
                 }
-            } else {
-                false
             }
+            observed
         } else {
             false
         };

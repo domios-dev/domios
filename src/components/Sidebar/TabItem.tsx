@@ -153,7 +153,7 @@ export function TabItem({
       className={`
         sidebar-tab group flex items-center justify-between cursor-pointer transition-colors relative
         ${touchMode ? "sidebar-tab-touch" : ""}
-        ${touchMode ? "min-h-14 pl-5 pr-2 py-3" : "pl-4 pr-2 py-1.5"}
+        ${touchMode ? "min-h-11 pl-5 pr-2 py-2" : "pl-4 pr-2 py-1.5"}
         ${animClass}
         ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
