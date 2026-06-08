@@ -79,6 +79,46 @@ pub fn to_json() -> String {
     s
 }
 
+/// Render the manifest as a nested markdown command reference.
+pub fn to_markdown() -> String {
+    let root = build();
+    let mut out = String::new();
+    for cmd in &root.subcommands {
+        render_md(cmd, &[root.name.clone()], &mut out);
+    }
+    out
+}
+
+fn render_md(cmd: &ManifestCommand, path: &[String], out: &mut String) {
+    let mut full = path.to_vec();
+    full.push(cmd.name.clone());
+    out.push_str(&format!("#### `{}`\n\n", full.join(" ")));
+    if let Some(about) = &cmd.about {
+        out.push_str(&format!("{about}\n\n"));
+    }
+    if !cmd.aliases.is_empty() {
+        out.push_str(&format!("Aliases: {}\n\n", cmd.aliases.join(", ")));
+    }
+    for a in &cmd.args {
+        let flag = if a.positional {
+            format!("`<{}>`", a.name)
+        } else {
+            format!("`--{}`", a.name)
+        };
+        let help = a.help.as_deref().unwrap_or("");
+        out.push_str(&format!("- {flag} — {help}\n"));
+    }
+    if !cmd.args.is_empty() {
+        out.push('\n');
+    }
+    for sub in &cmd.subcommands {
+        render_md(sub, &full, out);
+    }
+}
+
+const MD_START: &str = "<!-- cli:auto-start -->";
+const MD_END: &str = "<!-- cli:auto-end -->";
+
 fn repo_path(rel: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -93,7 +133,14 @@ pub fn handle(write: bool) {
     let manifest = repo_path("docs/cli-manifest.json");
     std::fs::write(&manifest, to_json()).expect("write cli-manifest.json");
     println!("wrote {}", manifest.display());
-    // docs/CLI.md is wired in the next task.
+
+    let cli_md = repo_path("docs/CLI.md");
+    let md = std::fs::read_to_string(&cli_md).expect("read docs/CLI.md");
+    let start = md.find(MD_START).expect("missing cli:auto-start marker") + MD_START.len();
+    let end = md.find(MD_END).expect("missing cli:auto-end marker");
+    let spliced = format!("{}\n{}\n{}", &md[..start], to_markdown(), &md[end..]);
+    std::fs::write(&cli_md, spliced).expect("write docs/CLI.md");
+    println!("wrote {}", cli_md.display());
 }
 
 #[cfg(test)]
@@ -111,6 +158,21 @@ mod tests {
             committed,
             to_json(),
             "docs/cli-manifest.json is stale — run `codeterm cli-manifest --write`"
+        );
+    }
+
+    const CLI_MD_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/CLI.md");
+
+    #[test]
+    fn docs_cli_md_is_fresh() {
+        let md = std::fs::read_to_string(CLI_MD_PATH).expect("docs/CLI.md missing");
+        let start = md.find(MD_START).expect("missing cli:auto-start marker") + MD_START.len();
+        let end = md.find(MD_END).expect("missing cli:auto-end marker");
+        let block = &md[start..end];
+        let expected = format!("\n{}\n", to_markdown());
+        assert_eq!(
+            block, expected,
+            "docs/CLI.md auto-block stale — run `codeterm cli-manifest --write`"
         );
     }
 
