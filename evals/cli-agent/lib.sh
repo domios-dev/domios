@@ -17,6 +17,24 @@ read_chat() {  # <pane_id> [since]
   esac
 }
 
+# Close leftover bench workspaces: the harness's own `bench-*` panes AND the
+# workspaces our test-case prompts make the agent create (scratch-bench/diag).
+# run-case tears down its own bench-* ws, but can't predict what the agent
+# creates inside — this sweep (run at suite start/end) catches those.
+cleanup_bench_ws() {
+  dc workspace list --json 2>/dev/null | python3 -c '
+import sys, json, re
+try:
+    ws = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for w in ws:
+    n = w.get("name") or ""
+    if re.match(r"^(bench-|scratch-bench|scratch-diag)", n):
+        print(w["id"])
+' | while read -r id; do dc workspace close "$id" >/dev/null 2>&1 || true; done
+}
+
 chat_count() {  # <pane_id>
   read_chat "$1" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0
 }
