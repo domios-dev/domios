@@ -318,6 +318,11 @@ button {
   line-height: var(--ct-line-height);
 }
 
+button,
+[role="button"] {
+  border: none;
+}
+
 .ct-text-ui {
   font-family: var(--ct-font-ui);
 }
@@ -366,7 +371,7 @@ button {
 .ct-btn-primary {
   background: var(--ct-accent);
   color: var(--ct-bg);
-  border: 1px solid var(--ct-accent);
+  border: 1px solid transparent;
 }
 
 .ct-btn-primary:hover {
@@ -376,7 +381,7 @@ button {
 .ct-btn-ghost {
   background: transparent;
   color: var(--ct-muted-fg);
-  border: 1px solid var(--ct-border);
+  border: 1px solid transparent;
 }
 
 .ct-btn-ghost:hover {
@@ -387,7 +392,7 @@ button {
 .ct-btn-accent {
   background: color-mix(in srgb, var(--ct-accent) 14%, transparent);
   color: var(--ct-accent);
-  border: 1px solid color-mix(in srgb, var(--ct-accent) 26%, var(--ct-border) 74%);
+  border: 1px solid transparent;
 }
 
 .ct-btn-accent:hover {
@@ -397,7 +402,7 @@ button {
 .ct-btn-danger {
   background: transparent;
   color: var(--ct-red);
-  border: 1px solid color-mix(in srgb, var(--ct-red) 28%, transparent);
+  border: 1px solid transparent;
 }
 
 .ct-btn-danger:hover {

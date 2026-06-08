@@ -4,13 +4,14 @@ import { listen, type UnlistenFn } from "../../lib/bridge";
 import { ComposerActions, useWebFileDrop } from "./ComposerActions";
 import { Paperclip, Terminal, X } from "lucide-react";
 import { MessageBubble } from "@codeterm/chat-ui";
+import { AgentIcon } from "../AgentIcon";
 import { getPlugin, useRegistryVersion } from "../../lib/plugins/registry";
 import {
   dedupeRecentUserMessages,
   matchesRecentUserMessage,
   type NormalizedChatMessage as ChatMessage,
 } from "@codeterm/chat-core";
-import { detectChatPrefix, type ChatOrigin } from "../../lib/chatPrefixes";
+import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "../../lib/chatPrefixes";
 import { useMultiplexer } from "../../store/multiplexer";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
@@ -209,6 +210,23 @@ function ComposerBubbleRow({
   );
 }
 
+function OriginProviderAvatar({ providerId }: { providerId: string | null | undefined }) {
+  if (!providerId) return null;
+  return (
+    <span
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border"
+      style={{
+        background: "color-mix(in srgb, var(--ct-surface, #161b22) 86%, var(--ct-accent, #58a6ff) 14%)",
+        borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
+        color: "var(--ct-fg)",
+      }}
+      aria-hidden
+    >
+      <AgentIcon providerId={providerId} className="text-[15px]" />
+    </span>
+  );
+}
+
 function SlashPicker({
   suggestions,
   highlighted,
@@ -306,7 +324,6 @@ export function PaneSessionChat({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = usePersistentDraft(`pane-session-chat:${paneId}`);
-  const [sending, setSending] = useState(false);
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -322,7 +339,9 @@ export function PaneSessionChat({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const terminalTextRef = useRef<string | null>(null);
   const terminalActiveTimerRef = useRef<number | null>(null);
-  const sendInFlightRef = useRef(false);
+  // Dedup only the accidental keyboard+button double-fire of ONE action
+  // (same composed text within a blink) — deliberate rapid sends must pass.
+  const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const onErrorRef = useRef(onError);
   // chatRootRef scopes the drag-drop zone to the entire chat pane.
   const chatRootRef = useRef<HTMLDivElement>(null);
@@ -525,15 +544,34 @@ export function PaneSessionChat({
   const terminalHasAttention = terminalActive || Boolean(pendingPrompt);
 
   const enrichedMessages = useMemo(() => {
-    return allMessages.slice(-visibleMessageCount).map((m) => {
-      if (m.type !== "user") return { msg: m, origin: undefined as ChatOrigin | undefined };
+    const visible = allMessages.slice(-visibleMessageCount);
+    const out: Array<{ msg: ChatMessage; origin: ChatOrigin | undefined }> = [];
+    for (const m of visible) {
+      if (m.type !== "user") {
+        out.push({ msg: m, origin: undefined });
+        continue;
+      }
+      const splitPrefixes = splitChatPrefixedMessages(m.content);
+      if (splitPrefixes && splitPrefixes.length > 1) {
+        splitPrefixes.forEach((prefix, index) => {
+          out.push({
+            msg: { ...m, id: `${m.id}-prefix-${index}`, content: prefix.body },
+            origin: prefix.origin,
+          });
+        });
+        continue;
+      }
       const prefix = detectChatPrefix(m.content);
-      if (!prefix) return { msg: m, origin: undefined };
-      return {
+      if (!prefix) {
+        out.push({ msg: m, origin: undefined });
+        continue;
+      }
+      out.push({
         msg: { ...m, content: prefix.body },
         origin: prefix.origin,
-      };
-    });
+      });
+    }
+    return out;
   }, [allMessages, visibleMessageCount]);
 
   const hiddenMessageCount = Math.max(0, allMessages.length - enrichedMessages.length);
@@ -673,9 +711,15 @@ export function PaneSessionChat({
     for (const p of cleanExtraAttachments) {
       if (!allAttachments.includes(p)) allAttachments.push(p);
     }
-    if ((!text && allAttachments.length === 0) || sending || sendInFlightRef.current) return;
-    sendInFlightRef.current = true;
-    setSending(true);
+    if (!text && allAttachments.length === 0) return;
+    // No in-flight lock: the daemon serializes PTY writes and the agent
+    // queues input, so you can fire as many messages as you like back to
+    // back. We only drop an exact-duplicate within 500ms (the Enter-key +
+    // send-button double-fire of a single action).
+    const nowTs = Date.now();
+    const dupKey = `${text} ${allAttachments.join("|")}`;
+    if (dupKey === lastSendRef.current.text && nowTs - lastSendRef.current.at < 500) return;
+    lastSendRef.current = { text: dupKey, at: nowTs };
     // Compose text + attachments. Audio is wrapped as `[voice] (transcript) file://`
     // (transcribed when a daemon is configured) — same shape as the Telegram
     // bridge, and the `[...]` prefix avoids a leading `/` that opencode's TUI
@@ -707,8 +751,6 @@ export function PaneSessionChat({
         setModelPickerOpen(true);
       }
       setPickerOpen(false);
-      sendInFlightRef.current = false;
-      setSending(false);
       refocusComposer();
       return;
     }
@@ -739,8 +781,6 @@ export function PaneSessionChat({
     } catch (e) {
       showComposerError(e instanceof Error ? e.message : String(e));
     } finally {
-      sendInFlightRef.current = false;
-      setSending(false);
       refocusComposer();
     }
   }
@@ -935,10 +975,14 @@ export function PaneSessionChat({
         {enrichedMessages.map(({ msg, origin }) => {
           const isPending = msg.id.startsWith("opt-");
           let onOriginClick: (() => void) | undefined;
+          let originProviderId: string | null | undefined;
           if (origin?.kind === "pane") {
             const idShort = origin.paneIdShort;
             const fullId = Object.keys(muxState.panes).find((id) => id.startsWith(idShort));
-            if (fullId) onOriginClick = () => setFocusedPane(fullId);
+            if (fullId) {
+              onOriginClick = () => setFocusedPane(fullId);
+              originProviderId = muxState.panes[fullId]?.agent_type;
+            }
           }
           return (
             <div
@@ -948,7 +992,16 @@ export function PaneSessionChat({
               style={isPending ? { opacity: 0.55 } : undefined}
               title={isPending ? "sending… (echo expected within 60s)" : undefined}
             >
-              <MessageBubble message={msg} origin={origin} onOriginClick={onOriginClick} />
+              <MessageBubble
+                message={msg}
+                origin={origin}
+                originAvatar={
+                  origin?.kind === "pane" && originProviderId
+                    ? <OriginProviderAvatar providerId={originProviderId} />
+                    : undefined
+                }
+                onOriginClick={onOriginClick}
+              />
             </div>
           );
         })}
@@ -1031,7 +1084,7 @@ export function PaneSessionChat({
             onSend={() => void send()}
             onSendWithAttachments={(paths) => void send(paths)}
             onError={showComposerError}
-            sendDisabled={sending || (!input.trim() && attachments.length === 0)}
+            sendDisabled={!input.trim() && attachments.length === 0}
             hasText={input.trim().length > 0 || attachments.length > 0}
           >
             <SlashPicker

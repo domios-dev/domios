@@ -6,6 +6,7 @@ import {
   emitPaneUiMode,
   isChatUiSupported,
   maybeAskDefaultNewAgentPaneToChat,
+  shouldDefaultNewAgentPaneToChat,
 } from "../../lib/chatUiMode";
 import {
   getClientPaneUiMode,
@@ -57,9 +58,15 @@ export function TabItem({
   const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
-  const [chatView, setChatView] = useState(() =>
-    pane ? getClientPaneUiMode(pane.id) === "chat" : false,
-  );
+  // Mirror TerminalPane's mode resolution: no client override falls back to
+  // the agent default (claude/GA panes open in chat), so the menu reflects
+  // what's actually showing instead of always saying "Open Chat UI".
+  const resolveChatView = (p: typeof pane): boolean => {
+    if (!p) return false;
+    const client = getClientPaneUiMode(p.id);
+    return client ? client === "chat" : shouldDefaultNewAgentPaneToChat(p.agent_type);
+  };
+  const [chatView, setChatView] = useState(() => resolveChatView(pane));
   const tabRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,9 +74,9 @@ export function TabItem({
       setChatView(false);
       return;
     }
-    setChatView(getClientPaneUiMode(pane.id) === "chat");
+    setChatView(resolveChatView(pane));
     return listenClientPaneUiMode(pane.id, (mode) => setChatView(mode === "chat"));
-  }, [pane?.id]);
+  }, [pane?.id, pane?.agent_type]);
 
   // Close animation phases
   const [closePhase, setClosePhase] = useState<0 | 1 | 2>(0);
@@ -84,11 +91,14 @@ export function TabItem({
   // Build menu items for the 3-dot dropdown
   const menuItems: DropdownMenuItem[] = useMemo(() => {
     const items: DropdownMenuItem[] = [];
-    items.push({
-      label: "Rename",
-      icon: <Pencil size={11} strokeWidth={2} />,
-      onClick: () => { setEditName(tab.title); setEditing(true); },
-    });
+    // Main (the protected GA pane) is the anchor — no rename.
+    if (!pane?.protected) {
+      items.push({
+        label: "Rename",
+        icon: <Pencil size={11} strokeWidth={2} />,
+        onClick: () => { setEditName(tab.title); setEditing(true); },
+      });
+    }
     // Role management — hide for Orchestrators (default role on all tabs)
     if (pane?.role && pane.role !== "Orchestrator") {
       items.push({
@@ -205,7 +215,12 @@ export function TabItem({
         ) : (
           <span
             className={`${touchMode ? "text-[14px]" : "text-xs"} truncate ${isActive ? "font-medium" : ""}`}
-            onDoubleClick={(e) => { e.stopPropagation(); setEditName(tab.title); setEditing(true); }}
+            onDoubleClick={(e) => {
+              if (pane?.protected) return; // Main is unrenameable
+              e.stopPropagation();
+              setEditName(tab.title);
+              setEditing(true);
+            }}
           >
             {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
           </span>

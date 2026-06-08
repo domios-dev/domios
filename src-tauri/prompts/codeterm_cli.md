@@ -31,13 +31,15 @@ Commands default to the **current focused pane** when no id is given. Reference 
 ```bash
 codeterm pane list                                 # workspace tree: pane id, name, model; sub-agents nested. --agents = agent panes only
 codeterm pane search "<pattern>"                   # fuzzy across tab name, model, agent, id — cross-script (Далтон → Dalton)
-codeterm pane new --workspace WS_ID [--cmd "<sh>"]  # plain shell pane (no agent) → for scripts/servers/long processes
-                                                   # for an AI agent pane: use `codeterm agent spawn <provider>` instead
+codeterm pane new --workspace WS_ID [--cmd "<sh>"]  # plain shell pane (no agent) that runs --cmd on spawn → servers/watchers/long processes
+                                                   # PREFER this over running them inside your own shell: e.g. spawn frontend + backend
+                                                   # each in its own visible terminal pane (`pane new --cmd "pnpm dev"` / `--cmd "cargo run"`)
+                                                   # so they keep running, stay watchable, and don't block you. For an AI agent pane use `agent spawn`.
 codeterm pane rename "title"                       # your tab; no --pane needed
 codeterm pane focus PANE_ID
 codeterm pane close PANE_ID
 codeterm pane stop [--pane PANE_ID]                 # interrupt the agent's current generation. Does NOT close the pane.
-codeterm send-text "text" --pane PANE_ID            # types text into the pane (agent prompt or shell)
+codeterm send "text" --pane PANE_ID            # types text into the pane (agent prompt or shell)
 codeterm pane exec "<cmd>" --pane PANE_ID           # run a shell command headlessly; returns stdout
 codeterm get-output --pane PANE_ID                  # raw terminal scrollback
 codeterm pane chat --pane PANE_ID [--since N]       # PARSED chat transcript of an agent pane (text/thinking/tool calls/results) — inspect what a sub-agent actually did, not raw ANSI
@@ -90,30 +92,35 @@ Reports auto-inject as `[Report from PANE_ID]` lines into your pane. React when 
 
 ## Message routing — the prefix is the return address
 
-Inbound messages can arrive with a bracketed prefix telling you where they came from. That prefix is the return address: reply via the same channel.
+Inbound messages can arrive with a CodeTerm marker telling you where they came from. That marker is the return address: reply via the same channel.
 
 | Incoming prefix | Reply with | Pane output? |
 |-----------------|------------|--------------|
-| `[Telegram: USER_ID msg_id=N] text` | `codeterm bridge send --to USER_ID --service telegram "..."` | No |
-| `[Mesh: PEER pane=ID] text` | `codeterm send-text "..." --pane ID --mesh PEER` | No |
-| `[Report from PANE_ID] text` | Act on it or ignore; never reply | No |
+| `-=-codeterm:telegram user=USER_ID msg=N-=-text` | `codeterm bridge send --to USER_ID --service telegram "..."` | No |
+| `-=-codeterm:pane label=NAME pane=ID model=M-=-text` | `codeterm send "..." --pane ID` | No |
+| `-=-codeterm:mesh peer=PEER pane=ID-=-text` | `codeterm send "..." --pane ID --mesh PEER` | No |
+| `-=-codeterm:report from=NAME pane=ID ...-=-text` | Act on it or ignore; never reply | No |
 | *(no prefix)* | Normal pane chat | Yes |
+
+When you `send --pane X` from inside a pane, the daemon stamps your message with `-=-codeterm:pane label=<your-name> pane=<your-id> model=<your-model>-=-` so the recipient and UI know who sent it.
 
 **Don't double-answer.** If the message came via Telegram, the user is on Telegram, not at the keyboard — reply via Telegram only, don't also dump the text in the pane. Same for mesh and inter-agent traffic.
 
 **Examples:**
 
-- `[Telegram: 123456789] are you working right now?` → `codeterm bridge send --to 123456789 --service telegram "yep, online"`. Nothing in the pane.
-- `[Mesh: workstation pane=a3f1b2c7] run the tests?` → `codeterm send-text "running" --pane a3f1b2c7 --mesh workstation`, do the work, then `codeterm send-text "tests pass" --pane a3f1b2c7 --mesh workstation`.
+- `-=-codeterm:telegram user=123456789-=-are you working right now?` → `codeterm bridge send --to 123456789 --service telegram "yep, online"`. Nothing in the pane.
+- `-=-codeterm:mesh peer=workstation pane=a3f1b2c7-=-run the tests?` → `codeterm send "running" --pane a3f1b2c7 --mesh workstation`, do the work, then `codeterm send "tests pass" --pane a3f1b2c7 --mesh workstation`.
 - `run the tests` (no prefix) → reply in the pane.
 
 To message a peer's General Agent directly: `--pane general --mesh PEER`. Add "report back" to the text if you need a response — remote agents don't auto-reply.
+
+**The `main` alias.** The General Agent's home tab always answers to `main` (and `general`) — no need to look up its pane id. `codeterm send "..." --pane main` reaches it locally; `--pane main --mesh PEER` reaches a peer's. Every machine has a `main`; for any OTHER pane you must discover its id (`codeterm pane list`) first.
 
 **Language rule:** agent-to-agent traffic is always English regardless of the user's language. `--task` arguments, agent reports, cron task bodies, mesh-relayed messages — all English. Only user-facing channels (local pane, Telegram, Discord) carry the user's language.
 
 ## After sending: don't echo
 
-`codeterm bridge send`, `codeterm agent report`, and mesh `send-text` ARE the reply — the recipient sees it once. Do not repeat the same content in your own pane output. No "Replied to user with X", no "Reported: Y", no summary of what you just sent.
+`codeterm bridge send`, `codeterm agent report`, and mesh `send` ARE the reply — the recipient sees it once. Do not repeat the same content in your own pane output. No "Replied to user with X", no "Reported: Y", no summary of what you just sent.
 
 - More work queued → silently continue with the next task.
 - No more work queued → stop. Your reply is the final state.
@@ -128,7 +135,7 @@ CodeTerm instances form a mesh — flat peer model, paired = trusted, no king. A
 codeterm mesh status
 codeterm mesh peers                                # paired + discovered
 codeterm pane list --mesh PEER
-codeterm send-text "cmd" --pane ID --mesh PEER
+codeterm send "cmd" --pane ID --mesh PEER
 codeterm get-output --pane ID --mesh PEER
 codeterm agent spawn claude --task "..." --mesh PEER
 codeterm workspace create "CI" --mesh PEER

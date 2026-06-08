@@ -23,6 +23,7 @@ import {
   Send,            // generic chat (telegram / service)
   Network,         // mesh
   ChevronsRight,   // slash-command chip
+  CornerUpLeft,    // report (bubbled up to parent)
   Info,
   Copy,
   Check,
@@ -571,7 +572,18 @@ function shortPath(fullPath: string): string {
   return ".../" + parts.slice(-2).join("/");
 }
 
-/** Extract command from Bash tool args. */
+function isShellToolName(name: string | undefined): boolean {
+  const n = (name ?? "").toLowerCase();
+  return n === "bash"
+    || n === "shell"
+    || n === "shell_command"
+    || n === "exec"
+    || n === "powershell"
+    || n.includes("shell")
+    || n.includes("bash");
+}
+
+/** Extract shell command text across Claude/Codex provider shapes. */
 function extractCommand(message: ChatMessage): string | null {
   if (message.toolInput) {
     const cmd = message.toolInput.command as string | undefined;
@@ -580,12 +592,33 @@ function extractCommand(message: ChatMessage): string | null {
   if (message.toolArgs) {
     try {
       const parsed = JSON.parse(message.toolArgs);
-      if (parsed.command) return parsed.command;
+      if (parsed && typeof parsed === "object" && typeof parsed.command === "string") {
+        return parsed.command;
+      }
     } catch {
-      // fallback
+      if (isShellToolName(message.toolName)) {
+        const args = message.toolArgs.trim();
+        return args ? args : null;
+      }
     }
   }
   return null;
+}
+
+function PlainOutput({ text, maxHeight = "12rem" }: { text: string; maxHeight?: string }) {
+  return (
+    <pre
+      className={`${PRE_WRAP_CLASS} m-0 overflow-auto rounded-md border px-2 py-1.5 font-mono text-[11px] leading-relaxed`}
+      style={{
+        maxHeight,
+        color: "var(--ct-fg)",
+        background: "color-mix(in srgb, var(--ct-bg, #0d1117) 72%, black 10%)",
+        borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent)",
+      }}
+    >
+      {text}
+    </pre>
+  );
 }
 
 function languageFromPath(path: string | null): string {
@@ -1383,9 +1416,8 @@ interface ParsedVoice {
   fileName: string | null;
 }
 
-/** Parse the `[voice] (voice transcript: "...") file://...` line the composer
- *  and the Telegram bridge emit, so the chat can show a voice card instead of
- *  the raw bracketed string. Returns null when the text isn't a voice line. */
+/** Parse the CodeTerm voice marker so the chat can show a voice card instead
+ *  of the raw marker string. Returns null when the text isn't a voice line. */
 function parseVoiceMessage(content: string): ParsedVoice | null {
   const m = parseMarker(content.trim());
   if (!m || m.kind !== "voice") return null;
@@ -1548,17 +1580,58 @@ function CommandBody({ commands, body }: { commands: SlashCommand[]; body: strin
   );
 }
 
+// Model family → avatar glyph + accent (self-contained; no provider registry).
+function modelAvatar(model?: string): { glyph: string; color: string } {
+  const m = (model ?? "").toLowerCase();
+  if (m.includes("opus")) return { glyph: "Op", color: "#d2a24c" };   // amber
+  if (m.includes("sonnet")) return { glyph: "So", color: "#5b9bf5" }; // blue
+  if (m.includes("haiku")) return { glyph: "Ha", color: "#4ec98c" };  // green
+  if (m.includes("codex") || m.includes("gpt") || m.includes("o1") || m.includes("o3"))
+    return { glyph: "Cx", color: "#b07ce8" };                         // violet
+  if (m.includes("gemini")) return { glyph: "Ge", color: "#e88c5a" }; // orange
+  const initial = (model ?? "").replace(/[^a-z0-9]/gi, "").slice(0, 2);
+  return { glyph: initial ? initial[0].toUpperCase() + (initial[1] ?? "") : "·", color: "#8b949e" };
+}
+
+function ModelAvatar({ model }: { model?: string }) {
+  const { glyph, color } = modelAvatar(model);
+  return (
+    <span
+      aria-hidden
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 18,
+        height: 18,
+        borderRadius: "50%",
+        fontSize: 8.5,
+        fontWeight: 700,
+        fontFamily: "var(--ct-mono, ui-monospace, monospace)",
+        letterSpacing: "-0.5px",
+        color,
+        background: `color-mix(in srgb, ${color} 16%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${color} 45%, transparent)`,
+        flexShrink: 0,
+      }}
+    >
+      {glyph}
+    </span>
+  );
+}
+
 interface MessageBubbleProps {
   message: ChatMessage;
   /** When set, this user message arrived via a codeterm channel (cross-pane,
    *  telegram, mesh, slash-command) and should render as a typed header
    *  instead of the default right-aligned "user" styling. */
   origin?: ChatOrigin;
+  originAvatar?: React.ReactNode;
   /** When set, clicking the origin header focuses the source pane. */
   onOriginClick?: () => void;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, origin, onOriginClick }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick }: MessageBubbleProps) {
   // Auto-expand for Write-style tool input (the file body being written) and
   // for Edit/MultiEdit (always show the diff). A bash/grep result must NOT
   // force-expand — it shows a compact inline tail under the pill instead.
@@ -1598,13 +1671,57 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     // Origin header rendered above the bubble when the message came from a
     // codeterm channel (cross-pane, telegram, mesh) or wraps slash-commands.
     const originHeader = origin ? (() => {
+      // Cross-pane / report: model-avatar + "from <Name>" + mesh·model subtitle.
+      if (origin.kind === "pane") {
+        const LeadIcon = origin.report ? CornerUpLeft : ArrowRight;
+        const subtitle = [origin.mesh ? `via ${origin.mesh}` : null, origin.model]
+          .filter(Boolean)
+          .join(" · ");
+        return (
+          <button
+            type="button"
+            onClick={onOriginClick}
+            disabled={!onOriginClick}
+            className="flex items-center gap-1.5 mb-1"
+            style={{
+              cursor: onOriginClick ? "pointer" : "default",
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              textAlign: "left",
+            }}
+            title={onOriginClick ? "Click to focus source pane" : undefined}
+          >
+            {originAvatar ?? <ModelAvatar model={origin.model} />}
+            <span className="flex flex-col min-w-0" style={{ lineHeight: 1.1 }}>
+              <span
+                className="flex items-center gap-1 text-xs uppercase tracking-wider"
+                style={{ color: "var(--ct-accent, #58a6ff)" }}
+              >
+                <LeadIcon size={11} style={{ opacity: 0.85 }} />
+                <span className="truncate">
+                  {origin.report ? "report · " : "from "}
+                  {origin.title}
+                </span>
+              </span>
+              {subtitle && (
+                <span
+                  className="text-[10px] truncate"
+                  style={{ color: "var(--ct-muted-fg, #8b949e)", textTransform: "none", letterSpacing: 0 }}
+                >
+                  {subtitle}
+                </span>
+              )}
+            </span>
+          </button>
+        );
+      }
+
       const OriginIcon =
-        origin.kind === "pane"    ? ArrowRight :
         origin.kind === "mesh"    ? Network :
         origin.kind === "command" ? ChevronsRight :
         Send;
       const label =
-        origin.kind === "pane"    ? `from ${origin.title}` :
         origin.kind === "telegram"? `Telegram · ${origin.userId.slice(0, 12)}` :
         origin.kind === "mesh"    ? `Mesh · ${origin.peerId.slice(0, 10)}` :
         origin.kind === "command" ? (
@@ -1763,7 +1880,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   if (message.type === "tool_call") {
     const toolName = message.toolName || "";
     const filePath = extractFilePath(message);
-    const command = message.toolName === "Bash" ? extractCommand(message) : null;
+    const command = extractCommand(message);
     const hasToolContent = message.toolInput?.content != null;
     const toolContent = hasToolContent ? String(message.toolInput!.content) : null;
     const edits = extractEdits(message);
@@ -1801,11 +1918,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       );
     }
 
-    // CodeTerm CLI command — render a branded semantic card. Provider-agnostic:
-    // claude exposes the shell tool as "Bash" (→ `command`); opencode/codex name
-    // it differently but still carry toolInput.command, so fall back to that.
-    const shellCommand =
-      command ?? (typeof message.toolInput?.command === "string" ? message.toolInput.command : null);
+    // CodeTerm CLI command — render a branded semantic card across Claude/Codex
+    // shell tool shapes.
+    const shellCommand = command;
     if (shellCommand) {
       const inv = recognize(shellCommand);
       if (inv) {
@@ -1844,7 +1959,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             >
               <ToolIcon name={toolName} />
             </span>
-            <span className="font-medium font-mono" style={{ color: "var(--ct-muted-fg)" }}>{message.toolName}</span>
+            <span className="font-medium font-mono" style={{ color: "var(--ct-muted-fg)" }}>
+              {toolName === "shell_command" ? "shell" : message.toolName}
+            </span>
             {summary && (
               <span className="min-w-0 truncate opacity-60 font-mono text-[11px]">{summary}</span>
             )}
@@ -1901,7 +2018,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                   >
                     Result
                   </div>
-                  <CodeBlock text={resultText} language="text" maxHeight="12rem" />
+                  <PlainOutput text={resultText} maxHeight="12rem" />
                 </div>
               )}
             </div>

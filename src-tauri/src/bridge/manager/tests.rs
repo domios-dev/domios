@@ -134,7 +134,7 @@ async fn apply_hook_metadata_appends_annotation() {
     match outcome {
         HookOutcome::Annotated(annotated) => {
             assert!(annotated.starts_with(body));
-            assert!(annotated.contains("[Hook metadata:"));
+            assert!(annotated.contains("-=-codeterm:hook-=-"));
             assert!(annotated.contains("light_cmd"));
         }
         other => panic!(
@@ -293,8 +293,8 @@ async fn body_includes_transcript_and_file_uri() {
     let cfg = enabled_cfg(&format!("http://{}", addr));
 
     let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
-    // [[ct:voice file=/tmp/voice.oga]]привет мир — transcript is the payload.
-    assert_eq!(body, "[[ct:voice file=/tmp/voice.oga]]привет мир");
+    // -=-codeterm:voice file=/tmp/voice.oga-=-привет мир — transcript is the payload.
+    assert_eq!(body, "-=-codeterm:voice file=/tmp/voice.oga-=-привет мир");
 
     let _ = stop.send(());
     let _ = handle.await;
@@ -311,7 +311,7 @@ async fn body_falls_back_to_raw_when_daemon_down() {
 
     let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
     // Daemon down → untranscribed voice marker; the readable note is the payload.
-    assert!(body.starts_with("[[ct:voice file=/tmp/voice.oga status=untranscribed]]"), "body: {}", body);
+    assert!(body.starts_with("-=-codeterm:voice file=/tmp/voice.oga status=untranscribed-=-"), "body: {}", body);
     assert!(body.contains("transcription unavailable"), "body: {}", body);
     assert!(body.contains("codeterm docs TRANSCRIBE"), "body: {}", body);
 }
@@ -324,7 +324,7 @@ async fn disabled_cfg_notes_missing_transcriber() {
 
     let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
     // Transcription off → untranscribed marker + readable note (with doc pointer).
-    assert!(body.starts_with("[[ct:voice file=/tmp/voice.oga status=untranscribed]]"), "body: {}", body);
+    assert!(body.starts_with("-=-codeterm:voice file=/tmp/voice.oga status=untranscribed-=-"), "body: {}", body);
     assert!(body.contains("no transcriber daemon configured"), "body: {}", body);
     assert!(body.contains("codeterm docs TRANSCRIBE"), "body: {}", body);
 }
@@ -336,7 +336,7 @@ async fn non_voice_attachments_not_transcribed() {
     let cfg = enabled_cfg("http://127.0.0.1:1");
 
     let body = build_message_body(&photo_msg("/tmp/pic.jpg"), &cfg).await;
-    assert_eq!(body, "[[ct:photo file=/tmp/pic.jpg name=pic.jpg]]");
+    assert_eq!(body, "-=-codeterm:photo file=/tmp/pic.jpg name=pic.jpg-=-");
 }
 
 #[tokio::test]
@@ -345,7 +345,7 @@ async fn empty_attachment_path_skips_transcription() {
     let cfg = enabled_cfg("http://127.0.0.1:1");
 
     let body = build_message_body(&voice_msg(""), &cfg).await;
-    assert_eq!(body, "[[ct:voice file=]]");
+    assert_eq!(body, "-=-codeterm:voice file=-=-");
 }
 
 #[tokio::test]
@@ -364,8 +364,8 @@ async fn multiple_voice_attachments_each_transcribed() {
 
     let body = build_message_body(&msg, &cfg).await;
     // Two voice markers, each with "ok" as its transcript payload.
-    assert_eq!(body.matches("[[ct:voice").count(), 2, "body: {}", body);
-    assert_eq!(body.matches("]]ok").count(), 2, "body: {}", body);
+    assert_eq!(body.matches("-=-codeterm:voice").count(), 2, "body: {}", body);
+    assert_eq!(body.matches("-=-ok").count(), 2, "body: {}", body);
     assert!(body.contains("file=/tmp/a.oga"));
     assert!(body.contains("file=/tmp/b.oga"));
 

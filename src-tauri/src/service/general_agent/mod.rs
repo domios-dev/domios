@@ -24,6 +24,8 @@ pub use watchdog::start_watchdog;
 pub use workspace::ensure_general_workspace;
 
 pub const GENERAL_ALIAS: &str = "general";
+/// Second alias for the GA pane — `codeterm pane ... main` resolves to it too.
+pub const MAIN_ALIAS: &str = "main";
 pub const GENERAL_WORKSPACE_NAME: &str = "General";
 pub const GENERAL_PANE_TITLE: &str = "Main";
 

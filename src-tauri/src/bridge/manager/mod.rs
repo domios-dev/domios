@@ -1,7 +1,7 @@
 //! BridgeManager v4 — CLI-based bridge with typing indicator, auto-edit, markdown.
 //!
 //! Outbound: agents call `codeterm bridge send` → channel → Telegram API.
-//! Inbound: Telegram → PTY with [Telegram: user_id] prefix.
+//! Inbound: Telegram → PTY with a CodeTerm marker prefix.
 //! Features: typing indicator on inbound, auto-edit recent messages, markdown formatting.
 
 use parking_lot::Mutex;
@@ -590,7 +590,8 @@ async fn apply_hook(
         text_hooks::HookDecision::Forward => HookOutcome::Forward,
         text_hooks::HookDecision::ForwardWithMetadata { metadata } => {
             let json = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".into());
-            HookOutcome::Annotated(format!("{}\n\n[Hook metadata: {}]", body, json))
+            let marker = crate::message_markers::hook(&json);
+            HookOutcome::Annotated(format!("{}\n\n{}", body, marker))
         }
         text_hooks::HookDecision::Replace { respond } => {
             for reply in respond {
@@ -653,17 +654,15 @@ async fn inject_message(
         HookOutcome::Replaced => return Ok(()),
     };
 
-    let msg_id_suffix = msg
-        .message_id
-        .map(|id| format!(" msg_id={}", id))
-        .unwrap_or_default();
-    let prefixed = format!(
-        "[{}: {}{}] {}",
-        capitalize(&msg.service),
-        msg.user_id,
-        msg_id_suffix,
-        body
-    );
+    let msg_id = msg.message_id.map(|id| id.to_string());
+    let prefixed = match msg.service.as_str() {
+        "telegram" => crate::message_markers::telegram(&msg.user_id.to_string(), msg_id.as_deref(), &body),
+        service => crate::message_markers::Marker::new(service)
+            .attr("user", &msg.user_id.to_string())
+            .attr_opt("msg", msg_id.as_deref())
+            .payload(&body)
+            .build(),
+    };
 
     if agent_type.is_none() {
         let preview: String = prefixed.chars().take(120).collect();
@@ -694,14 +693,6 @@ async fn inject_message(
     });
 
     Ok(())
-}
-
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-    }
 }
 
 #[cfg(test)]

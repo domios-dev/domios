@@ -89,9 +89,16 @@ pub(super) fn dispatch(
             // Source-prefix only for agent recipients; shells just execute the bytes.
             let text = match source_pane.as_deref() {
                 Some(src) if target_has_agent => {
-                    let label = mux.lock().display_label_for_pane(src);
-                    let short = src.chars().take(8).collect::<String>();
-                    format!("[from {} pane={}] {}", label, short, raw_text)
+                    let (from_label, model) = {
+                        let m = mux.lock();
+                        (
+                            m.display_label_for_pane(src),
+                            m.get_pane(src).and_then(|p| p.agent_session_model.clone()),
+                        )
+                    };
+                    crate::service::msg_prefix::CtxPrefix::message(from_label, src)
+                        .model(model)
+                        .wrap(&raw_text)
                 }
                 _ => raw_text,
             };

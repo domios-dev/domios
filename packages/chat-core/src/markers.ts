@@ -3,16 +3,14 @@
  * `src-tauri/src/message_markers.rs`. Keep the two in lock-step (the parity
  * fixture lives in both test sets).
  *
- *   [[ct:<kind> k=v k=v …]]<payload>
+ *   -=-codeterm:<kind> k=v k=v …-=-<payload>
  *
- * The `ct:` namespace makes accidental reproduction unlikely; the sentinel is
- * the OPEN/CLOSE constants so a stricter form is a one-line change. Attribute
+ * The `codeterm:` sentinel makes accidental reproduction unlikely. Attribute
  * values percent-encode the structural chars so payloads/labels never break
  * the frame.
  */
-export const MARKER_NS = "ct";
-export const MARKER_OPEN = "[[ct:";
-export const MARKER_CLOSE = "]]";
+export const MARKER_OPEN = "-=-codeterm:";
+export const MARKER_CLOSE = "-=-";
 
 function encode(value: string): string {
   let out = "";
@@ -20,7 +18,6 @@ function encode(value: string): string {
     switch (ch) {
       case "%": out += "%25"; break;
       case " ": out += "%20"; break;
-      case "]": out += "%5D"; break;
       case "=": out += "%3D"; break;
       case "\n": out += "%0A"; break;
       case "\t": out += "%09"; break;
@@ -51,7 +48,7 @@ export function buildMarker(
   return head + MARKER_CLOSE + payload;
 }
 
-/** Parse a marker, or null if `text` isn't a `[[ct:…]]` frame. */
+/** Parse a marker, or null if `text` isn't a CodeTerm marker frame. */
 export function parseMarker(text: string): ParsedMarker | null {
   if (!text.startsWith(MARKER_OPEN)) return null;
   const rest = text.slice(MARKER_OPEN.length);

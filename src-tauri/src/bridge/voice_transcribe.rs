@@ -176,9 +176,7 @@ pub async fn transcribe(
 
 /// Build the agent-facing attachment line for a file, transcribing voice when
 /// enabled. Shared by the Telegram bridge and the chat composer so both emit
-/// the same `[voice] (voice transcript: "...") file://...` shape. The `[...]`
-/// prefix also keeps the message from starting with `/`, which some agent TUIs
-/// (opencode) treat as a command and refuse to submit.
+/// the same `-=-codeterm:<kind> ...-=-` marker shape.
 pub async fn format_attachment_line(
     path: &str,
     kind: &str,

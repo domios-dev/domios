@@ -240,7 +240,7 @@ mod tests {
     fn manifest_has_core_commands() {
         let m = build();
         let names: Vec<&str> = m.subcommands.iter().map(|c| c.name.as_str()).collect();
-        for expected in ["send-text", "agent", "mem", "pane", "cli-manifest"] {
+        for expected in ["send", "agent", "mem", "pane", "cli-manifest"] {
             assert!(
                 names.contains(&expected),
                 "missing top-level command: {expected}"

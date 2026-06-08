@@ -3,7 +3,7 @@
  * Run: npx tsx src/lib/chatPrefixes.test.ts
  */
 
-import { detectChatPrefix } from "./chatPrefixes";
+import { detectChatPrefix, splitChatPrefixedMessages } from "./chatPrefixes";
 
 let passed = 0;
 let failed = 0;
@@ -26,55 +26,58 @@ function eq(actual: unknown, expected: unknown, name: string) {
 
 console.log("detectChatPrefix");
 
-// Cross-pane prefix
+// Unified ct marker format
 {
-  const r = detectChatPrefix("[from Torvalds pane=89186f68] hello world");
-  eq(r?.origin, { kind: "pane", title: "Torvalds", paneIdShort: "89186f68" }, "matches cross-pane prefix");
-  eq(r?.body, "hello world", "cross-pane body stripped");
+  const r = detectChatPrefix("-=-codeterm:pane label=Main pane=12e450b4 model=Sonnet-=-Hey");
+  eq(
+    r?.origin,
+    { kind: "pane", title: "Main", paneIdShort: "12e450b4", model: "Sonnet" },
+    "ct pane marker parses",
+  );
+  eq(r?.body, "Hey", "ct pane marker body stripped");
 }
 
-// Pane title with spaces
 {
-  const r = detectChatPrefix("[from Main Dev pane=abc123de] msg");
-  eq(r?.origin, { kind: "pane", title: "Main Dev", paneIdShort: "abc123de" }, "matches pane title with spaces");
-  eq(r?.body, "msg", "pane with spaces body stripped");
+  const r = detectChatPrefix("-=-codeterm:report from=Worker pane=abc12345 model=gpt-5.5-=-done");
+  eq(
+    r?.origin,
+    { kind: "pane", title: "Worker", paneIdShort: "abc12345", model: "gpt-5.5", report: true },
+    "ct report marker parses",
+  );
+  eq(r?.body, "done", "ct report marker body stripped");
 }
 
-// Telegram bridge without msg_id
 {
-  const r = detectChatPrefix("[Telegram: 12345] sup");
-  eq(r?.origin, { kind: "telegram", userId: "12345", messageId: undefined }, "matches Telegram bridge");
-  eq(r?.body, "sup", "telegram body stripped");
+  const r = detectChatPrefix("-=-codeterm:telegram user=12345 msg=42-=-yo");
+  eq(r?.origin, { kind: "telegram", userId: "12345", messageId: "42" }, "ct telegram marker parses");
+  eq(r?.body, "yo", "ct telegram marker body stripped");
 }
 
-// Telegram bridge with msg_id
 {
-  const r = detectChatPrefix("[Telegram: 12345 msg_id=42] yo");
-  eq(r?.origin, { kind: "telegram", userId: "12345", messageId: "42" }, "matches Telegram with msg_id");
-  eq(r?.body, "yo", "telegram with msg_id body stripped");
+  const r = splitChatPrefixedMessages(
+    "-=-codeterm:pane label=Main pane=12e450b4 model=Sonnet-=-Hey" +
+    "-=-codeterm:pane label=Claude pane=e8a0ac20-=-Rollo online",
+  );
+  assert(r?.length === 2, "splits adjacent ct pane markers");
+  eq(r?.[0].body, "Hey", "adjacent ct split first body");
+  eq(r?.[1].origin, { kind: "pane", title: "Claude", paneIdShort: "e8a0ac20" }, "adjacent ct split second origin");
 }
 
-// Mesh bridge
-{
-  const r = detectChatPrefix("[Mesh: peer-xyz] ping");
-  eq(r?.origin, { kind: "mesh", peerId: "peer-xyz" }, "matches Mesh bridge");
-  eq(r?.body, "ping", "mesh body stripped");
-}
-
-// Unknown service bridge
-{
-  const r = detectChatPrefix("[Slack: U123] hi");
-  eq(r?.origin, { kind: "service", service: "Slack", userId: "U123" }, "falls back to generic service");
-  eq(r?.body, "hi", "service body stripped");
-}
-
-// Plain messages — no prefix
 {
   const r1 = detectChatPrefix("just a normal message");
   eq(r1, null, "returns null for plain user messages");
 
-  const r2 = detectChatPrefix("[from foo no pane id]");
-  eq(r2, null, "returns null for malformed prefix (no pane=)");
+  const r2 = detectChatPrefix("[codeterm from Edison pane=e8a0ac20 model opus] old");
+  eq(r2, null, "old square codeterm prefix is plain text");
+
+  const r3 = detectChatPrefix("from Main pane=12e450b4 model Sonnet old");
+  eq(r3, null, "old bare pane prefix is plain text");
+
+  const r4 = detectChatPrefix("[Telegram: 12345] old");
+  eq(r4, null, "old bridge prefix is plain text");
+
+  const r5 = detectChatPrefix("[[ct:pane label=Main pane=12e450b4]]old");
+  eq(r5, null, "old square ct marker is plain text");
 }
 
 // Single slash command

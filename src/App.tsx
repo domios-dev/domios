@@ -628,7 +628,7 @@ function AppInner() {
               onClick={() => setSidebarOpen(false)}
             />
             {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
-            <div className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0`}>
+            <div className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0 overflow-visible`}>
               <Sidebar
                 onOpenSettings={() => { setSettingsOpen(true); closeSidebarOnMobile(); }}
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
@@ -700,7 +700,11 @@ function AppInner() {
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
                 const isActiveTab = ws.id === state.active_workspace_id && tab.id === ws.active_tab_id;
-                const shouldMountTab = isActiveTab || mountedTabIds.has(tab.id);
+                // Main (protected pane in the protected workspace) is never
+                // lazy — mount it on boot so its chat/SSE state is live.
+                const isMainTab =
+                  ws.protected === true && state.panes[tab.pane_id]?.protected === true;
+                const shouldMountTab = isActiveTab || isMainTab || mountedTabIds.has(tab.id);
                 if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && isActiveTab;
                 return (
