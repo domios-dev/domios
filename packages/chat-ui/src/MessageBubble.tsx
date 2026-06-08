@@ -1801,9 +1801,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       );
     }
 
-    // CodeTerm CLI command — render a branded semantic card.
-    if (command) {
-      const inv = recognize(command);
+    // CodeTerm CLI command — render a branded semantic card. Provider-agnostic:
+    // claude exposes the shell tool as "Bash" (→ `command`); opencode/codex name
+    // it differently but still carry toolInput.command, so fall back to that.
+    const shellCommand =
+      command ?? (typeof message.toolInput?.command === "string" ? message.toolInput.command : null);
+    if (shellCommand) {
+      const inv = recognize(shellCommand);
       if (inv) {
         return (
           <CodetermCard
