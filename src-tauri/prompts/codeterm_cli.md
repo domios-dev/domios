@@ -13,6 +13,17 @@ You are running inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `
 - `$CODETERM_SOCKET_PATH` — IPC socket
 - `$CODETERM` — always `1` inside CodeTerm
 
+## Knowing your environment (use these, don't curl/grep)
+
+```bash
+codeterm identify                                  # product version, build, platform, machine — the source of truth
+codeterm capabilities                              # every API method this instance exposes
+codeterm docs                                      # list embedded docs; `codeterm docs MEMORY` / `docs CLI` etc. to read one
+```
+Reach for these instead of poking `curl /api/health`, grepping source, or
+`codeterm --version` — note `--version` reports the CLI binary's own crate
+version (not the product version); `codeterm identify` is authoritative.
+
 ## Panes & workspaces
 
 Commands default to the **current focused pane** when no id is given. Reference your own pane via `$CODETERM_PANE_ID` — `pane current` returns the *focused* pane, which may be someone else's.
