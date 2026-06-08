@@ -528,7 +528,7 @@ function AppInner() {
         // covers iOS Safari, where the keyboard shrinks only the VISUAL viewport and dvh stays put (see useKeyboardInset).
         height: keyboardInset ? `calc(100% - ${keyboardInset}px)` : "100%",
         "--ct-composer-bottom-padding": keyboardInset
-          ? "0.5rem"
+          ? "0px"
           : "calc(0.5rem + var(--ct-safe-bottom, 0px))",
       } as React.CSSProperties}
     >

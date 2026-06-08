@@ -29,7 +29,10 @@ export function useKeyboardInset(): number {
       const rootHeight =
         document.getElementById("root")?.clientHeight ?? window.innerHeight;
       const gap = rootHeight - vv.height - vv.offsetTop;
-      setInset(Math.max(0, Math.round(gap)));
+      // Ignore sub-100px gaps: iPadOS with an external keyboard fires viewport events on input
+      // focus (for cursor scroll) without showing the software keyboard, producing a small gap
+      // that collapses the app shell to ~0 height and causes a gray screen.
+      setInset(Math.max(0, Math.round(gap > 100 ? gap : 0)));
       // iOS scrolls the page when the keyboard opens — pin it so fixed chrome (sidebar burger) stays on-screen.
       if (vv.offsetTop > 0) window.scrollTo(0, 0);
     };
