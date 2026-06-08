@@ -105,6 +105,10 @@ pub struct JsProvider {
     /// provider source (json/sql/…) works as long as something implements the
     /// trait method.
     registry: Option<Arc<crate::agent::registry::AgentRegistry>>,
+    /// settingsSchema/notificationsSchema are pure constants in the plugin but
+    /// `describe()` (called on every /api/agents/providers poll) re-evaluated
+    /// them through QuickJS every time — a profiled CPU hot path. Compute once.
+    schema_cache: std::sync::OnceLock<(Vec<SettingField>, Vec<SettingField>)>,
 }
 
 impl JsProvider {
@@ -132,7 +136,19 @@ impl JsProvider {
             manifest,
             trust,
             registry: None,
+            schema_cache: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Evaluate the plugin's (settings, notifications) schemas once via QuickJS.
+    fn compute_schemas(&self) -> (Vec<SettingField>, Vec<SettingField>) {
+        let settings = self
+            .try_call::<Vec<SettingField>>("settingsSchema", &[])
+            .unwrap_or_else(|| manifest_settings_sections(&self.manifest));
+        let notifications = self
+            .try_call::<Vec<SettingField>>("notificationsSchema", &[])
+            .unwrap_or_default();
+        (settings, notifications)
     }
 
     /// Give the provider a registry handle so it can look up its native
@@ -749,16 +765,12 @@ impl AgentProvider for JsProvider {
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {
-        // Plugin-provided schema (richer) takes precedence; otherwise assemble standard sections from manifest data.
-        if let Some(schema) = self.try_call::<Vec<SettingField>>("settingsSchema", &[]) {
-            return schema;
-        }
-        manifest_settings_sections(&self.manifest)
+        // Cached: describe() polls hit this; the plugin schema is a pure constant.
+        self.schema_cache.get_or_init(|| self.compute_schemas()).0.clone()
     }
 
     fn notifications_schema(&self) -> Vec<SettingField> {
-        self.try_call::<Vec<SettingField>>("notificationsSchema", &[])
-            .unwrap_or_default()
+        self.schema_cache.get_or_init(|| self.compute_schemas()).1.clone()
     }
 
     fn install_bridge_rule(&self, payload: &str) -> Result<(), String> {
