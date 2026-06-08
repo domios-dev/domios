@@ -135,6 +135,60 @@ module.exports.default = {
     return this.sessionFilePath(cwd, sessionId);
   },
 
+  // Parse codex rollout JSONL into RichMessages. Codex schema:
+  //   {type:"response_item", payload:{type:"message"|"function_call"|"function_call_output", ...}}
+  // We read response_item lines only (event_msg duplicates them; reasoning is
+  // encrypted; token_count/turn_context/session_meta are metadata).
+  parseSessionDelta: function (chunk) {
+    var out = [];
+    var lines = String(chunk || "").split("\n");
+    for (var i = 0; i < lines.length; i++) {
+      if (!lines[i]) continue;
+      var v;
+      try { v = JSON.parse(lines[i]); } catch (_) { continue; }
+      if (!v || v.type !== "response_item" || !v.payload) continue;
+      var p = v.payload;
+      var ts = null;
+      if (typeof v.timestamp === "string") {
+        var d = Date.parse(v.timestamp);
+        if (!isNaN(d)) ts = Math.floor(d / 1000);
+      }
+      if (p.type === "message") {
+        var role = p.role === "assistant" ? "assistant" : (p.role === "user" ? "user" : null);
+        if (!role) continue; // skip developer/system noise
+        var text = "";
+        if (Array.isArray(p.content)) {
+          for (var j = 0; j < p.content.length; j++) {
+            var c = p.content[j];
+            if (c && typeof c.text === "string") text += c.text;
+          }
+        } else if (typeof p.content === "string") {
+          text = p.content;
+        }
+        if (!text) continue;
+        out.push({ role: role, blocks: [{ kind: "text", data: { text: text } }], ts: ts });
+      } else if (p.type === "function_call") {
+        var input = {};
+        try { input = JSON.parse(p.arguments || "{}"); } catch (_) { input = { raw: p.arguments }; }
+        if (input && input.cmd && !input.command) input.command = input.cmd; // surface for generic readers
+        out.push({
+          role: "assistant",
+          blocks: [{ kind: "tool_use", data: { name: p.name || "tool", input: input } }],
+          ts: ts,
+        });
+      } else if (p.type === "function_call_output") {
+        var content = p.output;
+        if (content && typeof content === "object") content = JSON.stringify(content);
+        out.push({
+          role: "assistant",
+          blocks: [{ kind: "tool_result", data: { content: String(content == null ? "" : content) } }],
+          ts: ts,
+        });
+      }
+    }
+    return { messages: out };
+  },
+
   detectSessionId: function (cwd, exclude, maxAgeMs) {
     var root = codexSessionsRoot();
     if (!root || !host.fs.fileExists(root)) return null;
