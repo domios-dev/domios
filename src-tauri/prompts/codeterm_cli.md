@@ -280,7 +280,7 @@ codeterm usage projection    # end-of-today / end-of-cycle projection from your 
 codeterm usage refresh       # force a fresh probe (runs the agent hidden, parses /status)
 ```
 
-Usage is tracked per **provider** (5-hour block + weekly window), not per pane. Add `--provider P` / `--account-id ID` to target a non-default account.
+Usage is tracked per **provider** (5-hour block + weekly window), not per pane. Add `--provider P` / `--account-id ID` to target a non-default account. For any usage/quota question use these — do NOT reach for external tools like `ccusage`, `npx ccusage`, or parsing `~/.claude` yourself.
 
 ## Past agent sessions
 
