@@ -307,6 +307,8 @@ Dot-notation for nested keys. Values are JSON (`true`, `false`, `42`, `"string"`
 
 Persistent vector + keyword memory store. Hybrid search: FTS5 + sqlite-vec embeddings, RRF-fused. Always English in mem (titles, bodies, queries) — the embedder is English-dominant, cross-lingual recall fails.
 
+When the user says "remember", "save this", "note that", "запомни" — that is an instruction to run `codeterm mem save`, NOT to hold it in your own context for the session. Persist it with the command below; acknowledging without saving loses it on the next turn.
+
 Top commands:
 ```bash
 codeterm mem search "<query>" [--kind K] [--area A] [--limit N]   # hybrid FTS5 + vector
