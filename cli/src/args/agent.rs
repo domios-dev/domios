@@ -3,8 +3,8 @@ use clap::Subcommand;
 #[derive(Subcommand)]
 pub enum AgentAction {
     /// Mark a pane as orchestrator (top-level, can spawn leads/workers)
-    #[command(alias = "set-orchestrator")]
-    SetConductor {
+    #[command(alias = "set-conductor")]
+    SetOrchestrator {
         /// Pane ID (default: current focused pane)
         #[arg(long)]
         pane: Option<String>,

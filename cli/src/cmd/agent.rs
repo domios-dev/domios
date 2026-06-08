@@ -97,7 +97,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
             }
         }
-        AgentAction::SetConductor { pane } => {
+        AgentAction::SetOrchestrator { pane } => {
             let pane_id = resolve_pane(client, pane);
             match http.post(format!("{}/api/panes/{}/role", base, pane_id))
                 .json(&serde_json::json!({"role": "Orchestrator"}))

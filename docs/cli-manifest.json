@@ -227,7 +227,7 @@
           "subcommands": []
         },
         {
-          "name": "set-conductor",
+          "name": "set-orchestrator",
           "about": "Mark a pane as orchestrator (top-level, can spawn leads/workers)",
           "aliases": [],
           "args": [
