@@ -39,7 +39,8 @@ codeterm pane close PANE_ID
 codeterm pane stop [--pane PANE_ID]                 # interrupt the agent's current generation. Does NOT close the pane.
 codeterm send-text "text" --pane PANE_ID            # types text into the pane (agent prompt or shell)
 codeterm pane exec "<cmd>" --pane PANE_ID           # run a shell command headlessly; returns stdout
-codeterm get-output --pane PANE_ID
+codeterm get-output --pane PANE_ID                  # raw terminal scrollback
+codeterm pane chat --pane PANE_ID [--since N]       # PARSED chat transcript of an agent pane (text/thinking/tool calls/results) — inspect what a sub-agent actually did, not raw ANSI
 
 codeterm workspace list
 codeterm workspace create "Name" [--cwd PATH]      # empty, no auto-tab. --cwd becomes the default for agents spawned with --workspace.
