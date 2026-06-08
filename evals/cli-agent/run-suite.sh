@@ -12,6 +12,9 @@ RUNS_DIR="$HARNESS_DIR/runs/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$RUNS_DIR"
 echo "runs → $RUNS_DIR"
 
+cleanup_bench_ws   # sweep leftovers from any prior interrupted run
+trap cleanup_bench_ws EXIT   # and again on exit (incl. agent-created workspaces)
+
 for cf in $GLOB; do
   mapfile -t ids < <(python3 -c 'import sys,yaml; [print(c["id"]) for c in (yaml.safe_load(open(sys.argv[1])) or [])]' "$cf")
   for id in "${ids[@]}"; do
