@@ -1,4 +1,6 @@
-#[derive(Clone)]
+use clap::Subcommand;
+
+#[derive(Clone, Subcommand)]
 pub enum PluginAction {
     /// List installed plugins.
     List,
@@ -7,10 +9,13 @@ pub enum PluginAction {
         /// Plugin id to install from registered channels.
         id: Option<String>,
         /// Install from a local plugin directory.
+        #[arg(long = "from-dir")]
         from_dir: Option<String>,
         /// Override the install id. Defaults to plugin.json#id or folder name.
+        #[arg(long = "id-override")]
         id_override: Option<String>,
         /// Disambiguate channel installs when more than one channel offers the id.
+        #[arg(long)]
         channel: Option<String>,
     },
     /// Update one installed plugin, or all plugins when id is omitted.
@@ -18,6 +23,7 @@ pub enum PluginAction {
         id: Option<String>,
     },
     /// Update bundled system provider plugins from the official plugin channel.
+    #[command(alias = "system-update")]
     UpdateSystem {
         id: Option<String>,
     },
@@ -25,19 +31,22 @@ pub enum PluginAction {
     Remove {
         id: String,
         /// Allow removing a verified/system plugin folder.
+        #[arg(long)]
         force: bool,
     },
     /// Manage plugin channels.
     Channel {
+        #[command(subcommand)]
         command: PluginChannelAction,
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Subcommand)]
 pub enum PluginChannelAction {
     /// Add a local path or git URL channel.
     Add {
         url: String,
+        #[arg(long)]
         name: Option<String>,
     },
     /// List registered channels.
@@ -54,6 +63,7 @@ pub enum PluginChannelAction {
     Remove {
         name: String,
         /// Allow removing the protected system channel registration.
+        #[arg(long)]
         force: bool,
     },
 }

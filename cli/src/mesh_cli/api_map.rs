@@ -24,6 +24,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 .into(),
             None,
         ),
+        // `plugin` manages local on-disk plugin folders — no remote form.
+        Commands::Plugin { .. } => (
+            UNSUPPORTED_OVER_MESH.into(),
+            "plugin management is local-only — run it on the target machine".into(),
+            None,
+        ),
         // `cli-manifest` introspects the local clap binary — no remote form.
         Commands::CliManifest { .. } => (
             UNSUPPORTED_OVER_MESH.into(),

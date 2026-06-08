@@ -11,6 +11,7 @@ use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction,
     PasteAction, ThemeAction, WorkspaceAction,
 };
+use super::plugin::PluginAction;
 use super::sessions::SessionsAction;
 use super::system::SystemAction;
 use super::update::UpdateAction;
@@ -43,6 +44,12 @@ pub enum Commands {
 
     /// List all available API methods
     Capabilities,
+
+    /// Plugin management — install, update, remove, manage channels
+    Plugin {
+        #[command(subcommand)]
+        action: PluginAction,
+    },
 
     /// Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
     CliManifest {
