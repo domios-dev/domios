@@ -24,6 +24,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 .into(),
             None,
         ),
+        // `cli-manifest` introspects the local clap binary — no remote form.
+        Commands::CliManifest { .. } => (
+            UNSUPPORTED_OVER_MESH.into(),
+            "cli-manifest is local-only — it dumps this binary's own command tree".into(),
+            None,
+        ),
         Commands::Identify => ("GET".into(), "/api/identify".into(), None),
         Commands::Capabilities => ("GET".into(), "/api/identify".into(), None),
         Commands::GetOutput { pane, lines } => {

@@ -345,6 +345,15 @@ fn main() {
         return;
     }
 
+    // `cli-manifest` introspects the clap tree — no daemon dependency.
+    if matches!(cli.command, Commands::CliManifest { .. }) {
+        match cli.command {
+            Commands::CliManifest { write } => cmd::manifest::handle(write),
+            _ => unreachable!(),
+        }
+        return;
+    }
+
     // `docs` reads embedded markdown bundled at compile time — no daemon dependency. Short-circuit so agents can read references even when the daemon is wedged or restarting.
     if matches!(cli.command, Commands::Docs { .. }) {
         match cli.command {
@@ -640,6 +649,9 @@ fn main() {
 
         // Config is handled before socket connect (uses HTTP API)
         Commands::Config { .. } => unreachable!(),
+
+        // cli-manifest is handled before socket connect (introspects clap tree)
+        Commands::CliManifest { .. } => unreachable!(),
 
 
         Commands::Mesh { action } => {
