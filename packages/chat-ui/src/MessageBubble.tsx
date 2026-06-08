@@ -35,6 +35,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import * as prismStyles from "react-syntax-highlighter/dist/esm/styles/prism";
+import { recognize } from "./codeterm/recognize";
+import { CodetermCard } from "./codeterm/CodetermCard";
 
 const vscDarkPlus =
   ((prismStyles as { vscDarkPlus?: Record<string, React.CSSProperties> }).vscDarkPlus ??
@@ -1797,6 +1799,21 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           </div>
         </div>
       );
+    }
+
+    // CodeTerm CLI command — render a branded semantic card.
+    if (command) {
+      const inv = recognize(command);
+      if (inv) {
+        return (
+          <CodetermCard
+            inv={inv}
+            result={message.toolResult}
+            expanded={expanded}
+            onToggle={() => setExpanded(!expanded)}
+          />
+        );
+      }
     }
 
     const detailText = message.toolArgs || message.content;
