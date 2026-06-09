@@ -76,7 +76,7 @@ impl ServiceContext {
         // Inject into the target PTY only when the target is a real pane (parent / report_target / spawner). The system inbox has no PTY, and bouncing
         // back to the reporter's own pane is the bug we just fixed — guard against that explicitly.
         if let Some(ref target_id) = target_opt {
-            if target_id != pane_id {
+            if target_id != pane_id && self.target_has_live_agent(target_id) {
                 let model = self
                     .mux
                     .lock()
@@ -92,6 +92,29 @@ impl ServiceContext {
             report_id: report.id,
             orchestrator_pane_id: storage_key,
         })
+    }
+
+    /// True when the target pane currently shows a live agent TUI. A report is
+    /// bracketed-paste injected into the target's PTY; if the agent has died and
+    /// left a bare shell (stale `agent_type` metadata), pasting the marker makes
+    /// the shell execute it as a command. The report is still stored + broadcast
+    /// for the chat UI, so gating the PTY inject loses nothing.
+    fn target_has_live_agent(&self, target_id: &str) -> bool {
+        let pty_id = {
+            let mux = self.mux.lock();
+            match mux.get_pane(target_id) {
+                Some(p) if p.agent_type.is_some() => p.pty_id.clone(),
+                _ => return false,
+            }
+        };
+        let Some(pty_id) = pty_id else { return false };
+        let screen = self
+            .screen_state
+            .lock()
+            .get_screen_text(&pty_id)
+            .unwrap_or_default();
+        crate::pty::screen_state::screen_has_agent_tui(&screen)
+            || self.agent_registry.any_provider_screen_has_tui(&screen)
     }
 
     pub fn get_reports(&self, pane_id: &str) -> Vec<serde_json::Value> {
