@@ -25,11 +25,7 @@ pub(super) fn encode_cwd(cwd: &str) -> String {
 /// fall back to the raw cwd if the path can't be resolved (e.g. it was removed).
 pub(super) fn sessions_dir(cwd: &str) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
-    let canonical = std::fs::canonicalize(cwd)
-        .ok()
-        .and_then(|p| p.to_str().map(String::from))
-        .unwrap_or_else(|| cwd.to_string());
-    let encoded = encode_cwd(&canonical);
+    let encoded = encode_cwd(&crate::paths::canonical_cwd(cwd));
     Some(home.join(".claude").join("projects").join(encoded))
 }
 
@@ -422,6 +418,33 @@ mod tests {
     fn test_encode_cwd() {
         assert_eq!(encode_cwd("/home/user/project"), "-home-user-project");
         assert_eq!(encode_cwd("C:\\Users\\test"), "C--Users-test");
+    }
+
+    #[test]
+    fn test_verbatim_cwd_encodes_like_plain_cwd() {
+        // The whole point: a verbatim-prefixed canonical path must encode to the
+        // SAME claude project dir as the plain cwd — otherwise resume never matches.
+        let plain = encode_cwd(r"C:\Users\dev\.codeterm-dev\general");
+        let verbatim = encode_cwd(&crate::paths::strip_verbatim_prefix(
+            r"\\?\C:\Users\dev\.codeterm-dev\general",
+        ));
+        assert_eq!(plain, verbatim);
+        assert_eq!(plain, "C--Users-User--codeterm-dev-general");
+    }
+
+    #[test]
+    fn test_sessions_dir_real_cwd_has_no_verbatim_dashes() {
+        // Regression for the live bug: on Windows, canonicalize returns a
+        // `\\?\`-prefixed path; without stripping, the encoded project dir grew
+        // 4 leading dashes and resume never matched. Use an existing dir so
+        // canonicalize actually fires.
+        let cwd = std::env::temp_dir().to_string_lossy().to_string();
+        let dir = sessions_dir(&cwd).unwrap();
+        let leaf = dir.file_name().unwrap().to_string_lossy().to_string();
+        assert!(
+            !leaf.starts_with("----"),
+            "verbatim prefix leaked into encoded project dir: {leaf}"
+        );
     }
 
     #[test]
