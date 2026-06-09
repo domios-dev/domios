@@ -5,7 +5,7 @@
   "identifier": "com.codeterm.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:1420",
     "beforeDevCommand": "node scripts/dev-prep.mjs",
     "beforeBuildCommand": "pnpm build && node scripts/touch-cli-main.js && cargo build --release --manifest-path cli/Cargo.toml && node scripts/bundle-cli.js && node scripts/prepare-embed-stub.js && cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed && node scripts/bundle-embed.js"
   },

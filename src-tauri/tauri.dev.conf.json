@@ -1,4 +1,7 @@
 {
   "identifier": "com.codeterm.dev",
-  "productName": "CodeTerm Dev"
+  "productName": "CodeTerm Dev",
+  "build": {
+    "devUrl": "http://127.0.0.1:1420"
+  }
 }
