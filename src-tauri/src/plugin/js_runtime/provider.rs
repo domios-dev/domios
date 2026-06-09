@@ -467,6 +467,38 @@ impl AgentProvider for JsProvider {
         candidates.into_iter().next().map(|(id, _)| id)
     }
 
+    fn detect_launched_session_id(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+    ) -> Option<String> {
+        if let Some(session_id) = injected_session_id {
+            if self.session_exists(cwd, session_id) {
+                return Some(session_id.to_string());
+            }
+        }
+        self.detect_session_id(cwd, exclude, max_age)
+    }
+
+    fn detect_started_session(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+        screen_text: Option<&str>,
+    ) -> Option<String> {
+        self.detect_started_session_with_markers(
+            cwd,
+            exclude,
+            max_age,
+            injected_session_id,
+            screen_text,
+        )
+    }
+
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
         // Plugin can enumerate via sqlite, recursive walk, network call, whatever. Falls back to the manifest-driven single-level listing when the
         // plugin doesn't implement `enumerateSessions`.

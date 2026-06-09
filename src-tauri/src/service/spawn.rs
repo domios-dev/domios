@@ -290,7 +290,17 @@ impl ServiceContext {
         // Pin agent_type before launch so detect_from_output has a durable session-id source.
         // Missing this tag leaves Codex/OpenCode panes unresumable after restart.
         self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.clone());
+        let launch_session_id = if agent.resume_session_id.is_none() {
+            self.agent_registry
+                .with_provider(&agent_cmd, |p| p.session_id_injection())
+                .filter(|mode| !matches!(mode, crate::agent::provider::SessionIdInjection::None))
+                .map(|_| uuid::Uuid::new_v4().to_string())
+        } else {
+            None
+        };
         if let Some(ref sid) = agent.resume_session_id {
+            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+        } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
         self.emit_state_changed();
@@ -319,6 +329,7 @@ impl ServiceContext {
             &agent_cmd,
             &legacy_params,
             role_suffixed_task.as_deref(),
+            launch_session_id.as_deref(),
             &self.agent_registry,
         );
         launch_agent_in_background(

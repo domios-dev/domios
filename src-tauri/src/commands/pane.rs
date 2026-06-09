@@ -152,41 +152,7 @@ pub fn read_session_jsonl(
         (sid, cwd, at)
     };
 
-    let needs_detect = if session_id.is_none() {
-        true
-    } else if let Some(ref sid) = session_id {
-        svc.agent_registry
-            .with_provider(&agent_type, |p| p.session_file_path(&cwd, sid))
-            .flatten()
-            .map(|path| !path.exists())
-            .unwrap_or(true)
-    } else {
-        false
-    };
-
-    if needs_detect {
-        let exclude = mux.lock().other_session_ids(&pane_id);
-        let max_age = Some(std::time::Duration::from_secs(86400));
-        let detected = svc
-            .agent_registry
-            .with_provider(&agent_type, |p| {
-                p.detect_session_id(&cwd, &exclude, max_age)
-            })
-            .flatten();
-        if let Some(detected) = detected {
-            log::info!(
-                "[read_session_jsonl] detected session {} for pane {}",
-                detected,
-                pane_id
-            );
-            svc.set_agent_session_id(&pane_id, Some(detected.clone()));
-            svc.emit_state_changed();
-            session_id = Some(detected);
-        }
-    }
-
-    let session_id =
-        session_id.ok_or_else(|| "No agent session linked to this pane".to_string())?;
+    let session_id = session_id.ok_or_else(|| "No agent session linked to this pane".to_string())?;
 
     let jsonl_path = svc
         .agent_registry
