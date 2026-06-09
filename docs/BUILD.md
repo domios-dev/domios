@@ -28,6 +28,18 @@ pnpm install
 ./build.sh build        # production build
 ```
 
+### Windows
+
+```powershell
+# Git Bash:
+./build.cmd dev --wait
+
+# If you still use PowerShell, call build.sh through git-bash:
+git-bash -lc "./build.sh dev --wait"
+```
+
+`./build.cmd dev --wait` already runs the dev process through the same script path that clears previous dev instances on port 7686.
+
 ## Dev/Prod Isolation
 
 Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:

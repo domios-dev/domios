@@ -150,11 +150,23 @@ The repository ships a single entry point — `build.sh` — that handles the de
 git clone https://github.com/rollacode/codeterm.git
 cd codeterm
 pnpm install
+```
 
+```bash
 # Dev (hot reload, port 7686, data dir ~/.codeterm-dev/, never touches prod on 7685)
 ./build.sh dev
 ./build.sh dev --wait   # background + block until /api/health responds (for scripts)
+```
 
+```bash
+# Windows (recommended)
+# In Git Bash:
+./build.cmd dev --wait
+```
+
+# Note: `./build.cmd dev --wait` already kills any existing dev process on 7686 before startup.
+
+```bash
 # CLI binary — installs to both ~/.codeterm/bin/ and ~/.codeterm-dev/bin/
 ./build.sh cli
 
