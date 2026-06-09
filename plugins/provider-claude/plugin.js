@@ -39,6 +39,9 @@ var TUI_FRAGMENTS = [
   "for shortcuts",
   "ctrl+l",
   "esc to interrupt",
+  // v2.1+ idle footer
+  "bypass permissions",
+  "shift+tab to cycle",
 ];
 
 var SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/i;
@@ -67,11 +70,13 @@ module.exports.default = {
   },
 
   screenHasTui: function (screen) {
-    var lower = String(screen || "").toLowerCase();
+    var s = String(screen || "");
+    var lower = s.toLowerCase();
     for (var i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
-    return false;
+    // Banner logo quadrant blocks — never in plain shell output.
+    return s.indexOf("▛") !== -1 || s.indexOf("▜") !== -1;
   },
 
   isOutputNoise: function (text) {

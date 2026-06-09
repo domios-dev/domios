@@ -76,15 +76,26 @@ impl ServiceContext {
         // Inject into the target PTY only when the target is a real pane (parent / report_target / spawner). The system inbox has no PTY, and bouncing
         // back to the reporter's own pane is the bug we just fixed — guard against that explicitly.
         if let Some(ref target_id) = target_opt {
-            if target_id != pane_id && self.target_has_live_agent(target_id) {
-                let model = self
-                    .mux
-                    .lock()
-                    .get_pane(pane_id)
-                    .and_then(|p| p.agent_session_model.clone());
-                let pfx = crate::service::msg_prefix::CtxPrefix::report(&from_title, pane_id)
-                    .model(model);
-                let _ = self.send_text(target_id, &pfx.wrap(message), true);
+            if target_id != pane_id {
+                let live = self.target_has_live_agent(target_id);
+                log::info!(
+                    "[report] target={} live_agent={} — {}",
+                    target_id,
+                    live,
+                    if live { "injecting into PTY" } else { "stored only (no agent TUI on screen)" },
+                );
+                if live {
+                    let model = self
+                        .mux
+                        .lock()
+                        .get_pane(pane_id)
+                        .and_then(|p| p.agent_session_model.clone());
+                    let pfx = crate::service::msg_prefix::CtxPrefix::report(&from_title, pane_id)
+                        .model(model);
+                    if let Err(e) = self.send_text(target_id, &pfx.wrap(message), true) {
+                        log::warn!("[report] PTY inject failed for {}: {}", target_id, e);
+                    }
+                }
             }
         }
 
