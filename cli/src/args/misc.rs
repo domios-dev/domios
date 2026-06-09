@@ -136,6 +136,16 @@ pub enum PaneAction {
         #[arg(long, alias = "id")]
         pane: Option<String>,
     },
+
+    /// Read a pane's parsed chat transcript (text/thinking/tool calls/results)
+    Chat {
+        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
+        /// Only return messages from this index onward
+        #[arg(long, default_value = "0")]
+        since: usize,
+    },
 }
 
 /// Cross-mesh ephemeral pastebin (#98). In-memory; daemon restart wipes

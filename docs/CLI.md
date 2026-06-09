@@ -1,0 +1,1456 @@
+# CodeTerm CLI Reference
+
+<!-- revision: 1 -->
+
+Complete command reference. The section between the markers below is
+auto-generated from the clap command tree by `codeterm cli-manifest --write` —
+do not edit it by hand. Conventions: `--pane` accepts alias `--id`; `--json` is
+a global flag on every command.
+
+<!-- cli:auto-start -->
+#### `codeterm agent`
+
+Agent hierarchy management
+
+#### `codeterm agent allow-spawn`
+
+Toggle whether a pane can spawn children
+
+- `--enable` — Enable or disable spawning
+- `--pane` — Pane ID (default: current focused pane)
+
+#### `codeterm agent compact`
+
+Compact agent context (sends /compact to Claude)
+
+- `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+
+#### `codeterm agent link`
+
+Link a pane as worker under a parent
+
+- `--pane` — Pane ID to link (default: current focused pane)
+- `--parent` — Parent pane ID (orchestrator or lead)
+
+#### `codeterm agent list`
+
+List agent panes and the hierarchy (same view as `pane list --agents`)
+
+#### `codeterm agent model`
+
+Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead
+
+- `<name>` — Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list
+- `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+
+#### `codeterm agent models`
+
+List available models for a specific provider
+
+- `<provider>` — Provider id (e.g. "claude"). Required
+
+#### `codeterm agent providers`
+
+List available agent providers (claude, codex, ...) with their display names, default models, and capability flags
+
+#### `codeterm agent report`
+
+Send a report to your parent in the hierarchy
+
+- `<message>` — Report message (also accepts --message alias)
+- `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+
+#### `codeterm agent reports`
+
+Read reports (for orchestrator panes)
+
+- `--clear` — Clear reports after reading
+- `--limit` — Show only the N most recent reports (default: all)
+- `--pane` — Pane ID (default: current focused pane)
+
+#### `codeterm agent restart`
+
+Restart agent (gracefully /exit + auto-resume to pick up settings or recover)
+
+- `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
+- `--grace_secs` — Wait this long for graceful exit before force-killing (seconds)
+- `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+
+#### `codeterm agent set-orchestrator`
+
+Mark a pane as orchestrator (top-level, can spawn leads/workers)
+
+- `--pane` — Pane ID (default: current focused pane)
+
+#### `codeterm agent spawn`
+
+Spawn a new agent (creates tab in workspace, linked in hierarchy)
+
+- `<agent>` — Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude
+- `--args` — Extra args for the agent
+- `--can_spawn` — Allow spawning children
+- `--cwd` — Working directory
+- `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
+- `--parent` — Parent pane ID (for Workers)
+- `--role` — Role: Orchestrator, Worker
+- `--task` — Task to send after agent starts
+- `--title` — Tab title
+- `--workspace` — Target workspace ID (default: parent's workspace or active workspace)
+
+#### `codeterm agent unlink`
+
+Remove a pane's role (also orphans children)
+
+- `--pane` — Pane ID (default: current focused pane)
+
+#### `codeterm bridge`
+
+Send a message to an external service (Telegram, etc.)
+
+#### `codeterm bridge migrate`
+
+Migrate active bridge poller from this node to another mesh peer
+
+- `--announce` — Send a one-shot "now serving from <host>" message to the sentinel chat
+- `--announce_chat_id` — Sentinel chat id for --announce. Defaults to the maintainer's chat
+- `--claim_timeout_ms` — How long target may take to claim the Telegram lock before the migration is considered failed (ms)
+- `--force` — Skip preflight target-state check (for force migrations)
+- `--no_rollback` — Skip auto-rollback if target claim fails (leave source disabled)
+- `--service` — Service to migrate (currently only "telegram")
+- `--to` — Target peer instance_name (as shown in `codeterm mesh peers`)
+
+#### `codeterm bridge react`
+
+Set an emoji reaction on a message
+
+- `<emoji>` — Emoji to react with (e.g. "👍", "✅", "❤")
+- `--message_id` — Message ID to react to
+- `--to` — Recipient chat/user ID
+
+#### `codeterm bridge restart`
+
+Start or restart messaging bridge (Telegram, etc.)
+
+#### `codeterm bridge send`
+
+Send a message to Telegram or other service
+
+- `--append` — Append to previous message instead of replacing (edits existing message)
+- `--buttons` — Inline keyboard buttons as JSON: [[{"text":"Yes","data":"yes"},{"text":"No","data":"no"}]]
+- `--caption` — Caption for media (alternative to positional text)
+- `--file` — File path for media types
+- `--filename` — Override filename for document uploads
+- `--service` — Target service
+- `<text>` — Message text (also used as caption for media types)
+- `--to` — Recipient chat/user ID
+- `--type` — Content type: text, photo, document, voice, animation, video, sticker
+
+#### `codeterm capabilities`
+
+List all available API methods
+
+#### `codeterm cli-manifest`
+
+Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
+
+- `--write` — Regenerate committed artifacts (docs/cli-manifest.json + docs/CLI.md)
+
+#### `codeterm config`
+
+Read or write CodeTerm configuration
+
+#### `codeterm config get`
+
+Get a config value (dot-notation, e.g. "integrations.telegram_enabled")
+
+- `<key>` — 
+
+#### `codeterm config set`
+
+Set a config value (JSON-compatible: true, false, 42, "string")
+
+- `<key>` — 
+- `<value>` — 
+
+#### `codeterm cron`
+
+Cron job management
+
+#### `codeterm cron cancel`
+
+Stop any currently-running executions of a cron job without deleting the job definition. Future scheduled fires still run
+
+- `<id>` — Cron job ID
+
+#### `codeterm cron complete`
+
+Mark a cron run as complete (called by agent at end of task)
+
+- `--run_id` — Run ID
+- `--summary` — Summary of what happened
+
+#### `codeterm cron create`
+
+Create a cron job
+
+- `--agent` — Agent to spawn (default: claude)
+- `--creator_pane` — Pane ID to receive reports from cron agent (default: $CODETERM_PANE_ID)
+- `--cwd` — Working directory
+- `--description` — Description
+- `--jitter_max_ms` — Max jitter in milliseconds added to each scheduled fire. 0 = off. Omit for default (10% of interval, clamped to [1m, 30m])
+- `--model` — Model within the agent provider (e.g. "opus", "haiku", "gpt-5.4-mini"). Leave unset to use the provider default
+- `<name>` — Cron job name
+- `--once` — Oneshot: fire once at scheduled time, then auto-delete
+- `--schedule` — Cron schedule (5-field: "*/30 * * * *") or oneshot time ("in 5m", ISO8601)
+- `--task` — Task prompt for the agent
+- `--timeout_secs` — Per-cron run timeout (seconds). Overrides global memory.worker_timeout_seconds. Set high (e.g. 1800) for long-running tasks like memory dreaming
+- `--tz` — IANA timezone for the schedule (e.g. "Europe/Riga"). Default: UTC
+- `--workspace` — Workspace ID (default: active)
+
+#### `codeterm cron delete`
+
+Delete a cron job
+
+- `<id>` — Cron job ID
+
+#### `codeterm cron disable`
+
+Disable a cron job
+
+- `<id>` — Cron job ID
+
+#### `codeterm cron edit`
+
+Edit a cron job
+
+- `--agent` — Agent provider override (e.g. "claude", "codex")
+- `--cwd` — 
+- `--description` — 
+- `<id>` — Cron job ID
+- `--jitter_max_ms` — Max jitter in milliseconds added to each scheduled fire. Set 0 to disable jitter. Omit to leave unchanged
+- `--model` — Model within the agent provider. Pass empty string to clear
+- `--name` — 
+- `--schedule` — 
+- `--task` — 
+- `--timeout_secs` — Per-cron run timeout (seconds). 0 clears the override (back to global default)
+- `--tz` — IANA timezone (e.g. "Europe/Riga"). Pass empty string to clear back to UTC
+
+#### `codeterm cron enable`
+
+Enable a cron job
+
+- `<id>` — Cron job ID
+
+#### `codeterm cron history`
+
+Show run history
+
+- `<id>` — Cron job ID
+
+#### `codeterm cron list`
+
+List cron jobs
+
+- `--workspace` — Filter by workspace ID
+
+#### `codeterm cron trigger`
+
+Manually trigger a cron job now
+
+- `<id>` — Cron job ID
+
+#### `codeterm debug`
+
+Internal diagnostics — verify crash reporter, etc. Dev-only; hidden from --help because the matching daemon endpoint is gated to debug builds. Calling against a prod daemon returns Method-not-found
+
+#### `codeterm debug crash`
+
+Trigger a synthetic crash to verify the crash-reporter writes files. Daemon dies (segv/abort) or just records a panic report (panic). Only available in dev builds
+
+- `--kind` — Kind of crash to trigger
+
+#### `codeterm docs`
+
+Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm panes; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING)
+
+- `--full` — Print the complete document even inside a CodeTerm pane
+- `--head` — Print at most N lines
+- `<name>` — Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs
+
+#### `codeterm get-output`
+
+Get terminal output from a pane (default: current pane)
+
+- `--lines` — Maximum number of lines to return (approximate)
+- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+
+#### `codeterm identify`
+
+Show CodeTerm version and system info
+
+#### `codeterm keepawake`
+
+Prevent the system from sleeping while an agent is running
+
+#### `codeterm keepawake start`
+
+Start keeping the system awake
+
+- `--display` — Also prevent display sleep
+- `--duration_secs` — Duration in seconds (omit for indefinite)
+
+#### `codeterm keepawake status`
+
+Show current keep-awake status (default)
+
+#### `codeterm keepawake stop`
+
+Stop the current keep-awake session
+
+#### `codeterm mem`
+
+Unified memory store — skills, facts, notes, scripts, peers, preferences
+
+#### `codeterm mem calibration`
+
+Memory calibration: review or trigger the dreamer's importance/archive sweep
+
+#### `codeterm mem calibration log`
+
+Show recent calibration changes (audit log)
+
+- `--count` — Return just the count (no rows)
+- `--limit` — Max rows (default 50, max 500)
+- `--since` — ISO8601 lower-bound for changed_at (default: epoch)
+
+#### `codeterm mem calibration sweep`
+
+Manually trigger a calibration sweep (Sunday only unless --force)
+
+- `--force` — Bypass the day-of-week gate. Manual / testing
+
+#### `codeterm mem delete`
+
+Delete an item by id
+
+- `<id>` — 
+
+#### `codeterm mem dream`
+
+Dreamer review/apply: run a daemon-routed dream phase, or apply a reviewed re-cluster plan against the local mem DB
+
+#### `codeterm mem dream apply`
+
+Re-parse a plan file and call `introduce_topic` for each YAML-fenced action block. Malformed individual fences become warnings; the rest still run. After a successful run the file is renamed to `<name>-applied.md` with a summary footer appended. Plans are hand-written or produced by a future Dreamer re-cluster phase
+
+- `--db_path` — Override the path to knowledge.db
+- `<plan_file>` — Path to the plan markdown file
+
+#### `codeterm mem dream diary`
+
+Show the most recent dream diary entries (the structured PATTERN / CONNECTION / IDEA / WHAT IF / HUBS / ONE ACTION reflections the REM agent writes after each dream cycle). Use this to read the Dreamer's fresh observations before acting on them
+
+- `--limit` — How many entries to return (most-recent first)
+
+#### `codeterm mem dream run`
+
+Run dreaming consolidation via the daemon. Phases: light, deep, normalize, all (default). Replaces the v1.1.22 `mem dream --phase ...` form which is gone in v1.1.23
+
+- `--phase` — Which phase to run: light | deep | normalize | all
+
+#### `codeterm mem extract-pending`
+
+Re-run extraction workers for items that haven't been extracted yet. Useful after LLM API failures, quota resets, or bulk imports with skip_extract. Workers fire sequentially with a short delay
+
+- `--limit` — Maximum number of items to queue (default 200)
+
+#### `codeterm mem flush`
+
+Flush a pane's PTY scrollback as a kind=conversation mem_item (called by PreCompact hook before context summarization)
+
+- `--pane` — Pane id (default: $CODETERM_PANE_ID)
+- `--title` — Optional title hint
+
+#### `codeterm mem forget`
+
+Batch-delete every item in an area (use sparingly)
+
+- `<area>` — Area name (e.g. auth, deploy, billing)
+
+#### `codeterm mem get`
+
+Print one item by id
+
+- `<id>` — Mem item id (e.g. skill_home_assistant)
+
+#### `codeterm mem graph`
+
+Graph operations
+
+#### `codeterm mem graph alias`
+
+Merge one entity into another (alias → canonical)
+
+- `--alias` — 
+- `--canonical` — 
+
+#### `codeterm mem graph augment-entity`
+
+Patch properties on an existing entity (audit-logged)
+
+- `--actor` — 
+- `--id` — Entity id (e.g. person_owner)
+- `--patch` — JSON object of properties to merge in (e.g. '{"city":"Riga"}')
+
+#### `codeterm mem graph create`
+
+Create a graph entity
+
+- `--id` — Entity id (e.g. person_kai)
+- `--props` — JSON properties
+- `--scope` — 
+- `--type` — Entity type (Person, Project, Task, Skill, ...)
+
+#### `codeterm mem graph delete-entity`
+
+Delete an entity by id (audited). Refuses if it has active relations unless --force, in which case those relations are cascade-deleted too
+
+- `--actor` — 
+- `--force` — Cascade-delete active relations referencing this entity
+- `--id` — Entity id (e.g. seed_person_anna)
+- `--purge_history` — Also hard-delete invalidated (historical) relations referencing this entity. Default false: history is preserved as ghost rows for `revive-broken` and timeline queries. Set this when you're sure the entity is gone for good
+
+#### `codeterm mem graph delete-relations`
+
+Delete relations by explicit rowids (audited to graph_purge_log)
+
+- `--actor` — 
+- `--rowids` — Comma-separated rowids (e.g. "42,87,103")
+
+#### `codeterm mem graph find-duplicate-entities`
+
+Find duplicate entities (exact name match, alias chain, or vector similarity)
+
+- `--entity_type` — Restrict `vector` strategy to entities of this type (Person, Tech, Project, ...)
+- `--limit` — 
+- `--strategy` — Strategy: exact-name | alias-chain | vector
+- `--threshold` — Cosine similarity threshold for `vector` strategy (0.0-1.0). 0.90+ = strong-merge candidate, 0.85+ = review-worthy
+
+#### `codeterm mem graph find-duplicate-relations`
+
+Find duplicate relations grouped by selected columns. Read-only diagnostic — does not mutate the graph
+
+- `--group_by` — Comma-separated columns from: from_id,relation_type,to_id,scope,valid_from. Default excludes valid_from because the relations UNIQUE(from,rel,to,valid_from) makes grouping by all four a guaranteed no-op — meaningful dedup is on the triple
+- `--limit` — 
+
+#### `codeterm mem graph get`
+
+Inspect a graph entity: properties_json + degree summary. Filling the gap that mem search only hits mem_items, not entities. Use this when you need email/phone/role/whatever a Person/Tech/Project entity carries in its properties — `mem graph related` returns relations only
+
+- `<id>` — Entity id (e.g. person_owner, tech_codeterm)
+
+#### `codeterm mem graph hubs`
+
+List hub nodes — entities with active degree at or above threshold. Each hub returns its degree, the relation_type distribution, and a sample of neighbors with titles. Used by the Dreamer recluster phase to decide which hubs to decompose into topic_* intermediates
+
+- `--sample` — Per-hub neighbor sample size (default 30)
+- `--threshold` — 
+
+#### `codeterm mem graph introduce-topic`
+
+Atomically introduce a topic intermediate: insert topic entity (if missing), link sources → topic → anchor, invalidate direct sources → anchor edges
+
+- `--anchor` — 
+- `--db_path` — Override the path to knowledge.db
+- `--entity_type` — 
+- `--reason` — 
+- `--rel_anchor` — 
+- `--rel_source` — 
+- `--sources` — Comma-separated source ids (s1,s2,s3) OR @path/to/file (one per line; '#'-prefixed and blank lines ignored)
+- `--topic_id` — 
+
+#### `codeterm mem graph invalidate`
+
+Invalidate a relation (set valid_to, preserve history)
+
+- `--ended` — When it ended (ISO 8601, default now)
+- `--from` — 
+- `--rel` — 
+- `--to` — 
+
+#### `codeterm mem graph islands`
+
+List connected components of size <= max-size — disconnected "islands" the Dreamer should bridge or delete. Returns component member id/kind/title/area, plus a `suggested_anchor` derived from shared area / kind / title-keywords across members. JSON mode emits JSONL (one component per line, sorted by size asc)
+
+- `--limit` — Maximum number of components to emit (caps verbose output)
+- `--max_size` — Maximum component size to include (default 6 — pairs through small clusters; bigger groups are real sub-graphs)
+
+#### `codeterm mem graph merge-relations`
+
+Merge relations into `keep`, folding properties/confidence
+
+- `--actor` — 
+- `--keep` — Rowid of the relation to keep (its properties and rowid survive)
+- `--merge` — Comma-separated rowids to fold into `keep` (these are deleted)
+
+#### `codeterm mem graph orphans`
+
+List nodes with degree 0 — true orphans (entities with no relations, mem_items not pointed at by anything). Output: id, kind, title, area, last access. JSON mode emits a flat array
+
+- `--limit` — Cap the number of orphans emitted
+
+#### `codeterm mem graph path`
+
+Shortest path between two entities
+
+- `--from` — 
+- `--include_invalidated` — Include relations whose valid_to is set (default: active-only)
+- `--max_hops` — 
+- `--to` — 
+
+#### `codeterm mem graph purge-invalidated`
+
+Hard-delete relations whose valid_to is set. Optional filters by cutoff date and reason substring. Audited to graph_purge_log
+
+- `--before` — Only purge rows with valid_to before this RFC 3339 timestamp
+- `--db_path` — Override the path to knowledge.db
+- `--dry_run` — Print count without modifying any rows or writing audit row
+- `--reason` — Match relations.reason via LIKE %substring%
+
+#### `codeterm mem graph relate`
+
+Create a relation between entities or mem_items
+
+- `--confidence` — 
+- `--from` — 
+- `--reason` — Free-text reason; written to relations.reason for audit
+- `--rel` — 
+- `--scope` — 
+- `--to` — 
+- `--valid_from` — Validity start (ISO 8601, default now)
+- `--valid_to` — Validity end (ISO 8601, optional)
+
+#### `codeterm mem graph related`
+
+List outgoing relations from an id
+
+- `--as_of` — As-of date (ISO 8601) — filters by valid_from/valid_to
+- `--id` — 
+- `--include_invalidated` — Include relations whose valid_to is set (default: active-only)
+- `--rel` — Filter by relation type
+
+#### `codeterm mem graph repair-orphan-blobs`
+
+Find and (optionally) delete sha256_*.txt blob files in the mem blobs directory that no mem_item references. CAS-aware sweep (refcount = 0)
+
+- `--actor` — 
+- `--dry_run` — Print orphans without deleting anything
+
+#### `codeterm mem graph repair-orphan-vectors`
+
+Find and (optionally) delete orphan rows in mem_vectors — vectors whose mem_id has no matching mem_items / entities row. One-shot legacy cleanup
+
+- `--actor` — 
+- `--dry_run` — Print orphans without deleting anything
+
+#### `codeterm mem graph revive-broken`
+
+Restore valid_to=NULL for relations whose endpoints both still exist in entities or mem_items. Idempotent
+
+- `--db_path` — Override the path to knowledge.db
+- `--dry_run` — 
+- `--since` — 
+
+#### `codeterm mem graph route`
+
+Atomically re-route an active direct edge (from → to) through an intermediate (from → via → to). Invalidates the original direct edge
+
+- `--db_path` — Override the path to knowledge.db
+- `--from` — 
+- `--reason` — Free-text reason; written to relations.reason
+- `--rel_in` — Relation type for the from→via segment (default = original rel)
+- `--rel_out` — Relation type for the via→to segment (default = original rel)
+- `--to` — 
+- `--via` — 
+
+#### `codeterm mem graph timeline`
+
+Full temporal timeline for an entity
+
+- `--entity` — 
+- `--include_invalidated` — Include relations whose valid_to is set (default: active-only)
+
+#### `codeterm mem graph traverse`
+
+BFS traversal from an entity (max_hops cap)
+
+- `--as_of` — 
+- `--from` — 
+- `--hops` — 
+- `--include_invalidated` — Include relations whose valid_to is set (default: active-only)
+- `--max_nodes` — 
+
+#### `codeterm mem graph tunnels`
+
+List entities bridging 2+ areas (cross-project connections)
+
+- `--include_invalidated` — Include relations whose valid_to is set (default: active-only)
+
+#### `codeterm mem history`
+
+Print the full audit trail for one item (create/update/promote/delete)
+
+- `<id>` — Mem item id
+
+#### `codeterm mem learn`
+
+Capture a quick learning (insight, error, feature request)
+
+- `--error` — Shortcut: --error <text> = --kind error
+- `--feature` — Shortcut: --feature <text> = --kind feature
+- `--kind` — "insight" (default), "error", or "feature"
+- `--tags` — Comma-separated tags
+- `<text>` — What you learned. If omitted and stdin piped, read stdin
+
+#### `codeterm mem learn-list`
+
+List pending learnings (kind=learning items)
+
+#### `codeterm mem learn-promote`
+
+Promote a learning to a fact (raises importance)
+
+- `<id>` — 
+
+#### `codeterm mem pin`
+
+Pin a mem item so it always loads in L1 wake-up
+
+- `<id>` — Mem item id (e.g. fact_my_thing)
+
+#### `codeterm mem pinned`
+
+List all currently pinned items, ordered by importance/evidence/recency
+
+- `--limit` — Max results (default 100, max 500)
+
+#### `codeterm mem reembed`
+
+Re-embed mem_items and/or graph entities into mem_vectors. Use this after swapping the embedder model, or to backfill existing entities that pre-date the auto-embed-on-create wiring. Daemon-routed (the daemon owns the embedder process). Idempotent
+
+- `--scope` — What to re-embed: items (mem_items) | entities (graph) | all
+
+#### `codeterm mem run-worker`
+
+Run a single mem maintenance pass in this subprocess. Opens the DB directly (multi-process WAL) and performs one phase of work, then exits. Used by the daemon's supervisor so a panic / OOM in dreaming or librarian cannot take the API down
+
+- `--db_path` — Override the path to knowledge.db. Defaults to the same data dir the CLI uses elsewhere (`~/.codeterm/mem/knowledge.db` for prod, `~/.codeterm-dev/mem/knowledge.db` for dev)
+- `<kind>` — Which phase to run: dreaming-light | dreaming-deep | dreaming-normalize | librarian-once
+
+#### `codeterm mem save`
+
+Save a new mem item
+
+- `--area` — Area tag (auth | deploy | home | ...)
+- `<body>` — Body content. If omitted and stdin is piped, read stdin
+- `--importance` — Importance 1-5 (default 3.0). Higher = more likely in L1 wake-up
+- `--kind` — Item kind: skill | fact | note | conversation | script | peer | preference | daily | learning | rule | summary
+- `--pin` — Pin the item for L1 wake-up (always loaded)
+- `--replace` — Overwrite an existing row with the same id (upsert). Use this to update the bundled identity placeholder or any pinned record
+- `--scope` — Scope: global (default) or workspace:<id>
+- `--skip_extract` — Skip auto-extraction worker for this save
+- `--source_path` — Path to source file on disk. Enables Librarian auto-sync
+- `--summary` — Optional summary (~50-200 chars)
+- `--tags` — Comma-separated tags
+- `--title` — Title (will be slugified into id). If omitted, first line of body
+- `--workspace` — Convenience: scope this item to workspace ID. Maps to scope="workspace:<ws>"
+
+#### `codeterm mem search`
+
+Search across mem_items (FTS5 + hybrid scoring)
+
+- `--area` — Filter by area tag
+- `--kind` — Filter by kind: skill | fact | note | conversation | script | peer | preference | daily | learning | rule | summary
+- `--limit` — Max results (default 5)
+- `<query>` — Query text
+- `--rerank` — Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY)
+- `--scope` — Restrict to global / workspace / workspace:<id>
+
+#### `codeterm mem secret`
+
+Pluggable secret store: save / get / search / list / delete. Backend is selected in Settings (default: bitwarden once shipped; `mock` in Phase 1 builds)
+
+#### `codeterm mem secret delete`
+
+Delete by name
+
+- `--name` — 
+- `--yes` — 
+
+#### `codeterm mem secret get`
+
+Resolve and print a secret. Default = raw value to stdout (no trailing newline). Use --json for {name, value, notes}
+
+- `--json` — 
+- `--name` — 
+
+#### `codeterm mem secret list`
+
+List saved secrets (metadata only — never values)
+
+- `--folder` — 
+- `--limit` — 
+- `--org` — 
+
+#### `codeterm mem secret lock`
+
+Lock the active backend (in-process session is dropped)
+
+#### `codeterm mem secret logout`
+
+Sign out — also drops persisted creds (OS keychain entry)
+
+#### `codeterm mem secret save`
+
+Save a secret. Value comes from --value or stdin (preferred — keeps the value out of shell history)
+
+- `--collection` — 
+- `--folder` — 
+- `--name` — 
+- `--notes` — 
+- `--org` — 
+- `--overwrite` — Allow replacing an existing secret with the same name
+- `--value` — Plaintext value. Omit and pipe via stdin instead
+
+#### `codeterm mem secret save-master-password`
+
+Save the master password to ~/.codeterm/secrets/bitwarden-master.env (mode 0600). Daemon then auto-unlocks JIT on every operation — no further prompts. Reads value from stdin (preferred — out of shell history) or --password
+
+- `--password` — 
+
+#### `codeterm mem secret search`
+
+Free-text search over saved secret metadata
+
+- `<query>` — 
+
+#### `codeterm mem secret status`
+
+Show backend + auth status
+
+#### `codeterm mem secret sync`
+
+Pull latest from the remote vault. No-op for backends with no remote (Local OS-keychain, Mock). Bitwarden runs `bw sync`
+
+#### `codeterm mem secret unlock`
+
+Unlock the active backend with a master password (read from stdin if --password is omitted, never from argv)
+
+- `--email` — 
+- `--password` — 
+
+#### `codeterm mem skill`
+
+Skill management — folder-on-disk skills with mem index. Skills live as ~/.codeterm/skills/<name>/SKILL.md (+ optional support files). `add` registers the folder; Librarian re-vectorizes if SKILL.md changes
+
+#### `codeterm mem skill add`
+
+Register an existing skill folder. Reads <folder>/SKILL.md and saves a mem item with source_path linked to it. Re-runs are idempotent. Area can come from --area flag, YAML frontmatter (`area: foo`), or the parent folder name (~/.codeterm/skills/<area>/<skill>/SKILL.md)
+
+- `--area` — Override the auto-detected area
+- `<folder>` — Folder containing SKILL.md (e.g. ~/.codeterm/skills/mem-testing)
+- `--importance` — Importance 1-5, default 4
+
+#### `codeterm mem skill list`
+
+List all registered skills
+
+#### `codeterm mem skill new`
+
+Scaffold a new skill folder under ~/.codeterm/skills/<name>/, write a SKILL.md template (with frontmatter + canonical sections) plus an empty scripts/ subdir, then register it in mem immediately. After this, edit the SKILL.md — Librarian will re-index on change
+
+- `--area` — Optional area tag to put in the frontmatter
+- `<name>` — Skill slug (also folder name). Use kebab-case
+
+#### `codeterm mem stats`
+
+Show mem store stats (counts by kind, blob sizes)
+
+#### `codeterm mem sync`
+
+Trigger file sync for source-tracked items (Librarian)
+
+- `--path` — Sync one file by path
+
+#### `codeterm mem tail`
+
+Show recent mem writes (newest first). With --follow, poll for new rows
+
+- `--follow` — Follow mode: poll every 500ms and print new rows as they appear
+- `--limit` — Max rows per fetch (default 20)
+
+#### `codeterm mem taxonomy`
+
+Print {area -> {kind -> count}} for the store (or a single workspace)
+
+- `--workspace` — Restrict to one workspace scope
+
+#### `codeterm mem unpin`
+
+Unpin a previously pinned item
+
+- `<id>` — 
+
+#### `codeterm mem update`
+
+Partial update of an existing mem item by id. Only the flags you pass are written; everything else stays as-is
+
+- `--area` — 
+- `--body` — New body content (re-indexes embedding)
+- `--changed_by` — Actor label for audit trail (defaults to "user"). Used by automated workflows
+- `<id>` — Mem item id
+- `--importance` — New importance 1-5
+- `--summary` — 
+- `--tags` — Comma-separated tags (REPLACES existing tags)
+- `--title` — 
+
+#### `codeterm mem wake-up`
+
+Print L0+L1 wake-up context (GA init injection)
+
+- `--budget` — Total token budget (split L0 + L1)
+- `--explain` — Append a per-item L1 score breakdown for debugging selection
+- `--l0_only` — Identity layer only (~100 tokens)
+- `--no_l0` — Skip identity layer (return L1 only)
+- `--workspace` — Current workspace id — boosts pinned-in-workspace items in L1
+
+#### `codeterm mem worker`
+
+Graph-worker operations (hidden mem panel agents)
+
+#### `codeterm mem worker get`
+
+Get one worker by id
+
+- `<id>` — 
+
+#### `codeterm mem worker kill`
+
+Kill a worker by id
+
+- `<id>` — 
+
+#### `codeterm mem worker list`
+
+List all graph workers
+
+#### `codeterm mem worker progress`
+
+Report progress (called by worker itself; uses $CODETERM_WORKER_ID)
+
+- `--status` — 
+- `<text>` — 
+
+#### `codeterm mem worker report`
+
+Submit final report and mark done (uses $CODETERM_WORKER_ID)
+
+- `<summary>` — 
+
+#### `codeterm mem worker spawn`
+
+Spawn a new graph worker
+
+- `--agent` — 
+- `--intent` — 
+- `--parent` — 
+- `--task` — 
+
+#### `codeterm mesh`
+
+Mesh networking — peer discovery, pairing, relay
+
+#### `codeterm mesh announce`
+
+Push our current address list to paired peers without re-detecting locally. Use --to to limit to one peer
+
+- `--to` — Optional target peer (instance_id or name). Omit for all peers
+
+#### `codeterm mesh approve`
+
+Accept an incoming pairing request
+
+- `<request_id>` — Request ID of the pending pairing request
+
+#### `codeterm mesh broadcast`
+
+Start broadcasting for the configured duration
+
+#### `codeterm mesh connect`
+
+Initiate pairing with a discovered peer
+
+- `<instance_id>` — Instance ID or name of the discovered peer
+
+#### `codeterm mesh disconnect`
+
+Disconnect (unpair) from a paired peer
+
+- `<instance_id>` — Instance ID of the paired peer
+
+#### `codeterm mesh discover`
+
+Trigger mesh discovery scan (list discovered peers)
+
+#### `codeterm mesh exec`
+
+Execute a command on a remote mesh peer
+
+- `<command>` — Command to execute
+- `--pane` — Target pane on remote instance (default: general)
+- `<target>` — Target peer name or instance ID
+
+#### `codeterm mesh offline`
+
+Go offline: stop pinging peers, stop announcing, stop refreshing local addresses (which keeps Tailscale alive). The daemon stays up; peers will time out our presence on their side. Local-only command
+
+#### `codeterm mesh online`
+
+Come back online — resume mesh activity. Local-only
+
+#### `codeterm mesh output`
+
+Get output from a pane on a remote mesh peer
+
+- `--pane` — Target pane on remote instance (default: general)
+- `<target>` — Target peer name or instance ID
+
+#### `codeterm mesh panes`
+
+List panes on a remote mesh peer
+
+- `<target>` — Target peer name or instance ID
+
+#### `codeterm mesh peer`
+
+Per-peer address management
+
+#### `codeterm mesh peer set-addr`
+
+Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: codeterm mesh peer set-addr BLACKSTAR 100.64.10.1 codeterm mesh peer set-addr BLACKSTAR 192.168.1.42:7685
+
+- `<addr>` — New address as ip[:port]
+- `<peer>` — Target peer (instance_id or name)
+
+#### `codeterm mesh peers`
+
+List all peers (paired + discovered)
+
+#### `codeterm mesh refresh`
+
+Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting CodeTerm
+
+#### `codeterm mesh reject`
+
+Reject and block an incoming pairing request
+
+- `<request_id>` — Request ID of the pending pairing request
+
+#### `codeterm mesh send`
+
+Send text to a pane on a remote mesh peer
+
+- `--pane` — Target pane on remote instance (default: general)
+- `<target>` — Target peer name or instance ID
+- `<text>` — Text to send
+
+#### `codeterm mesh status`
+
+Show mesh status (identity, discovery, peers)
+
+#### `codeterm mesh stop-broadcast`
+
+Stop broadcasting immediately
+
+#### `codeterm notifications`
+
+List or manage notifications
+
+- `--unread` — Show only unread notifications
+
+#### `codeterm notifications clear`
+
+Clear all notifications
+
+#### `codeterm notify`
+
+Send a notification
+
+- `--body` — Notification body
+- `--level` — Notification level: info, warning, error
+- `<title>` — Notification title
+
+#### `codeterm pane`
+
+Pane management
+
+#### `codeterm pane chat`
+
+Read a pane's parsed chat transcript (text/thinking/tool calls/results)
+
+- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--since` — Only return messages from this index onward
+
+#### `codeterm pane close`
+
+Close a pane by ID
+
+- `<id>` — Pane ID
+
+#### `codeterm pane current`
+
+Print the current (focused) pane ID — no JSON parsing needed
+
+- `--last` — Return the last pane instead of the focused one
+
+#### `codeterm pane exec`
+
+Execute a command in a pane and return output
+
+- `<command>` — Command to execute
+- `--pane` — Pane ID (default: current focused pane)
+- `--timeout` — Timeout in milliseconds
+
+#### `codeterm pane focus`
+
+Focus a pane by ID
+
+- `<id>` — Pane ID
+
+#### `codeterm pane get-text`
+
+Get visible terminal text of a pane (what the user sees)
+
+- `--formatted` — Include raw ANSI escape codes (colors, cursor state) instead of plain text
+- `--pane` — Pane ID (default: current focused pane)
+
+#### `codeterm pane list`
+
+List all panes as a workspace-grouped tree. `--agents` filters to agent panes only (replaces the old `agent list`)
+
+- `--agents` — Show only panes running an agent (have an agent_type)
+
+#### `codeterm pane new`
+
+Plain shell pane. For an AI pane use `codeterm agent spawn` instead
+
+- `--cmd` — Command to run on pane start (e.g. `"poetry run backend"`). Sent into the PTY after the shell is ready
+- `--cwd` — Working directory for the new pane
+- `--title` — Tab title
+- `--workspace` — Target workspace id (default: current focused)
+
+#### `codeterm pane rename`
+
+Rename a pane tab (default: current pane)
+
+- `--pane` — Pane ID to rename (default: current focused pane)
+- `<title>` — New title
+
+#### `codeterm pane search`
+
+Fuzzy search panes by id-prefix, tab title, friendly session name, pane title, agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias
+
+- `<pattern>` — Substring or short pattern to match
+
+#### `codeterm pane status`
+
+Show agent status for a pane (type, session, prompt)
+
+- `--pane` — Pane ID (default: current focused pane)
+
+#### `codeterm pane stop`
+
+Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode, Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here
+
+- `--pane` — Pane ID (default: current focused pane)
+
+#### `codeterm paste`
+
+Cross-mesh ephemeral pastebin — stash payloads with short ids (#98)
+
+#### `codeterm paste get`
+
+Print a paste body to stdout. Does NOT delete unless --pop or the paste was created with --pop
+
+- `<id>` — Paste id (e.g. "paste:a3f9k2")
+- `--pop` — Delete after fetching (one-shot read)
+
+#### `codeterm paste list`
+
+List local (or --mesh <peer>) pastes — id, size, ttl_remaining
+
+#### `codeterm paste pop`
+
+Get + delete in one call. Sugar for `paste get <id> --pop`
+
+- `<id>` — Paste id
+
+#### `codeterm paste put`
+
+Stash a payload. Body from positional / --from-file / stdin
+
+- `<body>` — Body (positional). Omit and use --from-file or --from-stdin
+- `--content_type` — MIME hint (default text/plain)
+- `--from_file` — Read body from a file instead
+- `--from_stdin` — Read body from stdin
+- `--pop` — One-shot — paste self-deletes after first fetch
+- `--ttl` — TTL — e.g. "30m", "1h", "24h". Default 1h. Max 24h
+
+#### `codeterm paste rm`
+
+Explicit delete
+
+- `<id>` — Paste id
+
+#### `codeterm plugin`
+
+Plugin management — install, update, remove, manage channels
+
+#### `codeterm plugin channel`
+
+Manage plugin channels
+
+#### `codeterm plugin channel add`
+
+Add a local path or git URL channel
+
+- `--name` — 
+- `<url>` — 
+
+#### `codeterm plugin channel diff`
+
+Compare installed plugins against a channel without installing
+
+- `<name>` — 
+
+#### `codeterm plugin channel list`
+
+List registered channels
+
+#### `codeterm plugin channel refresh`
+
+Refresh one channel, or all channels when name is omitted
+
+- `<name>` — 
+
+#### `codeterm plugin channel remove`
+
+Remove a channel cache and registry entry
+
+- `--force` — Allow removing the protected system channel registration
+- `<name>` — 
+
+#### `codeterm plugin install`
+
+Install a plugin by id from channels, or directly from a local folder
+
+- `--channel` — Disambiguate channel installs when more than one channel offers the id
+- `--from_dir` — Install from a local plugin directory
+- `<id>` — Plugin id to install from registered channels
+- `--id_override` — Override the install id. Defaults to plugin.json#id or folder name
+
+#### `codeterm plugin list`
+
+List installed plugins
+
+#### `codeterm plugin remove`
+
+Remove an installed plugin
+
+- `--force` — Allow removing a verified/system plugin folder
+- `<id>` — 
+
+#### `codeterm plugin update`
+
+Update one installed plugin, or all plugins when id is omitted
+
+- `<id>` — 
+
+#### `codeterm plugin update-system`
+
+Update bundled system provider plugins from the official plugin channel
+
+- `<id>` — 
+
+#### `codeterm send`
+
+Send text to a pane (default: current pane)
+
+Aliases: send-text
+
+- `--from_file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
+- `--from_stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --from-stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
+- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `<text>` — Text to send (positional, or omit and use --from-file/--from-stdin)
+
+#### `codeterm service`
+
+Manage daemon services (long-running processes monitored by codeterm)
+
+#### `codeterm service add`
+
+Register a new daemon-kind service
+
+- `--description` — Description
+- `--health_degraded_values` — Comma-separated values that map to degraded (default: degraded,STARTING)
+- `--health_interval` — Probe interval in seconds (default: 30)
+- `--health_json_field` — JSON field to read for status (default: "status")
+- `--health_mode` — Health check mode: http | tcp | process | script
+- `--health_ok_values` — Comma-separated values that map to healthy (default: ok,healthy,UP)
+- `--health_path` — HTTP health path (default: /healthz)
+- `--host` — Host (for health_mode=tcp)
+- `--kind` — Service kind (default: daemon — for cron use `codeterm cron create`)
+- `<name>` — 
+- `--port` — Port (for health_mode=tcp)
+- `--process_label` — Process label (for health_mode=process — launchd label or systemd unit)
+- `--push` — Enable push API (daemon can write to panes via Bearer token)
+- `--script_path` — Script path (for health_mode=script — exit 0 = healthy)
+- `--url` — HTTP URL (for health_mode=http)
+
+#### `codeterm service delete`
+
+Delete a service (also deletes its push token + activity)
+
+- `<id>` — Service ID
+
+#### `codeterm service edit`
+
+Edit a service
+
+- `--enabled` — 
+- `--health_degraded_values` — 
+- `--health_json_field` — 
+- `--health_ok_values` — 
+- `--health_path` — 
+- `<id>` — Service ID
+- `--name` — 
+- `--url` — 
+
+#### `codeterm service list`
+
+List all registered services (cron + daemon)
+
+- `--enabled` — Filter by enabled state
+- `--kind` — Filter by kind: cron | daemon
+
+#### `codeterm service show`
+
+Show service detail (status, config, recent activity)
+
+- `<id>` — Service ID
+
+#### `codeterm service token`
+
+Show or rotate the push token for a service
+
+- `<id>` — Service ID
+- `--rotate` — Rotate (generate new token, invalidate old)
+
+#### `codeterm sessions`
+
+Past agent sessions — search conversations across all providers
+
+#### `codeterm sessions get`
+
+Print metadata for a past session (provider, cwd, file path, times). Read-only probe — use before `sessions resume` to verify the session is still on disk
+
+- `<session_id>` — 
+
+#### `codeterm sessions resume`
+
+Resume a past session in its original cwd. Atomic replacement for the "workspace create → agent spawn --args=--resume=UUID" dance which keeps failing because Claude/Codex look for the JSONL in the current cwd. This command: finds the session across providers, creates a workspace at the right project path, spawns an agent pane there, and hands the resume id to the provider correctly
+
+- `--model` — Model override; translated to the provider's flag
+- `<session_id>` — Session id to resume (UUID)
+- `--title` — Tab title for the new pane. Defaults to "resumed <shortid>"
+- `--workspace_id` — Reuse an existing workspace instead of creating a new one
+- `--workspace_name` — Custom name for the new workspace (default: basename of cwd)
+
+#### `codeterm sessions search`
+
+Search past sessions by content across all registered providers. Results are tagged with `provider` so an agent can resume with the right launcher
+
+- `--limit` — Max sessions returned
+- `--max_snippets` — Max snippets shown per session
+- `--project` — Restrict to sessions tagged with this project path. Handy when you only want hits from the current repo
+- `--provider` — Filter by provider id (e.g. "claude"). Omit or pass "all" to search every registered provider
+- `<query>` — Query string. Terms are whitespace-split; every term must appear (case-insensitive) in at least one matching message
+
+#### `codeterm system`
+
+OS-level integration: autostart, supervision, install hooks. Each subcommand is local-only and writes to platform-specific places (schtasks on Windows, LaunchAgents on macOS, user systemd on Linux)
+
+#### `codeterm system autostart-status`
+
+Print whether the autostart trigger is installed and where
+
+#### `codeterm system disable-autostart`
+
+Remove the OS-level autostart trigger created by `enable-autostart`. Idempotent — running on a host without a trigger is a no-op
+
+#### `codeterm system enable-autostart`
+
+Install an OS-level trigger that auto-launches CodeTerm at user login and re-launches it if the process disappears. Per platform: Windows = `schtasks` task with ONLOGON + 5-minute repeat, macOS = `~/Library/LaunchAgents/com.codeterm.app.plist` with `KeepAlive` + `RunAtLoad`, Linux = user systemd unit `~/.config/systemd/user/codeterm.service` with `Restart=on-failure`. Idempotent — running twice is a no-op
+
+- `--binary` — Override the path to the CodeTerm executable. Defaults to the installed app binary for the current platform
+
+#### `codeterm theme`
+
+Theme management
+
+#### `codeterm theme apply`
+
+Apply a theme by name
+
+- `<name>` — Theme name (builtin or custom)
+
+#### `codeterm theme delete`
+
+Delete a custom theme
+
+- `<id>` — Theme ID to delete
+
+#### `codeterm theme dir`
+
+Show the custom themes directory path
+
+#### `codeterm theme list`
+
+List available themes
+
+#### `codeterm theme save`
+
+Save a custom theme from a TOML file
+
+- `--apply` — Apply the theme immediately after saving
+- `<file>` — Path to theme TOML file
+- `<id>` — Theme ID (filename without .toml)
+
+#### `codeterm update`
+
+Check for updates and manage CodeTerm version
+
+- `--after_update` — Message to inject into the General Agent pane after the new daemon boots. Useful for remote-triggered updates ("run the update and then verify health") — GA reads it as user input post-restart
+- `--apply` — Shortcut for `update install --auto`
+- `--channel` — Shortcut for `update channel [name]`. Pass without value to print current channel
+- `--check` — Shortcut for `update check`
+- `--manifest_url` — Override manifest URL when paired with --apply (or `install --auto`). Backend must be built with `dev-updater-allowlocal` for non-https URLs
+
+#### `codeterm update channel`
+
+Get or set the update channel (stable, rc, nightly)
+
+- `<channel>` — New channel value. Omit to print current channel
+
+#### `codeterm update check`
+
+Check for available updates
+
+- `--force` — Force re-check (ignore cache)
+
+#### `codeterm update install`
+
+Install update (--auto for automatic download + install + restart)
+
+- `--after_update` — Message to inject into the General Agent pane after the new daemon boots. Lets the GA continue work post-update — e.g. "verify the new build and report version via Telegram"
+- `--auto` — Use Tauri built-in updater: download, install, and restart automatically
+- `--continue_pane` — Pane to deliver `--continue-prompt` to. Defaults to `$CODETERM_PANE_ID`
+- `--continue_prompt` — Optional prompt to send to the calling pane once the new daemon is up — lets a session continue work post-restart
+- `--from_file` — Install from a local NSIS installer (Windows). Kills the running daemon, runs the installer silently, then relaunches codeterm. Bypasses network — useful for local-build testing
+- `--manifest_url` — Override manifest URL (dev/test escape hatch). Requires the backend to be built with the `dev-updater-allowlocal` feature for non-https schemes; release builds reject it
+
+#### `codeterm usage`
+
+Agent usage tracking — current %, projection for end-of-today / end-of-cycle based on your historical rhythm scaled to today's pace
+
+#### `codeterm usage latest`
+
+Latest usage snapshot (session + weekly %, reset times)
+
+- `--account_id` — 
+- `--provider` — 
+
+#### `codeterm usage projection`
+
+End-of-today and end-of-cycle projection based on your historical rhythm scaled by today's observed pace. Plan-independent (the rhythm is normalized; today's % anchors the absolute scale)
+
+- `--account_id` — 
+- `--provider` — 
+
+#### `codeterm usage refresh`
+
+Trigger a fresh probe (runs the agent hidden, parses /status)
+
+- `--account_id` — 
+- `--provider` — 
+
+#### `codeterm web`
+
+Web mirror helpers (share links, etc.)
+
+#### `codeterm web link`
+
+Print a ready-to-open /web URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead)
+
+- `--host` — Host override (default: Tailscale IP > LAN IP > 127.0.0.1)
+- `--port` — Port override (default: this daemon's API port)
+- `--query` — Emit ?token= instead of #token= — easier to type, but query strings reach server/proxy logs; the fragment never does
+
+#### `codeterm workspace`
+
+Workspace management
+
+#### `codeterm workspace close`
+
+Close/delete a workspace
+
+- `<id>` — Workspace ID
+
+#### `codeterm workspace create`
+
+Create a new workspace
+
+- `--cwd` — Working directory — agents spawned with --workspace inherit this as their CWD
+- `<name>` — Workspace name
+
+#### `codeterm workspace current`
+
+Print the current (focused) workspace ID
+
+#### `codeterm workspace focus`
+
+Focus a workspace by ID
+
+- `<id>` — Workspace ID
+
+#### `codeterm workspace list`
+
+List all workspaces
+
+#### `codeterm workspace move-tab`
+
+Move a tab to another workspace
+
+- `<from>` — Source workspace ID
+- `<tab_id>` — Tab ID to move
+- `<to>` — Destination workspace ID
+
+#### `codeterm workspace rename`
+
+Rename a workspace
+
+- `<id>` — Workspace ID
+- `<name>` — New name
+
+
+<!-- cli:auto-end -->

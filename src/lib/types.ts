@@ -491,6 +491,9 @@ export interface ProviderDescriptor {
   supports_lazy_skills: boolean;
   has_hooks: boolean;
   preserves_context_on_resume: boolean;
+  /// Provider can render a pane as chat (JSONL sessions or structured/DB-backed
+  /// chat). Gates the chat/terminal toggle — replaces the old hardcoded set.
+  supports_chat_ui?: boolean;
   /// Binary name to probe via `which` when checking installation. Optional —
   /// providers without a CLI dependency leave this null.
   cli_binary?: string | null;

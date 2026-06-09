@@ -5,6 +5,7 @@ import type {
   ChatAttachment as ImageAttachment,
   SlashCommand,
 } from "@codeterm/chat-core";
+import { parseMarker } from "@codeterm/chat-core";
 import {
   ChevronDown, File, Image, Download,
   // Tool icons
@@ -22,17 +23,21 @@ import {
   Send,            // generic chat (telegram / service)
   Network,         // mesh
   ChevronsRight,   // slash-command chip
+  CornerUpLeft,    // report (bubbled up to parent)
   Info,
   Copy,
   Check,
   Maximize2,
   Minimize2,
+  Mic,             // voice note
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import * as prismStyles from "react-syntax-highlighter/dist/esm/styles/prism";
+import { recognize } from "./codeterm/recognize";
+import { CodetermCard } from "./codeterm/CodetermCard";
 
 const vscDarkPlus =
   ((prismStyles as { vscDarkPlus?: Record<string, React.CSSProperties> }).vscDarkPlus ??
@@ -475,7 +480,7 @@ function RichMarkdown({ text }: { text: string }) {
 /** Extract file path from tool args or toolInput. */
 function extractFilePath(message: ChatMessage): string | null {
   if (message.toolInput) {
-    const fp = message.toolInput.file_path as string | undefined;
+    const fp = (message.toolInput.file_path ?? message.toolInput.filePath) as string | undefined;
     if (fp) return fp;
   }
   if (message.toolArgs) {
@@ -491,6 +496,75 @@ function extractFilePath(message: ChatMessage): string | null {
   return null;
 }
 
+interface EditPair {
+  old: string;
+  new: string;
+}
+
+/** Extract Edit/MultiEdit before→after pairs from a tool call so the chat can
+ *  render a real diff instead of just "file updated". Handles single
+ *  old_string/new_string and the MultiEdit `edits` array, from either
+ *  `toolInput` or a JSON `toolArgs` fallback. Provider-agnostic. */
+function extractEdits(message: ChatMessage): EditPair[] {
+  let input: Record<string, unknown> | null =
+    (message.toolInput as Record<string, unknown> | undefined) ?? null;
+  if (!input && message.toolArgs) {
+    try {
+      input = JSON.parse(message.toolArgs) as Record<string, unknown>;
+    } catch {
+      input = null;
+    }
+  }
+  if (!input) return [];
+  const toPair = (e: Record<string, unknown>): EditPair | null => {
+    // Accept snake_case (claude) and camelCase (opencode et al).
+    const oldS = (e.old_string ?? e.oldString) as unknown;
+    const newS = (e.new_string ?? e.newString) as unknown;
+    if (typeof oldS !== "string" && typeof newS !== "string") return null;
+    return { old: String(oldS ?? ""), new: String(newS ?? "") };
+  };
+  if (Array.isArray(input.edits)) {
+    return input.edits
+      .map((e) => toPair(e as Record<string, unknown>))
+      .filter((e): e is EditPair => e !== null);
+  }
+  const single = toPair(input);
+  return single ? [single] : [];
+}
+
+/** Old→new diff for Edit/MultiEdit tool calls: removed lines in red, added in
+ *  green. Line-based, no LCS — clear and cheap. */
+function DiffView({ edits }: { edits: EditPair[] }) {
+  const row = (line: string, kind: "del" | "add", key: string) => (
+    <div
+      key={key}
+      className={`${PRE_WRAP_CLASS} px-1`}
+      style={{
+        background:
+          kind === "del"
+            ? "color-mix(in srgb, var(--ct-red, #f85149) 14%, transparent)"
+            : "color-mix(in srgb, var(--ct-green, #3fb950) 14%, transparent)",
+        color: "var(--ct-fg)",
+      }}
+    >
+      <span style={{ color: kind === "del" ? "var(--ct-red, #f85149)" : "var(--ct-green, #3fb950)" }}>
+        {kind === "del" ? "- " : "+ "}
+      </span>
+      {line || " "}
+    </div>
+  );
+  return (
+    <div className="font-mono text-[11px] leading-relaxed overflow-x-auto">
+      {edits.map((e, i) => (
+        <div key={i} className={i > 0 ? "mt-2 border-t border-[var(--ct-border)] pt-2" : ""}>
+          {e.old ? e.old.split("\n").map((l, j) => row(l, "del", `o${i}-${j}`)) : null}
+          {e.new ? e.new.split("\n").map((l, j) => row(l, "add", `n${i}-${j}`)) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Truncate file path to show just filename + parent. */
 function shortPath(fullPath: string): string {
   const parts = fullPath.split(/[\\/]/).filter(Boolean);
@@ -498,7 +572,18 @@ function shortPath(fullPath: string): string {
   return ".../" + parts.slice(-2).join("/");
 }
 
-/** Extract command from Bash tool args. */
+function isShellToolName(name: string | undefined): boolean {
+  const n = (name ?? "").toLowerCase();
+  return n === "bash"
+    || n === "shell"
+    || n === "shell_command"
+    || n === "exec"
+    || n === "powershell"
+    || n.includes("shell")
+    || n.includes("bash");
+}
+
+/** Extract shell command text across Claude/Codex provider shapes. */
 function extractCommand(message: ChatMessage): string | null {
   if (message.toolInput) {
     const cmd = message.toolInput.command as string | undefined;
@@ -507,12 +592,105 @@ function extractCommand(message: ChatMessage): string | null {
   if (message.toolArgs) {
     try {
       const parsed = JSON.parse(message.toolArgs);
-      if (parsed.command) return parsed.command;
+      if (parsed && typeof parsed === "object" && typeof parsed.command === "string") {
+        return parsed.command;
+      }
     } catch {
-      // fallback
+      if (isShellToolName(message.toolName)) {
+        const args = message.toolArgs.trim();
+        return args ? args : null;
+      }
     }
   }
   return null;
+}
+
+function PlainOutput({ text, maxHeight = "12rem" }: { text: string; maxHeight?: string }) {
+  return (
+    <pre
+      className={`${PRE_WRAP_CLASS} m-0 overflow-auto rounded-md border px-2 py-1.5 font-mono text-[11px] leading-relaxed`}
+      style={{
+        maxHeight,
+        color: "var(--ct-fg)",
+        background: "color-mix(in srgb, var(--ct-bg, #0d1117) 72%, black 10%)",
+        borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent)",
+      }}
+    >
+      {text}
+    </pre>
+  );
+}
+
+function isLargeArtifact(text: string): boolean {
+  return text.length > 2_500 || lineCount(text) > 45;
+}
+
+function artifactPreview(text: string): string {
+  const lines = text.replace(/\r/g, "").split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines.slice(0, 2).join(" · ").slice(0, 220) || "output";
+}
+
+function LongArtifact({
+  label,
+  text,
+  expanded,
+  onToggle,
+  markdown = false,
+}: {
+  label: string;
+  text: string;
+  expanded: boolean;
+  onToggle: () => void;
+  markdown?: boolean;
+}) {
+  const lines = lineCount(text);
+  return (
+    <div className="mb-2 w-full max-w-4xl min-w-0 mx-auto">
+      <div
+        className="max-w-full min-w-0 rounded-md border"
+        style={{
+          background: "color-mix(in srgb, var(--ct-surface, #161b22) 88%, transparent)",
+          borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+        }}
+      >
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-left text-xs"
+          style={{
+            color: "var(--ct-muted-fg)",
+            background: "transparent",
+            border: "none",
+          }}
+        >
+          <Info size={12} strokeWidth={2} className="shrink-0" style={{ color: "var(--ct-accent, #58a6ff)" }} />
+          <span className="shrink-0 font-mono text-[11px]" style={{ color: "var(--ct-accent, #58a6ff)" }}>
+            {label}
+          </span>
+          <span className="min-w-0 flex-1 truncate opacity-70">{artifactPreview(text)}</span>
+          <span className="shrink-0 font-mono text-[10px] opacity-50">{lines} lines</span>
+          <ChevronIcon expanded={expanded} className="shrink-0 opacity-50" />
+        </button>
+        {expanded && (
+          <div
+            className="max-h-[28rem] overflow-auto border-t px-3 py-2 text-xs"
+            style={{
+              borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 16%, transparent)",
+              color: "var(--ct-fg)",
+            }}
+          >
+            {markdown ? (
+              <div className="text-sm leading-relaxed">
+                <RichMarkdown text={text} />
+              </div>
+            ) : (
+              <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`}>{text}</pre>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function languageFromPath(path: string | null): string {
@@ -1303,7 +1481,74 @@ function fileName(path: string): string {
  * Marker format: \x00«file:/path/to/file» — uses NUL + guillemets to avoid
  * false positives with any user-typed text, markdown, or code.
  */
+interface ParsedVoice {
+  transcript: string | null;
+  note: string | null;
+  fileUrl: string | null;
+  fileName: string | null;
+}
+
+/** Parse the CodeTerm voice marker so the chat can show a voice card instead
+ *  of the raw marker string. Returns null when the text isn't a voice line. */
+function parseVoiceMessage(content: string): ParsedVoice | null {
+  const m = parseMarker(content.trim());
+  if (!m || m.kind !== "voice") return null;
+  const fileUrl = m.attrs.file ?? null;
+  const untranscribed = m.attrs.status === "untranscribed";
+  const payload = m.payload.trim() || null;
+  return {
+    transcript: untranscribed ? null : payload,
+    note: untranscribed ? payload : null,
+    fileUrl,
+    fileName: fileUrl ? fileName(fileUrl) : null,
+  };
+}
+
+function VoiceCard({ v }: { v: ParsedVoice }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div
+        className="inline-flex items-center gap-1.5 text-[11px]"
+        style={{ color: "var(--ct-muted-fg)" }}
+      >
+        <Mic size={13} strokeWidth={2} />
+        <span className="opacity-80 font-medium">Voice</span>
+        {v.fileName && <span className="opacity-40 font-mono">{v.fileName}</span>}
+      </div>
+      {v.transcript ? (
+        <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{v.transcript}</pre>
+      ) : (
+        <span className="text-[11px] italic" style={{ color: "var(--ct-muted-fg)" }}>
+          {v.note ?? "voice note"}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function renderUserContent(content: string): React.ReactNode {
+  const voice = parseVoiceMessage(content);
+  if (voice) return <VoiceCard v={voice} />;
+  // Non-voice attachment markers (photo/document/video/file) → file badge.
+  const mk = parseMarker(content.trim());
+  if (mk && ["photo", "file", "document", "video", "audio", "sticker"].includes(mk.kind)) {
+    const fp = mk.attrs.file ?? "";
+    const name = mk.attrs.name || (fp ? fileName(fp) : mk.kind);
+    return (
+      <div
+        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px]"
+        style={{
+          background: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 12%, transparent)",
+          color: "var(--ct-fg)",
+        }}
+        title={fp}
+      >
+        <FileIcon />
+        <span className="font-medium">{name}</span>
+        <span className="opacity-50 uppercase">{mk.kind}</span>
+      </div>
+    );
+  }
   // Match both new marker (\x00«file:...») and legacy [attached: ...] format
   const attachRe = /(?:\x00\u00ABfile:([^\u00BB]+)\u00BB|\[attached:\s*([^\]]+)\])/g;
   const parts: React.ReactNode[] = [];
@@ -1407,22 +1652,63 @@ function CommandBody({ commands, body }: { commands: SlashCommand[]; body: strin
   );
 }
 
+// Model family → avatar glyph + accent (self-contained; no provider registry).
+function modelAvatar(model?: string): { glyph: string; color: string } {
+  const m = (model ?? "").toLowerCase();
+  if (m.includes("opus")) return { glyph: "Op", color: "#d2a24c" };   // amber
+  if (m.includes("sonnet")) return { glyph: "So", color: "#5b9bf5" }; // blue
+  if (m.includes("haiku")) return { glyph: "Ha", color: "#4ec98c" };  // green
+  if (m.includes("codex") || m.includes("gpt") || m.includes("o1") || m.includes("o3"))
+    return { glyph: "Cx", color: "#b07ce8" };                         // violet
+  if (m.includes("gemini")) return { glyph: "Ge", color: "#e88c5a" }; // orange
+  const initial = (model ?? "").replace(/[^a-z0-9]/gi, "").slice(0, 2);
+  return { glyph: initial ? initial[0].toUpperCase() + (initial[1] ?? "") : "·", color: "#8b949e" };
+}
+
+function ModelAvatar({ model }: { model?: string }) {
+  const { glyph, color } = modelAvatar(model);
+  return (
+    <span
+      aria-hidden
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 18,
+        height: 18,
+        borderRadius: "50%",
+        fontSize: 8.5,
+        fontWeight: 700,
+        fontFamily: "var(--ct-mono, ui-monospace, monospace)",
+        letterSpacing: "-0.5px",
+        color,
+        background: `color-mix(in srgb, ${color} 16%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${color} 45%, transparent)`,
+        flexShrink: 0,
+      }}
+    >
+      {glyph}
+    </span>
+  );
+}
+
 interface MessageBubbleProps {
   message: ChatMessage;
   /** When set, this user message arrived via a codeterm channel (cross-pane,
    *  telegram, mesh, slash-command) and should render as a typed header
    *  instead of the default right-aligned "user" styling. */
   origin?: ChatOrigin;
+  originAvatar?: React.ReactNode;
   /** When set, clicking the origin header focuses the source pane. */
   onOriginClick?: () => void;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, origin, onOriginClick }: MessageBubbleProps) {
-  // Auto-expand only for Write-style tool input (the file body the agent is
-  // writing). A bash/grep result must NOT force-expand — it shows a compact
-  // inline tail under the pill instead (full output behind the chevron).
+export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick }: MessageBubbleProps) {
+  // Auto-expand for Write-style tool input (the file body being written) and
+  // for Edit/MultiEdit (always show the diff). A bash/grep result must NOT
+  // force-expand — it shows a compact inline tail under the pill instead.
   const shouldAutoExpand = message.type === "tool_call"
-    && message.toolInput?.content != null;
+    && (message.toolInput?.content != null || extractEdits(message).length > 0);
   const [expanded, setExpanded] = useState(shouldAutoExpand);
   const [viewingImage, setViewingImage] = useState<ImageAttachment | null>(null);
 
@@ -1457,13 +1743,57 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     // Origin header rendered above the bubble when the message came from a
     // codeterm channel (cross-pane, telegram, mesh) or wraps slash-commands.
     const originHeader = origin ? (() => {
+      // Cross-pane / report: model-avatar + "from <Name>" + mesh·model subtitle.
+      if (origin.kind === "pane") {
+        const LeadIcon = origin.report ? CornerUpLeft : ArrowRight;
+        const subtitle = [origin.mesh ? `via ${origin.mesh}` : null, origin.model]
+          .filter(Boolean)
+          .join(" · ");
+        return (
+          <button
+            type="button"
+            onClick={onOriginClick}
+            disabled={!onOriginClick}
+            className="flex items-center gap-1.5 mb-1"
+            style={{
+              cursor: onOriginClick ? "pointer" : "default",
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              textAlign: "left",
+            }}
+            title={onOriginClick ? "Click to focus source pane" : undefined}
+          >
+            {originAvatar ?? <ModelAvatar model={origin.model} />}
+            <span className="flex flex-col min-w-0" style={{ lineHeight: 1.1 }}>
+              <span
+                className="flex items-center gap-1 text-xs uppercase tracking-wider"
+                style={{ color: "var(--ct-accent, #58a6ff)" }}
+              >
+                <LeadIcon size={11} style={{ opacity: 0.85 }} />
+                <span className="truncate">
+                  {origin.report ? "report · " : "from "}
+                  {origin.title}
+                </span>
+              </span>
+              {subtitle && (
+                <span
+                  className="text-[10px] truncate"
+                  style={{ color: "var(--ct-muted-fg, #8b949e)", textTransform: "none", letterSpacing: 0 }}
+                >
+                  {subtitle}
+                </span>
+              )}
+            </span>
+          </button>
+        );
+      }
+
       const OriginIcon =
-        origin.kind === "pane"    ? ArrowRight :
         origin.kind === "mesh"    ? Network :
         origin.kind === "command" ? ChevronsRight :
         Send;
       const label =
-        origin.kind === "pane"    ? `from ${origin.title}` :
         origin.kind === "telegram"? `Telegram · ${origin.userId.slice(0, 12)}` :
         origin.kind === "mesh"    ? `Mesh · ${origin.peerId.slice(0, 10)}` :
         origin.kind === "command" ? (
@@ -1587,6 +1917,18 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   if (message.type === "system" || message.type === "local_command") {
     const label = message.tagName || message.systemSubtype || "system";
     const isCaveat = message.tagName === "local-command-caveat";
+    const isSkillContext = message.systemSubtype === "skill_context";
+    if (isSkillContext || isLargeArtifact(message.content)) {
+      return (
+        <LongArtifact
+          label={isSkillContext ? "skill context" : label}
+          text={message.content}
+          expanded={expanded}
+          onToggle={() => setExpanded(!expanded)}
+          markdown={isSkillContext || /\.md\b/i.test(label)}
+        />
+      );
+    }
     return (
       <div className="mb-2 w-full max-w-4xl min-w-0 mx-auto">
         <div
@@ -1622,9 +1964,12 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   if (message.type === "tool_call") {
     const toolName = message.toolName || "";
     const filePath = extractFilePath(message);
-    const command = message.toolName === "Bash" ? extractCommand(message) : null;
+    const command = extractCommand(message);
     const hasToolContent = message.toolInput?.content != null;
     const toolContent = hasToolContent ? String(message.toolInput!.content) : null;
+    const edits = extractEdits(message);
+    const addedLines = edits.reduce((n, e) => n + (e.new ? e.new.split("\n").length : 0), 0);
+    const removedLines = edits.reduce((n, e) => n + (e.old ? e.old.split("\n").length : 0), 0);
 
     // Build summary text
     let summary = "";
@@ -1657,6 +2002,23 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       );
     }
 
+    // CodeTerm CLI command — render a branded semantic card across Claude/Codex
+    // shell tool shapes.
+    const shellCommand = command;
+    if (shellCommand) {
+      const inv = recognize(shellCommand);
+      if (inv) {
+        return (
+          <CodetermCard
+            inv={inv}
+            result={message.toolResult}
+            expanded={expanded}
+            onToggle={() => setExpanded(!expanded)}
+          />
+        );
+      }
+    }
+
     const detailText = message.toolArgs || message.content;
     const codeLanguage = languageFromPath(filePath);
     const resultText = message.toolResult;
@@ -1681,13 +2043,21 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             >
               <ToolIcon name={toolName} />
             </span>
-            <span className="font-medium font-mono" style={{ color: "var(--ct-muted-fg)" }}>{message.toolName}</span>
+            <span className="font-medium font-mono" style={{ color: "var(--ct-muted-fg)" }}>
+              {toolName === "shell_command" ? "shell" : message.toolName}
+            </span>
             {summary && (
               <span className="min-w-0 truncate opacity-60 font-mono text-[11px]">{summary}</span>
             )}
             {toolContent && (
               <span className="shrink-0 opacity-40 font-mono text-[11px]">
                 {lineCount(toolContent)} lines
+              </span>
+            )}
+            {edits.length > 0 && (
+              <span className="shrink-0 font-mono text-[11px]">
+                <span style={{ color: "var(--ct-green, #3fb950)" }}>+{addedLines}</span>{" "}
+                <span style={{ color: "var(--ct-red, #f85149)" }}>-{removedLines}</span>
               </span>
             )}
             <ChevronIcon expanded={expanded} className="ml-1 opacity-50" />
@@ -1714,6 +2084,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             >
               {toolContent ? (
                 <CodeBlock text={toolContent} language={codeLanguage} maxHeight="24rem" />
+              ) : edits.length > 0 ? (
+                <DiffView edits={edits} />
               ) : (
                 <pre
                   className={`${PRE_WRAP_CLASS} m-0 font-mono`}
@@ -1730,7 +2102,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                   >
                     Result
                   </div>
-                  <CodeBlock text={resultText} language="text" maxHeight="12rem" />
+                  <PlainOutput text={resultText} maxHeight="12rem" />
                 </div>
               )}
             </div>
@@ -1742,6 +2114,16 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
   // Tool result — subtle, compact
   if (message.type === "tool_result") {
+    if (isLargeArtifact(message.content)) {
+      return (
+        <LongArtifact
+          label="tool result"
+          text={message.content}
+          expanded={expanded}
+          onToggle={() => setExpanded(!expanded)}
+        />
+      );
+    }
     const contentLines = message.content.split("\n");
     const preview = contentLines.slice(0, 2).join("\n");
     const hasMore = contentLines.length > 2;

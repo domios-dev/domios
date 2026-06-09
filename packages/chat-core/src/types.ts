@@ -46,7 +46,18 @@ export interface ProviderChatAdapter<TMessage extends NormalizedChatMessage = No
 }
 
 export type ChatOrigin =
-  | { kind: "pane"; title: string; paneIdShort: string }
+  | {
+      kind: "pane";
+      title: string;
+      paneIdShort: string;
+      /** Sender's model family (opus/sonnet/haiku/codex/…) for the avatar.
+       *  The recipient is always the current pane — never embedded. */
+      model?: string;
+      /** Peer machine name when the message crossed the mesh. */
+      mesh?: string;
+      /** True for hierarchy/cron reports (`[report from …]`). */
+      report?: boolean;
+    }
   | { kind: "telegram"; userId: string; messageId?: string }
   | { kind: "mesh"; peerId: string }
   | { kind: "service"; service: string; userId: string }

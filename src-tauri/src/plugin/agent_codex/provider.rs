@@ -79,6 +79,10 @@ impl AgentProvider for CodexProvider {
         "codex"
     }
 
+    fn supports_chat_ui(&self) -> bool {
+        true
+    }
+
     fn display_name(&self) -> &str {
         "Codex"
     }
@@ -320,6 +324,76 @@ impl AgentProvider for CodexProvider {
         sessions
             .first()
             .and_then(|(stem, _)| extract_session_uuid(stem).map(|s| s.to_string()))
+    }
+
+    fn detect_launched_session_id(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+    ) -> Option<String> {
+        if let Some(session_id) = injected_session_id {
+            if self.session_exists(cwd, session_id) {
+                return Some(session_id.to_string());
+            }
+        }
+        if let Some(age) = max_age {
+            let after = std::time::SystemTime::now() - age;
+            let mut by_dir: Vec<(String, std::time::SystemTime)> = Vec::new();
+            walk_jsonl_recursive(&Self::sessions_root()?, 0, &mut |path| {
+                let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                    return;
+                };
+                let (meta_sid, meta_cwd) = read_session_meta(path).unwrap_or((None, None));
+                let Some(meta_cwd) = meta_cwd.as_deref() else {
+                    return;
+                };
+                if !paths_equivalent(meta_cwd, cwd) {
+                    return;
+                }
+                let sid = meta_sid.or_else(|| extract_session_uuid(stem).map(String::from));
+                let Some(sid) = sid else {
+                    return;
+                };
+                if exclude.iter().any(|sid2| sid2 == &sid) {
+                    return;
+                }
+                let Ok(meta) = std::fs::metadata(path) else {
+                    return;
+                };
+                let ts = meta.modified().or_else(|_| meta.created()).ok();
+                if let Some(ts) = ts {
+                    if ts <= after {
+                        return;
+                    }
+                    by_dir.push((sid, ts));
+                }
+            });
+            by_dir.sort_by(|a, b| b.1.cmp(&a.1));
+            if let Some((sid, _)) = by_dir.first() {
+                return Some(sid.clone());
+            }
+            return None;
+        }
+        self.detect_session_id(cwd, exclude, None)
+    }
+
+    fn detect_started_session(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+        screen_text: Option<&str>,
+    ) -> Option<String> {
+        self.detect_started_session_with_markers(
+            cwd,
+            exclude,
+            max_age,
+            injected_session_id,
+            screen_text,
+        )
     }
 
     fn detect_active_session(&self, cwd: &str, current_sid: &str) -> Option<String> {

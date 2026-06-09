@@ -48,3 +48,36 @@ pub struct SessionDelta {
     pub new_offset: u64,
     pub messages: Vec<RichMessage>,
 }
+
+/// A single chat message shaped like the frontend `ChatMessage`
+/// (`NormalizedChatMessage`), so the browser renders it with no extra
+/// mapping. Produced by providers that parse a non-JSONL store in Rust
+/// (e.g. opencode's sqlite). `id` must be stable across polls so the UI
+/// merges an updated message in place instead of duplicating it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMsg {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub timestamp: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_name: Option<String>,
+    /// Raw tool input (provider-shaped) so the chat can render diffs/args.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_input: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_result: Option<String>,
+}
+
+/// Result of one structured-chat read. `cursor` is an opaque bookmark
+/// (opencode: max part `time_created`) to pass back next poll. Empty
+/// `messages` means nothing new.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StructuredChat {
+    pub messages: Vec<ChatMsg>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub cursor: Option<String>,
+}

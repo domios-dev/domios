@@ -89,8 +89,7 @@ start_dev_wait_process() {
     # tears down; `script` keeps the dev command in a pty while still detaching.
     nohup script -q "$log" "${cmd[@]}" </dev/null >/dev/null 2>&1 &
   else
-    nohup bash -lc 'exec pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json' \
-      </dev/null >> "$log" 2>&1 &
+    nohup "${cmd[@]}" </dev/null >> "$log" 2>&1 &
   fi
   echo $!
 }
@@ -184,6 +183,7 @@ case "$CMD" in
     # first-launch embedded extract is skipped so ~/.codeterm/plugins/
     # doesn't shadow the workspace.
     export CODETERM_DEV=1
+    export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=9223}"
     start_web_watch
 
     WAIT=0
@@ -252,6 +252,7 @@ case "$CMD" in
     kill_dev
     ensure_deps
     echo "Starting dev with WebDriver..."
+    export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=9223}"
     pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json -- --features webdriver
     ;;
   e2e)

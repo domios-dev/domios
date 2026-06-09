@@ -12,6 +12,11 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
     };
     match action {
+        // Agents reach for `agent list` / `agent hierarchy` — make them real:
+        // they're the same view as `pane list --agents`.
+        AgentAction::List => {
+            crate::cmd::pane::handle_pane(client, json, crate::PaneAction::List { agents: true });
+        }
         AgentAction::Providers => {
             match http.get(format!("{}/api/agents/providers", base)).send() {
                 Ok(resp) => {
@@ -97,7 +102,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
             }
         }
-        AgentAction::SetConductor { pane } => {
+        AgentAction::SetOrchestrator { pane } => {
             let pane_id = resolve_pane(client, pane);
             match http.post(format!("{}/api/panes/{}/role", base, pane_id))
                 .json(&serde_json::json!({"role": "Orchestrator"}))

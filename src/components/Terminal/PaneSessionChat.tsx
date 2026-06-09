@@ -4,14 +4,14 @@ import { listen, type UnlistenFn } from "../../lib/bridge";
 import { ComposerActions, useWebFileDrop } from "./ComposerActions";
 import { Paperclip, Terminal, X } from "lucide-react";
 import { MessageBubble } from "@codeterm/chat-ui";
-import { parseJsonlSession as parseClaudeJsonlSession } from "@codeterm/provider-claude/src/parser";
-import { parseJsonlSession as parseCodexJsonlSession } from "@codeterm/provider-codex/src/parser";
+import { AgentIcon } from "../AgentIcon";
+import { getPlugin, useRegistryVersion } from "../../lib/plugins/registry";
 import {
   dedupeRecentUserMessages,
   matchesRecentUserMessage,
   type NormalizedChatMessage as ChatMessage,
 } from "@codeterm/chat-core";
-import { detectChatPrefix, type ChatOrigin } from "../../lib/chatPrefixes";
+import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "../../lib/chatPrefixes";
 import { useMultiplexer } from "../../store/multiplexer";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
@@ -70,11 +70,32 @@ interface ChatStartResult {
   offset: number;
   start_offset?: number;
   pending?: boolean;
+  // Structured providers (sqlite-backed, e.g. opencode) return parsed messages
+  // here instead of raw `text`; deltas arrive on `pane-chat-msg-{id}`.
+  messages?: ChatMessage[];
+  cursor?: string;
 }
 
 interface RawDeltaEvent {
   pane_id: string;
   text: string;
+}
+
+interface ChatMsgEvent {
+  pane_id: string;
+  messages: ChatMessage[];
+  cursor?: string;
+}
+
+// Merge structured-chat deltas by id (replace-or-append), ordered by the
+// numeric ms timestamp so a re-read of the growing tail message stays in place.
+function mergeById(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  const map = new Map<string, ChatMessage>();
+  for (const m of prev) map.set(m.id, m);
+  for (const m of incoming) map.set(m.id, m);
+  return Array.from(map.values()).sort(
+    (a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0),
+  );
 }
 
 interface Props {
@@ -189,6 +210,23 @@ function ComposerBubbleRow({
   );
 }
 
+function OriginProviderAvatar({ providerId }: { providerId: string | null | undefined }) {
+  if (!providerId) return null;
+  return (
+    <span
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border"
+      style={{
+        background: "color-mix(in srgb, var(--ct-surface, #161b22) 86%, var(--ct-accent, #58a6ff) 14%)",
+        borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
+        color: "var(--ct-fg)",
+      }}
+      aria-hidden
+    >
+      <AgentIcon providerId={providerId} className="text-[15px]" />
+    </span>
+  );
+}
+
 function SlashPicker({
   suggestions,
   highlighted,
@@ -230,6 +268,8 @@ function SlashPicker({
     </div>
   );
 }
+
+const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
 
 function cliFallbackCommandPayload(text: string): string | null {
   const trimmed = text.trim();
@@ -275,13 +315,15 @@ export function PaneSessionChat({
   onToggleTerminalFallback,
 }: Props) {
   const [rawText, setRawText] = useState<string>("");
+  // Structured (DB-backed) providers stream parsed messages keyed by id; null
+  // means JSONL mode (browser parses rawText).
+  const [structured, setStructured] = useState<ChatMessage[] | null>(null);
   const [earliestOffset, setEarliestOffset] = useState(0);
   const [visibleMessageCount, setVisibleMessageCount] = useState(INITIAL_VISIBLE_MESSAGES);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = usePersistentDraft(`pane-session-chat:${paneId}`);
-  const [sending, setSending] = useState(false);
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -297,7 +339,9 @@ export function PaneSessionChat({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const terminalTextRef = useRef<string | null>(null);
   const terminalActiveTimerRef = useRef<number | null>(null);
-  const sendInFlightRef = useRef(false);
+  // Dedup only the accidental keyboard+button double-fire of ONE action
+  // (same composed text within a blink) — deliberate rapid sends must pass.
+  const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const onErrorRef = useRef(onError);
   // chatRootRef scopes the drag-drop zone to the entire chat pane.
   const chatRootRef = useRef<HTMLDivElement>(null);
@@ -340,8 +384,6 @@ export function PaneSessionChat({
       }
     }, 0);
   }, []);
-
-  const [composerFocused, setComposerFocused] = useState(false);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -419,6 +461,22 @@ export function PaneSessionChat({
         setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
         setLoading(false);
         if (res.pending) return;
+        if (res.messages) {
+          // Structured (DB-backed) provider: render parsed messages directly,
+          // merge deltas by id (an in-progress message updates in place).
+          setStructured(res.messages);
+          unlisten = await listen<ChatMsgEvent>(
+            `pane-chat-msg-${paneId}`,
+            (ev) => {
+              if (cancelled) return;
+              const incoming = ev.payload.messages;
+              if (!incoming?.length) return;
+              setStructured((prev) => mergeById(prev ?? [], incoming));
+            },
+          );
+          return;
+        }
+        setStructured(null);
         unlisten = await listen<RawDeltaEvent>(
           `pane-chat-raw-${paneId}`,
           (ev) => {
@@ -453,10 +511,12 @@ export function PaneSessionChat({
     return () => clearTimeout(id);
   }, []);
 
+  // Re-parse when a plugin (un)registers — HMR swaps a provider's parser.
+  const registryVersion = useRegistryVersion();
   const parsed = useMemo<ChatMessage[]>(() => {
-    if (paneProvider === "codex") return parseCodexJsonlSession(rawText);
-    return parseClaudeJsonlSession(rawText);
-  }, [rawText, paneProvider]);
+    if (structured) return structured;
+    return getPlugin(paneProvider)?.parseSession?.(rawText) ?? [];
+  }, [structured, rawText, paneProvider, registryVersion]);
 
   // Drop optimistic entries once equivalent parsed user input appears in JSONL.
   // Match uses normalized text plus attachment fingerprint.
@@ -484,15 +544,34 @@ export function PaneSessionChat({
   const terminalHasAttention = terminalActive || Boolean(pendingPrompt);
 
   const enrichedMessages = useMemo(() => {
-    return allMessages.slice(-visibleMessageCount).map((m) => {
-      if (m.type !== "user") return { msg: m, origin: undefined as ChatOrigin | undefined };
+    const visible = allMessages.slice(-visibleMessageCount);
+    const out: Array<{ msg: ChatMessage; origin: ChatOrigin | undefined }> = [];
+    for (const m of visible) {
+      if (m.type !== "user") {
+        out.push({ msg: m, origin: undefined });
+        continue;
+      }
+      const splitPrefixes = splitChatPrefixedMessages(m.content);
+      if (splitPrefixes && splitPrefixes.length > 1) {
+        splitPrefixes.forEach((prefix, index) => {
+          out.push({
+            msg: { ...m, id: `${m.id}-prefix-${index}`, content: prefix.body },
+            origin: prefix.origin,
+          });
+        });
+        continue;
+      }
       const prefix = detectChatPrefix(m.content);
-      if (!prefix) return { msg: m, origin: undefined };
-      return {
+      if (!prefix) {
+        out.push({ msg: m, origin: undefined });
+        continue;
+      }
+      out.push({
         msg: { ...m, content: prefix.body },
         origin: prefix.origin,
-      };
-    });
+      });
+    }
+    return out;
   }, [allMessages, visibleMessageCount]);
 
   const hiddenMessageCount = Math.max(0, allMessages.length - enrichedMessages.length);
@@ -632,11 +711,29 @@ export function PaneSessionChat({
     for (const p of cleanExtraAttachments) {
       if (!allAttachments.includes(p)) allAttachments.push(p);
     }
-    if ((!text && allAttachments.length === 0) || sending || sendInFlightRef.current) return;
-    sendInFlightRef.current = true;
-    setSending(true);
-    // Compose text + quoted paths in one payload; same pipeline as useTauriFileDrop.
-    const pathLines = allAttachments.map(quotePathForPaste).join(" ");
+    if (!text && allAttachments.length === 0) return;
+    // No in-flight lock: the daemon serializes PTY writes and the agent
+    // queues input, so you can fire as many messages as you like back to
+    // back. We only drop an exact-duplicate within 500ms (the Enter-key +
+    // send-button double-fire of a single action).
+    const nowTs = Date.now();
+    const dupKey = `${text} ${allAttachments.join("|")}`;
+    if (dupKey === lastSendRef.current.text && nowTs - lastSendRef.current.at < 500) return;
+    lastSendRef.current = { text: dupKey, at: nowTs };
+    // Compose text + attachments. Audio is wrapped as `[voice] (transcript) file://`
+    // (transcribed when a daemon is configured) — same shape as the Telegram
+    // bridge, and the `[...]` prefix avoids a leading `/` that opencode's TUI
+    // treats as a command. Non-audio keeps the quoted-path form.
+    const pathParts = await Promise.all(
+      allAttachments.map(async (p) =>
+        AUDIO_ATTACHMENT_RE.test(p)
+          ? await invoke<string>("transcribe_voice_attachment", { path: p }).catch(
+              () => quotePathForPaste(p),
+            )
+          : quotePathForPaste(p),
+      ),
+    );
+    const pathLines = pathParts.join(" ");
     const composed = text && pathLines
       ? `${text} ${pathLines}`
       : text || pathLines;
@@ -654,8 +751,6 @@ export function PaneSessionChat({
         setModelPickerOpen(true);
       }
       setPickerOpen(false);
-      sendInFlightRef.current = false;
-      setSending(false);
       refocusComposer();
       return;
     }
@@ -679,15 +774,13 @@ export function PaneSessionChat({
       if (fallbackCommand) {
         if (!currentPtyId) throw new Error("Pane has no PTY");
         onOpenTerminalFallback?.();
-        await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand });
+        await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
       } else {
-        await invoke("chat_send_text", { paneId, text: composed, enter: true });
+        await invoke("write_pty_string", { ptyId: currentPtyId, data: composed + "\r", raw: false });
       }
     } catch (e) {
       showComposerError(e instanceof Error ? e.message : String(e));
     } finally {
-      sendInFlightRef.current = false;
-      setSending(false);
       refocusComposer();
     }
   }
@@ -768,7 +861,7 @@ export function PaneSessionChat({
   const sendRawToPty = useCallback(
     async (data: string) => {
       if (!currentPtyId) throw new Error("Pane has no PTY");
-      await invoke("write_pty_string", { ptyId: currentPtyId, data });
+      await invoke("write_pty_string", { ptyId: currentPtyId, data, raw: false });
     },
     [currentPtyId],
   );
@@ -882,10 +975,14 @@ export function PaneSessionChat({
         {enrichedMessages.map(({ msg, origin }) => {
           const isPending = msg.id.startsWith("opt-");
           let onOriginClick: (() => void) | undefined;
+          let originProviderId: string | null | undefined;
           if (origin?.kind === "pane") {
             const idShort = origin.paneIdShort;
             const fullId = Object.keys(muxState.panes).find((id) => id.startsWith(idShort));
-            if (fullId) onOriginClick = () => setFocusedPane(fullId);
+            if (fullId) {
+              onOriginClick = () => setFocusedPane(fullId);
+              originProviderId = muxState.panes[fullId]?.agent_type;
+            }
           }
           return (
             <div
@@ -895,7 +992,16 @@ export function PaneSessionChat({
               style={isPending ? { opacity: 0.55 } : undefined}
               title={isPending ? "sending… (echo expected within 60s)" : undefined}
             >
-              <MessageBubble message={msg} origin={origin} onOriginClick={onOriginClick} />
+              <MessageBubble
+                message={msg}
+                origin={origin}
+                originAvatar={
+                  origin?.kind === "pane" && originProviderId
+                    ? <OriginProviderAvatar providerId={originProviderId} />
+                    : undefined
+                }
+                onOriginClick={onOriginClick}
+              />
             </div>
           );
         })}
@@ -905,10 +1011,8 @@ export function PaneSessionChat({
         style={{
           borderColor:
             "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
-          // Keyboard open (touch + focused): it covers the home indicator, so the safe-area bottom pad would render as a dead stripe under the input.
-          paddingBottom: touchMode && composerFocused
-            ? "0.5rem"
-            : "var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)))",
+          // Driven by the real keyboard inset (visualViewport, see App.tsx): safe-area pad when closed, flat 0.5rem once the keyboard covers the home indicator. Focus alone (e.g. mic tap) must NOT collapse it — that drops the safe area with no keyboard present.
+          paddingBottom: "var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)))",
         }}
       >
         {modelPickerOpen && (
@@ -980,7 +1084,7 @@ export function PaneSessionChat({
             onSend={() => void send()}
             onSendWithAttachments={(paths) => void send(paths)}
             onError={showComposerError}
-            sendDisabled={sending || (!input.trim() && attachments.length === 0)}
+            sendDisabled={!input.trim() && attachments.length === 0}
             hasText={input.trim().length > 0 || attachments.length > 0}
           >
             <SlashPicker
@@ -1054,8 +1158,6 @@ export function PaneSessionChat({
                   void send();
                 }
               }}
-              onFocus={() => setComposerFocused(true)}
-              onBlur={() => setComposerFocused(false)}
               onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
               placeholder={pendingPrompt
                 ? "Agent may be waiting in the terminal."

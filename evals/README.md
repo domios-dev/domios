@@ -9,9 +9,8 @@ portable across mac, linux, and Windows-bash.
 
 | Folder | What it tests | Runner |
 |--------|---------------|--------|
-| `general-agent/` | General Agent system prompt — Telegram routing, mesh spawn, recon-before-action (21 cases) | `prompt-evaluator` skill (`runner.py`) |
+| `cli-agent/` | real-daemon LLM benchmark: drives claude/codex/opencode in the dev console through every CLI command; model-judged (see its `SKILL.md`). Replaces the old headless `-p` general-agent / mem-protocol prompt evals. | `bash cli-agent/run-suite.sh` + model judge |
 | `mem-recall/` | mem search engine quality (Recall@K / MRR / latency) | `cargo run --bin mem-bench` |
-| `mem-protocol/` | slim `bridge_mem.md` rule fires the right protocol calls (8 cases) | `prompt-evaluator` skill |
 | `dreaming/` | REM-phase prompt — Stage A.1 hub decomposition (RED ZONE rule), Stage A.2 island bridging (5 cases) | `prompt-evaluator` skill |
 | `session-restore/` | kill+restart preserves workspaces / panes / agent_type / titles | `bash session-restore/run.sh` |
 

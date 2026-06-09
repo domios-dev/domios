@@ -32,7 +32,7 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 4. **Read output**: `codeterm get-output` (reads from current pane)
 5. **Rename tab**: `codeterm pane rename "my task"` or `codeterm pane rename "my task" --pane ID`
 6. **Create theme**: `codeterm theme save my-theme /tmp/theme.toml --apply`
-7. **Agent hierarchy**: `codeterm agent set-conductor` (mark self as orchestrator; alias: `set-orchestrator`)
+7. **Agent hierarchy**: `codeterm agent set-orchestrator` (mark self as orchestrator; alias: `set-conductor`)
 8. **Compact context**: `codeterm agent compact [--pane ID]` (sends /compact to Claude)
 9. **Switch model**: `codeterm agent model <sonnet|haiku|opus> [--pane ID]` (switches Claude model)
 9. **Send report**: `codeterm agent report "task done"` (report to direct parent, auto-injected into parent's PTY)
@@ -172,7 +172,7 @@ CodeTerm has a 2-level agent hierarchy: Orchestrator (depth 1) -> Worker (depth 
 
 **Roles:**
 - **Orchestrator** (was Conductor) -- top-level, spawns Workers.
-- **Worker** -- executes one task, reports back. Cannot spawn. Cannot call `set-conductor`, `unlink`, or `agent spawn`.
+- **Worker** -- executes one task, reports back. Cannot spawn. Cannot call `set-orchestrator`, `unlink`, or `agent spawn`.
 
 Backward-compat alias: `Conductor` -> `Orchestrator`.
 
@@ -180,7 +180,7 @@ Backward-compat alias: `Conductor` -> `Orchestrator`.
 
 ```bash
 # Mark current pane as orchestrator
-codeterm agent set-conductor --pane $CODETERM_PANE_ID
+codeterm agent set-orchestrator --pane $CODETERM_PANE_ID
 
 # View panes as a workspace tree (sub-agents nested); --agents = agent panes only
 codeterm pane list
@@ -246,4 +246,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the pane in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->

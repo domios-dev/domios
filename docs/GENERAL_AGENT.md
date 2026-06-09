@@ -94,14 +94,14 @@ Shutdown and app restart rely on normal session persistence. If the GA needs to 
 | Permissions | Skip-permissions launch where the provider supports it |
 | Role | Orchestrator |
 
-`codeterm send-text "..." --pane general` resolves the alias to the protected pane.
+`codeterm send "..." --pane general` resolves the alias to the protected pane.
 
 ## Bridge And Mesh Routing
 
 The GA prompt has a prefix table for inbound channels. The prefix is the return address:
 
 - `[Telegram: USER_ID ...]` replies via `codeterm bridge send --to USER_ID --service telegram`.
-- `[Mesh: PEER pane=ID ...]` replies via `codeterm send-text --pane ID --mesh PEER`.
+- `[Mesh: PEER pane=ID ...]` replies via `codeterm send --pane ID --mesh PEER`.
 - `[Report from PANE_ID]` is a child report; act on it or forward the summary to the original user channel.
 
 Telegram and other bridge details live in the operational playbooks:

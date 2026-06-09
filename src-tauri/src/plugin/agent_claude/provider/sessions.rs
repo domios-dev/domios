@@ -18,9 +18,18 @@ pub(super) fn encode_cwd(cwd: &str) -> String {
 }
 
 /// Get the sessions directory for a given CWD.
+///
+/// Claude canonicalizes the cwd (resolving symlinks) before encoding the
+/// project dir name — on macOS `/var/...` becomes `/private/var/...`, so a
+/// raw cwd would encode to a dir that doesn't exist. Canonicalize to match;
+/// fall back to the raw cwd if the path can't be resolved (e.g. it was removed).
 pub(super) fn sessions_dir(cwd: &str) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
-    let encoded = encode_cwd(cwd);
+    let canonical = std::fs::canonicalize(cwd)
+        .ok()
+        .and_then(|p| p.to_str().map(String::from))
+        .unwrap_or_else(|| cwd.to_string());
+    let encoded = encode_cwd(&canonical);
     Some(home.join(".claude").join("projects").join(encoded))
 }
 

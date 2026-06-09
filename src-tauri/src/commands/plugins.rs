@@ -103,6 +103,7 @@ fn run_plugin_cli(args: &[impl AsRef<str>]) -> Result<Value, String> {
     let output = Command::new(&cli)
         .args(args.iter().map(|a| a.as_ref()))
         .env("CODETERM_DATA_DIR", &data_dir)
+        .env("CODETERM_VERSION", env!("CARGO_PKG_VERSION"))
         .output()
         .map_err(|e| format!("run {}: {e}", cli.display()))?;
     if !output.status.success() {

@@ -1,0 +1,15 @@
+- id: agent.providers.basic
+  command: "agent providers"
+  prompt: "Which agent providers are registered, and what are their default models?"
+  expect: "Runs `codeterm agent providers`."
+  safety: execute
+- id: agent.models.basic
+  command: "agent models"
+  prompt: "List the models available for the claude provider."
+  expect: "Runs `codeterm agent models claude`."
+  safety: execute
+- id: agent.spawn.describe
+  command: "agent spawn"
+  prompt: "How would you spawn a codex worker agent in a new tab with the task 'audit deps'? Show the exact command, don't run it."
+  expect: "Describes `codeterm agent spawn codex --task \"audit deps\" ...`; should NOT execute."
+  safety: describe-only

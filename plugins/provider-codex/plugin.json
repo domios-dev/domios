@@ -1,6 +1,7 @@
 {
   "id": "codex",
   "version": "0.1.0",
+  "minCodeterm": "1.0.0",
   "displayName": "Codex",
   "binaryName": "codex",
   "cliBinary": "codex",

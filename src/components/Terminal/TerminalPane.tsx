@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from "react";
+import { X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { IS_WEB, listen } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
@@ -19,6 +20,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import {
   getClientPaneUiMode,
   listenClientPaneUiMode,
+  publishCurrentPaneUiMode,
   setClientPaneUiMode,
 } from "../../lib/clientPaneUiMode";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
@@ -165,7 +167,8 @@ export function TerminalPane({
   const showTerminalKeyBar = touchUi && uiMode === "terminal" && termReady;
   const fallbackChat = uiMode === "chat" && terminalFallbackOpen;
   const mobileSheet = fallbackChat && touchUi;
-  const SHEET_TOP = "calc(var(--ct-safe-top, 0px) + 0.75rem)";
+  // Clears the git/usage bubbles (top: safe-top + 6px) so the sheet header never overlaps them.
+  const SHEET_TOP = "calc(var(--ct-safe-top, 0px) + 2.5rem)";
   const SHEET_HEADER = "2.5rem";
   const SHEET_FOOTER = "3.75rem";
 
@@ -199,6 +202,9 @@ export function TerminalPane({
   // default, bridge requests). Persisting every computed uiMode here used to
   // erase the spawn-flow's "chat" with the pre-agent_type "terminal" and its
   // echo got recorded as a user override — pinning new panes to terminal.
+  useEffect(() => {
+    publishCurrentPaneUiMode(paneId, uiMode);
+  }, [paneId, uiMode]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -380,6 +386,9 @@ export function TerminalPane({
       style={{
         boxSizing: "border-box",
         borderTop: hasSplits ? `1px solid ${topAccent}` : "none",
+        outline: "none",
+        boxShadow: "none",
+        background: "#000",
         transition: bellFlash ? "border-color 0.1s ease-in" : "border-color 0.15s ease-out",
       }}
       onMouseDown={handleClick}
@@ -445,7 +454,7 @@ export function TerminalPane({
             : "none",
           borderTop: mobileSheet ? "none" : undefined,
           borderBottom: mobileSheet ? "none" : undefined,
-          background: "var(--ct-bg, #0d1117)",
+          background: "#000",
           visibility: terminalVisible ? "visible" : "hidden",
           pointerEvents: terminalVisible ? "auto" : "none",
           zIndex: terminalFallbackOpen ? 4 : uiMode === "terminal" ? 1 : 0,
@@ -460,13 +469,13 @@ export function TerminalPane({
             : "absolute inset-0 overflow-hidden"
           }
           style={{
-            padding: 8,
+            padding: fallbackChat || showTerminalKeyBar ? 8 : 0,
             paddingTop: touchUi && uiMode === "terminal"
               ? "calc(1.25rem + var(--ct-safe-top, 0px))"
-              : 8,
+              : fallbackChat || showTerminalKeyBar ? 8 : 0,
             opacity: shell.overlayVisible ? 0 : 1,
             transition: "opacity 0.3s ease-in",
-            background: "var(--ct-bg, #0d1117)",
+            background: "#000",
           }}
           onClick={() => termRef.current?.focus()}
         >
@@ -478,7 +487,7 @@ export function TerminalPane({
             style={{
               paddingBottom: "var(--ct-composer-bottom-padding, 0.5rem)",
               borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 24%, transparent)",
-              background: "var(--ct-bg, #0d1117)",
+              background: "#000",
             }}
           >
             {terminalKeyBar}
@@ -586,11 +595,16 @@ export function TerminalPane({
             <button
               type="button"
               data-testid="terminal-sheet-done"
-              className="h-10 px-2 -mr-2 pt-1.5 text-sm font-medium select-none touch-manipulation active:opacity-60"
-              style={{ background: "transparent", border: "none", color: "var(--ct-accent, #58a6ff)" }}
+              className="mt-1 flex h-8 items-center gap-1 rounded-full px-3 text-[13px] font-semibold select-none touch-manipulation transition-transform active:scale-95"
+              style={{
+                background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 36%, transparent)",
+                color: "var(--ct-accent, #58a6ff)",
+              }}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setTerminalFallbackOpen(false)}
             >
+              <X size={14} strokeWidth={2.4} />
               Done
             </button>
           </div>

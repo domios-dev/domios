@@ -1,6 +1,6 @@
 //! General workspace + pane setup in [`MultiplexerState`].
 
-use super::{general_dir, GENERAL_ALIAS, GENERAL_PANE_TITLE, GENERAL_WORKSPACE_NAME};
+use super::{general_dir, GENERAL_ALIAS, GENERAL_PANE_TITLE, GENERAL_WORKSPACE_NAME, MAIN_ALIAS};
 
 /// Ensure General workspace + pane exist in MultiplexerState.
 /// Called BEFORE mux is wrapped in Arc<Mutex<>> — no locking needed.
@@ -35,11 +35,20 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
         }
         mux.move_workspace_to_front(&ws.id);
         if let Some(pid) = ws.pane_ids.first() {
-            let _ = mux.rename_pane(pid, GENERAL_PANE_TITLE);
-            if let Some(pane) = mux.get_pane_mut(pid) {
+            let pid = pid.clone();
+            let _ = mux.rename_pane(&pid, GENERAL_PANE_TITLE);
+            // The sidebar reads tab.title, which create_tab seeded with a
+            // random scientist name — pin the GA tab to "Main" too so the
+            // user's anchor pane never shows up as "Edison"/"Yang"/etc.
+            if let Some(tab_id) = mux.find_tab_for_pane(&pid) {
+                let ws_id = ws.id.clone();
+                let _ = mux.rename_tab(&ws_id, &tab_id, GENERAL_PANE_TITLE);
+            }
+            if let Some(pane) = mux.get_pane_mut(&pid) {
                 pane.protected = true;
             }
-            mux.register_alias(GENERAL_ALIAS, pid);
+            mux.register_alias(GENERAL_ALIAS, &pid);
+            mux.register_alias(MAIN_ALIAS, &pid);
             log::info!(
                 "[general-agent] Existing General workspace, alias for pane {}",
                 pid
@@ -57,8 +66,10 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
     mux.move_workspace_to_front(&ws_info.id);
 
     match mux.create_tab(&ws_info.id) {
-        Ok((_tab_id, pane_id)) => {
+        Ok((tab_id, pane_id)) => {
             let _ = mux.rename_pane(&pane_id, GENERAL_PANE_TITLE);
+            // Pin the tab label too — create_tab seeded it with a random name.
+            let _ = mux.rename_tab(&ws_info.id, &tab_id, GENERAL_PANE_TITLE);
             if let Some(pane) = mux.get_pane_mut(&pane_id) {
                 pane.protected = true;
                 pane.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
@@ -66,6 +77,7 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
                 pane.cwd = Some(general_cwd);
             }
             mux.register_alias(GENERAL_ALIAS, &pane_id);
+            mux.register_alias(MAIN_ALIAS, &pane_id);
             // Make General the active workspace + focused pane on first create
             let _ = mux.set_active_workspace(&ws_info.id);
             let _ = mux.set_focused_pane(&pane_id);

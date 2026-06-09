@@ -68,9 +68,8 @@ pub(crate) struct SendTextBody {
     #[serde(default)]
     raw: bool,
     /// Sender's pane id when CLI is invoked from inside CodeTerm. Daemon
-    /// prepends `[from <title> pane=<id>] ` so the recipient knows the
-    /// return-address. Mirrors `[Mesh: PEER pane=ID]` for mesh hops and
-    /// `[Report from PANE_ID]` for hierarchy reports.
+    /// prepends a CodeTerm marker so the recipient knows the return-address.
+    /// Mesh hops and hierarchy reports use the same marker family.
     #[serde(default)]
     source_pane: Option<String>,
 }
@@ -142,23 +141,20 @@ pub async fn send_text(
         ));
     }
 
-    // Source-prefix only for agent recipients; shells just execute the bytes.
-    let target_has_agent = state
-        .svc
-        .mux
-        .lock()
-        .get_pane(&pane_id)
-        .map(|p| p.agent_type.is_some())
-        .unwrap_or(false);
+    // Prefix only for agent recipients; shells run the bytes verbatim.
     let source_prefix: Option<String> = body
         .source_pane
         .as_deref()
         .filter(|s| !s.is_empty() && *s != pane_id)
-        .filter(|_| target_has_agent)
-        .map(|src| {
-            let label = state.svc.mux.lock().display_label_for_pane(src);
-            let short: String = src.chars().take(8).collect();
-            format!("[from {} pane={}] ", label, short)
+        .and_then(|src| {
+            let mux = state.svc.mux.lock();
+            if mux.get_pane(&pane_id).and_then(|p| p.agent_type.as_ref()).is_none() {
+                return None; // shell recipient — no prefix
+            }
+            let from_label = mux.display_label_for_pane(src);
+            let model = mux.get_pane(src).and_then(|p| p.agent_session_model.clone());
+            let pfx = crate::service::msg_prefix::CtxPrefix::message(from_label, src).model(model);
+            Some(pfx.build())
         });
     let prepend = |s: &str| -> String {
         match &source_prefix {

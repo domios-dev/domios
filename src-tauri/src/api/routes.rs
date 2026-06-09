@@ -7,7 +7,7 @@ use axum::{
 use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, cors::CorsLayer};
 
 use super::{
-    agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, fs_routes,
+    agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, fs_routes, git_routes,
     health_routes, hook_routes, logs_routes, mem_routes, mesh_routes, network_routes,
     notification_routes, pane_chat_routes, pane_routes, pasteboard_routes, services_routes,
     session_routes, theme_routes, updater_routes, usage_routes, web_routes, webhook_routes,
@@ -94,6 +94,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/panes/{id}/resize-owner",
             post(web_routes::claim_resize_owner),
         )
+        .route("/api/panes/{id}/chat", get(pane_chat_routes::snapshot))
         .route("/api/panes/{id}/chat/start", post(pane_chat_routes::start))
         .route("/api/panes/{id}/chat/stop", post(pane_chat_routes::stop))
         .route(
@@ -218,6 +219,7 @@ pub fn create_router(state: AppState) -> Router {
             get(web_routes::peer_services),
         )
         .route("/api/events/stream", get(web_routes::events_stream))
+        .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
         .route(
             "/api/panes/{id}/chat-raw/start",
             post(web_routes::chat_raw_start),
@@ -559,7 +561,20 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/logs",
             get(logs_routes::list_logs).delete(logs_routes::delete_logs),
-        );
+        )
+        .route("/api/git/graph", get(git_routes::git_graph))
+        .route(
+            "/api/git/commit/{sha}/files",
+            get(git_routes::git_commit_files),
+        )
+        .route(
+            "/api/git/commit/{sha}/diff",
+            get(git_routes::git_commit_diff),
+        )
+        .route("/api/git/workdir-diff", get(git_routes::git_workdir_diff))
+        .route("/api/git/workdir-files", get(git_routes::git_workdir_files))
+        .route("/api/git/revert-file", post(git_routes::git_revert_file))
+        .route("/api/git/repos", get(git_routes::git_repos));
 
     // gzip-scoped snapshot route: 100k-node payloads compress ~4:1. Kept on its
     // own sub-router so compression only runs for this large response.

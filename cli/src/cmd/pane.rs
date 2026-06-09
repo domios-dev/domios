@@ -252,6 +252,22 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 Err(e) => { eprintln!("Stop request failed: {}", e); std::process::exit(1); }
             }
         }
+        PaneAction::Chat { pane, since } => {
+            let pane_id = resolve_pane(client, pane);
+            let (api_url, api_token) = read_api_config();
+            let http = match build_http(&api_token) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let url = format!("{}/api/panes/{}/chat?since={}", api_url, pane_id, since);
+            match http.get(url).send().and_then(|r| r.json::<serde_json::Value>()) {
+                Ok(v) => handle_result(json, Ok(v)),
+                Err(e) => { eprintln!("Error: chat read failed: {}", e); std::process::exit(1); }
+            }
+        }
     }
 }
 

@@ -37,9 +37,15 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
 
 /// Windows pty + cmd.exe handle bracketed-paste markers correctly and there
 /// is no /bin/bash to script-exec with, so we keep the original behavior.
+///
+/// A sacrificial leading space absorbs PSReadLine's first-byte race: the very
+/// first content byte after the `ESC[200~` opener is dropped when the paste
+/// arrives before the bracketed-paste handler is fully armed (the
+/// `emove-Item` / `nset CLAUDECODE` launch glitch). PowerShell ignores leading
+/// whitespace, so the space is harmless whether or not it gets eaten.
 #[cfg(windows)]
 pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
-    Ok(format!("\x1b[200~{}\x1b[201~\r", cmd).into_bytes())
+    Ok(format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes())
 }
 
 impl ServiceContext {
@@ -269,6 +275,7 @@ impl ServiceContext {
                         &provider_id,
                         &params,
                         None,
+                        None,
                         &self.agent_registry,
                     );
                     crate::service::orchestrator::launch_agent_in_background(
@@ -331,7 +338,11 @@ impl ServiceContext {
         // Feed parsed text before bracket-paste ESCs so parser state stays stable.
         // This keeps API/CLI launched commands reliable when a launch is typed manually.
         self.feed_input_parser(pty_id, text, enter);
-        let paste = format!("\x1b[200~{}\x1b[201~", text);
+        let paste = if cfg!(windows) {
+            format!("\x1b[200~ {}\x1b[201~", text)
+        } else {
+            format!("\x1b[200~{}\x1b[201~", text)
+        };
         self.pty.lock().write(pty_id, paste.as_bytes())?;
 
         if enter {
@@ -400,7 +411,11 @@ impl ServiceContext {
 
         self.feed_input_parser(pty_id, text, enter);
 
-        let paste = format!("\x1b[200~{}\x1b[201~", text);
+        let paste = if cfg!(windows) {
+            format!("\x1b[200~ {}\x1b[201~", text)
+        } else {
+            format!("\x1b[200~{}\x1b[201~", text)
+        };
         self.pty
             .lock()
             .write(pty_id, paste.as_bytes())
@@ -437,23 +452,29 @@ impl ServiceContext {
 
         // Enter ALWAYS fires when the caller asked for it. This is the load-bearing line — no early-return above this point can skip it unless the PTY is already gone.
         let submit_observed = if enter {
-            // Brief settle: TUIs (claude/codex/opencode) buffer bracket paste async; a same-instant \r can eaten.
-            std::thread::sleep(std::time::Duration::from_millis(120));
-            self.pty
-                .lock()
-                .write(pty_id, b"\r")
-                .map_err(|_| InjectionError::PtyClosed {
-                    pty_id: pty_id.to_string(),
-                })?;
-
-            // Submit verify: also informational. Timeout no longer aborts.
-            if opts.verify_submit {
-                let res = match submit_strategy {
+            // Up to 2 Enter attempts: a single \r is sometimes swallowed by a
+            // TUI still ingesting the bracket paste (notably opencode). On a
+            // verify timeout we re-send \r so the message actually submits —
+            // this is the "typed but not sent" fix.
+            let mut observed = false;
+            for attempt in 0..2 {
+                // Brief settle: TUIs buffer bracket paste async; a same-instant \r can be eaten.
+                std::thread::sleep(std::time::Duration::from_millis(120));
+                self.pty
+                    .lock()
+                    .write(pty_id, b"\r")
+                    .map_err(|_| InjectionError::PtyClosed {
+                        pty_id: pty_id.to_string(),
+                    })?;
+                if !opts.verify_submit {
+                    break;
+                }
+                let res = match &submit_strategy {
                     VerifySubmitStrategy::ShellPrompt { timeout } => wait_for_submit_shell(
                         &self.screen_state,
                         pty_id,
-                        hash_before,
-                        timeout,
+                        hash_before.clone(),
+                        *timeout,
                         tail_rows,
                     ),
                     VerifySubmitStrategy::TuiInputDrained {
@@ -463,28 +484,30 @@ impl ServiceContext {
                         &self.screen_state,
                         pty_id,
                         text,
-                        timeout,
-                        idle_after_drain,
+                        *timeout,
+                        *idle_after_drain,
                         tail_rows,
                     ),
                     VerifySubmitStrategy::None => Ok(String::new()),
                 };
                 match res {
-                    Ok(_) => true,
+                    Ok(_) => {
+                        observed = true;
+                        break;
+                    }
                     Err(HelperErr::PtyUnknown(id)) => {
                         return Err(InjectionError::PtyClosed { pty_id: id });
                     }
                     Err(HelperErr::Timeout(_)) => {
                         log::debug!(
-                            "submit verify timed out for pty {}; Enter was sent, recipient may still be processing",
-                            pty_id
+                            "submit verify timed out for pty {} (attempt {}); re-sending Enter",
+                            pty_id,
+                            attempt + 1
                         );
-                        false
                     }
                 }
-            } else {
-                false
             }
+            observed
         } else {
             false
         };
@@ -811,6 +834,23 @@ mod tests {
     #[test]
     fn multiline_text_enter_true() {
         assert_eq!(apply_enter("line1\nline2", true), "line1\nline2\r");
+    }
+
+    // ── Windows spawn-dispatch: sacrificial leading space ──
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_spawn_dispatch_prepends_sacrificial_space() {
+        let bytes = build_spawn_dispatch("Remove-Item Env:CLAUDECODE; claude").unwrap();
+        let s = String::from_utf8(bytes).unwrap();
+        // Opener, then a space the PSReadLine first-byte race can eat without
+        // corrupting the command, then the command intact, then closer + CR.
+        assert_eq!(s, "\x1b[200~ Remove-Item Env:CLAUDECODE; claude\x1b[201~\r");
+        // If the first content byte is dropped, what survives still starts with
+        // the real command — never `emove-Item`.
+        let after_opener = &s["\x1b[200~".len()..];
+        assert!(after_opener.starts_with(' '));
+        assert!(after_opener[1..].starts_with("Remove-Item"));
     }
 
     // ── SendBatchItem deserialization ──

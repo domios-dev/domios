@@ -74,9 +74,17 @@ pub async fn get_pane_git_info(
     mux: tauri::State<'_, MuxState>,
     pane_id: String,
 ) -> Result<Option<GitInfo>, String> {
+    // Agent panes never emit OSC7 — fall back to their workspace's cwd.
     let cwd = {
         let mux = mux.lock();
-        mux.get_pane(&pane_id).and_then(|p| p.cwd.clone())
+        mux.get_pane(&pane_id)
+            .and_then(|p| p.cwd.clone())
+            .or_else(|| {
+                mux.list_workspaces()
+                    .into_iter()
+                    .find(|ws| ws.pane_ids.iter().any(|p| p == &pane_id))
+                    .and_then(|ws| ws.cwd)
+            })
     };
     let Some(cwd) = cwd else { return Ok(None) };
     Ok(
@@ -144,41 +152,7 @@ pub fn read_session_jsonl(
         (sid, cwd, at)
     };
 
-    let needs_detect = if session_id.is_none() {
-        true
-    } else if let Some(ref sid) = session_id {
-        svc.agent_registry
-            .with_provider(&agent_type, |p| p.session_file_path(&cwd, sid))
-            .flatten()
-            .map(|path| !path.exists())
-            .unwrap_or(true)
-    } else {
-        false
-    };
-
-    if needs_detect {
-        let exclude = mux.lock().other_session_ids(&pane_id);
-        let max_age = Some(std::time::Duration::from_secs(86400));
-        let detected = svc
-            .agent_registry
-            .with_provider(&agent_type, |p| {
-                p.detect_session_id(&cwd, &exclude, max_age)
-            })
-            .flatten();
-        if let Some(detected) = detected {
-            log::info!(
-                "[read_session_jsonl] detected session {} for pane {}",
-                detected,
-                pane_id
-            );
-            svc.set_agent_session_id(&pane_id, Some(detected.clone()));
-            svc.emit_state_changed();
-            session_id = Some(detected);
-        }
-    }
-
-    let session_id =
-        session_id.ok_or_else(|| "No agent session linked to this pane".to_string())?;
+    let session_id = session_id.ok_or_else(|| "No agent session linked to this pane".to_string())?;
 
     let jsonl_path = svc
         .agent_registry
@@ -236,6 +210,13 @@ pub struct ChatStartResult {
     /// Agent pane exists but its session hasn't been created yet — render an empty chat and retry once the mux reports a session id.
     #[serde(default)]
     pub pending: bool,
+    /// Structured providers (sqlite-backed, e.g. opencode) return parsed
+    /// messages here instead of raw `text`; the frontend renders them directly
+    /// and listens on `pane-chat-msg-{id}` for deltas. `None` = JSONL provider.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub messages: Option<Vec<crate::agent::chat_types::ChatMsg>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
 }
 
 #[tauri::command]
@@ -264,6 +245,8 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                 start_offset: 0,
                 offset: 0,
                 pending: true,
+                messages: None,
+                cursor: None,
             });
         };
         (provider, cwd, sid, t.elapsed().as_millis())
@@ -305,6 +288,47 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         }
     }
     let detect_ms = detect_started.elapsed().as_millis();
+
+    // DB-backed providers (sqlite, e.g. opencode) have no tailable JSONL: read
+    // structured messages in Rust and stream deltas from a DB poller.
+    if svc
+        .agent_registry
+        .with_provider(&provider_id, |p| p.uses_structured_chat())
+        .unwrap_or(false)
+    {
+        let delta = svc
+            .agent_registry
+            .with_provider(&provider_id, |p| {
+                p.read_structured_chat(&cwd, &session_id, None)
+            })
+            .unwrap_or_default();
+        let cursor = delta.cursor.clone();
+        if !svc.chat_registry.acquire(&pane_id) {
+            let sink =
+                crate::service::pane_chat::structured_sink::make_sink(svc.app_handle.clone());
+            let handle = crate::service::pane_chat::spawn_structured_poller(
+                crate::service::pane_chat::StructuredPollConfig {
+                    pane_id: pane_id.clone(),
+                    provider_id: provider_id.clone(),
+                    cwd: cwd.clone(),
+                    session_id: session_id.clone(),
+                    start_cursor: cursor.clone(),
+                    poll_interval: std::time::Duration::from_millis(500),
+                },
+                svc.agent_registry.clone(),
+                sink,
+            );
+            svc.chat_registry.insert(pane_id.clone(), handle);
+        }
+        return Ok(ChatStartResult {
+            text: String::new(),
+            start_offset: 0,
+            offset: 0,
+            pending: false,
+            messages: Some(delta.messages),
+            cursor,
+        });
+    }
 
     let path_started = std::time::Instant::now();
     let path = svc
@@ -379,6 +403,8 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         start_offset: aligned_start as u64,
         offset: total,
         pending: false,
+        messages: None,
+        cursor: None,
     })
 }
 
@@ -386,6 +412,15 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
 pub async fn chat_stop(svc: tauri::State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
     svc.chat_registry.stop(&pane_id);
     Ok(())
+}
+
+/// Format an uploaded voice attachment for sending to an agent: transcribe it
+/// (via the configured transcriber daemon) and wrap it in the same
+/// `-=-codeterm:voice ...-=-` marker shape the Telegram bridge uses.
+#[tauri::command]
+pub async fn transcribe_voice_attachment(path: String) -> Result<String, String> {
+    let cfg = crate::config::load_config().integrations.voice_transcribe;
+    Ok(crate::bridge::voice_transcribe::format_attachment_line(&path, "voice", None, &cfg).await)
 }
 
 #[derive(serde::Serialize)]

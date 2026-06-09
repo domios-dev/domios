@@ -214,22 +214,16 @@ pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
 }
 
 fn main() {
-    if let Some((json, plugin_args)) = extract_plugin_args() {
-        match parse_plugin_action(plugin_args) {
-            Ok((plugin_json, action)) => cmd::plugin::handle_plugin(json || plugin_json, action),
-            Err(e) => {
-                if e.starts_with("Usage:") {
-                    println!("{e}");
-                    std::process::exit(0);
-                }
-                eprintln!("{e}");
-                std::process::exit(2);
-            }
+    let cli = Cli::try_parse_from(std::env::args()).unwrap_or_else(|e| e.exit());
+
+    // `plugin` is filesystem-local (no daemon) — handle before socket/mesh.
+    if matches!(cli.command, Commands::Plugin { .. }) {
+        match cli.command {
+            Commands::Plugin { action } => cmd::plugin::handle_plugin(cli.json, action),
+            _ => unreachable!(),
         }
         return;
     }
-
-    let cli = Cli::try_parse_from(std::env::args()).unwrap_or_else(|e| e.exit());
 
     // --mesh TARGET: proxy entire command to a remote peer via relay
     if let Some(ref mesh_target) = cli.mesh {
@@ -340,6 +334,15 @@ fn main() {
         let json_mode = cli.json;
         match cli.command {
             Commands::System { action } => cmd::system::handle_system(json_mode, action),
+            _ => unreachable!(),
+        }
+        return;
+    }
+
+    // `cli-manifest` introspects the clap tree — no daemon dependency.
+    if matches!(cli.command, Commands::CliManifest { .. }) {
+        match cli.command {
+            Commands::CliManifest { write } => cmd::manifest::handle(write),
             _ => unreachable!(),
         }
         return;
@@ -633,13 +636,17 @@ fn main() {
             return;
         }
 
-        Commands::Docs { name, full, head } => {
-            cmd::docs::handle(name, full, head);
-            return;
-        }
+        // Docs is handled before socket connect (embedded markdown)
+        Commands::Docs { .. } => unreachable!(),
 
         // Config is handled before socket connect (uses HTTP API)
         Commands::Config { .. } => unreachable!(),
+
+        // cli-manifest is handled before socket connect (introspects clap tree)
+        Commands::CliManifest { .. } => unreachable!(),
+
+        // plugin is handled before socket connect (filesystem-local)
+        Commands::Plugin { .. } => unreachable!(),
 
 
         Commands::Mesh { action } => {
@@ -711,163 +718,6 @@ fn main() {
 
     handle_result(cli.json, result);
 }
-
-fn extract_plugin_args() -> Option<(bool, Vec<String>)> {
-    let raw: Vec<String> = std::env::args().collect();
-    raw.first()?;
-    let mut json = false;
-    let mut plugin_idx = None;
-    for (i, arg) in raw.iter().enumerate().skip(1) {
-        if arg == "--json" {
-            json = true;
-            continue;
-        }
-        if arg == "plugin" {
-            plugin_idx = Some(i);
-        }
-        break;
-    }
-    let idx = plugin_idx?;
-    let mut out = Vec::new();
-    for arg in raw.into_iter().skip(idx + 1) {
-        out.push(arg);
-    }
-    Some((json, out))
-}
-
-fn parse_plugin_action(args: Vec<String>) -> Result<(bool, PluginAction), String> {
-    let mut json = false;
-    let mut args: Vec<String> = args
-        .into_iter()
-        .filter(|arg| {
-            if arg == "--json" {
-                json = true;
-                false
-            } else {
-                true
-            }
-        })
-        .collect();
-    if args.is_empty() || args[0] == "--help" || args[0] == "-h" {
-        return Err(plugin_help());
-    }
-    let cmd = args.remove(0);
-    let action = match cmd.as_str() {
-        "list" => PluginAction::List,
-        "install" => {
-            let mut id = None;
-            let mut from_dir = None;
-            let mut id_override = None;
-            let mut channel = None;
-            let mut i = 0;
-            while i < args.len() {
-                match args[i].as_str() {
-                    "--from-dir" => {
-                        i += 1;
-                        from_dir = Some(args.get(i).ok_or("--from-dir requires PATH")?.clone());
-                    }
-                    "--id-override" => {
-                        i += 1;
-                        id_override = Some(args.get(i).ok_or("--id-override requires ID")?.clone());
-                    }
-                    "--channel" => {
-                        i += 1;
-                        channel = Some(args.get(i).ok_or("--channel requires NAME")?.clone());
-                    }
-                    value if value.starts_with('-') => return Err(format!("unknown plugin install flag: {value}")),
-                    value => id = Some(value.to_string()),
-                }
-                i += 1;
-            }
-            PluginAction::Install { id, from_dir, id_override, channel }
-        }
-        "update" => PluginAction::Update { id: args.first().cloned() },
-        "update-system" | "system-update" => PluginAction::UpdateSystem { id: args.first().cloned() },
-        "remove" => {
-            let mut id = None;
-            let mut force = false;
-            for arg in args {
-                if arg == "--force" {
-                    force = true;
-                } else if arg.starts_with('-') {
-                    return Err(format!("unknown plugin remove flag: {arg}"));
-                } else {
-                    id = Some(arg);
-                }
-            }
-            PluginAction::Remove { id: id.ok_or("plugin remove requires ID")?, force }
-        }
-        "channel" => {
-            if args.is_empty() {
-                return Err("plugin channel requires subcommand: add | list | refresh | remove".to_string());
-            }
-            let sub = args.remove(0);
-            let command = match sub.as_str() {
-                "add" => {
-                    let mut url = None;
-                    let mut name = None;
-                    let mut i = 0;
-                    while i < args.len() {
-                        match args[i].as_str() {
-                            "--name" => {
-                                i += 1;
-                                name = Some(args.get(i).ok_or("--name requires NAME")?.clone());
-                            }
-                            value if value.starts_with('-') => return Err(format!("unknown plugin channel add flag: {value}")),
-                            value => url = Some(value.to_string()),
-                        }
-                        i += 1;
-                    }
-                    PluginChannelAction::Add { url: url.ok_or("plugin channel add requires URL_OR_PATH")?, name }
-                }
-                "list" => PluginChannelAction::List,
-                "refresh" => PluginChannelAction::Refresh { name: args.first().cloned() },
-                "diff" => PluginChannelAction::Diff { name: args.first().cloned() },
-                "remove" => {
-                    let mut force = false;
-                    let mut name = None;
-                    for arg in args {
-                        if arg == "--force" {
-                            force = true;
-                        } else if arg.starts_with('-') {
-                            return Err(format!("unknown plugin channel remove flag: {arg}"));
-                        } else if name.is_none() {
-                            name = Some(arg);
-                        } else {
-                            return Err("plugin channel remove accepts one NAME".to_string());
-                        }
-                    }
-                    PluginChannelAction::Remove {
-                        name: name.ok_or("plugin channel remove requires NAME")?,
-                        force,
-                    }
-                }
-                other => return Err(format!("unknown plugin channel command: {other}")),
-            };
-            PluginAction::Channel { command }
-        }
-        other => return Err(format!("unknown plugin command: {other}\n\n{}", plugin_help())),
-    };
-    Ok((json, action))
-}
-
-fn plugin_help() -> String {
-    "Usage:
-  codeterm plugin list [--json]
-  codeterm plugin install [ID] [--from-dir PATH] [--id-override ID] [--channel NAME]
-  codeterm plugin update [ID]
-  codeterm plugin update-system [ID]
-  codeterm plugin remove ID [--force]
-  codeterm plugin channel add URL_OR_PATH [--name NAME]
-  codeterm plugin channel list
-  codeterm plugin channel refresh [NAME]
-  codeterm plugin channel diff [NAME]
-  codeterm plugin channel remove NAME [--force]"
-        .to_string()
-}
-
-
-
 
 #[cfg(test)]
 mod subcommand_contract_tests {
@@ -943,17 +793,18 @@ mod subcommand_contract_tests {
         }
     }
 
+    fn parse_plugin(args: &[&str]) -> PluginAction {
+        let mut argv = vec!["codeterm", "plugin"];
+        argv.extend_from_slice(args);
+        match Cli::try_parse_from(argv).expect("plugin args parse").command {
+            Commands::Plugin { action } => action,
+            _ => panic!("expected plugin command"),
+        }
+    }
+
     #[test]
     fn plugin_subcommands_parse() {
-        let (json, install) = parse_plugin_action(vec![
-            "install".to_string(),
-            "--from-dir".to_string(),
-            "./provider-demo".to_string(),
-            "--id-override".to_string(),
-            "demo".to_string(),
-        ]).expect("plugin install --from-dir parses");
-        assert!(!json);
-        match install {
+        match parse_plugin(&["install", "--from-dir", "./provider-demo", "--id-override", "demo"]) {
             PluginAction::Install { from_dir, id_override, .. } => {
                 assert_eq!(from_dir.as_deref(), Some("./provider-demo"));
                 assert_eq!(id_override.as_deref(), Some("demo"));
@@ -961,30 +812,23 @@ mod subcommand_contract_tests {
             _ => panic!("expected plugin install"),
         }
 
-        let (json, list) = parse_plugin_action(vec![
-            "list".to_string(),
-            "--json".to_string(),
-        ]).expect("plugin list --json parses");
-        assert!(json);
-        assert!(matches!(list, PluginAction::List));
+        // --json is a global flag (lives on Cli, not the action).
+        let cli = Cli::try_parse_from(["codeterm", "plugin", "list", "--json"])
+            .expect("plugin list --json parses");
+        assert!(cli.json);
+        assert!(matches!(cli.command, Commands::Plugin { action: PluginAction::List }));
 
-        let (_, update_system) = parse_plugin_action(vec![
-            "update-system".to_string(),
-            "codex".to_string(),
-        ]).expect("plugin update-system parses");
         assert!(matches!(
-            update_system,
+            parse_plugin(&["update-system", "codex"]),
+            PluginAction::UpdateSystem { id: Some(id) } if id == "codex"
+        ));
+        // Legacy alias must keep working.
+        assert!(matches!(
+            parse_plugin(&["system-update", "codex"]),
             PluginAction::UpdateSystem { id: Some(id) } if id == "codex"
         ));
 
-        let (_, channel) = parse_plugin_action(vec![
-            "channel".to_string(),
-            "add".to_string(),
-            "https://example.invalid/channel.git".to_string(),
-            "--name".to_string(),
-            "example".to_string(),
-        ]).expect("plugin channel add parses");
-        match channel {
+        match parse_plugin(&["channel", "add", "https://example.invalid/channel.git", "--name", "example"]) {
             PluginAction::Channel { command: PluginChannelAction::Add { url, name } } => {
                 assert_eq!(url, "https://example.invalid/channel.git");
                 assert_eq!(name.as_deref(), Some("example"));
@@ -992,25 +836,14 @@ mod subcommand_contract_tests {
             _ => panic!("expected plugin channel add"),
         }
 
-        let (_, diff) = parse_plugin_action(vec![
-            "channel".to_string(),
-            "diff".to_string(),
-            "example".to_string(),
-        ]).expect("plugin channel diff parses");
         assert!(matches!(
-            diff,
+            parse_plugin(&["channel", "diff", "example"]),
             PluginAction::Channel { command: PluginChannelAction::Diff { name: Some(name) } }
                 if name == "example"
         ));
 
-        let (_, remove) = parse_plugin_action(vec![
-            "channel".to_string(),
-            "remove".to_string(),
-            "codeterm-core".to_string(),
-            "--force".to_string(),
-        ]).expect("plugin channel remove --force parses");
         assert!(matches!(
-            remove,
+            parse_plugin(&["channel", "remove", "codeterm-core", "--force"]),
             PluginAction::Channel {
                 command: PluginChannelAction::Remove { name, force: true }
             } if name == "codeterm-core"

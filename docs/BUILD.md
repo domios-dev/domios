@@ -28,6 +28,18 @@ pnpm install
 ./build.sh build        # production build
 ```
 
+### Windows
+
+```powershell
+# Git Bash:
+./build.cmd dev --wait
+
+# If you still use PowerShell, call build.sh through git-bash:
+git-bash -lc "./build.sh dev --wait"
+```
+
+`./build.cmd dev --wait` already runs the dev process through the same script path that clears previous dev instances on port 7686.
+
 ## Dev/Prod Isolation
 
 Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
@@ -90,7 +102,7 @@ No CI — all builds are local, coordinated via CodeTerm mesh between two machin
 
 The release is driven by one machine (lead), the other builds in parallel (support). Both machines are connected via CodeTerm mesh. The lead handles version bump, tagging, draft creation, and publish. The support machine pulls, builds, and uploads its platform installer.
 
-Typical setup: **MacBook Air** (lead, macOS ARM) + **BLACKSTAR** (support, Windows x64). Either machine can lead — just coordinate via mesh `send-text`.
+Typical setup: **MacBook Air** (lead, macOS ARM) + **BLACKSTAR** (support, Windows x64). Either machine can lead — just coordinate via mesh `send`.
 
 ### Steps
 
@@ -106,7 +118,7 @@ Typical setup: **MacBook Air** (lead, macOS ARM) + **BLACKSTAR** (support, Windo
    ```
 4. **Lead: tell support to build** (via mesh):
    ```bash
-   codeterm send-text "git pull && ./build.sh build && gh release upload vX.Y.Z <installer-path> --clobber" --pane general --mesh BLACKSTAR
+   codeterm send "git pull && ./build.sh build && gh release upload vX.Y.Z <installer-path> --clobber" --pane general --mesh BLACKSTAR
    ```
 5. **Both machines build in parallel:**
    - **Lead** runs `./build.sh build` locally → uploads its installer

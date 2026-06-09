@@ -68,6 +68,19 @@ function parseResponsePayload(
     const content = parseContentBlocks(payload.content);
     if (!content.trim()) return;
     if (role === "user") {
+      if (payload.isMeta === true) {
+        messages.push({
+          id: idFor(payload, messages, "system"),
+          type: "system",
+          content: content.trim(),
+          timestamp,
+          provider: "codex",
+          systemSubtype: content.trimStart().startsWith("Base directory for this skill:")
+            ? "skill_context"
+            : "meta",
+        });
+        return;
+      }
       if (isCodexBootstrapInstruction(content)) return;
       pushUserContentWithContext(content, payload, timestamp, messages);
       return;
@@ -102,14 +115,15 @@ function parseResponsePayload(
 
   if (payload.type === "custom_tool_call" || payload.type === "function_call") {
     const name = extractText(payload.name) || "tool";
-    const input = payload.input;
+    const rawInput = parseToolInput(payload.input, payload.arguments);
+    const normalizedToolName = normalizeToolName(name);
     messages.push({
       id: extractText(payload.call_id) || idFor(payload, messages, "tool"),
       type: "tool_call",
-      content: `${name}(${summarizeInput(input)})`,
-      toolName: name,
-      toolArgs: summarizeInput(input),
-      toolInput: isRecord(input) ? input : undefined,
+      content: `${normalizedToolName}(${summarizeInput(rawInput)})`,
+      toolName: normalizedToolName,
+      toolArgs: summarizeInput(rawInput),
+      toolInput: isRecord(rawInput) ? rawInput : undefined,
       toolId: extractText(payload.call_id),
       timestamp,
       provider: "codex",
@@ -217,6 +231,8 @@ function parseContentBlocks(content: unknown): string {
 }
 
 function summarizeInput(input: unknown): string {
+  const command = extractShellCommand(input);
+  if (command) return command.length > 240 ? `${command.slice(0, 240)}...` : command;
   if (typeof input === "string") return input.length > 240 ? `${input.slice(0, 240)}...` : input;
   if (input == null) return "";
   try {
@@ -225,6 +241,45 @@ function summarizeInput(input: unknown): string {
   } catch {
     return String(input);
   }
+}
+
+function parseToolInput(input: unknown, args: unknown): unknown {
+  if (input !== undefined) return input;
+  return parseJsonArguments(args);
+}
+
+function parseJsonArguments(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeToolName(name: string): string {
+  const key = name.trim().toLowerCase();
+  if (["bash", "shell", "shell_command", "powershell", "pwsh", "exec"].includes(key)) return "Bash";
+  if (key.includes("shell") || key.includes("bash")) return "Bash";
+  return name.trim() || "tool";
+}
+
+function extractShellCommand(input: unknown): string | null {
+  if (typeof input === "string") return input.trim() || null;
+  if (!isRecord(input)) return null;
+
+  if (typeof input.command === "string" && input.command.trim()) return input.command.trim();
+
+  const argv = input.argv;
+  if (Array.isArray(argv)) {
+    const joined = argv.map((arg) => (typeof arg === "string" ? arg : "")).filter(Boolean).join(" ");
+    if (joined) return joined;
+  }
+
+  if (typeof input.cmd === "string" && input.cmd.trim()) return input.cmd.trim();
+  return null;
 }
 
 function extractText(value: unknown): string {

@@ -423,6 +423,12 @@ pub struct ProviderDescriptor {
     /// a Stop button on the pane that POSTs to `/api/panes/:id/stop`.
     #[serde(default)]
     pub supports_stop: bool,
+    /// `true` when the provider can render a pane as chat — either it
+    /// stores sessions as tailable JSONL or serves structured chat from
+    /// its own store. The UI gates the chat/terminal toggle on this
+    /// instead of a hardcoded provider list.
+    #[serde(default)]
+    pub supports_chat_ui: bool,
     /// Trust status of the bundle backing this provider. `system` =
     /// shipped by CodeTerm, hash matched the build-time table.
     /// `unverified` = same id as a system plugin but the bundle on
@@ -444,7 +450,7 @@ pub enum ProviderTrust {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 4;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 5;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 pub trait AgentProvider: Send + Sync {
@@ -514,6 +520,67 @@ pub trait AgentProvider: Send + Sync {
         exclude: &[String],
         max_age: Option<Duration>,
     ) -> Option<String>;
+
+    /// Detect a session that belongs to this launch attempt.
+    ///
+    /// `max_age` is interpreted as "younger than now - max_age". Callers pass
+    /// launch age so stale sessions in the same cwd are ignored.
+    /// `injected_session_id` is an optional pre-generated id used by providers
+    /// that support session-id injection.
+    fn detect_launched_session_id(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+    ) -> Option<String>;
+
+    /// Detect that a provider session for this launch is actually active.
+    ///
+    /// `screen_text` can be passed when available to avoid false-positive
+    /// attachment to stale filesystem sessions. For providers with explicit or
+    /// seeded session IDs this is usually `Some(session_id) == session_id`.
+    /// Implementations should return the same sid contract as
+    /// `detect_launched_session_id`.
+    fn detect_started_session(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+        screen_text: Option<&str>,
+    ) -> Option<String>;
+
+    /// Common startup detector used by providers that should only claim a
+    /// filesystem-detected session after seeing provider output markers.
+    fn detect_started_session_with_markers(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+        screen_text: Option<&str>,
+    ) -> Option<String> {
+        let Some(sid) = self.detect_launched_session_id(
+            cwd,
+            exclude,
+            max_age,
+            injected_session_id,
+        ) else {
+            return None;
+        };
+
+        if injected_session_id.is_some() {
+            return Some(sid);
+        }
+
+        match screen_text {
+            Some(text) if text.trim().is_empty() => Some(sid),
+            Some(text) if self.detect_from_output(text) => Some(sid),
+            Some(_) => None,
+            None => Some(sid),
+        }
+    }
 
     /// Whether a session id still has a backing file (JSONL / session store / whatever
     /// the provider keeps). Default implementation is `session_file_path(...).exists()`.
@@ -586,6 +653,28 @@ pub trait AgentProvider: Send + Sync {
             new_offset: _from_offset,
             messages: vec![],
         }
+    }
+
+    /// Provider serves chat as structured messages it parses itself (e.g.
+    /// sqlite) rather than a tailable JSONL file. When true, the host uses
+    /// `read_structured_chat` and a DB poller instead of `session_jsonl_path`
+    /// + the byte-offset tailer.
+    fn uses_structured_chat(&self) -> bool {
+        false
+    }
+
+    /// Read structured chat for `(cwd, session_id)`. `cursor` is an opaque
+    /// bookmark from a prior call (`None` = from the start). Returns
+    /// new-or-updated messages plus the next cursor. Like the JSONL tail,
+    /// returning the still-growing tail message again is fine — the UI merges
+    /// by message id.
+    fn read_structured_chat(
+        &self,
+        _cwd: &str,
+        _session_id: &str,
+        _cursor: Option<&str>,
+    ) -> crate::agent::chat_types::StructuredChat {
+        crate::agent::chat_types::StructuredChat::default()
     }
 
     /// Whether this agent supports hook-based detection (vs PTY parsing fallback).
@@ -876,8 +965,17 @@ pub trait AgentProvider: Send + Sync {
             install_command: self.install_command(platform),
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),
             supports_stop: self.stop_keystroke().is_some(),
+            supports_chat_ui: self.supports_chat_ui(),
             trust: self.trust(),
         }
+    }
+
+    /// Whether a pane running this provider can be shown as chat. Defaults
+    /// to "yes if it serves structured chat"; JSONL providers override to
+    /// `true`. The frontend reads this off the descriptor — no hardcoded
+    /// provider list.
+    fn supports_chat_ui(&self) -> bool {
+        self.uses_structured_chat()
     }
 
     /// Bundle trust status. Default impl returns `Unknown` (native
@@ -1011,6 +1109,7 @@ mod tests {
             install_command: Some("npm i -g testcli".into()),
             model_switch_format: Some("/model {model}".into()),
             supports_stop: true,
+            supports_chat_ui: true,
             trust: ProviderTrust::System,
         };
 
@@ -1072,6 +1171,36 @@ mod tests {
         }
         fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
             None
+        }
+        fn detect_launched_session_id(
+            &self,
+            cwd: &str,
+            exclude: &[String],
+            max_age: Option<Duration>,
+            injected_session_id: Option<&str>,
+        ) -> Option<String> {
+            if let Some(sid) = injected_session_id {
+                if self.session_exists(cwd, sid) {
+                    return Some(sid.to_string());
+                }
+            }
+            self.detect_session_id(cwd, exclude, max_age)
+        }
+        fn detect_started_session(
+            &self,
+            cwd: &str,
+            exclude: &[String],
+            max_age: Option<Duration>,
+            injected_session_id: Option<&str>,
+            screen_text: Option<&str>,
+        ) -> Option<String> {
+            self.detect_started_session_with_markers(
+                cwd,
+                exclude,
+                max_age,
+                injected_session_id,
+                screen_text,
+            )
         }
         fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
             None

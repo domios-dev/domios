@@ -1,0 +1,5060 @@
+{
+  "name": "codeterm",
+  "about": "CodeTerm CLI — control your terminal multiplexer",
+  "aliases": [],
+  "args": [
+    {
+      "name": "json",
+      "positional": false,
+      "value_name": "JSON",
+      "default": null,
+      "help": "Output raw JSON instead of human-readable text",
+      "aliases": []
+    },
+    {
+      "name": "mesh",
+      "positional": false,
+      "value_name": "MESH",
+      "default": null,
+      "help": "Execute command on a remote mesh peer instead of locally",
+      "aliases": []
+    }
+  ],
+  "subcommands": [
+    {
+      "name": "agent",
+      "about": "Agent hierarchy management",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "allow-spawn",
+          "about": "Toggle whether a pane can spawn children",
+          "aliases": [],
+          "args": [
+            {
+              "name": "enable",
+              "positional": false,
+              "value_name": "ENABLE",
+              "default": "true",
+              "help": "Enable or disable spawning",
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID (default: current focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "compact",
+          "about": "Compact agent context (sends /compact to Claude)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "link",
+          "about": "Link a pane as worker under a parent",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID to link (default: current focused pane)",
+              "aliases": []
+            },
+            {
+              "name": "parent",
+              "positional": false,
+              "value_name": "PARENT",
+              "default": null,
+              "help": "Parent pane ID (orchestrator or lead)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List agent panes and the hierarchy (same view as `pane list --agents`)",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "model",
+          "about": "Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead",
+          "aliases": [],
+          "args": [
+            {
+              "name": "name",
+              "positional": true,
+              "value_name": "NAME",
+              "default": null,
+              "help": "Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list",
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "models",
+          "about": "List available models for a specific provider",
+          "aliases": [],
+          "args": [
+            {
+              "name": "provider",
+              "positional": true,
+              "value_name": "PROVIDER",
+              "default": null,
+              "help": "Provider id (e.g. \"claude\"). Required",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "providers",
+          "about": "List available agent providers (claude, codex, ...) with their display names, default models, and capability flags",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "report",
+          "about": "Send a report to your parent in the hierarchy",
+          "aliases": [],
+          "args": [
+            {
+              "name": "message",
+              "positional": true,
+              "value_name": "MESSAGE",
+              "default": null,
+              "help": "Report message (also accepts --message alias)",
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "reports",
+          "about": "Read reports (for orchestrator panes)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "clear",
+              "positional": false,
+              "value_name": "CLEAR",
+              "default": null,
+              "help": "Clear reports after reading",
+              "aliases": []
+            },
+            {
+              "name": "limit",
+              "positional": false,
+              "value_name": "LIMIT",
+              "default": null,
+              "help": "Show only the N most recent reports (default: all)",
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID (default: current focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "restart",
+          "about": "Restart agent (gracefully /exit + auto-resume to pick up settings or recover)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "force",
+              "positional": false,
+              "value_name": "FORCE",
+              "default": null,
+              "help": "Skip the graceful exit and force-kill instead. Use only when the agent is hung",
+              "aliases": []
+            },
+            {
+              "name": "grace_secs",
+              "positional": false,
+              "value_name": "GRACE_SECS",
+              "default": "10",
+              "help": "Wait this long for graceful exit before force-killing (seconds)",
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "set-orchestrator",
+          "about": "Mark a pane as orchestrator (top-level, can spawn leads/workers)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID (default: current focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "spawn",
+          "about": "Spawn a new agent (creates tab in workspace, linked in hierarchy)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "agent",
+              "positional": true,
+              "value_name": "AGENT",
+              "default": "claude",
+              "help": "Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude",
+              "aliases": []
+            },
+            {
+              "name": "args",
+              "positional": false,
+              "value_name": "ARGS",
+              "default": null,
+              "help": "Extra args for the agent",
+              "aliases": []
+            },
+            {
+              "name": "can_spawn",
+              "positional": false,
+              "value_name": "CAN_SPAWN",
+              "default": null,
+              "help": "Allow spawning children",
+              "aliases": []
+            },
+            {
+              "name": "cwd",
+              "positional": false,
+              "value_name": "CWD",
+              "default": null,
+              "help": "Working directory",
+              "aliases": []
+            },
+            {
+              "name": "model",
+              "positional": false,
+              "value_name": "MODEL",
+              "default": null,
+              "help": "Model selector (e.g. \"github-copilot/claude-haiku-4.5\", \"gpt-5\"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available",
+              "aliases": []
+            },
+            {
+              "name": "parent",
+              "positional": false,
+              "value_name": "PARENT",
+              "default": null,
+              "help": "Parent pane ID (for Workers)",
+              "aliases": []
+            },
+            {
+              "name": "role",
+              "positional": false,
+              "value_name": "ROLE",
+              "default": null,
+              "help": "Role: Orchestrator, Worker",
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": "Task to send after agent starts",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": "Tab title",
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": "Target workspace ID (default: parent's workspace or active workspace)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "unlink",
+          "about": "Remove a pane's role (also orphans children)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID (default: current focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "bridge",
+      "about": "Send a message to an external service (Telegram, etc.)",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "migrate",
+          "about": "Migrate active bridge poller from this node to another mesh peer",
+          "aliases": [],
+          "args": [
+            {
+              "name": "announce",
+              "positional": false,
+              "value_name": "ANNOUNCE",
+              "default": null,
+              "help": "Send a one-shot \"now serving from <host>\" message to the sentinel chat",
+              "aliases": []
+            },
+            {
+              "name": "announce_chat_id",
+              "positional": false,
+              "value_name": "ANNOUNCE_CHAT_ID",
+              "default": "186809246",
+              "help": "Sentinel chat id for --announce. Defaults to the maintainer's chat",
+              "aliases": []
+            },
+            {
+              "name": "claim_timeout_ms",
+              "positional": false,
+              "value_name": "CLAIM_TIMEOUT_MS",
+              "default": "10000",
+              "help": "How long target may take to claim the Telegram lock before the migration is considered failed (ms)",
+              "aliases": []
+            },
+            {
+              "name": "force",
+              "positional": false,
+              "value_name": "FORCE",
+              "default": null,
+              "help": "Skip preflight target-state check (for force migrations)",
+              "aliases": []
+            },
+            {
+              "name": "no_rollback",
+              "positional": false,
+              "value_name": "NO_ROLLBACK",
+              "default": null,
+              "help": "Skip auto-rollback if target claim fails (leave source disabled)",
+              "aliases": []
+            },
+            {
+              "name": "service",
+              "positional": false,
+              "value_name": "SERVICE",
+              "default": "telegram",
+              "help": "Service to migrate (currently only \"telegram\")",
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "TO",
+              "default": null,
+              "help": "Target peer instance_name (as shown in `codeterm mesh peers`)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "react",
+          "about": "Set an emoji reaction on a message",
+          "aliases": [],
+          "args": [
+            {
+              "name": "emoji",
+              "positional": true,
+              "value_name": "EMOJI",
+              "default": null,
+              "help": "Emoji to react with (e.g. \"👍\", \"✅\", \"❤\")",
+              "aliases": []
+            },
+            {
+              "name": "message_id",
+              "positional": false,
+              "value_name": "MESSAGE_ID",
+              "default": null,
+              "help": "Message ID to react to",
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "TO",
+              "default": null,
+              "help": "Recipient chat/user ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "restart",
+          "about": "Start or restart messaging bridge (Telegram, etc.)",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "send",
+          "about": "Send a message to Telegram or other service",
+          "aliases": [],
+          "args": [
+            {
+              "name": "append",
+              "positional": false,
+              "value_name": "APPEND",
+              "default": null,
+              "help": "Append to previous message instead of replacing (edits existing message)",
+              "aliases": []
+            },
+            {
+              "name": "buttons",
+              "positional": false,
+              "value_name": "BUTTONS",
+              "default": null,
+              "help": "Inline keyboard buttons as JSON: [[{\"text\":\"Yes\",\"data\":\"yes\"},{\"text\":\"No\",\"data\":\"no\"}]]",
+              "aliases": []
+            },
+            {
+              "name": "caption",
+              "positional": false,
+              "value_name": "CAPTION",
+              "default": null,
+              "help": "Caption for media (alternative to positional text)",
+              "aliases": []
+            },
+            {
+              "name": "file",
+              "positional": false,
+              "value_name": "FILE",
+              "default": null,
+              "help": "File path for media types",
+              "aliases": []
+            },
+            {
+              "name": "filename",
+              "positional": false,
+              "value_name": "FILENAME",
+              "default": null,
+              "help": "Override filename for document uploads",
+              "aliases": []
+            },
+            {
+              "name": "service",
+              "positional": false,
+              "value_name": "SERVICE",
+              "default": "telegram",
+              "help": "Target service",
+              "aliases": []
+            },
+            {
+              "name": "text",
+              "positional": true,
+              "value_name": "TEXT",
+              "default": null,
+              "help": "Message text (also used as caption for media types)",
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "TO",
+              "default": null,
+              "help": "Recipient chat/user ID",
+              "aliases": []
+            },
+            {
+              "name": "type",
+              "positional": false,
+              "value_name": "TYPE",
+              "default": "text",
+              "help": "Content type: text, photo, document, voice, animation, video, sticker",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "capabilities",
+      "about": "List all available API methods",
+      "aliases": [],
+      "args": [],
+      "subcommands": []
+    },
+    {
+      "name": "cli-manifest",
+      "about": "Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)",
+      "aliases": [],
+      "args": [
+        {
+          "name": "write",
+          "positional": false,
+          "value_name": "WRITE",
+          "default": null,
+          "help": "Regenerate committed artifacts (docs/cli-manifest.json + docs/CLI.md)",
+          "aliases": []
+        }
+      ],
+      "subcommands": []
+    },
+    {
+      "name": "config",
+      "about": "Read or write CodeTerm configuration",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "get",
+          "about": "Get a config value (dot-notation, e.g. \"integrations.telegram_enabled\")",
+          "aliases": [],
+          "args": [
+            {
+              "name": "key",
+              "positional": true,
+              "value_name": "KEY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "set",
+          "about": "Set a config value (JSON-compatible: true, false, 42, \"string\")",
+          "aliases": [],
+          "args": [
+            {
+              "name": "key",
+              "positional": true,
+              "value_name": "KEY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "value",
+              "positional": true,
+              "value_name": "VALUE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "cron",
+      "about": "Cron job management",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "cancel",
+          "about": "Stop any currently-running executions of a cron job without deleting the job definition. Future scheduled fires still run",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Cron job ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "complete",
+          "about": "Mark a cron run as complete (called by agent at end of task)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "run_id",
+              "positional": false,
+              "value_name": "RUN_ID",
+              "default": null,
+              "help": "Run ID",
+              "aliases": []
+            },
+            {
+              "name": "summary",
+              "positional": false,
+              "value_name": "SUMMARY",
+              "default": null,
+              "help": "Summary of what happened",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "create",
+          "about": "Create a cron job",
+          "aliases": [],
+          "args": [
+            {
+              "name": "agent",
+              "positional": false,
+              "value_name": "AGENT",
+              "default": "claude",
+              "help": "Agent to spawn (default: claude)",
+              "aliases": []
+            },
+            {
+              "name": "creator_pane",
+              "positional": false,
+              "value_name": "CREATOR_PANE",
+              "default": null,
+              "help": "Pane ID to receive reports from cron agent (default: $CODETERM_PANE_ID)",
+              "aliases": []
+            },
+            {
+              "name": "cwd",
+              "positional": false,
+              "value_name": "CWD",
+              "default": null,
+              "help": "Working directory",
+              "aliases": []
+            },
+            {
+              "name": "description",
+              "positional": false,
+              "value_name": "DESCRIPTION",
+              "default": null,
+              "help": "Description",
+              "aliases": []
+            },
+            {
+              "name": "jitter_max_ms",
+              "positional": false,
+              "value_name": "JITTER_MAX_MS",
+              "default": null,
+              "help": "Max jitter in milliseconds added to each scheduled fire. 0 = off. Omit for default (10% of interval, clamped to [1m, 30m])",
+              "aliases": []
+            },
+            {
+              "name": "model",
+              "positional": false,
+              "value_name": "MODEL",
+              "default": null,
+              "help": "Model within the agent provider (e.g. \"opus\", \"haiku\", \"gpt-5.4-mini\"). Leave unset to use the provider default",
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": true,
+              "value_name": "NAME",
+              "default": null,
+              "help": "Cron job name",
+              "aliases": []
+            },
+            {
+              "name": "once",
+              "positional": false,
+              "value_name": "ONCE",
+              "default": null,
+              "help": "Oneshot: fire once at scheduled time, then auto-delete",
+              "aliases": []
+            },
+            {
+              "name": "schedule",
+              "positional": false,
+              "value_name": "SCHEDULE",
+              "default": null,
+              "help": "Cron schedule (5-field: \"*/30 * * * *\") or oneshot time (\"in 5m\", ISO8601)",
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": "Task prompt for the agent",
+              "aliases": []
+            },
+            {
+              "name": "timeout_secs",
+              "positional": false,
+              "value_name": "TIMEOUT_SECS",
+              "default": null,
+              "help": "Per-cron run timeout (seconds). Overrides global memory.worker_timeout_seconds. Set high (e.g. 1800) for long-running tasks like memory dreaming",
+              "aliases": []
+            },
+            {
+              "name": "tz",
+              "positional": false,
+              "value_name": "TZ",
+              "default": null,
+              "help": "IANA timezone for the schedule (e.g. \"Europe/Riga\"). Default: UTC",
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": "Workspace ID (default: active)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "delete",
+          "about": "Delete a cron job",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Cron job ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "disable",
+          "about": "Disable a cron job",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Cron job ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "edit",
+          "about": "Edit a cron job",
+          "aliases": [],
+          "args": [
+            {
+              "name": "agent",
+              "positional": false,
+              "value_name": "AGENT",
+              "default": null,
+              "help": "Agent provider override (e.g. \"claude\", \"codex\")",
+              "aliases": []
+            },
+            {
+              "name": "cwd",
+              "positional": false,
+              "value_name": "CWD",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "description",
+              "positional": false,
+              "value_name": "DESCRIPTION",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Cron job ID",
+              "aliases": []
+            },
+            {
+              "name": "jitter_max_ms",
+              "positional": false,
+              "value_name": "JITTER_MAX_MS",
+              "default": null,
+              "help": "Max jitter in milliseconds added to each scheduled fire. Set 0 to disable jitter. Omit to leave unchanged",
+              "aliases": []
+            },
+            {
+              "name": "model",
+              "positional": false,
+              "value_name": "MODEL",
+              "default": null,
+              "help": "Model within the agent provider. Pass empty string to clear",
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": false,
+              "value_name": "NAME",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "schedule",
+              "positional": false,
+              "value_name": "SCHEDULE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "timeout_secs",
+              "positional": false,
+              "value_name": "TIMEOUT_SECS",
+              "default": null,
+              "help": "Per-cron run timeout (seconds). 0 clears the override (back to global default)",
+              "aliases": []
+            },
+            {
+              "name": "tz",
+              "positional": false,
+              "value_name": "TZ",
+              "default": null,
+              "help": "IANA timezone (e.g. \"Europe/Riga\"). Pass empty string to clear back to UTC",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "enable",
+          "about": "Enable a cron job",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Cron job ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "history",
+          "about": "Show run history",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Cron job ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List cron jobs",
+          "aliases": [],
+          "args": [
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": "Filter by workspace ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "trigger",
+          "about": "Manually trigger a cron job now",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Cron job ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "debug",
+      "about": "Internal diagnostics — verify crash reporter, etc. Dev-only; hidden from --help because the matching daemon endpoint is gated to debug builds. Calling against a prod daemon returns Method-not-found",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "crash",
+          "about": "Trigger a synthetic crash to verify the crash-reporter writes files. Daemon dies (segv/abort) or just records a panic report (panic). Only available in dev builds",
+          "aliases": [],
+          "args": [
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": "Kind of crash to trigger",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "docs",
+      "about": "Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm panes; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING)",
+      "aliases": [],
+      "args": [
+        {
+          "name": "full",
+          "positional": false,
+          "value_name": "FULL",
+          "default": null,
+          "help": "Print the complete document even inside a CodeTerm pane",
+          "aliases": []
+        },
+        {
+          "name": "head",
+          "positional": false,
+          "value_name": "HEAD",
+          "default": null,
+          "help": "Print at most N lines",
+          "aliases": []
+        },
+        {
+          "name": "name",
+          "positional": true,
+          "value_name": "NAME",
+          "default": null,
+          "help": "Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs",
+          "aliases": []
+        }
+      ],
+      "subcommands": []
+    },
+    {
+      "name": "get-output",
+      "about": "Get terminal output from a pane (default: current pane)",
+      "aliases": [],
+      "args": [
+        {
+          "name": "lines",
+          "positional": false,
+          "value_name": "LINES",
+          "default": "50",
+          "help": "Maximum number of lines to return (approximate)",
+          "aliases": []
+        },
+        {
+          "name": "pane",
+          "positional": false,
+          "value_name": "PANE",
+          "default": null,
+          "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
+          "aliases": []
+        }
+      ],
+      "subcommands": []
+    },
+    {
+      "name": "identify",
+      "about": "Show CodeTerm version and system info",
+      "aliases": [],
+      "args": [],
+      "subcommands": []
+    },
+    {
+      "name": "keepawake",
+      "about": "Prevent the system from sleeping while an agent is running",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "start",
+          "about": "Start keeping the system awake",
+          "aliases": [],
+          "args": [
+            {
+              "name": "display",
+              "positional": false,
+              "value_name": "DISPLAY",
+              "default": null,
+              "help": "Also prevent display sleep",
+              "aliases": []
+            },
+            {
+              "name": "duration_secs",
+              "positional": false,
+              "value_name": "DURATION_SECS",
+              "default": null,
+              "help": "Duration in seconds (omit for indefinite)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show current keep-awake status (default)",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "stop",
+          "about": "Stop the current keep-awake session",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "mem",
+      "about": "Unified memory store — skills, facts, notes, scripts, peers, preferences",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "calibration",
+          "about": "Memory calibration: review or trigger the dreamer's importance/archive sweep",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "log",
+              "about": "Show recent calibration changes (audit log)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "count",
+                  "positional": false,
+                  "value_name": "COUNT",
+                  "default": null,
+                  "help": "Return just the count (no rows)",
+                  "aliases": []
+                },
+                {
+                  "name": "limit",
+                  "positional": false,
+                  "value_name": "LIMIT",
+                  "default": null,
+                  "help": "Max rows (default 50, max 500)",
+                  "aliases": []
+                },
+                {
+                  "name": "since",
+                  "positional": false,
+                  "value_name": "SINCE",
+                  "default": null,
+                  "help": "ISO8601 lower-bound for changed_at (default: epoch)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "sweep",
+              "about": "Manually trigger a calibration sweep (Sunday only unless --force)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "force",
+                  "positional": false,
+                  "value_name": "FORCE",
+                  "default": null,
+                  "help": "Bypass the day-of-week gate. Manual / testing",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "about": "Delete an item by id",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "dream",
+          "about": "Dreamer review/apply: run a daemon-routed dream phase, or apply a reviewed re-cluster plan against the local mem DB",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "apply",
+              "about": "Re-parse a plan file and call `introduce_topic` for each YAML-fenced action block. Malformed individual fences become warnings; the rest still run. After a successful run the file is renamed to `<name>-applied.md` with a summary footer appended. Plans are hand-written or produced by a future Dreamer re-cluster phase",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "db_path",
+                  "positional": false,
+                  "value_name": "DB_PATH",
+                  "default": null,
+                  "help": "Override the path to knowledge.db",
+                  "aliases": []
+                },
+                {
+                  "name": "plan_file",
+                  "positional": true,
+                  "value_name": "PLAN_FILE",
+                  "default": null,
+                  "help": "Path to the plan markdown file",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "diary",
+              "about": "Show the most recent dream diary entries (the structured PATTERN / CONNECTION / IDEA / WHAT IF / HUBS / ONE ACTION reflections the REM agent writes after each dream cycle). Use this to read the Dreamer's fresh observations before acting on them",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "limit",
+                  "positional": false,
+                  "value_name": "LIMIT",
+                  "default": "1",
+                  "help": "How many entries to return (most-recent first)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "run",
+              "about": "Run dreaming consolidation via the daemon. Phases: light, deep, normalize, all (default). Replaces the v1.1.22 `mem dream --phase ...` form which is gone in v1.1.23",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "phase",
+                  "positional": false,
+                  "value_name": "PHASE",
+                  "default": "all",
+                  "help": "Which phase to run: light | deep | normalize | all",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "extract-pending",
+          "about": "Re-run extraction workers for items that haven't been extracted yet. Useful after LLM API failures, quota resets, or bulk imports with skip_extract. Workers fire sequentially with a short delay",
+          "aliases": [],
+          "args": [
+            {
+              "name": "limit",
+              "positional": false,
+              "value_name": "LIMIT",
+              "default": "200",
+              "help": "Maximum number of items to queue (default 200)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "flush",
+          "about": "Flush a pane's PTY scrollback as a kind=conversation mem_item (called by PreCompact hook before context summarization)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane id (default: $CODETERM_PANE_ID)",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": "Optional title hint",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "forget",
+          "about": "Batch-delete every item in an area (use sparingly)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "area",
+              "positional": true,
+              "value_name": "AREA",
+              "default": null,
+              "help": "Area name (e.g. auth, deploy, billing)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "get",
+          "about": "Print one item by id",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Mem item id (e.g. skill_home_assistant)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "graph",
+          "about": "Graph operations",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "alias",
+              "about": "Merge one entity into another (alias → canonical)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "alias",
+                  "positional": false,
+                  "value_name": "ALIAS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "canonical",
+                  "positional": false,
+                  "value_name": "CANONICAL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "augment-entity",
+              "about": "Patch properties on an existing entity (audit-logged)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "actor",
+                  "positional": false,
+                  "value_name": "ACTOR",
+                  "default": "user",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "id",
+                  "positional": false,
+                  "value_name": "ID",
+                  "default": null,
+                  "help": "Entity id (e.g. person_owner)",
+                  "aliases": []
+                },
+                {
+                  "name": "patch",
+                  "positional": false,
+                  "value_name": "PATCH",
+                  "default": null,
+                  "help": "JSON object of properties to merge in (e.g. '{\"city\":\"Riga\"}')",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "create",
+              "about": "Create a graph entity",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "id",
+                  "positional": false,
+                  "value_name": "ID",
+                  "default": null,
+                  "help": "Entity id (e.g. person_kai)",
+                  "aliases": []
+                },
+                {
+                  "name": "props",
+                  "positional": false,
+                  "value_name": "PROPS",
+                  "default": "{}",
+                  "help": "JSON properties",
+                  "aliases": []
+                },
+                {
+                  "name": "scope",
+                  "positional": false,
+                  "value_name": "SCOPE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "type",
+                  "positional": false,
+                  "value_name": "type",
+                  "default": null,
+                  "help": "Entity type (Person, Project, Task, Skill, ...)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "delete-entity",
+              "about": "Delete an entity by id (audited). Refuses if it has active relations unless --force, in which case those relations are cascade-deleted too",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "actor",
+                  "positional": false,
+                  "value_name": "ACTOR",
+                  "default": "user",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "force",
+                  "positional": false,
+                  "value_name": "FORCE",
+                  "default": null,
+                  "help": "Cascade-delete active relations referencing this entity",
+                  "aliases": []
+                },
+                {
+                  "name": "id",
+                  "positional": false,
+                  "value_name": "ID",
+                  "default": null,
+                  "help": "Entity id (e.g. seed_person_anna)",
+                  "aliases": []
+                },
+                {
+                  "name": "purge_history",
+                  "positional": false,
+                  "value_name": "PURGE_HISTORY",
+                  "default": null,
+                  "help": "Also hard-delete invalidated (historical) relations referencing this entity. Default false: history is preserved as ghost rows for `revive-broken` and timeline queries. Set this when you're sure the entity is gone for good",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "delete-relations",
+              "about": "Delete relations by explicit rowids (audited to graph_purge_log)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "actor",
+                  "positional": false,
+                  "value_name": "ACTOR",
+                  "default": "user",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "rowids",
+                  "positional": false,
+                  "value_name": "ROWIDS",
+                  "default": null,
+                  "help": "Comma-separated rowids (e.g. \"42,87,103\")",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "find-duplicate-entities",
+              "about": "Find duplicate entities (exact name match, alias chain, or vector similarity)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "entity_type",
+                  "positional": false,
+                  "value_name": "ENTITY_TYPE",
+                  "default": null,
+                  "help": "Restrict `vector` strategy to entities of this type (Person, Tech, Project, ...)",
+                  "aliases": []
+                },
+                {
+                  "name": "limit",
+                  "positional": false,
+                  "value_name": "LIMIT",
+                  "default": "50",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "strategy",
+                  "positional": false,
+                  "value_name": "STRATEGY",
+                  "default": "exact-name",
+                  "help": "Strategy: exact-name | alias-chain | vector",
+                  "aliases": []
+                },
+                {
+                  "name": "threshold",
+                  "positional": false,
+                  "value_name": "THRESHOLD",
+                  "default": "0.85",
+                  "help": "Cosine similarity threshold for `vector` strategy (0.0-1.0). 0.90+ = strong-merge candidate, 0.85+ = review-worthy",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "find-duplicate-relations",
+              "about": "Find duplicate relations grouped by selected columns. Read-only diagnostic — does not mutate the graph",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "group_by",
+                  "positional": false,
+                  "value_name": "GROUP_BY",
+                  "default": "from_id,relation_type,to_id",
+                  "help": "Comma-separated columns from: from_id,relation_type,to_id,scope,valid_from. Default excludes valid_from because the relations UNIQUE(from,rel,to,valid_from) makes grouping by all four a guaranteed no-op — meaningful dedup is on the triple",
+                  "aliases": []
+                },
+                {
+                  "name": "limit",
+                  "positional": false,
+                  "value_name": "LIMIT",
+                  "default": "50",
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "get",
+              "about": "Inspect a graph entity: properties_json + degree summary. Filling the gap that mem search only hits mem_items, not entities. Use this when you need email/phone/role/whatever a Person/Tech/Project entity carries in its properties — `mem graph related` returns relations only",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "id",
+                  "positional": true,
+                  "value_name": "ID",
+                  "default": null,
+                  "help": "Entity id (e.g. person_owner, tech_codeterm)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "hubs",
+              "about": "List hub nodes — entities with active degree at or above threshold. Each hub returns its degree, the relation_type distribution, and a sample of neighbors with titles. Used by the Dreamer recluster phase to decide which hubs to decompose into topic_* intermediates",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "sample",
+                  "positional": false,
+                  "value_name": "SAMPLE",
+                  "default": "30",
+                  "help": "Per-hub neighbor sample size (default 30)",
+                  "aliases": []
+                },
+                {
+                  "name": "threshold",
+                  "positional": false,
+                  "value_name": "THRESHOLD",
+                  "default": "20",
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "introduce-topic",
+              "about": "Atomically introduce a topic intermediate: insert topic entity (if missing), link sources → topic → anchor, invalidate direct sources → anchor edges",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "anchor",
+                  "positional": false,
+                  "value_name": "ANCHOR",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "db_path",
+                  "positional": false,
+                  "value_name": "DB_PATH",
+                  "default": null,
+                  "help": "Override the path to knowledge.db",
+                  "aliases": []
+                },
+                {
+                  "name": "entity_type",
+                  "positional": false,
+                  "value_name": "ENTITY_TYPE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "value_name": "REASON",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "rel_anchor",
+                  "positional": false,
+                  "value_name": "REL_ANCHOR",
+                  "default": "about",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "rel_source",
+                  "positional": false,
+                  "value_name": "REL_SOURCE",
+                  "default": "about",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "sources",
+                  "positional": false,
+                  "value_name": "SOURCES",
+                  "default": null,
+                  "help": "Comma-separated source ids (s1,s2,s3) OR @path/to/file (one per line; '#'-prefixed and blank lines ignored)",
+                  "aliases": []
+                },
+                {
+                  "name": "topic_id",
+                  "positional": false,
+                  "value_name": "TOPIC_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "invalidate",
+              "about": "Invalidate a relation (set valid_to, preserve history)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "ended",
+                  "positional": false,
+                  "value_name": "ENDED",
+                  "default": null,
+                  "help": "When it ended (ISO 8601, default now)",
+                  "aliases": []
+                },
+                {
+                  "name": "from",
+                  "positional": false,
+                  "value_name": "FROM",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "rel",
+                  "positional": false,
+                  "value_name": "REL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "to",
+                  "positional": false,
+                  "value_name": "TO",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "islands",
+              "about": "List connected components of size <= max-size — disconnected \"islands\" the Dreamer should bridge or delete. Returns component member id/kind/title/area, plus a `suggested_anchor` derived from shared area / kind / title-keywords across members. JSON mode emits JSONL (one component per line, sorted by size asc)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "limit",
+                  "positional": false,
+                  "value_name": "LIMIT",
+                  "default": "50",
+                  "help": "Maximum number of components to emit (caps verbose output)",
+                  "aliases": []
+                },
+                {
+                  "name": "max_size",
+                  "positional": false,
+                  "value_name": "MAX_SIZE",
+                  "default": "6",
+                  "help": "Maximum component size to include (default 6 — pairs through small clusters; bigger groups are real sub-graphs)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "merge-relations",
+              "about": "Merge relations into `keep`, folding properties/confidence",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "actor",
+                  "positional": false,
+                  "value_name": "ACTOR",
+                  "default": "user",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "keep",
+                  "positional": false,
+                  "value_name": "KEEP",
+                  "default": null,
+                  "help": "Rowid of the relation to keep (its properties and rowid survive)",
+                  "aliases": []
+                },
+                {
+                  "name": "merge",
+                  "positional": false,
+                  "value_name": "MERGE",
+                  "default": null,
+                  "help": "Comma-separated rowids to fold into `keep` (these are deleted)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "orphans",
+              "about": "List nodes with degree 0 — true orphans (entities with no relations, mem_items not pointed at by anything). Output: id, kind, title, area, last access. JSON mode emits a flat array",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "limit",
+                  "positional": false,
+                  "value_name": "LIMIT",
+                  "default": "100",
+                  "help": "Cap the number of orphans emitted",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "path",
+              "about": "Shortest path between two entities",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "from",
+                  "positional": false,
+                  "value_name": "FROM",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "include_invalidated",
+                  "positional": false,
+                  "value_name": "INCLUDE_INVALIDATED",
+                  "default": null,
+                  "help": "Include relations whose valid_to is set (default: active-only)",
+                  "aliases": []
+                },
+                {
+                  "name": "max_hops",
+                  "positional": false,
+                  "value_name": "MAX_HOPS",
+                  "default": "4",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "to",
+                  "positional": false,
+                  "value_name": "TO",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "purge-invalidated",
+              "about": "Hard-delete relations whose valid_to is set. Optional filters by cutoff date and reason substring. Audited to graph_purge_log",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "before",
+                  "positional": false,
+                  "value_name": "BEFORE",
+                  "default": null,
+                  "help": "Only purge rows with valid_to before this RFC 3339 timestamp",
+                  "aliases": []
+                },
+                {
+                  "name": "db_path",
+                  "positional": false,
+                  "value_name": "DB_PATH",
+                  "default": null,
+                  "help": "Override the path to knowledge.db",
+                  "aliases": []
+                },
+                {
+                  "name": "dry_run",
+                  "positional": false,
+                  "value_name": "DRY_RUN",
+                  "default": null,
+                  "help": "Print count without modifying any rows or writing audit row",
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "value_name": "REASON",
+                  "default": null,
+                  "help": "Match relations.reason via LIKE %substring%",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "relate",
+              "about": "Create a relation between entities or mem_items",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "confidence",
+                  "positional": false,
+                  "value_name": "CONFIDENCE",
+                  "default": "1.0",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from",
+                  "positional": false,
+                  "value_name": "FROM",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "value_name": "REASON",
+                  "default": null,
+                  "help": "Free-text reason; written to relations.reason for audit",
+                  "aliases": []
+                },
+                {
+                  "name": "rel",
+                  "positional": false,
+                  "value_name": "REL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "scope",
+                  "positional": false,
+                  "value_name": "SCOPE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "to",
+                  "positional": false,
+                  "value_name": "TO",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "valid_from",
+                  "positional": false,
+                  "value_name": "VALID_FROM",
+                  "default": null,
+                  "help": "Validity start (ISO 8601, default now)",
+                  "aliases": []
+                },
+                {
+                  "name": "valid_to",
+                  "positional": false,
+                  "value_name": "VALID_TO",
+                  "default": null,
+                  "help": "Validity end (ISO 8601, optional)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "related",
+              "about": "List outgoing relations from an id",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "as_of",
+                  "positional": false,
+                  "value_name": "AS_OF",
+                  "default": null,
+                  "help": "As-of date (ISO 8601) — filters by valid_from/valid_to",
+                  "aliases": []
+                },
+                {
+                  "name": "id",
+                  "positional": false,
+                  "value_name": "ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "include_invalidated",
+                  "positional": false,
+                  "value_name": "INCLUDE_INVALIDATED",
+                  "default": null,
+                  "help": "Include relations whose valid_to is set (default: active-only)",
+                  "aliases": []
+                },
+                {
+                  "name": "rel",
+                  "positional": false,
+                  "value_name": "REL",
+                  "default": null,
+                  "help": "Filter by relation type",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "repair-orphan-blobs",
+              "about": "Find and (optionally) delete sha256_*.txt blob files in the mem blobs directory that no mem_item references. CAS-aware sweep (refcount = 0)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "actor",
+                  "positional": false,
+                  "value_name": "ACTOR",
+                  "default": "user",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "dry_run",
+                  "positional": false,
+                  "value_name": "DRY_RUN",
+                  "default": null,
+                  "help": "Print orphans without deleting anything",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "repair-orphan-vectors",
+              "about": "Find and (optionally) delete orphan rows in mem_vectors — vectors whose mem_id has no matching mem_items / entities row. One-shot legacy cleanup",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "actor",
+                  "positional": false,
+                  "value_name": "ACTOR",
+                  "default": "user",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "dry_run",
+                  "positional": false,
+                  "value_name": "DRY_RUN",
+                  "default": null,
+                  "help": "Print orphans without deleting anything",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "revive-broken",
+              "about": "Restore valid_to=NULL for relations whose endpoints both still exist in entities or mem_items. Idempotent",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "db_path",
+                  "positional": false,
+                  "value_name": "DB_PATH",
+                  "default": null,
+                  "help": "Override the path to knowledge.db",
+                  "aliases": []
+                },
+                {
+                  "name": "dry_run",
+                  "positional": false,
+                  "value_name": "DRY_RUN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "since",
+                  "positional": false,
+                  "value_name": "SINCE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "route",
+              "about": "Atomically re-route an active direct edge (from → to) through an intermediate (from → via → to). Invalidates the original direct edge",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "db_path",
+                  "positional": false,
+                  "value_name": "DB_PATH",
+                  "default": null,
+                  "help": "Override the path to knowledge.db",
+                  "aliases": []
+                },
+                {
+                  "name": "from",
+                  "positional": false,
+                  "value_name": "FROM",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "value_name": "REASON",
+                  "default": null,
+                  "help": "Free-text reason; written to relations.reason",
+                  "aliases": []
+                },
+                {
+                  "name": "rel_in",
+                  "positional": false,
+                  "value_name": "REL_IN",
+                  "default": null,
+                  "help": "Relation type for the from→via segment (default = original rel)",
+                  "aliases": []
+                },
+                {
+                  "name": "rel_out",
+                  "positional": false,
+                  "value_name": "REL_OUT",
+                  "default": null,
+                  "help": "Relation type for the via→to segment (default = original rel)",
+                  "aliases": []
+                },
+                {
+                  "name": "to",
+                  "positional": false,
+                  "value_name": "TO",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "via",
+                  "positional": false,
+                  "value_name": "VIA",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "timeline",
+              "about": "Full temporal timeline for an entity",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "entity",
+                  "positional": false,
+                  "value_name": "ENTITY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "include_invalidated",
+                  "positional": false,
+                  "value_name": "INCLUDE_INVALIDATED",
+                  "default": null,
+                  "help": "Include relations whose valid_to is set (default: active-only)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "traverse",
+              "about": "BFS traversal from an entity (max_hops cap)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "as_of",
+                  "positional": false,
+                  "value_name": "AS_OF",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from",
+                  "positional": false,
+                  "value_name": "FROM",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "hops",
+                  "positional": false,
+                  "value_name": "HOPS",
+                  "default": "2",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "include_invalidated",
+                  "positional": false,
+                  "value_name": "INCLUDE_INVALIDATED",
+                  "default": null,
+                  "help": "Include relations whose valid_to is set (default: active-only)",
+                  "aliases": []
+                },
+                {
+                  "name": "max_nodes",
+                  "positional": false,
+                  "value_name": "MAX_NODES",
+                  "default": "100",
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "tunnels",
+              "about": "List entities bridging 2+ areas (cross-project connections)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "include_invalidated",
+                  "positional": false,
+                  "value_name": "INCLUDE_INVALIDATED",
+                  "default": null,
+                  "help": "Include relations whose valid_to is set (default: active-only)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "history",
+          "about": "Print the full audit trail for one item (create/update/promote/delete)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Mem item id",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "learn",
+          "about": "Capture a quick learning (insight, error, feature request)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "error",
+              "positional": false,
+              "value_name": "ERROR",
+              "default": null,
+              "help": "Shortcut: --error <text> = --kind error",
+              "aliases": []
+            },
+            {
+              "name": "feature",
+              "positional": false,
+              "value_name": "FEATURE",
+              "default": null,
+              "help": "Shortcut: --feature <text> = --kind feature",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": "\"insight\" (default), \"error\", or \"feature\"",
+              "aliases": []
+            },
+            {
+              "name": "tags",
+              "positional": false,
+              "value_name": "TAGS",
+              "default": null,
+              "help": "Comma-separated tags",
+              "aliases": []
+            },
+            {
+              "name": "text",
+              "positional": true,
+              "value_name": "TEXT",
+              "default": null,
+              "help": "What you learned. If omitted and stdin piped, read stdin",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "learn-list",
+          "about": "List pending learnings (kind=learning items)",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "learn-promote",
+          "about": "Promote a learning to a fact (raises importance)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "pin",
+          "about": "Pin a mem item so it always loads in L1 wake-up",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Mem item id (e.g. fact_my_thing)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "pinned",
+          "about": "List all currently pinned items, ordered by importance/evidence/recency",
+          "aliases": [],
+          "args": [
+            {
+              "name": "limit",
+              "positional": false,
+              "value_name": "LIMIT",
+              "default": null,
+              "help": "Max results (default 100, max 500)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "reembed",
+          "about": "Re-embed mem_items and/or graph entities into mem_vectors. Use this after swapping the embedder model, or to backfill existing entities that pre-date the auto-embed-on-create wiring. Daemon-routed (the daemon owns the embedder process). Idempotent",
+          "aliases": [],
+          "args": [
+            {
+              "name": "scope",
+              "positional": false,
+              "value_name": "SCOPE",
+              "default": "all",
+              "help": "What to re-embed: items (mem_items) | entities (graph) | all",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "run-worker",
+          "about": "Run a single mem maintenance pass in this subprocess. Opens the DB directly (multi-process WAL) and performs one phase of work, then exits. Used by the daemon's supervisor so a panic / OOM in dreaming or librarian cannot take the API down",
+          "aliases": [],
+          "args": [
+            {
+              "name": "db_path",
+              "positional": false,
+              "value_name": "DB_PATH",
+              "default": null,
+              "help": "Override the path to knowledge.db. Defaults to the same data dir the CLI uses elsewhere (`~/.codeterm/mem/knowledge.db` for prod, `~/.codeterm-dev/mem/knowledge.db` for dev)",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": true,
+              "value_name": "KIND",
+              "default": null,
+              "help": "Which phase to run: dreaming-light | dreaming-deep | dreaming-normalize | librarian-once",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "save",
+          "about": "Save a new mem item",
+          "aliases": [],
+          "args": [
+            {
+              "name": "area",
+              "positional": false,
+              "value_name": "AREA",
+              "default": null,
+              "help": "Area tag (auth | deploy | home | ...)",
+              "aliases": []
+            },
+            {
+              "name": "body",
+              "positional": true,
+              "value_name": "BODY",
+              "default": null,
+              "help": "Body content. If omitted and stdin is piped, read stdin",
+              "aliases": []
+            },
+            {
+              "name": "importance",
+              "positional": false,
+              "value_name": "IMPORTANCE",
+              "default": "3.0",
+              "help": "Importance 1-5 (default 3.0). Higher = more likely in L1 wake-up",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": "Item kind: skill | fact | note | conversation | script | peer | preference | daily | learning | rule | summary",
+              "aliases": []
+            },
+            {
+              "name": "pin",
+              "positional": false,
+              "value_name": "PIN",
+              "default": null,
+              "help": "Pin the item for L1 wake-up (always loaded)",
+              "aliases": []
+            },
+            {
+              "name": "replace",
+              "positional": false,
+              "value_name": "REPLACE",
+              "default": null,
+              "help": "Overwrite an existing row with the same id (upsert). Use this to update the bundled identity placeholder or any pinned record",
+              "aliases": []
+            },
+            {
+              "name": "scope",
+              "positional": false,
+              "value_name": "SCOPE",
+              "default": null,
+              "help": "Scope: global (default) or workspace:<id>",
+              "aliases": []
+            },
+            {
+              "name": "skip_extract",
+              "positional": false,
+              "value_name": "SKIP_EXTRACT",
+              "default": null,
+              "help": "Skip auto-extraction worker for this save",
+              "aliases": []
+            },
+            {
+              "name": "source_path",
+              "positional": false,
+              "value_name": "SOURCE_PATH",
+              "default": null,
+              "help": "Path to source file on disk. Enables Librarian auto-sync",
+              "aliases": []
+            },
+            {
+              "name": "summary",
+              "positional": false,
+              "value_name": "SUMMARY",
+              "default": null,
+              "help": "Optional summary (~50-200 chars)",
+              "aliases": []
+            },
+            {
+              "name": "tags",
+              "positional": false,
+              "value_name": "TAGS",
+              "default": null,
+              "help": "Comma-separated tags",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": "Title (will be slugified into id). If omitted, first line of body",
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": "Convenience: scope this item to workspace ID. Maps to scope=\"workspace:<ws>\"",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "search",
+          "about": "Search across mem_items (FTS5 + hybrid scoring)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "area",
+              "positional": false,
+              "value_name": "AREA",
+              "default": null,
+              "help": "Filter by area tag",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": "Filter by kind: skill | fact | note | conversation | script | peer | preference | daily | learning | rule | summary",
+              "aliases": []
+            },
+            {
+              "name": "limit",
+              "positional": false,
+              "value_name": "LIMIT",
+              "default": "5",
+              "help": "Max results (default 5)",
+              "aliases": []
+            },
+            {
+              "name": "query",
+              "positional": true,
+              "value_name": "QUERY",
+              "default": null,
+              "help": "Query text",
+              "aliases": []
+            },
+            {
+              "name": "rerank",
+              "positional": false,
+              "value_name": "RERANK",
+              "default": null,
+              "help": "Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY)",
+              "aliases": []
+            },
+            {
+              "name": "scope",
+              "positional": false,
+              "value_name": "SCOPE",
+              "default": null,
+              "help": "Restrict to global / workspace / workspace:<id>",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "secret",
+          "about": "Pluggable secret store: save / get / search / list / delete. Backend is selected in Settings (default: bitwarden once shipped; `mock` in Phase 1 builds)",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "delete",
+              "about": "Delete by name",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": false,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "yes",
+                  "positional": false,
+                  "value_name": "YES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "get",
+              "about": "Resolve and print a secret. Default = raw value to stdout (no trailing newline). Use --json for {name, value, notes}",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "json",
+                  "positional": false,
+                  "value_name": "JSON",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": false,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List saved secrets (metadata only — never values)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "folder",
+                  "positional": false,
+                  "value_name": "FOLDER",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "limit",
+                  "positional": false,
+                  "value_name": "LIMIT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "org",
+                  "positional": false,
+                  "value_name": "ORG",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "lock",
+              "about": "Lock the active backend (in-process session is dropped)",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "logout",
+              "about": "Sign out — also drops persisted creds (OS keychain entry)",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "save",
+              "about": "Save a secret. Value comes from --value or stdin (preferred — keeps the value out of shell history)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "collection",
+                  "positional": false,
+                  "value_name": "COLLECTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "folder",
+                  "positional": false,
+                  "value_name": "FOLDER",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": false,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "notes",
+                  "positional": false,
+                  "value_name": "NOTES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "org",
+                  "positional": false,
+                  "value_name": "ORG",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "overwrite",
+                  "positional": false,
+                  "value_name": "OVERWRITE",
+                  "default": null,
+                  "help": "Allow replacing an existing secret with the same name",
+                  "aliases": []
+                },
+                {
+                  "name": "value",
+                  "positional": false,
+                  "value_name": "VALUE",
+                  "default": null,
+                  "help": "Plaintext value. Omit and pipe via stdin instead",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "save-master-password",
+              "about": "Save the master password to ~/.codeterm/secrets/bitwarden-master.env (mode 0600). Daemon then auto-unlocks JIT on every operation — no further prompts. Reads value from stdin (preferred — out of shell history) or --password",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "password",
+                  "positional": false,
+                  "value_name": "PASSWORD",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "search",
+              "about": "Free-text search over saved secret metadata",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "query",
+                  "positional": true,
+                  "value_name": "QUERY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "status",
+              "about": "Show backend + auth status",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "sync",
+              "about": "Pull latest from the remote vault. No-op for backends with no remote (Local OS-keychain, Mock). Bitwarden runs `bw sync`",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "unlock",
+              "about": "Unlock the active backend with a master password (read from stdin if --password is omitted, never from argv)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "email",
+                  "positional": false,
+                  "value_name": "EMAIL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "password",
+                  "positional": false,
+                  "value_name": "PASSWORD",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "skill",
+          "about": "Skill management — folder-on-disk skills with mem index. Skills live as ~/.codeterm/skills/<name>/SKILL.md (+ optional support files). `add` registers the folder; Librarian re-vectorizes if SKILL.md changes",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Register an existing skill folder. Reads <folder>/SKILL.md and saves a mem item with source_path linked to it. Re-runs are idempotent. Area can come from --area flag, YAML frontmatter (`area: foo`), or the parent folder name (~/.codeterm/skills/<area>/<skill>/SKILL.md)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "area",
+                  "positional": false,
+                  "value_name": "AREA",
+                  "default": null,
+                  "help": "Override the auto-detected area",
+                  "aliases": []
+                },
+                {
+                  "name": "folder",
+                  "positional": true,
+                  "value_name": "FOLDER",
+                  "default": null,
+                  "help": "Folder containing SKILL.md (e.g. ~/.codeterm/skills/mem-testing)",
+                  "aliases": []
+                },
+                {
+                  "name": "importance",
+                  "positional": false,
+                  "value_name": "IMPORTANCE",
+                  "default": "4",
+                  "help": "Importance 1-5, default 4",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List all registered skills",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "new",
+              "about": "Scaffold a new skill folder under ~/.codeterm/skills/<name>/, write a SKILL.md template (with frontmatter + canonical sections) plus an empty scripts/ subdir, then register it in mem immediately. After this, edit the SKILL.md — Librarian will re-index on change",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "area",
+                  "positional": false,
+                  "value_name": "AREA",
+                  "default": null,
+                  "help": "Optional area tag to put in the frontmatter",
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": true,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": "Skill slug (also folder name). Use kebab-case",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "stats",
+          "about": "Show mem store stats (counts by kind, blob sizes)",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "sync",
+          "about": "Trigger file sync for source-tracked items (Librarian)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "path",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Sync one file by path",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "tail",
+          "about": "Show recent mem writes (newest first). With --follow, poll for new rows",
+          "aliases": [],
+          "args": [
+            {
+              "name": "follow",
+              "positional": false,
+              "value_name": "FOLLOW",
+              "default": null,
+              "help": "Follow mode: poll every 500ms and print new rows as they appear",
+              "aliases": []
+            },
+            {
+              "name": "limit",
+              "positional": false,
+              "value_name": "LIMIT",
+              "default": "20",
+              "help": "Max rows per fetch (default 20)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "taxonomy",
+          "about": "Print {area -> {kind -> count}} for the store (or a single workspace)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": "Restrict to one workspace scope",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "unpin",
+          "about": "Unpin a previously pinned item",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "update",
+          "about": "Partial update of an existing mem item by id. Only the flags you pass are written; everything else stays as-is",
+          "aliases": [],
+          "args": [
+            {
+              "name": "area",
+              "positional": false,
+              "value_name": "AREA",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "body",
+              "positional": false,
+              "value_name": "BODY",
+              "default": null,
+              "help": "New body content (re-indexes embedding)",
+              "aliases": []
+            },
+            {
+              "name": "changed_by",
+              "positional": false,
+              "value_name": "CHANGED_BY",
+              "default": null,
+              "help": "Actor label for audit trail (defaults to \"user\"). Used by automated workflows",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Mem item id",
+              "aliases": []
+            },
+            {
+              "name": "importance",
+              "positional": false,
+              "value_name": "IMPORTANCE",
+              "default": null,
+              "help": "New importance 1-5",
+              "aliases": []
+            },
+            {
+              "name": "summary",
+              "positional": false,
+              "value_name": "SUMMARY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tags",
+              "positional": false,
+              "value_name": "TAGS",
+              "default": null,
+              "help": "Comma-separated tags (REPLACES existing tags)",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "wake-up",
+          "about": "Print L0+L1 wake-up context (GA init injection)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "budget",
+              "positional": false,
+              "value_name": "BUDGET",
+              "default": null,
+              "help": "Total token budget (split L0 + L1)",
+              "aliases": []
+            },
+            {
+              "name": "explain",
+              "positional": false,
+              "value_name": "EXPLAIN",
+              "default": null,
+              "help": "Append a per-item L1 score breakdown for debugging selection",
+              "aliases": []
+            },
+            {
+              "name": "l0_only",
+              "positional": false,
+              "value_name": "L0_ONLY",
+              "default": null,
+              "help": "Identity layer only (~100 tokens)",
+              "aliases": []
+            },
+            {
+              "name": "no_l0",
+              "positional": false,
+              "value_name": "NO_L0",
+              "default": null,
+              "help": "Skip identity layer (return L1 only)",
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": "Current workspace id — boosts pinned-in-workspace items in L1",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "worker",
+          "about": "Graph-worker operations (hidden mem panel agents)",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "get",
+              "about": "Get one worker by id",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "id",
+                  "positional": true,
+                  "value_name": "ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "kill",
+              "about": "Kill a worker by id",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "id",
+                  "positional": true,
+                  "value_name": "ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List all graph workers",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "progress",
+              "about": "Report progress (called by worker itself; uses $CODETERM_WORKER_ID)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "status",
+                  "positional": false,
+                  "value_name": "STATUS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text",
+                  "positional": true,
+                  "value_name": "TEXT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "report",
+              "about": "Submit final report and mark done (uses $CODETERM_WORKER_ID)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "summary",
+                  "positional": true,
+                  "value_name": "SUMMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "spawn",
+              "about": "Spawn a new graph worker",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "agent",
+                  "positional": false,
+                  "value_name": "AGENT",
+                  "default": "claude",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "intent",
+                  "positional": false,
+                  "value_name": "INTENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "parent",
+                  "positional": false,
+                  "value_name": "PARENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task",
+                  "positional": false,
+                  "value_name": "TASK",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mesh",
+      "about": "Mesh networking — peer discovery, pairing, relay",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "announce",
+          "about": "Push our current address list to paired peers without re-detecting locally. Use --to to limit to one peer",
+          "aliases": [],
+          "args": [
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "TO",
+              "default": null,
+              "help": "Optional target peer (instance_id or name). Omit for all peers",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "approve",
+          "about": "Accept an incoming pairing request",
+          "aliases": [],
+          "args": [
+            {
+              "name": "request_id",
+              "positional": true,
+              "value_name": "REQUEST_ID",
+              "default": null,
+              "help": "Request ID of the pending pairing request",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "broadcast",
+          "about": "Start broadcasting for the configured duration",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "connect",
+          "about": "Initiate pairing with a discovered peer",
+          "aliases": [],
+          "args": [
+            {
+              "name": "instance_id",
+              "positional": true,
+              "value_name": "INSTANCE_ID",
+              "default": null,
+              "help": "Instance ID or name of the discovered peer",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "disconnect",
+          "about": "Disconnect (unpair) from a paired peer",
+          "aliases": [],
+          "args": [
+            {
+              "name": "instance_id",
+              "positional": true,
+              "value_name": "INSTANCE_ID",
+              "default": null,
+              "help": "Instance ID of the paired peer",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "discover",
+          "about": "Trigger mesh discovery scan (list discovered peers)",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "exec",
+          "about": "Execute a command on a remote mesh peer",
+          "aliases": [],
+          "args": [
+            {
+              "name": "command",
+              "positional": true,
+              "value_name": "COMMAND",
+              "default": null,
+              "help": "Command to execute",
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": "general",
+              "help": "Target pane on remote instance (default: general)",
+              "aliases": []
+            },
+            {
+              "name": "target",
+              "positional": true,
+              "value_name": "TARGET",
+              "default": null,
+              "help": "Target peer name or instance ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "offline",
+          "about": "Go offline: stop pinging peers, stop announcing, stop refreshing local addresses (which keeps Tailscale alive). The daemon stays up; peers will time out our presence on their side. Local-only command",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "online",
+          "about": "Come back online — resume mesh activity. Local-only",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "output",
+          "about": "Get output from a pane on a remote mesh peer",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": "general",
+              "help": "Target pane on remote instance (default: general)",
+              "aliases": []
+            },
+            {
+              "name": "target",
+              "positional": true,
+              "value_name": "TARGET",
+              "default": null,
+              "help": "Target peer name or instance ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "panes",
+          "about": "List panes on a remote mesh peer",
+          "aliases": [],
+          "args": [
+            {
+              "name": "target",
+              "positional": true,
+              "value_name": "TARGET",
+              "default": null,
+              "help": "Target peer name or instance ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "peer",
+          "about": "Per-peer address management",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "set-addr",
+              "about": "Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: codeterm mesh peer set-addr BLACKSTAR 100.64.10.1 codeterm mesh peer set-addr BLACKSTAR 192.168.1.42:7685",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "addr",
+                  "positional": true,
+                  "value_name": "ADDR",
+                  "default": null,
+                  "help": "New address as ip[:port]",
+                  "aliases": []
+                },
+                {
+                  "name": "peer",
+                  "positional": true,
+                  "value_name": "PEER",
+                  "default": null,
+                  "help": "Target peer (instance_id or name)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "peers",
+          "about": "List all peers (paired + discovered)",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "refresh",
+          "about": "Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting CodeTerm",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "reject",
+          "about": "Reject and block an incoming pairing request",
+          "aliases": [],
+          "args": [
+            {
+              "name": "request_id",
+              "positional": true,
+              "value_name": "REQUEST_ID",
+              "default": null,
+              "help": "Request ID of the pending pairing request",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "send",
+          "about": "Send text to a pane on a remote mesh peer",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": "general",
+              "help": "Target pane on remote instance (default: general)",
+              "aliases": []
+            },
+            {
+              "name": "target",
+              "positional": true,
+              "value_name": "TARGET",
+              "default": null,
+              "help": "Target peer name or instance ID",
+              "aliases": []
+            },
+            {
+              "name": "text",
+              "positional": true,
+              "value_name": "TEXT",
+              "default": null,
+              "help": "Text to send",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show mesh status (identity, discovery, peers)",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "stop-broadcast",
+          "about": "Stop broadcasting immediately",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "notifications",
+      "about": "List or manage notifications",
+      "aliases": [],
+      "args": [
+        {
+          "name": "unread",
+          "positional": false,
+          "value_name": "UNREAD",
+          "default": null,
+          "help": "Show only unread notifications",
+          "aliases": []
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "clear",
+          "about": "Clear all notifications",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "notify",
+      "about": "Send a notification",
+      "aliases": [],
+      "args": [
+        {
+          "name": "body",
+          "positional": false,
+          "value_name": "BODY",
+          "default": null,
+          "help": "Notification body",
+          "aliases": []
+        },
+        {
+          "name": "level",
+          "positional": false,
+          "value_name": "LEVEL",
+          "default": "info",
+          "help": "Notification level: info, warning, error",
+          "aliases": []
+        },
+        {
+          "name": "title",
+          "positional": true,
+          "value_name": "TITLE",
+          "default": null,
+          "help": "Notification title",
+          "aliases": []
+        }
+      ],
+      "subcommands": []
+    },
+    {
+      "name": "pane",
+      "about": "Pane management",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "chat",
+          "about": "Read a pane's parsed chat transcript (text/thinking/tool calls/results)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "aliases": []
+            },
+            {
+              "name": "since",
+              "positional": false,
+              "value_name": "SINCE",
+              "default": "0",
+              "help": "Only return messages from this index onward",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "close",
+          "about": "Close a pane by ID",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Pane ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "current",
+          "about": "Print the current (focused) pane ID — no JSON parsing needed",
+          "aliases": [],
+          "args": [
+            {
+              "name": "last",
+              "positional": false,
+              "value_name": "LAST",
+              "default": null,
+              "help": "Return the last pane instead of the focused one",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "exec",
+          "about": "Execute a command in a pane and return output",
+          "aliases": [],
+          "args": [
+            {
+              "name": "command",
+              "positional": true,
+              "value_name": "COMMAND",
+              "default": null,
+              "help": "Command to execute",
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID (default: current focused pane)",
+              "aliases": []
+            },
+            {
+              "name": "timeout",
+              "positional": false,
+              "value_name": "TIMEOUT",
+              "default": "10000",
+              "help": "Timeout in milliseconds",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "focus",
+          "about": "Focus a pane by ID",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Pane ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "get-text",
+          "about": "Get visible terminal text of a pane (what the user sees)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "formatted",
+              "positional": false,
+              "value_name": "FORMATTED",
+              "default": null,
+              "help": "Include raw ANSI escape codes (colors, cursor state) instead of plain text",
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID (default: current focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List all panes as a workspace-grouped tree. `--agents` filters to agent panes only (replaces the old `agent list`)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "agents",
+              "positional": false,
+              "value_name": "AGENTS",
+              "default": null,
+              "help": "Show only panes running an agent (have an agent_type)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "new",
+          "about": "Plain shell pane. For an AI pane use `codeterm agent spawn` instead",
+          "aliases": [],
+          "args": [
+            {
+              "name": "cmd",
+              "positional": false,
+              "value_name": "CMD",
+              "default": null,
+              "help": "Command to run on pane start (e.g. `\"poetry run backend\"`). Sent into the PTY after the shell is ready",
+              "aliases": []
+            },
+            {
+              "name": "cwd",
+              "positional": false,
+              "value_name": "CWD",
+              "default": null,
+              "help": "Working directory for the new pane",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": "Tab title",
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": "Target workspace id (default: current focused)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "rename",
+          "about": "Rename a pane tab (default: current pane)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID to rename (default: current focused pane)",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": true,
+              "value_name": "TITLE",
+              "default": null,
+              "help": "New title",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "search",
+          "about": "Fuzzy search panes by id-prefix, tab title, friendly session name, pane title, agent type, or current model. Cross-script — \"Далтон\" matches \"Dalton\". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pattern",
+              "positional": true,
+              "value_name": "PATTERN",
+              "default": null,
+              "help": "Substring or short pattern to match",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show agent status for a pane (type, session, prompt)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID (default: current focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "stop",
+          "about": "Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode, Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID (default: current focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "paste",
+      "about": "Cross-mesh ephemeral pastebin — stash payloads with short ids (#98)",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "get",
+          "about": "Print a paste body to stdout. Does NOT delete unless --pop or the paste was created with --pop",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Paste id (e.g. \"paste:a3f9k2\")",
+              "aliases": []
+            },
+            {
+              "name": "pop",
+              "positional": false,
+              "value_name": "POP",
+              "default": null,
+              "help": "Delete after fetching (one-shot read)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List local (or --mesh <peer>) pastes — id, size, ttl_remaining",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "pop",
+          "about": "Get + delete in one call. Sugar for `paste get <id> --pop`",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Paste id",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "put",
+          "about": "Stash a payload. Body from positional / --from-file / stdin",
+          "aliases": [],
+          "args": [
+            {
+              "name": "body",
+              "positional": true,
+              "value_name": "BODY",
+              "default": "",
+              "help": "Body (positional). Omit and use --from-file or --from-stdin",
+              "aliases": []
+            },
+            {
+              "name": "content_type",
+              "positional": false,
+              "value_name": "CONTENT_TYPE",
+              "default": null,
+              "help": "MIME hint (default text/plain)",
+              "aliases": []
+            },
+            {
+              "name": "from_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read body from a file instead",
+              "aliases": []
+            },
+            {
+              "name": "from_stdin",
+              "positional": false,
+              "value_name": "FROM_STDIN",
+              "default": null,
+              "help": "Read body from stdin",
+              "aliases": []
+            },
+            {
+              "name": "pop",
+              "positional": false,
+              "value_name": "POP",
+              "default": null,
+              "help": "One-shot — paste self-deletes after first fetch",
+              "aliases": []
+            },
+            {
+              "name": "ttl",
+              "positional": false,
+              "value_name": "TTL",
+              "default": null,
+              "help": "TTL — e.g. \"30m\", \"1h\", \"24h\". Default 1h. Max 24h",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "rm",
+          "about": "Explicit delete",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Paste id",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "plugin",
+      "about": "Plugin management — install, update, remove, manage channels",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "channel",
+          "about": "Manage plugin channels",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Add a local path or git URL channel",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": false,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "url",
+                  "positional": true,
+                  "value_name": "URL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "diff",
+              "about": "Compare installed plugins against a channel without installing",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": true,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List registered channels",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "refresh",
+              "about": "Refresh one channel, or all channels when name is omitted",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": true,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "remove",
+              "about": "Remove a channel cache and registry entry",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "force",
+                  "positional": false,
+                  "value_name": "FORCE",
+                  "default": null,
+                  "help": "Allow removing the protected system channel registration",
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": true,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "install",
+          "about": "Install a plugin by id from channels, or directly from a local folder",
+          "aliases": [],
+          "args": [
+            {
+              "name": "channel",
+              "positional": false,
+              "value_name": "CHANNEL",
+              "default": null,
+              "help": "Disambiguate channel installs when more than one channel offers the id",
+              "aliases": []
+            },
+            {
+              "name": "from_dir",
+              "positional": false,
+              "value_name": "FROM_DIR",
+              "default": null,
+              "help": "Install from a local plugin directory",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Plugin id to install from registered channels",
+              "aliases": []
+            },
+            {
+              "name": "id_override",
+              "positional": false,
+              "value_name": "ID_OVERRIDE",
+              "default": null,
+              "help": "Override the install id. Defaults to plugin.json#id or folder name",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List installed plugins",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "remove",
+          "about": "Remove an installed plugin",
+          "aliases": [],
+          "args": [
+            {
+              "name": "force",
+              "positional": false,
+              "value_name": "FORCE",
+              "default": null,
+              "help": "Allow removing a verified/system plugin folder",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "update",
+          "about": "Update one installed plugin, or all plugins when id is omitted",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "update-system",
+          "about": "Update bundled system provider plugins from the official plugin channel",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "send",
+      "about": "Send text to a pane (default: current pane)",
+      "aliases": [
+        "send-text"
+      ],
+      "args": [
+        {
+          "name": "from_file",
+          "positional": false,
+          "value_name": "PATH",
+          "default": null,
+          "help": "Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting",
+          "aliases": []
+        },
+        {
+          "name": "from_stdin",
+          "positional": false,
+          "value_name": "FROM_STDIN",
+          "default": null,
+          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --from-stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
+          "aliases": []
+        },
+        {
+          "name": "pane",
+          "positional": false,
+          "value_name": "PANE",
+          "default": null,
+          "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
+          "aliases": []
+        },
+        {
+          "name": "text",
+          "positional": true,
+          "value_name": "TEXT",
+          "default": "",
+          "help": "Text to send (positional, or omit and use --from-file/--from-stdin)",
+          "aliases": []
+        }
+      ],
+      "subcommands": []
+    },
+    {
+      "name": "service",
+      "about": "Manage daemon services (long-running processes monitored by codeterm)",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "add",
+          "about": "Register a new daemon-kind service",
+          "aliases": [],
+          "args": [
+            {
+              "name": "description",
+              "positional": false,
+              "value_name": "DESCRIPTION",
+              "default": null,
+              "help": "Description",
+              "aliases": []
+            },
+            {
+              "name": "health_degraded_values",
+              "positional": false,
+              "value_name": "HEALTH_DEGRADED_VALUES",
+              "default": null,
+              "help": "Comma-separated values that map to degraded (default: degraded,STARTING)",
+              "aliases": []
+            },
+            {
+              "name": "health_interval",
+              "positional": false,
+              "value_name": "HEALTH_INTERVAL",
+              "default": "30",
+              "help": "Probe interval in seconds (default: 30)",
+              "aliases": []
+            },
+            {
+              "name": "health_json_field",
+              "positional": false,
+              "value_name": "HEALTH_JSON_FIELD",
+              "default": null,
+              "help": "JSON field to read for status (default: \"status\")",
+              "aliases": []
+            },
+            {
+              "name": "health_mode",
+              "positional": false,
+              "value_name": "HEALTH_MODE",
+              "default": "http",
+              "help": "Health check mode: http | tcp | process | script",
+              "aliases": []
+            },
+            {
+              "name": "health_ok_values",
+              "positional": false,
+              "value_name": "HEALTH_OK_VALUES",
+              "default": null,
+              "help": "Comma-separated values that map to healthy (default: ok,healthy,UP)",
+              "aliases": []
+            },
+            {
+              "name": "health_path",
+              "positional": false,
+              "value_name": "HEALTH_PATH",
+              "default": null,
+              "help": "HTTP health path (default: /healthz)",
+              "aliases": []
+            },
+            {
+              "name": "host",
+              "positional": false,
+              "value_name": "HOST",
+              "default": null,
+              "help": "Host (for health_mode=tcp)",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": "daemon",
+              "help": "Service kind (default: daemon — for cron use `codeterm cron create`)",
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": true,
+              "value_name": "NAME",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "port",
+              "positional": false,
+              "value_name": "PORT",
+              "default": null,
+              "help": "Port (for health_mode=tcp)",
+              "aliases": []
+            },
+            {
+              "name": "process_label",
+              "positional": false,
+              "value_name": "PROCESS_LABEL",
+              "default": null,
+              "help": "Process label (for health_mode=process — launchd label or systemd unit)",
+              "aliases": []
+            },
+            {
+              "name": "push",
+              "positional": false,
+              "value_name": "PUSH",
+              "default": "false",
+              "help": "Enable push API (daemon can write to panes via Bearer token)",
+              "aliases": []
+            },
+            {
+              "name": "script_path",
+              "positional": false,
+              "value_name": "SCRIPT_PATH",
+              "default": null,
+              "help": "Script path (for health_mode=script — exit 0 = healthy)",
+              "aliases": []
+            },
+            {
+              "name": "url",
+              "positional": false,
+              "value_name": "URL",
+              "default": null,
+              "help": "HTTP URL (for health_mode=http)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "delete",
+          "about": "Delete a service (also deletes its push token + activity)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Service ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "edit",
+          "about": "Edit a service",
+          "aliases": [],
+          "args": [
+            {
+              "name": "enabled",
+              "positional": false,
+              "value_name": "ENABLED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "health_degraded_values",
+              "positional": false,
+              "value_name": "HEALTH_DEGRADED_VALUES",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "health_json_field",
+              "positional": false,
+              "value_name": "HEALTH_JSON_FIELD",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "health_ok_values",
+              "positional": false,
+              "value_name": "HEALTH_OK_VALUES",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "health_path",
+              "positional": false,
+              "value_name": "HEALTH_PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Service ID",
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": false,
+              "value_name": "NAME",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "url",
+              "positional": false,
+              "value_name": "URL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List all registered services (cron + daemon)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "enabled",
+              "positional": false,
+              "value_name": "ENABLED",
+              "default": null,
+              "help": "Filter by enabled state",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": "Filter by kind: cron | daemon",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Show service detail (status, config, recent activity)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Service ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "token",
+          "about": "Show or rotate the push token for a service",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Service ID",
+              "aliases": []
+            },
+            {
+              "name": "rotate",
+              "positional": false,
+              "value_name": "ROTATE",
+              "default": null,
+              "help": "Rotate (generate new token, invalidate old)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "sessions",
+      "about": "Past agent sessions — search conversations across all providers",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "get",
+          "about": "Print metadata for a past session (provider, cwd, file path, times). Read-only probe — use before `sessions resume` to verify the session is still on disk",
+          "aliases": [],
+          "args": [
+            {
+              "name": "session_id",
+              "positional": true,
+              "value_name": "SESSION_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "resume",
+          "about": "Resume a past session in its original cwd. Atomic replacement for the \"workspace create → agent spawn --args=--resume=UUID\" dance which keeps failing because Claude/Codex look for the JSONL in the current cwd. This command: finds the session across providers, creates a workspace at the right project path, spawns an agent pane there, and hands the resume id to the provider correctly",
+          "aliases": [],
+          "args": [
+            {
+              "name": "model",
+              "positional": false,
+              "value_name": "MODEL",
+              "default": null,
+              "help": "Model override; translated to the provider's flag",
+              "aliases": []
+            },
+            {
+              "name": "session_id",
+              "positional": true,
+              "value_name": "SESSION_ID",
+              "default": null,
+              "help": "Session id to resume (UUID)",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": "Tab title for the new pane. Defaults to \"resumed <shortid>\"",
+              "aliases": []
+            },
+            {
+              "name": "workspace_id",
+              "positional": false,
+              "value_name": "WORKSPACE_ID",
+              "default": null,
+              "help": "Reuse an existing workspace instead of creating a new one",
+              "aliases": []
+            },
+            {
+              "name": "workspace_name",
+              "positional": false,
+              "value_name": "WORKSPACE_NAME",
+              "default": null,
+              "help": "Custom name for the new workspace (default: basename of cwd)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "search",
+          "about": "Search past sessions by content across all registered providers. Results are tagged with `provider` so an agent can resume with the right launcher",
+          "aliases": [],
+          "args": [
+            {
+              "name": "limit",
+              "positional": false,
+              "value_name": "LIMIT",
+              "default": "10",
+              "help": "Max sessions returned",
+              "aliases": []
+            },
+            {
+              "name": "max_snippets",
+              "positional": false,
+              "value_name": "MAX_SNIPPETS",
+              "default": "3",
+              "help": "Max snippets shown per session",
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": "Restrict to sessions tagged with this project path. Handy when you only want hits from the current repo",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "value_name": "PROVIDER",
+              "default": null,
+              "help": "Filter by provider id (e.g. \"claude\"). Omit or pass \"all\" to search every registered provider",
+              "aliases": []
+            },
+            {
+              "name": "query",
+              "positional": true,
+              "value_name": "QUERY",
+              "default": null,
+              "help": "Query string. Terms are whitespace-split; every term must appear (case-insensitive) in at least one matching message",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "system",
+      "about": "OS-level integration: autostart, supervision, install hooks. Each subcommand is local-only and writes to platform-specific places (schtasks on Windows, LaunchAgents on macOS, user systemd on Linux)",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "autostart-status",
+          "about": "Print whether the autostart trigger is installed and where",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "disable-autostart",
+          "about": "Remove the OS-level autostart trigger created by `enable-autostart`. Idempotent — running on a host without a trigger is a no-op",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "enable-autostart",
+          "about": "Install an OS-level trigger that auto-launches CodeTerm at user login and re-launches it if the process disappears. Per platform: Windows = `schtasks` task with ONLOGON + 5-minute repeat, macOS = `~/Library/LaunchAgents/com.codeterm.app.plist` with `KeepAlive` + `RunAtLoad`, Linux = user systemd unit `~/.config/systemd/user/codeterm.service` with `Restart=on-failure`. Idempotent — running twice is a no-op",
+          "aliases": [],
+          "args": [
+            {
+              "name": "binary",
+              "positional": false,
+              "value_name": "BINARY",
+              "default": null,
+              "help": "Override the path to the CodeTerm executable. Defaults to the installed app binary for the current platform",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "theme",
+      "about": "Theme management",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "apply",
+          "about": "Apply a theme by name",
+          "aliases": [],
+          "args": [
+            {
+              "name": "name",
+              "positional": true,
+              "value_name": "NAME",
+              "default": null,
+              "help": "Theme name (builtin or custom)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "delete",
+          "about": "Delete a custom theme",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Theme ID to delete",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "dir",
+          "about": "Show the custom themes directory path",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List available themes",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "save",
+          "about": "Save a custom theme from a TOML file",
+          "aliases": [],
+          "args": [
+            {
+              "name": "apply",
+              "positional": false,
+              "value_name": "APPLY",
+              "default": null,
+              "help": "Apply the theme immediately after saving",
+              "aliases": []
+            },
+            {
+              "name": "file",
+              "positional": true,
+              "value_name": "FILE",
+              "default": null,
+              "help": "Path to theme TOML file",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Theme ID (filename without .toml)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "update",
+      "about": "Check for updates and manage CodeTerm version",
+      "aliases": [],
+      "args": [
+        {
+          "name": "after_update",
+          "positional": false,
+          "value_name": "TEXT",
+          "default": null,
+          "help": "Message to inject into the General Agent pane after the new daemon boots. Useful for remote-triggered updates (\"run the update and then verify health\") — GA reads it as user input post-restart",
+          "aliases": []
+        },
+        {
+          "name": "apply",
+          "positional": false,
+          "value_name": "APPLY",
+          "default": null,
+          "help": "Shortcut for `update install --auto`",
+          "aliases": []
+        },
+        {
+          "name": "channel",
+          "positional": false,
+          "value_name": "CHANNEL",
+          "default": null,
+          "help": "Shortcut for `update channel [name]`. Pass without value to print current channel",
+          "aliases": []
+        },
+        {
+          "name": "check",
+          "positional": false,
+          "value_name": "CHECK",
+          "default": null,
+          "help": "Shortcut for `update check`",
+          "aliases": []
+        },
+        {
+          "name": "manifest_url",
+          "positional": false,
+          "value_name": "MANIFEST_URL",
+          "default": null,
+          "help": "Override manifest URL when paired with --apply (or `install --auto`). Backend must be built with `dev-updater-allowlocal` for non-https URLs",
+          "aliases": []
+        }
+      ],
+      "subcommands": [
+        {
+          "name": "channel",
+          "about": "Get or set the update channel (stable, rc, nightly)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "channel",
+              "positional": true,
+              "value_name": "CHANNEL",
+              "default": null,
+              "help": "New channel value. Omit to print current channel",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "check",
+          "about": "Check for available updates",
+          "aliases": [],
+          "args": [
+            {
+              "name": "force",
+              "positional": false,
+              "value_name": "FORCE",
+              "default": null,
+              "help": "Force re-check (ignore cache)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "install",
+          "about": "Install update (--auto for automatic download + install + restart)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "after_update",
+              "positional": false,
+              "value_name": "TEXT",
+              "default": null,
+              "help": "Message to inject into the General Agent pane after the new daemon boots. Lets the GA continue work post-update — e.g. \"verify the new build and report version via Telegram\"",
+              "aliases": []
+            },
+            {
+              "name": "auto",
+              "positional": false,
+              "value_name": "AUTO",
+              "default": null,
+              "help": "Use Tauri built-in updater: download, install, and restart automatically",
+              "aliases": []
+            },
+            {
+              "name": "continue_pane",
+              "positional": false,
+              "value_name": "ID",
+              "default": null,
+              "help": "Pane to deliver `--continue-prompt` to. Defaults to `$CODETERM_PANE_ID`",
+              "aliases": []
+            },
+            {
+              "name": "continue_prompt",
+              "positional": false,
+              "value_name": "TEXT",
+              "default": null,
+              "help": "Optional prompt to send to the calling pane once the new daemon is up — lets a session continue work post-restart",
+              "aliases": []
+            },
+            {
+              "name": "from_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Install from a local NSIS installer (Windows). Kills the running daemon, runs the installer silently, then relaunches codeterm. Bypasses network — useful for local-build testing",
+              "aliases": []
+            },
+            {
+              "name": "manifest_url",
+              "positional": false,
+              "value_name": "MANIFEST_URL",
+              "default": null,
+              "help": "Override manifest URL (dev/test escape hatch). Requires the backend to be built with the `dev-updater-allowlocal` feature for non-https schemes; release builds reject it",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "usage",
+      "about": "Agent usage tracking — current %, projection for end-of-today / end-of-cycle based on your historical rhythm scaled to today's pace",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "latest",
+          "about": "Latest usage snapshot (session + weekly %, reset times)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "account_id",
+              "positional": false,
+              "value_name": "ACCOUNT_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "value_name": "PROVIDER",
+              "default": "claude",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "projection",
+          "about": "End-of-today and end-of-cycle projection based on your historical rhythm scaled by today's observed pace. Plan-independent (the rhythm is normalized; today's % anchors the absolute scale)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "account_id",
+              "positional": false,
+              "value_name": "ACCOUNT_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "value_name": "PROVIDER",
+              "default": "claude",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "refresh",
+          "about": "Trigger a fresh probe (runs the agent hidden, parses /status)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "account_id",
+              "positional": false,
+              "value_name": "ACCOUNT_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "value_name": "PROVIDER",
+              "default": "claude",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "web",
+      "about": "Web mirror helpers (share links, etc.)",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "link",
+          "about": "Print a ready-to-open /web URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "host",
+              "positional": false,
+              "value_name": "HOST",
+              "default": null,
+              "help": "Host override (default: Tailscale IP > LAN IP > 127.0.0.1)",
+              "aliases": []
+            },
+            {
+              "name": "port",
+              "positional": false,
+              "value_name": "PORT",
+              "default": null,
+              "help": "Port override (default: this daemon's API port)",
+              "aliases": []
+            },
+            {
+              "name": "query",
+              "positional": false,
+              "value_name": "QUERY",
+              "default": null,
+              "help": "Emit ?token= instead of #token= — easier to type, but query strings reach server/proxy logs; the fragment never does",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "workspace",
+      "about": "Workspace management",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "close",
+          "about": "Close/delete a workspace",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Workspace ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "create",
+          "about": "Create a new workspace",
+          "aliases": [],
+          "args": [
+            {
+              "name": "cwd",
+              "positional": false,
+              "value_name": "CWD",
+              "default": null,
+              "help": "Working directory — agents spawned with --workspace inherit this as their CWD",
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": true,
+              "value_name": "NAME",
+              "default": null,
+              "help": "Workspace name",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "current",
+          "about": "Print the current (focused) workspace ID",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "focus",
+          "about": "Focus a workspace by ID",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Workspace ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List all workspaces",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "move-tab",
+          "about": "Move a tab to another workspace",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from",
+              "positional": true,
+              "value_name": "FROM",
+              "default": null,
+              "help": "Source workspace ID",
+              "aliases": []
+            },
+            {
+              "name": "tab_id",
+              "positional": true,
+              "value_name": "TAB_ID",
+              "default": null,
+              "help": "Tab ID to move",
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": true,
+              "value_name": "TO",
+              "default": null,
+              "help": "Destination workspace ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "rename",
+          "about": "Rename a workspace",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Workspace ID",
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": true,
+              "value_name": "NAME",
+              "default": null,
+              "help": "New name",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    }
+  ]
+}

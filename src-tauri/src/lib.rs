@@ -15,6 +15,7 @@ mod liveness;
 pub mod logs;
 pub mod mem;
 pub mod mesh;
+pub mod message_markers;
 pub mod multiplexer;
 mod notification;
 pub mod pasteboard;
@@ -198,6 +199,7 @@ pub fn run() {
             commands::chat_stop,
             commands::chat_backfill,
             commands::chat_send_text,
+            commands::transcribe_voice_attachment,
             commands::check_cli_installed,
             commands::install_provider_in_pane,
             commands::plugin_manager_snapshot,
@@ -416,7 +418,7 @@ pub fn run() {
                     .filter(|s| !s.is_empty())
                     .collect();
                 let keep_all_native = keep_native.contains("all");
-                for p in providers {
+                for mut p in providers {
                     let id = p.id().to_string();
                     let version = p.manifest().version.clone();
                     let trust = p.trust();
@@ -431,6 +433,10 @@ pub fn run() {
                             plugin::audit::append_daemon_reloaded(&id, &version);
                         }
                     } else {
+                        // JS takes authority; register_provider preserves the
+                        // displaced native impl as a capability fallback the JS
+                        // provider delegates to for methods it doesn't export.
+                        p.set_registry(agent_registry.clone());
                         log::info!(
                             "[js-plugin] {id} registered as authoritative \
                             (set CODETERM_NATIVE_PROVIDERS={id} to rollback)"

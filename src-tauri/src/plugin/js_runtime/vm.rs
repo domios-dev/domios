@@ -334,6 +334,26 @@ pub fn call_json<R: serde::de::DeserializeOwned>(
         .map_err(|e| VmError::InvalidJson(method.to_string(), e.to_string()))
 }
 
+/// Whether the plugin exports `method` as a function. Lets the host tell
+/// "plugin doesn't implement this capability" (→ delegate to a native
+/// fallback) apart from "plugin implements it and returned null/empty".
+pub fn has_method(vm: &PluginVm, method: &str) -> bool {
+    let inner = vm.inner.lock();
+    inner
+        ._ctx
+        .with(|ctx| -> Result<String, VmError> {
+            let expr = format!(
+                "(typeof globalThis.__plugin__ === 'object' && globalThis.__plugin__ !== null \
+                 && typeof globalThis.__plugin__[{method:?}] === 'function') ? '1' : '0'"
+            );
+            ctx.eval(expr)
+                .catch(&ctx)
+                .map_err(|e| VmError::Script(format!("{e:?}")))
+        })
+        .map(|s| s == "1")
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

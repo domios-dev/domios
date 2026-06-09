@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { KeyRound, LogIn, FlaskConical, Settings2, Clock } from "lucide-react";
+import { KeyRound, LogIn, FlaskConical, Settings2, Clock, RefreshCw } from "lucide-react";
 import type { AppConfig, SecretsConfig } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { setPendingCommand } from "../../lib/pendingCommands";
@@ -386,9 +386,10 @@ export function SecretsTab({
             <button
               onClick={refreshStatus}
               disabled={statusBusy}
-              className={`${statusBtnClass} disabled:opacity-50`}
+              className={`${statusBtnClass} gap-1 disabled:opacity-50`}
             >
-              refresh
+              <RefreshCw size={11} className={statusBusy ? "animate-spin" : ""} />
+              Refresh
             </button>
           </div>
         }
@@ -721,9 +722,10 @@ export function SecretsTab({
             headerRight={
               <button
                 onClick={refreshItems}
-                className={statusBtnClass}
+                className={`${statusBtnClass} gap-1`}
               >
-                refresh
+                <RefreshCw size={11} />
+                Refresh
               </button>
             }
           >

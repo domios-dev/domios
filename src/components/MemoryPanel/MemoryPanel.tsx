@@ -129,9 +129,12 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
   }, [onClose, activeTab, inspectView]);
 
   return (
-    <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
+    <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
       {/* Header with tabs */}
-      <div className={`${UI_PANEL.toolbar} gap-0 px-4 py-0 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] ct-hscroll whitespace-nowrap`}>
+      <div
+        className={`${UI_PANEL.toolbar} gap-0 px-4 py-0 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] ct-hscroll whitespace-nowrap`}
+        style={touchUi ? { height: "auto", minHeight: "3.25rem" } : undefined}
+      >
         <div className="flex items-center gap-3 mr-4 shrink-0">
           <strong>Memory</strong>
           <span className="text-[11px] opacity-70 max-sm:hidden">
@@ -151,7 +154,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           )}
         </div>
 
-        <div className="flex items-center gap-0 border-l border-[var(--ct-border)] pl-2">
+        <div className="flex items-center gap-1 border-l border-[var(--ct-border)] pl-3">
           {TABS.map((tab) => (
             <button
               key={tab}
