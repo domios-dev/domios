@@ -161,6 +161,27 @@ console.log("\n--- parseJsonlSession ---\n");
   eq(msgs[1].content, "follow-up question", "7e. mixed user: user text content");
 }
 
+// 7f. Claude skill context is metadata, not a user-authored chat message
+{
+  const input = JSON.stringify({
+    type: "user",
+    uuid: "u_skill",
+    isMeta: true,
+    sourceToolUseID: "toolu_skill",
+    message: {
+      role: "user",
+      content: [{
+        type: "text",
+        text: "Base directory for this skill: C:\\Users\\User\\.claude\\skills\\codeterm\n\n# CodeTerm\n\nSkill body",
+      }],
+    },
+  });
+  const msgs = parseJsonlSession(input);
+  eq(msgs.length, 1, "7f. skill context: one message");
+  eq(msgs[0].type, "system", "7f. skill context: type is system");
+  eq(msgs[0].systemSubtype, "skill_context", "7f. skill context: subtype");
+}
+
 // 8. Thinking block -- verify truncation at 200 chars
 {
   const longThinking = "T".repeat(300);

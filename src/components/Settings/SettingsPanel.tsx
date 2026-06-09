@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "../../lib/bridge";
 import type { AppConfig } from "../../lib/types";
-import { CloseXIcon } from "../Icons";
 import {
   Sliders,
   Bot,
@@ -34,7 +33,7 @@ import { IntegrationsTab } from "./IntegrationsTab";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
 import { PluginsTab } from "./PluginsTab";
-import { UI_BUTTON, UI_PANEL } from "../shared/design";
+import { UI_PANEL } from "../shared/design";
 
 interface SettingsPanelProps {
   config: AppConfig;
@@ -174,7 +173,7 @@ export function SettingsPanel({
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-[var(--ct-sidebar-bg)]">
-      <div className="absolute inset-0 flex flex-col">
+      <div className="absolute inset-0 flex flex-col pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
         {/* Subtle dot grid background */}
         <div
           className="absolute inset-0 pointer-events-none"
@@ -184,17 +183,17 @@ export function SettingsPanel({
             opacity: 0.3,
           }}
         />
-        {/* Header */}
-        <div className={`${UI_PANEL.toolbar} z-10`}>
-          <div className="flex items-center gap-2 min-w-0">
+        {/* Header — iOS style: back (chevron + parent label) left, title centered. */}
+        <div className={`${UI_PANEL.toolbar} z-10 relative`}>
+          <div className="flex min-w-0 flex-1 items-center">
             {top.kind !== "root" && (
               <button
                 onClick={pop}
-                className={`${UI_BUTTON.ghost} h-8 px-2`}
+                className="-ml-1 flex items-center gap-0.5 pr-2 text-[var(--ct-accent)] transition-opacity active:opacity-60"
                 title="Back"
               >
-                <ChevronLeft size={14} className="shrink-0" />
-                <span>
+                <ChevronLeft size={19} strokeWidth={2.4} className="shrink-0" />
+                <span className="truncate text-sm">
                   {stack.length >= 2 && stack[stack.length - 2].kind === "root"
                     ? "Settings"
                     : stack.length >= 2 && stack[stack.length - 2].kind === "section"
@@ -203,14 +202,12 @@ export function SettingsPanel({
                 </span>
               </button>
             )}
-            <h2 className="text-sm font-medium text-[var(--ct-fg)] truncate">{headerTitle}</h2>
           </div>
-          <button
-            onClick={onClose}
-            className={`${UI_BUTTON.ghost} w-8 h-8`}
-          >
-            <CloseXIcon />
-          </button>
+          <h2 className="pointer-events-none absolute left-1/2 max-w-[55%] -translate-x-1/2 truncate text-center text-sm font-semibold text-[var(--ct-fg)]">
+            {headerTitle}
+          </h2>
+          {/* Balances the back button so the centered title stays optically centered. */}
+          <div className="w-8 shrink-0" />
         </div>
 
         {/* Body */}
@@ -468,6 +465,7 @@ export function SettingsPanel({
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}
                   onOpenProvider={(providerId) => push({ kind: "agent-provider", providerId })}
+                  onOpenPlugins={() => push({ kind: "section", id: "plugins" })}
                   onUpdateFullConfig={(next) => {
                     setLocalConfig(next);
                     onUpdateConfig(next).catch(() => {});

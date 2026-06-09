@@ -20,6 +20,8 @@ interface InstalledPlugin {
   verified?: boolean;
   state?: string;
   source?: PluginSource | null;
+  system?: boolean;
+  removable?: boolean;
 }
 
 interface ChannelRecord {
@@ -27,6 +29,8 @@ interface ChannelRecord {
   url: string;
   path: string;
   kind: "local" | "git";
+  system?: boolean;
+  removable?: boolean;
 }
 
 interface DiffRow {
@@ -35,6 +39,8 @@ interface DiffRow {
   local_version?: string | null;
   remote_version?: string | null;
   drift: string;
+  compatible?: boolean;
+  blocked_reason?: string | null;
 }
 
 interface AuditEvent {
@@ -149,6 +155,9 @@ export function PluginsTab() {
               {snapshot.plugins.map((p) => {
                 const diff = diffByPlugin.get(p.id);
                 const version = p.version ?? "unknown";
+                const updatable = diff?.drift === "update_available";
+                const blocked = updatable && diff?.compatible === false;
+                const canRemove = p.removable !== false;
                 return (
                   <tr
                     key={p.id}
@@ -159,7 +168,9 @@ export function PluginsTab() {
                     data-source-channel={p.source?.kind === "channel" || p.source?.kind === "system_channel" ? p.source.channel : ""}
                     data-verified={p.verified ? "true" : "false"}
                     data-state={p.state ?? "unknown"}
-                    data-update-available={diff?.drift === "update_available" ? "true" : "false"}
+                    data-update-available={updatable ? "true" : "false"}
+                    data-system={p.system ? "true" : "false"}
+                    data-removable={canRemove ? "true" : "false"}
                     className="border-b border-[var(--ct-border)]/70"
                   >
                     <td className="py-2 pr-3">
@@ -180,28 +191,42 @@ export function PluginsTab() {
                     </td>
                     <td className="py-2 pr-3">
                       <div className="flex flex-wrap items-center gap-1.5">
+                        {p.system && <SettingsPill tone="accent">system</SettingsPill>}
                         <SettingsPill tone={p.verified ? "green" : "amber"}>{p.verified ? "verified" : "unverified"}</SettingsPill>
-                        {p.state && p.state !== "installed" && <SettingsPill tone="red">{p.state}</SettingsPill>}
+                        {p.state && p.state !== "installed" && p.state !== "bundled" && <SettingsPill tone="red">{p.state}</SettingsPill>}
                       </div>
                     </td>
                     <td className="py-2">
-                      <div className="flex justify-end gap-1">
-                        <IconButton
-                          title="Update"
-                          testId={`plugin-update-${p.id}`}
-                          disabled={busyKey !== null}
-                          busy={busyKey === `update-${p.id}`}
-                          onClick={() => void run(`update-${p.id}`, { kind: "update", pluginId: p.id })}
-                          icon={<Upload size={14} />}
-                        />
-                        <IconButton
-                          title="Remove"
-                          testId={`plugin-remove-${p.id}`}
-                          disabled={busyKey !== null}
-                          busy={busyKey === `remove-${p.id}`}
-                          onClick={() => void run(`remove-${p.id}`, { kind: "remove", pluginId: p.id, force: false })}
-                          icon={<Trash2 size={14} />}
-                        />
+                      <div className="flex justify-end items-center gap-1">
+                        {blocked ? (
+                          <BlockedPill reason={diff?.blocked_reason} />
+                        ) : (
+                          <IconButton
+                            title="Update"
+                            testId={`plugin-update-${p.id}`}
+                            disabled={busyKey !== null}
+                            busy={busyKey === `update-${p.id}`}
+                            onClick={() =>
+                              void run(
+                                `update-${p.id}`,
+                                p.system
+                                  ? { kind: "update-system", pluginId: p.id }
+                                  : { kind: "update", pluginId: p.id },
+                              )
+                            }
+                            icon={<Upload size={14} />}
+                          />
+                        )}
+                        {canRemove && (
+                          <IconButton
+                            title="Remove"
+                            testId={`plugin-remove-${p.id}`}
+                            disabled={busyKey !== null}
+                            busy={busyKey === `remove-${p.id}`}
+                            onClick={() => void run(`remove-${p.id}`, { kind: "remove", pluginId: p.id, force: false })}
+                            icon={<Trash2 size={14} />}
+                          />
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -253,10 +278,14 @@ export function PluginsTab() {
               data-testid="plugin-channel"
               data-channel-name={ch.name}
               data-channel-kind={ch.kind}
+              data-system={ch.system ? "true" : "false"}
               className="flex items-center justify-between gap-3 py-2"
             >
               <div className="min-w-0">
-                <div className="text-xs font-medium text-[var(--ct-fg)]">{ch.name}</div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-[var(--ct-fg)]">{ch.name}</span>
+                  {ch.system && <SettingsPill tone="accent">system</SettingsPill>}
+                </div>
                 <div className="text-[10px] text-[var(--ct-muted)] truncate">{ch.url}</div>
               </div>
               <div className="flex gap-1 shrink-0">
@@ -286,6 +315,7 @@ export function PluginsTab() {
               data-local-version={row.local_version ?? ""}
               data-remote-version={row.remote_version ?? ""}
               data-drift={row.drift}
+              data-compatible={row.compatible === false ? "false" : "true"}
               className="flex items-center justify-between gap-3 py-2"
             >
               <div className="min-w-0">
@@ -300,7 +330,9 @@ export function PluginsTab() {
                 </div>
               </div>
               <div className="shrink-0">
-                {row.drift === "not_installed" ? (
+                {row.compatible === false && row.drift !== "up_to_date" ? (
+                  <BlockedPill reason={row.blocked_reason} />
+                ) : row.drift === "not_installed" ? (
                   <IconButton
                     title="Install"
                     testId={`plugin-install-${row.id}`}
@@ -374,6 +406,14 @@ function formatTime(value: string | undefined): string {
   if (!value) return "";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function BlockedPill({ reason }: { reason?: string | null }) {
+  return (
+    <span title={reason ?? undefined} data-testid="plugin-update-blocked">
+      <SettingsPill tone="red">incompatible</SettingsPill>
+    </span>
+  );
 }
 
 function IconButton({

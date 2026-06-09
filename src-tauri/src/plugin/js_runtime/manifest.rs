@@ -27,6 +27,9 @@ pub struct PluginManifest {
     pub display_name: String,
     #[serde(default)]
     pub engine: Option<String>,
+    /// Minimum CodeTerm version required; gated by the plugin CLI on install/update.
+    #[serde(default)]
+    pub min_codeterm: Option<String>,
 
     // Identity / UI
     #[serde(default)]

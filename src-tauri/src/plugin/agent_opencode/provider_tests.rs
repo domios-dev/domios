@@ -369,3 +369,77 @@ fn opencode_detect_from_title_does_not_claim_codex_title() {
     assert!(!p.detect_from_title("codex"));
     assert!(!p.detect_from_title("Codex - my project"));
 }
+
+fn fixture_db() -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("opencode.db");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);
+         CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, data TEXT);",
+    )
+    .unwrap();
+    let msg = |id: &str, role: &str| {
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, data) VALUES (?1, 'ses_x', 1, ?2)",
+            rusqlite::params![id, format!("{{\"role\":\"{role}\"}}")],
+        )
+        .unwrap();
+    };
+    let part = |id: &str, mid: &str, ts: i64, data: &str| {
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, data) VALUES (?1, ?2, 'ses_x', ?3, ?4)",
+            rusqlite::params![id, mid, ts, data],
+        )
+        .unwrap();
+    };
+    msg("m1", "user");
+    msg("m2", "assistant");
+    part("prt_1", "m1", 100, r#"{"type":"text","text":"hello"}"#);
+    part("prt_2", "m2", 200, r#"{"type":"reasoning","text":"let me think"}"#);
+    part("prt_3", "m2", 210, r#"{"type":"tool","tool":"edit","state":{"status":"completed","input":{"filePath":"/x","oldString":"a","newString":"b"},"output":"ok"}}"#);
+    part("prt_4", "m2", 220, r#"{"type":"step-finish"}"#);
+    part("prt_5", "m2", 230, r#"{"type":"text","text":"done"}"#);
+    (dir, path)
+}
+
+#[test]
+fn opencode_uses_structured_chat() {
+    assert!(OpenCodeProvider::new().uses_structured_chat());
+}
+
+#[test]
+fn structured_chat_maps_parts_and_skips_noise() {
+    let (_d, path) = fixture_db();
+    let out = OpenCodeProvider::query_structured_chat(&path, "ses_x", 0);
+    // text(user), reasoning, tool, text(assistant) — step-finish skipped.
+    let kinds: Vec<&str> = out.messages.iter().map(|m| m.kind.as_str()).collect();
+    assert_eq!(kinds, vec!["user", "thinking", "tool_call", "assistant"]);
+    assert_eq!(out.messages[0].content, "hello");
+    assert_eq!(out.messages[0].id, "prt_1");
+    assert_eq!(out.messages[2].tool_name.as_deref(), Some("edit"));
+    // Tool input/output flow through so the chat can render a diff.
+    assert_eq!(
+        out.messages[2].tool_input.as_ref().and_then(|v| v.get("oldString")).and_then(|v| v.as_str()),
+        Some("a")
+    );
+    assert_eq!(out.messages[2].tool_result.as_deref(), Some("ok"));
+    assert_eq!(out.cursor.as_deref(), Some("230"));
+}
+
+#[test]
+fn structured_chat_cursor_reads_inclusive_tail_only() {
+    let (_d, path) = fixture_db();
+    // Resume from the last tool part's ts: re-reads >= 210 (tool, text), not earlier.
+    let out = OpenCodeProvider::query_structured_chat(&path, "ses_x", 210);
+    let ids: Vec<&str> = out.messages.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, vec!["prt_3", "prt_5"]);
+    assert_eq!(out.cursor.as_deref(), Some("230"));
+}
+
+#[test]
+fn structured_chat_empty_when_session_unknown() {
+    let (_d, path) = fixture_db();
+    let out = OpenCodeProvider::query_structured_chat(&path, "ses_missing", 0);
+    assert!(out.messages.is_empty());
+}

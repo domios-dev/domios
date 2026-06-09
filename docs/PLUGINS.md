@@ -38,7 +38,7 @@ tier         = "native"            # required: "native" | "process" | "wasm"
 entrypoint   = "python3 main.py"   # optional — used by the (not-yet-implemented) process host
 wasm_module  = "plugin.wasm"       # optional — used by the (not-yet-implemented) WASM host
 platforms    = ["windows", "macos", "linux"]  # optional, omit = universal
-min_codeterm = "0.10.0"            # optional, currently not enforced
+min_codeterm = "0.10.0"            # optional; native tier not enforced (channel plugins are — see below)
 
 [capabilities]
 commands        = ["my-plugin"]    # CLI subcommands (declared only; no CLI host yet)
@@ -228,3 +228,59 @@ exist in the code today**. Do not build plugins that depend on them:
 
 For the full target design, see
 [`plans/plugin-architecture.md`](plans/plugin-architecture.md).
+
+## System plugins, the core marketplace, and compatibility
+
+Provider plugins (`claude`, `codex`, `opencode`) ship two ways at once and are
+treated as **intrinsic**: they always appear in the Plugins UI and are
+non-removable, in both dev and prod, with no network access needed just to list
+them.
+
+- **Bundled with the app.** `build.rs` mirrors `plugins/provider-*/` into the
+  binary; on daemon startup `embedded::bootstrap_into` extracts them to
+  `~/.codeterm/plugins/<id>/`. The extract is **upgrade-aware**: a CodeTerm app
+  upgrade re-writes a provider only when the bundled `version` is strictly newer
+  than what is installed, so it never downgrades a channel update that is already
+  ahead. (Skipped under `CODETERM_DEV=1` — dev keeps workspace sources
+  authoritative and relies on the virtual rows below.)
+- **The core marketplace.** The `codeterm-core` channel
+  (`DEFAULT_SYSTEM_CHANNEL_URL`, overridable via
+  `CODETERM_SYSTEM_PLUGIN_CHANNEL_URL`) lets providers update **without
+  reinstalling CodeTerm**: `codeterm plugin update <id>` / `update-system`
+  git-pulls the channel subtree and replaces the bundle in place.
+- **Virtual rows.** `plugin list` always emits the three provider ids
+  (`system: true`, `removable: false`); when one is not on disk it is shown as a
+  `state: "bundled"` virtual row. `plugin channel list` always emits
+  `codeterm-core` (`system: true`, `removable: false`) without a fetch. The CLI
+  `--force` flag remains the only way to remove a system entry; the UI never
+  offers it.
+
+### Compatibility gate (`minCodeterm`)
+
+Each provider `plugin.json` and each `channel.json` entry may declare
+`"minCodeterm": "<semver>"`. On install/update the CLI compares it against the
+running app version (passed in as `CODETERM_VERSION`) and **refuses** an
+incompatible version with a clear reason instead of installing it. `channel
+diff` rows carry `compatible` + `blocked_reason`, so the UI renders an
+"incompatible — needs CodeTerm ≥ X" badge in place of the Install/Update button.
+If `CODETERM_VERSION` is absent (raw CLI with no daemon) the gate fails open.
+
+## Chat ingestion: JSONL vs structured (DB-backed) providers
+
+The chat tail pipeline supports two session-source shapes:
+
+- **JSONL** (claude, codex): the provider returns `session_jsonl_path()`; Rust
+  tails the file by byte offset and emits raw text on `pane-chat-raw-{pane}`;
+  the **browser** parses it (`parseJsonlSession`).
+- **Structured** (opencode, sqlite): the provider sets
+  `uses_structured_chat() = true` and implements `read_structured_chat(cwd,
+  session_id, cursor)`, returning already-parsed `ChatMsg`s (frontend
+  `ChatMessage` shape) plus an opaque cursor. Rust runs a per-pane DB poller
+  (same start/stop lifecycle as the file tailer, read-only, session-scoped)
+  that emits deltas on `pane-chat-msg-{pane}`; the browser renders them
+  directly and merges by message id. The cursor is inclusive so the
+  still-streaming tail message is re-read in place rather than duplicated.
+
+Any DB-backed provider pluginizes its chat by implementing those two trait
+methods in Rust (a JS plugin can't open the store) — no change to the JSONL
+path.

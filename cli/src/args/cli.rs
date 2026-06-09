@@ -1,3 +1,10 @@
+//! SOURCE OF TRUTH for the CodeTerm CLI surface.
+//! On any change here run `codeterm cli-manifest --write` to regenerate
+//! docs/cli-manifest.json + docs/CLI.md. The tests `cli_manifest_is_fresh`,
+//! `docs_cli_md_is_fresh`, and `prompt_cli_commands_exist` (cli/src/cmd/manifest.rs)
+//! plus the chat-ui `recognize.test.ts` fail CI if anything drifts.
+//! See docs/contributing/cli.md.
+
 use clap::{Parser, Subcommand};
 
 use crate::mesh_cli::MeshAction;
@@ -11,6 +18,7 @@ use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction,
     PasteAction, ThemeAction, WorkspaceAction,
 };
+use super::plugin::PluginAction;
 use super::sessions::SessionsAction;
 use super::system::SystemAction;
 use super::update::UpdateAction;
@@ -44,6 +52,19 @@ pub enum Commands {
     /// List all available API methods
     Capabilities,
 
+    /// Plugin management — install, update, remove, manage channels
+    Plugin {
+        #[command(subcommand)]
+        action: PluginAction,
+    },
+
+    /// Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
+    CliManifest {
+        /// Regenerate committed artifacts (docs/cli-manifest.json + docs/CLI.md)
+        #[arg(long)]
+        write: bool,
+    },
+
     /// Workspace management
     Workspace {
         #[command(subcommand)]
@@ -68,6 +89,7 @@ pub enum Commands {
     },
 
     /// Send text to a pane (default: current pane)
+    #[command(name = "send", visible_alias = "send-text")]
     SendText {
         /// Text to send (positional, or omit and use --from-file/--from-stdin)
         #[arg(default_value = "")]
@@ -84,11 +106,11 @@ pub enum Commands {
 
         /// Read text from stdin. Pair with a single-quoted heredoc to bypass
         /// the shell entirely:
-        ///   codeterm send-text --pane X --from-stdin <<'EOF'
+        ///   codeterm send --pane X --from-stdin <<'EOF'
         ///   any `backticks`, $vars, etc — zero interpolation
         ///   EOF
         ///
-        /// send-text is fire-and-forget: the call returns as soon as bytes
+        /// send is fire-and-forget: the call returns as soon as bytes
         /// have been written to the PTY. For "wait for the agent to process
         /// my message", a future `codeterm agent send` primitive will hook
         /// into the provider's request/response cycle.

@@ -38,7 +38,7 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
       textareaRef.current.style.height = "auto";
     }
     try {
-      await invoke("write_pty_string", { ptyId, data: text + "\r" });
+      await invoke("write_pty_string", { ptyId, data: text + "\r", raw: false });
     } catch { /* PTY might be dead */ }
   }, [input, ptyId]);
 
@@ -76,7 +76,7 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
             try {
               const ext = item.type.split("/")[1] || "bin";
               const path = await invoke<string>("save_temp_file", { data: base64, extension: ext, name: blob.name });
-              await invoke("write_pty_string", { ptyId, data: path + "\r" });
+              await invoke("write_pty_string", { ptyId, data: path + "\r", raw: false });
             } catch { /* skip */ }
           }
         };
@@ -90,7 +90,7 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
       const looksLikeFile = /^([A-Za-z]:\\|\/|~\/)/.test(trimmed) && !trimmed.includes("\n") && trimmed.length < 500;
       if (looksLikeFile && ptyId) {
         e.preventDefault();
-        invoke("write_pty_string", { ptyId, data: trimmed + "\r" }).catch(() => {});
+        invoke("write_pty_string", { ptyId, data: trimmed + "\r", raw: false }).catch(() => {});
         return;
       }
     }

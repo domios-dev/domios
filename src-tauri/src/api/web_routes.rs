@@ -416,6 +416,27 @@ pub async fn chat_raw_start(
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }
 
+#[derive(serde::Deserialize)]
+pub struct TranscribeVoiceBody {
+    pub path: String,
+}
+
+/// Web-mirror twin of the Tauri `transcribe_voice_attachment` command: format an
+/// uploaded voice file into the agent-facing `-=-codeterm:voice ...-=-` line,
+/// transcribing when a daemon is configured.
+pub async fn transcribe_voice(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<TranscribeVoiceBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let cfg = crate::config::load_config().integrations.voice_transcribe;
+    let line =
+        crate::bridge::voice_transcribe::format_attachment_line(&body.path, "voice", None, &cfg)
+            .await;
+    Ok(Json(serde_json::json!({ "line": line })))
+}
+
 pub async fn chat_raw_stop(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

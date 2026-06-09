@@ -1,14 +1,13 @@
 import { useCallback, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import type { ThemeConfig } from "../../lib/types";
-import { HamburgerIcon, CloseXIcon } from "../Icons";
+import { CloseXIcon } from "../Icons";
+import logoUrl from "../../assets/logo.png";
 
 import { isMac } from "../../lib/keybindings";
+import { UI_BUTTON } from "../shared/design";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { MeshPresenceTray } from "./MeshPresenceTray";
-import { UpdateBadge } from "../UpdateBadge";
-import { UI_BUTTON } from "../shared/design";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -18,11 +17,13 @@ interface TitlebarProps {
 }
 
 export function Titlebar({
-  onToggleSidebar,
+  onToggleSidebar: _onToggleSidebar,
   theme: _theme,
-  onOpenSettingsAbout,
+  onOpenSettingsAbout: _onOpenSettingsAbout,
 }: TitlebarProps) {
   void _theme;
+  void _onToggleSidebar;
+  void _onOpenSettingsAbout;
   // Window chrome controls only exist in the Tauri shell; the browser tab owns its own window in web-mirror mode.
   const isTauri = "__TAURI_INTERNALS__" in window;
   const appWindow = isTauri ? getCurrentWindow() : null;
@@ -33,7 +34,7 @@ export function Titlebar({
   return (
     <div
       data-testid="titlebar"
-      className="flex items-center h-10 bg-[var(--ct-titlebar-bg)] select-none shrink-0"
+      className="flex items-center h-8 bg-[var(--ct-titlebar-bg)] select-none shrink-0"
       style={{ boxShadow: "inset 0 -0.5px 0 var(--ct-border-subtle)" }}
       data-tauri-drag-region
     >
@@ -46,33 +47,24 @@ export function Titlebar({
         />
       )}
 
-      {/* Left: sidebar toggle + breadcrumb */}
-      <div className="flex items-center gap-1.5 pl-3" data-tauri-drag-region>
-        <button
-          onClick={onToggleSidebar}
-          className={`${UI_BUTTON.ghost} w-9 h-9`}
-          title="Toggle sidebar"
-        >
-          <HamburgerIcon size={15} />
-        </button>
-
-        {/* Web mirror: peer switcher, top-left per spec */}
-        {!isTauri && <WebPeerPicker />}
-
+      <div className="flex items-center gap-2 pl-3" data-tauri-drag-region>
+        <img
+          src={logoUrl}
+          alt=""
+          className="h-4 w-4 rounded-sm opacity-90"
+          data-tauri-drag-region
+        />
         <span
-          className="ml-1 text-[11px] text-[var(--ct-muted)]"
+          className="text-[11px] font-medium text-[var(--ct-muted-fg)]"
           data-tauri-drag-region
         >
           CodeTerm
         </span>
       </div>
 
-      {/* Spacer — drag region */}
       <div className="flex-1" data-tauri-drag-region />
 
-      {/* Tray area — right side, before window controls */}
-      <div className="flex items-center gap-1 pr-1">
-        <UpdateBadge onNavigate={onOpenSettingsAbout} />
+      <div className="flex items-center h-full gap-1">
         <MeshPresenceTray />
         <KeepAwakeTray />
       </div>
@@ -209,4 +201,3 @@ function WindowsControls({
     </div>
   );
 }
-

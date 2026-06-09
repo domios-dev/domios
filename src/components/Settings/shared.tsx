@@ -24,12 +24,11 @@ export function SettingsPage({
 }) {
   return (
     <div className="max-w-[720px] mx-auto flex flex-col gap-5">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-medium text-[var(--ct-fg)]">{title}</h1>
-        {subtitle && (
-          <p className="text-sm text-[var(--ct-muted-fg)]">{subtitle}</p>
-        )}
-      </header>
+      {/* Title already shown in the nav header — keep it for screen readers only, no visual duplicate. */}
+      <h1 className="sr-only">{title}</h1>
+      {subtitle && (
+        <p className="text-sm text-[var(--ct-muted-fg)] -mt-1">{subtitle}</p>
+      )}
       {children}
     </div>
   );

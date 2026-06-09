@@ -1,0 +1,25 @@
+- id: identify.basic
+  command: "identify"
+  prompt: "What version of CodeTerm is this and what platform is it running on?"
+  expect: "Runs `codeterm identify` and reads version/platform."
+  safety: execute
+- id: capabilities.basic
+  command: "capabilities"
+  prompt: "List the API methods this CodeTerm instance exposes."
+  expect: "Runs `codeterm capabilities`."
+  safety: execute
+- id: docs.basic
+  command: "docs"
+  prompt: "Open the CodeTerm CLI documentation and tell me the section about memory."
+  expect: "Runs `codeterm docs` (optionally `codeterm docs MEMORY`), reads embedded docs."
+  safety: execute
+- id: usage.latest
+  command: "usage latest"
+  prompt: "What's my current Claude usage — the latest snapshot?"
+  expect: "Runs `codeterm usage latest` (provider defaults to claude)."
+  safety: execute
+- id: usage.projection
+  command: "usage projection"
+  prompt: "Project my Claude usage for end of today and end of cycle."
+  expect: "Runs `codeterm usage projection`."
+  safety: execute

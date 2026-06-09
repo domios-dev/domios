@@ -101,6 +101,10 @@ pub async fn spawn_pty(
         "CODETERM_SOCKET_PATH".to_string(),
         crate::socket::server::socket_display_path(),
     );
+    env_vars.insert(
+        "CODETERM_VERSION".to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+    );
     // Pass token/port to REST callbacks to avoid silent 401s.
     let api_cfg = config_state.lock().api.clone();
     if let Ok(port) = std::env::var("CODETERM_API_PORT") {
@@ -475,9 +479,17 @@ pub async fn write_pty_string(
     svc: tauri::State<'_, ServiceState>,
     pty_id: String,
     data: String,
+    raw: Option<bool>,
 ) -> Result<(), String> {
     let _ = (&state, &mux_state);
-    write_pty_string_core(&svc, pty_id, data)
+    if raw.unwrap_or(true) {
+        write_pty_string_core(&svc, pty_id, data)
+    } else {
+        // Bracketed paste with sacrificial space on Windows — see build_spawn_dispatch.
+        // Trailing \r in data is detected and sent via send_text_to_pty's delayed enter path.
+        let text_stripped = data.trim_end_matches('\r');
+        svc.send_text_to_pty(&pty_id, text_stripped, text_stripped.len() != data.len())
+    }
 }
 
 /// Shared by the Tauri command and the web mirror's POST /api/pty/{id}/write.

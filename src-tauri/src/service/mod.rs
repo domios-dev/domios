@@ -18,6 +18,7 @@ pub mod general_agent;
 mod hierarchy;
 pub mod inject_verify;
 pub mod input_parser;
+pub mod msg_prefix;
 pub mod notification;
 mod orchestrator;
 mod output;

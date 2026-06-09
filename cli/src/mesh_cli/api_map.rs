@@ -24,6 +24,18 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 .into(),
             None,
         ),
+        // `plugin` manages local on-disk plugin folders — no remote form.
+        Commands::Plugin { .. } => (
+            UNSUPPORTED_OVER_MESH.into(),
+            "plugin management is local-only — run it on the target machine".into(),
+            None,
+        ),
+        // `cli-manifest` introspects the local clap binary — no remote form.
+        Commands::CliManifest { .. } => (
+            UNSUPPORTED_OVER_MESH.into(),
+            "cli-manifest is local-only — it dumps this binary's own command tree".into(),
+            None,
+        ),
         Commands::Identify => ("GET".into(), "/api/identify".into(), None),
         Commands::Capabilities => ("GET".into(), "/api/identify".into(), None),
         Commands::GetOutput { pane, lines } => {
@@ -111,6 +123,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             crate::PaneAction::Stop { pane } => {
                 let p = pane.as_deref().unwrap_or("general");
                 ("POST".into(), format!("/api/panes/{}/stop", p), Some("{}".into()))
+            }
+            crate::PaneAction::Chat { pane, since } => {
+                let p = pane.as_deref().unwrap_or("general");
+                ("GET".into(), format!("/api/panes/{}/chat?since={}", p, since), None)
             }
         },
         Commands::Paste { action } => match action {

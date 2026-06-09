@@ -11,18 +11,20 @@ use crate::api::routes::{resolve_pane, AppState};
 /// This fixes detection on restored panes, Windows (PowerShell doesn't reset title), etc.
 fn ensure_agent_state(state: &AppState, pane_id: &str) {
     log::info!("[ensure_agent_state] called for pane {}", pane_id);
-    let (agent_type, session_id, cwd) = {
-        let mux = state.svc.mux.lock();
-        let pane = match mux.get_pane(pane_id) {
-            Some(p) => p,
-            None => return,
+        let (agent_type, session_id, cwd, launch_age, pty_id) = {
+            let mux = state.svc.mux.lock();
+            let pane = match mux.get_pane(pane_id) {
+                Some(p) => p,
+                None => return,
+            };
+            (
+                pane.agent_type.clone(),
+                pane.agent_session_id.clone(),
+                pane.cwd.clone(),
+                pane.agent_set_at.map(|at| at.elapsed()),
+                pane.pty_id.clone(),
+            )
         };
-        (
-            pane.agent_type.clone(),
-            pane.agent_session_id.clone(),
-            pane.cwd.clone(),
-        )
-    };
 
     let agent_changed = agent_type.is_none();
     if agent_changed {
@@ -34,12 +36,20 @@ fn ensure_agent_state(state: &AppState, pane_id: &str) {
         log::info!("[hook] set agent_type=claude for pane {}", pane_id);
     }
 
+    let provider = if agent_type.as_deref().is_some() {
+        agent_type.clone().unwrap_or_else(crate::config::default_agent_provider)
+    } else {
+        "claude".to_string()
+    };
+
     // Hook proves an agent is alive in this pane, but it does not prove that the newest JSONL in cwd belongs to this pane. Only detect a session
     // for panes that do not have one yet; otherwise keep the tab's saved binding.
     if session_id.is_none() {
-        if let Some(ref cwd) = cwd {
+            if let Some(ref cwd) = cwd {
             let exclude = state.svc.mux.lock().other_session_ids(pane_id);
-            let hook_max_age = Some(std::time::Duration::from_secs(86400));
+            let screen_text = pty_id
+                .as_ref()
+                .and_then(|id| state.svc.screen_state.lock().get_screen_text(id));
             log::info!(
                 "[ensure_agent_state] detecting session cwd={} current={:?}",
                 cwd,
@@ -48,8 +58,14 @@ fn ensure_agent_state(state: &AppState, pane_id: &str) {
             if let Some(newest_id) = state
                 .svc
                 .agent_registry
-                .with_provider("claude", |p| {
-                    p.detect_session_id(cwd, &exclude, hook_max_age)
+                .with_provider(&provider, |p| {
+                    p.detect_started_session(
+                        cwd,
+                        &exclude,
+                        launch_age,
+                        session_id.as_deref(),
+                        screen_text.as_deref(),
+                    )
                 })
                 .flatten()
             {

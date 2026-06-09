@@ -5,6 +5,7 @@
 
 export type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
 import type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
+import { parseMarker } from "@codeterm/chat-core";
 
 export interface PrefixMatch {
   origin: ChatOrigin;
@@ -12,12 +13,6 @@ export interface PrefixMatch {
    *  empty for command-only entries. */
   body: string;
 }
-
-// Cross-pane marker format: `[from <Title> pane=<6+hex>] body`.
-const PANE_RE = /^\[from\s+(.+?)\s+pane=([0-9a-f]{6,})\]\s*/;
-
-// Bridge services emit `[<Capitalized>: <user_id>[ msg_id=<id>]] body`.
-const BRIDGE_RE = /^\[([A-Z][a-zA-Z]+):\s+([^\s\]]+?)(?:\s+msg_id=([^\]]+))?\]\s*/;
 
 // Claude command wrappers — capture each tag individually.
 const CMD_TAG_RE =
@@ -33,31 +28,73 @@ const INLINE_CMD_RE = /^\/([\w-]+)\s*(.*)$/;
  * Priority order: codeterm injection prefix > claude command wrappers.
  */
 export function detectChatPrefix(content: string): PrefixMatch | null {
-  // Codeterm cross-pane prefix
-  const paneMatch = PANE_RE.exec(content);
-  if (paneMatch) {
-    return {
-      origin: { kind: "pane", title: paneMatch[1].trim(), paneIdShort: paneMatch[2] },
-      body: content.slice(paneMatch[0].length),
-    };
-  }
-  // Bridge prefix (Telegram, Mesh, Slack, …)
-  const bridgeMatch = BRIDGE_RE.exec(content);
-  if (bridgeMatch) {
-    const service = bridgeMatch[1];
-    const userId = bridgeMatch[2];
-    const msgId = bridgeMatch[3];
-    const body = content.slice(bridgeMatch[0].length);
-    if (service === "Telegram") {
-      return { origin: { kind: "telegram", userId, messageId: msgId }, body };
-    }
-    if (service === "Mesh") {
-      return { origin: { kind: "mesh", peerId: userId }, body };
-    }
-    return { origin: { kind: "service", service, userId }, body };
-  }
+  const transport = detectTransportPrefix(content);
+  if (transport) return transport;
   // Claude slash-command wrappers — possibly multiple per content string.
   return collectSlashCommands(content);
+}
+
+function detectTransportPrefix(content: string): PrefixMatch | null {
+  const marker = parseMarker(content);
+  if (!marker) return null;
+  if (marker.kind === "pane" || marker.kind === "report") {
+    const title = marker.attrs.label ?? marker.attrs.from ?? "pane";
+    const paneIdShort = marker.attrs.pane;
+    if (paneIdShort) {
+      return {
+        origin: {
+          kind: "pane",
+          title,
+          paneIdShort,
+          ...(marker.attrs.model ? { model: marker.attrs.model } : {}),
+          ...(marker.attrs.mesh ? { mesh: marker.attrs.mesh } : {}),
+          ...(marker.kind === "report" ? { report: true } : {}),
+        },
+        body: marker.payload,
+      };
+    }
+  }
+  if (marker.kind === "telegram") {
+    const userId = marker.attrs.user;
+    if (userId) {
+      return {
+        origin: { kind: "telegram", userId, messageId: marker.attrs.msg },
+        body: marker.payload,
+      };
+    }
+  }
+  if (marker.kind === "mesh") {
+    const peerId = marker.attrs.peer;
+    if (peerId) return { origin: { kind: "mesh", peerId }, body: marker.payload };
+  }
+  if (marker.attrs.user) {
+    return {
+      origin: { kind: "service", service: marker.kind, userId: marker.attrs.user },
+      body: marker.payload,
+    };
+  }
+  return null;
+}
+
+export function splitChatPrefixedMessages(content: string): PrefixMatch[] | null {
+  const starts: number[] = [];
+  for (let i = 0; i < content.length; i++) {
+    if (!content.startsWith("-=-codeterm:", i)) continue;
+    if (detectTransportPrefix(content.slice(i))) starts.push(i);
+  }
+  if (starts.length < 2) {
+    const single = detectTransportPrefix(content);
+    return single ? [single] : null;
+  }
+  const matches: PrefixMatch[] = [];
+  for (let i = 0; i < starts.length; i++) {
+    const start = starts[i];
+    const end = starts[i + 1] ?? content.length;
+    const chunk = content.slice(start, end).trim();
+    const match = detectTransportPrefix(chunk);
+    if (match) matches.push(match);
+  }
+  return matches.length > 0 ? matches : null;
 }
 
 function collectSlashCommands(content: string): PrefixMatch | null {

@@ -100,7 +100,7 @@ export function WorkspaceItem({
     }
     if (!workspace.protected) {
       items.push({
-        label: "Delete Workspace",
+        label: "Close Workspace",
         icon: <X size={11} strokeWidth={2} />,
         onClick: onClose,
         danger: true,
@@ -116,7 +116,7 @@ export function WorkspaceItem({
       data-workspace-name={workspace.name}
       className={`
         group flex items-center justify-between cursor-pointer transition-colors
-        ${touchMode ? "min-h-14 px-2 py-3" : "px-1 py-2"}
+        ${touchMode ? "min-h-11 px-2 py-2" : "px-1 py-2"}
         ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
         ${hasWaiting ? "bg-[var(--ct-yellow)]/10" : ""}
         ${dragOver ? "bg-[var(--ct-accent)]/20" : ""}

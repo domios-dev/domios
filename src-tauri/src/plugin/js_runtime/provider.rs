@@ -97,6 +97,18 @@ pub struct JsProvider {
     vm: Arc<PluginVm>,
     manifest: PluginManifest,
     trust: ProviderTrust,
+    /// Registry handle for lazy native-fallback lookup. Capability methods the
+    /// JS plugin does NOT export delegate to the native provider of the same id
+    /// (displaced when this JS plugin took authority) — so a stub JS plugin
+    /// (e.g. opencode, no sqlite in JS) still gets the native implementation.
+    /// Looked up lazily so it survives hot-reload re-registration. Generic: any
+    /// provider source (json/sql/…) works as long as something implements the
+    /// trait method.
+    registry: Option<Arc<crate::agent::registry::AgentRegistry>>,
+    /// settingsSchema/notificationsSchema are pure constants in the plugin but
+    /// `describe()` (called on every /api/agents/providers poll) re-evaluated
+    /// them through QuickJS every time — a profiled CPU hot path. Compute once.
+    schema_cache: std::sync::OnceLock<(Vec<SettingField>, Vec<SettingField>)>,
 }
 
 impl JsProvider {
@@ -123,7 +135,37 @@ impl JsProvider {
             vm,
             manifest,
             trust,
+            registry: None,
+            schema_cache: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Evaluate the plugin's (settings, notifications) schemas once via QuickJS.
+    fn compute_schemas(&self) -> (Vec<SettingField>, Vec<SettingField>) {
+        let settings = self
+            .try_call::<Vec<SettingField>>("settingsSchema", &[])
+            .unwrap_or_else(|| manifest_settings_sections(&self.manifest));
+        let notifications = self
+            .try_call::<Vec<SettingField>>("notificationsSchema", &[])
+            .unwrap_or_default();
+        (settings, notifications)
+    }
+
+    /// Give the provider a registry handle so it can look up its native
+    /// fallback for unexported capability methods. Set by the loader/watcher.
+    pub fn set_registry(&mut self, registry: Arc<crate::agent::registry::AgentRegistry>) {
+        self.registry = Some(registry);
+    }
+
+    /// Whether the JS bundle exports `method` — distinguishes "not implemented"
+    /// (delegate to native) from "implemented, returned empty".
+    fn has_js(&self, method: &str) -> bool {
+        super::vm::has_method(&self.vm, method)
+    }
+
+    /// The native provider of this id displaced by this JS plugin, if any.
+    fn native(&self) -> Option<Arc<dyn AgentProvider>> {
+        self.registry.as_ref()?.native_fallback(&self.manifest.id)
     }
 
     pub fn manifest(&self) -> &PluginManifest {
@@ -162,7 +204,17 @@ impl JsProvider {
         let cfg = self.manifest.sessions.as_ref()?;
         let root = PluginManifest::expand_home(&cfg.root_dir)?;
         let leaf = match cfg.cwd_encoding {
-            super::CwdEncoding::DashEncoded => encode_cwd_dashed(cwd),
+            // Agents (e.g. claude) canonicalize the cwd before encoding the
+            // project dir — on macOS `/var/...` resolves to `/private/var/...`,
+            // so a raw cwd would encode to a dir that doesn't exist. Match it;
+            // fall back to the raw cwd if the path can't be resolved.
+            super::CwdEncoding::DashEncoded => {
+                let canonical = std::fs::canonicalize(cwd)
+                    .ok()
+                    .and_then(|p| p.to_str().map(String::from))
+                    .unwrap_or_else(|| cwd.to_string());
+                encode_cwd_dashed(&canonical)
+            }
             super::CwdEncoding::None => cwd.to_string(),
         };
         Some(root.join(leaf))
@@ -415,6 +467,38 @@ impl AgentProvider for JsProvider {
         candidates.into_iter().next().map(|(id, _)| id)
     }
 
+    fn detect_launched_session_id(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+    ) -> Option<String> {
+        if let Some(session_id) = injected_session_id {
+            if self.session_exists(cwd, session_id) {
+                return Some(session_id.to_string());
+            }
+        }
+        self.detect_session_id(cwd, exclude, max_age)
+    }
+
+    fn detect_started_session(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+        screen_text: Option<&str>,
+    ) -> Option<String> {
+        self.detect_started_session_with_markers(
+            cwd,
+            exclude,
+            max_age,
+            injected_session_id,
+            screen_text,
+        )
+    }
+
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
         // Plugin can enumerate via sqlite, recursive walk, network call, whatever. Falls back to the manifest-driven single-level listing when the
         // plugin doesn't implement `enumerateSessions`.
@@ -496,6 +580,12 @@ impl AgentProvider for JsProvider {
     }
 
     fn parse_session_messages(&self, file_path: &Path) -> Vec<SessionMessage> {
+        if !self.has_js("parseSessionMessages") {
+            return match self.native() {
+                Some(n) => n.parse_session_messages(file_path),
+                None => Vec::new(),
+            };
+        }
         let Ok(text) = std::fs::read_to_string(file_path) else {
             return Vec::new();
         };
@@ -505,11 +595,56 @@ impl AgentProvider for JsProvider {
     }
 
     fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<std::path::PathBuf> {
+        if !self.has_js("sessionJsonlPath") {
+            return self
+                .native()
+                .and_then(|n| n.session_jsonl_path(cwd, session_id));
+        }
         let s: Option<String> = self.try_call(
             "sessionJsonlPath",
             &[serde_json::json!(cwd), serde_json::json!(session_id)],
         );
         s.filter(|p| !p.is_empty()).map(std::path::PathBuf::from)
+    }
+
+    fn uses_structured_chat(&self) -> bool {
+        if self.has_js("usesStructuredChat") {
+            return self.try_call("usesStructuredChat", &[]).unwrap_or(false);
+        }
+        self.native()
+            .map(|n| n.uses_structured_chat())
+            .unwrap_or(false)
+    }
+
+    fn read_structured_chat(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        cursor: Option<&str>,
+    ) -> crate::agent::chat_types::StructuredChat {
+        if self.has_js("readStructuredChat") {
+            return self
+                .try_call(
+                    "readStructuredChat",
+                    &[json!(cwd), json!(session_id), json!(cursor)],
+                )
+                .unwrap_or_default();
+        }
+        match self.native() {
+            Some(n) => n.read_structured_chat(cwd, session_id, cursor),
+            None => crate::agent::chat_types::StructuredChat::default(),
+        }
+    }
+
+    fn supports_chat_ui(&self) -> bool {
+        // Capability-based, no provider-id list: JSONL-capable (exports a path),
+        // structured-capable, or a native fallback that serves chat.
+        self.has_js("sessionJsonlPath")
+            || self.uses_structured_chat()
+            || self
+                .native()
+                .map(|n| n.supports_chat_ui())
+                .unwrap_or(false)
     }
 
     fn parse_session_delta(
@@ -662,16 +797,12 @@ impl AgentProvider for JsProvider {
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {
-        // Plugin-provided schema (richer) takes precedence; otherwise assemble standard sections from manifest data.
-        if let Some(schema) = self.try_call::<Vec<SettingField>>("settingsSchema", &[]) {
-            return schema;
-        }
-        manifest_settings_sections(&self.manifest)
+        // Cached: describe() polls hit this; the plugin schema is a pure constant.
+        self.schema_cache.get_or_init(|| self.compute_schemas()).0.clone()
     }
 
     fn notifications_schema(&self) -> Vec<SettingField> {
-        self.try_call::<Vec<SettingField>>("notificationsSchema", &[])
-            .unwrap_or_default()
+        self.schema_cache.get_or_init(|| self.compute_schemas()).1.clone()
     }
 
     fn install_bridge_rule(&self, payload: &str) -> Result<(), String> {
@@ -982,6 +1113,37 @@ mod tests {
             opts,
             vec![("y".into(), "Yes".into()), ("n".into(), "No".into())]
         );
+    }
+
+    #[test]
+    fn real_opencode_plugin_parses_permission_box() {
+        // Guards the shipped opencode plugin's own permission parser against
+        // regressions — the plugin owns its format, the host just navigates.
+        let js = include_str!("../../../../plugins/provider-opencode/plugin.js");
+        let p = load(MIN_MANIFEST, js);
+        let box_text = [
+            "╭──────────────────────────────────╮",
+            "│ ⚠ Permission required            │",
+            "│ Access external directory /tmp   │",
+            "│ Patterns                         │",
+            "│ - /tmp/*                         │",
+            "│ Allow once   Allow always   Reject │",
+            "╰──────────────────────────────────╯",
+            "ctrl+f fullscreen  ⇅ select  enter confirm",
+        ]
+        .join("\n");
+        let (q, opts) = p.parse_prompt(&box_text).expect("permission box parses");
+        assert_eq!(q, "Access external directory /tmp");
+        assert_eq!(
+            opts,
+            vec![
+                ("Allow once".into(), "1".into()),
+                ("Allow always".into(), "2".into()),
+                ("Reject".into(), "3".into()),
+            ]
+        );
+        // Plain output must not be misread as a prompt.
+        assert!(p.parse_prompt("just regular output line").is_none());
     }
 
     #[test]

@@ -8,11 +8,13 @@ import { NotificationToastContainer } from "./components/Notifications/Notificat
 import { SettingsPanel, type SectionId } from "./components/Settings/SettingsPanel";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
+import { GitPanel } from "./components/GitPanel/GitPanel";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { CrashReportToast } from "./components/CrashReportToast";
+import { HamburgerIcon } from "./components/Icons";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
@@ -71,19 +73,56 @@ function AppInner() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 640,
   );
-  const keyboardInset = useKeyboardInset();
-  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh">("workspace");
+  // On phones the sidebar is an overlay (≤640px) — collapse it right after a selection so picking a tab/panel is one tap, not two.
+  const closeSidebarOnMobile = useCallback(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches) {
+      setSidebarOpen(false);
+    }
+  }, []);
+  // Keep the overlay mounted through its slide-out so closing animates instead of popping. `shown` drives the
+  // translate/opacity (toggled a frame after mount so the transition runs); `mounted` survives until it finishes.
+  const [sidebarMounted, setSidebarMounted] = useState(sidebarOpen);
+  const [sidebarShown, setSidebarShown] = useState(sidebarOpen);
+  useEffect(() => {
+    if (sidebarOpen) {
+      setSidebarMounted(true);
+      const r = requestAnimationFrame(() => setSidebarShown(true));
+      return () => cancelAnimationFrame(r);
+    }
+    setSidebarShown(false);
+    // Desktop sidebar is in-flow (no slide) — unmount immediately; phones wait out the 300ms slide-out.
+    const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches;
+    if (!isMobile) {
+      setSidebarMounted(false);
+      return;
+    }
+    const t = window.setTimeout(() => setSidebarMounted(false), 300);
+    return () => window.clearTimeout(t);
+  }, [sidebarOpen]);
+
+  // Cross-fade between full-screen views instead of a hard visibility swap.
+  const viewLayerStyle = (active: boolean): React.CSSProperties => ({
+    zIndex: active ? 2 : 0,
+    opacity: active ? 1 : 0,
+    pointerEvents: active ? "auto" : "none",
+    transition: "opacity 200ms ease",
+  });
+  const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
+  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "git">("workspace");
+  const [gitRepoCwd, setGitRepoCwd] = useState<string | null>(null);
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
   const [mountedSettings, setMountedSettings] = useState(false);
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
+  const [mountedGit, setMountedGit] = useState(false);
   const [mountedTabIds, setMountedTabIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
     if (mainView === "mesh") setMountedMesh(true);
+    if (mainView === "git") setMountedGit(true);
   }, [mainView]);
   const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
@@ -105,6 +144,10 @@ function AppInner() {
       const open = typeof next === "function" ? next(wasOpen) : next;
       return open ? "mesh" : "workspace";
     });
+  }, []);
+  const openGit = useCallback((repoRoot: string) => {
+    setGitRepoCwd(repoRoot);
+    setMainView("git");
   }, []);
   // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
   const { config, updateConfig, theme } = useConfig();
@@ -132,8 +175,13 @@ function AppInner() {
     spawnClaudeTab,
   } = useMultiplexer();
 
-  // Git info hook (side effects: updates git status in state)
-  useGitInfo(state.focused_pane_id);
+  // Git info for the visible pane — after a restore nothing is focused yet,
+  // so fall back to the active workspace's active tab.
+  const gitWs = state.workspaces.find((w) => w.id === state.active_workspace_id);
+  const activeTabPaneId =
+    gitWs?.tabs.find((t) => t.id === gitWs.active_tab_id)?.pane_id ?? null;
+  const gitPaneId = state.focused_pane_id ?? activeTabPaneId;
+  const focusedGitInfo = useGitInfo(gitPaneId);
 
   // When user focuses any pane (via sidebar click, Ctrl+Tab, etc), return to workspace view
   const lastFocusedRef = useRef(state.focused_pane_id);
@@ -514,8 +562,9 @@ function AppInner() {
         // 100% of #root, which owns viewport sizing (dvh + safe-area padding in index.html). keyboardInset
         // covers iOS Safari, where the keyboard shrinks only the VISUAL viewport and dvh stays put (see useKeyboardInset).
         height: keyboardInset ? `calc(100% - ${keyboardInset}px)` : "100%",
-        "--ct-composer-bottom-padding": keyboardInset
-          ? "0.5rem"
+        // keyboardOpen (not keyboardInset) drives this: in standalone the inset reads 0 even with the keyboard up, which would leave a dead safe-area stripe under the composer.
+        "--ct-composer-bottom-padding": keyboardOpen
+          ? "0px"
           : "calc(0.5rem + var(--ct-safe-bottom, 0px))",
       } as React.CSSProperties}
     >
@@ -529,34 +578,62 @@ function AppInner() {
           onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
         />
       )}
+      {/* Status-bar scrim: content sliding under the notch fogs into the bg color + a soft blur, fading to clear below. */}
+      {IS_WEB && (
+        <div
+          aria-hidden
+          className="fixed inset-x-0 top-0 z-40 pointer-events-none"
+          style={{
+            height: "calc(var(--ct-safe-top, 0px) + 1.75rem)",
+            background:
+              "linear-gradient(to bottom, var(--ct-bg) 0%, color-mix(in srgb, var(--ct-bg) 72%, transparent) 55%, transparent 100%)",
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            maskImage: "linear-gradient(to bottom, black 0%, black 52%, transparent 100%)",
+            WebkitMaskImage: "linear-gradient(to bottom, black 0%, black 52%, transparent 100%)",
+          }}
+        />
+      )}
       {IS_WEB && !sidebarOpen && (
         <button
           data-testid="web-sidebar-open"
           onClick={() => setSidebarOpen(true)}
-          className="fixed left-2 z-50 flex items-center justify-center w-11 h-11 rounded-md bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)]"
-          style={{ top: "calc(0.5rem + var(--ct-safe-top, 0px))" }}
+          className="fixed left-3 z-50 flex items-center justify-center rounded-full text-white shadow-[0_6px_20px_rgba(31,111,235,0.45)] border border-white/15 active:scale-95"
+          style={{
+            // Explicit size, NOT Tailwind h-11/w-11 — the phone button-shrink rule (button.h-11{height!important}) would squash it into an ellipse.
+            width: "2.75rem",
+            height: "2.75rem",
+            aspectRatio: "1 / 1",
+            // Panel views (mesh/memory/settings/git) own a top header bar — slide the burger below it so it never overlaps. Animates between positions for a live feel.
+            top:
+              mainView === "workspace"
+                ? "calc(0.5rem + var(--ct-safe-top, 0px))"
+                : "calc(var(--ct-safe-top, 0px) + 3.65rem)",
+            background: "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)",
+            transition: "top 340ms cubic-bezier(0.16, 1, 0.3, 1), transform 120ms ease",
+          }}
           title="Open sidebar"
         >
-          ☰
+          <HamburgerIcon size={17} />
         </button>
       )}
 
       <div className="flex flex-1 min-h-0 relative">
-        {sidebarOpen && (
+        {sidebarMounted && (
           <>
             {/* Mobile: sidebar overlays the content with a tap-to-close
                 backdrop; ≥sm it participates in the flex row as before. */}
             <div
-              className="sm:hidden fixed inset-0 z-30 bg-black/40"
+              className={`sm:hidden fixed inset-0 z-30 bg-black/40 ct-sidebar-backdrop ${sidebarShown ? "is-open" : ""}`}
               onClick={() => setSidebarOpen(false)}
             />
             {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
-            <div className="max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0">
+            <div className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0 overflow-visible`}>
               <Sidebar
-                onOpenSettings={() => setSettingsOpen(true)}
-                onOpenMemory={() => setMemoryOpen(true)}
-                onOpenMesh={() => setMeshOpen(true)}
-                onNavigateToTab={() => setMainView("workspace")}
+                onOpenSettings={() => { setSettingsOpen(true); closeSidebarOnMobile(); }}
+                onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
+                onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
+                onNavigateToTab={() => { setMainView("workspace"); closeSidebarOnMobile(); }}
                 mainView={mainView}
                 config={config}
               />
@@ -570,14 +647,7 @@ function AppInner() {
               Unmounting the workspace would tear down xterm + re-run get_pane_text
               on return, blocking the main thread with MB of escape codes. */}
           {mountedSettings && (
-            <div
-              className="absolute inset-0"
-              style={{
-                zIndex: mainView === "settings" ? 2 : 0,
-                visibility: mainView === "settings" ? "visible" : "hidden",
-                pointerEvents: mainView === "settings" ? "auto" : "none",
-              }}
-            >
+            <div className="absolute inset-0" style={viewLayerStyle(mainView === "settings")}>
               <SettingsPanel
                 config={config}
                 onUpdateConfig={updateConfig}
@@ -593,14 +663,7 @@ function AppInner() {
             </div>
           )}
           {mountedMemory && (
-            <div
-              className="absolute inset-0"
-              style={{
-                zIndex: mainView === "memory" ? 2 : 0,
-                visibility: mainView === "memory" ? "visible" : "hidden",
-                pointerEvents: mainView === "memory" ? "auto" : "none",
-              }}
-            >
+            <div className="absolute inset-0" style={viewLayerStyle(mainView === "memory")}>
               <MemoryPanel
                 api={config.api}
                 onClose={() => {
@@ -615,14 +678,7 @@ function AppInner() {
             </div>
           )}
           {mountedMesh && (
-            <div
-              className="absolute inset-0"
-              style={{
-                zIndex: mainView === "mesh" ? 2 : 0,
-                visibility: mainView === "mesh" ? "visible" : "hidden",
-                pointerEvents: mainView === "mesh" ? "auto" : "none",
-              }}
-            >
+            <div className="absolute inset-0" style={viewLayerStyle(mainView === "mesh")}>
               <MeshPanel
                 api={config.api}
                 config={config}
@@ -631,11 +687,24 @@ function AppInner() {
               />
             </div>
           )}
+          {mountedGit && (
+            <div className="absolute inset-0" style={viewLayerStyle(mainView === "git")}>
+              <GitPanel
+                api={config.api}
+                cwd={gitRepoCwd}
+                onClose={() => setMainView("workspace")}
+              />
+            </div>
+          )}
           {state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
                 const isActiveTab = ws.id === state.active_workspace_id && tab.id === ws.active_tab_id;
-                const shouldMountTab = isActiveTab || mountedTabIds.has(tab.id);
+                // Main (protected pane in the protected workspace) is never
+                // lazy — mount it on boot so its chat/SSE state is live.
+                const isMainTab =
+                  ws.protected === true && state.panes[tab.pane_id]?.protected === true;
+                const shouldMountTab = isActiveTab || isMainTab || mountedTabIds.has(tab.id);
                 if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && isActiveTab;
                 return (
@@ -646,6 +715,7 @@ function AppInner() {
                   zIndex: isVisible ? 1 : 0,
                   opacity: isVisible ? 1 : 0,
                   pointerEvents: isVisible ? "auto" : "none",
+                  transition: "opacity 200ms ease",
                 }}
               >
                 <TabContent
@@ -657,6 +727,10 @@ function AppInner() {
                   fontConfig={config.font}
                   terminalConfig={config.terminal}
                   usageEnabledByProvider={usageEnabledByProvider}
+                  gitInfo={gitPaneId === tab.pane_id ? focusedGitInfo : null}
+                  onOpenGit={openGit}
+                  api={config.api}
+                  workspaceCwd={ws.cwd ?? null}
                 />
               </div>
                 );

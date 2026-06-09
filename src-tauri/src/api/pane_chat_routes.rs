@@ -5,7 +5,7 @@
 //! - POST /api/panes/:id/chat/backfill  → older messages window
 
 use axum::{
-    extract::{Path, State as AxumState},
+    extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
     Json,
 };
@@ -195,4 +195,24 @@ pub async fn backfill(
         "start_offset": start,
         "end_offset": end,
     })))
+}
+
+#[derive(Deserialize)]
+pub struct ChatQuery {
+    #[serde(default)]
+    pub since: usize,
+}
+
+/// GET /api/panes/:id/chat?since=N — stateless normalized-chat read (no tailer).
+pub async fn snapshot(
+    AxumState(state): AxumState<AppState>,
+    Path(pane_id): Path<String>,
+    Query(q): Query<ChatQuery>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let (messages, total) =
+        crate::service::pane_chat::pane_chat_snapshot(&state.svc, &pane_id, q.since)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "chat snapshot failed"))?;
+    Ok(Json(serde_json::json!({ "messages": messages, "count": total })))
 }

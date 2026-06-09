@@ -254,7 +254,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       if (text) parts.push(text);
 
       if (parts.length > 0) {
-        await invoke("write_pty_string", { ptyId: pid, data: parts.join(" ") + "\r" });
+        await invoke("write_pty_string", { ptyId: pid, data: parts.join(" ") + "\r", raw: false });
       } else if (currentAttachments.length > 0) {
         // All were clipboard-pasted images, just send Enter
         await invoke("write_pty_string", { ptyId: pid, data: "\r" });

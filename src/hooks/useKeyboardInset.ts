@@ -11,8 +11,16 @@ import { IS_WEB } from "../lib/webApi";
  * measures that gap via the VisualViewport API; apply it as bottom
  * padding on the app shell so the chat composer rides above the keys.
  */
-export function useKeyboardInset(): number {
+export interface KeyboardState {
+  // Layout-viewport gap used to shrink the app shell in plain-browser mode (0 in standalone, where #root tracks --vv-height itself).
+  inset: number;
+  // True whenever the soft keyboard overlaps the visual viewport, in BOTH standalone and browser — drives composer bottom-padding collapse.
+  keyboardOpen: boolean;
+}
+
+export function useKeyboardInset(): KeyboardState {
   const [inset, setInset] = useState(0);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   useEffect(() => {
     if (!IS_WEB || typeof window === "undefined" || !window.visualViewport) {
@@ -29,7 +37,14 @@ export function useKeyboardInset(): number {
       const rootHeight =
         document.getElementById("root")?.clientHeight ?? window.innerHeight;
       const gap = rootHeight - vv.height - vv.offsetTop;
-      setInset(Math.max(0, Math.round(gap)));
+      // Ignore sub-100px gaps: iPadOS with an external keyboard fires viewport events on input
+      // focus (for cursor scroll) without showing the software keyboard, producing a small gap
+      // that collapses the app shell to ~0 height and causes a gray screen.
+      setInset(Math.max(0, Math.round(gap > 100 ? gap : 0)));
+      // The layout viewport (innerHeight) stays full under the keyboard on iOS in BOTH standalone and
+      // browser, so this detects the keyboard even when the shell-inset above reads 0 (standalone).
+      const keyboardGap = window.innerHeight - vv.height - vv.offsetTop;
+      setKeyboardOpen(keyboardGap > 100);
       // iOS scrolls the page when the keyboard opens — pin it so fixed chrome (sidebar burger) stays on-screen.
       if (vv.offsetTop > 0) window.scrollTo(0, 0);
     };
@@ -45,5 +60,5 @@ export function useKeyboardInset(): number {
     };
   }, []);
 
-  return inset;
+  return { inset, keyboardOpen };
 }

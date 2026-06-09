@@ -3,7 +3,7 @@
 Use `codeterm` to control panes, workspaces, agents, mesh peers, mem, and system power.
 
 - `codeterm pane list` — list panes
-- `codeterm send-text "..." --pane ID` — type into a pane
+- `codeterm send "..." --pane ID` — type into a pane
 - `codeterm pane stop [--pane ID]` — interrupt the agent's current generation (doesn't close the pane)
 - `codeterm agent spawn claude --task "..."` — spawn a sub-pane you own (parent = you, auto)
 - `codeterm mesh peers` — list mesh peers

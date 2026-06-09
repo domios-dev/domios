@@ -197,7 +197,7 @@ pub async fn mesh_relay(
             .unwrap_or_else(|| sender_id.clone())
     };
 
-    // Prefix text with [Mesh: PEER pane=ID] for send endpoints
+    // Prefix text with the unified CodeTerm marker for send endpoints.
     let mut body = cmd.body.clone();
     if cmd.path.contains("/send") && cmd.method.eq_ignore_ascii_case("POST") {
         if let Some(text) = body.get("text").and_then(|v| v.as_str()) {
@@ -205,10 +205,11 @@ pub async fn mesh_relay(
                 .get("source_pane")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            body["text"] = serde_json::json!(format!(
-                "[Mesh: {} pane={}] {}",
-                sender_name, source_pane, text
-            ));
+            body["text"] = serde_json::json!(
+                crate::service::msg_prefix::CtxPrefix::message(&sender_name, source_pane)
+                    .mesh(Some(sender_name.clone()))
+                    .wrap(text)
+            );
             if let Some(obj) = body.as_object_mut() {
                 obj.remove("source_pane");
             }

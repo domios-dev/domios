@@ -54,16 +54,26 @@ pub fn start_general_agent(
                 if let Some(pty_id) = current_pty_id.clone() {
                     let alive = pty.lock().get_session(&pty_id).is_some();
                     if alive {
-                        let agent_visible = screen_state
-                            .try_lock()
-                            .and_then(|ss| ss.get_screen_text(&pty_id))
-                            .map(|screen| svc.agent_registry.detect_from_output(&screen).is_some())
-                            .unwrap_or(false);
+                        // Grace-poll markers: after a daemon restart the live PTY
+                        // is up but the screen isn't rehydrated yet, so a one-shot
+                        // check would kill a healthy Main. Bail the instant markers
+                        // appear; only a genuinely bare shell survives the window.
+                        let mut agent_visible = false;
+                        for _ in 0..10 {
+                            let screen = screen_state.lock().get_screen_text(&pty_id);
+                            agent_visible = screen
+                                .map(|s| svc.agent_registry.detect_from_output(&s).is_some())
+                                .unwrap_or(false);
+                            if agent_visible {
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(300));
+                        }
                         if agent_visible {
                             log::info!("[general-agent] Already running (pane={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
                             return;
                         }
-                        log::info!("[general-agent] Pane has live PTY {} but no agent markers — killing bare shell and relaunching", pty_id);
+                        log::info!("[general-agent] Pane has live PTY {} but no agent markers after 3s grace — killing bare shell and relaunching", pty_id);
                         let _ = pty.lock().kill(&pty_id);
                         svc.set_pane_agent_type(&pid, None);
                         if let Some(pane) = mux.lock().get_pane_mut(&pid) {
@@ -333,10 +343,15 @@ pub fn start_general_agent(
         }
     };
 
-    // No bracket-paste: zsh ZLE binds the handler only after the first interactive cycle, so the markers leak as literal text on launch.
     log::info!("[general-agent] Launching on PTY {}: {}", pty_id, cmd);
-    let payload = format!("{}\r", cmd);
-    if let Err(e) = pty.lock().write(&pty_id, payload.as_bytes()) {
+    let payload: Vec<u8> = if cfg!(windows) {
+        // Bracketed paste + sacrificial space absorbs PSReadLine/ConPTY first-byte race on Windows.
+        format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes()
+    } else {
+        // No bracket-paste: zsh ZLE binds the handler only after the first interactive cycle, so the markers leak as literal text on launch.
+        format!("{}\r", cmd).into_bytes()
+    };
+    if let Err(e) = pty.lock().write(&pty_id, &payload) {
         log::error!("[general-agent] Failed to write launch command: {}", e);
         return;
     }

@@ -16,6 +16,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
       src/lib/plugins/__tests__/registry.test.ts
+      packages/chat-ui/src/codeterm/recognize.test.ts
     )
     ;;
   provider-claude)

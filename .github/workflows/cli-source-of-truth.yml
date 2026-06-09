@@ -1,0 +1,35 @@
+name: cli-source-of-truth
+
+on:
+  pull_request:
+    paths:
+      - 'cli/**'
+      - 'docs/cli-manifest.json'
+      - 'docs/CLI.md'
+      - 'src-tauri/prompts/codeterm_cli.md'
+      - 'packages/chat-ui/src/codeterm/**'
+      - '.github/workflows/cli-source-of-truth.yml'
+  push:
+    branches: [develop, master]
+
+jobs:
+  cli-doctor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cli manifest + doctor tests
+        run: cargo test -p codeterm-cli cmd::manifest
+      - name: plugin clap contract test
+        run: cargo test -p codeterm-cli plugin_subcommands_parse
+
+  chat-card-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.32.1, run_install: false }
+      - run: pnpm install --frozen-lockfile
+      - run: npx tsx packages/chat-ui/src/codeterm/recognize.test.ts

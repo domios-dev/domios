@@ -1,0 +1,10 @@
+- id: paste.roundtrip
+  command: "paste put"
+  prompt: "Stash the text 'bench-payload-42' in the ephemeral pastebin, then read it back by its id."
+  expect: "Runs `codeterm paste put \"bench-payload-42\"` then `codeterm paste get <id>`."
+  safety: execute
+- id: web.link
+  command: "web link"
+  prompt: "Give me a ready-to-open web mirror link for this machine."
+  expect: "Runs `codeterm web link`."
+  safety: execute
