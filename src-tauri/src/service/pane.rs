@@ -162,6 +162,14 @@ impl ServiceContext {
                 .collect()
         };
         for (pane_id, agent_id, needs_session) in restored {
+            if needs_session {
+                let mut mux = self.mux.lock();
+                if let Some(pane) = mux.get_pane_mut(&pane_id) {
+                    if pane.agent_session_id.is_none() && pane.agent_set_at.is_none() {
+                        pane.agent_set_at = Some(std::time::Instant::now());
+                    }
+                }
+            }
             self.kick_off_session_name_detection(&pane_id, &agent_id);
             self.refresh_session_model_once(&pane_id, &agent_id);
             if needs_session {
@@ -214,7 +222,7 @@ impl ServiceContext {
     }
 
     fn refresh_session_model_once(&self, pane_id: &str, agent_id: &str) {
-        let (cwd, session_id, current_model, exclude) = {
+        let (cwd, session_id, current_model, exclude, age_from_launch, pty_id) = {
             let mux = self.mux.lock();
             let Some(p) = mux.get_pane(pane_id) else {
                 return;
@@ -224,9 +232,14 @@ impl ServiceContext {
                 p.agent_session_id.clone(),
                 p.agent_session_model.clone(),
                 mux.other_session_ids(pane_id),
+                p.agent_set_at.map(|at| at.elapsed()),
+                p.pty_id.clone(),
             )
         };
         let Some(cwd) = cwd else { return };
+        let screen_text = pty_id
+            .as_ref()
+            .and_then(|id| self.screen_state.lock().get_screen_text(id));
         // If the provider rolled the live session out from under us (opencode /model swap), point the pane at the new sid before scanning models.
         if let Some(ref current) = session_id {
             if let Some(new_sid) = self
@@ -271,7 +284,15 @@ impl ServiceContext {
             None => {
                 let detected = self
                     .agent_registry
-                    .with_provider(agent_id, |p| p.detect_session_id(&cwd, &exclude, None))
+                    .with_provider(agent_id, |p| {
+                        p.detect_started_session(
+                            &cwd,
+                            &exclude,
+                            age_from_launch,
+                            None,
+                            screen_text.as_deref(),
+                        )
+                    })
                     .flatten();
                 let Some(sid) = detected else { return };
                 let claimed = {
@@ -435,7 +456,7 @@ impl ServiceContext {
         });
     }
 
-    /// Background loop that calls `detect_session_id` until it returns Some
+    /// Background loop that calls `detect_started_session` until it returns Some
     /// or the budget expires. Provider plugins are responsible for the actual
     /// filesystem walk; this wrapper just retries with backoff because the
     /// session file is written *after* the agent CLI accepts its first prompt.
@@ -446,18 +467,13 @@ impl ServiceContext {
         let svc = self.clone();
         let pane_id = pane_id.to_string();
         let agent_id = agent_id.to_string();
-        // Wall-clock floor for session matches. Sessions created BEFORE this detection thread spawned are never the right answer for a fresh pane —
-        // they belong to whatever pane was running before. Without this floor, a fresh pane in a busy cwd would happily claim a session created seconds earlier by a sibling/rehydrated pane.
-        let detection_started = std::time::SystemTime::now();
-        // Tiny grace so a session created a hair before set_pane_agent_type (e.g. provider TUI starts ~ms before our agent_type write lands) still matches.
-        let grace = std::time::Duration::from_secs(2);
         std::thread::spawn(move || {
             // 15min budget — codex writes its rollout only on first user message.
             let max_attempts = 300u32;
             let step = std::time::Duration::from_secs(3);
             for _ in 0..max_attempts {
                 std::thread::sleep(step);
-                let (cwd, sid_already, exclude) = {
+                let (cwd, sid_already, exclude, age_from_launch, pty_id) = {
                     let mux = svc.mux.lock();
                     let Some(p) = mux.get_pane(&pane_id) else {
                         return;
@@ -465,27 +481,44 @@ impl ServiceContext {
                     if p.agent_type.as_deref() != Some(agent_id.as_str()) {
                         return; // user/system swapped agent, abort
                     }
+                    let age_from_launch = p.agent_set_at.map(|at| at.elapsed());
                     (
                         p.cwd.clone(),
                         p.agent_session_id.clone(),
                         mux.other_session_ids(&pane_id),
+                        age_from_launch,
+                        p.pty_id.clone(),
                     )
                 };
-                if sid_already.is_some() {
-                    return;
-                }
                 let Some(cwd) = cwd else { continue };
-                // Dynamic max_age: only consider sessions created since this detection thread spawned (plus a small grace). As the thread ages, the window
-                // grows naturally — any session the matching CLI process is going to create will fall in it, anything older won't.
-                let elapsed = std::time::SystemTime::now()
-                    .duration_since(detection_started)
-                    .unwrap_or(std::time::Duration::ZERO);
-                let max_age = Some(elapsed + grace);
+                let screen_text = pty_id
+                    .as_ref()
+                    .and_then(|id| svc.screen_state.lock().get_screen_text(id));
                 let sid = svc
                     .agent_registry
-                    .with_provider(&agent_id, |p| p.detect_session_id(&cwd, &exclude, max_age))
+                    .with_provider(&agent_id, |p| {
+                        p.detect_started_session(
+                            &cwd,
+                            &exclude,
+                            age_from_launch,
+                            sid_already.as_deref(),
+                            screen_text.as_deref(),
+                        )
+                    })
                     .flatten();
                 if let Some(sid) = sid {
+                    let already_bound = sid_already.as_deref() == Some(sid.as_str());
+                    if already_bound {
+                        return;
+                    }
+                    if sid_already.is_some() {
+                        let mut mux = svc.mux.lock();
+                        if let Some(p) = mux.get_pane_mut(&pane_id) {
+                            if p.agent_session_id.as_deref() == sid_already.as_deref() {
+                                p.agent_session_id = None;
+                            }
+                        }
+                    }
                     // Atomic claim under the mux lock — between releasing the lock above and detection returning, another pane's detector may have already saved
                     // the same sid (it shows up in `other_session_ids` only after the save). Re-check and skip if claimed; otherwise commit.
                     enum ClaimOutcome {
@@ -545,7 +578,45 @@ impl ServiceContext {
                 pane_id,
                 agent_id,
             );
+            if !svc.try_relaunch_stalled_agent(&pane_id, &agent_id) {
+                log::warn!(
+                    "[session-detect] recovery skipped for pane {} (provider={})",
+                    pane_id,
+                    agent_id
+                );
+            }
         });
+    }
+
+    /// If a pane still has no attached session after a full detection window,
+    /// try a targeted relaunch path to avoid pinning unrelated sessions.
+    fn try_relaunch_stalled_agent(&self, pane_id: &str, agent_id: &str) -> bool {
+        let pane_is_stalled = {
+            let mux = self.mux.lock();
+            match mux.get_pane(pane_id) {
+                Some(p) => {
+                    p.agent_type.as_deref() == Some(agent_id)
+                        && p.agent_session_id.is_none()
+                        && p.pty_id.is_some()
+                }
+                None => false,
+            }
+        };
+        if !pane_is_stalled {
+            return false;
+        }
+
+        let _ = self
+            .agent_restart(pane_id, true, crate::service::agent_restart::DEFAULT_GRACE_SECS)
+            .map_err(|e| {
+                log::warn!(
+                    "[session-detect] relaunch blocked for pane {} (provider={}) {:?}",
+                    pane_id,
+                    agent_id,
+                    e
+                );
+            });
+        true
     }
 
     /// Set agent session ID on a pane. Kept as `set_agent_session_id`.

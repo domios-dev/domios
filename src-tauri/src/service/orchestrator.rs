@@ -384,7 +384,20 @@ impl ServiceContext {
         self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.to_string());
 
         // 4c. Pin agent_session_id for resume up-front: we know the id from the user's request, so don't wait for detect_session_id polling.
+        let launch_session_id = if params.resume_session_id.is_none() {
+            self
+                .agent_registry
+                .with_provider(agent_cmd, |p| p.session_id_injection())
+                .filter(|mode| {
+                    !matches!(mode, crate::agent::provider::SessionIdInjection::None)
+                })
+                .map(|_| uuid::Uuid::new_v4().to_string())
+        } else {
+            None
+        };
         if let Some(ref sid) = params.resume_session_id {
+            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+        } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
 
@@ -395,7 +408,13 @@ impl ServiceContext {
             _ => t.clone(),
         });
         let launch_cmd =
-            build_agent_command(agent_cmd, &params, bg_task.as_deref(), &self.agent_registry);
+            build_agent_command(
+                agent_cmd,
+                &params,
+                bg_task.as_deref(),
+                launch_session_id.as_deref(),
+                &self.agent_registry,
+            );
         launch_agent_in_background(
             self.clone(),
             pane_id.clone(),
@@ -638,6 +657,7 @@ pub(crate) fn build_agent_command(
     agent_cmd: &str,
     params: &SpawnAgentParams,
     task: Option<&str>,
+    injected_session_id: Option<&str>,
     registry: &AgentRegistry,
 ) -> String {
     if let Some(ref sid) = params.resume_session_id {
@@ -670,7 +690,7 @@ pub(crate) fn build_agent_command(
         },
         skip_permissions: params.skip_permissions.unwrap_or(true),
         headless: false,
-        session_id: None,
+        session_id: injected_session_id.map(std::string::ToString::to_string),
     };
     let cmd = registry
         .with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
@@ -726,7 +746,7 @@ mod tests {
     fn test_build_claude_with_task() {
         let reg = test_registry();
         let params = make_params("claude", Some("count files"));
-        let cmd = build_agent_command("claude", &params, Some("count files"), &reg);
+        let cmd = build_agent_command("claude", &params, Some("count files"), None, &reg);
         assert!(cmd.contains("--dangerously-skip-permissions"));
         assert!(cmd.contains(".ct-task-"), "task via temp file");
         if cfg!(target_os = "windows") {
@@ -742,7 +762,7 @@ mod tests {
     fn test_build_claude_no_task() {
         let reg = test_registry();
         let params = make_params("claude", None);
-        let cmd = build_agent_command("claude", &params, None, &reg);
+        let cmd = build_agent_command("claude", &params, None, None, &reg);
         if cfg!(target_os = "windows") {
             assert!(cmd.starts_with("Remove-Item Env:CLAUDECODE"));
             assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
@@ -760,7 +780,7 @@ mod tests {
         let reg = test_registry();
         let mut params = make_params("claude", Some("review code"));
         params.agent_name = Some("architect".to_string());
-        let cmd = build_agent_command("claude", &params, None, &reg);
+        let cmd = build_agent_command("claude", &params, None, None, &reg);
         assert!(cmd.contains("--agent 'architect'"));
     }
 
@@ -769,7 +789,7 @@ mod tests {
         let reg = test_registry();
         let mut params = make_params("aider", None);
         params.args = Some(vec!["--model".to_string(), "gpt-4".to_string()]);
-        let cmd = build_agent_command("aider", &params, None, &reg);
+        let cmd = build_agent_command("aider", &params, None, None, &reg);
         assert_eq!(cmd, "aider --model gpt-4");
         assert!(!cmd.contains("CLAUDECODE"));
     }
@@ -794,7 +814,7 @@ mod tests {
     fn test_build_claude_task_with_newlines() {
         let reg = test_registry();
         let params = make_params("claude", Some("line1\nline2\nline3"));
-        let cmd = build_agent_command("claude", &params, Some("line1\nline2\nline3"), &reg);
+        let cmd = build_agent_command("claude", &params, Some("line1\nline2\nline3"), None, &reg);
         // Task goes through temp file, so newlines are preserved in the file
         assert!(
             cmd.contains(".ct-task-"),
@@ -808,7 +828,7 @@ mod tests {
         let reg = test_registry();
         let task = "count files that don't match '*.rs'";
         let params = make_params("claude", Some(task));
-        let cmd = build_agent_command("claude", &params, Some(task), &reg);
+        let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
         // Task is written to a temp file, so quotes don't break the command
         assert!(cmd.contains(".ct-task-"));
     }
@@ -818,7 +838,7 @@ mod tests {
         let reg = test_registry();
         let task = r#"find files matching "*.rs""#;
         let params = make_params("claude", Some(task));
-        let cmd = build_agent_command("claude", &params, Some(task), &reg);
+        let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
         assert!(cmd.contains(".ct-task-"));
     }
 
@@ -827,7 +847,7 @@ mod tests {
         let reg = test_registry();
         let task = "echo $HOME && ls | grep foo; rm -rf /tmp/test";
         let params = make_params("claude", Some(task));
-        let cmd = build_agent_command("claude", &params, Some(task), &reg);
+        let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
         // Should not contain raw special chars in the command itself — they're in the temp file
         assert!(cmd.contains(".ct-task-"));
         assert!(
@@ -841,7 +861,7 @@ mod tests {
         let reg = test_registry();
         let task = "test task content";
         let params = make_params("claude", Some(task));
-        let cmd = build_agent_command("claude", &params, Some(task), &reg);
+        let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
         // Extract the temp file path from the command and verify it was written
         if cfg!(not(target_os = "windows")) {
             // Command looks like: ... "$(cat /tmp/.ct-task-XXXXXXXX)"
@@ -860,7 +880,7 @@ mod tests {
         let reg = test_registry();
         let mut params = make_params("claude", None);
         params.args = Some(vec!["--verbose".to_string(), "--no-cache".to_string()]);
-        let cmd = build_agent_command("claude", &params, None, &reg);
+        let cmd = build_agent_command("claude", &params, None, None, &reg);
         assert!(cmd.contains("--verbose"));
         assert!(cmd.contains("--no-cache"));
         assert!(cmd.ends_with("--verbose --no-cache"));
@@ -878,7 +898,7 @@ mod tests {
 
         let mut p = make_params("claude", None);
         p.model = Some("opus".into());
-        let cmd = build_agent_command("claude", &p, None, &reg);
+        let cmd = build_agent_command("claude", &p, None, None, &reg);
         assert!(
             cmd.contains("--model opus"),
             "claude expected --model X: {}",
@@ -887,7 +907,7 @@ mod tests {
 
         let mut p = make_params("codex", None);
         p.model = Some("gpt-5.4-mini".into());
-        let cmd = build_agent_command("codex", &p, None, &reg);
+        let cmd = build_agent_command("codex", &p, None, None, &reg);
         assert!(
             cmd.contains("-m gpt-5.4-mini"),
             "codex expected -m X: {}",
@@ -896,7 +916,7 @@ mod tests {
 
         let mut p = make_params("opencode", None);
         p.model = Some("github-copilot/claude-haiku-4.5".into());
-        let cmd = build_agent_command("opencode", &p, None, &reg);
+        let cmd = build_agent_command("opencode", &p, None, None, &reg);
         assert!(
             cmd.contains("-m github-copilot/claude-haiku-4.5"),
             "opencode expected -m X: {}",
@@ -915,7 +935,7 @@ mod tests {
 
         let mut p = make_params("claude", None);
         p.resume_session_id = Some("abc-123".into());
-        let cmd = build_agent_command("claude", &p, None, &reg);
+        let cmd = build_agent_command("claude", &p, None, None, &reg);
         assert!(
             cmd.contains("--resume") && cmd.contains("abc-123"),
             "claude resume: {}",
@@ -924,7 +944,7 @@ mod tests {
 
         let mut p = make_params("codex", None);
         p.resume_session_id = Some("019df64f-d798-78c3-967a-d5deeb4896d9".into());
-        let cmd = build_agent_command("codex", &p, None, &reg);
+        let cmd = build_agent_command("codex", &p, None, None, &reg);
         assert!(
             cmd.starts_with("codex resume"),
             "codex resume must start `codex resume`: {}",
@@ -942,7 +962,7 @@ mod tests {
         let reg = test_registry();
         // For non-claude agents, build_agent_command does NOT embed the task
         let params = make_params("aider", Some("review this code"));
-        let cmd = build_agent_command("aider", &params, Some("review this code"), &reg);
+        let cmd = build_agent_command("aider", &params, Some("review this code"), None, &reg);
         // Non-claude: task is NOT added to the command (it's sent separately via PTY) The function just puts agent_cmd + args
         assert_eq!(cmd, "aider");
     }

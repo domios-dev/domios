@@ -343,10 +343,15 @@ pub fn start_general_agent(
         }
     };
 
-    // No bracket-paste: zsh ZLE binds the handler only after the first interactive cycle, so the markers leak as literal text on launch.
     log::info!("[general-agent] Launching on PTY {}: {}", pty_id, cmd);
-    let payload = format!("{}\r", cmd);
-    if let Err(e) = pty.lock().write(&pty_id, payload.as_bytes()) {
+    let payload: Vec<u8> = if cfg!(windows) {
+        // Bracketed paste + sacrificial space absorbs PSReadLine/ConPTY first-byte race on Windows.
+        format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes()
+    } else {
+        // No bracket-paste: zsh ZLE binds the handler only after the first interactive cycle, so the markers leak as literal text on launch.
+        format!("{}\r", cmd).into_bytes()
+    };
+    if let Err(e) = pty.lock().write(&pty_id, &payload) {
         log::error!("[general-agent] Failed to write launch command: {}", e);
         return;
     }
