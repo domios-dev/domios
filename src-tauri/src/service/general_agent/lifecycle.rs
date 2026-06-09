@@ -248,8 +248,11 @@ pub fn start_general_agent(
                 .build()
                 .expect("Failed to create backend reader runtime");
             rt.block_on(async {
-                match crate::service::pty_lifecycle::start_backend_reader(&svc_clone, &pty_id_clone)
-                {
+                match crate::service::pty_lifecycle::start_backend_reader(
+                    &svc_clone,
+                    &pty_id_clone,
+                    true,
+                ) {
                     Ok(handle) => {
                         let _ = handle.await;
                     }
