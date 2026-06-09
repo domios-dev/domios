@@ -518,7 +518,7 @@ pub(crate) fn launch_agent_in_background(
                                 .expect("backend reader runtime");
                             rt.block_on(async {
                                 if let Ok(h) = crate::service::pty_lifecycle::start_backend_reader(
-                                    &svc_arc, &pid2,
+                                    &svc_arc, &pid2, true,
                                 ) {
                                     let _ = h.await;
                                 }

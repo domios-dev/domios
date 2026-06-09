@@ -132,7 +132,7 @@ pub async fn spawn_pty(
     if let Some(ref pid) = pane_id {
         svc.link_pty(pid, pty_id.clone());
     }
-    if let Err(e) = crate::service::pty_lifecycle::start_backend_reader(&svc, &pty_id) {
+    if let Err(e) = crate::service::pty_lifecycle::start_backend_reader(&svc, &pty_id, false) {
         log::warn!(
             "[spawn_pty] failed to start backend reader for {}: {}",
             &pty_id[..pty_id.len().min(8)],

@@ -166,7 +166,7 @@ impl ServiceContext {
                 .build()
                 .expect("backend reader runtime");
             rt.block_on(async {
-                match crate::service::pty_lifecycle::start_backend_reader(&svc_reader, &pty_id) {
+                match crate::service::pty_lifecycle::start_backend_reader(&svc_reader, &pty_id, true) {
                     Ok(handle) => {
                         let _ = handle.await;
                     }

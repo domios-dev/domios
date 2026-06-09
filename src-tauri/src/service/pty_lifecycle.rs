@@ -22,7 +22,14 @@ use super::ServiceState;
 /// clone/read the raw PTY master in parallel.
 ///
 /// Returns a `JoinHandle` that the caller can use to track or abort the task.
-pub fn start_backend_reader(svc: &ServiceState, pty_id: &str) -> Result<JoinHandle<()>, String> {
+/// `headless` = no frontend xterm will attach (API/`ensure_pane_pty_for_send`
+/// spawns). Such panes have nobody to answer PowerShell's CSI 6n cursor query,
+/// so the reader must answer it itself or PowerShell blocks forever at init.
+pub fn start_backend_reader(
+    svc: &ServiceState,
+    pty_id: &str,
+    headless: bool,
+) -> Result<JoinHandle<()>, String> {
     // Clone a reader from the PTY master — independent from the primary reader. Also set up the frontend channel so read_pty can receive forwarded
     // bytes.
     let (reader, frontend_tx) = {
@@ -59,7 +66,7 @@ pub fn start_backend_reader(svc: &ServiceState, pty_id: &str) -> Result<JoinHand
             "[backend-reader] started for pty {}",
             &pty_id[..pty_id.len().min(8)]
         );
-        backend_read_loop(reader, svc, pty_id, frontend_tx, true).await;
+        backend_read_loop(reader, svc, pty_id, frontend_tx, true, headless).await;
     });
 
     Ok(handle)
@@ -72,6 +79,7 @@ async fn backend_read_loop(
     pty_id: String,
     frontend_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
     _measure_first_byte: bool,
+    headless: bool,
 ) {
     let mut first_byte_logged = false;
     loop {
@@ -117,7 +125,12 @@ async fn backend_read_loop(
                     }
                 }
 
-                // hidden pane only: answer CSI 6n so PowerShell doesn't hang (visible panes let xterm.js answer — double-answering races and leaks the second response into the terminal as input)
+                // Answer CSI 6n so PowerShell doesn't hang. Visible frontend
+                // panes let xterm.js answer (double-answering races and leaks
+                // the second response into the terminal as input). Hidden panes
+                // never get an xterm. Headless spawns (orchestrator/GA/API)
+                // answer only until a frontend xterm claims resize ownership —
+                // a background tab may stay unmounted forever.
                 if data.windows(4).any(|w| w == b"\x1b[6n") {
                     let is_hidden = {
                         let mux = svc.mux.lock();
@@ -125,7 +138,14 @@ async fn backend_read_loop(
                             .and_then(|pid| mux.get_pane(&pid).map(|p| p.hidden))
                             .unwrap_or(false)
                     };
-                    if is_hidden {
+                    let no_owner = || {
+                        use tauri::Manager;
+                        svc.app_handle
+                            .try_state::<crate::ResizeOwnerState>()
+                            .map(|ro| ro.lock().get(&pty_id).is_none())
+                            .unwrap_or(true)
+                    };
+                    if is_hidden || (headless && no_owner()) {
                         let _ = svc.pty.lock().write(&pty_id, b"\x1b[1;1R");
                     }
                 }
