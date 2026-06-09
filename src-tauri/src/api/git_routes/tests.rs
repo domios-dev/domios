@@ -42,6 +42,9 @@ fn build_fixture() -> tempfile::TempDir {
     run(p, &["config", "user.name", "Tester"]);
     run(p, &["config", "user.email", "t@example.com"]);
     run(p, &["config", "commit.gpgsign", "false"]);
+    // Pin line endings: a global core.autocrlf=true (common on Windows) makes
+    // checkout smudge LF fixtures to CRLF and content asserts fail.
+    run(p, &["config", "core.autocrlf", "false"]);
 
     write(p, "a.txt", "one\ntwo\nthree\n");
     run(p, &["add", "a.txt"]);
