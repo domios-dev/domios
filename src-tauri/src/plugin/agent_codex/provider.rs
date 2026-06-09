@@ -362,7 +362,13 @@ impl AgentProvider for CodexProvider {
                 let Ok(meta) = std::fs::metadata(path) else {
                     return;
                 };
-                let ts = meta.modified().or_else(|_| meta.created()).ok();
+                // Birth time, not mtime: this detector answers "which session did
+                // THIS launch create". A foreign session in the same cwd (e.g. the
+                // prod instance's codex working in the same repo) is constantly
+                // written, so its mtime always passes the launch window and it
+                // would steal the latch. A file created before our launch can
+                // never be ours.
+                let ts = meta.created().or_else(|_| meta.modified()).ok();
                 if let Some(ts) = ts {
                     if ts <= after {
                         return;

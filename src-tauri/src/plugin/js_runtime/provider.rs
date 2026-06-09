@@ -206,14 +206,10 @@ impl JsProvider {
         let leaf = match cfg.cwd_encoding {
             // Agents (e.g. claude) canonicalize the cwd before encoding the
             // project dir — on macOS `/var/...` resolves to `/private/var/...`,
-            // so a raw cwd would encode to a dir that doesn't exist. Match it;
-            // fall back to the raw cwd if the path can't be resolved.
+            // so a raw cwd would encode to a dir that doesn't exist. Match it
+            // (verbatim-prefix stripped on Windows, see `canonical_cwd`).
             super::CwdEncoding::DashEncoded => {
-                let canonical = std::fs::canonicalize(cwd)
-                    .ok()
-                    .and_then(|p| p.to_str().map(String::from))
-                    .unwrap_or_else(|| cwd.to_string());
-                encode_cwd_dashed(&canonical)
+                encode_cwd_dashed(&crate::paths::canonical_cwd(cwd))
             }
             super::CwdEncoding::None => cwd.to_string(),
         };
@@ -422,7 +418,12 @@ impl AgentProvider for JsProvider {
     ) -> Option<String> {
         // Plugin can do its own detection (sqlite, filename heuristics, whatever its provider needs). Falls back to the generic dir walk driven by
         // manifest.sessions.* when the plugin doesn't implement `detectSessionId`.
-        let max_age_ms = max_age.map(|d| d.as_millis() as i64).unwrap_or(0);
+        // None means "default recency window" (300s, same as native providers) —
+        // never 0/unlimited: plugins treat 0 as "no cutoff", which let any stale
+        // rollout in the cwd win the latch.
+        let max_age_ms = max_age
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(300_000);
         if let Some(v) = self.try_call::<Option<String>>(
             "detectSessionId",
             &[json!(cwd), json!(exclude), json!(max_age_ms)],
@@ -479,7 +480,25 @@ impl AgentProvider for JsProvider {
                 return Some(session_id.to_string());
             }
         }
-        self.detect_session_id(cwd, exclude, max_age)
+        let sid = self.detect_session_id(cwd, exclude, max_age)?;
+        // This detector answers "which session did THIS launch create". A foreign
+        // session in the same cwd (e.g. another codeterm instance's agent in the
+        // same repo) is constantly written, so it passes any mtime recency window
+        // and would steal the latch. A file created before our launch window can
+        // never be ours. Unknown birth time → trust the plugin's own filtering.
+        if let Some(age) = max_age {
+            let window_start = std::time::SystemTime::now() - age;
+            let created = self
+                .session_file_path(cwd, &sid)
+                .and_then(|p| std::fs::metadata(p).ok())
+                .and_then(|m| m.created().or_else(|_| m.modified()).ok());
+            if let Some(ts) = created {
+                if ts <= window_start {
+                    return None;
+                }
+            }
+        }
+        Some(sid)
     }
 
     fn detect_started_session(
