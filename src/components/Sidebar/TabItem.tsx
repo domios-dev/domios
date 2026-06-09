@@ -10,6 +10,7 @@ import {
 } from "../../lib/chatUiMode";
 import {
   getClientPaneUiMode,
+  getCurrentPaneUiMode,
   listenClientPaneUiMode,
   setClientPaneUiMode,
 } from "../../lib/clientPaneUiMode";
@@ -63,6 +64,8 @@ export function TabItem({
   // what's actually showing instead of always saying "Open Chat UI".
   const resolveChatView = (p: typeof pane): boolean => {
     if (!p) return false;
+    const current = getCurrentPaneUiMode(p.id);
+    if (current) return current === "chat";
     const client = getClientPaneUiMode(p.id);
     return client ? client === "chat" : shouldDefaultNewAgentPaneToChat(p.agent_type);
   };
@@ -110,7 +113,7 @@ export function TabItem({
     if (pane && isChatUiSupported(pane.agent_type)) {
       const nextChatView = !chatView;
       items.push({
-        label: nextChatView ? "Open Chat UI" : "Use Terminal Mode",
+        label: nextChatView ? "Open Chat UI" : "Open Terminal",
         icon: nextChatView
           ? <MessageSquare size={11} strokeWidth={2} />
           : <SquareTerminal size={11} strokeWidth={2} />,

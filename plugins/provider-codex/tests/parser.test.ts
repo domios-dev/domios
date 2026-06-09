@@ -64,15 +64,63 @@ const input = [
       output: "test",
     },
   }),
+  JSON.stringify({
+    type: "response_item",
+    payload: {
+      type: "function_call",
+      call_id: "call-2",
+      name: "shell_command",
+      arguments: JSON.stringify({
+        command: "Get-Content C:\\Users\\User\\Downloads\\foo.ps1",
+        timeout_ms: 10000,
+      }),
+    },
+  }),
+  JSON.stringify({
+    type: "response_item",
+    payload: {
+      type: "function_call_output",
+      call_id: "call-2",
+      output: "line1\nline2",
+    },
+  }),
+  JSON.stringify({
+    type: "response_item",
+    payload: {
+      type: "function_call",
+      call_id: "call-3",
+      name: "shell_command",
+      arguments: JSON.stringify({
+        argv: ["Get-Item", "-Path", "C:\\Users\\User\\Downloads"],
+      }),
+    },
+  }),
+  JSON.stringify({
+    type: "response_item",
+    payload: {
+      type: "function_call_output",
+      call_id: "call-3",
+      output: "ok",
+    },
+  }),
 ].join("\n");
 
 const messages = parseJsonlSession(input);
 
-eq(messages.map((m) => m.type), ["user", "assistant", "tool_call", "tool_result"], "message types");
+eq(
+  messages.map((m) => m.type),
+  ["user", "assistant", "tool_call", "tool_result", "tool_call", "tool_result", "tool_call", "tool_result"],
+  "message types",
+);
 eq(messages[0].content, "make a file", "user text");
 eq(messages[1].content, "Created test.txt.", "assistant text");
-eq(messages[2].toolName, "shell", "tool name");
-eq(messages[3].content, "test", "tool output");
+eq(messages[2].toolName, "Bash", "legacy shell tool name canonicalized");
+eq(messages[4].toolName, "Bash", "function_call shell_command canonicalized");
+eq(messages[4].toolArgs, "Get-Content C:\\Users\\User\\Downloads\\foo.ps1", "command extracted from arguments JSON");
+eq(messages[6].toolArgs, "Get-Item -Path C:\\Users\\User\\Downloads", "argv array converted to command");
+eq(messages[3].content, "test", "legacy function output");
+eq(messages[5].content, "line1\nline2", "function_call output");
+eq(messages[7].content, "ok", "function_call argv output");
 assert(messages.every((m) => m.provider === "codex"), "provider marker");
 
 const contextual = parseJsonlSession(JSON.stringify({
@@ -93,6 +141,21 @@ eq(contextual.map((m) => m.type), ["system", "user"], "environment_context split
 eq(contextual[0].tagName, "environment_context", "environment_context tag");
 assert(contextual[0].content.includes("<current_date>2026-05-25</current_date>"), "environment_context content kept");
 eq(contextual[1].content, "да просто интересно как работает это вообще?", "actual user text preserved");
+
+const meta = parseJsonlSession(JSON.stringify({
+  type: "response_item",
+  timestamp: "2026-05-25T10:00:00.000Z",
+  payload: {
+    type: "message",
+    id: "meta-1",
+    role: "user",
+    isMeta: true,
+    content: [{ type: "input_text", text: "Base directory for this skill: C:\\Users\\User\\.codex\\skills\\codeterm\n\n# CodeTerm" }],
+  },
+}));
+
+eq(meta.map((m) => m.type), ["system"], "codex meta user turns render as system");
+eq(meta[0].systemSubtype, "skill_context", "codex skill meta subtype");
 
 const codexRuntimeNoise = parseJsonlSession([
   JSON.stringify({

@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import { TerminalPane } from "./TerminalPane";
 import { isPaneVisible } from "../MemoryPanel/workerFocusStore";
 import type {
@@ -49,7 +48,7 @@ export function TabContent({
 
   return (
     <PaneWrapper paneId={pane.id} isFocused={isFocused}>
-      <div className="relative w-full h-full">
+      <div className="relative w-full h-full" style={{ background: "#000" }}>
         <TerminalPane
           key={pane.id}
           paneId={pane.id}
@@ -88,23 +87,12 @@ interface PaneWrapperProps {
   children: React.ReactNode;
 }
 
-function PaneWrapper({ paneId, isFocused, children }: PaneWrapperProps) {
-  const [focusPulse, setFocusPulse] = useState(false);
-  const prevFocused = useRef(isFocused);
-
-  useEffect(() => {
-    if (isFocused && !prevFocused.current) {
-      setFocusPulse(true);
-      const t = setTimeout(() => setFocusPulse(false), 400);
-      return () => clearTimeout(t);
-    }
-    prevFocused.current = isFocused;
-  }, [isFocused]);
-
+function PaneWrapper({ paneId, children }: PaneWrapperProps) {
   return (
     <div
       data-pane-id={paneId}
-      className={`w-full h-full relative group/pane ${focusPulse ? "pane-focus-pulse" : ""}`}
+      className="w-full h-full relative group/pane"
+      style={{ outline: "none", boxShadow: "none", border: "none", background: "#000" }}
     >
       {children}
     </div>

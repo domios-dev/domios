@@ -621,6 +621,78 @@ function PlainOutput({ text, maxHeight = "12rem" }: { text: string; maxHeight?: 
   );
 }
 
+function isLargeArtifact(text: string): boolean {
+  return text.length > 2_500 || lineCount(text) > 45;
+}
+
+function artifactPreview(text: string): string {
+  const lines = text.replace(/\r/g, "").split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines.slice(0, 2).join(" · ").slice(0, 220) || "output";
+}
+
+function LongArtifact({
+  label,
+  text,
+  expanded,
+  onToggle,
+  markdown = false,
+}: {
+  label: string;
+  text: string;
+  expanded: boolean;
+  onToggle: () => void;
+  markdown?: boolean;
+}) {
+  const lines = lineCount(text);
+  return (
+    <div className="mb-2 w-full max-w-4xl min-w-0 mx-auto">
+      <div
+        className="max-w-full min-w-0 rounded-md border"
+        style={{
+          background: "color-mix(in srgb, var(--ct-surface, #161b22) 88%, transparent)",
+          borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+        }}
+      >
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-left text-xs"
+          style={{
+            color: "var(--ct-muted-fg)",
+            background: "transparent",
+            border: "none",
+          }}
+        >
+          <Info size={12} strokeWidth={2} className="shrink-0" style={{ color: "var(--ct-accent, #58a6ff)" }} />
+          <span className="shrink-0 font-mono text-[11px]" style={{ color: "var(--ct-accent, #58a6ff)" }}>
+            {label}
+          </span>
+          <span className="min-w-0 flex-1 truncate opacity-70">{artifactPreview(text)}</span>
+          <span className="shrink-0 font-mono text-[10px] opacity-50">{lines} lines</span>
+          <ChevronIcon expanded={expanded} className="shrink-0 opacity-50" />
+        </button>
+        {expanded && (
+          <div
+            className="max-h-[28rem] overflow-auto border-t px-3 py-2 text-xs"
+            style={{
+              borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 16%, transparent)",
+              color: "var(--ct-fg)",
+            }}
+          >
+            {markdown ? (
+              <div className="text-sm leading-relaxed">
+                <RichMarkdown text={text} />
+              </div>
+            ) : (
+              <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`}>{text}</pre>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function languageFromPath(path: string | null): string {
   if (!path) return "text";
   const ext = path.split(/[./\\]/).pop()?.toLowerCase();
@@ -1845,6 +1917,18 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   if (message.type === "system" || message.type === "local_command") {
     const label = message.tagName || message.systemSubtype || "system";
     const isCaveat = message.tagName === "local-command-caveat";
+    const isSkillContext = message.systemSubtype === "skill_context";
+    if (isSkillContext || isLargeArtifact(message.content)) {
+      return (
+        <LongArtifact
+          label={isSkillContext ? "skill context" : label}
+          text={message.content}
+          expanded={expanded}
+          onToggle={() => setExpanded(!expanded)}
+          markdown={isSkillContext || /\.md\b/i.test(label)}
+        />
+      );
+    }
     return (
       <div className="mb-2 w-full max-w-4xl min-w-0 mx-auto">
         <div
@@ -2030,6 +2114,16 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
   // Tool result — subtle, compact
   if (message.type === "tool_result") {
+    if (isLargeArtifact(message.content)) {
+      return (
+        <LongArtifact
+          label="tool result"
+          text={message.content}
+          expanded={expanded}
+          onToggle={() => setExpanded(!expanded)}
+        />
+      );
+    }
     const contentLines = message.content.split("\n");
     const preview = contentLines.slice(0, 2).join("\n");
     const hasMore = contentLines.length > 2;

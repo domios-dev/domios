@@ -20,6 +20,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import {
   getClientPaneUiMode,
   listenClientPaneUiMode,
+  publishCurrentPaneUiMode,
   setClientPaneUiMode,
 } from "../../lib/clientPaneUiMode";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
@@ -201,6 +202,9 @@ export function TerminalPane({
   // default, bridge requests). Persisting every computed uiMode here used to
   // erase the spawn-flow's "chat" with the pre-agent_type "terminal" and its
   // echo got recorded as a user override — pinning new panes to terminal.
+  useEffect(() => {
+    publishCurrentPaneUiMode(paneId, uiMode);
+  }, [paneId, uiMode]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -382,6 +386,9 @@ export function TerminalPane({
       style={{
         boxSizing: "border-box",
         borderTop: hasSplits ? `1px solid ${topAccent}` : "none",
+        outline: "none",
+        boxShadow: "none",
+        background: "#000",
         transition: bellFlash ? "border-color 0.1s ease-in" : "border-color 0.15s ease-out",
       }}
       onMouseDown={handleClick}
@@ -447,7 +454,7 @@ export function TerminalPane({
             : "none",
           borderTop: mobileSheet ? "none" : undefined,
           borderBottom: mobileSheet ? "none" : undefined,
-          background: "var(--ct-bg, #0d1117)",
+          background: "#000",
           visibility: terminalVisible ? "visible" : "hidden",
           pointerEvents: terminalVisible ? "auto" : "none",
           zIndex: terminalFallbackOpen ? 4 : uiMode === "terminal" ? 1 : 0,
@@ -462,13 +469,13 @@ export function TerminalPane({
             : "absolute inset-0 overflow-hidden"
           }
           style={{
-            padding: 8,
+            padding: fallbackChat || showTerminalKeyBar ? 8 : 0,
             paddingTop: touchUi && uiMode === "terminal"
               ? "calc(1.25rem + var(--ct-safe-top, 0px))"
-              : 8,
+              : fallbackChat || showTerminalKeyBar ? 8 : 0,
             opacity: shell.overlayVisible ? 0 : 1,
             transition: "opacity 0.3s ease-in",
-            background: "var(--ct-bg, #0d1117)",
+            background: "#000",
           }}
           onClick={() => termRef.current?.focus()}
         >
@@ -480,7 +487,7 @@ export function TerminalPane({
             style={{
               paddingBottom: "var(--ct-composer-bottom-padding, 0.5rem)",
               borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 24%, transparent)",
-              background: "var(--ct-bg, #0d1117)",
+              background: "#000",
             }}
           >
             {terminalKeyBar}
