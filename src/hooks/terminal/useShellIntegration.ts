@@ -61,7 +61,7 @@ export function useShellIntegration({
       if (!cmd) return true;
       pendingCommandFired.current = true;
       console.log(`[spawn] Firing pending command in pane ${paneId}: ${cmd}`);
-      invoke("write_pty_string", { ptyId: ptyIdNow, data: cmd + "\r" });
+      invoke("write_pty_string", { ptyId: ptyIdNow, data: cmd + "\r", raw: false });
       return true;
     };
 

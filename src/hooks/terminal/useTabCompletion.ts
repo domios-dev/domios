@@ -60,7 +60,7 @@ export function useTabCompletion({
         const erase = "\x7f".repeat(eraseCount);
         const insert = items[0].text + " ";
         const ptyId = connectedPtyRef.current;
-        if (ptyId) invoke("write_pty_string", { ptyId, data: erase + insert });
+        if (ptyId) invoke("write_pty_string", { ptyId, data: erase + insert, raw: false });
         tracker.feed(erase + insert);
         return true;
       }
@@ -96,7 +96,7 @@ export function useTabCompletion({
     const erase = "\x7f".repeat(eraseCount);
     const insert = item.text + " ";
     const ptyId = connectedPtyRef.current;
-    if (ptyId) invoke("write_pty_string", { ptyId, data: erase + insert });
+    if (ptyId) invoke("write_pty_string", { ptyId, data: erase + insert, raw: false });
     tracker?.feed(erase + insert);
     setCompletionItems([]);
   }, [connectedPtyRef]);

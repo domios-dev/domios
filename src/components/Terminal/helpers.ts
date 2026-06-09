@@ -1,5 +1,8 @@
 import type { ThemeConfig } from "../../lib/types";
 
+const TERMINAL_BACKGROUND = "#000000";
+const TERMINAL_MUTED_LINE = "#111111";
+
 /** Map config cursor_style string to xterm CursorStyle */
 export function mapCursorStyle(style?: string): "block" | "underline" | "bar" {
   if (style === "underline") return "underline";
@@ -11,11 +14,11 @@ export function mapCursorStyle(style?: string): "block" | "underline" | "bar" {
 export function buildXtermTheme(theme?: ThemeConfig) {
   if (!theme) {
     return {
-      background: "#0d1117",
+      background: TERMINAL_BACKGROUND,
       foreground: "#c9d1d9",
       cursor: "#58a6ff",
       selectionBackground: "#264f78",
-      black: "#0d1117",
+      black: TERMINAL_BACKGROUND,
       red: "#ff7b72",
       green: "#7ee787",
       yellow: "#d29922",
@@ -23,7 +26,7 @@ export function buildXtermTheme(theme?: ThemeConfig) {
       magenta: "#bc8cff",
       cyan: "#39d353",
       white: "#c9d1d9",
-      brightBlack: "#484f58",
+      brightBlack: TERMINAL_MUTED_LINE,
       brightRed: "#ffa198",
       brightGreen: "#56d364",
       brightYellow: "#e3b341",
@@ -34,11 +37,11 @@ export function buildXtermTheme(theme?: ThemeConfig) {
     };
   }
   return {
-    background: theme.background,
+    background: TERMINAL_BACKGROUND,
     foreground: theme.foreground,
     cursor: theme.cursor,
     selectionBackground: theme.selection,
-    black: theme.black,
+    black: TERMINAL_BACKGROUND,
     red: theme.red,
     green: theme.green,
     yellow: theme.yellow,
@@ -46,7 +49,7 @@ export function buildXtermTheme(theme?: ThemeConfig) {
     magenta: theme.magenta,
     cyan: theme.cyan,
     white: theme.white,
-    brightBlack: theme.bright_black,
+    brightBlack: TERMINAL_MUTED_LINE,
     brightRed: theme.bright_red,
     brightGreen: theme.bright_green,
     brightYellow: theme.bright_yellow,

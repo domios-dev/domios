@@ -774,9 +774,9 @@ export function PaneSessionChat({
       if (fallbackCommand) {
         if (!currentPtyId) throw new Error("Pane has no PTY");
         onOpenTerminalFallback?.();
-        await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand });
+        await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
       } else {
-        await invoke("chat_send_text", { paneId, text: composed, enter: true });
+        await invoke("write_pty_string", { ptyId: currentPtyId, data: composed + "\r", raw: false });
       }
     } catch (e) {
       showComposerError(e instanceof Error ? e.message : String(e));
@@ -861,7 +861,7 @@ export function PaneSessionChat({
   const sendRawToPty = useCallback(
     async (data: string) => {
       if (!currentPtyId) throw new Error("Pane has no PTY");
-      await invoke("write_pty_string", { ptyId: currentPtyId, data });
+      await invoke("write_pty_string", { ptyId: currentPtyId, data, raw: false });
     },
     [currentPtyId],
   );

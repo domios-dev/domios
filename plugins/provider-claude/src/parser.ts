@@ -112,6 +112,16 @@ function parseUserEntry(
     }
     const content = textParts.join("\n");
     if (content || attachments.length > 0) {
+      if (content && attachments.length === 0 && isMetaTextEntry(entry)) {
+        messages.push({
+          id: (uuid as string) || `meta-${messages.length}`,
+          type: "system",
+          content: content.trim(),
+          timestamp,
+          systemSubtype: metaSubtype(entry, content),
+        });
+        return;
+      }
       messages.push({
         id: `${uuid || "user"}-text-${messages.length}`,
         type: "user",
@@ -128,6 +138,16 @@ function parseUserEntry(
         messages.push(local);
         return;
       }
+      if (isMetaTextEntry(entry)) {
+        messages.push({
+          id: (uuid as string) || `meta-${messages.length}`,
+          type: "system",
+          content: content.trim(),
+          timestamp,
+          systemSubtype: metaSubtype(entry, content),
+        });
+        return;
+      }
       messages.push({
         id: (uuid as string) || `user-${messages.length}`,
         type: "user",
@@ -136,6 +156,17 @@ function parseUserEntry(
       });
     }
   }
+}
+
+function isMetaTextEntry(entry: Record<string, unknown>): boolean {
+  return entry.isMeta === true;
+}
+
+function metaSubtype(entry: Record<string, unknown>, content: string): string {
+  if (content.trimStart().startsWith("Base directory for this skill:")) return "skill_context";
+  const toolResult = entry.toolUseResult as Record<string, unknown> | undefined;
+  const commandName = typeof toolResult?.commandName === "string" ? toolResult.commandName : "";
+  return commandName ? `${commandName}_meta` : "meta";
 }
 
 function parseSystemEntry(
