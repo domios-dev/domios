@@ -27,3 +27,5 @@ src-tauri/bundled-embed-libs/
 !/.claude/skills/
 !/.claude/settings.local.json
 test-results/
+.qa-*.json
+.qa-read.py
