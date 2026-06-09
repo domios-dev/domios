@@ -109,6 +109,12 @@ impl AgentProvider for ClaudeProvider {
             || lower.contains("for shortcuts")
             || lower.contains("ctrl+l")
             || lower.contains("esc to interrupt")
+            // v2.1+ idle footer ("⏵⏵ bypass permissions on (shift+tab to cycle)")
+            || lower.contains("bypass permissions")
+            || lower.contains("shift+tab to cycle")
+            // Banner logo quadrant blocks — never in plain shell output.
+            || screen_text.contains('▛')
+            || screen_text.contains('▜')
     }
 
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
