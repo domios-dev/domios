@@ -108,6 +108,11 @@ pub struct SpawnConfig {
     pub supports_lazy_skills: bool,
     #[serde(default)]
     pub has_hooks: bool,
+    /// TUI command that prints the account usage screen (e.g. claude `/usage`,
+    /// codex `/status`). Pairs with the plugin's `parseUsage` export; the
+    /// usage poller skips providers without both.
+    #[serde(default)]
+    pub usage_probe_command: Option<String>,
 }
 
 /// Mirror of `crate::agent::provider::ReadinessStrategy` with snake_case

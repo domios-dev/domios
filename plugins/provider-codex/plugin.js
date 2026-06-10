@@ -216,6 +216,27 @@ module.exports.default = {
     return candidates[0].sid;
   },
 
+  // Parse the `/status` TUI screen into a UsageSnapshot-shaped object
+  // (snake_case fields). Gauges report "% left"; snapshot stores "% used".
+  parseUsage: function (rawText, nowMs) {
+    var raw = String(rawText || "");
+    if (!raw.trim()) return null;
+    var text = raw.split("\r").join("").split("█").join(" ").split("░").join(" ");
+    var session = codexParseGauge(text, "5h\\s*limit", false, nowMs);
+    var weekly = codexParseGauge(text, "Weekly\\s*limit", true, nowMs);
+    if (session.pct === null && weekly.pct === null) return null;
+    return {
+      provider: "codex",
+      account_id: null,
+      captured_at_ms: nowMs,
+      session_pct: session.pct,
+      session_resets_at_ms: session.resetsMs,
+      weekly_pct: weekly.pct,
+      weekly_resets_at_ms: weekly.resetsMs,
+      raw_text: raw,
+    };
+  },
+
   detectActiveSession: function (cwd, currentSid) {
     var root = codexSessionsRoot();
     if (!root || !host.fs.fileExists(root)) return null;
@@ -390,3 +411,52 @@ var readSessionMeta = function (path) {
     cwd: typeof p.cwd === "string" ? p.cwd : null,
   };
 };
+
+// ── /status screen parsing (port of native status_tui) ──────────────
+
+function codexParseGauge(text, marker, isWeekly, nowMs) {
+  var re = new RegExp(
+    marker + "[\\s\\S]{0,200}?(\\d+(?:\\.\\d+)?)\\s*%\\s*left[\\s\\S]*?\\(resets?\\s+([^)]+?)\\)",
+  );
+  var caps = re.exec(text);
+  if (!caps) return { pct: null, resetsMs: null };
+  var left = parseFloat(caps[1]);
+  var pct = isNaN(left) ? null : Math.min(100, Math.max(0, 100 - left));
+  var resetsRaw = (caps[2] || "").trim();
+  var resetsMs = isWeekly
+    ? codexParseWeeklyResets(resetsRaw, nowMs)
+    : codexParseSessionResets(resetsRaw, nowMs);
+  return { pct: pct, resetsMs: resetsMs };
+}
+
+function codexParseSessionResets(raw, nowMs) {
+  var m = /(\d{1,2}):(\d{2})/.exec(String(raw || "").trim());
+  if (!m) return null;
+  var hh = parseInt(m[1], 10), mm = parseInt(m[2], 10);
+  var now = new Date(nowMs);
+  var cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
+  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1000);
+  return cand.getTime();
+}
+
+var CODEX_MONTHS = {
+  jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3,
+  may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7,
+  sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10,
+  dec: 11, december: 11,
+};
+
+function codexParseWeeklyResets(raw, nowMs) {
+  var m = /(\d{1,2}):(\d{2})\s+on\s+(\d{1,2})\s+([A-Za-z]+)/.exec(String(raw || "").trim());
+  if (!m) return null;
+  var hh = parseInt(m[1], 10), mm = parseInt(m[2], 10);
+  var day = parseInt(m[3], 10);
+  var month = CODEX_MONTHS[m[4].toLowerCase()];
+  if (month === undefined) return null;
+  var now = new Date(nowMs);
+  var cand = new Date(now.getFullYear(), month, day, hh, mm, 0, 0);
+  if (cand.getTime() <= nowMs) {
+    cand = new Date(now.getFullYear() + 1, month, day, hh, mm, 0, 0);
+  }
+  return cand.getTime();
+}
