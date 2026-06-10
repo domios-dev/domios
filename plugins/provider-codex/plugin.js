@@ -94,7 +94,8 @@ module.exports.default = {
       }
     }
     if (p.args && p.args.length > 0) {
-      for (var i = 0; i < p.args.length; i++) parts.push(p.args[i]);
+      // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
+      for (var i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     return parts.join(" ");
   },

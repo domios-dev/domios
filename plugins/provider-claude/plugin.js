@@ -207,7 +207,9 @@ module.exports.default = {
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
     if (p.args && p.args.length > 0) {
-      for (var i = 0; i < p.args.length; i++) parts.push(p.args[i]);
+      // Quote each arg — they reach a shell, and `args` is caller-supplied via
+      // the spawn API (a mesh peer with SpawnAgents could inject `; cmd`).
+      for (var i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     return parts.join(" ");
   },
