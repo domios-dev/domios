@@ -109,6 +109,41 @@ pub struct JsProvider {
     /// `describe()` (called on every /api/agents/providers poll) re-evaluated
     /// them through QuickJS every time — a profiled CPU hot path. Compute once.
     schema_cache: std::sync::OnceLock<(Vec<SettingField>, Vec<SettingField>)>,
+    /// VM-backed usage parser, built once when the plugin exports `parseUsage`.
+    /// `usage_parser()` hands out a reference, so the adapter must live on the
+    /// provider.
+    usage_parser_cell: std::sync::OnceLock<Option<VmUsageParser>>,
+}
+
+/// Bridges the `UsageParser` trait to a plugin's `parseUsage(rawText, nowMs)`
+/// export. The plugin returns a `UsageSnapshot`-shaped object (snake_case
+/// fields) or null when nothing was recognized.
+struct VmUsageParser {
+    vm: Arc<PluginVm>,
+    plugin_id: String,
+}
+
+impl crate::agent::usage_parser::UsageParser for VmUsageParser {
+    fn parse(
+        &self,
+        raw_text: &str,
+    ) -> Result<crate::agent::usage_parser::UsageSnapshot, crate::agent::usage_parser::UsageParseError>
+    {
+        use crate::agent::usage_parser::UsageParseError;
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        match call_json::<Option<crate::agent::usage_parser::UsageSnapshot>>(
+            &self.vm,
+            "parseUsage",
+            &[json!(raw_text), json!(now_ms)],
+        ) {
+            Ok(Some(snap)) => Ok(snap),
+            Ok(None) => Err(UsageParseError::NothingFound),
+            Err(e) => Err(UsageParseError::Other(format!(
+                "[plugin {}] parseUsage failed: {e}",
+                self.plugin_id
+            ))),
+        }
+    }
 }
 
 impl JsProvider {
@@ -137,6 +172,7 @@ impl JsProvider {
             trust,
             registry: None,
             schema_cache: std::sync::OnceLock::new(),
+            usage_parser_cell: std::sync::OnceLock::new(),
         }
     }
 
@@ -772,6 +808,22 @@ impl AgentProvider for JsProvider {
 
     fn trust(&self) -> ProviderTrust {
         self.trust
+    }
+
+    fn usage_probe_command(&self) -> Option<&str> {
+        self.manifest.spawn.usage_probe_command.as_deref()
+    }
+
+    fn usage_parser(&self) -> Option<&dyn crate::agent::usage_parser::UsageParser> {
+        self.usage_parser_cell
+            .get_or_init(|| {
+                self.has_js("parseUsage").then(|| VmUsageParser {
+                    vm: self.vm.clone(),
+                    plugin_id: self.manifest.id.clone(),
+                })
+            })
+            .as_ref()
+            .map(|p| p as &dyn crate::agent::usage_parser::UsageParser)
     }
 
     fn model_switch_format(&self) -> Option<&str> {

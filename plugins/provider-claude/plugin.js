@@ -251,6 +251,30 @@ module.exports.default = {
     return null;
   },
 
+  // Parse the `/usage` TUI screen into a UsageSnapshot-shaped object
+  // (snake_case fields, matching the Rust struct). Returns null when nothing
+  // recognizable was found.
+  parseUsage: function (rawText, nowMs) {
+    var raw = String(rawText || "");
+    if (!raw.trim()) return null;
+    var text = usageNormalize(raw);
+
+    var session = usageParseBlock(text, "Current session", false, nowMs);
+    var weekly = usageParseBlock(text, "Current week\\s*\\(\\s*all\\s*models\\s*\\)", true, nowMs);
+
+    if (session.pct === null && weekly.pct === null) return null;
+    return {
+      provider: "claude",
+      account_id: null,
+      captured_at_ms: nowMs,
+      session_pct: session.pct,
+      session_resets_at_ms: session.resetsMs,
+      weekly_pct: weekly.pct,
+      weekly_resets_at_ms: weekly.resetsMs,
+      raw_text: raw,
+    };
+  },
+
   // Parse `user`/`assistant` lines and map content blocks to SessionMessage.
   parseSessionMessages: function (text) {
     var out = [];
@@ -631,4 +655,88 @@ function isCodetermHook(entry) {
     }
   }
   return false;
+}
+
+// ── /usage screen parsing (port of the native usage_tui module) ─────────
+
+function usageNormalize(raw) {
+  var out = "";
+  for (var i = 0; i < raw.length; i++) {
+    var ch = raw[i];
+    if (ch === "\u001b" || ch === "\r") continue;
+    if ("█▌▍▎▏▊▋".indexOf(ch) !== -1) { out += " "; continue; }
+    out += ch;
+  }
+  return out;
+}
+
+function usageParseBlock(text, marker, isWeekly, nowMs) {
+  var re = new RegExp(
+    marker + "[\\s\\S]{0,800}?(\\d+(?:\\.\\d+)?)\\s*%\\s*used[\\s\\S]*?Resets?\\s*([^()\\n]+?)\\s*\\(",
+  );
+  var caps = re.exec(text);
+  if (!caps) return { pct: null, resetsMs: null };
+  var pct = parseFloat(caps[1]);
+  if (isNaN(pct)) pct = null;
+  var timeRaw = (caps[2] || "").trim();
+  var resetsMs = isWeekly
+    ? usageParseMonthDayClock(timeRaw, nowMs)
+    : usageParseTodayClock(timeRaw, nowMs);
+  return { pct: pct, resetsMs: resetsMs };
+}
+
+function usageParseHMmAmPm(s) {
+  s = String(s || "").trim().toLowerCase();
+  var pm;
+  if (s.slice(-2) === "pm") pm = true;
+  else if (s.slice(-2) === "am") pm = false;
+  else return null;
+  var stripped = s.slice(0, -2).trim();
+  var hh, mm;
+  var idx = stripped.indexOf(":");
+  if (idx !== -1) {
+    hh = parseInt(stripped.slice(0, idx).trim(), 10);
+    mm = parseInt(stripped.slice(idx + 1).trim(), 10);
+  } else {
+    hh = parseInt(stripped, 10);
+    mm = 0;
+  }
+  if (isNaN(hh) || isNaN(mm) || hh === 0 || hh > 12 || mm > 59) return null;
+  return { hh: hh, mm: mm, pm: pm };
+}
+
+function usageParseTodayClock(s, nowMs) {
+  var t = usageParseHMmAmPm(s);
+  if (!t) return null;
+  var hour24 = (t.hh % 12) + (t.pm ? 12 : 0);
+  var now = new Date(nowMs);
+  var cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour24, t.mm, 0, 0);
+  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1000);
+  return cand.getTime();
+}
+
+var USAGE_MONTHS = {
+  jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3,
+  may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7,
+  sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10,
+  dec: 11, december: 11,
+};
+
+function usageParseMonthDayClock(s, nowMs) {
+  var parts = String(s || "").trim().toLowerCase().split(/\s+/);
+  if (parts.length < 4) return null;
+  var month = USAGE_MONTHS[parts[0]];
+  if (month === undefined) return null;
+  var day = parseInt(parts[1], 10);
+  if (isNaN(day)) return null;
+  if (parts[2] !== "at") return null;
+  var t = usageParseHMmAmPm(parts.slice(3).join(" "));
+  if (!t) return null;
+  var hour24 = (t.hh % 12) + (t.pm ? 12 : 0);
+  var now = new Date(nowMs);
+  var cand = new Date(now.getFullYear(), month, day, hour24, t.mm, 0, 0);
+  if (cand.getTime() < nowMs) {
+    cand = new Date(now.getFullYear() + 1, month, day, hour24, t.mm, 0, 0);
+  }
+  return cand.getTime();
 }
