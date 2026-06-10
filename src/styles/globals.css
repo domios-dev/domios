@@ -185,11 +185,9 @@ body {
     min-height: 1.575rem !important;
   }
 
-  button.min-h-\[44px\],
-  a.min-h-\[44px\],
-  .min-h-\[44px\][role="button"] {
-    min-height: 1.575rem !important;
-  }
+  /* Arbitrary-value sizes like h-[44px]/min-h-[44px] are deliberate touch
+     targets (44px Apple HIG) — never shrink them here; only the standard
+     design-system scale below gets compacted on phone. */
 
   button.h-10,
   a.h-10,
@@ -201,18 +199,6 @@ body {
   a.h-11,
   .h-11[role="button"] {
     height: 1.925rem !important;
-  }
-
-  button.h-[44px],
-  a.h-[44px],
-  .h-\[44px\][role="button"] {
-    height: 30.8px !important;
-  }
-
-  button.h-[45px],
-  a.h-[45px],
-  .h-\[45px\][role="button"] {
-    height: 1.575rem !important;
   }
 
   button.h-7,
