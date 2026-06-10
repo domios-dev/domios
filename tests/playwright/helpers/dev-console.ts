@@ -159,6 +159,16 @@ export async function connectUi(): Promise<UiSession> {
           throw new Error("no page exposed over CDP — dev console window missing?");
         })();
       await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+      // Pin terminal mode: if a prior run (or the user) enabled the chat-UI
+      // default, new agent panes open in chat and hide their xterm, so the
+      // terminal-DOM assertions would read an empty accessibility tree.
+      await page.evaluate(() => {
+        try {
+          localStorage.setItem("codeterm-chat-ui-default-enabled", "false");
+        } catch {
+          /* localStorage may be unavailable; tests that need it will surface it */
+        }
+      });
       // First terminal mounts after session restore + PTY spawn. A pane left in
       // chat-view hides its xterm and shows the composer — both prove the shell
       // is alive.
