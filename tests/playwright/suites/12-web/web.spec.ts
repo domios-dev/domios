@@ -191,7 +191,7 @@ test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker re
   await page.context().close();
 });
 
-test("@golden fully live on mobile: General Agent responds, read from rendered terminal DOM", async () => {
+test("@golden fully live on mobile: General Agent responds, read from the rendered DOM", async () => {
   test.setTimeout(300_000);
   const page = await newWebPage({ width: 375, height: 812 });
   // Runtime a11y opt-in gives the browser terminal a readable DOM.
@@ -217,10 +217,15 @@ test("@golden fully live on mobile: General Agent responds, read from rendered t
     });
     agentPaneId = spawned.pane_id;
 
+    // Mobile defaults supported agent panes to chat mode, so the reply may
+    // render as a chat bubble instead of xterm a11y text — accept either.
     await page.waitForFunction(
       (m) =>
         Array.from(document.querySelectorAll(".xterm-accessibility")).some((tree) =>
           (tree.textContent ?? "").includes(m),
+        ) ||
+        Array.from(document.querySelectorAll('[data-testid="chat-message"]')).some(
+          (bubble) => (bubble.textContent ?? "").includes(m),
         ),
       marker,
       { timeout: 240_000, polling: 1_000 },
