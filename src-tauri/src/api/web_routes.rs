@@ -63,6 +63,14 @@ pub async fn pane_chat_view(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state.svc.set_chat_view(&pane_id, body.enabled);
+    // Explicit API request = remote-control command (bridge / agents / tests):
+    // broadcast so connected clients flip the pane's view. The in-client
+    // toggle stays client-local on purpose (multi-client isolation).
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "pane-chat-view",
+        serde_json::json!({ "pane_id": pane_id, "enabled": body.enabled }),
+    );
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -215,6 +223,15 @@ pub async fn pty_read(
 #[derive(Deserialize)]
 pub(crate) struct PtyWriteBody {
     data: String,
+    /// Mirrors the Tauri command: raw=false means "composed text" — bracket
+    /// paste + verified Enter for agent panes. Defaults to true (xterm
+    /// keystroke stream).
+    #[serde(default = "default_true")]
+    raw: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 pub async fn pty_write(
@@ -224,8 +241,22 @@ pub async fn pty_write(
     Json(body): Json<PtyWriteBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    crate::commands::write_pty_string_core(&state.svc, pty_id, body.data)
+    if body.raw {
+        crate::commands::write_pty_string_core(&state.svc, pty_id, body.data)
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    } else {
+        // Verified injection blocks (drain-checked Enter retries) — keep it
+        // off the async runtime.
+        let svc = state.svc.clone();
+        tokio::task::spawn_blocking(move || {
+            let text_stripped = body.data.trim_end_matches('\r');
+            let enter = text_stripped.len() != body.data.len();
+            svc.send_text_to_pty_smart(&pty_id, text_stripped, enter)
+        })
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("send task failed: {e}")))?
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    }
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

@@ -60,7 +60,55 @@ impl ServiceContext {
         self.ensure_pane_pty_for_send(pane_id)?;
         self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
         let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
-        self.send_text_to_pty(&pty_id, text, enter)
+
+        self.send_text_to_pty_smart(&pty_id, text, enter)
+    }
+
+    /// Verified injection for agent panes, naive paste for shells. A
+    /// freshly-booted TUI can swallow the naive path's single fire-and-forget
+    /// `\r`, leaving the message typed-but-never-submitted (the chat composer
+    /// "no reply" bug); the verified path re-sends Enter until the TUI input
+    /// drains. Blocking — call from sync context or spawn_blocking.
+    pub fn send_text_to_pty_smart(
+        &self,
+        pty_id: &str,
+        text: &str,
+        enter: bool,
+    ) -> Result<(), String> {
+        let (pane_id, agent_type) = {
+            let mux = self.mux.lock();
+            match mux.pane_id_for_pty(pty_id) {
+                Some(pid) => {
+                    let at = mux.get_pane(&pid).and_then(|p| p.agent_type.clone());
+                    (Some(pid), at)
+                }
+                None => (None, None),
+            }
+        };
+        // A booting TUI silently swallows bracket-paste — wait it out, else the
+        // chat composer's message vanishes with no error (web "no reply" bug).
+        if let Some(ref pid) = pane_id {
+            self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
+        }
+        if let Some(ref agent_id) = agent_type {
+            let strategy = self
+                .agent_registry
+                .with_provider(agent_id, |p| p.verify_submit_strategy())
+                .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
+            let opts = crate::service::inject_verify::VerifyOpts {
+                // Wait for the TUI input cursor (❯) before pasting — a TUI that
+                // is up but not yet accepting input drops bracket-paste silently.
+                require_prompt_first: true,
+                prompt_timeout: std::time::Duration::from_secs(30),
+                verify_echo: false,
+                ..Default::default()
+            };
+            return self
+                .send_text_verified(pty_id, text, enter, strategy, opts)
+                .map(|_| ())
+                .map_err(|e| e.to_string());
+        }
+        self.send_text_to_pty(pty_id, text, enter)
     }
 
     /// `send_text` that first waits out an in-flight agent boot. A booting
@@ -452,14 +500,15 @@ impl ServiceContext {
 
         // Enter ALWAYS fires when the caller asked for it. This is the load-bearing line — no early-return above this point can skip it unless the PTY is already gone.
         let submit_observed = if enter {
-            // Up to 2 Enter attempts: a single \r is sometimes swallowed by a
-            // TUI still ingesting the bracket paste (notably opencode). On a
-            // verify timeout we re-send \r so the message actually submits —
-            // this is the "typed but not sent" fix.
+            // Escalating Enter attempts: a `\r` is swallowed by a TUI still
+            // ingesting the bracket paste (opencode) or still arming its input
+            // handler right after boot (claude) — observed needing a third
+            // Enter seconds later. On a verify timeout we re-send \r with a
+            // longer settle so the message actually submits.
+            const SETTLE_MS: [u64; 4] = [120, 600, 1500, 3000];
             let mut observed = false;
-            for attempt in 0..2 {
-                // Brief settle: TUIs buffer bracket paste async; a same-instant \r can be eaten.
-                std::thread::sleep(std::time::Duration::from_millis(120));
+            for attempt in 0..SETTLE_MS.len() {
+                std::thread::sleep(std::time::Duration::from_millis(SETTLE_MS[attempt]));
                 self.pty
                     .lock()
                     .write(pty_id, b"\r")
@@ -499,10 +548,11 @@ impl ServiceContext {
                         return Err(InjectionError::PtyClosed { pty_id: id });
                     }
                     Err(HelperErr::Timeout(_)) => {
-                        log::debug!(
-                            "submit verify timed out for pty {} (attempt {}); re-sending Enter",
-                            pty_id,
-                            attempt + 1
+                        log::info!(
+                            "[inject] submit verify timed out for pty {} (attempt {}/{}); re-sending Enter",
+                            &pty_id[..pty_id.len().min(8)],
+                            attempt + 1,
+                            SETTLE_MS.len(),
                         );
                     }
                 }
