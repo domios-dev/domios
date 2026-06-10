@@ -132,6 +132,8 @@ struct Inner {
     bundle_source: String,
     // Manifest JSON string returned to the plugin via `host.manifest()`. Preserved across reload so the post-reload plugin still sees its declared paths.
     manifest_json: Option<String>,
+    // FS/env policy for this plugin's host calls. Preserved across reload.
+    sandbox: std::sync::Arc<super::host_api::PluginSandbox>,
 }
 
 impl PluginVm {
@@ -150,6 +152,22 @@ impl PluginVm {
         Self::from_source(plugin_id, source)
     }
 
+    /// Like `load_with_manifest` but with an explicit sandbox policy. Used by
+    /// the loader, which knows whether the plugin is bundled (unrestricted) or
+    /// a user drop-in (confined).
+    pub fn load_with_manifest_sandboxed(
+        plugin_id: &str,
+        plugin_js_path: &Path,
+        manifest_json: String,
+        sandbox: std::sync::Arc<super::host_api::PluginSandbox>,
+    ) -> Result<Self, VmError> {
+        let source = std::fs::read_to_string(plugin_js_path).map_err(|e| VmError::ReadFile {
+            path: plugin_js_path.display().to_string(),
+            source: e,
+        })?;
+        Self::from_source_sandboxed(plugin_id, source, Some(manifest_json), sandbox)
+    }
+
     /// Same as `load` but with the manifest JSON also installed so the
     /// plugin can read its own declared paths via `host.manifest()`.
     pub fn load_with_manifest(
@@ -165,7 +183,7 @@ impl PluginVm {
     }
 
     /// Same as `load` but takes the source string directly — used in
-    /// tests and by the in-repo bundled plugin loader.
+    /// tests and by the in-repo bundled plugin loader. Unrestricted host access.
     pub fn from_source(plugin_id: &str, bundle_source: String) -> Result<Self, VmError> {
         Self::from_source_with(plugin_id, bundle_source, None)
     }
@@ -174,10 +192,26 @@ impl PluginVm {
     /// read back at runtime through `host.manifest()`. Lets plugin
     /// functions resolve their own declared paths (rule.path, sessions.rootDir,
     /// etc.) without us threading those through every call site.
+    /// Unrestricted host access (tests, bundled in-repo loader). For a
+    /// confined drop-in plugin, use `from_source_sandboxed`.
     pub fn from_source_with(
         plugin_id: &str,
         bundle_source: String,
         manifest_json: Option<String>,
+    ) -> Result<Self, VmError> {
+        Self::from_source_sandboxed(
+            plugin_id,
+            bundle_source,
+            manifest_json,
+            std::sync::Arc::new(super::host_api::PluginSandbox::unrestricted()),
+        )
+    }
+
+    pub fn from_source_sandboxed(
+        plugin_id: &str,
+        bundle_source: String,
+        manifest_json: Option<String>,
+        sandbox: std::sync::Arc<super::host_api::PluginSandbox>,
     ) -> Result<Self, VmError> {
         let rt = Runtime::new().map_err(|e| VmError::RuntimeInit(e.to_string()))?;
         let ctx = Context::full(&rt).map_err(|e| VmError::RuntimeInit(e.to_string()))?;
@@ -200,8 +234,9 @@ impl PluginVm {
         );
 
         let manifest_for_install = manifest_json.clone();
+        let sandbox_for_install = sandbox.clone();
         ctx.with(|ctx| -> Result<(), VmError> {
-            super::host_api::install(&ctx, manifest_for_install.as_deref())?;
+            super::host_api::install(&ctx, manifest_for_install.as_deref(), sandbox_for_install)?;
             ctx.eval::<(), _>(PLUGIN_PREAMBLE)
                 .catch(&ctx)
                 .map_err(|e| VmError::Script(format!("preamble: {e:?}")))?;
@@ -217,6 +252,7 @@ impl PluginVm {
                 _rt: rt,
                 bundle_source,
                 manifest_json,
+                sandbox,
             }),
             plugin_id: plugin_id.to_string(),
         })
@@ -247,8 +283,9 @@ impl PluginVm {
             source = new_source
         );
         let manifest_for_install = inner.manifest_json.clone();
+        let sandbox_for_install = inner.sandbox.clone();
         ctx.with(|ctx| -> Result<(), VmError> {
-            super::host_api::install(&ctx, manifest_for_install.as_deref())?;
+            super::host_api::install(&ctx, manifest_for_install.as_deref(), sandbox_for_install)?;
             ctx.eval::<(), _>(PLUGIN_PREAMBLE)
                 .catch(&ctx)
                 .map_err(|e| VmError::Script(format!("preamble: {e:?}")))?;
