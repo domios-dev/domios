@@ -486,9 +486,17 @@ pub async fn write_pty_string(
         write_pty_string_core(&svc, pty_id, data)
     } else {
         // Bracketed paste with sacrificial space on Windows — see build_spawn_dispatch.
-        // Trailing \r in data is detected and sent via send_text_to_pty's delayed enter path.
-        let text_stripped = data.trim_end_matches('\r');
-        svc.send_text_to_pty(&pty_id, text_stripped, text_stripped.len() != data.len())
+        // Trailing \r is stripped and submitted as Enter; agent panes go through
+        // the verified injector (drain-checked Enter retry), which blocks — keep
+        // it off the async runtime.
+        let svc = svc.inner().clone();
+        tokio::task::spawn_blocking(move || {
+            let text_stripped = data.trim_end_matches('\r');
+            let enter = text_stripped.len() != data.len();
+            svc.send_text_to_pty_smart(&pty_id, text_stripped, enter)
+        })
+        .await
+        .map_err(|e| format!("send task failed: {e}"))?
     }
 }
 
