@@ -29,11 +29,11 @@ import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
 import { PaneSessionChat } from "./PaneSessionChat";
 import {
-  isChatUiSupported,
   isPaneUiModeEvent,
   shouldDefaultNewAgentPaneToChat,
   type PaneUiMode,
 } from "../../lib/chatUiMode";
+import { useAgentDescriptor } from "../../lib/agentDescriptorCache";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
 
@@ -69,7 +69,10 @@ export function TerminalPane({
   const agentType = pane?.agent_type;
   // No session-readiness gate: PaneSessionChat renders an empty chat for fresh
   // panes and binds the session when the mux reports its id.
-  const chatSupported = isChatUiSupported(agentType);
+  // Reactive descriptor read — descriptors load async after mount; a plain
+  // cache read would freeze chatSupported=false for panes rendered first.
+  const agentDescriptor = useAgentDescriptor(agentType);
+  const chatSupported = agentDescriptor?.supports_chat_ui === true;
   const [mobileWebDefaultChat, setMobileWebDefaultChat] = useState(() =>
     IS_WEB && typeof window !== "undefined" && window.matchMedia("(max-width: 700px)").matches,
   );
@@ -92,9 +95,12 @@ export function TerminalPane({
   });
 
   // --- UI state ---
+  // Mode priority: explicit client-local choice > backend chat_view (set via
+  // the REST remote-control endpoint) > spawn/mobile default.
+  const backendDefault = pane?.chat_view ? "chat" : undefined;
   const [uiMode, setUiMode] = useState<PaneUiMode>(() => (
     chatSupported
-      && (getClientPaneUiMode(paneId) ?? (shouldDefaultToChat ? "chat" : "terminal")) === "chat"
+      && (getClientPaneUiMode(paneId) ?? backendDefault ?? (shouldDefaultToChat ? "chat" : "terminal")) === "chat"
       ? "chat"
       : "terminal"
   ));
@@ -186,17 +192,35 @@ export function TerminalPane({
 
   useEffect(() => {
     const defaultMode: PaneUiMode = chatSupported
-      && ((getClientPaneUiMode(paneId) ?? (shouldDefaultToChat ? "chat" : "terminal")) === "chat")
+      && ((getClientPaneUiMode(paneId) ?? backendDefault ?? (shouldDefaultToChat ? "chat" : "terminal")) === "chat")
       ? "chat"
       : "terminal";
     const desiredMode = userModeOverrideRef.current ?? defaultMode;
     setUiMode((mode) => mode === desiredMode ? mode : desiredMode);
-  }, [agentType, chatSupported, paneId, shouldDefaultToChat]);
+  }, [agentType, chatSupported, paneId, shouldDefaultToChat, backendDefault]);
 
   useEffect(() => listenClientPaneUiMode(paneId, (mode) => {
     userModeOverrideRef.current = mode;
     setUiMode(mode === "chat" && !chatSupported ? "terminal" : mode);
   }), [paneId, chatSupported]);
+
+  // Remote-control: an explicit REST /chat-view call (bridge, agents, tests)
+  // broadcasts `pane-chat-view`; apply it as if the user toggled locally.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void listen<{ pane_id: string; enabled: boolean }>("pane-chat-view", (event) => {
+      if (event.payload.pane_id !== paneId) return;
+      setClientPaneUiMode(paneId, event.payload.enabled ? "chat" : "terminal");
+    }).then((un) => {
+      if (disposed) un();
+      else unlisten = un;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [paneId]);
 
   // The client-mode store records EXPLICIT choices only (user toggles, spawn
   // default, bridge requests). Persisting every computed uiMode here used to
