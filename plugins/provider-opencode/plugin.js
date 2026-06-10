@@ -210,7 +210,70 @@ module.exports.default = {
         "ORDER BY m.time_created DESC LIMIT 50",
       [cwd.replace(/\\/g, "/"), cwd.replace(/\//g, "\\")]);
   },
+
+  // opencode keeps chat in opencode.db (part JOIN message), not a JSONL the
+  // host can tail — so the chat UI reads it structured. cursor is the max
+  // part.time_created seen, passed back to fetch only newer parts next poll.
+  usesStructuredChat: function () { return true; },
+
+  readStructuredChat: function (_cwd, sessionId, cursor) {
+    var db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return { messages: [], cursor: cursor || null };
+    var sinceMs = cursor ? (parseInt(cursor, 10) || 0) : 0;
+    var rows = host.fs.sqliteQuery(
+      db,
+      "SELECT p.id AS id, p.time_created AS ts, p.data AS part, m.data AS msg " +
+        "FROM part p JOIN message m ON m.id = p.message_id " +
+        "WHERE p.session_id = ?1 AND p.time_created >= ?2 " +
+        "ORDER BY p.time_created ASC, p.id ASC",
+      [sessionId, sinceMs]
+    );
+    var messages = [];
+    var maxTs = sinceMs;
+    for (var i = 0; i < rows.length; i++) {
+      var ts = rows[i].ts || 0;
+      if (ts > maxTs) maxTs = ts;
+      var part = safeJson(rows[i].part);
+      if (!part) continue;
+      var role = "assistant";
+      var msg = safeJson(rows[i].msg);
+      if (msg && msg.role) role = msg.role;
+      var cm = partToChatMsg(part, role, String(rows[i].id), ts);
+      if (cm) messages.push(cm);
+    }
+    return { messages: messages, cursor: String(maxTs) };
+  },
 };
+
+function safeJson(s) {
+  try { return JSON.parse(s); } catch (_) { return null; }
+}
+
+// Map one opencode `part` blob to a ChatMsg (camelCase, matching the Rust
+// serde shape). text→user/assistant, reasoning→thinking, tool→tool_call.
+function partToChatMsg(part, role, id, tsMs) {
+  var timestamp = String(tsMs);
+  var type = part && part.type;
+  if (type === "text") {
+    var txt = (part.text || "");
+    if (!txt.trim()) return null;
+    return { id: id, type: role === "user" ? "user" : "assistant", content: txt, timestamp: timestamp };
+  }
+  if (type === "reasoning") {
+    var rtxt = (part.text || "");
+    if (!rtxt.trim()) return null;
+    return { id: id, type: "thinking", content: rtxt, timestamp: timestamp };
+  }
+  if (type === "tool") {
+    var tool = part.tool || "tool";
+    var state = part.state || {};
+    var out = { id: id, type: "tool_call", content: "", timestamp: timestamp, toolName: tool };
+    if (state.input !== undefined) out.toolInput = state.input;
+    if (typeof state.output === "string") out.toolResult = state.output;
+    return out;
+  }
+  return null;
+}
 
 function opencodeDbPath() {
   var base = host.envGet("XDG_DATA_HOME");
