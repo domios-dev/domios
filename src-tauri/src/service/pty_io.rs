@@ -87,19 +87,32 @@ impl ServiceContext {
         };
         // A booting TUI silently swallows bracket-paste — wait it out, else the
         // chat composer's message vanishes with no error (web "no reply" bug).
+        let was_booting = pane_id
+            .as_ref()
+            .map(|pid| {
+                self.mux
+                    .lock()
+                    .get_pane(pid)
+                    .map(|p| p.agent_booting)
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
         if let Some(ref pid) = pane_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
         }
-        // The boot flag can clear before the agent's TUI finishes rendering its
-        // input (no-task spawns clear it right after the launch command). Wait
-        // for the provider's TUI fingerprint on screen — reliable, unlike a
-        // last-line shell-prompt poll which a footer defeats.
-        if let Some(ref agent_id) = agent_type {
-            self.await_agent_tui_on_screen(
-                pty_id,
-                agent_id,
-                std::time::Duration::from_secs(20),
-            );
+        // ONLY for a just-booted agent: the boot flag can clear before the TUI
+        // finishes rendering its input (no-task spawns clear it right after the
+        // launch command), so wait for the provider's TUI fingerprint. An
+        // already-running provider is ready — skip this so a plain send isn't
+        // delayed by a fingerprint that doesn't happen to match the idle screen.
+        if was_booting {
+            if let Some(ref agent_id) = agent_type {
+                self.await_agent_tui_on_screen(
+                    pty_id,
+                    agent_id,
+                    std::time::Duration::from_secs(10),
+                );
+            }
         }
         if let Some(ref agent_id) = agent_type {
             let strategy = self
@@ -110,10 +123,15 @@ impl ServiceContext {
                 // Don't gate on poll_shell_prompt: a live TUI's last screen line
                 // is its footer (claude's "⏵⏵ bypass permissions…"), not the ❯
                 // input cursor, so the prompt poll would time out on a perfectly
-                // ready agent. The boot-wait above handles the not-yet-ready
-                // race; escalating-Enter retries handle a swallowed submit.
+                // ready agent. The boot-wait above handles the not-yet-ready race.
                 require_prompt_first: false,
                 verify_echo: false,
+                // No submit verification on interactive sends: the drain check
+                // can take the provider's full timeout (codex 15s) when the TUI
+                // is busy, stalling every message. Enter fires unconditionally;
+                // the paste already landed (boot/TUI gate above), so one Enter
+                // submits it. Task delivery (orchestrator) keeps verify on.
+                verify_submit: false,
                 ..Default::default()
             };
             return self
@@ -538,11 +556,11 @@ impl ServiceContext {
         // Enter ALWAYS fires when the caller asked for it. This is the load-bearing line — no early-return above this point can skip it unless the PTY is already gone.
         let submit_observed = if enter {
             // Escalating Enter attempts: a `\r` is swallowed by a TUI still
-            // ingesting the bracket paste (opencode) or still arming its input
-            // handler right after boot (claude) — observed needing a third
-            // Enter seconds later. On a verify timeout we re-send \r with a
-            // longer settle so the message actually submits.
-            const SETTLE_MS: [u64; 4] = [120, 600, 1500, 3000];
+            // ingesting the bracket paste (opencode). On a verify timeout we
+            // re-send \r with a longer settle so the message actually submits.
+            // Capped at 2 — more attempts multiply the per-attempt verify
+            // timeout (codex's 15s drain check) into a minute-long stall.
+            const SETTLE_MS: [u64; 2] = [120, 800];
             let mut observed = false;
             for attempt in 0..SETTLE_MS.len() {
                 std::thread::sleep(std::time::Duration::from_millis(SETTLE_MS[attempt]));
