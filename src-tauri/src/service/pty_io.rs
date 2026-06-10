@@ -90,16 +90,29 @@ impl ServiceContext {
         if let Some(ref pid) = pane_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
         }
+        // The boot flag can clear before the agent's TUI finishes rendering its
+        // input (no-task spawns clear it right after the launch command). Wait
+        // for the provider's TUI fingerprint on screen — reliable, unlike a
+        // last-line shell-prompt poll which a footer defeats.
+        if let Some(ref agent_id) = agent_type {
+            self.await_agent_tui_on_screen(
+                pty_id,
+                agent_id,
+                std::time::Duration::from_secs(20),
+            );
+        }
         if let Some(ref agent_id) = agent_type {
             let strategy = self
                 .agent_registry
                 .with_provider(agent_id, |p| p.verify_submit_strategy())
                 .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
             let opts = crate::service::inject_verify::VerifyOpts {
-                // Wait for the TUI input cursor (❯) before pasting — a TUI that
-                // is up but not yet accepting input drops bracket-paste silently.
-                require_prompt_first: true,
-                prompt_timeout: std::time::Duration::from_secs(30),
+                // Don't gate on poll_shell_prompt: a live TUI's last screen line
+                // is its footer (claude's "⏵⏵ bypass permissions…"), not the ❯
+                // input cursor, so the prompt poll would time out on a perfectly
+                // ready agent. The boot-wait above handles the not-yet-ready
+                // race; escalating-Enter retries handle a swallowed submit.
+                require_prompt_first: false,
                 verify_echo: false,
                 ..Default::default()
             };
@@ -109,6 +122,30 @@ impl ServiceContext {
                 .map_err(|e| e.to_string());
         }
         self.send_text_to_pty(pty_id, text, enter)
+    }
+
+    /// Poll the pty's screen until the provider's TUI fingerprint shows (or the
+    /// universal agent-TUI glyph check), bounded by `timeout`. Best-effort: a
+    /// timeout just proceeds — the verified injection still runs.
+    fn await_agent_tui_on_screen(&self, pty_id: &str, agent_id: &str, timeout: std::time::Duration) {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let screen = self.screen_state.lock().get_screen_text(pty_id);
+            if let Some(text) = screen {
+                let ready = crate::pty::screen_state::screen_has_agent_tui(&text)
+                    || self
+                        .agent_registry
+                        .with_provider(agent_id, |p| p.screen_has_tui(&text))
+                        .unwrap_or(false);
+                if ready {
+                    return;
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
     }
 
     /// `send_text` that first waits out an in-flight agent boot. A booting
