@@ -70,6 +70,21 @@ For EACH provider:
 
 ---
 
+### Running log (cont. 06-10)
+- web chat composer "no reply" = the write raced claude's TUI boot; bracket-paste
+  before the input was ready got swallowed. Fixed: web raw=false writes route
+  through send_text_to_pty_smart (verified injection: boot-wait +
+  await_agent_tui_on_screen fingerprint gate + escalating-Enter retries). First
+  attempt used require_prompt_first which false-timed-out on claude's footer (last
+  screen line is the footer, not ❯) and broke desktop agent sends — replaced with
+  the TUI-fingerprint gate. web chat green; live agent send green.
+- 03-agents live-terminal-DOM failures (178/275) were NOT a code regression:
+  test pollution. My runs left `codeterm-chat-ui-default-enabled=true` in the dev
+  desktop app's localStorage, so every new agent pane opened in CHAT mode (no
+  xterm a11y tree the tests read). Backend delivery proven fine (marker in PTY in
+  5s). Reset the default → re-running. Test-hygiene gap: these connectUi tests
+  should force terminal mode in setup.
+
 ### Running log
 - **Phase 1 root-caused + fixed:** `hierarchy.rs submit_report` injected the report
   marker into the target PTY unconditionally → pasted into bare PowerShell when the
