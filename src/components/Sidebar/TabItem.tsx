@@ -11,7 +11,7 @@ import {
 import {
   getClientPaneUiMode,
   getCurrentPaneUiMode,
-  listenClientPaneUiMode,
+  listenCurrentPaneUiMode,
   setClientPaneUiMode,
 } from "../../lib/clientPaneUiMode";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
@@ -78,7 +78,7 @@ export function TabItem({
       return;
     }
     setChatView(resolveChatView(pane));
-    return listenClientPaneUiMode(pane.id, (mode) => setChatView(mode === "chat"));
+    return listenCurrentPaneUiMode(pane.id, (mode) => setChatView(mode === "chat"));
   }, [pane?.id, pane?.agent_type]);
 
   // Close animation phases
