@@ -86,3 +86,46 @@ For EACH provider:
   this machine); control restart #2 → SAME sid resumed (idempotent). opencode kept
   `ses_1525…` across all restarts. Main screen shows replayed history, not onboarding.
 - DSR/headless fix from earlier session confirmed live (PTY echo test green).
+- **Phase 2 BUG #2 (session theft, live-confirmed):** fresh codex pane latched the
+  prod instance's session (same repo cwd). Two holes: js-plugin wrapper sent
+  max_age=None as 0 → "no recency cutoff" → any stale rollout won; and
+  launched-detection filtered by mtime, which a constantly-written foreign session
+  always passes. Fixed: wrapper None→300s default + created-time gate in
+  detect_launched (wrapper + native codex). Verified live: probe pane claimed only
+  the rollout born at its own launch; zombie-pane exclusion then rightful re-claim
+  in 5s after zombie close.
+- **Phase 2 BUG #3 (orchestrator spawns hang):** agents spawned via API/orchestrator
+  showed a blank pane — backend PTY's CSI 6n unanswered (background tab never mounts
+  an xterm). Fixed via resize-owner-aware DSR answer; codex probe then ran and
+  answered correctly (17*23=391 + cwd name via shell — judged the live output).
+- **Phase 1 verified live, both branches:** report → dead shell target = stored
+  only, no PTY spawn/paste (screenshot bug dead); report → live Main = injected,
+  claude recognized the report marker and applied routing rules (no reply — per
+  prompt). Required fixing stale claude TUI fingerprints (v2.1 footer + banner
+  glyphs, native+js parity).
+- **codex tool rendering re-judged:** backend ChatMsg carries raw tool_name +
+  toolInput; MessageBubble normalizes shell_command→shell pill with the command
+  from toolInput.command. Render chain intact; earlier "empty content" was the
+  wire format, not a bug.
+- **Noted, not fixed (scope):** pane hierarchy metadata (parent/report_target/
+  spawned_by) does not survive daemon restart — orchestration links are
+  session-scoped today.
+- 3-provider restart matrix passed: claude --resume same sid ×3 restarts;
+  opencode same ses_… across all; codex re-bound same rollout uuid.
+- **Phase 4 web triage:** mobile-viewport fail = real CSS regression — phone
+  button-shrink block in globals.css nuked deliberate `min-h-[44px]`/`h-[44px]`
+  touch targets to 25px; arbitrary-value classes now exempt. PASS.
+- mobile-GA test was stale product-wise (mobile defaults supported panes to
+  chat → no xterm a11y tree); test now accepts the marker from chat bubbles
+  too. PASS.
+- **web chat composer chain (3 stacked bugs):** (1) commit be7d5557 made pane
+  UI mode client-local and orphaned the REST /chat-view endpoint — restored as
+  a remote-control: endpoint broadcasts `pane-chat-view`, TerminalPane listens;
+  (2) backend `pane.chat_view` now also seeds the initial mode (client-local
+  choice still wins); (3) `chatSupported` used a non-reactive descriptor-cache
+  read — panes rendered before descriptors loaded froze terminal-only; now
+  reactive via useAgentDescriptor.
+- **Operational gotcha (cost ~3 test cycles):** the daemon serves /web from a
+  bundle EMBEDDED at compile time — the dist/ vite watcher is necessary but not
+  sufficient; web SPA changes need `./build.sh dev` (daemon rebuild) to reach
+  Playwright web tests.
