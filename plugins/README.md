@@ -184,6 +184,119 @@ interface ProviderPlugin {
 - `actions[]` — slash commands / buttons in pane chrome. `run()` is
   pure: returns the text to send, host calls `send()` for you.
 
+## The agent-provider runtime contract (`plugin.js`)
+
+The `ProviderPlugin` above is the **frontend** half (render/parse in the
+WebView). The **backend** half — detection, launch, session lifecycle,
+chat, usage — runs in a QuickJS sandbox in the Rust host and is the
+authoritative provider implementation. It lives in `plugin.js` as a
+`module.exports.default = { ... }` object; the Rust wrapper
+(`js_runtime/provider.rs`) calls each method and falls back to a
+manifest default when a method isn't exported. **You only implement the
+methods your provider needs.**
+
+```js
+module.exports.default = {
+  // ── detection ──────────────────────────────────────────────
+  detectFromTitle(title) { return /myagent/i.test(title); },
+  detectFromOutput(text) { return text.includes("MyAgent v"); },
+  screenHasTui(screen)   { /* idle TUI fingerprint, never a bare shell */ },
+  isOutputNoise(text)    { /* decorative chrome to drop from chat */ },
+  hasEventMarkers(chunk) { /* cheap pre-filter before detectEvents */ },
+  detectEvents(text)     { return ["permission_request" | "task_complete"]; },
+
+  // ── launch / resume (shell command strings) ────────────────
+  buildLaunchCommand(params) { /* {task, args, skipPermissions, headless, sessionId} */ },
+  buildResumeCommand(sessionId, skipPermissions) { },
+
+  // ── session lifecycle (the part that grew during migration) ─
+  sessionFilePath(cwd, sessionId)   { /* abs path or null */ },
+  sessionExists(cwd, sessionId)     { /* bool */ },
+  detectSessionId(cwd, exclude, maxAgeMs)      { /* newest session id in cwd */ },
+  detectActiveSession(cwd, currentSid)         { /* sid rolled out from under us */ },
+  detectSessionModel(cwd, sessionId)           { /* "Sonnet" | "GPT-5.5" | … */ },
+  enumerateSessions()               { /* [{id, title, cwd, createdMs, modifiedMs}] */ },
+
+  // ── chat rendering source ──────────────────────────────────
+  parseSessionMessages(text)        { /* JSONL → [{role, text, ts, isMeta}] for search */ },
+  parseSessionDelta(text, offset)   { /* {newOffset, messages:[RichMessage]} streaming tail */ },
+  usesStructuredChat()              { /* true → host reads via readStructuredChat, not JSONL */ },
+  readStructuredChat(cwd, sid, cursor) { /* {messages:[ChatMsg(camelCase)], cursor} — sqlite etc */ },
+
+  // ── usage ──────────────────────────────────────────────────
+  parseUsage(rawText, nowMs)        { /* /usage|/status screen → UsageSnapshot (snake_case) or null */ },
+
+  // ── integration (hooks / bridge rules) ─────────────────────
+  installIntegration(apiPort) {}, uninstallIntegration() {}, checkIntegration() {},
+};
+```
+
+Two readiness contracts that bite if you skip them:
+
+- **`screenHasTui(screen)`** must return true for your agent's *idle*
+  screen and false for a bare shell. The host uses it to decide an
+  agent is alive (report routing, send-readiness). Match a glyph/footer
+  fragment your TUI always shows — not just the input cursor, which a
+  shell prompt also uses.
+- **Session detection by birth time, not mtime.** `detectSessionId`
+  must not latch a session created *before* this launch — another
+  CodeTerm instance working the same cwd writes to its session
+  constantly, so an mtime filter would steal it. Filter on creation
+  time / the launch window.
+
+### Host API available inside `plugin.js`
+
+The sandbox has no filesystem or network of its own; everything goes
+through `host.*`:
+
+| Call | Purpose |
+|---|---|
+| `host.fs.readFile/fileExists/walkDir(p, depth)` | read-only FS |
+| `host.fs.writeFile/writeJson(p, v)` | write (integration install) |
+| `host.fs.sqliteQuery(db, sql, params)` | read-only sqlite (opencode chat/session store) |
+| `host.shell.quote / quoteFor(s, platform)` | shell-safe quoting |
+| `host.path.equal(a, b) / toForwardSlash / toNative` | path semantics, slash-form agnostic |
+| `host.envGet(name) / expandHome("~/x")` | env + tilde |
+| `host.platform()` → `"windows"\|"macos"\|"linux"` | OS branch |
+| `host.unixNowMs()` | clock (no `Date.now()` in the sandbox) |
+| `host.manifestJson()` | this plugin's `plugin.json` as a string |
+| `host.log(level, msg)` | structured logging |
+| `host.writeTaskTempFile(task)` | stdin-pipe launch helper |
+
+**QuickJS gotchas:** strings feeding `new RegExp("…")` need *double*
+backslashes (a single collapses in the string literal). No `Date.now()`
+— use `host.unixNowMs()`. Keep methods pure I/O-through-host; the wrapper
+caches and may call them often (e.g. on every `/api/agents/providers`).
+
+### The `plugin.json` manifest
+
+Declarative config the host reads without running JS. Key fields:
+
+```jsonc
+{
+  "id": "myagent", "displayName": "My Agent", "binaryName": "myagent",
+  "iconSvg": "<svg…>", "entry": "plugin.js",
+  "spawn": {
+    "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
+    "taskDelivery": "pty_input",            // or "shell_arg"
+    "taskInputWarmupMs": 3000,
+    "verifySubmit": { "kind": "tui_input_drained", "timeoutSecs": 15, "idleAfterDrainMs": 800 },
+    "sessionIdInjection": "none",           // none | fresh | fresh_and_fork
+    "preservesContextOnResume": false,       // true → resume replays prior turns
+    "hasHooks": false,
+    "usageProbeCommand": "/status"          // pairs with parseUsage
+  },
+  "models": [{ "id": "…", "displayName": "…" }], "defaultModel": "…",
+  "commands": { "compact": "/compact", "exit": "/exit", "stopKey": "",
+                "modelSwitchFormat": "/model {model}",
+                "autoApproveFlags": ["--dangerously-…"] },
+  "installer": { "macos": "npm i -g …", "windows": "npm i -g …" }
+}
+```
+
+A provider with only a manifest + `detectFromTitle`/`buildLaunchCommand`
+already spawns and resumes; everything else degrades to a sane default.
+
 ## Testing
 
 ### Smoke / unit tests
@@ -318,8 +431,9 @@ To keep the plugin contract honest:
 | Per-plugin vitest config | ⏳ planned |
 | `codeterm plugin install` CLI | ⏳ planned |
 | Hot-reload from `~/.codeterm/plugins/` | ⏳ planned |
-| Server-side plugin code (QuickJS) | ⏳ planned (M4) |
+| Server-side provider runtime (QuickJS `plugin.js`) | ✅ shipped — authoritative for claude/codex/opencode |
+| Full session/usage/chat surface in JS + `host.sqliteQuery` | ✅ shipped |
 | Snapshot CI for JSONL drift | ⏳ planned |
 | Non-provider plugin kinds | 🟡 contract-only (extensible by design) |
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
