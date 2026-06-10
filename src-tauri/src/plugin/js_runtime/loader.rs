@@ -103,8 +103,6 @@ pub fn load_one(manifest_path: &Path) -> Result<JsProvider, String> {
     }
     let manifest_json = serde_json::to_string(&manifest)
         .map_err(|e| format!("serialize manifest for {}: {e}", manifest.id))?;
-    let vm = PluginVm::load_with_manifest(&manifest.id, &entry, manifest_json)
-        .map_err(|e| format!("VM init for {}: {e}", manifest.id))?;
 
     // Trust check: compute the bundle hash and compare against the build-time SYSTEM_PLUGIN_HASHES table. CODETERM_DEV=1 bypasses — every plugin
     // is treated as third-party in dev so live edits don't trip the verifier.
@@ -113,7 +111,57 @@ pub fn load_one(manifest_path: &Path) -> Result<JsProvider, String> {
         .ok_or_else(|| "manifest has no parent dir".to_string())?;
     let trust = compute_trust(&manifest.id, bundle_dir);
 
+    let sandbox = Arc::new(compute_sandbox(&trust, bundle_dir, &manifest));
+    let vm = PluginVm::load_with_manifest_sandboxed(&manifest.id, &entry, manifest_json, sandbox)
+        .map_err(|e| format!("VM init for {}: {e}", manifest.id))?;
+
     Ok(JsProvider::new_with_trust(manifest, Arc::new(vm), trust))
+}
+
+/// FS/env policy for a plugin. Bundled/in-workspace plugins (anything NOT under
+/// the user plugins dir `~/.codeterm/plugins/`) and verified `System` plugins
+/// get full host access. A user-dropped plugin is confined to its own dir + the
+/// session root it declares; `envGet` of secret-named vars is blocked. (Trust
+/// alone can't gate this: `CODETERM_DEV=1` forces every plugin to `ThirdParty`,
+/// so the dev-edited bundled plugins must stay unrestricted — hence the
+/// location check.)
+fn compute_sandbox(
+    trust: &crate::agent::provider::ProviderTrust,
+    bundle_dir: &Path,
+    manifest: &PluginManifest,
+) -> crate::plugin::js_runtime::host_api::PluginSandbox {
+    use crate::agent::provider::ProviderTrust;
+    use crate::plugin::js_runtime::host_api::PluginSandbox;
+
+    // Dev is a trusted developer environment AND it force-marks every plugin
+    // ThirdParty (so live edits don't trip the hash verifier) — confining there
+    // would wrongly sandbox the dev-edited bundled plugins. Skip.
+    if std::env::var("CODETERM_DEV").as_deref() == Ok("1") {
+        return PluginSandbox::unrestricted();
+    }
+
+    let user_plugins = crate::paths::data_dir().join("plugins");
+    let is_user_dropin = std::fs::canonicalize(bundle_dir)
+        .ok()
+        .zip(std::fs::canonicalize(&user_plugins).ok())
+        .map(|(b, u)| b.starts_with(&u))
+        .unwrap_or_else(|| bundle_dir.starts_with(&user_plugins));
+
+    // System = hash-verified bundled (incl. the copy bootstrapped into the user
+    // dir); never confine those. Only confine an unverified drop-in.
+    if matches!(trust, ProviderTrust::System) || !is_user_dropin {
+        return PluginSandbox::unrestricted();
+    }
+
+    // Confined: read its own dir + declared session root; write its own dir + temp.
+    let mut read_roots = vec![bundle_dir.to_path_buf(), std::env::temp_dir()];
+    if let Some(sessions) = manifest.sessions.as_ref() {
+        if let Some(root) = PluginManifest::expand_home(&sessions.root_dir) {
+            read_roots.push(root);
+        }
+    }
+    let write_roots = vec![bundle_dir.to_path_buf(), std::env::temp_dir()];
+    PluginSandbox::restricted(read_roots, write_roots)
 }
 
 fn compute_trust(id: &str, bundle_dir: &Path) -> crate::agent::provider::ProviderTrust {
