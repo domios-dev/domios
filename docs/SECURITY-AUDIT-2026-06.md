@@ -48,33 +48,37 @@ the AgentIsolated confinement. **Fix:** each arg is now
 was already isolated via a temp file; `agent_name`/`session_id` were already
 quoted.)
 
+### ✅ Partially fixed — Plugin host API confined for drop-in plugins
+`src-tauri/src/plugin/js_runtime/{host_api,vm,loader}.rs`. A `PluginSandbox` now
+gates the host primitives. Bundled / in-workspace / hash-verified `System`
+plugins keep full access (unchanged — that's what the bundled providers need).
+A plugin **dropped into `~/.codeterm/plugins/`** that isn't `System` is confined:
+`readFile/writeFile/walkDir/sqliteQuery` scoped to its own dir + its declared
+`sessions.rootDir` (writes to its dir + temp only), and `envGet` blocked for
+secret-named vars. So a malicious drop-in can no longer read `~/.ssh`, the API
+token from config, arbitrary sqlite, or cloud-key env vars, nor write
+autostart/integration files. **Still open below:** the launch-command exec path
+and explicit install consent.
+
 ## Open — recommended follow-ups (not auto-fixed: design decisions)
 
-### CRITICAL (by design today, but the blast radius is total) — Plugin host API is unrestricted and trust is never enforced
-`src-tauri/src/plugin/js_runtime/host_api.rs`. A loaded plugin gets the full
-`host.*` surface with **no path/scope restriction**:
-- `host.fs.readFile/writeFile/walkDir` over the **entire filesystem** — read
-  `~/.codeterm/config.toml` (the API token), `~/.ssh/id_rsa`, write autostart
-  entries; overwrite `~/.claude/settings.json` hooks.
-- `host.fs.sqliteQuery(db, sql, …)` — open **any** sqlite file with **any**
-  `SELECT` (params are bound, but the plugin writes the whole query).
-- `host.envGet(name)` — read `CODETERM_API_TOKEN`, cloud keys, etc.
-- `buildLaunchCommand` returns a shell string the host **executes verbatim** —
-  a compromised plugin has direct RCE the moment any agent spawns.
+### High — Plugin `buildLaunchCommand` is still executed verbatim + drop-ins auto-load
+A confined drop-in can no longer exfiltrate via FS/env, but two vectors remain:
+(1) its `buildLaunchCommand` return string is still run in a shell when an agent
+spawns for it (inherent to "launch a CLI agent"); (2) the hot-reload watcher
+auto-loads a new `~/.codeterm/plugins/` drop-in within ~2s with no consent — so
+its top-level JS runs immediately (now sandboxed, but still runs). **Recommended:**
+require explicit user consent/install before activating a new non-System plugin,
+and (optionally) gate the spawn of a non-System provider behind a confirm.
 
-The `ProviderTrust` (System/Unverified/ThirdParty via SHA-256 bundle hash) and
-the manifest `permissions` block are **computed but never consulted** — a
-`ThirdParty` plugin gets the identical surface as `System`. Worse, the
-hot-reload watcher auto-loads any `plugin.json` dropped into
-`~/.codeterm/plugins/` within ~2s with **no signature check or consent**
-(`loader.rs`, `hot_reload.rs`). The QuickJS language sandbox itself is sound
-(no `require`/`process`/`fetch`); the escape is the host API, not the VM.
-
-**Recommended:** gate the dangerous host primitives on trust/permissions —
-only bind `readFile`/`writeFile`/`sqliteQuery`/`envGet` for `System` (or
-explicitly-granted) plugins; scope `ThirdParty` plugins' FS to their plugin dir
-+ declared `sessions.rootDir`; and require explicit user consent before
-auto-loading a drop-in plugin.
+> **Original finding (historical):** the `host.*` surface (`readFile`/`writeFile`/
+> `walkDir`/`sqliteQuery`/`envGet`) was unrestricted for every plugin and the
+> computed `ProviderTrust` / manifest `permissions` were never consulted — a
+> `ThirdParty` drop-in had the same surface as `System` and could read the API
+> token / `~/.ssh` / any sqlite, write autostart, etc. The QuickJS language
+> sandbox itself was always sound (no `require`/`process`/`fetch`); the hole was
+> the host API. **The FS/sqlite/env part is now fixed** (see "Partially fixed");
+> the launch-exec + consent part remains open (see "High" above).
 
 ### High — Mesh "web token" is the raw master API token
 `mesh_routes/mod.rs` `mesh_web_token` / `mesh_peer_web_token` return the
