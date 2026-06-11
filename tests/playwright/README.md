@@ -1,7 +1,10 @@
-# Playwright e2e — live dev console
+# Playwright — live dev console
 
 Drives the **real** CodeTerm dev console (Tauri, port 7686), not a browser
 mock of it.
+
+For the canonical layer taxonomy and the "which layer do I write?" decision tree,
+see [`docs/TESTING.md`](../../docs/TESTING.md).
 
 ## Tooling decision (spike result, 2026-06-06)
 
@@ -147,3 +150,5 @@ server-spawned panes do). Each throws a clear
   state racy otherwise.
 - Suites assert **UI DOM state**, not just API JSON, wherever the action
   has a user-visible effect.
+
+<!-- revision: 1 -->
