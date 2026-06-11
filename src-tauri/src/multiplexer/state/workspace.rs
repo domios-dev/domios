@@ -19,11 +19,12 @@ impl MultiplexerState {
         WorkspaceInfo {
             id: workspace_id.clone(),
             name,
-            tab_count: 1,
+            tab_count: 0,
             is_active: false,
             cwd,
             protected: false,
             pane_ids: vec![],
+            existing: None,
         }
     }
 
@@ -58,6 +59,7 @@ impl MultiplexerState {
             cwd: ws.cwd.clone(),
             protected: ws.protected,
             pane_ids,
+            existing: None,
         })
     }
 
@@ -206,6 +208,7 @@ impl MultiplexerState {
                     cwd: w.cwd.clone(),
                     protected: w.protected,
                     pane_ids,
+                    existing: None,
                 }
             })
             .collect()
