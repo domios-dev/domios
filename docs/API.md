@@ -13,6 +13,12 @@ All multiplexer operations (workspace/tab/pane management, agent spawn, batch co
 
 Base URL: `http://<host>:7685/api`
 
+**Public vs internal REST surfaces.** This reference documents agent-facing and
+operator-facing REST routes. Browser mirror plumbing, debug-clock endpoints,
+upload/PTY mirror routes, and other web-only internals are intentionally not part
+of the public contract; see `src-tauri/src/api/web_routes.rs` and the route
+registration in `src-tauri/src/api/routes.rs` when auditing those surfaces.
+
 ### Authentication
 Optional Bearer token. Set in config:
 ```toml
@@ -45,21 +51,30 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
 | POST | `/api/workspaces/{id}/close` | — | Delete workspace |
 | POST | `/api/workspaces/{id}/tabs` | — | Create tab |
-| POST | `/api/workspaces/{id}/tabs/{tid}/move` | `{to_workspace_id}` | Move tab between workspaces |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/rename` | `{name}` | Rename tab |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/move` | `{to_workspace_id}` | Move tab between workspaces |
 
 #### Panes
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/panes` | — | List all panes |
+| POST | `/api/panes` | `{title?, cwd?, workspace_id?}` | Create a shell pane |
 | POST | `/api/panes/{id}/send` | `{text?, enter?, raw?, batch?: [{text, enter?, delay_ms?}], source_pane?}` | Send text to PTY. Fire-and-forget — returns `{ok:true}` as soon as bytes are written. Verification fields were removed in v1.2.3 (#101): TUI agents (Claude/Codex) intercept input and don't echo per-character, so the old `verify` flag couldn't deliver on its name. For agent request/response, a future `codeterm agent send` will hook into provider semantics. |
+| POST | `/api/panes/{id}/stop` | — | Stop the pane's PTY process |
 | POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
 | GET | `/api/panes/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
 | GET | `/api/panes/{id}/text` | `?formatted=false` | Visible terminal text (VT100-parsed, alternate buffer included). Served from the backend — no frontend roundtrip, works for hidden panes. Response: `{"text": "...", "formatted": false, "pane_id": "..."}`. With `?formatted=true` the `text` contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility (used on pane remount to restore TUI apps like Claude that hide the cursor via DECTCEM). |
+| GET | `/api/panes/{id}/usage` | — | Latest usage/cost counters recorded for this pane |
 | GET | `/api/panes/{id}/output/stream` | — | SSE real-time output stream |
+| GET | `/api/agent-runs/{pane_id}/log` | — | Agent run log for a pane |
 | POST | `/api/panes/{id}/focus` | — | Focus pane |
 | POST | `/api/panes/{id}/close` | — | Close pane + kill PTY |
 | POST | `/api/panes/{id}/rename` | `{title}` | Rename pane/tab (pinned) |
 | POST | `/api/panes/{id}/resize` | `{cols, rows}` | Resize terminal |
+| GET | `/api/panes/{id}/chat` | — | Chat snapshot for the pane |
+| POST | `/api/panes/{id}/chat/start` | — | Start chat JSONL tailing |
+| POST | `/api/panes/{id}/chat/stop` | — | Stop chat JSONL tailing |
+| POST | `/api/panes/{id}/chat/backfill` | `{before_offset, max_bytes?}` | Backfill older chat JSONL content |
 | POST | `/api/panes/{id}/hook/permission` | `{question?, options?: [{label, value}]}` | Notify that agent is showing a permission prompt (see below) |
 | POST | `/api/panes/{id}/hook/stop` | `{}` | Notify that the agent finished its turn (see below) |
 | POST | `/api/panes/{id}/hook/session_start` | *(Claude SessionStart JSON, forwarded from stdin)* | Persist the agent-reported `session_id` on the pane; covers `/new` and `/clear` inside the TUI (see below) |
@@ -71,13 +86,14 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/role` | `{role, parent_pane_id?, can_spawn?}` | Set pane role (`Orchestrator` or `Worker`; `Conductor` accepted as an alias for `Orchestrator`). |
 | DELETE | `/api/panes/{id}/role` | — | Clear role: detach a Worker from its Orchestrator, or orphan an Orchestrator's Workers |
 | GET | `/api/panes/{id}/status` | — | Pane status + role + children info |
-| GET | `/api/panes/{id}/children` | — | List child panes |
 | POST | `/api/panes/{id}/report` | `{message}` | Send report to direct parent (cascade, not to Orchestrator). Auto-injected into parent's PTY. |
 | GET | `/api/panes/{id}/reports` | `?clear=true` | Read reports from children (optionally clearing them) |
 | POST | `/api/panes/{id}/can-spawn` | `{can_spawn: bool}` | Toggle whether pane can spawn children |
-| GET | `/api/agents` | — | List all panes that have roles |
-| GET | `/api/agents/hierarchy` | — | Full hierarchy tree |
+| POST | `/api/panes/{id}/agent-type` | `{agent_type}` | Mark a pane as running a specific agent provider |
+| POST | `/api/panes/{id}/prompt/respond` | `{response}` | Respond to a pending permission prompt |
+| POST | `/api/panes/{id}/prompt/clear` | — | Clear a pending permission prompt |
 | GET | `/api/agents/providers` | — | List registered agent providers as `Vec<ProviderDescriptor>`. Each descriptor carries `id`, `display_name`, `available_models`, `default_model`, `settings_schema`, etc. Single source of truth for "what agents and models does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
+| GET | `/api/providers` | — | Public provider list alias for agent/provider selectors |
 | POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?}` | One-call agent spawn (see below) |
 
 #### Batch
@@ -168,6 +184,8 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 #### File serving
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
+| GET | `/api/fs/list-dir` | `?path=...` | List a local directory |
+| POST | `/api/fs/mkdir` | `{path}` | Create a local directory |
 | GET | `/api/serve-file` | `?path=...` | Serve a local file (assets, screenshots, etc.) |
 
 #### Notifications
@@ -199,19 +217,35 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 #### Mesh Networking
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
+| GET | `/api/mesh/ping` | — | Lightweight mesh liveness probe |
+| GET | `/api/mesh/debug/sign` | — | Mint a signed mesh auth token for diagnostics |
 | GET | `/api/mesh/status` | — | Mesh identity, peers, discovery status |
 | GET | `/api/mesh/peers` | — | List all peers (paired + discovered) |
+| GET | `/api/mesh/web-token` | — | Mint a short-lived browser token for this daemon's web mirror |
+| GET | `/api/mesh/peers/{id}/web-token` | — | Ask a paired peer for a short-lived web token and browser host |
 | POST | `/api/mesh/discover` | — | Trigger discovery, return discovered peers |
 | POST | `/api/mesh/connect` | `{instance_id}` | Initiate pairing with a discovered peer (crypto handled server-side) |
 | POST | `/api/mesh/approve` | `{request_id}` | Accept an incoming pairing request |
 | POST | `/api/mesh/reject` | `{request_id}` | Reject and block an incoming pairing request |
 | POST | `/api/mesh/disconnect` | `{instance_id}` | Unpair from a paired peer (notifies remote side) |
+| POST | `/api/mesh/pair/request` | `PairingRequest` | Inbound pairing request from a peer |
+| POST | `/api/mesh/pair/accept` | `PairingAccept` | Inbound acceptance for a pairing request |
+| POST | `/api/mesh/pair/confirm` | `PairingConfirm` | Inbound pairing confirmation |
+| POST | `/api/mesh/pair/reject` | `{request_id}` | Inbound pairing rejection |
+| POST | `/api/mesh/introduce` | `{...}` | Introduce peers to each other |
+| POST | `/api/mesh/sync` | `MeshSyncPayload` | Exchange mesh gossip/discovery state |
+| POST | `/api/mesh/broadcast/start` | — | Start local discovery broadcast |
+| POST | `/api/mesh/broadcast/stop` | — | Stop local discovery broadcast |
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
 | DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (used internally by disconnect broadcast) |
+| POST | `/api/mesh/refresh` | — | Refresh local addresses and announce them to peers |
 | POST | `/api/mesh/peers/add-manual` | `{address, port}` | Inject a `Manual` discovered peer by Tailscale IP / port (skips mDNS / UDP scan). Returns `{ok, instance_id}` and emits `mesh-state-changed`. |
 | POST | `/api/mesh/peers/approve/{id}` | — | Path-style alias for `POST /api/mesh/approve` (`request_id` in URL). |
 | POST | `/api/mesh/peers/reject/{id}` | — | Path-style alias for `POST /api/mesh/reject`. |
 | POST | `/api/mesh/peers/disconnect/{id}` | — | Path-style alias for `POST /api/mesh/disconnect` (`instance_id` in URL). |
+| POST | `/api/mesh/announce` | `PeerAnnounce` | Inbound peer address announcement |
+| POST | `/api/mesh/announce/all` | `?to=peer_id?` | Announce local addresses to one peer or all peers |
+| POST | `/api/mesh/peers/{id}/addr` | `{ip, port?}` | Override a paired peer's cached address |
 
 **Mesh-disabled gate (503).** When `config.mesh.enabled = false`, the auth middleware short-circuits every `/api/mesh/*` path other than `/api/mesh/ping` with `503 Mesh networking is disabled`. The same 503 also fires for any caller authenticated via the mesh signed-token path (i.e. another peer relaying to us) — the local Bearer token still works. Toggle the config back on to restore mesh routing without restarting the daemon.
 
@@ -225,6 +259,67 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level — they handle crypto, key exchange, and peer notification automatically. These mirror the Tauri IPC commands used by the UI. Management commands are local-only and cannot be relayed via `--mesh`.
 
 **Flat peer model:** Paired = trusted. No crown, no king, no trust declarations. Each machine sets an **AccessLevel** (Full/ReadOnly/AgentIsolated) per peer locally via the `mesh_set_access` Tauri command. Default is Full. UDP discovery broadcasts every 30 seconds.
+
+#### Memory
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/mem/search` | `?q=...` | Search memory items |
+| POST | `/api/mem/items` | `{...}` | Save a memory item |
+| GET | `/api/mem/items/{id}` | — | Get one memory item |
+| PATCH | `/api/mem/items/{id}` | `{...}` | Update one memory item |
+| DELETE | `/api/mem/items/{id}` | — | Delete one memory item |
+| GET | `/api/mem/items/{id}/history` | — | Read item history |
+| GET | `/api/mem/pinned` | — | List pinned memory items |
+| GET | `/api/mem/taxonomy` | — | Read memory taxonomy |
+| GET | `/api/mem/tail` | — | Tail recent memory events |
+| DELETE | `/api/mem/forget/{area}` | — | Forget all memory in an area |
+| GET | `/api/mem/wake-up` | — | Agent wake-up memory context |
+| GET | `/api/mem/stats` | — | Memory store statistics |
+| POST | `/api/mem/reembed` | — | Rebuild embeddings |
+| POST | `/api/mem/learn` | `{...}` | Learn from agent/user context |
+| POST | `/api/mem/promote/{id}` | — | Promote a memory item |
+| POST | `/api/mem/flush` | — | Flush pending memory writes |
+| POST | `/api/mem/check-duplicate` | `{...}` | Check for duplicate memory |
+| POST | `/api/mem/dream` | `{...}` | Run memory consolidation |
+| POST | `/api/mem/extract-pending` | `{...}` | Extract pending memories |
+| GET | `/api/mem/dream/report` | — | Latest memory consolidation report |
+| POST | `/api/mem/sync` | `{...}` | Sync memory state |
+| GET | `/api/mem/sync/status` | — | Memory sync status |
+| POST | `/api/mem/graph/entities` | `{...}` | Create graph entities |
+| POST | `/api/mem/graph/relate` | `{...}` | Create graph relations |
+| GET | `/api/mem/graph/related` | `?id=...` | Related graph entities |
+| POST | `/api/mem/graph/invalidate` | `{...}` | Invalidate graph cache |
+| GET | `/api/mem/graph/timeline` | — | Graph timeline |
+| GET | `/api/mem/graph/traverse` | `?id=...` | Traverse graph neighborhood |
+| GET | `/api/mem/graph/path` | `?from=...&to=...` | Find graph path |
+| GET | `/api/mem/graph/tunnels` | — | Graph tunnel candidates |
+| POST | `/api/mem/graph/alias` | `{...}` | Add graph alias |
+| GET | `/api/mem/graph/full` | — | Full graph view |
+| GET | `/api/mem/graph/labels` | — | Graph labels |
+| GET | `/api/mem/graph/edges` | — | Graph edges |
+| GET | `/api/mem/graph/snapshot` | — | Compressed graph snapshot |
+| POST | `/api/mem/graph/layout/rebuild` | — | Rebuild graph layout |
+| POST | `/api/mem/graph/repair/find-relations` | `{...}` | Find relation repair candidates |
+| POST | `/api/mem/graph/repair/delete-relations` | `{...}` | Delete relation repair candidates |
+| POST | `/api/mem/graph/repair/merge-relations` | `{...}` | Merge relation repair candidates |
+| POST | `/api/mem/graph/repair/find-entities` | `{...}` | Find entity repair candidates |
+| POST | `/api/mem/graph/repair/augment-entity` | `{...}` | Augment graph entity |
+| POST | `/api/mem/graph/repair/delete-entity` | `{...}` | Delete graph entity |
+| POST | `/api/mem/graph/repair/orphan-vectors` | `{...}` | Repair orphan vectors |
+| POST | `/api/mem/graph/repair/orphan-blobs` | `{...}` | Repair orphan blobs |
+| GET | `/api/mem/pinned-positions` | — | List pinned graph positions |
+| PATCH | `/api/mem/pinned-positions/{mem_id}` | `{...}` | Set pinned graph position |
+| DELETE | `/api/mem/pinned-positions/{mem_id}` | — | Delete pinned graph position |
+| GET | `/api/mem/activity/recent` | — | Recent memory activity |
+| POST | `/api/mem/calibration/sweep` | `{...}` | Run memory calibration sweep |
+| GET | `/api/mem/calibration/log` | — | Read calibration log |
+| GET | `/api/mem/workers` | — | List memory workers |
+| POST | `/api/mem/workers` | `{...}` | Spawn memory worker |
+| GET | `/api/mem/workers/{id}` | — | Get memory worker status |
+| DELETE | `/api/mem/workers/{id}` | — | Kill memory worker |
+| POST | `/api/mem/workers/{id}/progress` | `{...}` | Submit worker progress |
+| POST | `/api/mem/workers/{id}/report` | `{...}` | Submit worker report |
+| GET | `/api/mem/workers/{id}/log` | — | Read worker log |
 
 #### Bridge (Telegram / External Services)
 | Method | Path | Body / Query | Description |
@@ -884,6 +979,22 @@ curl http://host:7685/api/network
 # {"local_ip":"192.168.1.195","tailscale_ip":"100.84.159.37","api_url":"http://192.168.1.195:7685"}
 ```
 
+#### Updates
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/update/status` | — | Current updater state and last update result |
+
+#### Git
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/git/graph` | — | Commit graph for configured repositories |
+| GET | `/api/git/commit/{sha}/files` | — | Files changed by a commit |
+| GET | `/api/git/commit/{sha}/diff` | — | Diff for a commit |
+| GET | `/api/git/workdir-diff` | — | Current working tree diff |
+| GET | `/api/git/workdir-files` | — | Current working tree changed-file list |
+| POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
+| GET | `/api/git/repos` | — | Known repositories |
+
 ## Socket API (JSON-RPC v2)
 
 ### Connection
@@ -1031,4 +1142,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 53 -->
+<!-- revision: 54 -->
