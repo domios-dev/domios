@@ -66,6 +66,9 @@ pub enum PaneAction {
         /// Sent into the PTY after the shell is ready.
         #[arg(long)]
         cmd: Option<String>,
+        /// Spawn the shell PTY immediately on the daemon for headless/API use.
+        #[arg(long)]
+        eager: bool,
     },
     /// Print the current (focused) pane ID — no JSON parsing needed
     Current {

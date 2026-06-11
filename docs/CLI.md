@@ -30,7 +30,7 @@ Compact agent context (sends /compact to Claude)
 Link a pane as worker under a parent
 
 - `--pane` — Pane ID to link (default: current focused pane)
-- `--parent` — Parent pane ID (an Orchestrator)
+- `--parent` — Parent pane ID (orchestrator or lead)
 
 #### `codeterm agent list`
 
@@ -78,7 +78,7 @@ Restart agent (gracefully /exit + auto-resume to pick up settings or recover)
 
 #### `codeterm agent set-orchestrator`
 
-Mark a pane as orchestrator (top-level, can spawn workers)
+Mark a pane as orchestrator (top-level, can spawn leads/workers)
 
 - `--pane` — Pane ID (default: current focused pane)
 
@@ -1046,6 +1046,7 @@ Plain shell pane. For an AI pane use `codeterm agent spawn` instead
 
 - `--cmd` — Command to run on pane start (e.g. `"poetry run backend"`). Sent into the PTY after the shell is ready
 - `--cwd` — Working directory for the new pane
+- `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
 - `--title` — Tab title
 - `--workspace` — Target workspace id (default: current focused)
 

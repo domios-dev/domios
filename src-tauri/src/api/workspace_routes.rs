@@ -31,6 +31,12 @@ pub(crate) struct CreateWorkspaceBody {
     activate: Option<bool>,
 }
 
+#[derive(Deserialize, Default)]
+pub(crate) struct CreateTabBody {
+    #[serde(default)]
+    eager: bool,
+}
+
 pub async fn create_workspace(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -139,6 +145,7 @@ pub async fn create_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(workspace_id): Path<String>,
+    body: Option<Json<CreateTabBody>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let (tab_id, pane_id) = state
@@ -148,8 +155,19 @@ pub async fn create_tab(
     let _ = state
         .svc
         .set_pane_role(&pane_id, "Orchestrator", None, Some(true));
+    let eager = body.map(|Json(b)| b.eager).unwrap_or(false);
+    let pty_id = if eager {
+        state
+            .svc
+            .ensure_pane_pty_for_send(&pane_id)
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to spawn PTY"))?;
+        state.svc.mux.lock().get_pane(&pane_id).and_then(|p| p.pty_id.clone())
+    } else {
+        None
+    };
     Ok(Json(serde_json::json!({
         "tab_id": tab_id,
-        "pane_id": pane_id
+        "pane_id": pane_id,
+        "pty_id": pty_id
     })))
 }

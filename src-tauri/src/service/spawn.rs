@@ -17,6 +17,8 @@ pub struct SpawnPaneSpec {
     pub title: Option<String>,
     #[serde(default)]
     pub visibility: PaneVisibility,
+    #[serde(default)]
+    pub eager: bool,
     pub command: PaneCommand,
 }
 
@@ -100,6 +102,7 @@ impl SpawnPaneSpec {
             cwd: params.cwd.clone(),
             title: params.title.clone(),
             visibility: PaneVisibility::Visible,
+            eager: false,
             command: PaneCommand::Agent(AgentSpawnSpec {
                 provider: params.agent.clone().unwrap_or_default(),
                 model: params.model.clone(),
@@ -395,10 +398,17 @@ impl ServiceContext {
         };
         self.emit_state_changed();
 
+        let pty_id = if spec.eager {
+            self.ensure_pane_pty_for_send(&pane_id)?;
+            self.mux.lock().get_pane(&pane_id).and_then(|p| p.pty_id.clone())
+        } else {
+            None
+        };
+
         Ok(PaneHandle {
             pane_id,
             tab_id,
-            pty_id: None,
+            pty_id,
             workspace_id: ws_id,
             worker_id: None,
             warning,

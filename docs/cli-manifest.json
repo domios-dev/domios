@@ -3666,6 +3666,14 @@
               "aliases": []
             },
             {
+              "name": "eager",
+              "positional": false,
+              "value_name": "EAGER",
+              "default": null,
+              "help": "Spawn the shell PTY immediately on the daemon for headless/API use",
+              "aliases": []
+            },
+            {
               "name": "title",
               "positional": false,
               "value_name": "TITLE",

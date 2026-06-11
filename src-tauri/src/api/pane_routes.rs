@@ -22,6 +22,8 @@ pub struct CreateShellPaneBody {
     pub workspace_id: Option<String>,
     pub cwd: Option<String>,
     pub title: Option<String>,
+    #[serde(default)]
+    pub eager: bool,
 }
 
 pub async fn create_shell_pane(
@@ -38,6 +40,7 @@ pub async fn create_shell_pane(
             cwd: body.cwd,
             title: body.title,
             visibility: PaneVisibility::Visible,
+            eager: body.eager,
             command: PaneCommand::Shell,
             ..Default::default()
         })
@@ -49,6 +52,7 @@ pub async fn create_shell_pane(
         "pane_id": handle.pane_id,
         "workspace_id": handle.workspace_id,
         "tab_id": handle.tab_id,
+        "pty_id": handle.pty_id,
     })))
 }
 
@@ -148,11 +152,17 @@ pub async fn send_text(
         .filter(|s| !s.is_empty() && *s != pane_id)
         .and_then(|src| {
             let mux = state.svc.mux.lock();
-            if mux.get_pane(&pane_id).and_then(|p| p.agent_type.as_ref()).is_none() {
+            if mux
+                .get_pane(&pane_id)
+                .and_then(|p| p.agent_type.as_ref())
+                .is_none()
+            {
                 return None; // shell recipient — no prefix
             }
             let from_label = mux.display_label_for_pane(src);
-            let model = mux.get_pane(src).and_then(|p| p.agent_session_model.clone());
+            let model = mux
+                .get_pane(src)
+                .and_then(|p| p.agent_session_model.clone());
             let pfx = crate::service::msg_prefix::CtxPrefix::message(from_label, src).model(model);
             Some(pfx.build())
         });

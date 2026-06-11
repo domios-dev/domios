@@ -60,7 +60,9 @@ const HTTP_MAP: Record<string, Mapper> = {
       name: a.name,
     }),
   mux_create_tab: (a) =>
-    webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs`, a),
+    webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs`, {
+      eager: a.eager === true,
+    }),
   mux_set_active_tab: (a) =>
     webJson(
       "POST",

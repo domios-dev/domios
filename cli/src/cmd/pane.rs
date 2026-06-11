@@ -30,7 +30,7 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 other => handle_result(json, other),
             }
         }
-        PaneAction::New { workspace, cwd, title, cmd } => {
+        PaneAction::New { workspace, cwd, title, cmd, eager } => {
             let (base, token) = read_api_config();
             let http = match build_http(&token) {
                 Ok(c) => c,
@@ -43,6 +43,7 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             if let Some(w) = workspace { body["workspace_id"] = serde_json::Value::String(w); }
             if let Some(c) = cwd { body["cwd"] = serde_json::Value::String(c); }
             if let Some(t) = title { body["title"] = serde_json::Value::String(t); }
+            if eager { body["eager"] = serde_json::Value::Bool(true); }
             let create_result = http.post(format!("{}/api/panes", base))
                 .json(&body)
                 .send()

@@ -216,8 +216,9 @@ class CodeTermAPI:
     def close_workspace(self, ws_id: str) -> dict:
         return self.post(f"/api/workspaces/{ws_id}/close")
 
-    def create_tab(self, ws_id: str) -> dict:
-        return self.post(f"/api/workspaces/{ws_id}/tabs")
+    def create_tab(self, ws_id: str, eager: bool = False) -> dict:
+        body = {"eager": True} if eager else {}
+        return self.post(f"/api/workspaces/{ws_id}/tabs", json=body)
 
     def list_panes(self) -> list[dict]:
         return self.get("/api/panes")

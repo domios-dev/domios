@@ -23,6 +23,50 @@ pub(super) fn dispatch(
                 message: e,
             }),
 
+        "pane.create" | "pane.new" => {
+            let workspace_id = params
+                .as_ref()
+                .and_then(|p| p.get("workspace_id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let cwd = params
+                .as_ref()
+                .and_then(|p| p.get("cwd"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let title = params
+                .as_ref()
+                .and_then(|p| p.get("title"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let eager = params
+                .as_ref()
+                .and_then(|p| p.get("eager"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let handle = svc
+                .spawn_pane(crate::service::spawn::SpawnPaneSpec {
+                    workspace_id,
+                    cwd,
+                    title,
+                    visibility: crate::service::spawn::PaneVisibility::Visible,
+                    eager,
+                    command: crate::service::spawn::PaneCommand::Shell,
+                    ..Default::default()
+                })
+                .map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: e,
+                })?;
+            Ok(serde_json::json!({
+                "id": handle.pane_id,
+                "pane_id": handle.pane_id,
+                "workspace_id": handle.workspace_id,
+                "tab_id": handle.tab_id,
+                "pty_id": handle.pty_id
+            }))
+        }
+
         "pane.focus" => {
             let pane_id = get_string_param(params, "pane_id")?;
             crate::dispatch::dispatch(
