@@ -13,7 +13,6 @@
 # CLI command surface — split task F6.
 cli/src/cmd/plugin.rs	1743
 # Chat session god-component — split task E3 (useChatSession/ChatComposer/useAttachments).
-src/components/Terminal/PaneSessionChat.tsx	1152
 # Agent provider abstraction — no split task yet; baselined to unblock CI.
 src-tauri/src/agent/provider.rs	1231
 # Graph-repair test module — test file, baselined.
