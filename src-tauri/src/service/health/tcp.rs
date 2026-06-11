@@ -1,7 +1,7 @@
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::services::store::{HealthSnapshot, HealthStatus};
+use crate::service::store::{HealthSnapshot, HealthStatus};
 
 pub async fn probe_tcp(host: &str, port: u16, timeout_ms: u64) -> std::io::Result<HealthSnapshot> {
     let host = host.to_string();

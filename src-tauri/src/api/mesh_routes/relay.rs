@@ -292,8 +292,8 @@ pub async fn mesh_relay(
             .take(80)
             .collect::<String>();
         let writer =
-            crate::services::activity::ActivityWriter::new(state.svc.services_store.conn());
-        let _ = writer.record(crate::services::activity::ActivityEvent::peer_relay(
+            crate::service::activity::ActivityWriter::new(state.svc.services_store.conn());
+        let _ = writer.record(crate::service::activity::ActivityEvent::peer_relay(
             &sender_id,
             &sender_name,
             &target_pane,

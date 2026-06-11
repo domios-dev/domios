@@ -13,8 +13,10 @@
 //! - `notification` — create notification with OS toast
 
 pub mod agent_restart;
+pub mod activity;
 pub mod cron;
 pub mod general_agent;
+pub mod health;
 mod hierarchy;
 pub mod inject_verify;
 pub mod input_parser;
@@ -26,10 +28,14 @@ mod pane;
 pub mod pane_chat;
 pub mod pty_io;
 pub mod pty_lifecycle;
+pub mod push;
+pub mod smart_add;
 pub mod spawn;
+pub mod store;
 pub mod sync_watcher;
 #[cfg(test)]
 mod tests;
+pub mod tokens;
 mod workspace;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -98,8 +104,8 @@ pub struct ServiceContext {
     pub secrets: crate::secrets::SecretStoreState,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
-    pub services_store: Arc<crate::services::store::ServicesStore>,
-    pub tokens: Arc<crate::services::tokens::TokenStore>,
+    pub services_store: Arc<crate::service::store::ServicesStore>,
+    pub tokens: Arc<crate::service::tokens::TokenStore>,
     /// Ephemeral cross-mesh pastebin. In-memory only; daemon restart wipes
     /// all pastes. 20-entry cap, oldest-first eviction, TTL≤24h. (#98)
     pub pasteboard: crate::pasteboard::PasteboardState,

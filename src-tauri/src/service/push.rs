@@ -1,5 +1,5 @@
-use crate::services::store::ServicesStore;
-use crate::services::tokens::TokenStore;
+use crate::service::store::ServicesStore;
+use crate::service::tokens::TokenStore;
 
 pub fn extract_service_token(
     auth_header: &str,

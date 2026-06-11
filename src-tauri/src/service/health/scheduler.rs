@@ -6,8 +6,8 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use tauri::Emitter;
 
-use crate::services::activity::{ActivityEvent, ActivityWriter};
-use crate::services::store::{
+use crate::service::activity::{ActivityEvent, ActivityWriter};
+use crate::service::store::{
     HealthMode, HealthSnapshot, HealthStatus, ServiceKind, ServicesStore,
 };
 
@@ -91,7 +91,7 @@ async fn run_tick(
     }
 }
 
-async fn probe_one(svc: &crate::services::store::Service) -> HealthSnapshot {
+async fn probe_one(svc: &crate::service::store::Service) -> HealthSnapshot {
     match svc.health_mode {
         HealthMode::Http => {
             let base = svc.url.clone().unwrap_or_default();

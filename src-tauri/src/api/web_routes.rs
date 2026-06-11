@@ -159,7 +159,7 @@ fn validate_manifest_token(state: &AppState, candidate: &str) -> bool {
     }
     if let Some(ref api_token) = state.config.lock().api.token {
         if !api_token.is_empty()
-            && crate::services::tokens::constant_time_eq(
+            && crate::service::tokens::constant_time_eq(
                 api_token.as_bytes(),
                 candidate.as_bytes(),
             )
@@ -533,11 +533,11 @@ mod tests {
         let mut bad = token.to_vec();
         *bad.last_mut().unwrap() ^= 1;
         assert!(
-            !crate::services::tokens::constant_time_eq(token, &bad),
+            !crate::service::tokens::constant_time_eq(token, &bad),
             "token differing in last byte must be rejected"
         );
         assert!(
-            crate::services::tokens::constant_time_eq(token, token),
+            crate::service::tokens::constant_time_eq(token, token),
             "identical tokens must match"
         );
     }

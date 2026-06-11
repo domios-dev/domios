@@ -1,7 +1,7 @@
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::services::store::{HealthSnapshot, HealthStatus};
+use crate::service::store::{HealthSnapshot, HealthStatus};
 
 pub fn probe_process(label: &str) -> std::io::Result<HealthSnapshot> {
     if label.trim().is_empty() {

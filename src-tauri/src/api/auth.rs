@@ -72,7 +72,7 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
         // Constant-time compare — a plain `==` short-circuits on the first
         // differing byte and leaks the token prefix length via timing.
         if !api_token.is_empty()
-            && crate::services::tokens::constant_time_eq(token.as_bytes(), api_token.as_bytes())
+            && crate::service::tokens::constant_time_eq(token.as_bytes(), api_token.as_bytes())
         {
             return Ok(CallerIdentity::Local);
         }
@@ -89,7 +89,7 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
         }
     }
 
-    if let Ok(Some(svc_id)) = crate::services::push::validate_push(
+    if let Ok(Some(svc_id)) = crate::service::push::validate_push(
         auth_header,
         &state.svc.tokens,
         &state.svc.services_store,

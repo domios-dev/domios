@@ -46,6 +46,7 @@ Everything else gets deleted. If you catch yourself writing a comment and you ca
 
 - Adapters (REST, Socket, Tauri IPC, CLI) never contain business logic. They deserialize → dispatch → serialize.
 - Business logic lives in `service/` or the target `dispatch::Command` layer.
+- Daemon subsystems live in `service/`; there is no `services/`.
 - Core (`multiplexer`, `pty`, `mesh`, `config`) has no outward dependencies.
 - Every operation reachable from 3 transports (REST + Socket + Tauri) should live in `dispatch::Command` — not duplicated 3 times.
 - Plugin-ready = isolated module with explicit interface. See `docs/plans/plugin-architecture.md`.
@@ -55,4 +56,4 @@ Everything else gets deleted. If you catch yourself writing a comment and you ca
 
 Weekly audits (`cargo audit` + `pnpm audit`) flag known vulnerabilities. Assess reachability: if a vulnerability is in a transitive dependency your code never touches, document it with a bump-rationale comment in the PR; if reachable, upgrade or pin the affected version. Do not ignore advisories.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
