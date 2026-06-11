@@ -3,6 +3,7 @@
 </p>
 
 <h1 align="center">CodeTerm</h1>
+> Перевод README.md может отставать. Английская версия является канонической.
 
 <p align="center">
   <strong>AI-first терминальный мультиплексор</strong><br>
