@@ -163,11 +163,14 @@ Tips for writing good evals:
 
 ## Existing eval sets
 
-- `evals/general-agent/evals.json` — 21 evals covering message routing (Telegram/mesh prefix), role selection, mesh delegation, recon-before-action, persistent memory protocol, mono-repo workspace handling, photo replies via Telegram bridge, identity wake-up.
-- `evals/mem-protocol/evals.json` — 8 evals for the slim `bridge_mem.md` rule shipped to non-GA agents (remember-now, search-before-answering, identity-via-wake-up, no-id-guessing, English-in-mem, sessions-vs-mem-routing, no side-store writes).
-- `evals/dreaming/evals.json` — 5 evals for the REM (dreaming) prompt — Stage A.1 hub decomposition with RED ZONE rule + Stage A.2 island bridging.
+- `evals/cli-agent/` — real-daemon LLM benchmark: drives Claude/Codex/Opencode through every CLI command; model-judged (replaces old general-agent and mem-protocol evals).
+- `evals/mem-recall/` — mem search engine quality (Recall@K / MRR / latency).
+- `evals/dreaming/` — REM-phase prompt — Stage A.1 hub decomposition with RED ZONE rule + Stage A.2 island bridging.
+- `evals/session-restore/` — kill+restart preserves workspace/pane/agent_type/titles.
 
-When you write a new eval set, drop a one-line entry in this list.
+Experimental/historical: `evals/dreamer-repair/`, `evals/seeds/`, `evals/v1_1_23_e2e/`.
+
+When you write a new eval set, drop a one-line entry in the live list above.
 
 ## Limitations
 
