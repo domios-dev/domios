@@ -2,27 +2,63 @@
 
 ## Agent providers
 
-Agent detection and integration is abstracted into providers. Currently only Claude Code is implemented, but the architecture supports any CLI agent.
+Agent detection, lifecycle, session handling, command shaping, and schema registration are abstracted behind the `AgentProvider` trait in `crate::agent::provider`.
 
-**What a provider does:**
-- **Detect** — recognize when an agent starts in a PTY (OSC title, output patterns, process name)
-- **Session** — link to session files for structured data (Claude: JSONL, Codex: TBD)
-- **Parse** — extract structured messages from agent output (chat view)
-- **Control** — send input to the agent, understand its prompt format
+### Canonical provider layout (native target shape)
 
-**Current providers:**
-- `claude` — detects via OSC title containing "claude", reads `~/.claude/projects/` JSONL, parses messages/tool_calls/thinking blocks
+The canonical native implementation uses a facade that delegates to focused submodules:
 
-**Future providers (architecture ready, not implemented):**
-- `codex` — OpenAI Codex CLI
-- `aider` — Aider pair programmer
-- `goose` — Block's Goose agent
-- `generic` — fallback, terminal output parsing only
+- `detection`: title/output/tui/noise/event detection and prompt parsing
+- `sessions`: session enumeration, session-id detection, session parsing
+- `launch`: launch/resume command shaping
+- `schemas`: models/settings/integration settings/notification schema ownership
+- `integration` and `usage` as optional adjacent modules where needed
 
-Provider code lives in:
-- Rust: `src-tauri/src/agent/` — detection, session file reading
-- TypeScript: `src/components/ChatView/parser.ts` — output parsing
-- TypeScript: `src/components/Terminal/TerminalPane.tsx` — detection hooks (onTitleChange)
+Current evidence from implemented providers:
+- `agent_claude/provider/mod.rs` follows this shape and delegates directly to
+  `detection`, `sessions`, `launch`, `schemas`, `integration`, and `usage`.
+- `agent_codex/provider.rs` and `agent_opencode/provider.rs` are single-file
+  implementations with helper functions (`models` module for Opencode only), and
+  are candidates for decomposition toward the canonical layout.
+- `js_runtime/provider.rs` is a plugin bridge: it reads manifest defaults,
+  dispatches most behavior through JS (`detectFromTitle`, `parseSessionMessages`,
+  etc.), and falls back to Rust helpers when the JS method is not implemented.
+
+Provider tree sketch (current Claude pattern):
+
+```
+src-tauri/src/plugin/agent_claude/provider/
+├─ mod.rs
+├─ detection.rs
+├─ integration.rs
+├─ launch.rs
+├─ schemas.rs
+├─ sessions.rs
+└─ usage.rs
+```
+
+### Native Rust vs JS plugin responsibilities
+
+- Native Rust should own shared host concerns and platform-sensitive behavior:
+  model catalog registration, provider metadata normalization, registry wiring,
+  filesystem/DB probing, and non-trivial launch quoting/cross-platform command
+  composition.
+- JS plugins should own provider-specific heuristics and parser behavior in plugin
+  code, surfaced through `PluginManifest` and exported plugin methods.
+- `src-tauri/src/plugin/js_runtime/provider.rs` is authoritative glue for this split:
+  manifest fields provide defaults, `JsProvider` tries JS methods first, and falls
+  back to Rust logic when the JS layer omits methods.
+
+### Layout constraints and parity contract
+
+- Provider size constraints:
+  - no file should exceed `1000` lines
+  - target provider main file size is `800` lines
+- JS/native sync contract:
+  - `src-tauri/src/plugin/js_runtime/parity_test.rs` encodes the exact parity
+    behaviors between native providers and JS providers (detection, parse/metadata,
+    launch/resume command shape, session and integration behaviors) for the covered
+    surfaces.
 
 ## Multi-agent mindset
 
@@ -34,4 +70,4 @@ When adding agent-related features, ask: "How would this work with Codex? With A
 
 Detection code (prompts, task completion, agent identification, output parsing) must use structural fingerprints, not literal text. If Claude renames "Do you want to proceed?" to "Do you want to create?", detection should still work — match the structure (numbered options + footer), not the wording. Vendors change copy without warning; structure is stable. Generalize, don't enumerate.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
