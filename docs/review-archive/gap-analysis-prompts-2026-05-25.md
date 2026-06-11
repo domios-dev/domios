@@ -1,3 +1,7 @@
+Historical snapshot (2026-05-25). Findings may since be fixed; do not action without re-verifying.
+
+
+
 # Prompt Gap Analysis - 2026-05-25
 
 Scope: all owned agent-facing prompt files under `src-tauri/prompts/`, the
@@ -523,3 +527,4 @@ orchestrator to merge with other agents' reports.
 - Cross-checked embedded docs list in `cli/src/cmd/docs.rs`.
 
 This document is a gap analysis only; it does not apply the prompt fixes.
+
