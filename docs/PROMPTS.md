@@ -33,6 +33,7 @@ All in-binary prompts live in `src-tauri/prompts/`. Each one is exposed as a `pu
 | `cron_report_hint.md` | `CRON_REPORT_HINT` | Cron suffix | — | `service/cron.rs` — appended when a cron job has a `creator_pane_id` |
 | `cron_complete_suffix.md` | `CRON_COMPLETE_SUFFIX` | Cron suffix | `{}` (run_id) | `service/cron.rs`, `cron/scheduler.rs` — always appended |
 | `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | `plugin/agent_claude/provider/integration.rs` — written to `~/.claude/rules/codeterm.md`; inlined into Codex `AGENTS.md` |
+| `codeterm_cli.md` | `CODETERM_CLI` | Framework rule | — | `service/general_agent/instructions.rs` — injected into the GA prompt via `{codeterm_cli}`; also mirrored into the codeterm skill |
 | `bridge_mem.md` | `BRIDGE_MEM` | Memory protocol rule | — | `service/sync_watcher.rs:18` installs per provider; inlined into Codex `AGENTS.md` |
 | `worker_task_preamble.md` | `WORKER_TASK_PREAMBLE` | Memory worker wrapper | `{intent}` `{worker_id}` `{task}` | `mem/workers.rs` `build_worker_task()` — wraps every headless memory worker task |
 | `mem_extraction.md` | `MEM_EXTRACTION` | Memory worker | `{id}` `{title}` `{body}` | `mem/auto_extract.rs` `build_extraction_prompt()` — entity/relation extraction by haiku |
@@ -137,4 +138,4 @@ The General Agent also gets `CODETERM_RULE` and `BRIDGE_MEM` via the provider's 
 - `docs/API.md` — "Agent Prompts" section lists the same files from an API-consumer angle
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

@@ -1,0 +1,55 @@
+name: Docs source of truth
+
+on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - "src-tauri/prompts/**"
+      - "src-tauri/src/prompts.rs"
+      - "CLAUDE.md"
+      - "AGENTS.md"
+      - "scripts/check-*.sh"
+      - "evals/**"
+  push:
+    branches:
+      - develop
+      - master
+
+jobs:
+  source-of-truth:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check AGENTS.md
+        run: bash scripts/check-agents-md.sh
+
+      - name: Check API docs
+        run: bash scripts/check-api-docs.sh
+
+      - name: Check prompt docs
+        run: bash scripts/check-prompts-doc.sh
+
+      - name: Check eval list
+        run: bash scripts/check-evals-list.sh
+
+      - name: Warn on docs changes without revision bump
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          changed="$(git diff --name-only "$base"...HEAD -- 'docs/*.md' || true)"
+          [ -n "$changed" ] || exit 0
+          missing=0
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            if ! git diff "$base"...HEAD -- "$file" | grep -Eq '<!-- revision: [0-9]+ -->'; then
+              echo "::warning file=$file::docs file changed without a revision-tag bump"
+              missing=1
+            fi
+          done <<< "$changed"
+          exit "$missing"
