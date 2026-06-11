@@ -65,6 +65,9 @@ kill_dev() {
 
 setup_env
 
+# Wire .githooks as the hooks directory
+git config core.hooksPath .githooks 2>/dev/null || true
+
 # Copy the freshly-built CLI into a target bin dir. Both prod (~/.codeterm/bin)
 # and dev (~/.codeterm-dev/bin) need the same binary so the dev daemon's
 # resolve_cli_path (which prefers data_dir/bin first) doesn't shell into a
