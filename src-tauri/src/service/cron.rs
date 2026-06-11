@@ -195,6 +195,7 @@ impl ServiceContext {
             cwd,
             title: Some(format!("cron:{}", job_name)),
             visibility: PaneVisibility::Hidden,
+            eager: false,
             command: PaneCommand::Agent(AgentSpawnSpec {
                 provider: agent,
                 model,

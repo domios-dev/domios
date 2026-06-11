@@ -83,10 +83,14 @@ pub fn mux_move_tab(
 pub fn mux_create_tab(
     svc: State<'_, ServiceState>,
     workspace_id: String,
+    eager: Option<bool>,
 ) -> Result<TabInfo, String> {
     let (tab_id, pane_id) = svc.create_tab(&workspace_id)?;
     // User-created tabs are Orchestrators by default (can spawn agents)
     let _ = svc.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
+    if eager.unwrap_or(false) {
+        svc.ensure_pane_pty_for_send(&pane_id)?;
+    }
     // Read tab title from state
     let title = svc
         .mux
