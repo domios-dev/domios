@@ -30,6 +30,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^6.0.1",
+    "happy-dom": "^20.10.2",
     "tailwindcss": "^4.2.1",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
