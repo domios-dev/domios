@@ -1,5 +1,5 @@
 
-When done, report by running:
+When done, report by running this suggested format:
 
 codeterm agent report "STATUS: done | blocked | partial
 CHANGES: files touched or 'none'
