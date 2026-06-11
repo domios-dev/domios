@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run every TS unit test under src/ and packages/.
+# Run every TS unit test under src/, packages/, and selected harness helpers.
 #
 # These are self-contained tsx scripts (each owns its assert harness and exits
 # non-zero on failure). Plugin-side tests have their own runner
@@ -15,7 +15,7 @@ tests=()
 while IFS= read -r f; do
     tests+=("$f")
 done < <(
-    find src packages -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) \
+    find src packages tests/playwright/helpers -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) \
         | grep -Ev '/node_modules/|/dist/' \
         | sort
 )
