@@ -74,7 +74,7 @@ test("@golden pane create/focus/close round-trip", async () => {
   expect(panes.some((p) => p.id === paneId)).toBe(false);
 });
 
-test("@regression #132: exactly one focused pane across 50 focus switches", async () => {
+test("@smoke @regression #132: exactly one focused pane across 50 focus switches", async () => {
   const a = await createPane();
   const b = await createPane();
   const targets = [a, b];
