@@ -307,6 +307,7 @@ module.exports.default = {
     };
   },
 
+  // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.
   // Parse `user`/`assistant` lines and map content blocks to SessionMessage.
   parseSessionMessages: function (text) {
     var out = [];
