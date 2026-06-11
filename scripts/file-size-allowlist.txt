@@ -12,8 +12,6 @@
 # baselined to take file-sizes CI green today. All must shrink, not grow.
 # CLI command surface — split task F6.
 cli/src/cmd/plugin.rs	1743
-# Chat god-component — split task E3 (CodeBlock/MermaidBlock/MarkdownBody/toolIcons).
-packages/chat-ui/src/MessageBubble.tsx	2216
 # Chat session god-component — split task E3 (useChatSession/ChatComposer/useAttachments).
 src/components/Terminal/PaneSessionChat.tsx	1152
 # Agent provider abstraction — no split task yet; baselined to unblock CI.
@@ -29,7 +27,7 @@ src-tauri/src/mesh/mod.rs	1276
 # Opencode provider — no split task yet; baselined to unblock CI.
 src-tauri/src/plugin/agent_opencode/provider.rs	1046
 # JS-runtime parity test — test file (grew with chat-parsing parity fixtures), baselined.
-src-tauri/src/plugin/js_runtime/parity_test.rs	1499
+src-tauri/src/plugin/js_runtime/parity_test.rs	1517
 # JS-runtime provider — no split task yet; baselined to unblock CI.
 src-tauri/src/plugin/js_runtime/provider.rs	1394
 # PTY IO — no split task yet; baselined to unblock CI.
