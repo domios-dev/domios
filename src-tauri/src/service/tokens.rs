@@ -14,7 +14,13 @@ impl TokenStore {
     }
 
     pub fn new_with_root(root: PathBuf) -> Self {
-        let _ = fs::create_dir_all(&root);
+        if let Err(e) = fs::create_dir_all(&root) {
+            log::warn!(
+                "[services/tokens] failed to create token root {}: {}",
+                root.display(),
+                e
+            );
+        }
         Self { root }
     }
 
@@ -77,21 +83,34 @@ fn restrict_file_permissions(path: &std::path::Path) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
+            log::warn!(
+                "[services/tokens] failed to restrict token permissions {}: {}",
+                path.display(),
+                e
+            );
+        }
     }
     #[cfg(windows)]
     {
         let path_str = path.to_string_lossy();
         let username = std::env::var("USERNAME").unwrap_or_default();
         if !username.is_empty() {
-            let _ = std::process::Command::new("icacls")
+            if let Err(e) = std::process::Command::new("icacls")
                 .args([
                     path_str.as_ref(),
                     "/inheritance:r",
                     "/grant",
                     &format!("{}:(F)", username),
                 ])
-                .output();
+                .output()
+            {
+                log::warn!(
+                    "[services/tokens] failed to restrict token ACL {}: {}",
+                    path.display(),
+                    e
+                );
+            }
         }
     }
 }
