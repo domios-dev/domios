@@ -32,7 +32,15 @@ pub struct AppState {
     pub events: crate::api::events::EventBroadcasterState,
     /// Directory holding the built React bundle, served at /web.
     pub web_dist: Option<std::path::PathBuf>,
+    /// Short-lived web tokens for PWA/mirror auth. Maps token → creation instant;
+    /// avoids exposing the permanent master API token outside the daemon.
+    /// Tokens expire after WEB_TOKEN_TTL.
+    pub web_tokens: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>>,
 }
+
+/// Lifetime of web tokens minted by mesh_web_token. After this period the token
+/// is no longer accepted by the auth middleware and the browser must re-fetch.
+pub(crate) const WEB_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
 
 pub fn create_router(state: AppState) -> Router {
     let router = Router::new()
@@ -604,6 +612,10 @@ pub fn create_router(state: AppState) -> Router {
             .route(
                 "/web/manifest.webmanifest",
                 get(web_routes::web_manifest),
+            )
+            .route(
+                "/web/manifest-bootstrap",
+                axum::routing::post(web_routes::web_manifest_bootstrap),
             )
             .nest_service("/web", serve)
     } else {
