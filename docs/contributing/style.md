@@ -51,4 +51,8 @@ Everything else gets deleted. If you catch yourself writing a comment and you ca
 - Plugin-ready = isolated module with explicit interface. See `docs/plans/plugin-architecture.md`.
 - Design artifacts (screenshots, video) go in PR descriptions, never the source tree; release binaries come from CI only.
 
-<!-- revision: 2 -->
+## Dependency advisories
+
+Weekly audits (`cargo audit` + `pnpm audit`) flag known vulnerabilities. Assess reachability: if a vulnerability is in a transitive dependency your code never touches, document it with a bump-rationale comment in the PR; if reachable, upgrade or pin the affected version. Do not ignore advisories.
+
+<!-- revision: 3 -->

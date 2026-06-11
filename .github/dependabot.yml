@@ -1,0 +1,37 @@
+version: 2
+updates:
+  # Cargo updates (src-tauri)
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+    groups:
+      minor-patch:
+        dependency-type: minor-or-patch
+
+  # Cargo updates (cli)
+  - package-ecosystem: cargo
+    directory: /cli
+    schedule:
+      interval: weekly
+    groups:
+      minor-patch:
+        dependency-type: minor-or-patch
+
+  # npm/pnpm updates (workspace root)
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-patch:
+        dependency-type: minor-or-patch
+
+  # GitHub Actions updates
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-patch:
+        dependency-type: minor-or-patch
