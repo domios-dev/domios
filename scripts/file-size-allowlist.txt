@@ -7,11 +7,6 @@
 #
 # Adding a new line to this list = admitting we shipped a >1000 file. Don't.
 
-# Grew +66 in feat(mem): 6am dreamer schedule + migration (73004af), then
-# +145 across e4f5ad5/ab7dade/970d71c/83ea841 (telegram toggle, prompt fix). Real code.
-# Re-baselined at HEAD pending the dreaming/ module split (A1).
-src-tauri/src/mem/dreaming.rs	1492
-
 # Baselined 2026-06-11 (A5): pre-existing >1000 files at HEAD on branch security.
 # Files with a dedicated split task lose their entry once split; the rest are
 # baselined to take file-sizes CI green today. All must shrink, not grow.
