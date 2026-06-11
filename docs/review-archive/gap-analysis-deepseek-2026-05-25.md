@@ -1,3 +1,7 @@
+Historical snapshot (2026-05-25). Findings may since be fixed; do not action without re-verifying.
+
+
+
 # DeepSeek Prompt Gap Analysis — 2026-05-25
 
 My personal pass over every prompt, every doc cross-reference, every CLI claim
@@ -375,3 +379,4 @@ Everything else is doc decay, which is fixable with one pass through the files.
 know what it says. These are my findings from reading prompts → code → CLI.*
 
 *— DeepSeek pass, 2026-05-25*
+
