@@ -6,8 +6,8 @@ use axum::{
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::services::activity::{ActivityEvent, ActivitySource, ActivityWriter};
-use crate::services::store::{self, Service, ServiceCreate, ServiceKind, ServiceUpdate};
+use crate::service::activity::{ActivityEvent, ActivitySource, ActivityWriter};
+use crate::service::store::{self, Service, ServiceCreate, ServiceKind, ServiceUpdate};
 
 #[derive(Deserialize)]
 pub struct ActivityQuery {

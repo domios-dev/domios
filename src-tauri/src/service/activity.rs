@@ -307,7 +307,7 @@ impl ActivityWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::store::ServicesStore;
+    use crate::service::store::ServicesStore;
 
     #[test]
     fn record_push_event_persists_with_source_metadata() {

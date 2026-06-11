@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::services::store::{HealthSnapshot, HealthStatus};
+use crate::service::store::{HealthSnapshot, HealthStatus};
 
 /// Probe a URL and map the response to a HealthSnapshot.
 ///

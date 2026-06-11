@@ -4,7 +4,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::process::Command;
 use tokio::time::timeout;
 
-use crate::services::store::{HealthSnapshot, HealthStatus};
+use crate::service::store::{HealthSnapshot, HealthStatus};
 
 pub async fn probe_script(path: &str, timeout_ms: u64) -> std::io::Result<HealthSnapshot> {
     let started = Instant::now();
