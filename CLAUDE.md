@@ -90,10 +90,12 @@ Behavioural changes (system prompts, session restore semantics, mem
 recall quality, agent routing) are verified with bench scripts under
 `evals/<name>/`. Existing sets:
 
-- `evals/general-agent/` — General Agent prompt behaviour (21 cases, A/B via `prompt-evaluator` skill)
-- `evals/mem-recall/` — mem search engine quality (Recall@K / MRR)
-- `evals/mem-protocol/` — slim `bridge_mem.md` rule fires the right protocol calls
+- `evals/cli-agent/` — real-daemon LLM benchmark: drives Claude/Codex/Opencode through every CLI command (model-judged, replaces old headless general-agent/mem-protocol evals)
+- `evals/mem-recall/` — mem search engine quality (Recall@K / MRR / latency)
+- `evals/dreaming/` — REM-phase prompt (Stage A.1 hub decomposition, Stage A.2 island bridging)
 - `evals/session-restore/` — kill+restart preserves workspace/pane/agent_type metadata; UI-mount step manual
+
+Also present, experimental/historical: `evals/dreamer-repair/` (mem graph repair smoke test), `evals/seeds/`, `evals/v1_1_23_e2e/`.
 
 **Before changing behaviour, find the matching eval set and run it
 first to capture the baseline. Extend the eval set if a new scenario
@@ -167,11 +169,11 @@ Role skills currently in mem (search by role name or fetch by id):
 
 ### Where the codeterm-specific skill folders live
 
-CodeTerm-project skills (release pipeline, prod build, Windows self-install) live in **`<repo>/.codeterm/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs. Currently:
+CodeTerm-project skills (release pipeline) live in **`<repo>/.codeterm/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs. Currently:
 
 - `.codeterm/skills/github-release/` — release pipeline procedure
-- `.codeterm/skills/prod-build/` — local prod build
-- `.codeterm/skills/self-install-local/` — Windows local NSIS install
+
+Prod build lives in `./build.sh build`; Windows local NSIS self-install in `scripts/self-install-local.ps1`.
 
 On a fresh clone, register them with mem so the Librarian indexes them:
 
