@@ -20,10 +20,20 @@ def test_eager_non_active_tab_has_pty_and_accepts_send_text(api: CodeTermAPI):
         assert pane.get("pty_id")
         assert not pane.get("focused", False)
 
+        # Shell readiness gate, same as fresh_pane: typing before the shell
+        # reads stdin loses the keystrokes (cold PowerShell takes seconds).
+        api.wait_for_output(pane_id, pattern=r"[\$#%>]", timeout=15)
+
         suffix = unique_name("").lstrip("-")
         assembled_marker = f"EAGER_OK_{suffix}"
-        api.send_text(pane_id, text=shell_cmd(f"echo 'EAGER_''OK_{suffix}'"))
-        output = api.wait_for_output(pane_id, pattern=assembled_marker, timeout=8)
+        api.send_text(
+            pane_id,
+            text=shell_cmd(
+                f"printf 'EAGER_%s\\n' 'OK_{suffix}'",
+                f'Write-Output ("EAGER_" + "OK_{suffix}")',
+            ),
+        )
+        output = api.wait_for_output(pane_id, pattern=assembled_marker, timeout=15)
         assert assembled_marker in output
     finally:
         api.close_workspace(ws_id)
