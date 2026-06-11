@@ -1,0 +1,624 @@
+import React from "react";
+import type { NormalizedChatMessage as ChatMessage, SlashCommand } from "@codeterm/chat-core";
+import { parseMarker } from "@codeterm/chat-core";
+import { File, Image, Info, Mic } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
+import { looksLikeMermaidSource } from "./MermaidBlock";
+
+export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
+
+function extractCodeText(children: unknown): string {
+  if (Array.isArray(children)) {
+    return children.map((child) => (typeof child === "string" ? child : "")).join("");
+  }
+  return typeof children === "string" ? children : "";
+}
+
+function resolveCodeLanguage(className: string | undefined, children: unknown): string | null {
+  const explicit = /language-([a-z0-9+#-]+)/i.exec(className || "");
+  if (explicit) {
+    return explicit[1].toLowerCase();
+  }
+  const source = extractCodeText(children).replace(/\r/g, "").trim();
+  return looksLikeMermaidSource(source) ? "mermaid" : null;
+}
+
+export function RichMarkdown({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ node: _node, ...props }) => (
+          <h1 className="text-base font-bold mt-3 mb-1" style={{ color: "var(--ct-fg)" }} {...props} />
+        ),
+        h2: ({ node: _node, ...props }) => (
+          <h2 className="text-sm font-semibold mt-2 mb-1" style={{ color: "var(--ct-fg)" }} {...props} />
+        ),
+        h3: ({ node: _node, ...props }) => (
+          <h3 className="text-sm font-medium mt-1.5 mb-0.5" style={{ color: "var(--ct-fg)" }} {...props} />
+        ),
+        p: ({ node: _node, ...props }) => <p className={`my-1 ${TEXT_WRAP_CLASS}`} {...props} />,
+        ul: ({ node: _node, ...props }) => <ul className="list-disc ml-5 my-1" {...props} />,
+        ol: ({ node: _node, ...props }) => <ol className="list-decimal ml-5 my-1" {...props} />,
+        li: ({ node: _node, children, ...props }) => (
+          <li className="my-0.5" {...props}>{children}</li>
+        ),
+        table: ({ node: _node, ...props }) => (
+          <div className="overflow-x-auto my-2">
+            <table
+              className="text-xs border-collapse"
+              style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)" }}
+              {...props}
+            />
+          </div>
+        ),
+        thead: ({ node: _node, ...props }) => (
+          <thead style={{ background: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 8%, transparent)" }} {...props} />
+        ),
+        th: ({ node: _node, ...props }) => (
+          <th
+            className="px-2 py-1 text-left font-semibold border"
+            style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)" }}
+            {...props}
+          />
+        ),
+        td: ({ node: _node, ...props }) => (
+          <td
+            className="px-2 py-1 border align-top"
+            style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 20%, transparent)" }}
+            {...props}
+          />
+        ),
+        // Block code: SyntaxHighlighter/CodeBlock. Inline code: styled span.
+        // Detection: fenced blocks get a "language-*" className from remark.
+        // For language-less blocks, infer Mermaid from known source keywords.
+        code: ({ node: _node, className, children, ...props }: React.ComponentProps<"code"> & { node?: unknown }) => {
+          const language = resolveCodeLanguage(className, children);
+          const plainCode = extractCodeText(children);
+          if (!language) {
+            return (
+              <code
+                className="px-1 py-0.5 rounded text-xs font-mono"
+                style={{
+                  background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",
+                  color: "var(--ct-fg, #c9d1d9)",
+                  overflowWrap: "anywhere",
+                  wordBreak: "break-word",
+                }}
+                {...props}
+              >
+                {plainCode}
+              </code>
+            );
+          }
+          return (
+            <CodeBlock
+              text={plainCode}
+              language={language}
+              maxHeight={language.toLowerCase() === "mermaid" ? MERMAID_BLOCK_MAX_HEIGHT : CODE_BLOCK_DEFAULT_MAX_HEIGHT}
+              collapsible
+              collapseAfterLines={LONG_CODE_PREVIEW_LINES}
+            />
+          );
+        },
+        // Strip default <pre> wrapper — SyntaxHighlighter renders its own via PreTag
+        pre: ({ node: _node, children }) => <>{children}</>,
+        a: ({ node: _node, ...props }) => (
+          <a
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline"
+            style={{ color: "var(--ct-accent, #58a6ff)" }}
+            {...props}
+          />
+        ),
+        del: ({ node: _node, ...props }) => <del className="opacity-60" {...props} />,
+        blockquote: ({ node: _node, ...props }) => (
+          <blockquote
+            className="border-l-2 pl-3 my-2 italic opacity-80"
+            style={{ borderColor: "var(--ct-muted-fg, #8b949e)" }}
+            {...props}
+          />
+        ),
+        hr: () => (
+          <hr
+            className="my-2"
+            style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)" }}
+          />
+        ),
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+}
+
+export function extractFilePath(message: ChatMessage): string | null {
+  if (message.toolInput) {
+    const fp = (message.toolInput.file_path ?? message.toolInput.filePath) as string | undefined;
+    if (fp) return fp;
+  }
+  if (message.toolArgs) {
+    try {
+      const parsed = JSON.parse(message.toolArgs);
+      if (parsed.file_path) return parsed.file_path;
+    } catch {
+      // Try to extract from text
+      const match = message.toolArgs.match(/(?:file_path|path)['":\s]+([^\s'"}\],]+)/);
+      if (match) return match[1];
+    }
+  }
+  return null;
+}
+
+export interface EditPair {
+  old: string;
+  new: string;
+}
+
+/** Extract Edit/MultiEdit before→after pairs from a tool call so the chat can
+ *  render a real diff instead of just "file updated". Handles single
+ *  old_string/new_string and the MultiEdit `edits` array, from either
+ *  `toolInput` or a JSON `toolArgs` fallback. Provider-agnostic. */
+export function extractEdits(message: ChatMessage): EditPair[] {
+  let input: Record<string, unknown> | null =
+    (message.toolInput as Record<string, unknown> | undefined) ?? null;
+  if (!input && message.toolArgs) {
+    try {
+      input = JSON.parse(message.toolArgs) as Record<string, unknown>;
+    } catch {
+      input = null;
+    }
+  }
+  if (!input) return [];
+  const toPair = (e: Record<string, unknown>): EditPair | null => {
+    // Accept snake_case (claude) and camelCase (opencode et al).
+    const oldS = (e.old_string ?? e.oldString) as unknown;
+    const newS = (e.new_string ?? e.newString) as unknown;
+    if (typeof oldS !== "string" && typeof newS !== "string") return null;
+    return { old: String(oldS ?? ""), new: String(newS ?? "") };
+  };
+  if (Array.isArray(input.edits)) {
+    return input.edits
+      .map((e) => toPair(e as Record<string, unknown>))
+      .filter((e): e is EditPair => e !== null);
+  }
+  const single = toPair(input);
+  return single ? [single] : [];
+}
+
+/** Old→new diff for Edit/MultiEdit tool calls: removed lines in red, added in
+ *  green. Line-based, no LCS — clear and cheap. */
+export function DiffView({ edits }: { edits: EditPair[] }) {
+  const row = (line: string, kind: "del" | "add", key: string) => (
+    <div
+      key={key}
+      className={`${PRE_WRAP_CLASS} px-1`}
+      style={{
+        background:
+          kind === "del"
+            ? "color-mix(in srgb, var(--ct-red, #f85149) 14%, transparent)"
+            : "color-mix(in srgb, var(--ct-green, #3fb950) 14%, transparent)",
+        color: "var(--ct-fg)",
+      }}
+    >
+      <span style={{ color: kind === "del" ? "var(--ct-red, #f85149)" : "var(--ct-green, #3fb950)" }}>
+        {kind === "del" ? "- " : "+ "}
+      </span>
+      {line || " "}
+    </div>
+  );
+  return (
+    <div className="font-mono text-[11px] leading-relaxed overflow-x-auto">
+      {edits.map((e, i) => (
+        <div key={i} className={i > 0 ? "mt-2 border-t border-[var(--ct-border)] pt-2" : ""}>
+          {e.old ? e.old.split("\n").map((l, j) => row(l, "del", `o${i}-${j}`)) : null}
+          {e.new ? e.new.split("\n").map((l, j) => row(l, "add", `n${i}-${j}`)) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Truncate file path to show just filename + parent. */
+export function shortPath(fullPath: string): string {
+  const parts = fullPath.split(/[\\/]/).filter(Boolean);
+  if (parts.length <= 2) return fullPath;
+  return ".../" + parts.slice(-2).join("/");
+}
+
+function isShellToolName(name: string | undefined): boolean {
+  const n = (name ?? "").toLowerCase();
+  return n === "bash"
+    || n === "shell"
+    || n === "shell_command"
+    || n === "exec"
+    || n === "powershell"
+    || n.includes("shell")
+    || n.includes("bash");
+}
+
+/** Extract shell command text across Claude/Codex provider shapes. */
+export function extractCommand(message: ChatMessage): string | null {
+  if (message.toolInput) {
+    const cmd = message.toolInput.command as string | undefined;
+    if (cmd) return cmd;
+  }
+  if (message.toolArgs) {
+    try {
+      const parsed = JSON.parse(message.toolArgs);
+      if (parsed && typeof parsed === "object" && typeof parsed.command === "string") {
+        return parsed.command;
+      }
+    } catch {
+      if (isShellToolName(message.toolName)) {
+        const args = message.toolArgs.trim();
+        return args ? args : null;
+      }
+    }
+  }
+  return null;
+}
+
+export function PlainOutput({ text, maxHeight = "12rem" }: { text: string; maxHeight?: string }) {
+  return (
+    <pre
+      className={`${PRE_WRAP_CLASS} m-0 overflow-auto rounded-md border px-2 py-1.5 font-mono text-[11px] leading-relaxed`}
+      style={{
+        maxHeight,
+        color: "var(--ct-fg)",
+        background: "color-mix(in srgb, var(--ct-bg, #0d1117) 72%, black 10%)",
+        borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent)",
+      }}
+    >
+      {text}
+    </pre>
+  );
+}
+
+export function isLargeArtifact(text: string): boolean {
+  return text.length > 2_500 || lineCount(text) > 45;
+}
+
+function artifactPreview(text: string): string {
+  const lines = text.replace(/\r/g, "").split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines.slice(0, 2).join(" · ").slice(0, 220) || "output";
+}
+
+export function LongArtifact({
+  label,
+  text,
+  expanded,
+  onToggle,
+  markdown = false,
+}: {
+  label: string;
+  text: string;
+  expanded: boolean;
+  onToggle: () => void;
+  markdown?: boolean;
+}) {
+  const lines = lineCount(text);
+  return (
+    <div className="mb-2 w-full max-w-4xl min-w-0 mx-auto">
+      <div
+        className="max-w-full min-w-0 rounded-md border"
+        style={{
+          background: "color-mix(in srgb, var(--ct-surface, #161b22) 88%, transparent)",
+          borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+        }}
+      >
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-left text-xs"
+          style={{
+            color: "var(--ct-muted-fg)",
+            background: "transparent",
+            border: "none",
+          }}
+        >
+          <Info size={12} strokeWidth={2} className="shrink-0" style={{ color: "var(--ct-accent, #58a6ff)" }} />
+          <span className="shrink-0 font-mono text-[11px]" style={{ color: "var(--ct-accent, #58a6ff)" }}>
+            {label}
+          </span>
+          <span className="min-w-0 flex-1 truncate opacity-70">{artifactPreview(text)}</span>
+          <span className="shrink-0 font-mono text-[10px] opacity-50">{lines} lines</span>
+          <ChevronIcon expanded={expanded} className="shrink-0 opacity-50" />
+        </button>
+        {expanded && (
+          <div
+            className="max-h-[28rem] overflow-auto border-t px-3 py-2 text-xs"
+            style={{
+              borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 16%, transparent)",
+              color: "var(--ct-fg)",
+            }}
+          >
+            {markdown ? (
+              <div className="text-sm leading-relaxed">
+                <RichMarkdown text={text} />
+              </div>
+            ) : (
+              <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`}>{text}</pre>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function languageFromPath(path: string | null): string {
+  if (!path) return "text";
+  const ext = path.split(/[./\\]/).pop()?.toLowerCase();
+  const map: Record<string, string> = {
+    js: "javascript",
+    jsx: "jsx",
+    ts: "typescript",
+    tsx: "tsx",
+    json: "json",
+    css: "css",
+    scss: "scss",
+    html: "html",
+    md: "markdown",
+    markdown: "markdown",
+    mmd: "mermaid",
+    mermaid: "mermaid",
+    rs: "rust",
+    py: "python",
+    ps1: "powershell",
+    sh: "bash",
+    bash: "bash",
+    yml: "yaml",
+    yaml: "yaml",
+    toml: "toml",
+    sql: "sql",
+    go: "go",
+    java: "java",
+    c: "c",
+    h: "c",
+    cpp: "cpp",
+    hpp: "cpp",
+    cs: "csharp",
+  };
+  return ext ? (map[ext] ?? ext) : "text";
+}
+
+/** Last non-empty line of a tool result — used for the compact inline tail. */
+export function lastNonEmptyLine(text: string): string {
+  const lines = text.replace(/\r/g, "").split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const trimmed = lines[i].trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
+/** File icon SVG for attachment badges. */
+export function FileIcon({ className = "" }: { className?: string }) {
+  return <File className={className} size={12} strokeWidth={2} />;
+}
+
+/** Extract filename from path. */
+export function fileName(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  return parts[parts.length - 1] || path;
+}
+
+/**
+ * Render user message content, replacing file attachment markers with badges.
+ * Marker format: \x00«file:/path/to/file» — uses NUL + guillemets to avoid
+ * false positives with any user-typed text, markdown, or code.
+ */
+export interface ParsedVoice {
+  transcript: string | null;
+  note: string | null;
+  fileUrl: string | null;
+  fileName: string | null;
+}
+
+/** Parse the CodeTerm voice marker so the chat can show a voice card instead
+ *  of the raw marker string. Returns null when the text isn't a voice line. */
+export function parseVoiceMessage(content: string): ParsedVoice | null {
+  const m = parseMarker(content.trim());
+  if (!m || m.kind !== "voice") return null;
+  const fileUrl = m.attrs.file ?? null;
+  const untranscribed = m.attrs.status === "untranscribed";
+  const payload = m.payload.trim() || null;
+  return {
+    transcript: untranscribed ? null : payload,
+    note: untranscribed ? payload : null,
+    fileUrl,
+    fileName: fileUrl ? fileName(fileUrl) : null,
+  };
+}
+
+export function VoiceCard({ v }: { v: ParsedVoice }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div
+        className="inline-flex items-center gap-1.5 text-[11px]"
+        style={{ color: "var(--ct-muted-fg)" }}
+      >
+        <Mic size={13} strokeWidth={2} />
+        <span className="opacity-80 font-medium">Voice</span>
+        {v.fileName && <span className="opacity-40 font-mono">{v.fileName}</span>}
+      </div>
+      {v.transcript ? (
+        <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{v.transcript}</pre>
+      ) : (
+        <span className="text-[11px] italic" style={{ color: "var(--ct-muted-fg)" }}>
+          {v.note ?? "voice note"}
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function renderUserContent(content: string): React.ReactNode {
+  const voice = parseVoiceMessage(content);
+  if (voice) return <VoiceCard v={voice} />;
+  // Non-voice attachment markers (photo/document/video/file) → file badge.
+  const mk = parseMarker(content.trim());
+  if (mk && ["photo", "file", "document", "video", "audio", "sticker"].includes(mk.kind)) {
+    const fp = mk.attrs.file ?? "";
+    const name = mk.attrs.name || (fp ? fileName(fp) : mk.kind);
+    return (
+      <div
+        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px]"
+        style={{
+          background: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 12%, transparent)",
+          color: "var(--ct-fg)",
+        }}
+        title={fp}
+      >
+        <FileIcon />
+        <span className="font-medium">{name}</span>
+        <span className="opacity-50 uppercase">{mk.kind}</span>
+      </div>
+    );
+  }
+  // Match both new marker (\x00«file:...») and legacy [attached: ...] format
+  const attachRe = /(?:\x00\u00ABfile:([^\u00BB]+)\u00BB|\[attached:\s*([^\]]+)\])/g;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = attachRe.exec(content)) !== null) {
+    // Text before the match
+    const before = content.slice(lastIndex, match.index).trim();
+    if (before) {
+      parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{before}</pre>);
+    }
+    // File badge — group 1 = new marker, group 2 = legacy format
+    const filePath = (match[1] || match[2]).trim();
+    const name = fileName(filePath);
+    const ext = name.split(".").pop()?.toUpperCase() || "FILE";
+    parts.push(
+      <div
+        key={key++}
+        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 mt-1 text-[11px]"
+        style={{
+          background: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 12%, transparent)",
+          color: "var(--ct-fg)",
+        }}
+        title={filePath}
+      >
+        <FileIcon />
+        <span className="font-medium">{name}</span>
+        <span className="opacity-50">{ext}</span>
+      </div>,
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Remaining text
+  const rest = content.slice(lastIndex).trim();
+  if (rest) {
+    parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{rest}</pre>);
+  }
+
+  // No attachments found — plain text
+  if (parts.length === 0) {
+    return <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{content}</pre>;
+  }
+
+  return <>{parts}</>;
+}
+
+/** Compact image indicator for standalone image messages. */
+export function ImageBadge() {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs"
+      style={{ background: "var(--ct-surface)", color: "var(--ct-muted-fg)" }}
+    >
+      <Image size={14} strokeWidth={2} />
+      <span className="opacity-70">Image</span>
+    </span>
+  );
+}
+
+/** Renders slash-command blocks (name chip, optional args/stdout). */
+export function CommandBody({ commands, body }: { commands: SlashCommand[]; body: string }) {
+  return (
+    <div className="space-y-2">
+      {commands.map((c, i) => (
+        <div key={i} className="space-y-1">
+          <div className="flex items-center gap-2">
+            <code
+              className="px-2 py-0.5 rounded text-xs font-mono"
+              style={{
+                background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)",
+                color: "var(--ct-accent, #58a6ff)",
+              }}
+            >
+              {c.name}
+            </code>
+            {c.args && (
+              <span className="text-xs opacity-70 font-mono">{c.args}</span>
+            )}
+          </div>
+          {c.stdout && (
+            <pre
+              className={`text-xs font-mono px-2 py-1.5 rounded ${PRE_WRAP_CLASS}`}
+              style={{
+                background: "color-mix(in srgb, var(--ct-bg, #0d1117) 70%, black 5%)",
+                color: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 80%, transparent)",
+                borderLeft: "2px solid color-mix(in srgb, var(--ct-muted-fg) 40%, transparent)",
+              }}
+            >
+              {c.stdout}
+            </pre>
+          )}
+        </div>
+      ))}
+      {body.trim() && (
+        <div className="text-sm opacity-70">{body}</div>
+      )}
+    </div>
+  );
+}
+
+// Model family → avatar glyph + accent (self-contained; no provider registry).
+export function modelAvatar(model?: string): { glyph: string; color: string } {
+  const m = (model ?? "").toLowerCase();
+  if (m.includes("opus")) return { glyph: "Op", color: "#d2a24c" };   // amber
+  if (m.includes("sonnet")) return { glyph: "So", color: "#5b9bf5" }; // blue
+  if (m.includes("haiku")) return { glyph: "Ha", color: "#4ec98c" };  // green
+  if (m.includes("codex") || m.includes("gpt") || m.includes("o1") || m.includes("o3"))
+    return { glyph: "Cx", color: "#b07ce8" };                         // violet
+  if (m.includes("gemini")) return { glyph: "Ge", color: "#e88c5a" }; // orange
+  const initial = (model ?? "").replace(/[^a-z0-9]/gi, "").slice(0, 2);
+  return { glyph: initial ? initial[0].toUpperCase() + (initial[1] ?? "") : "·", color: "#8b949e" };
+}
+
+export function ModelAvatar({ model }: { model?: string }) {
+  const { glyph, color } = modelAvatar(model);
+  return (
+    <span
+      aria-hidden
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 18,
+        height: 18,
+        borderRadius: "50%",
+        fontSize: 8.5,
+        fontWeight: 700,
+        fontFamily: "var(--ct-mono, ui-monospace, monospace)",
+        letterSpacing: "-0.5px",
+        color,
+        background: `color-mix(in srgb, ${color} 16%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${color} 45%, transparent)`,
+        flexShrink: 0,
+      }}
+    >
+      {glyph}
+    </span>
+  );
+}
