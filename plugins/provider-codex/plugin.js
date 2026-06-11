@@ -162,14 +162,14 @@ module.exports.default = {
       var v;
       try { v = JSON.parse(lines[i]); } catch (_) {
         if (!hadInvalid) {
-          console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
+          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
           hadInvalid = true;
         }
         continue;
       }
       if (!validateEntry(v)) {
         if (!hadInvalid) {
-          console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
+          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
           hadInvalid = true;
         }
         continue;
@@ -349,14 +349,14 @@ module.exports.default = {
       var v;
       try { v = JSON.parse(line); } catch (e) {
         if (!hadInvalid) {
-          console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
+          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
           hadInvalid = true;
         }
         continue;
       }
       if (!isValidCodexSessionMessage(v)) {
         if (!hadInvalid) {
-          console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
+          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
           hadInvalid = true;
         }
         continue;

@@ -319,14 +319,14 @@ module.exports.default = {
       var v;
       try { v = JSON.parse(line); } catch (e) {
         if (!hadInvalid) {
-          console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
+          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
           hadInvalid = true;
         }
         continue;
       }
       if (!isValidClaudeSessionMessage(v)) {
         if (!hadInvalid) {
-          console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
+          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
           hadInvalid = true;
         }
         continue;
@@ -375,14 +375,14 @@ module.exports.default = {
       var v;
       try { v = JSON.parse(line); } catch (_) {
         if (!hadInvalid) {
-          console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
+          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
           hadInvalid = true;
         }
         continue;
       }
       if (!validateEntry(v)) {
         if (!hadInvalid) {
-          console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
+          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
           hadInvalid = true;
         }
         continue;
