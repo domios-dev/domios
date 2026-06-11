@@ -405,6 +405,8 @@ git push origin main
 
 Both repos are currently PRIVATE — `brew install codeterm` still won't work for the public. Bumping the cask keeps the tap self-consistent for when repos go public.
 
+### 12. Regenerate translated READMEs from README.md (agent pass) translations must not ship stale
+
 ## Retag in-place (post-publish hotfix)
 
 When a critical bug surfaces shortly after publish — **before users have widely auto-updated** — it's safe to force-move the tag and re-upload artifacts under the same version rather than bumping. Used for v1.1.15 (2026-05-05).

@@ -3,6 +3,7 @@
 </p>
 
 <h1 align="center">CodeTerm</h1>
+> README.md 的翻译可能会落后。英文版本是规范版本。
 
 <p align="center">
   <strong>AI 优先的终端复用器</strong><br>

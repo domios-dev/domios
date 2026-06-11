@@ -3,6 +3,7 @@
 </p>
 
 <h1 align="center">CodeTerm</h1>
+> A tradução do README.md pode ficar atrasada. A versão em inglês é a canônica.
 
 <p align="center">
   <strong>Multiplexador de terminal com foco em IA</strong><br>
