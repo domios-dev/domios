@@ -9,21 +9,21 @@ CodeTerm has a 2-level agent hierarchy: **Orchestrator → Worker**. Flat by des
 
 The `AgentRole` enum has exactly two values: `Orchestrator` and `Worker`.
 
-## Role skills (in mem, not `.claude/agents/`)
+## Role skills (in-memory role skills)
 
-CodeTerm dogfoods its own `codeterm mem` as the single source of truth for role definitions. The `.claude/agents/` folder is intentionally empty — see the "We dogfood..." section in `CLAUDE.md` for the rationale.
+Role definitions live in [`CLAUDE.md`](../../CLAUDE.md) and remain the single source of truth. Do not duplicate the role table here.
 
-| Role | Mem id | Owns | Typical role |
-|------|--------|------|--------------|
-| Backend dev | `skill_backend_dev_role_rust_src_tauri_for_codeterm` | `src-tauri/` Rust code | Worker |
-| Frontend dev | `skill_frontend_dev_role_react_typescript_src_for_codeterm` | `src/` React/TS code | Worker |
-| Docs sync | `skill_docs_sync_role_keep_docs_in_sync_with_code_for_codeterm` | `docs/*.md`, `README.md`, skills | Worker |
-| Code reviewer | `skill_code_reviewer_role_read_only_review_for_codeterm` | Read-only review | Worker |
-| Prompt evaluator | `skill_prompt_evaluator_role_a_b_and_regression_testing_for_codeterm` | Prompt files + eval sets in `evals/` | Worker (runs `.claude/skills/prompt-evaluator/runner.py`) |
-| End-to-end release | `skill_end_to_end_github_release_for_codeterm` | Full release pipeline | Worker (no specialized agent — any agent can do it) |
+The in-repo `docs/contributing/agents.md` doc is the execution playbook; role lookup remains through mem:
 
-`.claude/skills/` (project-local) is kept for skills with **runnable code** (e.g. `prompt-evaluator/runner.py`). Mem holds markdown content only; skills with scripts stay on disk and their `SKILL.md` is the entry point the role-skill in mem points to.
+- Keep roles in `codeterm mem` (role skills).
+- `.claude/skills/` is only for role execution code assets where needed (for example `prompt-evaluator/runner.py`).
+- Role markdown should live in mem; `SKILL.md` entries point to runnable assets when required.
 
+## Non-Claude agents (Codex/GPT)
+
+Non-Claude agents (Codex and GPT task workers) should read repository-generated [`AGENTS.md`](../../AGENTS.md).
+When policies change, edit [`CLAUDE.md`](../../CLAUDE.md), then run `bash scripts/gen-agents-md.sh` to regenerate `AGENTS.md`.
+Do not edit `AGENTS.md` manually.
 ## Orchestrator-only rules
 
 (Read this only if you are the Orchestrator — no role, running at the top.)
@@ -86,6 +86,7 @@ TASK: ...
 - **All sub-agents are Workers.** For a big job, decompose it yourself and spawn several Workers as siblings (e.g. "refactor the whole frontend state layer" → 4 frontend-dev Workers, each a scoped sub-task). There is no intermediate level — the tree is exactly one deep (Orchestrator → Workers).
 
 **Rule of thumb:** spawn via `codeterm agent spawn` when the task touches >3 files, needs its own filesystem/PTY context, or the user benefits from watching it run. Otherwise use the built-in Agent tool.
+Model-routing rubric for this team is documented in [docs/review-2026-06/agent-team.md](../review-2026-06/agent-team.md).
 
 ### Reporting back
 
@@ -150,4 +151,5 @@ Prompt templates compiled into the binary via `include_str!()`. Edit `.md` files
 - `src-tauri/prompts/cron_complete_suffix.md` — Appended to cron tasks (completion instruction)
 - `src-tauri/src/prompts.rs` — Rust module that loads all templates
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
+
