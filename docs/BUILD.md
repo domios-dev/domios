@@ -100,33 +100,33 @@ No CI — all builds are local, coordinated via CodeTerm mesh between two machin
 
 ### Workflow
 
-The release is driven by one machine (lead), the other builds in parallel (support). Both machines are connected via CodeTerm mesh. The lead handles version bump, tagging, draft creation, and publish. The support machine pulls, builds, and uploads its platform installer.
+The release is driven by one machine (Primary), the other builds in parallel (Support). Both machines are connected via CodeTerm mesh. The Primary handles version bump, tagging, draft creation, and publish. The Support machine pulls, builds, and uploads its platform installer.
 
-Typical setup: **MacBook Air** (lead, macOS ARM) + **BLACKSTAR** (support, Windows x64). Either machine can lead — just coordinate via mesh `send`.
+Typical setup: **MacBook Air** (Primary, macOS ARM) + **BLACKSTAR** (Support, Windows x64). Either machine can be Primary — just coordinate via mesh `send`.
 
 ### Steps
 
-1. **Lead: bump version** in 3 files: `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`
-2. **Lead: commit + push + tag:**
+1. **Primary: bump version** in 3 files: `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`
+2. **Primary: commit + push + tag:**
    ```bash
    git add -A && git commit -m "release: vX.Y.Z — summary"
    git tag vX.Y.Z && git push origin master --tags
    ```
-3. **Lead: create draft release** (before building — so both machines can upload in parallel):
+3. **Primary: create draft release** (before building — so both machines can upload in parallel):
    ```bash
    gh release create vX.Y.Z --draft --title "vX.Y.Z" --notes "changelog here"
    ```
-4. **Lead: tell support to build** (via mesh):
+4. **Primary: tell Support to build** (via mesh):
    ```bash
    codeterm send "git pull && ./build.sh build && gh release upload vX.Y.Z <installer-path> --clobber" --pane general --mesh BLACKSTAR
    ```
 5. **Both machines build in parallel:**
-   - **Lead** runs `./build.sh build` locally → uploads its installer
+   - **Primary** runs `./build.sh build` locally → uploads its installer
    - **Support** pulls, builds, uploads its installer
    ```bash
    gh release upload vX.Y.Z path/to/installer --clobber
    ```
-6. **Lead: publish** when all machines have uploaded their artifacts:
+6. **Primary: publish** when all machines have uploaded their artifacts:
    ```bash
    gh release edit vX.Y.Z --draft=false
    ```
@@ -222,3 +222,5 @@ codeterm/
 ├── tests/              # E2E tests
 └── docs/               # Documentation
 ```
+
+<!-- revision: 1 -->

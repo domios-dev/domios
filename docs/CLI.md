@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -30,7 +30,7 @@ Compact agent context (sends /compact to Claude)
 Link a pane as worker under a parent
 
 - `--pane` — Pane ID to link (default: current focused pane)
-- `--parent` — Parent pane ID (orchestrator or lead)
+- `--parent` — Parent pane ID (an Orchestrator)
 
 #### `codeterm agent list`
 
@@ -78,7 +78,7 @@ Restart agent (gracefully /exit + auto-resume to pick up settings or recover)
 
 #### `codeterm agent set-orchestrator`
 
-Mark a pane as orchestrator (top-level, can spawn leads/workers)
+Mark a pane as orchestrator (top-level, can spawn workers)
 
 - `--pane` — Pane ID (default: current focused pane)
 

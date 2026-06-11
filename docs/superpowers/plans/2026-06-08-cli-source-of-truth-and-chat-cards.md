@@ -589,7 +589,7 @@ git commit -m "refactor(cli): drop dead Docs match arm (handled by early short-c
 In `cli/src/args/agent.rs`:
 
 ```rust
-    /// Mark a pane as orchestrator (top-level, can spawn leads/workers)
+    /// Mark a pane as orchestrator (top-level, can spawn workers)
     #[command(alias = "set-conductor")]
     SetOrchestrator {
         #[arg(long)]
