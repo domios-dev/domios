@@ -115,6 +115,7 @@ function Invoke-CdpReload {
 
 Push-Location $repo
 try {
+  git config core.hooksPath .githooks 2>$null
   & $bash @scriptArgs
   $exitCode = $LASTEXITCODE
   if ($exitCode -eq 0 -and $BuildArgs.Count -gt 0 -and $BuildArgs[0] -eq "dev") {

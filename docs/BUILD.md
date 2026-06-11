@@ -49,6 +49,10 @@ Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
 - **Socket prefix:** `codeterm-dev` (vs `codeterm`)
 - **Single-instance:** Disabled (dev and prod can run side by side)
 
+## Git Hooks
+
+Custom git hooks live in `.githooks/` and are automatically wired via `git config core.hooksPath` by every `./build.sh` invocation. The pre-push hook runs `cargo check` on both the main crate and CLI to catch compile errors before pushing to avoid wasting CI minutes.
+
 ## macOS Code Signing
 
 **Release builds MUST be signed.** Unsigned DMGs trigger Gatekeeper ("unidentified developer").
