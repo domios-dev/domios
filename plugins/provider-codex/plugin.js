@@ -143,10 +143,24 @@ module.exports.default = {
   parseSessionDelta: function (chunk) {
     var out = [];
     var lines = String(chunk || "").split("\n");
+    var hadInvalid = false;
     for (var i = 0; i < lines.length; i++) {
       if (!lines[i]) continue;
       var v;
-      try { v = JSON.parse(lines[i]); } catch (_) { continue; }
+      try { v = JSON.parse(lines[i]); } catch (_) {
+        if (!hadInvalid) {
+          console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
+      if (!validateEntry(v)) {
+        if (!hadInvalid) {
+          console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
       if (!v || v.type !== "response_item" || !v.payload) continue;
       var p = v.payload;
       var ts = null;
@@ -315,11 +329,25 @@ module.exports.default = {
   parseSessionMessages: function (text) {
     var out = [];
     var lines = String(text || "").split("\n");
+    var hadInvalid = false;
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       if (!line) continue;
       var v;
-      try { v = JSON.parse(line); } catch (e) { continue; }
+      try { v = JSON.parse(line); } catch (e) {
+        if (!hadInvalid) {
+          console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
+      if (!isValidCodexSessionMessage(v)) {
+        if (!hadInvalid) {
+          console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
       if (!v || v.type !== "response_item") continue;
       var payload = v.payload;
       if (!payload || payload.type !== "message") continue;
@@ -446,6 +474,30 @@ var CODEX_MONTHS = {
   sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10,
   dec: 11, december: 11,
 };
+
+function isValidCodexSessionDelta(v) {
+  if (!v || typeof v !== "object") return false;
+  if (v.type !== "response_item") return false;
+  if (!v.payload || typeof v.payload !== "object") return false;
+  if (v.timestamp !== undefined && typeof v.timestamp !== "string") return false;
+  var kind = v.payload.type;
+  if (kind !== "message" && kind !== "function_call" && kind !== "function_call_output") return false;
+  return true;
+}
+
+function validateEntry(v) {
+  return isValidCodexSessionDelta(v);
+}
+
+function isValidCodexSessionMessage(v) {
+  if (!v || typeof v !== "object") return false;
+  if (v.type !== "response_item") return false;
+  if (!v.payload || typeof v.payload !== "object") return false;
+  if (v.payload.type !== "message") return false;
+  if (v.payload.role !== "user" && v.payload.role !== "assistant") return false;
+  if (!Array.isArray(v.payload.content)) return false;
+  return true;
+}
 
 function codexParseWeeklyResets(raw, nowMs) {
   var m = /(\d{1,2}):(\d{2})\s+on\s+(\d{1,2})\s+([A-Za-z]+)/.exec(String(raw || "").trim());
