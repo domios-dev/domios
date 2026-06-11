@@ -264,14 +264,36 @@ fn write_file_entry(
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, body)
         .map_err(|e| KeychainError::Other(format!("write {}: {}", tmp.display(), e)))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
-    }
+    restrict_file_permissions(&tmp);
     std::fs::rename(&tmp, path)
         .map_err(|e| KeychainError::Other(format!("rename {}: {}", path.display(), e)))?;
     Ok(())
+}
+
+/// Restrict file permissions so only the current user can read the file.
+/// On Unix: chmod 0600. On Windows: remove inherited ACEs via icacls and
+/// grant full control to the current user only.
+fn restrict_file_permissions(path: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(windows)]
+    {
+        let path_str = path.to_string_lossy();
+        let username = std::env::var("USERNAME").unwrap_or_default();
+        if !username.is_empty() {
+            let _ = std::process::Command::new("icacls")
+                .args([
+                    path_str.as_ref(),
+                    "/inheritance:r",
+                    "/grant",
+                    &format!("{}:(F)", username),
+                ])
+                .output();
+        }
+    }
 }
 
 /// Make a service name safe to use as a filename — strip path separators
