@@ -5,7 +5,6 @@ import { ComposerActions, useWebFileDrop } from "./ComposerActions";
 import { Paperclip, Terminal, X } from "lucide-react";
 import { MessageBubble } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
-import { getPlugin, useRegistryVersion } from "../../lib/plugins/registry";
 import {
   dedupeRecentUserMessages,
   matchesRecentUserMessage,
@@ -74,11 +73,6 @@ interface ChatStartResult {
   // here instead of raw `text`; deltas arrive on `pane-chat-msg-{id}`.
   messages?: ChatMessage[];
   cursor?: string;
-}
-
-interface RawDeltaEvent {
-  pane_id: string;
-  text: string;
 }
 
 interface ChatMsgEvent {
@@ -314,13 +308,10 @@ export function PaneSessionChat({
   onOpenTerminalFallback,
   onToggleTerminalFallback,
 }: Props) {
-  const [rawText, setRawText] = useState<string>("");
-  // Structured (DB-backed) providers stream parsed messages keyed by id; null
-  // means JSONL mode (browser parses rawText).
+  // All providers stream normalized ChatMsg keyed by id (claude/codex JSONL
+  // flattened in Rust, opencode from sqlite).
   const [structured, setStructured] = useState<ChatMessage[] | null>(null);
-  const [earliestOffset, setEarliestOffset] = useState(0);
   const [visibleMessageCount, setVisibleMessageCount] = useState(INITIAL_VISIBLE_MESSAGES);
-  const [loadingOlder, setLoadingOlder] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = usePersistentDraft(`pane-session-chat:${paneId}`);
@@ -356,6 +347,19 @@ export function PaneSessionChat({
   );
   const { state: muxState, setFocusedPane, addNotification } = useMultiplexer();
   const paneProvider = muxState.panes[paneId]?.agent_type ?? null;
+
+  // Resolve a pane id/short-id from a CodeTerm card (e.g. "Sent to pane 45509574")
+  // to its tab name. Built once per layout change; lookup is O(1) on an 8-char prefix.
+  const resolvePaneName = useMemo(() => {
+    const byShort = new Map<string, string>();
+    for (const ws of muxState.workspaces) {
+      for (const tab of ws.tabs) {
+        const name = tab.title?.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "").trim();
+        if (name && tab.pane_id) byShort.set(tab.pane_id.slice(0, 8), name);
+      }
+    }
+    return (paneRef: string): string | undefined => byShort.get(paneRef.slice(0, 8));
+  }, [muxState.workspaces]);
 
   const showComposerError = useCallback((message: string) => {
     addNotification({
@@ -456,34 +460,20 @@ export function PaneSessionChat({
         const res = await invoke<ChatStartResult>("chat_start", { paneId });
         if (cancelled) return;
         setError(null);
-        setRawText(res.text || "");
-        setEarliestOffset(res.start_offset ?? 0);
         setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
         setLoading(false);
         if (res.pending) return;
-        if (res.messages) {
-          // Structured (DB-backed) provider: render parsed messages directly,
-          // merge deltas by id (an in-progress message updates in place).
-          setStructured(res.messages);
-          unlisten = await listen<ChatMsgEvent>(
-            `pane-chat-msg-${paneId}`,
-            (ev) => {
-              if (cancelled) return;
-              const incoming = ev.payload.messages;
-              if (!incoming?.length) return;
-              setStructured((prev) => mergeById(prev ?? [], incoming));
-            },
-          );
-          return;
-        }
-        setStructured(null);
-        unlisten = await listen<RawDeltaEvent>(
-          `pane-chat-raw-${paneId}`,
+        // Every provider returns normalized ChatMsg in the snapshot and streams
+        // deltas on `pane-chat-msg-{id}`; merge by id (an in-progress message
+        // updates in place).
+        setStructured(res.messages ?? []);
+        unlisten = await listen<ChatMsgEvent>(
+          `pane-chat-msg-${paneId}`,
           (ev) => {
             if (cancelled) return;
-            const newText = ev.payload.text || "";
-            if (!newText) return;
-            setRawText((prev) => prev + newText);
+            const incoming = ev.payload.messages;
+            if (!incoming?.length) return;
+            setStructured((prev) => mergeById(prev ?? [], incoming));
           },
         );
       } catch (e) {
@@ -511,12 +501,10 @@ export function PaneSessionChat({
     return () => clearTimeout(id);
   }, []);
 
-  // Re-parse when a plugin (un)registers — HMR swaps a provider's parser.
-  const registryVersion = useRegistryVersion();
-  const parsed = useMemo<ChatMessage[]>(() => {
-    if (structured) return structured;
-    return getPlugin(paneProvider)?.parseSession?.(rawText) ?? [];
-  }, [structured, rawText, paneProvider, registryVersion]);
+  // All providers now stream normalized ChatMsg from the host (claude/codex
+  // JSONL flattened in Rust, opencode from sqlite) — one client shape, no
+  // browser-side parser.
+  const parsed = useMemo<ChatMessage[]>(() => structured ?? [], [structured]);
 
   // Drop optimistic entries once equivalent parsed user input appears in JSONL.
   // Match uses normalized text plus attachment fingerprint.
@@ -576,32 +564,13 @@ export function PaneSessionChat({
 
   const hiddenMessageCount = Math.max(0, allMessages.length - enrichedMessages.length);
 
-  const loadOlder = useCallback(async () => {
-    if (loadingOlder) return;
+  const loadOlder = useCallback(() => {
+    // The snapshot returns the whole conversation; "load older" just reveals
+    // more of the already-fetched messages.
     if (hiddenMessageCount > 0) {
       setVisibleMessageCount((count) => count + VISIBLE_MESSAGE_STEP);
-      return;
     }
-    if (earliestOffset === 0) return;
-    setLoadingOlder(true);
-    try {
-      const res = await invoke<{ text: string; start_offset: number; end_offset: number }>(
-        "chat_backfill",
-        { paneId, beforeOffset: earliestOffset, maxBytes: 256 * 1024 },
-      );
-      if (res.text) {
-        setRawText((prev) => `${res.text}${prev}`);
-        setEarliestOffset(res.start_offset);
-        setVisibleMessageCount((count) => count + VISIBLE_MESSAGE_STEP);
-      } else {
-        setEarliestOffset(res.start_offset);
-      }
-    } catch (e) {
-      showComposerError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoadingOlder(false);
-    }
-  }, [earliestOffset, hiddenMessageCount, loadingOlder, paneId]);
+  }, [hiddenMessageCount]);
 
   useEffect(() => {
     if (!currentPtyId) {
@@ -946,12 +915,11 @@ export function PaneSessionChat({
             style={{ height: "calc(1.25rem + var(--ct-safe-top, 0px))" }}
           />
         )}
-        {(hiddenMessageCount > 0 || earliestOffset > 0) && (
+        {hiddenMessageCount > 0 && (
           <div className="sticky top-0 z-10 flex justify-center pb-2">
             <button
               type="button"
               onClick={() => void loadOlder()}
-              disabled={loadingOlder}
               className="rounded px-2.5 py-1 text-xs font-mono hover:brightness-125 disabled:opacity-50"
               style={{
                 background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
@@ -959,11 +927,7 @@ export function PaneSessionChat({
                 border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 25%, transparent)",
               }}
             >
-              {loadingOlder
-                ? "Loading..."
-                : hiddenMessageCount > 0
-                  ? `Show older (${hiddenMessageCount})`
-                  : "Load older"}
+              {`Show older (${hiddenMessageCount})`}
             </button>
           </div>
         )}
@@ -995,6 +959,7 @@ export function PaneSessionChat({
               <MessageBubble
                 message={msg}
                 origin={origin}
+                resolvePaneName={resolvePaneName}
                 originAvatar={
                   origin?.kind === "pane" && originProviderId
                     ? <OriginProviderAvatar providerId={originProviderId} />

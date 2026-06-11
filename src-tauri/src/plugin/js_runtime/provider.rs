@@ -437,6 +437,16 @@ impl AgentProvider for JsProvider {
             .flatten()
     }
 
+    fn session_created_at(&self, cwd: &str, session_id: &str) -> Option<std::time::SystemTime> {
+        let ms = self
+            .try_call::<Option<i64>>("sessionCreatedMs", &[json!(cwd), json!(session_id)])
+            .flatten()?;
+        if ms < 0 {
+            return None;
+        }
+        Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms as u64))
+    }
+
     fn detect_active_session(&self, cwd: &str, current_sid: &str) -> Option<String> {
         self.try_call::<Option<String>>("detectActiveSession", &[json!(cwd), json!(current_sid)])
             .flatten()
@@ -524,10 +534,16 @@ impl AgentProvider for JsProvider {
         // never be ours. Unknown birth time → trust the plugin's own filtering.
         if let Some(age) = max_age {
             let window_start = std::time::SystemTime::now() - age;
+            // File-based providers read the JSONL birth time; sqlite-backed ones
+            // (opencode) have no session file, so fall back to the provider's
+            // own creation timestamp. Without this a fresh pane polled the
+            // instant its agent type is set (age≈0) steals the most-recent
+            // pre-existing session in the cwd.
             let created = self
                 .session_file_path(cwd, &sid)
                 .and_then(|p| std::fs::metadata(p).ok())
-                .and_then(|m| m.created().or_else(|_| m.modified()).ok());
+                .and_then(|m| m.created().or_else(|_| m.modified()).ok())
+                .or_else(|| self.session_created_at(cwd, &sid));
             if let Some(ts) = created {
                 if ts <= window_start {
                     return None;

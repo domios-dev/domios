@@ -41,6 +41,17 @@ const sent = recognize('codeterm send-text --pane bda0e267 "hi there"')!;
 eq(renderTemplate(sent).title, "Sent to pane bda0e267", "send-text title");
 eq(renderTemplate(sent, "OK (sent)").status, { ok: true, label: "delivered" }, "send-text status from result");
 
+const sendAlias = recognize('codeterm send --pane keats "Привет от send"')!;
+eq(renderTemplate(sendAlias).title, "Sent to pane keats", "send title from renamed command");
+eq(renderTemplate(sendAlias, "OK").status, { ok: true, label: "delivered" }, "send status from result");
+
+const resolveName = (ref: string) => (ref.slice(0, 8) === "45509574" ? "qa-lat" : undefined);
+const sentResolvable = recognize('codeterm send --pane 45509574 "yo"')!;
+eq(renderTemplate(sentResolvable, undefined, resolveName).title, "Sent to qa-lat", "send title resolves pane id to tab name");
+eq(renderTemplate(sentResolvable).title, "Sent to pane 45509574", "send title keeps id when no resolver");
+const sentUnknown = recognize('codeterm send --pane deadbeef "yo"')!;
+eq(renderTemplate(sentUnknown, undefined, resolveName).title, "Sent to pane deadbeef", "send title falls back to id when unresolved");
+
 const spawn = recognize('codeterm agent spawn claude --task "do x" --workspace ws1')!;
 eq(renderTemplate(spawn).title, "Spawned claude", "agent spawn title");
 

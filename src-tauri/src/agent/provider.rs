@@ -591,6 +591,14 @@ pub trait AgentProvider: Send + Sync {
             .unwrap_or(false)
     }
 
+    /// Session creation time, for providers whose sessions have no per-session
+    /// file (sqlite-backed, e.g. opencode) so the launch-window birth-time guard
+    /// in `detect_launched_session_id` can still reject pre-launch sessions.
+    /// Default `None` — file-based providers rely on filesystem timestamps.
+    fn session_created_at(&self, _cwd: &str, _session_id: &str) -> Option<std::time::SystemTime> {
+        None
+    }
+
     /// Build a command to resume an existing session.
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String>;
 

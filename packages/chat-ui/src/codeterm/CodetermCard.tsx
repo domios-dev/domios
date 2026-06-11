@@ -1,15 +1,16 @@
 import type { CodetermInvocation } from "./recognize";
-import { renderTemplate } from "./templates";
+import { renderTemplate, type PaneNameResolver } from "./templates";
 
 interface Props {
   inv: CodetermInvocation;
   result?: string;
   expanded: boolean;
   onToggle: () => void;
+  resolvePaneName?: PaneNameResolver;
 }
 
-export function CodetermCard({ inv, result, expanded, onToggle }: Props) {
-  const card = renderTemplate(inv, result);
+export function CodetermCard({ inv, result, expanded, onToggle, resolvePaneName }: Props) {
+  const card = renderTemplate(inv, result, resolvePaneName);
   return (
     <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
       <div className="inline-flex flex-col max-w-[min(52rem,100%)]">

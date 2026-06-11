@@ -38,7 +38,6 @@ function mkPlugin(id: string, opts: Partial<ProviderPlugin> = {}): ProviderPlugi
   return {
     meta: { id, displayName: id.toUpperCase() },
     detect: () => false,
-    parseLine: () => [],
     statusOf: () => null,
     Renderer: () => null,
     actions: [],

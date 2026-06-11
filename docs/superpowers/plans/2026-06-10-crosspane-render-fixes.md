@@ -1,7 +1,7 @@
 # Cross-pane chat render fixes (2 small, well-pinpointed bugs)
 
 Both are DRY/centralization slips exposed by per-provider differences. Fix at the
-ONE central place, not per provider. Branch off `develop`. Add/extend the existing
+ONE central place, not per provider. Branch off `security` in `C:/Developer/codeterm`.
 unit tests next to each file. Verify in a dev build.
 
 ---
@@ -94,3 +94,15 @@ assert `renderTemplate(recognize('codeterm send "hi" --pane Keats')).title ===
 - A `codeterm send … --pane X` shows "Sent to pane X" for every provider.
 - New/updated unit tests green; `pnpm test:plugins` (or the chat-core/chat-ui test
   runner) passes; quick dev-build smoke.
+
+## Security branch implementation (applied)
+- Task A: `packages/chat-core/src/markers.ts:52-56` normalize leading whitespace via
+  `text.replace(/^\s+/, "")` before `startsWith(MARKER_OPEN)`, then parse as before.
+- Task A tests: `packages/chat-core/src/markers.test.ts:1-31` (leading-space marker parse +
+  payload-preservation check).
+- Task B: `packages/chat-ui/src/codeterm/templates.ts:28-37` add reusable
+  `sendTextTemplate` and register it under keys `send` and `send-text`.
+- Task B tests: `packages/chat-ui/src/codeterm/recognize.test.ts:40-46` assert renamed
+  `send` path still renders `Sent to pane <pane>`.
+- Task B manifest coverage: `packages/chat-ui/src/codeterm/template-paths.ts:4-6` add
+  `["send"]` alongside `["send-text"]` so manifest assertion includes canonical path.

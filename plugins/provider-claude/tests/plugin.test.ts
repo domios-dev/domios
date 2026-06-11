@@ -1,5 +1,5 @@
 /**
- * Plugin contract tests for Claude — parseLine adapter, meta, actions.
+ * Plugin contract tests for Claude — meta, statusOf, actions, detect.
  * Run: npx tsx plugins/provider-claude/tests/plugin.test.ts
  */
 
@@ -23,43 +23,6 @@ console.log("\n--- meta ---\n");
 
 eq(plugin.meta.id, "claude", "meta.id is 'claude'");
 eq(plugin.meta.displayName, "Claude Code", "meta.displayName");
-
-console.log("\n--- parseLine adapter ---\n");
-
-// Empty input
-eq(plugin.parseLine(""), [], "empty line → no events");
-eq(plugin.parseLine("   "), [], "whitespace-only line → no events");
-
-// User message
-{
-  const line = '{"type":"user","uuid":"u1","timestamp":"2025-01-01T00:00:00Z","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}';
-  const events = plugin.parseLine(line);
-  eq(events.length, 1, "user JSONL → one event");
-  eq(events[0].kind, "user_message", "user → kind:user_message");
-  assert(events[0].payload !== undefined, "event has payload (ChatMessage)");
-  assert(typeof events[0].ts === "number", "event has numeric ts");
-}
-
-// Assistant text + tool_call from a single line
-{
-  const line = '{"type":"assistant","uuid":"a1","timestamp":"2025-01-01T00:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"Sure"},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}';
-  const events = plugin.parseLine(line);
-  eq(events.length, 2, "assistant with text+tool → two events");
-  eq(events[0].kind, "assistant_text", "first event kind");
-  eq(events[1].kind, "tool_call", "second event kind");
-}
-
-// Malformed JSON → no crash, no events
-{
-  const events = plugin.parseLine("not valid json");
-  eq(events, [], "malformed line → no events, no throw");
-}
-
-// Unknown ChatMessage.type (forward-compat through mapping)
-{
-  // can't easily synth a parser output with a new type — instead exercise the chatMessageTypeToEventKind by pushing through a known shape.
-  // Skipping this — covered by existing parser tests.
-}
 
 console.log("\n--- statusOf delegation ---\n");
 
