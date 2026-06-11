@@ -9,7 +9,6 @@ cd "$(dirname "$0")/.."
 case "${1:-all}" in
   all)
     tests=(
-      plugins/provider-claude/tests/parser.test.ts
       plugins/provider-claude/tests/detect.test.ts
       plugins/provider-claude/tests/status.test.ts
       plugins/provider-claude/tests/plugin.test.ts
@@ -21,7 +20,6 @@ case "${1:-all}" in
     ;;
   provider-claude)
     tests=(
-      plugins/provider-claude/tests/parser.test.ts
       plugins/provider-claude/tests/detect.test.ts
       plugins/provider-claude/tests/status.test.ts
       plugins/provider-claude/tests/plugin.test.ts

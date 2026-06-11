@@ -10,7 +10,6 @@
  */
 
 import { MessageBubble } from "./MessageBubble";
-import type { ChatMessage } from "./parser";
 import type { ProviderEvent, RendererProps } from "../../../src/lib/plugins/types";
 
 export function Renderer({ events, raw }: RendererProps) {
@@ -18,9 +17,10 @@ export function Renderer({ events, raw }: RendererProps) {
   return (
     <div className="space-y-1.5">
       {events.map((e: ProviderEvent, i: number) => {
-        const msg = e.payload as ChatMessage | undefined;
+        const msg = e.payload;
         if (!msg || typeof msg !== "object" || !("type" in msg)) return null;
-        return <MessageBubble key={msg.id ?? `evt-${i}`} message={msg} />;
+        const payload = msg as { id?: string; type?: string };
+        return <MessageBubble key={payload.id ?? `evt-${i}`} message={payload} />;
       })}
     </div>
   );
