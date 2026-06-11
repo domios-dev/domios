@@ -21,8 +21,6 @@ src-tauri/src/mem/graph_repair/tests.rs	1040
 src-tauri/src/mem/search.rs	1137
 # Mem store test module — test file, baselined.
 src-tauri/src/mem/store/tests.rs	1215
-# Mesh facade — split task F2.
-src-tauri/src/mesh/mod.rs	1276
 # Opencode provider — no split task yet; baselined to unblock CI.
 src-tauri/src/plugin/agent_opencode/provider.rs	1046
 # JS-runtime parity test — test file (grew with chat-parsing parity fixtures), baselined.
