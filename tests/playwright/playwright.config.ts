@@ -14,4 +14,9 @@ export default defineConfig({
   retries: 0,
   reporter: [["list"]],
   globalSetup: "./helpers/global-setup",
+  projects: [
+    { name: "smoke", grep: /@smoke/ },
+    { name: "golden", grep: /@golden/, retries: 1, timeout: 300_000 },
+    { name: "full", grepInvert: /@quarantine/ },
+  ],
 });
