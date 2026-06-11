@@ -33,16 +33,46 @@ export const noisePatterns: RegExp[] = [
   /Enter to confirm.*Esc to cancel/s,
 ];
 
+const DETECTION_THRESHOLD = 2;
+const LITERAL_SIGNALS = [
+  "? for shortcuts",
+  "esc to interrupt",
+  "Claude Code",
+  "Do you want to proceed?",
+  "may I proceed",
+  "Would you like me to",
+  "Yes, and don't ask again",
+  "Enter to confirm",
+  "Cogitated for",
+  "Brewed for",
+  "Reasoned for",
+];
+
+function hasSpinnerGlyph(text: string): boolean {
+  return /(?:^|\n)\s*[⠀-⣿✱✳✻]\s+\S/.test(text);
+}
+
+function hasFooterLayout(text: string): boolean {
+  return /(?:^|\n).*(?:\? for shortcuts|for shortcuts).*(?:esc to interrupt|shift\+tab|ctrl\+g)/i.test(text);
+}
+
+function hasPromptOptionLayout(text: string): boolean {
+  const numbered = text.match(/^\s*(?:❯\s*)?\d+\.\s+\S+/gm) ?? [];
+  return numbered.length >= 2 && (text.includes("❯") || /Esc .*?(cancel|back)|Enter .*?confirm|Tab .*?amend/is.test(text));
+}
+
+function outputScore(text: string): number {
+  let score = 0;
+  if (hasSpinnerGlyph(text)) score += 2;
+  if (hasFooterLayout(text)) score += 1;
+  if (hasPromptOptionLayout(text)) score += 2;
+  for (const literal of LITERAL_SIGNALS) {
+    if (text.includes(literal)) score += 1;
+  }
+  return score;
+}
+
 export function detect(sample: DetectionSample): boolean {
   if (sample.title && titlePattern.test(sample.title)) return true;
-  // PTY-byte fingerprint: CLAUDE footer text is cheap and low-noise compared to plain shell output.
-  if (
-    sample.bytes.includes("? for shortcuts") ||
-    sample.bytes.includes("esc to interrupt") ||
-    sample.bytes.includes("✱ ") ||
-    sample.bytes.includes("✻ ")
-  ) {
-    return true;
-  }
-  return false;
+  return outputScore(sample.bytes) >= DETECTION_THRESHOLD;
 }

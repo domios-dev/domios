@@ -32,13 +32,15 @@ assert(!detect({ bytes: "", title: "bash" }), "title 'bash' negative");
 
 console.log("\n--- detect(sample) — via PTY bytes ---\n");
 
+const claudeFixture = [
+  "✱ Brewing...",
+  "Claude Code",
+  "? for shortcuts · esc to interrupt",
+].join("\n");
+
 assert(
-  detect({ bytes: "Some output\n? for shortcuts\n" }),
-  "PTY fingerprint '? for shortcuts' positive"
-);
-assert(
-  detect({ bytes: "esc to interrupt" }),
-  "PTY fingerprint 'esc to interrupt' positive"
+  detect({ bytes: claudeFixture }),
+  "current real multi-signal output detects"
 );
 assert(
   detect({ bytes: "✱ Brewing..." }),
@@ -48,6 +50,12 @@ assert(
   detect({ bytes: "✻ Thinking..." }),
   "PTY fingerprint '✻ ' positive"
 );
+for (const literal of ["Claude Code", "? for shortcuts", "esc to interrupt"]) {
+  assert(
+    detect({ bytes: claudeFixture.replace(literal, "[changed copy]") }),
+    `single literal mutation still detects: ${literal}`
+  );
+}
 assert(
   !detect({ bytes: "$ ls\nfile.txt\n" }),
   "plain shell output negative"

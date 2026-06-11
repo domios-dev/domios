@@ -63,9 +63,22 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
 
 console.log("\n--- detect ---\n");
 
+const codexFixture = [
+  "OpenAI Codex",
+  "codex/gpt-5",
+  "▶ Provide your answer",
+  "ctrl+c to cancel",
+].join("\n");
+
 assert(plugin.detect({ bytes: "", title: "codex" }), "title 'codex' positive");
 assert(plugin.detect({ bytes: "", title: "Codex CLI" }), "title 'Codex CLI' (case-insensitive)");
-assert(plugin.detect({ bytes: "" + "codex/" }), "PTY fingerprint 'codex/' positive");
+assert(plugin.detect({ bytes: codexFixture }), "current real multi-signal output detects");
+for (const literal of ["OpenAI Codex", "codex/", "ctrl+c to cancel"]) {
+  assert(
+    plugin.detect({ bytes: codexFixture.replace(literal, "[changed copy]") }),
+    `single literal mutation still detects: ${literal}`
+  );
+}
 assert(!plugin.detect({ bytes: "$ ls\nfile.txt", title: "bash" }), "plain shell negative");
 assert(!plugin.detect({ bytes: "claude code", title: "claude" }), "claude title is not codex");
 
