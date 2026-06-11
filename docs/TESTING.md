@@ -44,11 +44,26 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 
 | Layer | Exact command | When required |
 |---|---|---|
-| Narrow Rust or TS unit | `cargo test <narrow filter>` / `pnpm test:unit -t <name>` | During work, for the touched area |
-| All implemented layers | `./build.sh test:all` | Coming — task D2; before claiming done once built |
+| Narrow Rust or TS unit | `cargo test <narrow filter>` / `npx tsx <one file>.test.ts` | During work, for the touched area |
+| All implemented layers | `./build.sh test:all` | Before claiming done |
 | PR gate | `test:all` + `pnpm test:pw:golden` if agent paths touched | Before opening a PR |
 | CI gate | Rust unit + TS unit + plugin tests (+ pytest spike) | CI on PR — task D7 |
 | Nightly local report | `pnpm test:pw --project=full` + golden | Nightly local cron, report only |
+
+### Unified entrypoint: `./build.sh test:all`
+
+One command runs every non-LLM layer and prints a per-layer summary table. Layers:
+
+1. `rust-unit` — `cargo test --lib` (always runs)
+2. `ts-unit` — `pnpm test:unit` → `scripts/ts-unit-tests.sh`, every `src/**` + `packages/**` `*.test.ts` (always runs)
+3. `plugin` — `pnpm test:plugins` (always runs)
+4. `e2e-pytest` — only if dev (7686) is healthy, else a loud `SKIPPED` line
+5. `playwright-smoke` — `pnpm test:pw:smoke`, same dev-up condition
+
+`test:all` exits non-zero **iff an executed layer failed** — a `SKIP` never fails the
+run. LLM-judged layers (`evals/`, Playwright `@golden`) are excluded by design; run
+them separately. With dev down you still get full unit coverage and a clear record of
+what was skipped.
 
 ## Unit tests
 
@@ -58,11 +73,14 @@ Fast, no running instance needed. Test detection logic, state management, parser
 # Rust (210 tests): agent detection, multiplexer state, prompt parsing, config
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 
-# TypeScript (100 tests): JSONL parser, terminal output parser, attachment markers
-npx tsx src/components/ChatView/parser.test.ts
+# TypeScript: every src/** + packages/** unit test (tsx scripts)
+pnpm test:unit
+# …or one file while iterating:
+npx tsx src/lib/colors.test.ts
 
-# Shortcut
-./build.sh test   # runs Rust unit tests
+# Shortcuts
+./build.sh test       # Rust unit tests only
+./build.sh test:all   # every non-LLM layer (see Runbook)
 ```
 
 ## E2E tests
@@ -310,4 +328,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

@@ -264,8 +264,52 @@ case "$CMD" in
     pip install -q -r requirements.txt 2>/dev/null
     python -m pytest -v --tb=short "${@:2}"
     ;;
+  test:all)
+    # Aggregate runner for every NON-LLM test layer. Unit layers always run;
+    # dev-dependent integration layers (pytest e2e, Playwright @smoke) run only
+    # when dev (7686) is healthy, otherwise they SKIP loudly. Exits non-zero iff
+    # an EXECUTED layer failed (SKIP never fails the run). LLM-judged layers
+    # (evals/, Playwright @golden) are excluded by design — see docs/TESTING.md.
+    ta_names=(); ta_status=()
+    ta_record() { ta_names+=("$1"); ta_status+=("$2"); }
+    ta_run() { # name, cmd...
+      local name="$1"; shift
+      echo; echo "═══════════ layer: $name ═══════════"
+      if "$@"; then ta_record "$name" PASS; else ta_record "$name" FAIL; fi
+    }
+
+    ta_run "rust-unit"  cargo test --manifest-path src-tauri/Cargo.toml --lib
+    ta_run "ts-unit"    pnpm -s test:unit
+    ta_run "plugin"     pnpm -s test:plugins
+
+    DEV_STATUS=$(dev_health_status | python -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+    if [ "$DEV_STATUS" = "ok" ]; then
+      ta_run "e2e-pytest" bash -c 'cd tests/e2e && pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:7686 python -m pytest -q'
+      ta_run "playwright-smoke" pnpm -s test:pw:smoke
+    else
+      echo
+      echo ">>> SKIPPED e2e-pytest — dev 7686 not healthy (start with ./build.sh dev)"
+      ta_record "e2e-pytest" SKIP
+      echo ">>> SKIPPED playwright-smoke — dev 7686 not healthy (start with ./build.sh dev)"
+      ta_record "playwright-smoke" SKIP
+    fi
+
+    echo; echo "════════════ test:all summary ════════════"
+    ta_rc=0
+    for i in "${!ta_names[@]}"; do
+      printf '  %-18s %s\n' "${ta_names[$i]}" "${ta_status[$i]}"
+      [ "${ta_status[$i]}" = "FAIL" ] && ta_rc=1
+    done
+    echo "──────────────────────────────────────────"
+    if [ "$ta_rc" -eq 0 ]; then
+      echo "✅ all executed layers passed"
+    else
+      echo "❌ one or more executed layers failed"
+    fi
+    exit "$ta_rc"
+    ;;
   *)
-    echo "Usage: ./build.sh {dev|check|test|build|cli|clean|kill|webdriver|e2e|env}"
+    echo "Usage: ./build.sh {dev|check|test|test:all|build|cli|clean|kill|webdriver|e2e|env}"
     exit 1
     ;;
 esac
