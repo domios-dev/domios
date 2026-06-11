@@ -3,9 +3,6 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-
 pub struct TokenStore {
     root: PathBuf,
 }
@@ -36,8 +33,8 @@ impl TokenStore {
         fs::create_dir_all(path.parent().unwrap())?;
         let mut f = fs::File::create(&path)?;
         f.write_all(token.as_bytes())?;
-        #[cfg(unix)]
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+        drop(f);
+        restrict_file_permissions(&path);
         Ok(token)
     }
 
@@ -76,7 +73,30 @@ impl TokenStore {
     }
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+fn restrict_file_permissions(path: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(windows)]
+    {
+        let path_str = path.to_string_lossy();
+        let username = std::env::var("USERNAME").unwrap_or_default();
+        if !username.is_empty() {
+            let _ = std::process::Command::new("icacls")
+                .args([
+                    path_str.as_ref(),
+                    "/inheritance:r",
+                    "/grant",
+                    &format!("{}:(F)", username),
+                ])
+                .output();
+        }
+    }
+}
+
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }

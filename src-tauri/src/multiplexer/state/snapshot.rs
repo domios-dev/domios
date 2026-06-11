@@ -47,6 +47,7 @@ impl MultiplexerState {
                 can_spawn: pane.map(|p| p.can_spawn).unwrap_or(false),
                 depth: pane.map(|p| p.depth).unwrap_or(0),
                 chat_view: pane.map(|p| p.chat_view),
+                auto_approve: pane.map(|p| p.auto_approve).unwrap_or(false),
             }
         }
 
@@ -129,6 +130,7 @@ impl MultiplexerState {
                 can_spawn,
                 depth,
                 chat_view,
+                auto_approve,
             } = leaf
             else {
                 return None;
@@ -192,7 +194,7 @@ impl MultiplexerState {
                     title_level: restored_level,
                     chat_view: chat_view.unwrap_or(false),
                     pending_prompt: None,
-                    auto_approve: false,
+                    auto_approve: *auto_approve,
                     protected: false,
                     connected_services: vec![],
                     agent_set_at: None,

@@ -21,18 +21,84 @@
 //! FFI boundary). If a plugin needs the failure reason, surface it
 //! via a sibling `host.lastError()` accessor later.
 //!
-//! Safety: every plugin gets the full surface today. Once we have a
-//! third-party plugin marketplace, gate by `permissions.fs.read` etc.
-//! in `plugin.json`. For now the trust boundary is "you installed the
-//! plugin into `~/.codeterm/plugins/`, you trust it."
+//! Safety: bundled + in-workspace plugins (ship with the app / dev repo) get
+//! the full surface. A plugin dropped into `~/.codeterm/plugins/` is confined
+//! by a `PluginSandbox` — FS/sqlite scoped to its own dir + declared session
+//! root, `envGet` blocked for secret-looking names. Per-permission grants
+//! (`permissions.fs.read` in `plugin.json`) can refine this later.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rquickjs::function::Func;
 use rquickjs::{CatchResultExt, Ctx};
 
 use super::manifest::PluginManifest;
 use super::vm::VmError;
+
+/// Filesystem/env policy applied to a plugin's `host.*` calls. Bundled and
+/// in-workspace plugins (ship with the app / the dev repo) are `unrestricted`.
+/// A plugin dropped into the user plugins dir (`~/.codeterm/plugins/`) is
+/// confined: it may only read/walk/sqlite under `read_roots` (its own dir +
+/// the session dir it declares), only write under `write_roots`, and `envGet`
+/// is blocked for secret-looking names — so an untrusted drop-in can't slurp
+/// `~/.ssh`, the API token from config, or cloud-key env vars, nor write
+/// autostart/integration files.
+pub(super) struct PluginSandbox {
+    unrestricted: bool,
+    read_roots: Vec<PathBuf>,
+    write_roots: Vec<PathBuf>,
+}
+
+impl PluginSandbox {
+    /// Full host access — bundled/workspace plugins and tests.
+    pub(super) fn unrestricted() -> Self {
+        Self { unrestricted: true, read_roots: Vec::new(), write_roots: Vec::new() }
+    }
+
+    pub(super) fn restricted(read_roots: Vec<PathBuf>, write_roots: Vec<PathBuf>) -> Self {
+        Self { unrestricted: false, read_roots, write_roots }
+    }
+
+    fn path_under(roots: &[PathBuf], path: &str) -> bool {
+        // Compare canonical forms so `..` and symlinks can't escape. Fall back
+        // to the lexical path when the target doesn't exist yet (writes).
+        let target = std::fs::canonicalize(path)
+            .ok()
+            .or_else(|| {
+                Path::new(path)
+                    .parent()
+                    .and_then(|p| std::fs::canonicalize(p).ok())
+                    .map(|p| p.join(Path::new(path).file_name().unwrap_or_default()))
+            })
+            .unwrap_or_else(|| PathBuf::from(path));
+        roots.iter().any(|root| {
+            std::fs::canonicalize(root)
+                .map(|r| target.starts_with(&r))
+                .unwrap_or(false)
+        })
+    }
+
+    fn can_read(&self, path: &str) -> bool {
+        self.unrestricted || Self::path_under(&self.read_roots, path)
+    }
+
+    fn can_write(&self, path: &str) -> bool {
+        self.unrestricted || Self::path_under(&self.write_roots, path)
+    }
+
+    /// `envGet` policy: unrestricted plugins read anything; confined ones can't
+    /// read secret-looking vars (token/key/secret/password/credential/session).
+    fn can_env(&self, name: &str) -> bool {
+        if self.unrestricted {
+            return true;
+        }
+        let n = name.to_ascii_uppercase();
+        !["TOKEN", "KEY", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH", "SESSION"]
+            .iter()
+            .any(|needle| n.contains(needle))
+    }
+}
 
 /// Install the `host` global into a fresh QuickJS context. Called by
 /// `PluginVm::from_source` (and `reload`) before the plugin bundle
@@ -43,7 +109,11 @@ use super::vm::VmError;
 /// `host.manifest()` — lets a plugin read its own declared paths
 /// (rule.path, sessions.rootDir, …) without us threading them
 /// through every call site.
-pub(super) fn install(ctx: &Ctx<'_>, manifest_json: Option<&str>) -> Result<(), VmError> {
+pub(super) fn install(
+    ctx: &Ctx<'_>,
+    manifest_json: Option<&str>,
+    sandbox: Arc<PluginSandbox>,
+) -> Result<(), VmError> {
     let host = rquickjs::Object::new(ctx.clone())
         .map_err(|e| VmError::Script(format!("host obj: {e}")))?;
 
@@ -71,20 +141,36 @@ pub(super) fn install(ctx: &Ctx<'_>, manifest_json: Option<&str>) -> Result<(), 
     bind!("expandHome", |path: String| -> Option<String> {
         PluginManifest::expand_home(&path).map(|p| p.to_string_lossy().into_owned())
     });
-    bind!("envGet", |name: String| -> Option<String> {
+    let sb = sandbox.clone();
+    bind!("envGet", move |name: String| -> Option<String> {
+        if !sb.can_env(&name) {
+            log::warn!("[plugin] denied envGet({name}) for confined plugin");
+            return None;
+        }
         std::env::var(&name).ok()
     });
     bind!("unixNow", || -> i64 { since_epoch().as_secs() as i64 });
     bind!("unixNowMs", || -> i64 { since_epoch().as_millis() as i64 });
 
-    // ── Filesystem ──────────────────────────────────────────────────
-    bind!("fileExists", |path: String| -> bool {
-        Path::new(&path).exists()
+    // ── Filesystem (path-gated for confined plugins) ────────────────
+    let sb = sandbox.clone();
+    bind!("fileExists", move |path: String| -> bool {
+        sb.can_read(&path) && Path::new(&path).exists()
     });
-    bind!("readFile", |path: String| -> Option<String> {
+    let sb = sandbox.clone();
+    bind!("readFile", move |path: String| -> Option<String> {
+        if !sb.can_read(&path) {
+            log::warn!("[plugin] denied readFile outside sandbox: {path}");
+            return None;
+        }
         std::fs::read_to_string(&path).ok()
     });
-    bind!("writeFile", |path: String, contents: String| -> bool {
+    let sb = sandbox.clone();
+    bind!("writeFile", move |path: String, contents: String| -> bool {
+        if !sb.can_write(&path) {
+            log::warn!("[plugin] denied writeFile outside sandbox: {path}");
+            return false;
+        }
         let p = Path::new(&path);
         if let Some(parent) = p.parent() {
             if !parent.as_os_str().is_empty() {
@@ -93,18 +179,26 @@ pub(super) fn install(ctx: &Ctx<'_>, manifest_json: Option<&str>) -> Result<(), 
         }
         std::fs::write(p, contents).is_ok()
     });
-    bind!("removeFile", |path: String| -> bool {
-        std::fs::remove_file(&path).is_ok()
+    let sb = sandbox.clone();
+    bind!("removeFile", move |path: String| -> bool {
+        sb.can_write(&path) && std::fs::remove_file(&path).is_ok()
     });
-    bind!("makeDirs", |path: String| -> bool {
-        std::fs::create_dir_all(&path).is_ok()
+    let sb = sandbox.clone();
+    bind!("makeDirs", move |path: String| -> bool {
+        sb.can_write(&path) && std::fs::create_dir_all(&path).is_ok()
     });
-    bind!("readDirJson", |path: String| -> Option<String> {
+    let sb = sandbox.clone();
+    bind!("readDirJson", move |path: String| -> Option<String> {
+        if !sb.can_read(&path) {
+            return None;
+        }
         read_dir_json(&path)
     });
-    bind!("walkDirJson", |path: String,
-                          max_depth: i32|
-     -> Option<String> {
+    let sb = sandbox.clone();
+    bind!("walkDirJson", move |path: String, max_depth: i32| -> Option<String> {
+        if !sb.can_read(&path) {
+            return None;
+        }
         walk_dir_json(&path, max_depth.max(0) as usize)
     });
 
@@ -139,11 +233,16 @@ pub(super) fn install(ctx: &Ctx<'_>, manifest_json: Option<&str>) -> Result<(), 
         out
     });
 
-    // ── Sqlite (read-only) ──────────────────────────────────────────
-    bind!("sqliteQueryAllJson", |db: String,
+    // ── Sqlite (read-only, db path gated for confined plugins) ──────
+    let sb = sandbox.clone();
+    bind!("sqliteQueryAllJson", move |db: String,
                                  sql: String,
                                  params_json: Option<String>|
      -> Option<String> {
+        if !sb.can_read(&db) {
+            log::warn!("[plugin] denied sqliteQuery outside sandbox: {db}");
+            return None;
+        }
         sqlite_query_all_json(&db, &sql, params_json.as_deref())
     });
 
@@ -363,6 +462,43 @@ mod tests {
 
     fn vm_with(plugin_src: &str) -> PluginVm {
         PluginVm::from_source("test", plugin_src.to_string()).expect("vm")
+    }
+
+    #[test]
+    fn sandbox_unrestricted_allows_everything() {
+        let sb = PluginSandbox::unrestricted();
+        assert!(sb.can_read("/etc/passwd"));
+        assert!(sb.can_write("/anywhere"));
+        assert!(sb.can_env("AWS_SECRET_ACCESS_KEY"));
+    }
+
+    #[test]
+    fn sandbox_restricted_scopes_fs_and_blocks_secret_env() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("sessions");
+        std::fs::create_dir_all(&allowed).unwrap();
+        let sb = PluginSandbox::restricted(vec![allowed.clone()], vec![allowed.clone()]);
+
+        // Inside the allowed root → ok.
+        let inside = allowed.join("a.jsonl");
+        std::fs::write(&inside, "{}").unwrap();
+        assert!(sb.can_read(inside.to_str().unwrap()));
+        assert!(sb.can_write(allowed.join("b.jsonl").to_str().unwrap()));
+
+        // Outside → denied (incl. traversal attempts).
+        assert!(!sb.can_read("/etc/passwd"));
+        assert!(!sb.can_read(
+            allowed.join("../../../../etc/passwd").to_str().unwrap()
+        ));
+        assert!(!sb.can_write("/tmp/evil"));
+
+        // envGet: path-ish vars allowed, secret-named blocked.
+        assert!(sb.can_env("XDG_DATA_HOME"));
+        assert!(sb.can_env("HOME"));
+        assert!(!sb.can_env("CODETERM_API_TOKEN"));
+        assert!(!sb.can_env("AWS_SECRET_ACCESS_KEY"));
+        assert!(!sb.can_env("ANTHROPIC_API_KEY"));
+        assert!(!sb.can_env("GITHUB_PASSWORD"));
     }
 
     #[test]

@@ -14,7 +14,6 @@
  * still sees terminal output. Never render an empty box.
  */
 import type { ReactNode } from "react";
-import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 /** Coarse pane status the host needs to know about for badges /
  *  notifications. Plugins map their own events to this. */
@@ -93,17 +92,6 @@ export interface ProviderPlugin {
   /** Cheap structural fingerprint check. Called repeatedly during
    *  pane warm-up. No I/O. */
   detect(sample: DetectionSample): boolean;
-
-  /** Parse one JSONL session line into structured events. May emit
-   *  zero or many. Called per-line as the host streams new content
-   *  from the provider's session file. */
-  parseLine(line: string): ProviderEvent[];
-
-  /** Parse a whole JSONL session blob into chat messages for the chat
-   *  view. JSONL providers implement this (delegating to their session
-   *  parser); structured/DB-backed providers omit it (the host renders
-   *  Rust-parsed messages instead). */
-  parseSession?: (raw: string) => NormalizedChatMessage[];
 
   /** Map a single event to a coarse pane status. `null` means "no
    *  status change — keep whatever the host had before". */

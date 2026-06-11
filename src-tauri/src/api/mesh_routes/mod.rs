@@ -5,8 +5,6 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use tauri::Emitter;
-
 use crate::api::routes::{check_auth, AppState};
 use crate::mesh::types::address_tier;
 
@@ -228,17 +226,20 @@ pub async fn mesh_web_token(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let token = state
-        .config
-        .lock()
-        .api
-        .token
-        .clone()
-        .filter(|t| !t.is_empty())
-        .ok_or((
-            StatusCode::SERVICE_UNAVAILABLE,
-            "API token is not configured",
-        ))?;
+    // Return a short-lived scoped token instead of the permanent master token,
+    // so that the master key is never exposed outside the daemon process.
+    // If the web token leaks (logs, Referer, network), it expires within 1 hour.
+    let token = {
+        use rand::RngCore;
+        let mut bytes = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut bytes);
+        let token = bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        let mut cache = state.web_tokens.lock().unwrap();
+        // Opportunistic cleanup: drop expired tokens to bound memory.
+        cache.retain(|_, created| created.elapsed() < crate::api::routes::WEB_TOKEN_TTL);
+        cache.insert(token.clone(), std::time::Instant::now());
+        token
+    };
     Ok(Json(serde_json::json!({ "ok": true, "token": token })))
 }
 

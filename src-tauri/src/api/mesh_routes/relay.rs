@@ -155,6 +155,29 @@ fn check_mesh_relay_auth(
     Ok(peer_id)
 }
 
+/// Validate that a relay path won't cause SSRF or bypass the loopback bind.
+/// Rejects paths with userinfo (`@`), protocol schemes, protocol-relative
+/// prefixes, or paths outside `/api/` (the only namespace the relay should
+/// forward to).
+fn validate_relay_path(path: &str) -> Result<(), String> {
+    if !path.starts_with("/api/") {
+        return Err(format!("Relay path must start with /api/: {path}"));
+    }
+    if path.contains('@') {
+        return Err(format!("Relay path must not contain '@' (SSRF via userinfo): {path}"));
+    }
+    if path.starts_with("//") {
+        return Err(format!("Relay path must not start with // (protocol-relative): {path}"));
+    }
+    // Block explicit scheme prefixes embedded in the path (e.g. /api/http://evil).
+    for scheme in &["http://", "https://", "file://", "ftp://", "data:"] {
+        if path.contains(scheme) {
+            return Err(format!("Relay path must not contain scheme '{scheme}': {path}"));
+        }
+    }
+    Ok(())
+}
+
 pub async fn mesh_relay(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -167,6 +190,8 @@ pub async fn mesh_relay(
         cmd.path,
         sender_id
     );
+
+    validate_relay_path(&cmd.path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     if path_requires_full_access(&cmd.method, &cmd.path) && sender_id != "local" {
         let access = state
@@ -294,7 +319,39 @@ pub async fn mesh_relay(
 
 #[cfg(test)]
 mod tests {
-    use super::path_requires_full_access;
+    use super::{path_requires_full_access, validate_relay_path};
+
+    #[test]
+    fn valid_relay_paths_pass() {
+        assert!(validate_relay_path("/api/panes/abc/output").is_ok());
+        assert!(validate_relay_path("/api/panes/abc/send").is_ok());
+        assert!(validate_relay_path("/api/mesh/status").is_ok());
+        assert!(validate_relay_path("/api/workspaces").is_ok());
+    }
+
+    #[test]
+    fn non_api_paths_rejected() {
+        assert!(validate_relay_path("/etc/passwd").is_err());
+        assert!(validate_relay_path("/api").is_err());
+        assert!(validate_relay_path("/api/").is_ok()); // bare minimum
+    }
+
+    #[test]
+    fn userinfo_ssrf_rejected() {
+        assert!(validate_relay_path("/api/panes/send?url=http://evil@evil.com").is_err());
+    }
+
+    #[test]
+    fn scheme_prefix_rejected() {
+        assert!(validate_relay_path("/api/http://evil.com").is_err());
+        assert!(validate_relay_path("/api/https://evil.com").is_err());
+        assert!(validate_relay_path("/api/file:///etc/passwd").is_err());
+    }
+
+    #[test]
+    fn protocol_relative_rejected() {
+        assert!(validate_relay_path("//evil.com/api/panes").is_err());
+    }
 
     #[test]
     fn install_update_is_gated() {

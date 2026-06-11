@@ -38,6 +38,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import * as prismStyles from "react-syntax-highlighter/dist/esm/styles/prism";
 import { recognize } from "./codeterm/recognize";
 import { CodetermCard } from "./codeterm/CodetermCard";
+import type { PaneNameResolver } from "./codeterm/templates";
 
 const vscDarkPlus =
   ((prismStyles as { vscDarkPlus?: Record<string, React.CSSProperties> }).vscDarkPlus ??
@@ -1701,9 +1702,11 @@ interface MessageBubbleProps {
   originAvatar?: React.ReactNode;
   /** When set, clicking the origin header focuses the source pane. */
   onOriginClick?: () => void;
+  /** Resolve a pane id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
+  resolvePaneName?: PaneNameResolver;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName }: MessageBubbleProps) {
   // Auto-expand for Write-style tool input (the file body being written) and
   // for Edit/MultiEdit (always show the diff). A bash/grep result must NOT
   // force-expand — it shows a compact inline tail under the pill instead.
@@ -2014,6 +2017,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             result={message.toolResult}
             expanded={expanded}
             onToggle={() => setExpanded(!expanded)}
+            resolvePaneName={resolvePaneName}
           />
         );
       }

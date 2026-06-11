@@ -2,6 +2,7 @@
 // asserts each exists in docs/cli-manifest.json so a template can't point at a
 // renamed/removed command.
 export const TEMPLATE_PATHS: string[][] = [
+  ["send"],
   ["send-text"],
   ["agent", "spawn"],
   ["agent", "report"],

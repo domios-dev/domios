@@ -96,10 +96,17 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                 test_clock: test_clock.clone(),
                 events: states.event_broadcaster.clone(),
                 web_dist: resolve_web_dist(),
+                web_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             };
             let router = api::routes::create_router(api_state);
             let host = api_config.host.clone();
             let port = api_config.port;
+            if host == "0.0.0.0" {
+                log::warn!(
+                    "[api] binding to 0.0.0.0 exposes the API to all network interfaces — \
+                     consider setting api.host = \"127.0.0.1\" in config for better security"
+                );
+            }
             // Set CODETERM_API_PORT so PTY children (and Claude hooks) know the correct port
             std::env::set_var("CODETERM_API_PORT", port.to_string());
             // Capture the secrets handle so can run any one-time async init (e.g. Bitwarden auto-unlock from stored master password) BEFORE the listener

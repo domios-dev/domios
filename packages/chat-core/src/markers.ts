@@ -50,8 +50,9 @@ export function buildMarker(
 
 /** Parse a marker, or null if `text` isn't a CodeTerm marker frame. */
 export function parseMarker(text: string): ParsedMarker | null {
-  if (!text.startsWith(MARKER_OPEN)) return null;
-  const rest = text.slice(MARKER_OPEN.length);
+  const normalized = text.replace(/^\s+/, "");
+  if (!normalized.startsWith(MARKER_OPEN)) return null;
+  const rest = normalized.slice(MARKER_OPEN.length);
   const close = rest.indexOf(MARKER_CLOSE);
   if (close < 0) return null;
   const head = rest.slice(0, close);

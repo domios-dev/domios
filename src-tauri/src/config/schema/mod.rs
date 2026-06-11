@@ -100,6 +100,11 @@ impl Default for ApiConfig {
     fn default() -> Self {
         Self {
             enabled: true,
+            // 0.0.0.0 by default because mesh peers connect directly to this
+            // host's Tailscale/LAN IP (transport.rs builds http://<ip>:<port>) —
+            // a 127.0.0.1 bind would refuse those and break mesh out of the box
+            // (mesh.enabled defaults true). Security-conscious single-machine
+            // users can set api.host = "127.0.0.1"; start_servers warns on 0.0.0.0.
             host: "0.0.0.0".to_string(),
             #[cfg(debug_assertions)]
             port: 7686,

@@ -138,21 +138,93 @@ pub(crate) struct ManifestQuery {
     token: Option<String>,
 }
 
+/// Extract a cookie value from the Cookie header.
+fn get_cookie<'a>(headers: &'a axum::http::HeaderMap, name: &str) -> Option<&'a str> {
+    let cookie_header = headers.get("cookie")?.to_str().ok()?;
+    for pair in cookie_header.split(';') {
+        let pair = pair.trim();
+        if let Some((key, value)) = pair.split_once('=') {
+            if key.trim().eq_ignore_ascii_case(name) {
+                return Some(value.trim());
+            }
+        }
+    }
+    None
+}
+
+/// Validate a token against the configured API token or the web token cache.
+fn validate_manifest_token(state: &AppState, candidate: &str) -> bool {
+    if candidate.is_empty() {
+        return false;
+    }
+    if let Some(ref api_token) = state.config.lock().api.token {
+        if !api_token.is_empty() && api_token == candidate {
+            return true;
+        }
+    }
+    let cache = state.web_tokens.lock().unwrap();
+    cache
+        .get(candidate)
+        .map_or(false, |created| created.elapsed() < std::time::Duration::from_secs(3600))
+}
+
+/// Bootstrap endpoint: validates the bearer token and sets an HttpOnly cookie
+/// so the manifest fetch (a browser subresource request) can authenticate
+/// without exposing the token in a query string (which leaks via logs/Referer).
+pub async fn web_manifest_bootstrap(
+    AxumState(state): AxumState<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Result<
+    (
+        [(axum::http::header::HeaderName, axum::http::HeaderValue); 1],
+        Json<serde_json::Value>,
+    ),
+    (StatusCode, &'static str),
+> {
+    let auth = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let token = auth.strip_prefix("Bearer ").unwrap_or("");
+    if token.is_empty() || !validate_manifest_token(&state, token) {
+        return Err((StatusCode::UNAUTHORIZED, "Invalid or missing token"));
+    }
+    let cookie = format!(
+        "codeterm-web-token={}; HttpOnly; SameSite=Lax; Path=/web; Max-Age=3600",
+        token
+    );
+    Ok((
+        [(
+            axum::http::header::SET_COOKIE,
+            axum::http::HeaderValue::from_str(&cookie).unwrap(),
+        )],
+        Json(serde_json::json!({"ok": true})),
+    ))
+}
+
 /// Public like the rest of /web. Echoes the token into start_url only when
 /// it matches the configured API token, so the installed app launches
 /// pre-authenticated; otherwise start_url falls back to the plain mirror.
+///
+/// Token sources (checked in order):
+/// 1. `?token=` query param (legacy — deprecated, leaks via logs/Referer)
+/// 2. `codeterm-web-token` cookie (set by web_manifest_bootstrap)
 pub async fn web_manifest(
     AxumState(state): AxumState<AppState>,
+    headers: axum::http::HeaderMap,
     Query(query): Query<ManifestQuery>,
 ) -> impl axum::response::IntoResponse {
-    let configured = state.config.lock().api.token.clone();
-    let token_ok = matches!(
-        (&query.token, &configured),
-        (Some(q), Some(c)) if !q.is_empty() && q == c
-    );
+    // Determine the token: query param (legacy) or cookie (preferred).
+    let token: Option<String> = query.token.clone().or_else(|| {
+        get_cookie(&headers, "codeterm-web-token").map(|s| s.to_string())
+    });
+
+    let token_ok = token
+        .as_ref()
+        .is_some_and(|t| validate_manifest_token(&state, t));
     let start_url = if token_ok {
-        let token = query.token.as_deref().unwrap_or_default();
-        let encoded: String = url::form_urlencoded::byte_serialize(token.as_bytes()).collect();
+        let t = token.as_deref().unwrap_or_default();
+        let encoded: String = url::form_urlencoded::byte_serialize(t.as_bytes()).collect();
         format!("/web/#token={encoded}")
     } else {
         "/web/".to_string()

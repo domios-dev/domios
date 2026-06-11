@@ -68,6 +68,11 @@ pub enum SplitNodeSnapshot {
         /// legacy snapshot from before this field existed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         chat_view: Option<bool>,
+        /// Whether the agent runs in auto-approve / bypass-permissions mode.
+        /// Persisted so a restored agent keeps `--dangerously-skip-permissions`
+        /// behaviour instead of silently dropping back to prompting.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        auto_approve: bool,
     },
     Split {
         orientation: String,

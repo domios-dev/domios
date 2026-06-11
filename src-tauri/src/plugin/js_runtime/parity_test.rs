@@ -678,6 +678,176 @@ mod claude {
         );
     }
 
+    /// Eval: the host flatten path (real plugin.js `parseSessionDelta` →
+    /// Rust `rich_to_chat_msgs`) must produce the SAME normalized `ChatMsg`
+    /// shape the desktop TS parser (`parseJsonlSession`) produces, so the
+    /// desktop can switch to the host path and the TS duplicate can be
+    /// deleted. This is the bench guarding that consolidation.
+    #[test]
+    fn rich_flatten_parity_block_derivable_kinds() {
+        if !ws_exists() {
+            return;
+        }
+        use crate::service::pane_chat::rich_to_chat_msgs;
+        let j = load_js("claude");
+
+        // Covers every block kind plugin.js already passes through:
+        // user text, assistant text, thinking, tool_use, assistant-turn
+        // tool_result, user-turn tool_result, user image attachment,
+        // assistant standalone image.
+        let jsonl = concat!(
+            r#"{"type":"user","message":{"role":"user","content":"refactor please"},"timestamp":"2026-05-20T10:00:00Z"}"#, "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"on it"},{"type":"thinking","thinking":"let me think a lot AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA done"},{"type":"tool_use","id":"u1","name":"Bash","input":{"command":"ls -la /very/long/path/that/exceeds/eighty/characters/for/sure/abcdefghijklmnop"}}]}}"#, "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_result","tool_use_id":"u1","content":"file listing"}]}}"#, "\n",
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"u2","content":"grep output"}]}}"#, "\n",
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"see image"},{"type":"image","source":{"media_type":"image/png","data":"BASE64DATA"}}]}}"#, "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"image","source":{"media_type":"image/jpeg","data":"IMGBYTES"}}]}}"#, "\n",
+        );
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), jsonl).unwrap();
+
+        let delta = j.parse_session_delta(tmp.path(), 0);
+        let msgs: Vec<_> = delta
+            .messages
+            .iter()
+            .enumerate()
+            .flat_map(|(i, r)| rich_to_chat_msgs(r, i))
+            .collect();
+
+        let by_kind = |k: &str| msgs.iter().filter(|m| m.kind == k).collect::<Vec<_>>();
+
+        // user text
+        let users = by_kind("user");
+        assert!(
+            users.iter().any(|m| m.content == "refactor please"),
+            "user text lost: {users:#?}"
+        );
+
+        // assistant text
+        assert!(
+            by_kind("assistant").iter().any(|m| m.content == "on it"),
+            "assistant text lost"
+        );
+
+        // thinking — truncated to 200 chars + ellipsis, collapsed
+        let think = by_kind("thinking");
+        assert_eq!(think.len(), 1, "exactly one thinking block");
+        assert!(think[0].collapsed, "thinking must be collapsed");
+        assert!(
+            think[0].content.starts_with("let me think a lot"),
+            "thinking content lost: {:?}",
+            think[0].content
+        );
+        assert!(
+            think[0].content.ends_with("...") && think[0].content.len() <= 205,
+            "thinking must be truncated with ellipsis: len={}",
+            think[0].content.len()
+        );
+
+        // tool_call — toolName, toolId, collapsed, toolInput preserved, toolArgs summarized (command, ≤80)
+        let calls = by_kind("tool_call");
+        assert_eq!(calls.len(), 1, "one tool_call");
+        let call = calls[0];
+        assert_eq!(call.tool_name.as_deref(), Some("Bash"));
+        assert_eq!(call.tool_id.as_deref(), Some("u1"));
+        assert!(call.collapsed, "tool_call collapsed");
+        assert!(
+            call.tool_input.is_some(),
+            "raw tool_input must survive for diff rendering"
+        );
+        let args = call.tool_args.as_deref().unwrap_or("");
+        assert!(args.starts_with("ls -la"), "toolArgs summary: {args}");
+        assert!(args.len() <= 80, "toolArgs must be capped at 80: {}", args.len());
+
+        // tool_result — both assistant-turn (u1) and user-turn (u2), toolId + collapsed
+        let results = by_kind("tool_result");
+        assert_eq!(results.len(), 2, "both tool_results surfaced: {results:#?}");
+        assert!(results.iter().any(|m| m.tool_id.as_deref() == Some("u1")
+            && m.tool_result.as_deref() == Some("file listing")));
+        assert!(results.iter().any(|m| m.tool_id.as_deref() == Some("u2")
+            && m.tool_result.as_deref() == Some("grep output")));
+        assert!(results.iter().all(|m| m.collapsed));
+
+        // user image attachment — on the user message carrying text "see image"
+        let with_attach = users
+            .iter()
+            .find(|m| m.attachments.is_some())
+            .expect("user image attachment lost");
+        let atts = with_attach.attachments.as_ref().unwrap();
+        assert_eq!(atts.len(), 1);
+        assert_eq!(atts[0].mime_type, "image/png");
+        assert_eq!(atts[0].data.as_deref(), Some("BASE64DATA"));
+
+        // assistant standalone image
+        let images = by_kind("image");
+        assert_eq!(images.len(), 1, "standalone image lost");
+        assert_eq!(images[0].image_mime_type.as_deref(), Some("image/jpeg"));
+        assert_eq!(images[0].image_data.as_deref(), Some("IMGBYTES"));
+    }
+
+    /// Eval: system entries, isMeta rows, and local-command echoes must
+    /// normalize to the same system / local_command shapes the desktop
+    /// parser produced — these need plugin.js to carry uuid/isMeta and emit
+    /// `system` rows, so this guards that plumbing end-to-end.
+    #[test]
+    fn rich_flatten_parity_system_meta_local_command() {
+        if !ws_exists() {
+            return;
+        }
+        use crate::service::pane_chat::rich_to_chat_msgs;
+        let j = load_js("claude");
+
+        let jsonl = concat!(
+            // plain system row with a subtype
+            r#"{"type":"system","subtype":"hint","content":"heads up","uuid":"s1"}"#, "\n",
+            // isMeta user row → system, skill_context subtype via content prefix
+            r#"{"type":"user","isMeta":true,"uuid":"m1","message":{"role":"user","content":"Base directory for this skill: /x/y"}}"#, "\n",
+            // isMeta user row → system, generic meta subtype
+            r#"{"type":"user","isMeta":true,"uuid":"m2","message":{"role":"user","content":"<system reminder>be nice"}}"#, "\n",
+            // local-command echo in a user string turn → local_command + tagName
+            r#"{"type":"user","uuid":"c1","message":{"role":"user","content":"<command-name>compact</command-name>"}}"#, "\n",
+            // a normal user turn must still be a user message, with its uuid as id base
+            r#"{"type":"user","uuid":"u9","message":{"role":"user","content":"hi there"}}"#, "\n",
+        );
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), jsonl).unwrap();
+
+        let delta = j.parse_session_delta(tmp.path(), 0);
+        let msgs: Vec<_> = delta
+            .messages
+            .iter()
+            .enumerate()
+            .flat_map(|(i, r)| rich_to_chat_msgs(r, i))
+            .collect();
+
+        let find = |pred: &dyn Fn(&crate::agent::chat_types::ChatMsg) -> bool| {
+            msgs.iter().find(|m| pred(m)).cloned()
+        };
+
+        let sys = find(&|m| m.kind == "system" && m.content == "heads up")
+            .expect("plain system row lost — plugin.js must emit `system` entries");
+        assert_eq!(sys.system_subtype.as_deref(), Some("hint"));
+
+        let skill = find(&|m| m.kind == "system" && m.system_subtype.as_deref() == Some("skill_context"))
+            .expect("isMeta skill_context row lost");
+        assert!(skill.content.contains("Base directory"));
+
+        let meta = find(&|m| m.kind == "system" && m.system_subtype.as_deref() == Some("meta"))
+            .expect("isMeta meta row lost");
+        assert!(meta.content.contains("be nice"));
+
+        let local = find(&|m| m.kind == "local_command")
+            .expect("local-command echo lost");
+        assert_eq!(local.tag_name.as_deref(), Some("command-name"));
+        assert_eq!(local.content, "compact");
+
+        // Normal user turn survives, and its id is uuid-derived (stable for
+        // streaming mergeById, not a volatile delta index).
+        let user = find(&|m| m.kind == "user" && m.content == "hi there")
+            .expect("normal user turn lost");
+        assert!(user.id.starts_with("u9-"), "id must be uuid-based: {}", user.id);
+    }
+
     #[test]
     fn parse_session_delta_holds_back_partial_line() {
         if !ws_exists() {
@@ -1289,6 +1459,24 @@ mod opencode {
         // detectActiveSession returns the session id with the most recent message in the cwd.
         let active = provider.detect_active_session("/proj/foo", "");
         assert_eq!(active.as_deref(), Some("ses_new"));
+
+        // Regression (#52): a pane that launched THIS instant (age_from_launch
+        // rounds to 0ms) must NOT adopt a pre-existing sibling session. opencode
+        // sessions are sqlite-backed (no per-session file), so the birth-time
+        // guard in detect_launched_session_id was skipped and the focused-poller
+        // stole the most-recent session (here ses_new, ~1s old) for a brand-new
+        // pane. The guard must reject any session created before the launch
+        // window even when max_age rounds to zero.
+        let just_launched = provider.detect_launched_session_id(
+            "/proj/foo",
+            &[],
+            Some(std::time::Duration::ZERO),
+            None,
+        );
+        assert_eq!(
+            just_launched, None,
+            "fresh pane (age≈0) must not adopt a pre-existing session, got {just_launched:?}"
+        );
 
         // Cleanup env so other tests aren't affected.
         unsafe {

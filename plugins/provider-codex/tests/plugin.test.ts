@@ -31,22 +31,6 @@ assert(plugin.detect({ bytes: "" + "codex/" }), "PTY fingerprint 'codex/' positi
 assert(!plugin.detect({ bytes: "$ ls\nfile.txt", title: "bash" }), "plain shell negative");
 assert(!plugin.detect({ bytes: "claude code", title: "claude" }), "claude title is not codex");
 
-console.log("\n--- parseLine ---\n");
-const events = plugin.parseLine(JSON.stringify({
-  type: "response_item",
-  timestamp: "2026-05-23T10:00:00.000Z",
-  payload: {
-    type: "message",
-    id: "u1",
-    role: "user",
-    content: [{ type: "input_text", text: "hello" }],
-  },
-}));
-eq(events.map((event) => event.kind), ["user_message"], "parseLine maps Codex message");
-eq((events[0].payload as { content: string }).content, "hello", "parseLine payload content");
-eq(plugin.parseLine('{"some":"json"}'), [], "unknown json → empty events");
-eq(plugin.parseLine(""), [], "empty line → empty events");
-
 console.log("\n--- statusOf ---\n");
 eq(plugin.statusOf({ kind: "anything" }), null, "statusOf always returns null (PTY-driven status)");
 

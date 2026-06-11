@@ -48,6 +48,25 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
     Ok(format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes())
 }
 
+/// Cap a provider's submit-verify timeout. Interactive sends keep verification
+/// (codex/opencode need the escalating-Enter retry to actually submit) but must
+/// not inherit the provider's full 15s timeout, which compounds across retries
+/// into a minute-long stall on a busy TUI.
+fn cap_submit_timeout(
+    strategy: crate::agent::provider::VerifySubmitStrategy,
+    max: std::time::Duration,
+) -> crate::agent::provider::VerifySubmitStrategy {
+    use crate::agent::provider::VerifySubmitStrategy as S;
+    match strategy {
+        S::ShellPrompt { timeout } => S::ShellPrompt { timeout: timeout.min(max) },
+        S::TuiInputDrained { timeout, idle_after_drain } => S::TuiInputDrained {
+            timeout: timeout.min(max),
+            idle_after_drain,
+        },
+        S::None => S::None,
+    }
+}
+
 impl ServiceContext {
     /// Send text to PTY via bracket paste mode (ESC[200~ ... ESC[201~).
     /// Standard terminal paste protocol — all TUI apps handle it correctly.
@@ -115,10 +134,19 @@ impl ServiceContext {
             }
         }
         if let Some(ref agent_id) = agent_type {
-            let strategy = self
-                .agent_registry
-                .with_provider(agent_id, |p| p.verify_submit_strategy())
-                .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
+            // Cap the verify-submit timeout for interactive sends. We DO need
+            // verification — codex/opencode swallow a single `\r` while still
+            // ingesting the bracket paste, so without the drain check + escalating
+            // Enter the message sits typed-but-unsent. But the provider's own
+            // timeout (codex 15s) × retries stalled every send for a minute, so
+            // cap it short: the drain normally confirms in <1s; the cap only
+            // bounds the busy-TUI worst case.
+            let strategy = cap_submit_timeout(
+                self.agent_registry
+                    .with_provider(agent_id, |p| p.verify_submit_strategy())
+                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None),
+                std::time::Duration::from_secs(3),
+            );
             let opts = crate::service::inject_verify::VerifyOpts {
                 // Don't gate on poll_shell_prompt: a live TUI's last screen line
                 // is its footer (claude's "⏵⏵ bypass permissions…"), not the ❯
@@ -126,12 +154,7 @@ impl ServiceContext {
                 // ready agent. The boot-wait above handles the not-yet-ready race.
                 require_prompt_first: false,
                 verify_echo: false,
-                // No submit verification on interactive sends: the drain check
-                // can take the provider's full timeout (codex 15s) when the TUI
-                // is busy, stalling every message. Enter fires unconditionally;
-                // the paste already landed (boot/TUI gate above), so one Enter
-                // submits it. Task delivery (orchestrator) keeps verify on.
-                verify_submit: false,
+                verify_submit: true,
                 ..Default::default()
             };
             return self

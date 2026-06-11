@@ -330,52 +330,44 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         });
     }
 
+    // JSONL providers (claude, codex): parse to normalized `ChatMsg` in Rust —
+    // the SAME shape the DB-backed providers emit — so every provider renders
+    // through one client path. No second TS parser.
     let path_started = std::time::Instant::now();
     let path = svc
         .agent_registry
         .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
         .flatten()
         .ok_or("provider has no JSONL")?;
+    let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     let path_ms = path_started.elapsed().as_millis();
 
-    // Read the tail (~512KB) so toggle reveals plenty of context. The TS parser is fast even at 1MB — no need for a smaller window.
     // A missing file is NOT an error: the session id is detected from CLI output
-    // before the provider writes the first JSONL line. Tail from byte 0 so the
-    // history streams in as deltas the moment the file appears.
-    let snapshot_window: u64 = 512 * 1024;
+    // before the provider writes the first JSONL line. The tailer streams the
+    // history in as deltas the moment the file appears.
     let read_started = std::time::Instant::now();
-    let bytes = if path.exists() {
-        std::fs::read(&path).map_err(|e| format!("read jsonl: {e}"))?
-    } else {
-        Vec::new()
-    };
-    let total = bytes.len() as u64;
-    let start = total.saturating_sub(snapshot_window) as usize;
-    // Align start to a line boundary — handing the parser a partial first line forces it to discard data that would otherwise render.
-    let aligned_start = if start == 0 {
-        0
-    } else {
-        bytes[start..]
-            .iter()
-            .position(|&b| b == b'\n')
-            .map(|i| start + i + 1)
-            .unwrap_or(start)
-    };
-    let text = String::from_utf8_lossy(&bytes[aligned_start..]).to_string();
+    let (messages, msg_count) =
+        crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
     let read_ms = read_started.elapsed().as_millis();
 
     // Multiple webviews can attach to the same pane. The tailer is per pane, but subscriptions are per client; share the existing worker when one
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
     if !svc.chat_registry.acquire(&pane_id) {
-        let sink = crate::service::pane_chat::raw_text_sink::make_sink(svc.app_handle.clone());
-        let handle = crate::service::pane_chat::spawn_raw_tailer(
-            crate::service::pane_chat::RawTailConfig {
+        let sink = crate::service::pane_chat::structured_sink::make_flatten_sink(
+            svc.app_handle.clone(),
+            msg_count,
+        );
+        let handle = crate::service::pane_chat::spawn_tailer(
+            crate::service::pane_chat::TailConfig {
                 pane_id: pane_id.clone(),
-                path: path.clone(),
+                provider_id: provider_id.clone(),
+                cwd: cwd.clone(),
+                session_id: session_id.clone(),
                 start_offset: total,
                 poll_interval: std::time::Duration::from_millis(500),
             },
+            svc.agent_registry.clone(),
             sink,
         );
         svc.chat_registry.insert(pane_id.clone(), handle);
@@ -384,7 +376,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     let total_ms = started.elapsed().as_millis();
     if total_ms > 250 {
         log::warn!(
-            "[chat_start.slow] pane={} provider={} total_ms={} mux={} detect={} path={} read={} tailer={} total_bytes={} returned={}",
+            "[chat_start.slow] pane={} provider={} total_ms={} mux={} detect={} path={} read={} tailer={} total_bytes={} messages={}",
             pane_id,
             provider_id,
             total_ms,
@@ -394,16 +386,16 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             read_ms,
             tailer_ms,
             total,
-            text.len()
+            msg_count
         );
     }
 
     Ok(ChatStartResult {
-        text,
-        start_offset: aligned_start as u64,
+        text: String::new(),
+        start_offset: 0,
         offset: total,
         pending: false,
-        messages: None,
+        messages: Some(messages),
         cursor: None,
     })
 }
