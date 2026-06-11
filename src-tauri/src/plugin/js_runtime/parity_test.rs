@@ -16,12 +16,27 @@ use crate::agent::provider::{AgentLaunchParams, AgentProvider};
 
 use super::{load_one, JsProvider};
 
+type PluginsDir = PathBuf;
+
 fn workspace_plugins_root() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).join("plugins")
 }
 
-fn ws_exists() -> bool {
-    workspace_plugins_root().exists()
+fn require_plugins() -> Option<PluginsDir> {
+    let path = workspace_plugins_root();
+    if path.exists() {
+        return Some(path);
+    }
+
+    if std::env::var("CI").is_ok() {
+        panic!("parity tests require bundled JS plugins in CI — build them in the workflow or fix the path");
+    }
+
+    eprintln!(
+        "SKIPPED: js_runtime parity — plugins dir not found at {}",
+        path.display()
+    );
+    None
 }
 
 fn load_js(id: &str) -> JsProvider {
@@ -43,9 +58,9 @@ mod claude {
 
     #[test]
     fn detect_from_title_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         let cases = [
             ("Claude Code", true),
@@ -63,9 +78,9 @@ mod claude {
 
     #[test]
     fn detect_from_output_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         let cases = [
             ("Do you want to proceed?", true),
@@ -83,9 +98,9 @@ mod claude {
 
     #[test]
     fn screen_has_tui_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         for s in ["? for shortcuts here", "ctrl+l help", "esc to interrupt"] {
             assert!(n.screen_has_tui(s), "native: {s}");
@@ -99,9 +114,9 @@ mod claude {
 
     #[test]
     fn is_output_noise_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         let noisy = [
             "bypass permissions on",
@@ -125,9 +140,9 @@ mod claude {
 
     #[test]
     fn extract_session_name_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         let explicit = "  Session: vivid-bhabha-1234\n  cwd: /tmp\n";
         assert_eq!(
@@ -156,9 +171,9 @@ mod claude {
 
     #[test]
     fn slash_commands_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         assert_eq!(n.compact_command(), j.compact_command());
         assert_eq!(n.exit_command(), j.exit_command());
@@ -171,9 +186,9 @@ mod claude {
 
     #[test]
     fn metadata_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         assert_eq!(n.id(), j.id());
         assert_eq!(n.display_name(), j.display_name());
@@ -192,9 +207,9 @@ mod claude {
 
     #[test]
     fn parse_session_messages_parity_on_jsonl_fixture() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         // Realistic Claude JSONL snippet: assistant with array content, user with string content, plus a non-message line that must be dropped by both impls.
         let jsonl = "{\"type\":\"summary\",\"x\":1}\n\
@@ -219,9 +234,9 @@ mod claude {
 
     #[test]
     fn resume_command_carries_session_id_and_skip_flag() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (_n, j) = pair();
         let cmd = j.build_resume_command("abc-def-123-456", true).unwrap();
         assert!(cmd.contains("--resume"));
@@ -264,9 +279,9 @@ mod claude {
 
     #[test]
     fn integration_install_creates_all_four_hooks_with_markers() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let dir = tempfile::tempdir().unwrap();
         let provider = claude_in_temp(
             &dir.path().join("rule.md"),
@@ -318,9 +333,9 @@ mod claude {
 
     #[test]
     fn integration_install_preserves_unrelated_settings_fields() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("settings.json");
         std::fs::write(
@@ -339,9 +354,9 @@ mod claude {
 
     #[test]
     fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("settings.json");
         // Pre-existing settings with: a user hook (must survive), a stale codeterm v1 hook (must be removed), and an unrelated key.
@@ -387,9 +402,9 @@ mod claude {
 
     #[test]
     fn integration_uninstall_drops_notification_and_stop_keeps_precompact() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let dir = tempfile::tempdir().unwrap();
         let provider = claude_in_temp(
             &dir.path().join("rule.md"),
@@ -422,9 +437,9 @@ mod claude {
 
     #[test]
     fn integration_ensure_on_startup_is_idempotent() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let dir = tempfile::tempdir().unwrap();
         let provider = claude_in_temp(
             &dir.path().join("rule.md"),
@@ -446,9 +461,9 @@ mod claude {
     /// trait method native uses) and asserts the file landed.
     #[test]
     fn bridge_rule_install_via_host_writes_file() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let dir = tempfile::tempdir().unwrap();
         let rule_path = dir.path().join("rules").join("codeterm.md");
         let provider = claude_in_temp(&rule_path, &dir.path().join("settings.json"));
@@ -469,9 +484,9 @@ mod claude {
 
     #[test]
     fn launch_command_no_task_matches_native_shape() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         let params = AgentLaunchParams {
             skip_permissions: true,
@@ -485,9 +500,9 @@ mod claude {
 
     #[test]
     fn launch_command_headless_uses_stdin_pipe_in_both() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         let params = AgentLaunchParams {
             task: Some("count files in repo".into()),
@@ -516,9 +531,9 @@ mod claude {
 
     #[test]
     fn launch_command_headless_writes_task_bytes_through_plugin() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (_n, j) = pair();
         let body = "do thing --kind fact `whoami` 'quotes'";
         let cmd = j.build_launch_command(&AgentLaunchParams {
@@ -555,9 +570,9 @@ mod claude {
 
     #[test]
     fn launch_command_session_id_only_in_visible_mode() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         let visible = AgentLaunchParams {
             session_id: Some("my-uuid".into()),
@@ -589,9 +604,9 @@ mod claude {
 
     #[test]
     fn session_jsonl_path_resolves_via_plugin() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let j = load_js("claude");
         let p = j.session_jsonl_path("/Users/foo/work/proj", "sess-abc-123");
         assert!(p.is_some(), "should return Some(path)");
@@ -611,9 +626,9 @@ mod claude {
 
     #[test]
     fn session_jsonl_path_returns_none_for_empty_sid() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let j = load_js("claude");
         assert!(
             j.session_jsonl_path("/proj", "").is_none(),
@@ -623,9 +638,9 @@ mod claude {
 
     #[test]
     fn parse_session_delta_handles_polymorphic_content() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let j = load_js("claude");
 
         // Mixed JSONL: summary (drop), user text (1 block), assistant with text + thinking + tool_use (3 blocks), user tool_result (1 block), and a malformed line (drop).
@@ -685,9 +700,9 @@ mod claude {
     /// deleted. This is the bench guarding that consolidation.
     #[test]
     fn rich_flatten_parity_block_derivable_kinds() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         use crate::service::pane_chat::rich_to_chat_msgs;
         let j = load_js("claude");
 
@@ -791,9 +806,9 @@ mod claude {
     /// `system` rows, so this guards that plumbing end-to-end.
     #[test]
     fn rich_flatten_parity_system_meta_local_command() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         use crate::service::pane_chat::rich_to_chat_msgs;
         let j = load_js("claude");
 
@@ -850,9 +865,9 @@ mod claude {
 
     #[test]
     fn parse_session_delta_holds_back_partial_line() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let j = load_js("claude");
 
         // One complete line + a truncated second line.
@@ -872,9 +887,9 @@ mod claude {
 
     #[test]
     fn parse_session_delta_from_nonzero_offset() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let j = load_js("claude");
         // Two lines; we ask for the slice starting at line 2.
         let line1 = r#"{"type":"user","message":{"role":"user","content":"first"}}"#;
@@ -892,9 +907,9 @@ mod claude {
 
     #[test]
     fn parse_session_delta_handles_non_ascii_offset_correctly() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let j = load_js("claude");
         // Each line ends in \n. Contains emoji (4 bytes UTF-8 each) so byte counts diverge from char counts.
         let line1 =
@@ -920,9 +935,9 @@ mod claude {
     #[test]
     fn parse_session_delta_advances_offset_when_plugin_blows_up() {
         // Defensive: feed the plugin malformed JSONL bytes. Plugin catch-blocks each line, but the test asserts the tailer doesn't get stuck at the same offset.
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let j = load_js("claude");
         let bad = "this is not json at all\nnot json either\n";
         let tmp = tempfile::NamedTempFile::new().unwrap();
@@ -946,9 +961,9 @@ mod codex {
 
     #[test]
     fn detect_from_title_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         for s in ["Codex", "codex prompt", "RUNNING CODEX"] {
             assert!(n.detect_from_title(s));
@@ -962,9 +977,9 @@ mod codex {
 
     #[test]
     fn detect_from_output_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         let cases = [
             ("OpenAI Codex v1.2", true),
@@ -983,9 +998,9 @@ mod codex {
 
     #[test]
     fn screen_has_tui_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         for s in ["OpenAI Codex banner", "ctrl+c to cancel"] {
             assert!(n.screen_has_tui(s));
@@ -999,9 +1014,9 @@ mod codex {
 
     #[test]
     fn has_event_markers_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         for s in [
             "Would you like to proceed",
@@ -1021,9 +1036,9 @@ mod codex {
 
     #[test]
     fn slash_commands_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         assert_eq!(n.compact_command(), j.compact_command());
         assert_eq!(n.exit_command(), j.exit_command());
@@ -1036,9 +1051,9 @@ mod codex {
 
     #[test]
     fn parse_session_messages_parity_on_rollout_fixture() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         let jsonl = "{\"type\":\"meta\",\"x\":1}\n\
             {\"type\":\"response_item\",\"timestamp\":\"2026-04-12T09:00:00Z\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}}\n\
@@ -1061,9 +1076,9 @@ mod codex {
 
     #[test]
     fn metadata_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         assert_eq!(n.id(), j.id());
         assert_eq!(n.display_name(), j.display_name());
@@ -1080,9 +1095,9 @@ mod codex {
 
     #[test]
     fn resume_command_carries_session_id() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (_n, j) = pair();
         let cmd = j.build_resume_command("uuid-1234", false).unwrap();
         assert_eq!(cmd, "codex resume 'uuid-1234'");
@@ -1099,9 +1114,9 @@ mod codex {
     /// sessionFilePath all work end-to-end without native Rust help.
     #[test]
     fn codex_rollout_walk_via_plugin() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let dir = tempfile::tempdir().unwrap();
         // Plugin honours `CODETERM_CODEX_SESSIONS_ROOT` to avoid hitting the user's real `~/.codex/sessions` during tests. (dirs::home_dir ignores
         // HOME env on Windows, so HOME redirect would be ineffective.)
@@ -1226,9 +1241,9 @@ mod opencode {
 
     #[test]
     fn detect_from_title_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         for s in ["OpenCode", "opencode v0.3", "OpenCode Zen"] {
             assert!(n.detect_from_title(s));
@@ -1242,9 +1257,9 @@ mod opencode {
 
     #[test]
     fn detect_from_output_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         // Native + JS both require a two-part fingerprint: marker (opencode/OpenCode) AND a TUI/prompt signal (box-drawing or a permission line). Bare
         // mentions or bare signals must NOT match.
@@ -1265,9 +1280,9 @@ mod opencode {
 
     #[test]
     fn screen_has_tui_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         for s in ["tab agents", "Ctrl+P commands"] {
             assert!(n.screen_has_tui(s));
@@ -1281,9 +1296,9 @@ mod opencode {
 
     #[test]
     fn slash_commands_and_flags_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         assert_eq!(n.compact_command(), j.compact_command());
         assert_eq!(n.exit_command(), j.exit_command());
@@ -1296,9 +1311,9 @@ mod opencode {
 
     #[test]
     fn metadata_parity() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (n, j) = pair();
         assert_eq!(n.id(), j.id());
         assert_eq!(n.display_name(), j.display_name());
@@ -1311,9 +1326,9 @@ mod opencode {
 
     #[test]
     fn resume_command_drops_skip_flag_by_design() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let (_n, j) = pair();
         let cmd = j.build_resume_command("ses_abc123", true).unwrap();
         assert!(!cmd.contains("--dangerously-skip-permissions"));
@@ -1327,9 +1342,9 @@ mod opencode {
     /// / detectSessionModel / sessionExists end-to-end through `JsProvider`.
     #[test]
     fn opencode_sqlite_session_detection_via_plugin() {
-        if !ws_exists() {
-            return;
-        }
+        if require_plugins().is_none() {
+        return;
+    }
         let dir = tempfile::tempdir().unwrap();
         let opencode_dir = dir.path().join("opencode");
         std::fs::create_dir_all(&opencode_dir).unwrap();
@@ -1489,7 +1504,7 @@ mod opencode {
 
 #[test]
 fn all_workspace_plugins_load() {
-    if !ws_exists() {
+    if require_plugins().is_none() {
         return;
     }
     for id in ["claude", "codex", "opencode"] {
@@ -1497,3 +1512,6 @@ fn all_workspace_plugins_load() {
         assert_eq!(p.id(), id, "plugin id mismatch for {id}");
     }
 }
+
+
+
