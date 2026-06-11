@@ -179,7 +179,7 @@ impl ServiceContext {
                     })
                 };
 
-                self.apply_prompt_decision(&decision);
+                self.apply_prompt_decision_with_screen(&decision, clean_text.as_deref());
 
                 if has_markers {
                     if let Some(ref clean) = clean_text {
@@ -200,52 +200,82 @@ impl ServiceContext {
     }
 
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {
+        self.apply_prompt_decision_with_screen(decision, None);
+    }
+
+    pub(crate) fn apply_prompt_decision_with_screen(
+        &self,
+        decision: &PromptDecision,
+        screen_text: Option<&str>,
+    ) {
         match decision {
             PromptDecision::None => {}
             PromptDecision::NewPrompt { pane_id, prompt }
             | PromptDecision::PromptUpdated { pane_id, prompt } => {
                 // Auto-approve: if pane has auto_approve set, respond immediately
-                let auto_approve = self
-                    .mux
-                    .lock()
-                    .get_pane(pane_id)
-                    .map(|p| p.auto_approve)
-                    .unwrap_or(false);
+                let (auto_approve, agent_type, pty_id, is_general_pane) = {
+                    let mux = self.mux.lock();
+                    let is_general_pane = mux
+                        .resolve_pane_id(crate::service::general_agent::GENERAL_ALIAS)
+                        .as_deref()
+                        == Some(pane_id.as_str());
+                    let pane = mux.get_pane(pane_id);
+                    (
+                        pane.map(|p| p.auto_approve).unwrap_or(false),
+                        pane.and_then(|p| p.agent_type.clone()),
+                        pane.and_then(|p| p.pty_id.clone()),
+                        is_general_pane,
+                    )
+                };
 
                 if auto_approve {
-                    // Check for yes/no prompts (value is "y" or "yes")
-                    let is_yes_no = prompt.options.iter().any(|o| {
-                        let v = o.value.to_lowercase();
-                        v == "y" || v == "yes"
-                    });
+                    if is_general_pane {
+                        if let Some(ack) = crate::service::general_agent::blocker::classify(
+                            prompt,
+                            screen_text.unwrap_or(""),
+                        ) {
+                            log::info!(
+                                "[general-agent/auto-ack] Auto-acknowledging {} for pane {}",
+                                ack.kind.label(),
+                                pane_id
+                            );
+                            self.create_notification(
+                                "General Agent auto-acknowledged a blocker".to_string(),
+                                Some(format!(
+                                    "Main selected option {} for {}.",
+                                    ack.option_index + 1,
+                                    ack.kind.label()
+                                )),
+                                Some("warning"),
+                            );
+                            self.prompt_detector.lock().mark_responded(pane_id);
+                            if let Some(pty_id) = pty_id {
+                                let steps = agent_type
+                                    .as_deref()
+                                    .and_then(|at| {
+                                        self.agent_registry
+                                            .build_prompt_response(at, ack.option_index)
+                                    })
+                                    .unwrap_or_else(|| default_prompt_response(ack.option_index));
+                                write_prompt_steps(self.pty.clone(), pty_id, steps);
+                            }
+                            return;
+                        }
+                    }
 
-                    // Check for numbered prompts where first option is affirmative (e.g. "1. Yes, continue" — trust directory prompts)
-                    let is_numbered_yes = !is_yes_no
-                        && !prompt.options.is_empty()
-                        && prompt.options[0].label.to_lowercase().starts_with("yes");
-
-                    if is_yes_no || is_numbered_yes {
-                        let response: &[u8] = if is_yes_no { b"y\r" } else { b"\r" };
+                    if let Some(response) = legacy_auto_approve_response(prompt) {
                         log::info!(
                             "[auto-approve] Auto-approving {} prompt for pane {}",
-                            if is_yes_no { "yes/no" } else { "numbered-yes" },
+                            response.kind,
                             pane_id
                         );
-                        let pty_id = self
-                            .mux
-                            .lock()
-                            .get_pane(pane_id)
-                            .and_then(|p| p.pty_id.clone());
+                        self.prompt_detector.lock().mark_responded(pane_id);
                         if let Some(pty_id) = pty_id {
-                            let pty = self.pty.clone();
-                            let response = response.to_vec();
-                            std::thread::spawn(move || {
-                                std::thread::sleep(std::time::Duration::from_millis(500));
-                                let _ = pty.lock().write(&pty_id, &response);
-                            });
+                            write_prompt_steps(self.pty.clone(), pty_id, vec![response.bytes]);
                         }
                         return;
                     }
+
                     log::debug!(
                         "[auto-approve] Skipping non-approvable prompt for pane {}",
                         pane_id
@@ -334,4 +364,57 @@ impl ServiceContext {
             }
         }
     }
+}
+
+struct LegacyAutoApproveResponse {
+    kind: &'static str,
+    bytes: Vec<u8>,
+}
+
+fn legacy_auto_approve_response(
+    prompt: &crate::multiplexer::types::PendingPrompt,
+) -> Option<LegacyAutoApproveResponse> {
+    let is_yes_no = prompt.options.iter().any(|o| {
+        let v = o.value.to_lowercase();
+        v == "y" || v == "yes"
+    });
+    if is_yes_no {
+        return Some(LegacyAutoApproveResponse {
+            kind: "yes/no",
+            bytes: b"y\r".to_vec(),
+        });
+    }
+
+    let is_numbered_yes = prompt
+        .options
+        .first()
+        .map(|o| o.label.to_lowercase().starts_with("yes"))
+        .unwrap_or(false);
+    if is_numbered_yes {
+        Some(LegacyAutoApproveResponse {
+            kind: "numbered-yes",
+            bytes: b"\r".to_vec(),
+        })
+    } else {
+        None
+    }
+}
+
+fn default_prompt_response(option_index: usize) -> Vec<Vec<u8>> {
+    let mut steps = Vec::new();
+    for _ in 0..option_index {
+        steps.push(b"\x1b[B".to_vec());
+    }
+    steps.push(b"\r".to_vec());
+    steps
+}
+
+fn write_prompt_steps(pty: crate::PtyState, pty_id: String, steps: Vec<Vec<u8>>) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        for step in steps {
+            let _ = pty.lock().write(&pty_id, &step);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    });
 }
