@@ -1,6 +1,6 @@
 # Agent roles & orchestration
 
-CodeTerm has a 2-level agent hierarchy: **Orchestrator → Worker**. Flat by design — an Orchestrator and the Workers it spawns, exactly one level deep. No sub-leads, no worker-spawns-worker.
+CodeTerm has a 2-level agent hierarchy: **Orchestrator → Worker**. Flat by design — an Orchestrator and the Workers it spawns, exactly one level deep. No deeper nesting, no worker-spawns-worker.
 
 **Your role depends on how you were spawned.** Check `$CODETERM_ROLE` env var or look for a role marker in your initial task prompt.
 
