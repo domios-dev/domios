@@ -23,9 +23,19 @@ Workers go silent on long tasks. These four rules are non-negotiable:
 2. **The final report is part of the task.** Work without a delivered report =
    work that didn't happen. The LAST action of every task is the Report command.
    Never end your turn after finishing the work but before sending the report.
-3. **Shared tree:** other agents commit to this same checkout. If git fails with
-   `index.lock exists`, wait 10 seconds and retry (up to 5 times). Never delete
-   another process's lock file.
+3. **GIT IS ARBITER-ONLY (as of 2026-06-11, after three shared-tree incidents:
+   orphaned commit via scratch-branch switch, cross-contaminated commits via
+   `add -A` sweeping a peer's staged files, a peer's commit dropped by
+   `reset --soft`).** Workers run NO git mutations: no `add`, `commit`, `rm`,
+   `mv`, `reset`, `checkout`, `switch`, `stash`, `push`. Read-only git
+   (`status`, `diff`, `log`, `show`, `ls-files`) is fine and encouraged.
+   - Edit files with your editor/filesystem tools. Delete with plain `rm`,
+     rename with copy+`rm` — then it shows up in `git status` for the arbiter.
+   - Where a brief says "Commit: `<message>`" — that step now means: put the
+     proposed commit message and the EXACT list of changed/added/deleted paths
+     in your report. The arbiter stages by pathspec and commits.
+   - Your final report must include your `git status --short` lines so the
+     arbiter can diff expectations against reality.
 
 ## Rules baked into every brief (workers: read once, they apply always)
 
