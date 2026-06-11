@@ -1,4 +1,5 @@
 # CodeTerm — Future Plans
+nPlans live here and only here — no plan files at repo root.
 
 ## Index
 
@@ -70,3 +71,5 @@ PTY injection stays as fallback. Channel mode is opt-in via config.
 - https://code.claude.com/docs/en/channels
 - https://code.claude.com/docs/en/channels-reference
 - Research completed 2026-03-25 — full architecture in conversation history
+
+<!-- revision: 1 -->
