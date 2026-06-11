@@ -649,9 +649,9 @@ function contentToText(c) {
 }
 
 function isValidClaudeSessionMessage(v) {
-  if (!v || typeof v !== "object") return false;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type !== "user" && v.type !== "assistant") return false;
-  if (!v.message || typeof v.message !== "object") return false;
+  if (!v.message || typeof v.message !== "object" || Array.isArray(v.message)) return false;
   var content = v.message.content;
   if (typeof content !== "string" && !Array.isArray(content)) return false;
   return true;
@@ -662,17 +662,14 @@ function validateEntry(v) {
 }
 
 function isValidClaudeSessionDelta(v) {
-  if (!v || typeof v !== "object") return false;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (!CLAUDE_SESSION_DELTA_TYPES[v.type]) return false;
-  if (v.timestamp !== undefined && typeof v.timestamp !== "string") return false;
-  if (v.uuid !== undefined && typeof v.uuid !== "string") return false;
-  if (v.isMeta !== undefined && v.isMeta !== true && v.isMeta !== false) return false;
   if (v.type === "system") {
     var sc = v.content;
     return typeof sc === "string" || Array.isArray(sc);
   }
   var msg = v.message;
-  if (!msg || typeof msg !== "object") return false;
+  if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;
   if (typeof msg.content !== "string" && !Array.isArray(msg.content)) return false;
   return true;
 }

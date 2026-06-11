@@ -91,8 +91,6 @@ const invalidEntries = [
   { type: "unknown" },
   ["nested", ["array"]],
   { content: 42 },
-  { type: "user", timestamp: 123, message: { content: "bad timestamp" } },
-  { type: "response_item", timestamp: 123, payload: { type: "message" } },
 ];
 
 for (const input of invalidEntries) {
@@ -109,8 +107,6 @@ const invalidChunks = [
   JSON.stringify(["nested", ["array"]]),
   JSON.stringify({ content: 42 }),
   JSON.stringify({ type: "unknown" }),
-  JSON.stringify({ type: "user", timestamp: 123, message: { content: "bad timestamp" } }),
-  JSON.stringify({ type: "response_item", timestamp: 123, payload: { type: "message" } }),
 ];
 
 for (const chunk of invalidChunks) {

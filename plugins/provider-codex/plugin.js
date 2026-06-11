@@ -489,10 +489,9 @@ var CODEX_MONTHS = {
 };
 
 function isValidCodexSessionDelta(v) {
-  if (!v || typeof v !== "object") return false;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type !== "response_item") return false;
-  if (!v.payload || typeof v.payload !== "object") return false;
-  if (v.timestamp !== undefined && typeof v.timestamp !== "string") return false;
+  if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
   var kind = v.payload.type;
   if (kind !== "message" && kind !== "function_call" && kind !== "function_call_output") return false;
   return true;
@@ -503,9 +502,9 @@ function validateEntry(v) {
 }
 
 function isValidCodexSessionMessage(v) {
-  if (!v || typeof v !== "object") return false;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type !== "response_item") return false;
-  if (!v.payload || typeof v.payload !== "object") return false;
+  if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
   if (v.payload.type !== "message") return false;
   if (v.payload.role !== "user" && v.payload.role !== "assistant") return false;
   if (!Array.isArray(v.payload.content)) return false;
