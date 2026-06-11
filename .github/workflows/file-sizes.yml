@@ -1,7 +1,7 @@
 name: file-sizes
 
 # Source-file size discipline: scripts/check-file-sizes.sh.
-# Runs in --fail mode from day one. Legacy >800 files are baselined in
+# Runs in --fail mode from day one. Legacy >1000 files are baselined in
 # scripts/file-size-allowlist.txt and only fail CI if they grow past
 # their baseline. Phase 2 drains the allowlist; once empty, the rule
 # bites unconditionally on every file.
