@@ -148,6 +148,7 @@ module.exports.default = {
     return this.sessionFilePath(cwd, sessionId);
   },
 
+    // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.
   // Parse codex rollout JSONL into RichMessages. Codex schema:
   //   {type:"response_item", payload:{type:"message"|"function_call"|"function_call_output", ...}}
   // We read response_item lines only (event_msg duplicates them; reasoning is
