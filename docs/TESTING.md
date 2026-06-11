@@ -306,4 +306,8 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 - Session restore with active Claude across restart
 - Real Claude permission prompt → chat UI → approve → Claude continues (needs real Claude running)
 
-<!-- revision: 5 -->
+## Reviewer's checklist
+
+Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
+
+<!-- revision: 6 -->
