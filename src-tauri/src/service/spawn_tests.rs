@@ -1,4 +1,19 @@
 use super::*;
+use crate::service::ServiceContext;
+
+#[test]
+fn invalid_role_lead_is_rejected() {
+    let err = ServiceContext::parse_role("Lead").unwrap_err();
+    assert!(
+        err.contains("Orchestrator") && err.contains("Worker"),
+        "error must name valid roles: {err}"
+    );
+}
+
+#[test]
+fn valid_role_worker_is_accepted() {
+    assert!(ServiceContext::parse_role("Worker").is_ok());
+}
 
 fn agent_spec(provider: &str) -> SpawnPaneSpec {
     SpawnPaneSpec {

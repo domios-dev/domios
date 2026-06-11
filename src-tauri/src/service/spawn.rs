@@ -183,6 +183,10 @@ impl ServiceContext {
             _ => return Err("spawn_visible_agent_impl called without Agent command".into()),
         };
 
+        if let Some(ref role_str) = agent.role {
+            ServiceContext::parse_role(role_str)?;
+        }
+
         let default_provider = crate::config::default_agent_provider();
         let agent_cmd = if agent.provider.is_empty() {
             default_provider
