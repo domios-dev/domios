@@ -1,12 +1,54 @@
 # CodeTerm — Testing Guide
 
-## Three test layers
+## Test-layer taxonomy
 
-| Layer | What | Location | Runner | Count |
-|-------|------|----------|--------|-------|
-| **Unit** | Logic without running app | Rust: `src-tauri/src/`, TS: `src/components/` | `cargo test --lib`, `npx tsx` | 310 |
-| **E2E** | API against running instance | `tests/e2e/test_*.py` | `pytest` | 84 |
-| **UI** | Real app UI via WebDriver | `tests/webdriver/specs/*.js` | `wdio` | 19 |
+This section is the single source of truth for CodeTerm test layers. Other test
+docs may describe how to run a suite, but they should link here instead of
+redefining the layer model.
+
+| Layer | Lives in | Runner | Real LLM? | Needs dev daemon? | CI | Budget/test |
+|---|---|---|---|---|---|---|
+| Rust unit | `src-tauri/src/**/tests.rs` | `cargo test --lib` | no | no | yes (D7) | <1s |
+| TS unit | `src/**/*.test.ts`, `packages/**` | vitest (`pnpm test:unit`) | no | no | yes (D7) | <1s |
+| Plugin | `plugins/*/tests/` | `pnpm test:plugins` | no | no | yes (exists) | <5s |
+| API e2e | `tests/e2e/test_*.py` | pytest (`./build.sh e2e`) | no | yes (7686) | spike (D7) | <30s |
+| UI smoke | `tests/playwright`, `@smoke` | `pnpm test:pw:smoke` | no | yes | local-only* | <10s |
+| UI golden | `tests/playwright`, `@golden` | `pnpm test:pw:golden` | yes | yes | local-only* | <5min |
+| WebDriver | `tests/webdriver/` | wdio | no | yes | local-only | <30s |
+| Behaviour bench | `evals/<name>/` | `bash run.sh` via `_lib/lib.sh` | yes | yes (dev-locked) | never | unbounded |
+
+\* Playwright stays out of hosted CI by decision because it needs a WebView2
+desktop plus host Claude auth. The compensating control is the pre-PR gate.
+
+### Which layer do I write?
+
+```
+Is it pure logic (parsing, formatting, state machine)?
+├─ yes → unit test next to the code (Rust or TS). STOP — do not write a UI test
+│        for something a unit test can prove.
+└─ no → Does it require the daemon's HTTP/socket surface?
+    ├─ yes, no UI → pytest API e2e
+    └─ needs real rendering/interaction →
+        ├─ deterministic, no LLM → Playwright @smoke
+        ├─ involves a real agent/LLM → Playwright @golden
+        └─ measures behaviour quality (prompt change, recall quality,
+           routing) rather than pass/fail correctness → evals/ bench,
+           NOT a test. Benches compare baselines; tests assert invariants.
+```
+
+Rule of thumb: every bug fix gets a test at the lowest layer that can reproduce
+it. A cross-pane rendering bug whose root cause is a marker-parsing function gets
+a unit test on the parser plus, at most, one golden test for the end-to-end path.
+
+## Runbook
+
+| Layer | Exact command | When required |
+|---|---|---|
+| Narrow Rust or TS unit | `cargo test <narrow filter>` / `pnpm test:unit -t <name>` | During work, for the touched area |
+| All implemented layers | `./build.sh test:all` | Coming — task D2; before claiming done once built |
+| PR gate | `test:all` + `pnpm test:pw:golden` if agent paths touched | Before opening a PR |
+| CI gate | Rust unit + TS unit + plugin tests (+ pytest spike) | CI on PR — task D7 |
+| Nightly local report | `pnpm test:pw --project=full` + golden | Nightly local cron, report only |
 
 ## Unit tests
 
@@ -264,4 +306,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 - Session restore with active Claude across restart
 - Real Claude permission prompt → chat UI → approve → Claude continues (needs real Claude running)
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
