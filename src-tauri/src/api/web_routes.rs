@@ -158,14 +158,19 @@ fn validate_manifest_token(state: &AppState, candidate: &str) -> bool {
         return false;
     }
     if let Some(ref api_token) = state.config.lock().api.token {
-        if !api_token.is_empty() && api_token == candidate {
+        if !api_token.is_empty()
+            && crate::services::tokens::constant_time_eq(
+                api_token.as_bytes(),
+                candidate.as_bytes(),
+            )
+        {
             return true;
         }
     }
     let cache = state.web_tokens.lock().unwrap();
     cache
         .get(candidate)
-        .map_or(false, |created| created.elapsed() < std::time::Duration::from_secs(3600))
+        .map_or(false, |created| created.elapsed() < crate::api::routes::WEB_TOKEN_TTL)
 }
 
 /// Bootstrap endpoint: validates the bearer token and sets an HttpOnly cookie
@@ -190,8 +195,9 @@ pub async fn web_manifest_bootstrap(
         return Err((StatusCode::UNAUTHORIZED, "Invalid or missing token"));
     }
     let cookie = format!(
-        "codeterm-web-token={}; HttpOnly; SameSite=Lax; Path=/web; Max-Age=3600",
-        token
+        "codeterm-web-token={}; HttpOnly; SameSite=Lax; Path=/web; Max-Age={}",
+        token,
+        crate::api::routes::WEB_TOKEN_TTL.as_secs()
     );
     Ok((
         [(
@@ -501,6 +507,40 @@ pub async fn upload(
         })));
     }
     Err((StatusCode::BAD_REQUEST, "missing 'file' field".to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::api::routes::WEB_TOKEN_TTL;
+
+    #[test]
+    fn cookie_max_age_uses_web_token_ttl() {
+        let ttl = WEB_TOKEN_TTL.as_secs();
+        let cookie = format!(
+            "codeterm-web-token={}; HttpOnly; SameSite=Lax; Path=/web; Max-Age={}",
+            "tok",
+            ttl
+        );
+        assert!(
+            cookie.contains(&format!("Max-Age={ttl}")),
+            "Set-Cookie must embed WEB_TOKEN_TTL, got: {cookie}"
+        );
+    }
+
+    #[test]
+    fn constant_time_eq_rejects_last_byte_diff() {
+        let token = b"supersecrettoken1234";
+        let mut bad = token.to_vec();
+        *bad.last_mut().unwrap() ^= 1;
+        assert!(
+            !crate::services::tokens::constant_time_eq(token, &bad),
+            "token differing in last byte must be rejected"
+        );
+        assert!(
+            crate::services::tokens::constant_time_eq(token, token),
+            "identical tokens must match"
+        );
+    }
 }
 
 // ── chat-raw — the chat view's JSONL window + tailer, web edition ──
