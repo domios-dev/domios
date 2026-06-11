@@ -1,0 +1,156 @@
+{
+  "description": "Session-restore metadata baseline. Dynamic ids and agent session ids are intentionally excluded.",
+  "expected": {
+    "general": {
+      "post_pane_count": 1,
+      "post_tab_count": 1,
+      "pre_pane_count": 2,
+      "pre_tab_count": 2
+    },
+    "scenarios": {
+      "WS-claude-renamed": {
+        "cwd": "C:/temp/restore-WS-claude-renamed",
+        "post_pane_count": 1,
+        "post_panes": [
+          {
+            "agent_type": "claude",
+            "cwd": "C:/temp/restore-WS-claude-renamed",
+            "tab_title": "MY-CUSTOM-TITLE",
+            "title": "MY-CUSTOM-TITLE",
+            "title_level": "User"
+          }
+        ],
+        "post_tab_count": 1,
+        "pre_pane_count": 1,
+        "pre_panes": [
+          {
+            "agent_type": "claude",
+            "cwd": "C:/temp/restore-WS-claude-renamed",
+            "tab_title": "MY-CUSTOM-TITLE",
+            "title": "MY-CUSTOM-TITLE",
+            "title_level": "User"
+          }
+        ],
+        "pre_tab_count": 1
+      },
+      "WS-claude-silent": {
+        "cwd": "C:/temp/restore-WS-claude-silent",
+        "post_pane_count": 1,
+        "post_panes": [
+          {
+            "agent_type": "claude",
+            "cwd": "C:/temp/restore-WS-claude-silent",
+            "tab_title": "silent-claude",
+            "title": "silent-claude",
+            "title_level": "User"
+          }
+        ],
+        "post_tab_count": 1,
+        "pre_pane_count": 1,
+        "pre_panes": [
+          {
+            "agent_type": "claude",
+            "cwd": "C:/temp/restore-WS-claude-silent",
+            "tab_title": "silent-claude",
+            "title": "silent-claude",
+            "title_level": "User"
+          }
+        ],
+        "pre_tab_count": 1
+      },
+      "WS-claude-with-text": {
+        "cwd": "C:/temp/restore-WS-claude-with-text",
+        "post_pane_count": 1,
+        "post_panes": [
+          {
+            "agent_type": "claude",
+            "cwd": "C:/temp/restore-WS-claude-with-text",
+            "tab_title": "claude-with-text",
+            "title": "claude-with-text",
+            "title_level": "User"
+          }
+        ],
+        "post_tab_count": 1,
+        "pre_pane_count": 1,
+        "pre_panes": [
+          {
+            "agent_type": "claude",
+            "cwd": "C:/temp/restore-WS-claude-with-text",
+            "tab_title": "claude-with-text",
+            "title": "claude-with-text",
+            "title_level": "User"
+          }
+        ],
+        "pre_tab_count": 1
+      },
+      "WS-empty": {
+        "cwd": "C:/temp/restore-WS-empty",
+        "post_pane_count": 0,
+        "post_panes": [],
+        "post_tab_count": 0,
+        "pre_pane_count": 0,
+        "pre_panes": [],
+        "pre_tab_count": 0
+      },
+      "WS-shell-silent": {
+        "cwd": "C:/temp/restore-WS-shell-silent",
+        "post_pane_count": 1,
+        "post_panes": [
+          {
+            "agent_type": null,
+            "cwd": "C:/temp/restore-WS-shell-silent",
+            "tab_title": "silent-shell",
+            "title": "silent-shell",
+            "title_level": "User"
+          }
+        ],
+        "post_tab_count": 1,
+        "pre_pane_count": 1,
+        "pre_panes": [
+          {
+            "agent_type": null,
+            "cwd": "C:/temp/restore-WS-shell-silent",
+            "tab_title": "silent-shell",
+            "title": "silent-shell",
+            "title_level": "User"
+          }
+        ],
+        "pre_tab_count": 1
+      },
+      "WS-shell-with-text": {
+        "cwd": "C:/temp/restore-WS-shell-with-text",
+        "post_pane_count": 1,
+        "post_panes": [
+          {
+            "agent_type": null,
+            "cwd": "C:/temp/restore-WS-shell-with-text",
+            "tab_title": "shell-with-text",
+            "title": "shell-with-text",
+            "title_level": "User"
+          }
+        ],
+        "post_tab_count": 1,
+        "pre_pane_count": 1,
+        "pre_panes": [
+          {
+            "agent_type": null,
+            "cwd": "C:/temp/restore-WS-shell-with-text",
+            "tab_title": "shell-with-text",
+            "title": "shell-with-text",
+            "title_level": "User"
+          }
+        ],
+        "pre_tab_count": 1
+      }
+    },
+    "workspace_count": {
+      "post": 7,
+      "pre": 7
+    }
+  },
+  "tolerances": {
+    "general_pane_count_abs": 1,
+    "general_tab_count_abs": 1
+  },
+  "version": 1
+}
