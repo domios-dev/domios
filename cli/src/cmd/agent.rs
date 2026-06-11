@@ -186,7 +186,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             });
             if let Some(t) = title { body["title"] = serde_json::json!(t); }
             if let Some(c) = cwd { body["cwd"] = serde_json::json!(c); }
-            if let Some(r) = role { body["role"] = serde_json::json!(r); }
+            if let Some(r) = role { body["role"] = serde_json::json!(r.as_str()); }
             if let Some(p) = parent { body["parent_pane_id"] = serde_json::json!(p); }
             if can_spawn { body["can_spawn"] = serde_json::json!(true); }
             if let Some(t) = task { body["task"] = serde_json::json!(t); }

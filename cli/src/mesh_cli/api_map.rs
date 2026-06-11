@@ -188,7 +188,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     "title": title,
                     "task": task,
                 });
-                if let Some(r) = role { body["role"] = serde_json::json!(r); }
+                if let Some(r) = role { body["role"] = serde_json::json!(r.as_str()); }
                 if let Some(p) = parent { body["parent_pane_id"] = serde_json::json!(p); }
                 if let Some(w) = workspace { body["workspace_id"] = serde_json::json!(w); }
                 if *can_spawn { body["can_spawn"] = serde_json::json!(true); }
