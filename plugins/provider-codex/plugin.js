@@ -11,7 +11,19 @@ var OUTPUT_FINGERPRINTS = [
   "Would you like to grant these permissions",
   "codex>",
 ];
+var OUTPUT_THRESHOLD = 2;
 var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
+
+function outputScore(text) {
+  var score = 0;
+  if (/^\s*(?:›|>|▶)\s+\S+/m.test(text)) score += 2;
+  if (/^\s*(?:\[[^\]]+\]\s*)?codex[/>]/im.test(text)) score += 1;
+  if (/ctrl\+c to cancel/i.test(text)) score += 1;
+  for (var i = 0; i < OUTPUT_FINGERPRINTS.length; i++) {
+    if (text.indexOf(OUTPUT_FINGERPRINTS[i]) !== -1) score += 1;
+  }
+  return score;
+}
 
 module.exports.default = {
   detectFromTitle: function (title) {

@@ -21,6 +21,7 @@ var OUTPUT_FINGERPRINTS = [
   "Brewed for",
   "Reasoned for",
 ];
+var OUTPUT_THRESHOLD = 2;
 
 var NOISE_FRAGMENTS = [
   "bypass permissions on",
@@ -48,6 +49,34 @@ var SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/
 var SESSION_BARE_RE = /(?:^|\n)\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*(?:$|\n)/m;
 var CLAUDE_SESSION_DELTA_TYPES = { system: true, user: true, assistant: true };
 
+
+function hasSpinnerGlyph(text) {
+  return /(?:^|\n)\s*[⠀-⣿✱✳✻]\s+\S/.test(text);
+}
+
+function hasFooterLayout(text) {
+  return /(?:^|\n).*(?:\? for shortcuts|for shortcuts).*(?:esc to interrupt|shift\+tab|ctrl\+g)/i.test(text);
+}
+
+function hasPromptOptionLayout(text) {
+  var lines = String(text || "").split("\n");
+  var numbered = 0;
+  for (var i = 0; i < lines.length; i++) {
+    if (/^\s*(?:❯\s*)?\d+\.\s+\S+/.test(lines[i])) numbered++;
+  }
+  return numbered >= 2 && (text.indexOf("❯") !== -1 || /Esc .*?(cancel|back)|Enter .*?confirm|Tab .*?amend/i.test(text));
+}
+
+function outputScore(text) {
+  var score = 0;
+  if (hasSpinnerGlyph(text)) score += 2;
+  if (hasFooterLayout(text)) score += 1;
+  if (hasPromptOptionLayout(text)) score += 2;
+  for (var i = 0; i < OUTPUT_FINGERPRINTS.length; i++) {
+    if (text.indexOf(OUTPUT_FINGERPRINTS[i]) !== -1) score += 1;
+  }
+  return score;
+}
 function isBrailleSpinner(ch) {
   if (!ch) return false;
   var code = ch.charCodeAt(0);
