@@ -132,7 +132,8 @@ module.exports.default = {
       parts.push(host.shell.quote(p.task));
     }
     if (p.args && p.args.length > 0) {
-      for (var i = 0; i < p.args.length; i++) parts.push(p.args[i]);
+      // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
+      for (var i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     return parts.join(" ");
   },
@@ -177,6 +178,21 @@ module.exports.default = {
       [sessionId]
     );
     return rows.length > 0;
+  },
+
+  // Session creation time (unix ms). Lets the host apply its launch-window
+  // birth-time guard to sqlite-backed sessions, which have no per-session file.
+  sessionCreatedMs: function (_cwd, sessionId) {
+    var db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    var rows = host.fs.sqliteQuery(
+      db,
+      "SELECT time_created FROM session WHERE id = ?1 LIMIT 1",
+      [sessionId]
+    );
+    if (!rows.length) return null;
+    var tc = rows[0].time_created;
+    return typeof tc === "number" ? tc : null;
   },
 
   detectActiveSession: function (cwd, _currentSid) {

@@ -207,7 +207,9 @@ module.exports.default = {
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
     if (p.args && p.args.length > 0) {
-      for (var i = 0; i < p.args.length; i++) parts.push(p.args[i]);
+      // Quote each arg — they reach a shell, and `args` is caller-supplied via
+      // the spawn API (a mesh peer with SpawnAgents could inject `; cmd`).
+      for (var i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     return parts.join(" ");
   },
@@ -327,24 +329,42 @@ module.exports.default = {
       var v;
       try { v = JSON.parse(line); } catch (_) { continue; }
       var t = v && v.type;
-      if (t !== "user" && t !== "assistant") continue;
-      var msg = v.message;
-      if (!msg) continue;
-      var content = msg.content;
       var blocks = [];
-      if (typeof content === "string") {
-        if (content) blocks.push({ kind: "text", data: { text: content } });
-      } else if (Array.isArray(content)) {
-        for (var j = 0; j < content.length; j++) {
-          var b = content[j];
-          if (!b || typeof b.type !== "string") continue;
-          var data = {};
-          for (var k in b) {
-            if (Object.prototype.hasOwnProperty.call(b, k) && k !== "type") {
-              data[k] = b[k];
+      var role;
+      if (t === "system") {
+        // System rows carry top-level `content` (string/array) + `subtype`.
+        // The host normalizer turns them into system / local_command cards.
+        role = "system";
+        var sysText = (typeof v.content === "string")
+          ? v.content
+          : (Array.isArray(v.content)
+              ? v.content.filter(function (c) { return c && c.type === "text"; })
+                  .map(function (c) { return c.text || ""; }).join("\n")
+              : "");
+        var sdata = { text: sysText };
+        if (typeof v.subtype === "string") sdata.subtype = v.subtype;
+        blocks.push({ kind: "text", data: sdata });
+      } else if (t === "user" || t === "assistant") {
+        role = t;
+        var msg = v.message;
+        if (!msg) continue;
+        var content = msg.content;
+        if (typeof content === "string") {
+          if (content) blocks.push({ kind: "text", data: { text: content } });
+        } else if (Array.isArray(content)) {
+          for (var j = 0; j < content.length; j++) {
+            var b = content[j];
+            if (!b || typeof b.type !== "string") continue;
+            var data = {};
+            for (var k in b) {
+              if (Object.prototype.hasOwnProperty.call(b, k) && k !== "type") {
+                data[k] = b[k];
+              }
             }
+            blocks.push({ kind: b.type, data: data });
           }
-          blocks.push({ kind: b.type, data: data });
+        } else {
+          continue;
         }
       } else {
         continue;
@@ -356,9 +376,12 @@ module.exports.default = {
         if (!isNaN(d)) ts = Math.floor(d / 1000);
       }
       out.push({
-        role: t,
+        role: role,
         blocks: blocks,
         ts: ts,
+        uuid: (typeof v.uuid === "string") ? v.uuid : null,
+        isMeta: v.isMeta === true ? true : null,
+        timestamp: (typeof v.timestamp === "string") ? v.timestamp : null,
       });
     }
     return { messages: out };

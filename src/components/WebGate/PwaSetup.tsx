@@ -3,6 +3,22 @@ import { IS_WEB, selfHost, tokenFor } from "../../lib/webApi";
 
 const HINT_DISMISSED_KEY = "codeterm-pwa-hint-dismissed";
 
+/** Bootstrap the PWA manifest cookie so the manifest endpoint picks up the
+ *  token from a cookie instead of a query string (which leaks via logs/Referer).
+ *  Returns true if the cookie was set successfully. */
+async function bootstrapManifestCookie(token: string): Promise<boolean> {
+  try {
+    const resp = await fetch("/web/manifest-bootstrap", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: "same-origin",
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
 function isIos(): boolean {
   return (
     /iPhone|iPad|iPod/.test(navigator.userAgent) ||
@@ -50,10 +66,18 @@ export function PwaSetup() {
     if (!IS_WEB || !window.location.pathname.startsWith("/web")) return;
     const token = tokenFor(selfHost());
     if (token && !document.querySelector('link[rel="manifest"]')) {
-      const link = document.createElement("link");
-      link.rel = "manifest";
-      link.href = `/web/manifest.webmanifest?token=${encodeURIComponent(token)}`;
-      document.head.appendChild(link);
+      // Bootstrap an HttpOnly cookie so the manifest endpoint authenticates
+      // via cookie instead of a query-string token (which leaks in logs/Referer).
+      bootstrapManifestCookie(token).then(() => {
+        // Always inject the manifest link — even if the cookie bootstrap failed,
+        // the backend still accepts the legacy ?token= fallback for backward compat.
+        const link = document.createElement("link");
+        link.rel = "manifest";
+        // No query param — the token is in the cookie (or we fall through to
+        // the unauthenticated manifest, which just shows the plain mirror).
+        link.href = "/web/manifest.webmanifest";
+        document.head.appendChild(link);
+      });
     }
     if (isIos() && !isStandalone() && !localStorage.getItem(HINT_DISMISSED_KEY)) {
       setShowHint(true);

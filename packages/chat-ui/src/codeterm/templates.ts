@@ -11,9 +11,20 @@ export interface RenderedCard {
   status?: CardStatus;
 }
 
-function pane(inv: CodetermInvocation): string {
+/** Resolve a pane id/short-id to a human tab name. Returns undefined when unknown. */
+export type PaneNameResolver = (paneRef: string) => string | undefined;
+
+function pane(inv: CodetermInvocation, resolve?: PaneNameResolver): string {
   const p = inv.flags.pane;
-  return typeof p === "string" ? p : "current pane";
+  if (typeof p !== "string") return "current pane";
+  return resolve?.(p) ?? p;
+}
+
+function sentTitle(inv: CodetermInvocation, resolve?: PaneNameResolver): string {
+  const p = inv.flags.pane;
+  if (typeof p !== "string") return "Sent to current pane";
+  const name = resolve?.(p);
+  return name ? `Sent to ${name}` : `Sent to pane ${p}`;
 }
 
 function deliveredStatus(result?: string): CardStatus | undefined {
@@ -23,15 +34,18 @@ function deliveredStatus(result?: string): CardStatus | undefined {
   return undefined;
 }
 
-type TemplateFn = (inv: CodetermInvocation, result?: string) => RenderedCard;
+type TemplateFn = (inv: CodetermInvocation, result?: string, resolve?: PaneNameResolver) => RenderedCard;
+
+const sendTextTemplate: TemplateFn = (inv, result, resolve) => ({
+  icon: "→",
+  title: sentTitle(inv, resolve),
+  detail: inv.positionals[0],
+  status: deliveredStatus(result),
+});
 
 const TEMPLATES: Record<string, TemplateFn> = {
-  "send-text": (inv, result) => ({
-    icon: "→",
-    title: `Sent to pane ${pane(inv)}`,
-    detail: inv.positionals[0],
-    status: deliveredStatus(result),
-  }),
+  send: sendTextTemplate,
+  "send-text": sendTextTemplate,
   "agent spawn": (inv) => ({
     icon: "🤖",
     title: `Spawned ${inv.positionals[0] ?? "claude"}`,
@@ -47,18 +61,26 @@ const TEMPLATES: Record<string, TemplateFn> = {
   "mem search": (inv) => ({ icon: "🔍", title: "Searched mem", detail: inv.positionals[0] }),
   "mem get": (inv) => ({ icon: "📖", title: `Recalled ${inv.positionals[0] ?? ""}` }),
   "workspace create": (inv) => ({ icon: "🪟", title: `Created workspace ${inv.positionals[0] ?? ""}` }),
-  "pane focus": (inv) => ({ icon: "→", title: `Focused pane ${inv.positionals[0] ?? pane(inv)}` }),
+  "pane focus": (inv, _result, resolve) => {
+    const ref = inv.positionals[0] ?? (typeof inv.flags.pane === "string" ? inv.flags.pane : undefined);
+    const name = ref ? resolve?.(ref) : undefined;
+    return { icon: "→", title: `Focused ${name ?? `pane ${ref ?? pane(inv, resolve)}`}` };
+  },
   "mesh send": (inv) => ({ icon: "🛰", title: `Mesh → ${inv.positionals[0] ?? ""}`, detail: inv.positionals[1] }),
   "cron create": (inv) => ({ icon: "⏰", title: `Scheduled ${inv.positionals[0] ?? "job"}` }),
   "keepawake start": () => ({ icon: "☕", title: "Keep-awake started" }),
 };
 
 /** Pick the longest matching template, else a branded fallback. */
-export function renderTemplate(inv: CodetermInvocation, result?: string): RenderedCard {
+export function renderTemplate(
+  inv: CodetermInvocation,
+  result?: string,
+  resolve?: PaneNameResolver,
+): RenderedCard {
   const two = inv.path.slice(0, 2).join(" ");
   const one = inv.path[0];
   const fn = TEMPLATES[two] ?? TEMPLATES[one];
-  if (fn) return fn(inv, result);
+  if (fn) return fn(inv, result, resolve);
   return {
     icon: "⬡",
     title: inv.path.join(" "),

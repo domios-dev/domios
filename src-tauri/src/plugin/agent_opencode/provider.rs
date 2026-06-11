@@ -377,6 +377,7 @@ fn part_to_chat_msg(
                 tool_name: Some(tool.to_string()),
                 tool_input,
                 tool_result,
+                ..Default::default()
             })
         }
         _ => None,
