@@ -46,6 +46,7 @@ var TUI_FRAGMENTS = [
 
 var SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/i;
 var SESSION_BARE_RE = /(?:^|\n)\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*(?:$|\n)/m;
+var CLAUDE_SESSION_DELTA_TYPES = { system: true, user: true, assistant: true };
 
 function isBrailleSpinner(ch) {
   if (!ch) return false;
@@ -281,11 +282,25 @@ module.exports.default = {
   parseSessionMessages: function (text) {
     var out = [];
     var lines = String(text || "").split("\n");
+    var hadInvalid = false;
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       if (!line) continue;
       var v;
-      try { v = JSON.parse(line); } catch (e) { continue; }
+      try { v = JSON.parse(line); } catch (e) {
+        if (!hadInvalid) {
+          console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
+      if (!isValidClaudeSessionMessage(v)) {
+        if (!hadInvalid) {
+          console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
       var msgType = (v && v.type) || "";
       if (msgType !== "user" && msgType !== "assistant") continue;
       var isMeta = !!(v && v.isMeta);
@@ -323,11 +338,25 @@ module.exports.default = {
   parseSessionDelta: function (chunk) {
     var out = [];
     var lines = String(chunk || "").split("\n");
+    var hadInvalid = false;
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       if (!line) continue;
       var v;
-      try { v = JSON.parse(line); } catch (_) { continue; }
+      try { v = JSON.parse(line); } catch (_) {
+        if (!hadInvalid) {
+          console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
+      if (!validateEntry(v)) {
+        if (!hadInvalid) {
+          console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
       var t = v && v.type;
       var blocks = [];
       var role;
@@ -587,6 +616,35 @@ function contentToText(c) {
     if (b && typeof b.text === "string") chunks.push(b.text);
   }
   return chunks.join(" ");
+}
+
+function isValidClaudeSessionMessage(v) {
+  if (!v || typeof v !== "object") return false;
+  if (v.type !== "user" && v.type !== "assistant") return false;
+  if (!v.message || typeof v.message !== "object") return false;
+  var content = v.message.content;
+  if (typeof content !== "string" && !Array.isArray(content)) return false;
+  return true;
+}
+
+function validateEntry(v) {
+  return isValidClaudeSessionDelta(v);
+}
+
+function isValidClaudeSessionDelta(v) {
+  if (!v || typeof v !== "object") return false;
+  if (!CLAUDE_SESSION_DELTA_TYPES[v.type]) return false;
+  if (v.timestamp !== undefined && typeof v.timestamp !== "string") return false;
+  if (v.uuid !== undefined && typeof v.uuid !== "string") return false;
+  if (v.isMeta !== undefined && v.isMeta !== true && v.isMeta !== false) return false;
+  if (v.type === "system") {
+    var sc = v.content;
+    return typeof sc === "string" || Array.isArray(sc);
+  }
+  var msg = v.message;
+  if (!msg || typeof msg !== "object") return false;
+  if (typeof msg.content !== "string" && !Array.isArray(msg.content)) return false;
+  return true;
 }
 
 function extractSetModelFamily(raw) {
