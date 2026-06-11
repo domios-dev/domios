@@ -1,3 +1,5 @@
+> Historical snapshot (2026-03-18). Findings may since be fixed; do not action without re-verifying.
+
 # CodeTerm E2E Test Plan — RESULTS
 
 ## Testing Method
