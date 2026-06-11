@@ -49,5 +49,6 @@ Everything else gets deleted. If you catch yourself writing a comment and you ca
 - Core (`multiplexer`, `pty`, `mesh`, `config`) has no outward dependencies.
 - Every operation reachable from 3 transports (REST + Socket + Tauri) should live in `dispatch::Command` — not duplicated 3 times.
 - Plugin-ready = isolated module with explicit interface. See `docs/plans/plugin-architecture.md`.
+- Design artifacts (screenshots, video) go in PR descriptions, never the source tree; release binaries come from CI only.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

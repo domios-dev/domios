@@ -21,6 +21,11 @@ src-tauri/.fastembed_cache/
 src-tauri/bundled-embed-libs/
 .fastembed_cache/
 .superpowers/
+codeterm-cli-macos-*
+.tmp-*.png
+e2e_proof.txt
+chat.json
+sp.json
 
 # .claude — agent runtime; ignore everything except the allowlisted bits below.
 /.claude/*
