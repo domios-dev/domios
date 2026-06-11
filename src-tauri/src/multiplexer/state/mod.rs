@@ -36,6 +36,9 @@ pub struct WorkspaceInfo {
     pub cwd: Option<String>,
     pub protected: bool,
     pub pane_ids: Vec<String>,
+    /// Set to true when create_workspace deduped by cwd (no new ws was created).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub existing: Option<bool>,
 }
 
 /// Central multiplexer state: workspaces, tabs, panes, and their relationships.

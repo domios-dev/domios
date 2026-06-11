@@ -201,8 +201,11 @@ class CodeTermAPI:
 
     # -- Workspace / Pane CRUD shortcuts ------------------------------------
 
-    def create_workspace(self, name: str) -> dict:
-        return self.post("/api/workspaces", json={"name": name})
+    def create_workspace(self, name: str, cwd: str | None = None) -> dict:
+        body: dict = {"name": name}
+        if cwd is not None:
+            body["cwd"] = cwd
+        return self.post("/api/workspaces", json=body)
 
     def list_workspaces(self) -> list[dict]:
         return self.get("/api/workspaces")

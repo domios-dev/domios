@@ -403,7 +403,19 @@ fn main() {
                 if let Some(cwd) = cwd {
                     params["cwd"] = serde_json::json!(cwd);
                 }
-                client.call("workspace.create", Some(params))
+                match client.call("workspace.create", Some(params)) {
+                    Ok(val) if val.get("existing").and_then(|v| v.as_bool()) == Some(true) => {
+                        let ws_name = val.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                        let ws_id = val.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                        if cli.json {
+                            println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        } else {
+                            println!("workspace with this cwd already exists: {} ({})", ws_name, ws_id);
+                        }
+                        return;
+                    }
+                    result => result,
+                }
             }
             WorkspaceAction::Focus { id } => {
                 client.call("workspace.focus", Some(serde_json::json!({ "workspace_id": id })))
