@@ -223,7 +223,7 @@ test("@golden Scenario C: system channel update renders bundled plugins from dev
   }
 });
 
-test("@failure Scenario D: plugin failures are rendered in Settings DOM", async () => {
+test("@smoke @failure Scenario D: plugin failures are rendered in Settings DOM", async () => {
   const ui = await openPlugins();
   try {
     await ui.page.locator('[data-testid="plugin-channel-url-input"]').fill(`${fileUrl(CHANNEL_ROOT)}/missing#main:plugins`);
