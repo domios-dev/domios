@@ -88,21 +88,23 @@ Shutdown and app restart rely on normal session persistence. If the GA needs to 
 | Property | Current behavior |
 |---|---|
 | Workspace | General workspace, protected from close |
-| Pane alias | `general` |
+| Pane aliases | `general`, `main` |
 | CWD | `{general_dir}` |
 | Provider | Configured agent provider |
 | Permissions | Skip-permissions launch where the provider supports it |
 | Role | Orchestrator |
 
-`codeterm send "..." --pane general` resolves the alias to the protected pane.
+`codeterm send "..." --pane general` and `codeterm send "..." --pane main` resolve to the protected pane.
 
 ## Bridge And Mesh Routing
 
 The GA prompt has a prefix table for inbound channels. The prefix is the return address:
 
-- `[Telegram: USER_ID ...]` replies via `codeterm bridge send --to USER_ID --service telegram`.
-- `[Mesh: PEER pane=ID ...]` replies via `codeterm send --pane ID --mesh PEER`.
-- `[Report from PANE_ID]` is a child report; act on it or forward the summary to the original user channel.
+- `-=-codeterm:telegram user=USER_ID ...-=-text` replies via `codeterm bridge send --to USER_ID --service telegram`.
+- `-=-codeterm:pane label=NAME pane=ID ...-=-text` replies via `codeterm send --pane ID`.
+- `-=-codeterm:mesh peer=PEER pane=ID-=-text` replies via `codeterm send --pane ID --mesh PEER`.
+- `-=-codeterm:report from=NAME pane=ID ...-=-text` is a child report; act on it or forward the summary to the original user channel.
+- `-=-codeterm:hook ...-=-metadata` is already routed by a text hook; trust the metadata and follow the inbound language.
 
 Telegram and other bridge details live in the operational playbooks:
 
@@ -125,4 +127,4 @@ Skills are file-backed under the configured CodeTerm skills directory and synced
 - Claude rule install: `src-tauri/src/plugin/agent_claude/provider/integration.rs`
 - Secrets implementation: `src-tauri/src/secrets/`
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
