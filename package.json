@@ -8,8 +8,13 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "test:unit": "bash scripts/ts-unit-tests.sh",
     "test:plugins": "bash scripts/plugin-tests.sh",
-    "test:pw": "playwright test -c tests/playwright"
+    "test:pw": "playwright test -c tests/playwright",
+    "test:pw:smoke": "playwright test -c tests/playwright --project=smoke",
+    "test:pw:golden": "playwright test -c tests/playwright --project=golden",
+    "test:pw:full": "playwright test -c tests/playwright --project=full",
+    "test:pw:lint": "node tests/playwright/helpers/check-tags.mjs"
   },
   "keywords": [],
   "author": "",
