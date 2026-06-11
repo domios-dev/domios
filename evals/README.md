@@ -27,6 +27,21 @@ portable across mac, linux, and Windows-bash.
 Reviewer expectation for behavioral changes: include the updated baseline file in the same change that alters
 mem-recall behavior, and keep both diff and intent explicit in the PR.
 
+### session-restore baseline protocol
+
+`evals/session-restore/` keeps a committed `baseline.json` for the six `WS-*`
+restore scenarios. Dynamic pane ids and agent session ids are excluded.
+
+- Normal update: `bash evals/session-restore/run.sh` → inspect
+  `target-check/evals/session-restore-latest-summary.json` and update
+  `evals/session-restore/baseline.json` only when the restore scenario shape
+  intentionally changes.
+- Regression check: `bash evals/session-restore/run.sh --check` runs the full
+  dev kill/restart drill and compares the latest summary against the baseline.
+- Tolerance policy in `evals/session-restore/run.sh --help`: `WS-*` scenario
+  metadata is exact; the protected `General` workspace tab/pane counts may vary
+  by ±1 around restart.
+
 ## Live dashboard
 
 For long `prompt-evaluator` runs (anything with `--thorough` or A/B
