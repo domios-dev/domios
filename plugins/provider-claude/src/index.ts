@@ -11,16 +11,10 @@ import type {
   ProviderPlugin,
   DetectionSample,
 } from "../../../src/lib/plugins/types";
-import { makeLineParser } from "../../../src/lib/plugins/messageEvents";
 
 import { detect, titlePattern, noisePatterns } from "./detect";
-import { parseJsonlSession } from "./parser";
 import { Renderer } from "./renderer";
 import { statusOf } from "./status";
-
-// Plugin contract streams one JSONL line at a time; full-session parsing stays
-// in the plugin, the ChatMessage -> ProviderEvent mapping is shared.
-const parseLine = makeLineParser(parseJsonlSession);
 
 const plugin: ProviderPlugin = {
   meta: {
@@ -28,8 +22,6 @@ const plugin: ProviderPlugin = {
     displayName: "Claude Code",
   },
   detect: (sample: DetectionSample) => detect(sample),
-  parseLine,
-  parseSession: parseJsonlSession,
   statusOf,
   Renderer,
   actions: [
@@ -55,6 +47,3 @@ const plugin: ProviderPlugin = {
 };
 
 export default plugin;
-
-// Re-exports for legacy consumers (src/components/ChatView/parser.ts shim).
-export * from "./parser";

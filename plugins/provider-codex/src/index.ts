@@ -16,13 +16,9 @@ import type {
   ProviderPlugin,
   RendererProps,
 } from "../../../src/lib/plugins/types";
-import { makeLineParser } from "../../../src/lib/plugins/messageEvents";
-import { parseJsonlSession } from "./parser";
 
 const titlePattern = /codex/i;
 const noisePatterns: RegExp[] = [/^[\s─━═]+$/];
-
-const parseLine = makeLineParser(parseJsonlSession);
 
 function Renderer({ raw }: RendererProps) {
   return raw();
@@ -39,8 +35,6 @@ const plugin: ProviderPlugin = {
     if (sample.bytes.includes("codex/")) return true;
     return false;
   },
-  parseLine,
-  parseSession: parseJsonlSession,
   statusOf: () => null,
   Renderer,
   actions: [],
@@ -49,4 +43,3 @@ const plugin: ProviderPlugin = {
 };
 
 export default plugin;
-export * from "./parser";
