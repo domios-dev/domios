@@ -14,11 +14,11 @@ codeterm send-text "TASK CLI-AUDIT ACCEPTED, starting" --pane 5c64a651
 ## Evidence (run these FIRST; if output differs, report BLOCKED "evidence stale")
 ```
 git log --oneline -1            # expected: c08c2e55 or a descendant on stabilization
-git grep -c "" -- cli-manifest.json   # expected: file exists (nonzero line count)
+git ls-files docs/cli-manifest.json   # expected: prints the path
 ```
 
 ## Steps (in order, no skipping, no additions)
-1. Inventory: walk `cli/src/args/` + `cli/src/cmd/` + `cli/src/mesh_cli/api_map.rs` + `cli-manifest.json`. Build one table: command path, flags, REST/socket endpoint it maps to, documented in docs/API.md or docs/CLI.md (yes/no, line ref), covered by any test (yes/no, file ref).
+1. Inventory: walk `cli/src/args/` + `cli/src/cmd/` + `cli/src/mesh_cli/api_map.rs` + `docs/cli-manifest.json`. Build one table: command path, flags, REST/socket endpoint it maps to, documented in docs/API.md or docs/CLI.md (yes/no, line ref), covered by any test (yes/no, file ref).
 2. Duplication hunt: commands or flags that do the same thing under different names (aliases like `--pane`/`--id`, overlapping verbs, two commands hitting the same endpoint with cosmetic differences); CLI logic that re-implements something the daemon already exposes; api_map entries duplicating cmd implementations.
 3. Dead surface: commands referencing removed features (lead role remnants, legacy endpoints), commands whose endpoint no longer exists, flags that are parsed but never used (grep the handler bodies).
 4. Consistency: flag naming (`--pane` vs `--id` vs positional), `--json` availability, `--mesh` availability — list commands that deviate from the dominant convention.
