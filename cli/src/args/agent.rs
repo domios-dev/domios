@@ -19,20 +19,16 @@ impl SpawnRole {
 
 #[derive(Subcommand)]
 pub enum AgentAction {
-    /// Mark a pane as orchestrator (top-level, can spawn leads/workers)
-    #[command(alias = "set-conductor")]
+    /// Mark a pane as orchestrator (top-level, can spawn workers)
     SetOrchestrator {
         /// Pane ID (default: current focused pane)
         #[arg(long)]
         pane: Option<String>,
     },
 
-    /// List agent panes and the hierarchy (same view as `pane list --agents`)
-    #[command(alias = "hierarchy")]
-    List,
     /// Link a pane as worker under a parent
     Link {
-        /// Parent pane ID (orchestrator or lead)
+        /// Parent pane ID (orchestrator)
         #[arg(long)]
         parent: String,
         /// Pane ID to link (default: current focused pane)
@@ -144,4 +140,23 @@ pub enum AgentAction {
         #[arg(long)]
         model: Option<String>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Cli;
+    use clap::CommandFactory;
+
+    #[test]
+    fn set_orchestrator_help_mentions_workers_not_leads() {
+        let help = Cli::command()
+            .find_subcommand_mut("agent")
+            .unwrap()
+            .find_subcommand_mut("set-orchestrator")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        assert!(help.contains("workers"), "{help}");
+        assert!(!help.to_ascii_lowercase().contains("lead"), "{help}");
+    }
 }

@@ -66,7 +66,7 @@ Sub-panes don't spawn further sub-panes — keep the tree one level deep. For mu
 
 ```bash
 codeterm pane list                                 # workspace tree of panes; your sub-panes nest under you (--agents = agent panes only)
-codeterm agent list                                # agent panes + hierarchy (alias: `agent hierarchy`; same as `pane list --agents`)
+codeterm pane list --agents                        # agent panes + hierarchy
 codeterm agent providers                           # registered providers (claude, codex, …) + default models + capabilities
 codeterm agent models <provider>                   # models a provider accepts (e.g. agent models claude)
                                                    # providers/models/version come from these commands — never grep src/ or read source for them
@@ -167,12 +167,12 @@ Hot-reload (≤15s, no daemon restart). Use when user wants to disappear from th
 ```bash
 ID=$(cat task.md | codeterm paste put --mesh ROG --pop --from-stdin)   # paste:a3f9k2
 codeterm agent spawn claude --mesh ROG --workspace WS \
-  --task "task is in $ID. Run: codeterm paste pop $ID"
+  --task "task is in $ID. Run: codeterm paste get $ID --pop"
 ```
 
 In-memory only, 20 entries max, TTL 1h default / 24h max, restart wipes. Not `mem save` — that pollutes the vector index.
 
-`paste get|pop|list|rm` — `--pop` reads + deletes. `--mesh PEER` works on every subcommand.
+`paste get --pop|list|rm` — `--pop` reads + deletes. `--mesh PEER` works on every subcommand.
 
 ## Web access link — `web link`
 
@@ -254,10 +254,10 @@ codeterm notifications clear
 ## Updates
 
 ```bash
-codeterm update --check                            # poll manifest
-codeterm update --apply                            # download → verify ed25519 sig → install → restart
-codeterm update --channel rc                       # switch channel (stable | rc | nightly)
-codeterm update --apply --after-update "<text>"    # inject message into General pane after restart
+codeterm update check                              # poll manifest
+codeterm update install --auto                     # download → verify ed25519 sig → install → restart
+codeterm update channel rc                         # switch channel (stable | rc | nightly)
+codeterm update install --auto --after-update "<text>"    # inject message into General pane after restart
 ```
 
 `--after-update TEXT` queues a message that the new daemon delivers to the General pane once it boots and the pane has a live PTY. Useful for remote-triggered updates over mesh ("update yourself then verify build hash"). Persisted to `~/.codeterm/post-update-message.txt`; deleted after delivery. If the GA pane doesn't come up within 60s the file stays for the next boot. No automated rollback — if the new build is bad, install the old version manually from GitHub releases.

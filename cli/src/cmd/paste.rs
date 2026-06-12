@@ -80,7 +80,6 @@ pub fn handle_paste(json: bool, action: PasteAction) {
             }
         }
         PasteAction::Get { id, pop } => fetch_paste(&http, &base, &id, pop, json),
-        PasteAction::Pop { id } => fetch_paste(&http, &base, &id, true, json),
         PasteAction::List => match http.get(format!("{}/api/pasteboard", base)).send() {
             Ok(resp) => {
                 let val: serde_json::Value = resp.json().unwrap_or_default();

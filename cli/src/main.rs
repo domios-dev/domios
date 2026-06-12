@@ -353,7 +353,7 @@ fn main() {
     }
 
     // `mem run-worker` opens knowledge.db directly via --db-path and never talks to the daemon socket — short-circuit before discover_socket so a
-    // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update --apply restarts the binary) doesn't make the worker exit 1 before it can do any work.
+    // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update install --auto restarts the binary) doesn't make the worker exit 1 before it can do any work.
     if let Commands::Mem {
         action: MemAction::RunWorker {
             ref kind,
@@ -751,21 +751,10 @@ fn main() {
 
         Commands::Update {
             action,
-            check,
-            apply,
-            channel,
             manifest_url,
             after_update,
         } => {
-            cmd::update::handle_update(
-                cli.json,
-                action,
-                check,
-                apply,
-                channel,
-                manifest_url,
-                after_update,
-            );
+            cmd::update::handle_update(cli.json, action, manifest_url, after_update);
             return;
         }
 
