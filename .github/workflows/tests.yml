@@ -119,6 +119,9 @@ jobs:
       - name: Prepare embed sidecar stub
         run: node scripts/prepare-embed-stub.js
 
+      - name: Prepare bundled CLI stub
+        run: node scripts/prepare-cli-stub.js
+
       - name: Check Rust formatting
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
@@ -191,6 +194,9 @@ jobs:
 
       - name: Prepare embed sidecar stub
         run: node scripts/prepare-embed-stub.js
+
+      - name: Prepare bundled CLI stub
+        run: node scripts/prepare-cli-stub.js
 
       - name: Run Rust unit tests
         working-directory: src-tauri
