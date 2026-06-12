@@ -21,6 +21,7 @@ Claude lanes stay parked.
 |---|---|---|---|
 | TQ-01 | `src-tauri/src/tasks/` module: Task/TaskReport types, state enum, transition fn table (pure: `(state, event) -> Result<state>`), watchdog deadline calculus on injected clock | codex | M |
 | TQ-02 | TDD-first transition tests: every legal edge, every illegal edge rejected, nudge counting, deadline arithmetic across clock advances — written BEFORE TQ-01 lands (same lane, fail-first) | codex | M |
+| TQ-04 | Brief snapshotting, per-lane FIFO queue, transition audit log, archive retention — in the core model from day one (cheap now, migration later) | codex | M |
 | TQ-03 | Persistence: schema + store (same SQLite home as sessions; reuse `session/store.rs` patterns), non-terminal tasks re-arm watchdogs on boot — test with store round-trip + simulated restart | codex | M |
 
 ## Wave 1 — daemon surfaces + delivery
@@ -38,6 +39,7 @@ Claude lanes stay parked.
 |---|---|---|---|
 | TQ-20 | Digest engine: event-driven + quiet-timer; `-=-codeterm:task-digest` marker into requester pane; unread-report flags; suppress when zero open tasks (test the negative!) | codex | M |
 | TQ-21 | Re-anchors: orchestrator + worker session-restart hooks (SessionStart path), `$CODETERM_TASK_ID` env on assignee panes; e2e via session-restore harness | codex | M |
+| TQ-23 | Telegram escalation mirror for Dead/Blocked/stalled events (bridge send path; config-gated) | codex | S |
 | TQ-22 | G4 bridge: blocker classification on a pane holding a Working task → task Blocked with reason (unit on classifier output mapping; no new detection) | codex | S |
 
 ## Wave 3 — ChatUI + board
@@ -46,6 +48,7 @@ Claude lanes stay parked.
 |---|---|---|---|
 | TQ-30 | Marker kinds in `message_markers.rs` + chat-ui `recognize` (the cross-pane marker pattern + its tests as template); raw markers hidden | codex | M |
 | TQ-31 | Cards: TaskCard / ReportCard / BoardCard / nudge row in packages/chat-ui (CodetermCard family); component tests per card on the happy-dom harness, copy-button interactions asserted | codex | M |
+| TQ-33 | Board create-task form + reassign action; mobile chip-list collapse; web read-only mode | codex | M |
 | TQ-32 | Tasks board tab (Sidebar, MeshPanel as the structural template): board table, unread badges, pane chips; component-level tests for board rendering from fixture states | codex | M |
 
 ## Wave 4 — system proof + docs
@@ -74,8 +77,8 @@ TQ-50 auto-routing (usage-probe quotas + busyness + cooldowns); TQ-51 board acti
 
 ## Estimate shape
 
-13 dispatchable tasks; waves 0–1 are the daemon spine (likely the long pole),
+16 dispatchable tasks; waves 0–1 are the daemon spine (likely the long pole),
 waves 2–4 parallelize across lanes. With the current pipeline cadence this is
 single-digit days of arbiter sessions, not weeks.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
