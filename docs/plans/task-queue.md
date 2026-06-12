@@ -193,6 +193,12 @@ The approach is taught lazily, three layers from cheapest to deepest:
 Workers need none of this: the envelope is their entire education (self-teaching
 messages above).
 
+**Single canonical home — no parallel doc.** The methodology lives in the
+EXISTING delegation manual `docs/contributing/agents.md` (it gains a task-queue
+section); `codeterm task guide` renders the crib-sheet subset of it and points
+there; the mem skill is registered FROM that section (the .codeterm/skills
+pattern). One source, three projections — drift-proof by construction.
+
 ## Self-teaching messages — every queue message re-teaches the codeterm way
 
 Drift risk (live-observed class): agents have INTERNAL work-tracking tools
@@ -323,4 +329,4 @@ here: merge-conflict UX beyond "report conflict, leave worktree for a human".
 4. Later: mesh-distributed boards, cron deep-integration, G4-blocker auto-unblock
    hooks.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
