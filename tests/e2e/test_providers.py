@@ -181,22 +181,7 @@ def test_provider_spawn_detection_model_and_tui(
                 pass
 
 
-def test_plain_shell_pane_has_no_agent_detection(api: CodeTermAPI):
-    ws_id = None
-    try:
-        ws = api.create_workspace(unique_name("e2e-ws-provider-negative"))
-        ws_id = ws["id"]
-        tab = api.create_tab(ws_id, eager=True)
-        pane_id = tab["pane_id"]
-        assert api.wait_for_pty(pane_id, timeout=15)
-
-        pane = _wait_for_pane(api, pane_id)
-        assert pane.get("agent_type") in (None, "")
-        assert pane.get("agent_session_model") in (None, "")
-    finally:
-        if ws_id:
-            try:
-                if len(api.list_workspaces()) > 1:
-                    api.close_workspace(ws_id)
-            except Exception:
-                pass
+def test_plain_shell_pane_has_no_agent_detection(api_only: CodeTermAPI, api_pane: str):
+    pane = _wait_for_pane(api_only, api_pane)
+    assert pane.get("agent_type") in (None, "")
+    assert pane.get("agent_session_model") in (None, "")

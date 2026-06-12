@@ -33,30 +33,30 @@ def _pane(api: CodeTermAPI, pane_id: str) -> dict:
     return pane
 
 
-def test_chat_ui_default_on_sets_cli_spawned_agent_chat_view(api: CodeTermAPI):
-    ws = api.create_workspace(unique_name("e2e-ws-chat-default-on"))
+def test_chat_ui_default_on_sets_cli_spawned_agent_chat_view(api_only: CodeTermAPI):
+    ws = api_only.create_workspace(unique_name("e2e-ws-chat-default-on"))
     pane_id = None
     try:
-        _set_chat_default(api, True)
-        pane_id = _spawn_agent(api, ws["id"])
-        assert _pane(api, pane_id).get("chat_view") is True
+        _set_chat_default(api_only, True)
+        pane_id = _spawn_agent(api_only, ws["id"])
+        assert _pane(api_only, pane_id).get("chat_view") is True
     finally:
-        _set_chat_default(api, False)
+        _set_chat_default(api_only, False)
         if pane_id:
-            api.close_pane(pane_id)
-        if len(api.list_workspaces()) > 1:
-            api.close_workspace(ws["id"])
+            api_only.close_pane(pane_id)
+        if len(api_only.list_workspaces()) > 1:
+            api_only.close_workspace(ws["id"])
 
 
-def test_chat_ui_default_off_keeps_cli_spawned_agent_terminal(api: CodeTermAPI):
-    ws = api.create_workspace(unique_name("e2e-ws-chat-default-off"))
+def test_chat_ui_default_off_keeps_cli_spawned_agent_terminal(api_only: CodeTermAPI):
+    ws = api_only.create_workspace(unique_name("e2e-ws-chat-default-off"))
     pane_id = None
     try:
-        _set_chat_default(api, False)
-        pane_id = _spawn_agent(api, ws["id"])
-        assert _pane(api, pane_id).get("chat_view") is False
+        _set_chat_default(api_only, False)
+        pane_id = _spawn_agent(api_only, ws["id"])
+        assert _pane(api_only, pane_id).get("chat_view") is False
     finally:
         if pane_id:
-            api.close_pane(pane_id)
-        if len(api.list_workspaces()) > 1:
-            api.close_workspace(ws["id"])
+            api_only.close_pane(pane_id)
+        if len(api_only.list_workspaces()) > 1:
+            api_only.close_workspace(ws["id"])

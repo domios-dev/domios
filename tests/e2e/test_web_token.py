@@ -13,12 +13,12 @@ def _web_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_web_token_bootstrap_cookie_and_debug_clock_ttl_contract(api):
-    minted = api.get("/api/mesh/web-token")
+def test_web_token_bootstrap_cookie_and_debug_clock_ttl_contract(api_only):
+    minted = api_only.get("/api/mesh/web-token")
     token = minted.get("token")
     assert token, f"minted response missing token: {minted}"
 
-    bootstrap_url = f"{api.base}/web/manifest-bootstrap"
+    bootstrap_url = f"{api_only.base}/web/manifest-bootstrap"
     first = requests.post(bootstrap_url, headers=_web_headers(token), timeout=10)
     assert first.status_code == 200, first.text
 
@@ -27,13 +27,13 @@ def test_web_token_bootstrap_cookie_and_debug_clock_ttl_contract(api):
     assert max_age, f"Set-Cookie missing Max-Age: {set_cookie}"
     assert int(max_age.group(1)) == WEB_TOKEN_TTL_SECONDS
 
-    clock = api.get("/api/debug/clock")
+    clock = api_only.get("/api/debug/clock")
     if not clock.get("mocked"):
         pytest.xfail(
             "FINDING: debug clock is unavailable in this daemon, so web-token TTL cannot be time-traveled"
         )
 
-    api.post(
+    api_only.post(
         "/api/debug/clock/advance",
         json={"ms": (WEB_TOKEN_TTL_SECONDS + 5) * 1000},
     )
