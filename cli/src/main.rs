@@ -1,3 +1,5 @@
+use std::io::Write;
+
 mod client;
 mod cmd;
 mod mesh_cli;
@@ -43,6 +45,37 @@ fn strip_ansi(s: &str) -> String {
     }
     out
 }
+
+fn workspace_reuse_notice(value: &serde_json::Value, requested_name: &str) -> Option<String> {
+    if value.get("existing").and_then(|v| v.as_bool()) != Some(true) {
+        return None;
+    }
+    let ws_name = value.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+    let ws_id = value.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+    Some(format!(
+        "reused existing workspace {} '{}' (same cwd); requested name '{}' ignored",
+        ws_id, ws_name, requested_name
+    ))
+}
+
+fn write_workspace_create_reuse_output<W: Write, E: Write>(
+    value: &serde_json::Value,
+    requested_name: &str,
+    json: bool,
+    stdout: &mut W,
+    stderr: &mut E,
+) -> std::io::Result<bool> {
+    let Some(notice) = workspace_reuse_notice(value, requested_name) else {
+        return Ok(false);
+    };
+    if json {
+        writeln!(stdout, "{}", serde_json::to_string_pretty(value).unwrap())?;
+    } else {
+        writeln!(stderr, "{}", notice)?;
+    }
+    Ok(true)
+}
+
 pub use mesh_cli::{MeshAction, MeshPeerAction};
 
 /// Determine the CodeTerm data directory.
@@ -467,22 +500,20 @@ fn main() {
                 }
             }
             WorkspaceAction::Create { name, cwd } => {
+                let requested_name = name.clone();
                 let mut params = serde_json::json!({ "name": name });
                 if let Some(cwd) = cwd {
                     params["cwd"] = serde_json::json!(cwd);
                 }
                 match client.call("workspace.create", Some(params)) {
-                    Ok(val) if val.get("existing").and_then(|v| v.as_bool()) == Some(true) => {
-                        let ws_name = val.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-                        let ws_id = val.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                        if cli.json {
-                            println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                        } else {
-                            println!(
-                                "workspace with this cwd already exists: {} ({})",
-                                ws_name, ws_id
-                            );
-                        }
+                    Ok(val) if workspace_reuse_notice(&val, &requested_name).is_some() => {
+                        let _ = write_workspace_create_reuse_output(
+                            &val,
+                            &requested_name,
+                            cli.json,
+                            &mut std::io::stdout(),
+                            &mut std::io::stderr(),
+                        );
                         return;
                     }
                     result => result,
@@ -554,16 +585,9 @@ fn main() {
             pane,
             text,
             from_file,
-            from_stdin,
+            stdin,
         } => {
-            cmd::send_text::handle_send_text(
-                &mut client,
-                cli.json,
-                pane,
-                text,
-                from_file,
-                from_stdin,
-            );
+            cmd::send_text::handle_send_text(&mut client, cli.json, pane, text, from_file, stdin);
             return;
         }
 
@@ -841,14 +865,18 @@ fn main() {
 }
 
 #[cfg(test)]
+fn test_env_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+#[cfg(test)]
 mod subcommand_contract_tests {
     use super::*;
     use clap::CommandFactory;
-    use std::sync::{Mutex, OnceLock};
 
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+    fn env_lock() -> &'static std::sync::Mutex<()> {
+        crate::test_env_lock()
     }
 
     fn restore_env(key: &str, value: Option<String>) {
@@ -1026,5 +1054,107 @@ mod subcommand_contract_tests {
     fn top_level_docs_parse() {
         let parsed = Cli::try_parse_from(["codeterm", "docs"]).expect("docs parses");
         assert!(matches!(parsed.command, Commands::Docs { .. }));
+    }
+
+    #[test]
+    fn send_stdin_without_positional_parses() {
+        let parsed = Cli::try_parse_from(["codeterm", "send", "--stdin", "--pane", "abc123"])
+            .expect("send --stdin parses");
+        assert!(matches!(
+            parsed.command,
+            Commands::SendText {
+                text: None,
+                stdin: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn send_stdin_conflicts_with_positional_text() {
+        match Cli::try_parse_from(["codeterm", "send", "--stdin", "hello"]) {
+            Ok(_) => panic!("--stdin and positional text must conflict"),
+            Err(err) => assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict),
+        }
+    }
+
+    #[test]
+    fn workspace_reuse_notice_mentions_actual_and_requested_names() {
+        let value = serde_json::json!({
+            "id": "abcd1234",
+            "name": "Real Workspace",
+            "existing": true
+        });
+        assert_eq!(
+            workspace_reuse_notice(&value, "Requested Workspace").as_deref(),
+            Some("reused existing workspace abcd1234 'Real Workspace' (same cwd); requested name 'Requested Workspace' ignored")
+        );
+    }
+
+    #[test]
+    fn workspace_reuse_notice_absent_for_new_or_unmarked_workspace() {
+        let created = serde_json::json!({
+            "id": "abcd1234",
+            "name": "Requested Workspace",
+            "existing": false
+        });
+        let unmarked = serde_json::json!({
+            "id": "abcd1234",
+            "name": "Requested Workspace"
+        });
+        assert!(workspace_reuse_notice(&created, "Requested Workspace").is_none());
+        assert!(workspace_reuse_notice(&unmarked, "Requested Workspace").is_none());
+    }
+
+    #[test]
+    fn workspace_reuse_human_output_goes_to_stderr_only() {
+        let value = serde_json::json!({
+            "id": "abcd1234",
+            "name": "Real Workspace",
+            "existing": true
+        });
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        assert!(write_workspace_create_reuse_output(
+            &value,
+            "Requested Workspace",
+            false,
+            &mut stdout,
+            &mut stderr
+        )
+        .unwrap());
+
+        assert!(stdout.is_empty());
+        assert_eq!(
+            String::from_utf8(stderr).unwrap(),
+            "reused existing workspace abcd1234 'Real Workspace' (same cwd); requested name 'Requested Workspace' ignored\n"
+        );
+    }
+
+    #[test]
+    fn workspace_reuse_json_output_stays_on_stdout_only() {
+        let value = serde_json::json!({
+            "existing": true,
+            "id": "abcd1234",
+            "name": "Real Workspace"
+        });
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        assert!(write_workspace_create_reuse_output(
+            &value,
+            "Requested Workspace",
+            true,
+            &mut stdout,
+            &mut stderr
+        )
+        .unwrap());
+
+        assert!(stderr.is_empty());
+        assert_eq!(
+            String::from_utf8(stdout).unwrap(),
+            format!("{}\n", serde_json::to_string_pretty(&value).unwrap())
+        );
     }
 }
