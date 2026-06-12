@@ -567,7 +567,8 @@ fn canonicalize_relation_types_renames_and_drops_duplicates() {
                    ('a','references','c','global','2026-01-01',NULL,1.0,'{}','2026-01-01');"
     ).unwrap();
 
-    let n = crate::graph::canonicalize_relation_types(&conn, &[("references", "mentions")]).unwrap();
+    let n =
+        crate::graph::canonicalize_relation_types(&conn, &[("references", "mentions")]).unwrap();
     assert!(n >= 2, "must report renames + drops, got {}", n);
 
     let still_references: i64 = conn
