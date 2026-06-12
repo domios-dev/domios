@@ -1,18 +1,17 @@
-"""Regression coverage for the verified PTY-injection contract.
+"""Regression coverage for the public PTY send contract.
 
-Pins the contract that emerged from the v1.1.18-v1.1.20 hot-fix marathon:
-  1. ``ok=true`` ALWAYS — Enter is unconditionally fired, even when the
-     screen verifier times out.
-  2. The Enter byte actually lands in the PTY — the recipient sees a fresh
-     prompt after the marker (proves submit, not just buffered echo).
-  3. The ``verified`` field is observed evidence (echo AND submit) — never
-     a hardcoded ``true``. Mirrors socket/server/pane.rs:83 and the parallel
-     HTTP path fixed in v1.1.21.
+The public HTTP/socket send surface is intentionally fire-and-forget: callers
+get only ``{"ok": true}``. The internal verified injector may still observe
+echo/submit for agent delivery, but those fields are not response contract.
 
-The four size cases pin behaviour at the boundaries the verifier handled
-incorrectly during the marathon: short payloads (clean verify), medium
-~700-char (single-line scroll edge), 5K single-line (paste-placeholder
-case), 5K multi-line (long heredoc-style scroll-out).
+What a caller can assert now:
+  1. the response contains only ``ok=true``;
+  2. execution is observable through pane output after sending with Enter;
+  3. ``enter=False`` does not execute until a later Enter is sent.
+
+The size cases keep the old boundary payload lengths, but prove execution with
+split markers so the assertion cannot be satisfied by terminal echo of the
+typed command itself.
 """
 from __future__ import annotations
 
@@ -22,7 +21,7 @@ import uuid
 
 import pytest
 
-from helpers import CodeTermAPI, strip_ansi
+from helpers import CodeTermAPI, shell_cmd
 
 
 def _alpha(n: int) -> str:
@@ -47,19 +46,32 @@ MEDIUM_LEN = 700
 LONG_LEN = 5000
 
 
+def _split_marker(prefix: str) -> tuple[str, str, str]:
+    marker = prefix + _alpha(12)
+    split = len(marker) // 2
+    return marker, marker[:split], marker[split:]
+
+
+def _assign_and_echo_marker(payload: str, marker_prefix: str) -> tuple[str, str]:
+    marker, left, right = _split_marker(marker_prefix)
+    unix = f"x='{payload}'; echo '{left}''{right}'"
+    win = f"$x = '{payload}'; Write-Output ('{left}' + '{right}')"
+    return shell_cmd(unix, win), marker
+
+
 def _short_text() -> tuple[str, str]:
-    marker = "shrtmrk_" + _alpha(SHORT_LEN - len("shrtmrk_") - len("echo "))
-    return f"echo {marker}", marker
+    marker, left, right = _split_marker("short_ok_")
+    return shell_cmd(f"echo '{left}''{right}'", f"Write-Output ('{left}' + '{right}')"), marker
 
 
 def _medium_text() -> tuple[str, str]:
     payload = _alpha(MEDIUM_LEN)
-    return f"echo {payload}", payload[:24]
+    return _assign_and_echo_marker(payload, "medium_ok_")
 
 
 def _long_single_line() -> tuple[str, str]:
     payload = _alpha(LONG_LEN)
-    return f"echo {payload}", payload[:24]
+    return _assign_and_echo_marker(payload, "single_ok_")
 
 
 def _long_multiline() -> tuple[str, str]:
@@ -67,7 +79,7 @@ def _long_multiline() -> tuple[str, str]:
     each — guaranteed to scroll out of any reasonable visible-screen window."""
     chunk = "MULTI_" + _alpha(60)
     body = "".join(f"{chunk}_{i:03d}\\n" for i in range(70))
-    return f"printf '{body}'", chunk
+    return _assign_and_echo_marker(body, "multi_ok_")
 
 
 CASES = [
@@ -84,25 +96,11 @@ def test_inject_verify_contract(api: CodeTermAPI, fresh_pane: str, label, builde
 
     resp = api.send_text(fresh_pane, text=text, enter=True)
 
-    # 1. ok=true ALWAYS — Enter unconditionally fires, regardless of verify.
-    assert resp.get("ok") is True, f"{label}: ok must always be true; got {resp}"
+    # 1. Public send is fire-and-forget: no verified/echo/submit response fields.
+    assert resp == {"ok": True}, f"{label}: public send response changed: {resp}"
 
-    # 2. verified field MUST reflect observed evidence, never a hardcoded true.
-    #    Contract (mirroring socket/server/pane.rs:83):
-    #      verified == echo_observed AND (!enter OR submit_observed)
-    #    With enter=True that simplifies to: verified == echo AND submit.
-    echo = bool(resp.get("echo_observed", False))
-    submit = bool(resp.get("submit_observed", False))
-    expected_verified = echo and submit
-    assert resp.get("verified") == expected_verified, (
-        f"{label}: verified is hardcoded — got {resp.get('verified')!r}, "
-        f"expected {expected_verified} (echo={echo}, submit={submit}, full={resp})"
-    )
-
-    # 3. The Enter byte actually landed in the PTY. For short payloads we can
-    #    assert the marker appears AND a prompt sigil follows it. Long payloads
-    #    may legitimately scroll out of the visible buffer, so we only require
-    #    that some output rendered after sending — proving the PTY consumed it.
+    # 2. The Enter byte actually landed in the PTY. The marker is split in the
+    #    typed command and exists only in real command output.
     deadline = time.monotonic() + 6.0
     output = ""
     while time.monotonic() < deadline:
@@ -112,43 +110,46 @@ def test_inject_verify_contract(api: CodeTermAPI, fresh_pane: str, label, builde
             break
         time.sleep(0.3)
 
-    if label == "short40":
-        assert marker in output, (
-            f"{label}: marker {marker!r} missing from output (Enter may not have fired); "
-            f"tail={output[-400:]!r}"
-        )
-        tail = output.rsplit(marker, 1)[-1]
-        assert any(s in tail for s in ("$", ">", "#", "%")), (
-            f"{label}: no fresh prompt after marker — Enter byte may not have submitted; "
-            f"tail={tail[-200:]!r}"
-        )
-
-    # 4. Re-pin the always-ok contract for visibility on long payloads where
-    #    the verify timeout is the legitimate path. v1.1.20 made this guarantee.
-    assert resp["ok"] is True, f"{label}: ok must remain true even on verify timeout"
+    assert marker in output, (
+        f"{label}: split marker {marker!r} missing from command output; "
+        f"tail={output[-400:]!r}"
+    )
+    tail = output.rsplit(marker, 1)[-1]
+    assert any(s in tail for s in ("$", ">", "#", "%")), (
+        f"{label}: no fresh prompt after marker — Enter byte may not have submitted; "
+        f"tail={tail[-200:]!r}"
+    )
 
 
-def test_short_payload_is_fully_verified(api: CodeTermAPI, fresh_pane: str) -> None:
-    """A clean short echo MUST be fully verified end-to-end. If this fails,
-    the verifier itself broke (regression beyond the long-payload edge case)."""
-    text = "echo verifyok_" + _alpha(10)
+def test_short_payload_execution_is_observable(api: CodeTermAPI, fresh_pane: str) -> None:
+    """A clean short send returns the public ok contract and is observable in output."""
+    marker, left, right = _split_marker("verifyok_")
+    text = shell_cmd(f"echo '{left}''{right}'", f"Write-Output ('{left}' + '{right}')")
     resp = api.send_text(fresh_pane, text=text, enter=True)
 
-    assert resp.get("ok") is True, resp
-    assert resp.get("echo_observed") is True, f"short payload echo must be observed: {resp}"
-    assert resp.get("submit_observed") is True, f"short payload submit must be observed: {resp}"
-    assert resp.get("verified") is True, f"short payload must be verified end-to-end: {resp}"
+    assert resp == {"ok": True}, resp
+    output = api.wait_for_output(fresh_pane, pattern=marker, timeout=6)
+    assert marker in output
 
 
 def test_send_without_enter_still_ok(api: CodeTermAPI, fresh_pane: str) -> None:
-    """When ``enter=False`` the verified contract is `echo_observed && (!enter || submit)`
-    which simplifies to just ``echo_observed``. Confirm the implementation honours that."""
-    text = "noenter_" + _alpha(8)
+    """``enter=False`` accepts the paste but does not execute until Enter arrives."""
+    marker, left, right = _split_marker("noenter_")
+    text = shell_cmd(f"echo '{left}''{right}'", f"Write-Output ('{left}' + '{right}')")
     resp = api.send_text(fresh_pane, text=text, enter=False)
-    assert resp.get("ok") is True, resp
-    echo = bool(resp.get("echo_observed", False))
-    expected_verified = echo  # !enter short-circuits the submit clause
-    assert resp.get("verified") == expected_verified, (
-        f"enter=false verified must equal echo_observed; got verified={resp.get('verified')!r} "
-        f"echo={echo} resp={resp}"
-    )
+    assert resp == {"ok": True}, resp
+
+    deadline = time.monotonic() + 2.0
+    output = ""
+    while time.monotonic() < deadline:
+        output = api.get_output(fresh_pane, strip_ansi_flag=True).get("output", "")
+        assert marker not in output, (
+            f"enter=false unexpectedly executed command; marker={marker!r} "
+            f"tail={output[-400:]!r}"
+        )
+        time.sleep(0.2)
+
+    submit_resp = api.send_text(fresh_pane, text="", enter=True)
+    assert submit_resp == {"ok": True}, submit_resp
+    output = api.wait_for_output(fresh_pane, pattern=marker, timeout=6)
+    assert marker in output
