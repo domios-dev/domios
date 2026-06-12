@@ -703,7 +703,13 @@ the lint; README and config agree.
 
 ---
 
-### D4 — Flake policy: retries, quarantine, and LLM-test budgets
+### D4 — MERGED INTO D3 + D5 (arbiter decision, 2026-06-11)
+D3's implementation absorbed the retries config (`golden` project, retries: 1) and
+`QUARANTINE.md`; the remaining scope (sweep specs for bare `setTimeout` sleeps,
+replace with the shared poll helper) requires D5's fixture layer and is folded into
+D5's migration step. Do not dispatch D4 separately.
+
+### ~~D4~~ — Flake policy: retries, quarantine, and LLM-test budgets (original text)
 **P1 · tests · Model: Sonnet · Effort: M**
 
 **Problem.** `playwright.config.ts:14` sets `retries: 0` while `@golden` tests make
@@ -801,6 +807,19 @@ present there (or build them in the job).
 
 **Acceptance.** CI run shows parity tests executed (not 0-assertions-passed); deleting
 the plugins dir locally produces a visible SKIPPED line.
+
+---
+
+### D11 — Migrate hand-rolled TS unit tests to vitest
+**P3 · TS/tests · Model: Codex tier · Effort: L · filed from D2's verify-first finding**
+
+All 14 `src/**`/`packages/**` *.test.ts files are hand-rolled tsx scripts with
+top-level `process.exit(1)` — incompatible with vitest as-is. D2 shipped a tsx
+runner (`scripts/ts-unit-tests.sh`) as the pragmatic `test:unit`; this task is the
+real migration: rewrite each file's assert harness into describe/it, swap the
+runner script for `vitest run`, keep test semantics identical (count assertions
+before/after per file). Sequence AFTER the E-wave stops editing `packages/chat-*`
+tests.
 
 ---
 
@@ -1186,6 +1205,48 @@ rubric is the Spark pane's runtime; map the rubric tier to a concrete codex mode
 when first dispatching to it (check with `codeterm agent list --json`).
 
 ---
+
+### G4 — GA startup auto-acknowledge (filed from live failure, 2026-06-11)
+**P1 · daemon · dispatched to Gpt5.5-new** — the dev GA Main pane sat dead on
+claude's interactive "config invalid: Exit/Reset" menu. GA bootstrap must detect
+known blocking provider menus (structural patterns) and auto-answer with the
+recoverable option + emit a warning notification. In flight.
+
+### LAZY-1 — Eager PTY spawn for headless/API pane creation (user-reported, verified)
+**P1 · daemon+tests · dispatched to Gpt5.5.** Panes created via API have no PTY
+until a UI mounts them (lazy-load optimization: inactive tabs unrendered;
+TerminalPane spawns PTY on mount). Headless tests of background panes are
+therefore fragile (compensated today by activation + long waits, e.g. the 15s
+`fresh_pane`). Fix: `eager: bool` on create surfaces (REST/socket/CLI), daemon-side
+spawn, mount-time attach guard, e2e helpers switch to eager, new non-active-pane
+e2e test. In flight.
+
+### T-RAT — E2E suite rationalization (user-reported: "куча пустых терминалов")
+**P1 · tests · QUEUED (blocked until E2E-auth + LAZY-1 land — all three edit
+conftest.py).** The pytest harness opens a fresh workspace+terminal per test even
+for API-shape tests that never touch the PTY; with lazy-PTY waits this is the
+dominant suite cost and litters the dev UI. Scope: (1) audit every tests/e2e test:
+classify needs-PTY / API-only; (2) API-only tests get a no-pane fixture (pure REST
+client); (3) needs-PTY tests share a module-scoped eager pane where isolation
+allows, fresh eager pane only where state is mutated; (4) measure: suite wall-time
+before/after (paste both); target — no terminal exists that no test types into;
+(5) VACUITY SWEEP (arbiter code-review finding): every output assertion that can
+match the typed command's terminal echo is vacuous — `test_exec_echo` even admits
+it ("at least the command echo"). Convention: split markers
+(`echo 'EAGER_''OK'`) so the asserted string exists only in real command output;
+sweep every wait_for_output/contains assertion in tests/e2e and fix. This
+convention also goes into the future docs/contributing/writing-tests.md.
+
+### R1 — Research: concurrent claude sessions corrupt `~/.claude.json`
+**P1 · research · NOT dispatched.** Evidence: live corruption during swarm
+operation — a fully valid JSON document followed by 865 bytes of a stale version's
+tail (non-atomic write without truncate) + 12 garbage bytes inside string values;
+claude itself had already quarantined a `.corrupt-*` copy earlier, so this is
+recurring. Salvaged by truncating to the first valid document. Root cause is in
+the claude CLI (upstream), but CodeTerm amplifies it by spawning many concurrent
+claude sessions. Mitigations to research: stagger spawns, watchdog that validates
+the file and auto-salvages (the raw_decode-truncate recipe works), or upstream
+issue. Until then: the salvage recipe is in the session log.
 
 ## Dispatch order (arbiter cheat-sheet)
 
