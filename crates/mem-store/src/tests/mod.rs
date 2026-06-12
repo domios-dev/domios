@@ -471,6 +471,56 @@ fn revive_broken_is_idempotent() {
 }
 
 #[test]
+fn revive_broken_reopens_one_row_from_closed_duplicate_cluster() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
+            VALUES ('agent_claude','agent','global','{}','2026-01-01','2026-01-01'),
+                   ('topic_codeterm_agent_system','topic','global','{}','2026-01-01','2026-01-01');
+         INSERT INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
+            VALUES ('agent_claude','applies_to','topic_codeterm_agent_system','global','2026-06-01','2026-06-08T05:00:00Z',1.0,'{}','2026-06-01'),
+                   ('agent_claude','applies_to','topic_codeterm_agent_system','global','2026-06-02','2026-06-09T05:00:00Z',1.0,'{}','2026-06-02'),
+                   ('agent_claude','applies_to','topic_codeterm_agent_system','global','2026-06-03','2026-06-10T05:00:00Z',1.0,'{}','2026-06-03');"
+    ).unwrap();
+
+    let report = crate::graph::revive_broken(
+        &conn,
+        crate::graph::ReviveBrokenOptions {
+            since: None,
+            dry_run: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(report.revived, 1);
+
+    let active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='agent_claude' AND relation_type='applies_to' AND to_id='topic_codeterm_agent_system' AND scope='global' AND valid_to IS NULL",
+        [],
+        |r| r.get(0),
+    ).unwrap();
+    assert_eq!(active, 1, "exactly one duplicate may be reopened");
+
+    let closed: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='agent_claude' AND relation_type='applies_to' AND to_id='topic_codeterm_agent_system' AND scope='global' AND valid_to IS NOT NULL",
+        [],
+        |r| r.get(0),
+    ).unwrap();
+    assert_eq!(closed, 2, "the remaining duplicate history stays closed");
+
+    let second = crate::graph::revive_broken(
+        &conn,
+        crate::graph::ReviveBrokenOptions {
+            since: None,
+            dry_run: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(second.revived, 0, "second run must be idempotent");
+}
+
+#[test]
 fn revive_broken_skips_closed_dup_when_active_twin_exists() {
     // Regression for #129/#116: reviving a closed relation that already has an
     // active twin for the same (from, rel, to, scope) would create a second
