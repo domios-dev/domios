@@ -24,11 +24,8 @@ fn default_service() -> String {
 }
 
 fn ensure_telegram(service: &str) -> Result<(), (StatusCode, &'static str)> {
-    if service == "telegram" {
-        Ok(())
-    } else {
-        Err((StatusCode::BAD_REQUEST, "service unsupported"))
-    }
+    crate::bridge::manager::ensure_supported_service(service)
+        .map_err(|msg| (StatusCode::BAD_REQUEST, msg))
 }
 
 pub async fn bridge_state(
