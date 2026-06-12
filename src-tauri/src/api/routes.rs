@@ -35,7 +35,8 @@ pub struct AppState {
     /// Short-lived web tokens for PWA/mirror auth. Maps token → creation instant;
     /// avoids exposing the permanent master API token outside the daemon.
     /// Tokens expire after WEB_TOKEN_TTL.
-    pub web_tokens: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>>,
+    pub web_tokens:
+        std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>>,
 }
 
 /// Lifetime of web tokens minted by mesh_web_token. After this period the token
@@ -476,10 +477,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/mem/dream/report", get(mem_routes::mem_dream_report))
         .route("/api/mem/graph/full", get(mem_routes::mem_graph_full))
-        .route(
-            "/api/mem/graph/labels",
-            get(mem_routes::mem_graph_labels),
-        )
+        .route("/api/mem/graph/labels", get(mem_routes::mem_graph_labels))
         .route("/api/mem/graph/edges", get(mem_routes::mem_graph_edges))
         .route(
             "/api/mem/graph/layout/rebuild",
@@ -609,10 +607,7 @@ pub fn create_router(state: AppState) -> Router {
             axum::http::HeaderValue::from_static("no-cache"),
         );
         router
-            .route(
-                "/web/manifest.webmanifest",
-                get(web_routes::web_manifest),
-            )
+            .route("/web/manifest.webmanifest", get(web_routes::web_manifest))
             .route(
                 "/web/manifest-bootstrap",
                 axum::routing::post(web_routes::web_manifest_bootstrap),

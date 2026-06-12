@@ -96,7 +96,9 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                 test_clock: test_clock.clone(),
                 events: states.event_broadcaster.clone(),
                 web_dist: resolve_web_dist(),
-                web_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                web_tokens: std::sync::Arc::new(std::sync::Mutex::new(
+                    std::collections::HashMap::new(),
+                )),
             };
             let router = api::routes::create_router(api_state);
             let host = api_config.host.clone();

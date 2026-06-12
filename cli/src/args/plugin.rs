@@ -19,14 +19,10 @@ pub enum PluginAction {
         channel: Option<String>,
     },
     /// Update one installed plugin, or all plugins when id is omitted.
-    Update {
-        id: Option<String>,
-    },
+    Update { id: Option<String> },
     /// Update bundled system provider plugins from the official plugin channel.
     #[command(alias = "system-update")]
-    UpdateSystem {
-        id: Option<String>,
-    },
+    UpdateSystem { id: Option<String> },
     /// Remove an installed plugin.
     Remove {
         id: String,
@@ -52,13 +48,9 @@ pub enum PluginChannelAction {
     /// List registered channels.
     List,
     /// Refresh one channel, or all channels when name is omitted.
-    Refresh {
-        name: Option<String>,
-    },
+    Refresh { name: Option<String> },
     /// Compare installed plugins against a channel without installing.
-    Diff {
-        name: Option<String>,
-    },
+    Diff { name: Option<String> },
     /// Remove a channel cache and registry entry.
     Remove {
         name: String,

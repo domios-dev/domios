@@ -58,8 +58,13 @@ fn cap_submit_timeout(
 ) -> crate::agent::provider::VerifySubmitStrategy {
     use crate::agent::provider::VerifySubmitStrategy as S;
     match strategy {
-        S::ShellPrompt { timeout } => S::ShellPrompt { timeout: timeout.min(max) },
-        S::TuiInputDrained { timeout, idle_after_drain } => S::TuiInputDrained {
+        S::ShellPrompt { timeout } => S::ShellPrompt {
+            timeout: timeout.min(max),
+        },
+        S::TuiInputDrained {
+            timeout,
+            idle_after_drain,
+        } => S::TuiInputDrained {
             timeout: timeout.min(max),
             idle_after_drain,
         },
@@ -168,7 +173,12 @@ impl ServiceContext {
     /// Poll the pty's screen until the provider's TUI fingerprint shows (or the
     /// universal agent-TUI glyph check), bounded by `timeout`. Best-effort: a
     /// timeout just proceeds — the verified injection still runs.
-    fn await_agent_tui_on_screen(&self, pty_id: &str, agent_id: &str, timeout: std::time::Duration) {
+    fn await_agent_tui_on_screen(
+        &self,
+        pty_id: &str,
+        agent_id: &str,
+        timeout: std::time::Duration,
+    ) {
         let deadline = std::time::Instant::now() + timeout;
         loop {
             let screen = self.screen_state.lock().get_screen_text(pty_id);
@@ -292,7 +302,11 @@ impl ServiceContext {
                 .build()
                 .expect("backend reader runtime");
             rt.block_on(async {
-                match crate::service::pty_lifecycle::start_backend_reader(&svc_reader, &pty_id, true) {
+                match crate::service::pty_lifecycle::start_backend_reader(
+                    &svc_reader,
+                    &pty_id,
+                    true,
+                ) {
                     Ok(handle) => {
                         let _ = handle.await;
                     }
@@ -520,9 +534,9 @@ impl ServiceContext {
             snapshot_screen_hash, wait_for_echo, wait_for_submit_shell,
             wait_for_submit_tui_drained, HelperErr, InjectionError, InjectionResult,
         };
-
         let started = std::time::Instant::now();
         let tail_rows: usize = 8;
+        super::inject_safety::refuse_if_unsafe_prompt(&self.screen_state, pty_id)?;
 
         if opts.require_prompt_first {
             let ready = poll_shell_prompt(&self.screen_state, pty_id, opts.prompt_timeout);

@@ -20,14 +20,16 @@ impl ServiceContext {
                 if activate {
                     let _ = self.mux.lock().set_active_workspace(&ws.id);
                 }
-                let _ = self.create_tab_with_activate(&ws.id, activate);
                 log::info!(
                     "[workspace] reused existing workspace '{}' ({}) for cwd={}",
                     ws.name,
                     ws.id,
                     cwd_str
                 );
-                return ws;
+                return WorkspaceInfo {
+                    existing: Some(true),
+                    ..ws
+                };
             }
         }
 

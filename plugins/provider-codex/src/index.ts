@@ -19,6 +19,29 @@ import type {
 
 const titlePattern = /codex/i;
 const noisePatterns: RegExp[] = [/^[\s─━═]+$/];
+const DETECTION_THRESHOLD = 2;
+const LITERAL_SIGNALS = [
+  "codex/",
+  "OpenAI Codex",
+  "permissions: YOLO mode",
+  "permissions: read-only",
+  "Would you like to run the following command",
+  "Would you like to make the following edits",
+  "approve network access",
+  "Would you like to grant these permissions",
+  "codex>",
+];
+
+function outputScore(text: string): number {
+  let score = 0;
+  if (/^\s*(?:›|>|▶)\s+\S+/m.test(text)) score += 2;
+  if (/^\s*(?:\[[^\]]+\]\s*)?codex[/>]/im.test(text)) score += 1;
+  if (/ctrl\+c to cancel/i.test(text)) score += 1;
+  for (const literal of LITERAL_SIGNALS) {
+    if (text.includes(literal)) score += 1;
+  }
+  return score;
+}
 
 function Renderer({ raw }: RendererProps) {
   return raw();
@@ -31,9 +54,7 @@ const plugin: ProviderPlugin = {
   },
   detect: (sample) => {
     if (sample.title && titlePattern.test(sample.title)) return true;
-    // Codex prints `codex/` in its prompt frame and has a distinct "▶ Provide your answer" affordance.
-    if (sample.bytes.includes("codex/")) return true;
-    return false;
+    return outputScore(sample.bytes) >= DETECTION_THRESHOLD;
   },
   statusOf: () => null,
   Renderer,

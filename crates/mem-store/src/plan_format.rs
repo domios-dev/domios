@@ -43,9 +43,7 @@ pub fn write(plan: &ClusterPlan) -> String {
         plan.generated_at
     ));
     if plan.clusters.is_empty() {
-        out.push_str(
-            "_No candidate clusters found. Lower the threshold to widen the search._\n",
-        );
+        out.push_str("_No candidate clusters found. Lower the threshold to widen the search._\n");
         return out;
     }
     for cluster in &plan.clusters {
@@ -76,10 +74,11 @@ pub fn write(plan: &ClusterPlan) -> String {
 /// fences are skipped with a warning written to ParseReport.warnings;
 /// whole-file errors (missing/unparseable header) abort with Err.
 pub fn read(md: &str) -> MemStoreResult<ParseReport> {
-    let generated_at = extract_generated_at(md)
-        .ok_or_else(|| MemStoreError::InvalidArgument(
+    let generated_at = extract_generated_at(md).ok_or_else(|| {
+        MemStoreError::InvalidArgument(
             "plan markdown missing '# Re-cluster proposal — generated <ISO>' header".into(),
-        ))?;
+        )
+    })?;
 
     let mut clusters = Vec::new();
     let mut warnings = Vec::new();
@@ -102,7 +101,10 @@ pub fn read(md: &str) -> MemStoreResult<ParseReport> {
     }
 
     Ok(ParseReport {
-        plan: ClusterPlan { generated_at, clusters },
+        plan: ClusterPlan {
+            generated_at,
+            clusters,
+        },
         warnings,
     })
 }
@@ -210,8 +212,7 @@ fn parse_cluster_yaml(body: &str) -> Result<Option<ClusterAction>, String> {
             in_sources = true;
             continue;
         }
-        let (key, value) = split_kv(line)
-            .ok_or_else(|| format!("malformed line: {:?}", line))?;
+        let (key, value) = split_kv(line).ok_or_else(|| format!("malformed line: {:?}", line))?;
         match key.as_str() {
             "action" => action = value,
             "topic_id" => topic_id = value,

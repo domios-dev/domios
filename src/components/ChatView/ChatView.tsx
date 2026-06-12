@@ -7,7 +7,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { extractFilePathsFromClipboard } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { MessageBubble } from "@codeterm/chat-ui";
-import type { ChatMessage } from "@codeterm/provider-claude/src/parser";
+import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { AlertTriangle, File } from "lucide-react";
 import { SendIcon, ChevronUpIcon } from "../Icons";
 
@@ -35,6 +35,8 @@ interface PromptPayload {
   question: string;
   options: { label: string; value: string }[];
 }
+
+type ChatMessage = NormalizedChatMessage;
 
 interface PaneSnapshot {
   id: string;

@@ -146,10 +146,7 @@ fn classify_ref(token: &str) -> Option<RefEntry> {
 }
 
 fn parse_refs(field: &str) -> Vec<RefEntry> {
-    field
-        .split(',')
-        .filter_map(classify_ref)
-        .collect()
+    field.split(',').filter_map(classify_ref).collect()
 }
 
 /// Parse the NUL-style `\x1f`-delimited, `\x1e`-terminated log stream.
@@ -178,10 +175,7 @@ fn parse_graph(stdout: &[u8]) -> Vec<GraphCommit> {
         if sha.is_empty() {
             continue;
         }
-        let parents: Vec<String> = s(2)
-            .split_whitespace()
-            .map(|p| p.to_string())
-            .collect();
+        let parents: Vec<String> = s(2).split_whitespace().map(|p| p.to_string()).collect();
         commits.push(GraphCommit {
             sha,
             parents,
@@ -380,7 +374,12 @@ async fn is_merge(cwd: &str, sha: &str) -> bool {
         .await
         .ok()
         .filter(|o| o.status_ok)
-        .map(|o| String::from_utf8_lossy(&o.stdout).split_whitespace().count() > 2)
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .split_whitespace()
+                .count()
+                > 2
+        })
         .unwrap_or(false)
 }
 
@@ -437,7 +436,10 @@ pub async fn git_commit_diff(
 
     let text = render_capped(&out.stdout);
     Ok((
-        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
         text,
     ))
 }
@@ -467,7 +469,10 @@ pub async fn git_workdir_diff(
     }
     let text = render_capped(&out.stdout);
     Ok((
-        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
         text,
     ))
 }
@@ -536,7 +541,9 @@ fn parse_status_porcelain(stdout: &[u8]) -> Vec<(String, Option<String>, &'stati
 }
 
 /// Index `git diff --numstat HEAD` by path → (added, deleted), `-` → None (binary).
-fn parse_numstat_counts(stdout: &[u8]) -> std::collections::HashMap<String, (Option<u64>, Option<u64>)> {
+fn parse_numstat_counts(
+    stdout: &[u8],
+) -> std::collections::HashMap<String, (Option<u64>, Option<u64>)> {
     let mut map = std::collections::HashMap::new();
     for line in String::from_utf8_lossy(stdout).lines() {
         let line = line.trim_end();
@@ -550,7 +557,9 @@ fn parse_numstat_counts(stdout: &[u8]) -> std::collections::HashMap<String, (Opt
         let added = if a == "-" { None } else { a.parse().ok() };
         let deleted = if d == "-" { None } else { d.parse().ok() };
         // numstat encodes renames as `old => new`; key on the resolved new path.
-        let path = split_rename(p).map(|(_, new)| new).unwrap_or_else(|| p.to_string());
+        let path = split_rename(p)
+            .map(|(_, new)| new)
+            .unwrap_or_else(|| p.to_string());
         map.insert(path, (added, deleted));
     }
     map
@@ -590,7 +599,13 @@ pub async fn git_workdir_files(
 
     let status = run_git(
         &q.cwd,
-        &["-c", "core.quotePath=false", "status", "--porcelain=v1", "-z"],
+        &[
+            "-c",
+            "core.quotePath=false",
+            "status",
+            "--porcelain=v1",
+            "-z",
+        ],
     )
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -731,7 +746,11 @@ pub async fn git_repos(
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| cwd.clone());
-        repos.push(RepoEntry { path: cwd, name, branch });
+        repos.push(RepoEntry {
+            path: cwd,
+            name,
+            branch,
+        });
     }
     Ok(Json(serde_json::json!({ "repos": repos })))
 }

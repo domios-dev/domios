@@ -238,21 +238,41 @@ mod tests {
         let mut points = vec![(-500.0, 0.0), (500.0, 0.0), (-500.0, 300.0), (500.0, 300.0)];
         // Too few nodes for refine (n<3 guard passes at 4) — connect 0-1 and 2-3.
         let edges = vec![
-            WeightedEdge { a: 0, b: 1, weight: 1.0 },
-            WeightedEdge { a: 2, b: 3, weight: 1.0 },
+            WeightedEdge {
+                a: 0,
+                b: 1,
+                weight: 1.0,
+            },
+            WeightedEdge {
+                a: 2,
+                b: 3,
+                weight: 1.0,
+            },
         ];
         let before01 = dist(points[0], points[1]);
         refine(&mut points, &edges);
         let after01 = dist(points[0], points[1]);
-        assert!(after01 < before01, "edge must shorten: {before01} -> {after01}");
+        assert!(
+            after01 < before01,
+            "edge must shorten: {before01} -> {after01}"
+        );
     }
 
     #[test]
     fn disconnected_nodes_stay_apart() {
         let mut points: Vec<(f32, f32)> = (0..40)
-            .map(|i| (((i % 8) as f32) * 100.0 - 350.0, ((i / 8) as f32) * 100.0 - 200.0))
+            .map(|i| {
+                (
+                    ((i % 8) as f32) * 100.0 - 350.0,
+                    ((i / 8) as f32) * 100.0 - 200.0,
+                )
+            })
             .collect();
-        let edges = vec![WeightedEdge { a: 0, b: 1, weight: 1.0 }];
+        let edges = vec![WeightedEdge {
+            a: 0,
+            b: 1,
+            weight: 1.0,
+        }];
         refine(&mut points, &edges);
         let mut min_d = f32::MAX;
         for i in 0..points.len() {
@@ -263,7 +283,10 @@ mod tests {
                 min_d = min_d.min(dist(points[i], points[j]));
             }
         }
-        assert!(min_d > 1.0, "unconnected nodes must not collapse: min={min_d}");
+        assert!(
+            min_d > 1.0,
+            "unconnected nodes must not collapse: min={min_d}"
+        );
     }
 
     #[test]
@@ -271,7 +294,14 @@ mod tests {
         let mut empty: Vec<(f32, f32)> = Vec::new();
         refine(&mut empty, &[]);
         let mut two = vec![(0.0, 0.0), (1.0, 1.0)];
-        refine(&mut two, &[WeightedEdge { a: 0, b: 1, weight: 1.0 }]);
+        refine(
+            &mut two,
+            &[WeightedEdge {
+                a: 0,
+                b: 1,
+                weight: 1.0,
+            }],
+        );
         assert_eq!(two.len(), 2);
     }
 

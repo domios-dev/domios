@@ -69,6 +69,7 @@ impl UsageProbe {
                 cwd: None,
                 title: Some(format!("[usage-probe] {}", provider_for_spawn)),
                 visibility: PaneVisibility::Hidden,
+                eager: false,
                 command: PaneCommand::Agent(AgentSpawnSpec {
                     provider: provider_for_spawn,
                     auto_approve: true,

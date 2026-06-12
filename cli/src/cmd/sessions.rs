@@ -1,7 +1,9 @@
 use crate::SessionsAction;
 
 fn shell_quote(s: &str) -> String {
-    if s.chars().all(|c| c.is_ascii_alphanumeric() || "/_.-~".contains(c)) {
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || "/_.-~".contains(c))
+    {
         s.to_string()
     } else {
         format!("'{}'", s.replace('\'', "'\\''"))
@@ -39,8 +41,18 @@ pub fn handle_sessions(
     token: Option<&str>,
 ) {
     match action {
-        SessionsAction::Search { query, provider, project, limit, max_snippets } => {
-            let mut url = format!("{}/api/sessions/search?q={}", base, urlencoding::encode(&query));
+        SessionsAction::Search {
+            query,
+            provider,
+            project,
+            limit,
+            max_snippets,
+        } => {
+            let mut url = format!(
+                "{}/api/sessions/search?q={}",
+                base,
+                urlencoding::encode(&query)
+            );
             if let Some(p) = provider {
                 url.push_str(&format!("&provider={}", urlencoding::encode(&p)));
             }
@@ -56,14 +68,21 @@ pub fn handle_sessions(
             }
             let resp = match req.send() {
                 Ok(r) => r,
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
             };
             let val: serde_json::Value = resp.json().unwrap_or_default();
             if json_mode {
                 println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
                 return;
             }
-            let hits = val.get("hits").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let hits = val
+                .get("hits")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
             if hits.is_empty() {
                 println!("No sessions matched: {}", query);
                 return;
@@ -72,16 +91,32 @@ pub fn handle_sessions(
             for (i, hit) in hits.iter().enumerate() {
                 let meta = hit.get("meta").cloned().unwrap_or_default();
                 let provider_id = meta.get("provider").and_then(|v| v.as_str()).unwrap_or("?");
-                let sid = meta.get("session_id").and_then(|v| v.as_str()).unwrap_or("?");
-                let project = meta.get("project_path").and_then(|v| v.as_str()).unwrap_or("");
+                let sid = meta
+                    .get("session_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let project = meta
+                    .get("project_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let title = meta.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                let modified = meta.get("modified_ts").and_then(|v| v.as_i64()).unwrap_or(0);
+                let modified = meta
+                    .get("modified_ts")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
                 let modified_str = format_unix_ts(modified);
                 println!("{:─<70}", "");
                 let header = if title.is_empty() {
                     format!("{}. [{}] [{}] {}", i + 1, provider_id, modified_str, sid)
                 } else {
-                    format!("{}. [{}] [{}] {} — {}", i + 1, provider_id, modified_str, title, sid)
+                    format!(
+                        "{}. [{}] [{}] {} — {}",
+                        i + 1,
+                        provider_id,
+                        modified_str,
+                        title,
+                        sid
+                    )
                 };
                 println!("  {}", header);
                 if !project.is_empty() {
@@ -119,14 +154,32 @@ pub fn handle_sessions(
                 }
             }
         }
-        SessionsAction::Resume { session_id, title, workspace_id, workspace_name, model } => {
+        SessionsAction::Resume {
+            session_id,
+            title,
+            workspace_id,
+            workspace_name,
+            model,
+        } => {
             let mut body = serde_json::Map::new();
-            if let Some(t) = title { body.insert("title".into(), serde_json::Value::String(t)); }
-            if let Some(w) = workspace_id { body.insert("workspace_id".into(), serde_json::Value::String(w)); }
-            if let Some(n) = workspace_name { body.insert("workspace_name".into(), serde_json::Value::String(n)); }
-            if let Some(m) = model { body.insert("model".into(), serde_json::Value::String(m)); }
+            if let Some(t) = title {
+                body.insert("title".into(), serde_json::Value::String(t));
+            }
+            if let Some(w) = workspace_id {
+                body.insert("workspace_id".into(), serde_json::Value::String(w));
+            }
+            if let Some(n) = workspace_name {
+                body.insert("workspace_name".into(), serde_json::Value::String(n));
+            }
+            if let Some(m) = model {
+                body.insert("model".into(), serde_json::Value::String(m));
+            }
 
-            let url = format!("{}/api/sessions/{}/resume", base, urlencoding::encode(&session_id));
+            let url = format!(
+                "{}/api/sessions/{}/resume",
+                base,
+                urlencoding::encode(&session_id)
+            );
             let mut req = http.post(&url).json(&serde_json::Value::Object(body));
             if let Some(t) = token {
                 req = req.header("Authorization", format!("Bearer {}", t));
@@ -144,7 +197,10 @@ pub fn handle_sessions(
                         std::process::exit(1);
                     }
                     let pane = val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
-                    let ws = val.get("workspace_id").and_then(|v| v.as_str()).unwrap_or("?");
+                    let ws = val
+                        .get("workspace_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
                     let provider = val.get("provider").and_then(|v| v.as_str()).unwrap_or("?");
                     let cwd = val.get("cwd").and_then(|v| v.as_str()).unwrap_or("?");
                     println!("Resumed [{}] {}", provider, session_id);
@@ -152,7 +208,10 @@ pub fn handle_sessions(
                     println!("  pane:      {}", pane);
                     println!("  cwd:       {}", cwd);
                 }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
         SessionsAction::Get { session_id } => {
@@ -174,7 +233,10 @@ pub fn handle_sessions(
                         std::process::exit(1);
                     }
                     let provider = val.get("provider").and_then(|v| v.as_str()).unwrap_or("?");
-                    let cwd = val.get("project_path").and_then(|v| v.as_str()).unwrap_or("-");
+                    let cwd = val
+                        .get("project_path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-");
                     let file = val.get("file_path").and_then(|v| v.as_str()).unwrap_or("-");
                     let modified = val.get("modified_ts").and_then(|v| v.as_i64()).unwrap_or(0);
                     println!("session: {}", session_id);
@@ -183,7 +245,10 @@ pub fn handle_sessions(
                     println!("  file:     {}", file);
                     println!("  modified: {}", format_unix_ts(modified));
                 }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
     }

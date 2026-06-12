@@ -43,6 +43,14 @@ pub fn create_outbound_channel() -> (
     (Arc::new(Mutex::new(Some(tx))), rx)
 }
 
+pub(crate) fn ensure_supported_service(service: &str) -> Result<(), &'static str> {
+    if service == "telegram" {
+        Ok(())
+    } else {
+        Err("service unsupported")
+    }
+}
+
 /// Track last sent message per chat for auto-edit and append.
 struct ChatState {
     message_id: i64,
@@ -174,54 +182,17 @@ impl BridgeManager {
                         OutboundContent::Text { ref text } => {
                             log::info!("[bridge-outbound] {} {} chars to {}",
                                 if out_msg.append { "appending" } else { "sending" }, text.len(), chat_id);
-
-                            // Build final text — append to previous or replace
-                            let final_text = if out_msg.append {
-                                if let Some(state) = chat_states.get(&chat_id) {
-                                    if state.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS {
-                                        format!("{}\n\n{}", state.text, text)
-                                    } else {
-                                        text.clone()
-                                    }
-                                } else {
-                                    text.clone()
-                                }
-                            } else {
-                                text.clone()
-                            };
-
-                            // Edit only when --append flag is set AND there's a recent message to edit
-                            let can_edit = out_msg.append && chat_states.get(&chat_id)
-                                .map(|s| s.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS)
-                                .unwrap_or(false);
-
-                            let sanitized = super::sanitize::sanitize_html_for_telegram(&final_text);
-
-                            if can_edit && sanitized.len() <= super::telegram::TELEGRAM_MAX_LEN {
-                                let msg_id = chat_states[&chat_id].message_id;
-                                let edited = edit_message(&client, &api_base, &token, chat_id, msg_id, &sanitized).await;
-                                if !edited {
-                                    if let Some(new_id) = send_message(&client, &api_base, &token, chat_id, &sanitized).await {
-                                        chat_states.insert(chat_id, ChatState { message_id: new_id, sent_at: Instant::now(), text: final_text });
-                                    }
-                                } else {
-                                    if let Some(state) = chat_states.get_mut(&chat_id) {
-                                        state.sent_at = Instant::now();
-                                        state.text = final_text;
-                                    }
-                                }
-                            } else {
-                                let chunks: Vec<String> = super::response::chunk_message(&sanitized, super::telegram::TELEGRAM_MAX_LEN);
-                                let mut last_id = None;
-                                let last_idx = chunks.len().saturating_sub(1);
-                                for (i, chunk) in chunks.iter().enumerate() {
-                                    let btns = if i == last_idx { out_msg.buttons.as_ref() } else { None };
-                                    last_id = send_message_with_buttons(&client, &api_base, &token, chat_id, chunk, btns).await;
-                                }
-                                if let Some(id) = last_id {
-                                    chat_states.insert(chat_id, ChatState { message_id: id, sent_at: Instant::now(), text: final_text });
-                                }
-                            }
+                            route_text_outbound(
+                                &client,
+                                &api_base,
+                                &token,
+                                chat_id,
+                                text,
+                                out_msg.append,
+                                out_msg.buttons.as_ref(),
+                                &mut chat_states,
+                            )
+                            .await;
                         }
                         ref media_content => {
                             log::info!("[bridge-outbound] sending media {:?} to {}", std::mem::discriminant(media_content), chat_id);
@@ -239,6 +210,81 @@ impl BridgeManager {
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }
+        }
+    }
+}
+
+async fn route_text_outbound(
+    client: &reqwest::Client,
+    api_base: &str,
+    token: &str,
+    chat_id: i64,
+    text: &str,
+    append: bool,
+    buttons: Option<&InlineKeyboard>,
+    chat_states: &mut HashMap<i64, ChatState>,
+) {
+    // Build final text — append to previous or replace.
+    let final_text = if append {
+        if let Some(state) = chat_states.get(&chat_id) {
+            if state.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS {
+                format!("{}\n\n{}", state.text, text)
+            } else {
+                text.to_string()
+            }
+        } else {
+            text.to_string()
+        }
+    } else {
+        text.to_string()
+    };
+
+    // Edit only when --append flag is set AND there's a recent message to edit.
+    let can_edit = append
+        && chat_states
+            .get(&chat_id)
+            .map(|s| s.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS)
+            .unwrap_or(false);
+
+    let sanitized = super::sanitize::sanitize_html_for_telegram(&final_text);
+
+    if can_edit && sanitized.len() <= super::telegram::TELEGRAM_MAX_LEN {
+        let msg_id = chat_states[&chat_id].message_id;
+        let edited = edit_message(client, api_base, token, chat_id, msg_id, &sanitized).await;
+        if !edited {
+            if let Some(new_id) = send_message(client, api_base, token, chat_id, &sanitized).await {
+                chat_states.insert(
+                    chat_id,
+                    ChatState {
+                        message_id: new_id,
+                        sent_at: Instant::now(),
+                        text: final_text,
+                    },
+                );
+            }
+        } else if let Some(state) = chat_states.get_mut(&chat_id) {
+            state.sent_at = Instant::now();
+            state.text = final_text;
+        }
+    } else {
+        let chunks: Vec<String> =
+            super::response::chunk_message(&sanitized, super::telegram::TELEGRAM_MAX_LEN);
+        let mut last_id = None;
+        let last_idx = chunks.len().saturating_sub(1);
+        for (i, chunk) in chunks.iter().enumerate() {
+            let btns = if i == last_idx { buttons } else { None };
+            last_id =
+                send_message_with_buttons(client, api_base, token, chat_id, chunk, btns).await;
+        }
+        if let Some(id) = last_id {
+            chat_states.insert(
+                chat_id,
+                ChatState {
+                    message_id: id,
+                    sent_at: Instant::now(),
+                    text: final_text,
+                },
+            );
         }
     }
 }
@@ -524,8 +570,13 @@ async fn format_attachment_line(
     att: &InboundAttachment,
     voice_cfg: &VoiceTranscribeConfig,
 ) -> String {
-    voice_transcribe::format_attachment_line(&att.path, &att.kind, att.filename.as_deref(), voice_cfg)
-        .await
+    voice_transcribe::format_attachment_line(
+        &att.path,
+        &att.kind,
+        att.filename.as_deref(),
+        voice_cfg,
+    )
+    .await
 }
 
 enum HookOutcome {
@@ -656,7 +707,9 @@ async fn inject_message(
 
     let msg_id = msg.message_id.map(|id| id.to_string());
     let prefixed = match msg.service.as_str() {
-        "telegram" => crate::message_markers::telegram(&msg.user_id.to_string(), msg_id.as_deref(), &body),
+        "telegram" => {
+            crate::message_markers::telegram(&msg.user_id.to_string(), msg_id.as_deref(), &body)
+        }
         service => crate::message_markers::Marker::new(service)
             .attr("user", &msg.user_id.to_string())
             .attr_opt("msg", msg_id.as_deref())

@@ -101,7 +101,6 @@ impl AgentRegistry {
         self.providers.write().remove(id).is_some()
     }
 
-
     /// Get a provider by ID and execute a closure with it.
     /// Uses a read lock — cheap for concurrent access.
     pub fn with_provider<F, R>(&self, id: &str, f: F) -> Option<R>

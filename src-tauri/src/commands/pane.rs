@@ -152,7 +152,8 @@ pub fn read_session_jsonl(
         (sid, cwd, at)
     };
 
-    let session_id = session_id.ok_or_else(|| "No agent session linked to this pane".to_string())?;
+    let session_id =
+        session_id.ok_or_else(|| "No agent session linked to this pane".to_string())?;
 
     let jsonl_path = svc
         .agent_registry

@@ -3,6 +3,7 @@
 </p>
 
 <h1 align="center">CodeTerm</h1>
+> README.md 번역은 뒤처질 수 있습니다. 영어 버전이 기준입니다.
 
 <p align="center">
   <strong>AI 중심 터미널 멀티플렉서</strong><br>

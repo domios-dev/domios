@@ -22,6 +22,8 @@ pub struct CreateShellPaneBody {
     pub workspace_id: Option<String>,
     pub cwd: Option<String>,
     pub title: Option<String>,
+    #[serde(default)]
+    pub eager: bool,
 }
 
 pub async fn create_shell_pane(
@@ -38,6 +40,7 @@ pub async fn create_shell_pane(
             cwd: body.cwd,
             title: body.title,
             visibility: PaneVisibility::Visible,
+            eager: body.eager,
             command: PaneCommand::Shell,
             ..Default::default()
         })
@@ -49,6 +52,7 @@ pub async fn create_shell_pane(
         "pane_id": handle.pane_id,
         "workspace_id": handle.workspace_id,
         "tab_id": handle.tab_id,
+        "pty_id": handle.pty_id,
     })))
 }
 
@@ -98,9 +102,9 @@ async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
 fn record_push_activity(state: &AppState, svc_id: &Option<String>, pane_id: &str, text: &str) {
     use tauri::Emitter;
     let Some(svc_id) = svc_id else { return };
-    let writer = crate::services::activity::ActivityWriter::new(state.svc.services_store.conn());
+    let writer = crate::service::activity::ActivityWriter::new(state.svc.services_store.conn());
     let preview = text.chars().take(200).collect::<String>();
-    let _ = writer.record(crate::services::activity::ActivityEvent::push(
+    let _ = writer.record(crate::service::activity::ActivityEvent::push(
         svc_id, pane_id, &preview,
     ));
     let _ = state.svc.app_handle.emit(
@@ -119,7 +123,7 @@ pub async fn send_text(
         .get("Authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| {
-            crate::services::push::validate_push(v, &state.svc.tokens, &state.svc.services_store)
+            crate::service::push::validate_push(v, &state.svc.tokens, &state.svc.services_store)
                 .ok()
                 .flatten()
         });
@@ -148,11 +152,17 @@ pub async fn send_text(
         .filter(|s| !s.is_empty() && *s != pane_id)
         .and_then(|src| {
             let mux = state.svc.mux.lock();
-            if mux.get_pane(&pane_id).and_then(|p| p.agent_type.as_ref()).is_none() {
+            if mux
+                .get_pane(&pane_id)
+                .and_then(|p| p.agent_type.as_ref())
+                .is_none()
+            {
                 return None; // shell recipient — no prefix
             }
             let from_label = mux.display_label_for_pane(src);
-            let model = mux.get_pane(src).and_then(|p| p.agent_session_model.clone());
+            let model = mux
+                .get_pane(src)
+                .and_then(|p| p.agent_session_model.clone());
             let pfx = crate::service::msg_prefix::CtxPrefix::message(from_label, src).model(model);
             Some(pfx.build())
         });

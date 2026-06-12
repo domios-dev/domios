@@ -69,7 +69,10 @@ pub fn purge_invalidated(conn: &Connection, opts: PurgeOptions) -> MemStoreResul
     let mut sql = String::from("WHERE valid_to IS NOT NULL");
     let mut binds: Vec<String> = vec![];
     if let Some(b) = &opts.before {
-        sql.push_str(&format!(" AND datetime(valid_to) < datetime(?{})", binds.len() + 1));
+        sql.push_str(&format!(
+            " AND datetime(valid_to) < datetime(?{})",
+            binds.len() + 1
+        ));
         binds.push(b.clone());
     }
     if let Some(r) = &opts.reason_filter {
@@ -82,7 +85,9 @@ pub fn purge_invalidated(conn: &Connection, opts: PurgeOptions) -> MemStoreResul
         let mut stmt = conn.prepare(&count_sql)?;
         let bind_refs: Vec<&dyn rusqlite::ToSql> =
             binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-        stmt.query_row(rusqlite::params_from_iter(bind_refs), |r| r.get::<_, i64>(0))? as u64
+        stmt.query_row(rusqlite::params_from_iter(bind_refs), |r| {
+            r.get::<_, i64>(0)
+        })? as u64
     };
 
     if !opts.dry_run && count > 0 {
@@ -101,7 +106,10 @@ pub fn purge_invalidated(conn: &Connection, opts: PurgeOptions) -> MemStoreResul
         tx.commit()?;
     }
 
-    Ok(PurgeReport { count, dry_run: opts.dry_run })
+    Ok(PurgeReport {
+        count,
+        dry_run: opts.dry_run,
+    })
 }
 
 pub fn route(conn: &Connection, opts: RouteOptions) -> MemStoreResult<RouteReport> {
@@ -118,10 +126,7 @@ pub fn route(conn: &Connection, opts: RouteOptions) -> MemStoreResult<RouteRepor
         .ok();
 
     let (orig_rel, scope) = direct.ok_or_else(|| {
-        MemStoreError::NotFound(format!(
-            "no active direct edge {}->{}",
-            opts.from, opts.to
-        ))
+        MemStoreError::NotFound(format!("no active direct edge {}->{}", opts.from, opts.to))
     })?;
 
     let rel_in = opts.rel_in.unwrap_or_else(|| orig_rel.clone());
@@ -145,18 +150,32 @@ pub fn route(conn: &Connection, opts: RouteOptions) -> MemStoreResult<RouteRepor
     )?;
 
     tx.commit()?;
-    Ok(RouteReport { direct_invalidated, edges_created: 2 })
+    Ok(RouteReport {
+        direct_invalidated,
+        edges_created: 2,
+    })
 }
 
-pub fn revive_broken(conn: &Connection, opts: ReviveBrokenOptions) -> MemStoreResult<ReviveBrokenReport> {
+pub fn revive_broken(
+    conn: &Connection,
+    opts: ReviveBrokenOptions,
+) -> MemStoreResult<ReviveBrokenReport> {
     let mut sql = String::from(
         "valid_to IS NOT NULL \
          AND from_id IN (SELECT id FROM entities UNION SELECT id FROM mem_items) \
          AND to_id IN (SELECT id FROM entities UNION SELECT id FROM mem_items)",
     );
     let mut binds: Vec<String> = vec![];
+    let since_param = if opts.since.is_some() {
+        Some(format!("?{}", binds.len() + 1))
+    } else {
+        None
+    };
     if let Some(s) = &opts.since {
-        sql.push_str(&format!(" AND datetime(valid_to) >= datetime(?{})", binds.len() + 1));
+        sql.push_str(&format!(
+            " AND datetime(valid_to) >= datetime(?{})",
+            binds.len() + 1
+        ));
         binds.push(s.clone());
     }
     // Never revive a closed relation when an active twin already exists for the
@@ -170,13 +189,34 @@ pub fn revive_broken(conn: &Connection, opts: ReviveBrokenOptions) -> MemStoreRe
           AND a.from_id = relations.from_id AND a.relation_type = relations.relation_type \
           AND a.to_id = relations.to_id AND a.scope = relations.scope)",
     );
+    // Prod can contain clusters of multiple CLOSED duplicate rows with the
+    // same (from, rel, to, scope). Reviving every row in such a cluster would
+    // make the closed copies collide with each other on the active-unique
+    // partial index. Pick one deterministic winner per cluster: latest
+    // valid_to, then latest valid_from, then highest rowid.
+    sql.push_str(
+        " AND relations.rowid = (SELECT c.rowid FROM relations c \
+          WHERE c.valid_to IS NOT NULL \
+          AND c.from_id = relations.from_id AND c.relation_type = relations.relation_type \
+          AND c.to_id = relations.to_id AND c.scope = relations.scope \
+          AND c.from_id IN (SELECT id FROM entities UNION SELECT id FROM mem_items) \
+          AND c.to_id IN (SELECT id FROM entities UNION SELECT id FROM mem_items)",
+    );
+    if let Some(param) = &since_param {
+        sql.push_str(&format!(" AND datetime(c.valid_to) >= datetime({})", param));
+    }
+    sql.push_str(
+        " ORDER BY datetime(c.valid_to) DESC, datetime(c.valid_from) DESC, c.rowid DESC LIMIT 1)",
+    );
 
     let count_sql = format!("SELECT COUNT(*) FROM relations WHERE {}", sql);
     let count: u64 = {
         let mut stmt = conn.prepare(&count_sql)?;
         let bind_refs: Vec<&dyn rusqlite::ToSql> =
             binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-        stmt.query_row(rusqlite::params_from_iter(bind_refs), |r| r.get::<_, i64>(0))? as u64
+        stmt.query_row(rusqlite::params_from_iter(bind_refs), |r| {
+            r.get::<_, i64>(0)
+        })? as u64
     };
 
     if !opts.dry_run && count > 0 {
@@ -191,7 +231,10 @@ pub fn revive_broken(conn: &Connection, opts: ReviveBrokenOptions) -> MemStoreRe
         tx.commit()?;
     }
 
-    Ok(ReviveBrokenReport { revived: count, dry_run: opts.dry_run })
+    Ok(ReviveBrokenReport {
+        revived: count,
+        dry_run: opts.dry_run,
+    })
 }
 
 /// NOTE on embeddings: this function creates the topic entity row but does NOT
@@ -346,7 +389,11 @@ pub fn cleanup_orphan_entities(
     protected_types: &[&str],
     cutoff_iso: &str,
 ) -> MemStoreResult<u64> {
-    let placeholders = protected_types.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let placeholders = protected_types
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
     let sql = format!(
         "DELETE FROM entities WHERE entity_type NOT IN ({}) \
          AND created_at < ?{} \
@@ -355,8 +402,10 @@ pub fn cleanup_orphan_entities(
         placeholders,
         protected_types.len() + 1,
     );
-    let mut sql_params: Vec<&dyn rusqlite::ToSql> =
-        protected_types.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let mut sql_params: Vec<&dyn rusqlite::ToSql> = protected_types
+        .iter()
+        .map(|s| s as &dyn rusqlite::ToSql)
+        .collect();
     sql_params.push(&cutoff_iso);
     let n = conn.execute(&sql, sql_params.as_slice())? as u64;
     Ok(n)
@@ -429,19 +478,29 @@ pub fn add_alias_with_rewire(
         rusqlite::params![alias_id],
     )? as u64;
 
-    let alias_props: Option<String> = tx.query_row(
-        "SELECT properties_json FROM entities WHERE id = ?1",
-        rusqlite::params![alias_id], |r| r.get(0),
-    ).ok();
-    let canonical_props: Option<String> = tx.query_row(
-        "SELECT properties_json FROM entities WHERE id = ?1",
-        rusqlite::params![canonical_id], |r| r.get(0),
-    ).ok();
+    let alias_props: Option<String> = tx
+        .query_row(
+            "SELECT properties_json FROM entities WHERE id = ?1",
+            rusqlite::params![alias_id],
+            |r| r.get(0),
+        )
+        .ok();
+    let canonical_props: Option<String> = tx
+        .query_row(
+            "SELECT properties_json FROM entities WHERE id = ?1",
+            rusqlite::params![canonical_id],
+            |r| r.get(0),
+        )
+        .ok();
     if let (Some(a), Some(c)) = (alias_props, canonical_props) {
-        let alias_obj = serde_json::from_str::<serde_json::Value>(&a).ok()
-            .and_then(|v| v.as_object().cloned()).unwrap_or_default();
-        let mut canon_obj = serde_json::from_str::<serde_json::Value>(&c).ok()
-            .and_then(|v| v.as_object().cloned()).unwrap_or_default();
+        let alias_obj = serde_json::from_str::<serde_json::Value>(&a)
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
+        let mut canon_obj = serde_json::from_str::<serde_json::Value>(&c)
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
         for (k, v) in alias_obj {
             canon_obj.entry(k).or_insert(v);
         }
@@ -469,7 +528,8 @@ pub fn add_alias_with_rewire(
         "rewired_from": rewired_from,
         "rewired_to": rewired_to,
         "dropped_duplicate_relations": dropped_dupes,
-    }).to_string();
+    })
+    .to_string();
     tx.execute(
         "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
          VALUES (?1, ?2, NULL, NULL, NULL, 'add_alias', ?3)",

@@ -247,7 +247,9 @@ mod tests {
     fn normalize_centers_and_scales() {
         let pts = vec![(0.0, 0.0), (10.0, 10.0), (-10.0, -10.0)];
         let out = normalize(&pts);
-        assert!(out.iter().all(|&(x, y)| x.abs() <= COORD_RANGE + 1.0 && y.abs() <= COORD_RANGE + 1.0));
+        assert!(out
+            .iter()
+            .all(|&(x, y)| x.abs() <= COORD_RANGE + 1.0 && y.abs() <= COORD_RANGE + 1.0));
         // Center point maps near origin.
         assert!(out[0].0.abs() < 1.0 && out[0].1.abs() < 1.0);
     }
@@ -266,14 +268,31 @@ mod tests {
         let clusters = grid_cluster(&pts);
         let left: std::collections::HashSet<u32> = clusters[..50].iter().copied().collect();
         let right: std::collections::HashSet<u32> = clusters[50..].iter().copied().collect();
-        assert!(left.is_disjoint(&right), "far blobs must land in different clusters");
+        assert!(
+            left.is_disjoint(&right),
+            "far blobs must land in different clusters"
+        );
     }
 
     #[test]
     fn weighted_average_lands_near_closest_neighbor() {
         let neighbors = vec![
-            (Position { x: 100.0, y: 100.0, cluster_id: 5 }, 0.01),
-            (Position { x: -500.0, y: -500.0, cluster_id: 9 }, 2.0),
+            (
+                Position {
+                    x: 100.0,
+                    y: 100.0,
+                    cluster_id: 5,
+                },
+                0.01,
+            ),
+            (
+                Position {
+                    x: -500.0,
+                    y: -500.0,
+                    cluster_id: 9,
+                },
+                2.0,
+            ),
         ];
         let p = weighted_average(&neighbors).unwrap();
         // Closest neighbor dominates → near (100,100) and inherits its cluster.

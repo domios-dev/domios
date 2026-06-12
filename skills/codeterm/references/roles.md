@@ -41,7 +41,7 @@ codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspa
 
 ```bash
 codeterm agent spawn claude --title "Scout" --role Worker --parent $CODETERM_PANE_ID \
-  --task "Read .claude/agents/backend-dev.md. TASK: list .rs files in src-tauri/src/service/. Do not spawn. Run: codeterm agent report 'found N files: ...'"
+  --task "Run `codeterm mem get <role_skill_id>` first. Then: TASK: list .rs files in src-tauri/src/service/. Do not spawn. Run: codeterm agent report 'found N files: ...'"
 ```
 
 ## Rules per role
@@ -77,7 +77,7 @@ You execute exactly ONE concrete task and report back.
 Use this pattern for every worker task:
 
 ```
-Read .claude/agents/<type>.md first — that is your role definition, follow it.
+Run `codeterm mem get <role_skill_id>` first — that is your role definition, follow it.
 You are a Worker. Do not spawn other agents.
 
 TASK: <concrete leaf task>

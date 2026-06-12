@@ -27,14 +27,12 @@ pub use graph::{
     mem_graph_repair_merge_relations, mem_graph_repair_orphan_blobs,
     mem_graph_repair_orphan_vectors, mem_graph_timeline, mem_graph_traverse, mem_graph_tunnels,
 };
-pub use layout::{
-    mem_graph_edges, mem_graph_labels, mem_graph_layout_rebuild, mem_graph_snapshot,
-};
 pub use items::{
     mem_activity_recent, mem_check_duplicate, mem_delete, mem_flush, mem_forget_area, mem_get,
     mem_history, mem_learn, mem_pinned_list, mem_promote, mem_reembed, mem_save, mem_search,
     mem_stats, mem_tail, mem_taxonomy, mem_update, mem_wake_up,
 };
+pub use layout::{mem_graph_edges, mem_graph_labels, mem_graph_layout_rebuild, mem_graph_snapshot};
 pub use pinned::{
     mem_pinned_positions_delete, mem_pinned_positions_list, mem_pinned_positions_set,
 };

@@ -3,30 +3,16 @@
  * API answers, and Playwright is driving the actual Tauri WebView2 window.
  * All tests @smoke.
  */
-import { expect, test } from "@playwright/test";
-import { ApiClient } from "../../helpers/api-client";
-import { connectUi, type UiSession } from "../../helpers/dev-console";
+import { expect, test } from "../../helpers/fixtures";
 
-const api = new ApiClient();
-let ui: UiSession;
-
-test.beforeAll(async () => {
-  ui = await connectUi();
-});
-
-test.afterAll(async () => {
-  // Disconnect only — never close the real app window from a smoke test.
-  await ui.browser.close();
-});
-
-test("@smoke /api/health is ok with a build hash", async () => {
+test("@smoke /api/health is ok with a build hash", async ({ api }) => {
   const health = await api.health();
   expect(health.status).toBe("ok");
   expect(health.build).toMatch(/^[0-9a-f]{6,40}$/);
   expect(health.version).toMatch(/^\d+\.\d+\.\d+/);
 });
 
-test("@smoke the real app window renders the shell UI", async () => {
+test("@smoke the real app window renders the shell UI", async ({ ui }) => {
   const { page } = ui;
   // The dev console is a Tauri WebView2 window serving the Vite app.
   await expect(page.locator("#root")).toBeAttached();
@@ -43,7 +29,7 @@ test("@smoke the real app window renders the shell UI", async () => {
   await expect(page.locator('[data-testid="titlebar"]')).toBeVisible();
 });
 
-test("@smoke default workspace and at least one pane exist", async () => {
+test("@smoke default workspace and at least one pane exist", async ({ api }) => {
   const workspaces = await api.workspaces();
   expect(workspaces.length).toBeGreaterThan(0);
   expect(workspaces.some((w) => w.is_active)).toBe(true);
@@ -52,7 +38,7 @@ test("@smoke default workspace and at least one pane exist", async () => {
   expect(panes.length).toBeGreaterThan(0);
 });
 
-test("@smoke system agent providers are registered", async () => {
+test("@smoke system agent providers are registered", async ({ api }) => {
   const providers = await api.providers();
   const ids = providers.map((p) => p.id);
   for (const expected of ["claude", "codex", "opencode"]) {
@@ -60,7 +46,7 @@ test("@smoke system agent providers are registered", async () => {
   }
 });
 
-test("@smoke UI agrees with API about the active workspace", async () => {
+test("@smoke UI agrees with API about the active workspace", async ({ api, ui }) => {
   const workspaces = await api.workspaces();
   const active = workspaces.find((w) => w.is_active);
   expect(active).toBeDefined();

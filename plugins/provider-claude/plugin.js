@@ -21,6 +21,7 @@ var OUTPUT_FINGERPRINTS = [
   "Brewed for",
   "Reasoned for",
 ];
+var OUTPUT_THRESHOLD = 2;
 
 var NOISE_FRAGMENTS = [
   "bypass permissions on",
@@ -46,7 +47,36 @@ var TUI_FRAGMENTS = [
 
 var SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/i;
 var SESSION_BARE_RE = /(?:^|\n)\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*(?:$|\n)/m;
+var CLAUDE_SESSION_DELTA_TYPES = { system: true, user: true, assistant: true };
 
+
+function hasSpinnerGlyph(text) {
+  return /(?:^|\n)\s*[⠀-⣿✱✳✻]\s+\S/.test(text);
+}
+
+function hasFooterLayout(text) {
+  return /(?:^|\n).*(?:\? for shortcuts|for shortcuts).*(?:esc to interrupt|shift\+tab|ctrl\+g)/i.test(text);
+}
+
+function hasPromptOptionLayout(text) {
+  var lines = String(text || "").split("\n");
+  var numbered = 0;
+  for (var i = 0; i < lines.length; i++) {
+    if (/^\s*(?:❯\s*)?\d+\.\s+\S+/.test(lines[i])) numbered++;
+  }
+  return numbered >= 2 && (text.indexOf("❯") !== -1 || /Esc .*?(cancel|back)|Enter .*?confirm|Tab .*?amend/i.test(text));
+}
+
+function outputScore(text) {
+  var score = 0;
+  if (hasSpinnerGlyph(text)) score += 2;
+  if (hasFooterLayout(text)) score += 1;
+  if (hasPromptOptionLayout(text)) score += 2;
+  for (var i = 0; i < OUTPUT_FINGERPRINTS.length; i++) {
+    if (text.indexOf(OUTPUT_FINGERPRINTS[i]) !== -1) score += 1;
+  }
+  return score;
+}
 function isBrailleSpinner(ch) {
   if (!ch) return false;
   var code = ch.charCodeAt(0);
@@ -277,15 +307,30 @@ module.exports.default = {
     };
   },
 
+  // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.
   // Parse `user`/`assistant` lines and map content blocks to SessionMessage.
   parseSessionMessages: function (text) {
     var out = [];
     var lines = String(text || "").split("\n");
+    var hadInvalid = false;
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       if (!line) continue;
       var v;
-      try { v = JSON.parse(line); } catch (e) { continue; }
+      try { v = JSON.parse(line); } catch (e) {
+        if (!hadInvalid) {
+          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
+      if (!isValidClaudeSessionMessage(v)) {
+        if (!hadInvalid) {
+          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
       var msgType = (v && v.type) || "";
       if (msgType !== "user" && msgType !== "assistant") continue;
       var isMeta = !!(v && v.isMeta);
@@ -323,11 +368,25 @@ module.exports.default = {
   parseSessionDelta: function (chunk) {
     var out = [];
     var lines = String(chunk || "").split("\n");
+    var hadInvalid = false;
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       if (!line) continue;
       var v;
-      try { v = JSON.parse(line); } catch (_) { continue; }
+      try { v = JSON.parse(line); } catch (_) {
+        if (!hadInvalid) {
+          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
+      if (!validateEntry(v)) {
+        if (!hadInvalid) {
+          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
       var t = v && v.type;
       var blocks = [];
       var role;
@@ -587,6 +646,32 @@ function contentToText(c) {
     if (b && typeof b.text === "string") chunks.push(b.text);
   }
   return chunks.join(" ");
+}
+
+function isValidClaudeSessionMessage(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v.type !== "user" && v.type !== "assistant") return false;
+  if (!v.message || typeof v.message !== "object" || Array.isArray(v.message)) return false;
+  var content = v.message.content;
+  if (typeof content !== "string" && !Array.isArray(content)) return false;
+  return true;
+}
+
+function validateEntry(v) {
+  return isValidClaudeSessionDelta(v);
+}
+
+function isValidClaudeSessionDelta(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (!CLAUDE_SESSION_DELTA_TYPES[v.type]) return false;
+  if (v.type === "system") {
+    var sc = v.content;
+    return typeof sc === "string" || Array.isArray(sc);
+  }
+  var msg = v.message;
+  if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;
+  if (typeof msg.content !== "string" && !Array.isArray(msg.content)) return false;
+  return true;
 }
 
 function extractSetModelFamily(raw) {

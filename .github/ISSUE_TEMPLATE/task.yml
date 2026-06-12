@@ -1,0 +1,26 @@
+name: Task
+description: File a task or bug
+title: "<scope>: description"
+body:
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: Issue scope prefix
+      options:
+        - fix
+        - feat
+        - mem
+        - mesh
+        - research
+        - docs
+        - build
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What needs to be done?
+    validations:
+      required: true

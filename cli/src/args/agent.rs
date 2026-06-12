@@ -1,5 +1,22 @@
 use clap::Subcommand;
 
+#[derive(clap::ValueEnum, Clone, Debug)]
+pub enum SpawnRole {
+    #[value(name = "Orchestrator")]
+    Orchestrator,
+    #[value(name = "Worker")]
+    Worker,
+}
+
+impl SpawnRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SpawnRole::Orchestrator => "Orchestrator",
+            SpawnRole::Worker => "Worker",
+        }
+    }
+}
+
 #[derive(Subcommand)]
 pub enum AgentAction {
     /// Mark a pane as orchestrator (top-level, can spawn leads/workers)
@@ -104,7 +121,7 @@ pub enum AgentAction {
         cwd: Option<String>,
         /// Role: Orchestrator, Worker
         #[arg(long)]
-        role: Option<String>,
+        role: Option<SpawnRole>,
         /// Parent pane ID (for Workers)
         #[arg(long)]
         parent: Option<String>,

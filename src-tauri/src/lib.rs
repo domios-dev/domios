@@ -27,7 +27,6 @@ pub mod pty;
 pub mod resize_owner;
 pub mod secrets;
 pub mod service;
-pub mod services;
 pub mod session;
 pub mod shell;
 mod socket;
@@ -530,12 +529,12 @@ pub fn run() {
                 },
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(
-                    crate::services::store::ServicesStore::open(
+                    crate::service::store::ServicesStore::open(
                         &crate::paths::data_dir().join("services.db"),
                     )
                     .expect("services.db init"),
                 ),
-                tokens: Arc::new(crate::services::tokens::TokenStore::new()),
+                tokens: Arc::new(crate::service::tokens::TokenStore::new()),
                 pasteboard: crate::pasteboard::PasteboardState::new(),
                 input_parser,
                 usage_store: crate::usage::UsageStore::open(&crate::paths::data_dir())
@@ -552,8 +551,8 @@ pub fn run() {
 
             {
                 let store = service_state.services_store.clone();
-                let activity = crate::services::activity::ActivityWriter::new(store.conn());
-                crate::services::health::scheduler::start(store, activity, app.handle().clone());
+                let activity = crate::service::activity::ActivityWriter::new(store.conn());
+                crate::service::health::scheduler::start(store, activity, app.handle().clone());
             }
 
             // Secrets init happens before API listener binds to avoid auth calls hitting uninitialized state.

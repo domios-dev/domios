@@ -1,7 +1,6 @@
 """E2E coverage for the cross-mesh pastebin (#98).
 
-Runs against the dev daemon on port 7686 by default (override with
-CODETERM_API_URL / CODETERM_API_TOKEN). Verifies the REST surface,
+Runs against the dev daemon on port 7686. Verifies the REST surface,
 CLI parity, and the lifecycle rules from the issue acceptance criteria:
 short body round-trip, TTL override, pop_on_read self-destruct, explicit
 DELETE, list enumeration, long body without truncation, empty body
@@ -13,33 +12,42 @@ import os
 import shutil
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
 import requests
 
 
-BASE = os.environ.get("CODETERM_API_URL", "http://127.0.0.1:7686")
+DEV_PORT = 7686
+BASE = f"http://127.0.0.1:{DEV_PORT}"
 
 
-def _read_dev_token() -> str:
-    """Token resolution mirrors helpers.py — env first, then dev config."""
-    if env := os.environ.get("CODETERM_API_TOKEN"):
-        return env
-    home = os.environ.get("USERPROFILE") or os.environ.get("HOME")
-    if not home:
-        return ""
-    cfg = os.path.join(home, ".codeterm-dev", "config.toml")
-    if not os.path.exists(cfg):
-        return ""
-    with open(cfg, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith("token =") and "=" in line:
-                return line.split("=", 1)[1].strip().strip('"')
-    return ""
+def _read_dev_token() -> str | None:
+    cfg = Path.home() / ".codeterm-dev" / "config.toml"
+    if not cfg.exists():
+        return None
+    in_api = False
+    for line in cfg.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped == "[api]":
+            in_api = True
+            continue
+        if stripped.startswith("[") and in_api:
+            break
+        if in_api and stripped.startswith("token =") and "=" in stripped:
+            return stripped.split("=", 1)[1].strip().strip('"')
+    return None
 
 
-TOKEN = _read_dev_token()
+def _resolve_token() -> str:
+    dev_token = _read_dev_token()
+    return dev_token or ""
+
+
+TOKEN = _resolve_token()
+os.environ["CODETERM_API_URL"] = BASE
+os.environ["CODETERM_API_PORT"] = str(DEV_PORT)
+os.environ["CODETERM_API_TOKEN"] = TOKEN
 HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 
 

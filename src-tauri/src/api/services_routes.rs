@@ -6,8 +6,8 @@ use axum::{
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::services::activity::{ActivityEvent, ActivitySource, ActivityWriter};
-use crate::services::store::{self, Service, ServiceCreate, ServiceKind, ServiceUpdate};
+use crate::service::activity::{ActivityEvent, ActivitySource, ActivityWriter};
+use crate::service::store::{self, Service, ServiceCreate, ServiceKind, ServiceUpdate};
 
 #[derive(Deserialize)]
 pub struct ActivityQuery {
@@ -161,7 +161,13 @@ pub async fn delete_service(
         .services_store
         .delete(&id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let _ = state.svc.tokens.delete(&id);
+    if let Err(e) = state.svc.tokens.delete(&id) {
+        log::warn!(
+            "[services] deleted service {} but failed to delete push token: {}",
+            id,
+            e
+        );
+    }
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -176,13 +182,19 @@ pub async fn regenerate_token(
         .tokens
         .generate(&id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let _ = state.svc.services_store.update(
+    if let Err(e) = state.svc.services_store.update(
         &id,
         ServiceUpdate {
             push_enabled: Some(true),
             ..Default::default()
         },
-    );
+    ) {
+        log::warn!(
+            "[services] regenerated token for {} but failed to mark push enabled: {}",
+            id,
+            e
+        );
+    }
     Ok(Json(
         serde_json::json!({"token": token, "push_enabled": true}),
     ))

@@ -561,12 +561,8 @@ pub trait AgentProvider: Send + Sync {
         injected_session_id: Option<&str>,
         screen_text: Option<&str>,
     ) -> Option<String> {
-        let Some(sid) = self.detect_launched_session_id(
-            cwd,
-            exclude,
-            max_age,
-            injected_session_id,
-        ) else {
+        let Some(sid) = self.detect_launched_session_id(cwd, exclude, max_age, injected_session_id)
+        else {
             return None;
         };
 

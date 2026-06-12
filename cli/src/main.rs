@@ -17,15 +17,22 @@ fn strip_ansi(s: &str) -> String {
                 chars.next();
                 while let Some(&nc) = chars.peek() {
                     chars.next();
-                    if nc.is_ascii_alphabetic() || nc == '~' || nc == 'h' || nc == 'l' { break; }
+                    if nc.is_ascii_alphabetic() || nc == '~' || nc == 'h' || nc == 'l' {
+                        break;
+                    }
                 }
             } else if chars.peek() == Some(&']') {
                 // OSC sequence: ESC ] ... BEL or ST
                 chars.next();
                 while let Some(&nc) = chars.peek() {
                     chars.next();
-                    if nc == '\x07' { break; }
-                    if nc == '\x1b' { chars.next(); break; }
+                    if nc == '\x07' {
+                        break;
+                    }
+                    if nc == '\x1b' {
+                        chars.next();
+                        break;
+                    }
                 }
             }
         } else if c == '\r' {
@@ -71,9 +78,7 @@ pub fn data_root() -> std::path::PathBuf {
             }
         }
     }
-    dirs::home_dir()
-        .unwrap_or_default()
-        .join(data_dir_name())
+    dirs::home_dir().unwrap_or_default().join(data_dir_name())
 }
 
 /// Read API config (host, port, token).
@@ -88,8 +93,15 @@ pub fn read_api_config() -> (String, Option<String>) {
     if let Ok(content) = std::fs::read_to_string(&config_path) {
         if let Ok(val) = content.parse::<toml::Table>() {
             if let Some(api) = val.get("api").and_then(|v| v.as_table()) {
-                let raw_host = api.get("host").and_then(|v| v.as_str()).unwrap_or("127.0.0.1");
-                host = if raw_host == "0.0.0.0" { "127.0.0.1".to_string() } else { raw_host.to_string() };
+                let raw_host = api
+                    .get("host")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("127.0.0.1");
+                host = if raw_host == "0.0.0.0" {
+                    "127.0.0.1".to_string()
+                } else {
+                    raw_host.to_string()
+                };
                 port = api.get("port").and_then(|v| v.as_integer()).unwrap_or(7685);
             }
         }
@@ -107,14 +119,22 @@ pub fn read_api_config() -> (String, Option<String>) {
 
     // Highest priority: explicit CODETERM_API_TOKEN env override. Useful for hitting dev (port 7686) from outside its PTY without the matching
     // mesh identity, or for tests with a manually scoped token.
-    let token = std::env::var("CODETERM_API_TOKEN").ok()
+    let token = std::env::var("CODETERM_API_TOKEN")
+        .ok()
         .filter(|s| !s.is_empty())
         .or(signed_token)
         .or_else(|| {
             let config_path = config_dir.join("config.toml");
-            std::fs::read_to_string(&config_path).ok()
+            std::fs::read_to_string(&config_path)
+                .ok()
                 .and_then(|content| content.parse::<toml::Table>().ok())
-                .and_then(|val| val.get("api")?.as_table()?.get("token")?.as_str().map(String::from))
+                .and_then(|val| {
+                    val.get("api")?
+                        .as_table()?
+                        .get("token")?
+                        .as_str()
+                        .map(String::from)
+                })
         });
 
     (format!("http://{}:{}", host, port), token)
@@ -164,17 +184,23 @@ pub fn build_http(token: &Option<String>) -> Result<reqwest::blocking::Client, r
 }
 
 mod args;
+pub use args::agent::AgentAction;
 pub use args::cli::{Cli, Commands};
+pub use args::cron::CronAction;
+pub use args::mem::{
+    MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
+    MemSkillAction, MemWorkerAction,
+};
+pub use args::misc::{
+    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
+    ThemeAction, WebAction, WorkspaceAction,
+};
+pub use args::plugin::{PluginAction, PluginChannelAction};
+pub use args::service::ServiceAction;
 pub use args::sessions::SessionsAction;
 pub use args::system::SystemAction;
-pub use args::usage::UsageAction;
-pub use args::mem::{MemAction, MemCalibrationAction, MemDreamAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
-pub use args::agent::AgentAction;
-pub use args::cron::CronAction;
-pub use args::service::ServiceAction;
-pub use args::plugin::{PluginAction, PluginChannelAction};
 pub use args::update::UpdateAction;
-pub use args::misc::{WorkspaceAction, PaneAction, PasteAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction, WebAction};
+pub use args::usage::UsageAction;
 
 /// Resolve pane ID: explicit arg > $CODETERM_PANE_ID env var > focused pane from server.
 ///
@@ -196,7 +222,8 @@ pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
     match client.call("pane.list", None) {
         Ok(value) => {
             if let Some(arr) = value.as_array() {
-                let pane = arr.iter()
+                let pane = arr
+                    .iter()
                     .find(|p| p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
                     .or_else(|| arr.first());
                 if let Some(id) = pane.and_then(|p| p.get("id").and_then(|v| v.as_str())) {
@@ -228,15 +255,27 @@ fn main() {
     // --mesh TARGET: proxy entire command to a remote peer via relay
     if let Some(ref mesh_target) = cli.mesh {
         // Secrets are local-only — refuse to proxy them across the mesh. Cross-mesh secret access needs a trust model we haven't designed yet.
-        if matches!(cli.command, Commands::Mem { action: MemAction::Secret { .. } }) {
+        if matches!(
+            cli.command,
+            Commands::Mem {
+                action: MemAction::Secret { .. }
+            }
+        ) {
             eprintln!(
                 "Error: secrets do not cross the mesh. Run on the local machine \
                  (vault peer), or design a trust model first."
             );
             std::process::exit(7);
         }
-        if matches!(cli.command, Commands::Bridge { action: BridgeAction::Migrate { .. } }) {
-            eprintln!("Error: bridge migrate must run locally on the source machine, not via --mesh.");
+        if matches!(
+            cli.command,
+            Commands::Bridge {
+                action: BridgeAction::Migrate { .. }
+            }
+        ) {
+            eprintln!(
+                "Error: bridge migrate must run locally on the source machine, not via --mesh."
+            );
             std::process::exit(6);
         }
         mesh_cli::run_via_mesh(&cli, mesh_target);
@@ -258,7 +297,9 @@ fn main() {
             ConfigAction::Get { key } => {
                 let url = format!("{}/api/config?key={}", base_url, key);
                 match http.get(&url).send() {
-                    Ok(resp) if resp.status().is_success() => resp.json().map_err(|e| e.to_string()),
+                    Ok(resp) if resp.status().is_success() => {
+                        resp.json().map_err(|e| e.to_string())
+                    }
                     Ok(resp) => {
                         let status = resp.status();
                         let body = resp.text().unwrap_or_default();
@@ -275,7 +316,11 @@ fn main() {
                 let json_value: serde_json::Value = serde_json::from_str(value)
                     .unwrap_or_else(|_| serde_json::Value::String(value.clone()));
                 let body = serde_json::json!({ "key": key, "value": json_value });
-                match http.patch(&format!("{}/api/config", base_url)).json(&body).send() {
+                match http
+                    .patch(&format!("{}/api/config", base_url))
+                    .json(&body)
+                    .send()
+                {
                     Ok(resp) if resp.status().is_success() => {
                         Ok(serde_json::json!({"ok": true, "key": key, "value": json_value}))
                     }
@@ -299,29 +344,46 @@ fn main() {
                     print_human(&value);
                 }
             }
-            Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
         }
         return;
     }
 
     // `mem run-worker` opens knowledge.db directly via --db-path and never talks to the daemon socket — short-circuit before discover_socket so a
     // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update --apply restarts the binary) doesn't make the worker exit 1 before it can do any work.
-    if let Commands::Mem { action: MemAction::RunWorker { ref kind, ref db_path } } = cli.command {
+    if let Commands::Mem {
+        action: MemAction::RunWorker {
+            ref kind,
+            ref db_path,
+        },
+    } = cli.command
+    {
         cmd::worker::run_mem_worker(kind, db_path.as_deref());
         return;
     }
 
     // Local-only graph mutation verbs — open knowledge.db directly, no daemon.
-    if let Commands::Mem { action: MemAction::Graph { ref action } } = cli.command {
+    if let Commands::Mem {
+        action: MemAction::Graph { ref action },
+    } = cli.command
+    {
         if let Some(()) = cmd::graph_mutate::try_dispatch_local(action) {
             unreachable!("local graph dispatch must exit");
         }
     }
 
     // `mem dream` opens knowledge.db directly. Bridge ping is best-effort and routed through `discover_socket` itself so a wedged daemon doesn't break the planner.
-    if let Commands::Mem { action: MemAction::Dream { .. } } = cli.command {
+    if let Commands::Mem {
+        action: MemAction::Dream { .. },
+    } = cli.command
+    {
         match cli.command {
-            Commands::Mem { action: MemAction::Dream { action } } => {
+            Commands::Mem {
+                action: MemAction::Dream { action },
+            } => {
                 cmd::dream::handle_dream(action);
             }
             _ => unreachable!(),
@@ -385,8 +447,11 @@ fn main() {
                 match result {
                     Ok(value) => {
                         if let Some(arr) = value.as_array() {
-                            let id = arr.iter()
-                                .find(|w| w.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
+                            let id = arr
+                                .iter()
+                                .find(|w| {
+                                    w.get("focused").and_then(|v| v.as_bool()).unwrap_or(false)
+                                })
                                 .or_else(|| arr.first())
                                 .and_then(|w| w.get("id").and_then(|v| v.as_str()));
                             if let Some(id) = id {
@@ -395,7 +460,10 @@ fn main() {
                         }
                         return;
                     }
-                    Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
                 }
             }
             WorkspaceAction::Create { name, cwd } => {
@@ -403,24 +471,43 @@ fn main() {
                 if let Some(cwd) = cwd {
                     params["cwd"] = serde_json::json!(cwd);
                 }
-                client.call("workspace.create", Some(params))
+                match client.call("workspace.create", Some(params)) {
+                    Ok(val) if val.get("existing").and_then(|v| v.as_bool()) == Some(true) => {
+                        let ws_name = val.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                        let ws_id = val.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                        if cli.json {
+                            println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        } else {
+                            println!(
+                                "workspace with this cwd already exists: {} ({})",
+                                ws_name, ws_id
+                            );
+                        }
+                        return;
+                    }
+                    result => result,
+                }
             }
-            WorkspaceAction::Focus { id } => {
-                client.call("workspace.focus", Some(serde_json::json!({ "workspace_id": id })))
-            }
-            WorkspaceAction::Rename { id, name } => {
-                client.call("workspace.rename", Some(serde_json::json!({ "workspace_id": id, "name": name })))
-            }
-            WorkspaceAction::Close { id } => {
-                client.call("workspace.close", Some(serde_json::json!({ "workspace_id": id })))
-            }
-            WorkspaceAction::MoveTab { tab_id, from, to } => {
-                client.call("workspace.move_tab", Some(serde_json::json!({
+            WorkspaceAction::Focus { id } => client.call(
+                "workspace.focus",
+                Some(serde_json::json!({ "workspace_id": id })),
+            ),
+            WorkspaceAction::Rename { id, name } => client.call(
+                "workspace.rename",
+                Some(serde_json::json!({ "workspace_id": id, "name": name })),
+            ),
+            WorkspaceAction::Close { id } => client.call(
+                "workspace.close",
+                Some(serde_json::json!({ "workspace_id": id })),
+            ),
+            WorkspaceAction::MoveTab { tab_id, from, to } => client.call(
+                "workspace.move_tab",
+                Some(serde_json::json!({
                     "tab_id": tab_id,
                     "from_workspace_id": from,
                     "to_workspace_id": to
-                })))
-            }
+                })),
+            ),
         },
 
         Commands::Pane { action } => {
@@ -463,7 +550,12 @@ fn main() {
             }
         }
 
-        Commands::SendText { pane, text, from_file, from_stdin } => {
+        Commands::SendText {
+            pane,
+            text,
+            from_file,
+            from_stdin,
+        } => {
             cmd::send_text::handle_send_text(
                 &mut client,
                 cli.json,
@@ -505,27 +597,31 @@ fn main() {
                     std::process::exit(1);
                 }
             };
-            let result: Result<serde_json::Value, String> = match action.unwrap_or(KeepAwakeAction::Status) {
-                KeepAwakeAction::Status => http
-                    .get(format!("{}/api/keepawake", base))
-                    .send()
-                    .map_err(|e| e.to_string())
-                    .and_then(|r| r.json::<serde_json::Value>().map_err(|e| e.to_string())),
-                KeepAwakeAction::Start { duration_secs, display } => http
-                    .post(format!("{}/api/keepawake/start", base))
-                    .json(&serde_json::json!({
-                        "duration_secs": duration_secs,
-                        "display": display,
-                    }))
-                    .send()
-                    .map_err(|e| e.to_string())
-                    .and_then(|r| r.json::<serde_json::Value>().map_err(|e| e.to_string())),
-                KeepAwakeAction::Stop => http
-                    .post(format!("{}/api/keepawake/stop", base))
-                    .send()
-                    .map_err(|e| e.to_string())
-                    .and_then(|r| r.json::<serde_json::Value>().map_err(|e| e.to_string())),
-            };
+            let result: Result<serde_json::Value, String> =
+                match action.unwrap_or(KeepAwakeAction::Status) {
+                    KeepAwakeAction::Status => http
+                        .get(format!("{}/api/keepawake", base))
+                        .send()
+                        .map_err(|e| e.to_string())
+                        .and_then(|r| r.json::<serde_json::Value>().map_err(|e| e.to_string())),
+                    KeepAwakeAction::Start {
+                        duration_secs,
+                        display,
+                    } => http
+                        .post(format!("{}/api/keepawake/start", base))
+                        .json(&serde_json::json!({
+                            "duration_secs": duration_secs,
+                            "display": display,
+                        }))
+                        .send()
+                        .map_err(|e| e.to_string())
+                        .and_then(|r| r.json::<serde_json::Value>().map_err(|e| e.to_string())),
+                    KeepAwakeAction::Stop => http
+                        .post(format!("{}/api/keepawake/stop", base))
+                        .send()
+                        .map_err(|e| e.to_string())
+                        .and_then(|r| r.json::<serde_json::Value>().map_err(|e| e.to_string())),
+                };
             match result {
                 Ok(val) => {
                     if cli.json {
@@ -552,35 +648,47 @@ fn main() {
             let base = "http://127.0.0.1:7685";
             let http = reqwest::blocking::Client::new();
             match action {
-                ThemeAction::List => {
-                    match http.get(format!("{}/api/themes", base)).send() {
-                        Ok(resp) => {
-                            let val: serde_json::Value = resp.json().unwrap_or_default();
-                            if let Some(themes) = val.get("themes").and_then(|v| v.as_array()) {
-                                for t in themes {
-                                    println!("{}", t.as_str().unwrap_or("?"));
-                                }
+                ThemeAction::List => match http.get(format!("{}/api/themes", base)).send() {
+                    Ok(resp) => {
+                        let val: serde_json::Value = resp.json().unwrap_or_default();
+                        if let Some(themes) = val.get("themes").and_then(|v| v.as_array()) {
+                            for t in themes {
+                                println!("{}", t.as_str().unwrap_or("?"));
                             }
-                            return;
                         }
-                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                        return;
                     }
-                }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
+                },
                 ThemeAction::Apply { name } => {
-                    match http.post(format!("{}/api/themes/apply", base))
+                    match http
+                        .post(format!("{}/api/themes/apply", base))
                         .json(&serde_json::json!({ "name": name }))
                         .send()
                     {
-                        Ok(_) => { println!("Theme applied: {}", name); return; }
-                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                        Ok(_) => {
+                            println!("Theme applied: {}", name);
+                            return;
+                        }
+                        Err(e) => {
+                            eprintln!("Error: {}", e);
+                            std::process::exit(1);
+                        }
                     }
                 }
                 ThemeAction::Save { id, file, apply } => {
                     let toml = match std::fs::read_to_string(&file) {
                         Ok(c) => c,
-                        Err(e) => { eprintln!("Error reading {}: {}", file, e); std::process::exit(1); }
+                        Err(e) => {
+                            eprintln!("Error reading {}: {}", file, e);
+                            std::process::exit(1);
+                        }
                     };
-                    match http.post(format!("{}/api/themes", base))
+                    match http
+                        .post(format!("{}/api/themes", base))
                         .json(&serde_json::json!({ "id": id, "toml": toml }))
                         .send()
                     {
@@ -592,7 +700,8 @@ fn main() {
                                 println!("Theme saved: {}", id);
                             }
                             if apply {
-                                match http.post(format!("{}/api/themes/apply", base))
+                                match http
+                                    .post(format!("{}/api/themes/apply", base))
                                     .json(&serde_json::json!({ "name": id }))
                                     .send()
                                 {
@@ -602,13 +711,22 @@ fn main() {
                             }
                             return;
                         }
-                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                        Err(e) => {
+                            eprintln!("Error: {}", e);
+                            std::process::exit(1);
+                        }
                     }
                 }
                 ThemeAction::Delete { id } => {
                     match http.delete(format!("{}/api/themes/{}", base, id)).send() {
-                        Ok(_) => { println!("Theme deleted: {}", id); return; }
-                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                        Ok(_) => {
+                            println!("Theme deleted: {}", id);
+                            return;
+                        }
+                        Err(e) => {
+                            eprintln!("Error: {}", e);
+                            std::process::exit(1);
+                        }
                     }
                 }
                 ThemeAction::Dir => {
@@ -631,8 +749,23 @@ fn main() {
             return;
         }
 
-        Commands::Update { action, check, apply, channel, manifest_url, after_update } => {
-            cmd::update::handle_update(cli.json, action, check, apply, channel, manifest_url, after_update);
+        Commands::Update {
+            action,
+            check,
+            apply,
+            channel,
+            manifest_url,
+            after_update,
+        } => {
+            cmd::update::handle_update(
+                cli.json,
+                action,
+                check,
+                apply,
+                channel,
+                manifest_url,
+                after_update,
+            );
             return;
         }
 
@@ -647,7 +780,6 @@ fn main() {
 
         // plugin is handled before socket connect (filesystem-local)
         Commands::Plugin { .. } => unreachable!(),
-
 
         Commands::Mesh { action } => {
             cmd::mesh::handle_mesh(cli.json, action);
@@ -775,7 +907,12 @@ mod subcommand_contract_tests {
 
     #[test]
     fn mem_run_worker_accepts_all_kinds() {
-        for kind in ["dreaming-light", "dreaming-deep", "dreaming-normalize", "librarian-once"] {
+        for kind in [
+            "dreaming-light",
+            "dreaming-deep",
+            "dreaming-normalize",
+            "librarian-once",
+        ] {
             let res = Cli::try_parse_from([
                 "codeterm",
                 "mem",
@@ -796,7 +933,10 @@ mod subcommand_contract_tests {
     fn parse_plugin(args: &[&str]) -> PluginAction {
         let mut argv = vec!["codeterm", "plugin"];
         argv.extend_from_slice(args);
-        match Cli::try_parse_from(argv).expect("plugin args parse").command {
+        match Cli::try_parse_from(argv)
+            .expect("plugin args parse")
+            .command
+        {
             Commands::Plugin { action } => action,
             _ => panic!("expected plugin command"),
         }
@@ -804,8 +944,18 @@ mod subcommand_contract_tests {
 
     #[test]
     fn plugin_subcommands_parse() {
-        match parse_plugin(&["install", "--from-dir", "./provider-demo", "--id-override", "demo"]) {
-            PluginAction::Install { from_dir, id_override, .. } => {
+        match parse_plugin(&[
+            "install",
+            "--from-dir",
+            "./provider-demo",
+            "--id-override",
+            "demo",
+        ]) {
+            PluginAction::Install {
+                from_dir,
+                id_override,
+                ..
+            } => {
                 assert_eq!(from_dir.as_deref(), Some("./provider-demo"));
                 assert_eq!(id_override.as_deref(), Some("demo"));
             }
@@ -816,7 +966,12 @@ mod subcommand_contract_tests {
         let cli = Cli::try_parse_from(["codeterm", "plugin", "list", "--json"])
             .expect("plugin list --json parses");
         assert!(cli.json);
-        assert!(matches!(cli.command, Commands::Plugin { action: PluginAction::List }));
+        assert!(matches!(
+            cli.command,
+            Commands::Plugin {
+                action: PluginAction::List
+            }
+        ));
 
         assert!(matches!(
             parse_plugin(&["update-system", "codex"]),
@@ -828,8 +983,16 @@ mod subcommand_contract_tests {
             PluginAction::UpdateSystem { id: Some(id) } if id == "codex"
         ));
 
-        match parse_plugin(&["channel", "add", "https://example.invalid/channel.git", "--name", "example"]) {
-            PluginAction::Channel { command: PluginChannelAction::Add { url, name } } => {
+        match parse_plugin(&[
+            "channel",
+            "add",
+            "https://example.invalid/channel.git",
+            "--name",
+            "example",
+        ]) {
+            PluginAction::Channel {
+                command: PluginChannelAction::Add { url, name },
+            } => {
                 assert_eq!(url, "https://example.invalid/channel.git");
                 assert_eq!(name.as_deref(), Some("example"));
             }
@@ -854,7 +1017,8 @@ mod subcommand_contract_tests {
     fn data_root_uses_absolute_env_override() {
         let _guard = env_lock().lock().unwrap();
         let prev = std::env::var("CODETERM_DATA_DIR").ok();
-        let root = std::env::temp_dir().join(format!("codeterm-data-root-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("codeterm-data-root-{}", uuid::Uuid::new_v4()));
         std::env::set_var("CODETERM_DATA_DIR", &root);
         assert_eq!(data_root(), root);
         restore_env("CODETERM_DATA_DIR", prev);

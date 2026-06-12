@@ -53,6 +53,7 @@ Prereqs:
 
 ```bash
 bash evals/session-restore/run.sh
+bash evals/session-restore/run.sh --check
 ```
 
 The script:
@@ -64,9 +65,15 @@ The script:
 4. `taskkill /F` the dev daemon (Windows shutdown simulator).
 5. `./build.sh dev` to restart.
 6. Snapshots `post/` state.
-7. Diffs and prints a PASS/FAIL table.
+7. Seeds a newer worker-looking Claude JSONL in the General Agent cwd,
+   wipes the General pane sid from `last.json`, and asserts restart still
+   resumes the GA-owned sid.
+8. Diffs and prints a PASS/FAIL table.
+9. In `--check` mode, compares the latest metadata summary against
+   `baseline.json` and exits non-zero on drift outside the documented
+   tolerance.
 
-Outputs go to `target-check/session-restore/` (gitignored).
+Outputs go to `target-check/evals/` (gitignored).
 
 ## Test plan layout
 
@@ -95,4 +102,4 @@ behaviour is checked manually before merging anything that touches
 `SessionStore`, `from_session_snapshot`, `commands::pty`, or
 `startup::states`.
 
-<!-- revision: 1 -->
+<!-- revision: 3 -->

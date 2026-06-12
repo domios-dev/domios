@@ -49,7 +49,5 @@ pub enum SessionsAction {
     /// Print metadata for a past session (provider, cwd, file path, times).
     /// Read-only probe — use before `sessions resume` to verify the session
     /// is still on disk.
-    Get {
-        session_id: String,
-    },
+    Get { session_id: String },
 }

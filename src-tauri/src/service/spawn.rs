@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 
 use super::orchestrator::{build_agent_command, launch_agent_in_background, SpawnAgentParams};
 use super::ServiceContext;
@@ -17,6 +18,8 @@ pub struct SpawnPaneSpec {
     pub title: Option<String>,
     #[serde(default)]
     pub visibility: PaneVisibility,
+    #[serde(default)]
+    pub eager: bool,
     pub command: PaneCommand,
 }
 
@@ -80,6 +83,14 @@ fn default_true() -> bool {
     true
 }
 
+pub(crate) fn should_default_agent_pane_to_chat(
+    default_enabled: bool,
+    visibility: PaneVisibility,
+    provider_supports_chat_ui: bool,
+) -> bool {
+    default_enabled && visibility == PaneVisibility::Visible && provider_supports_chat_ui
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PaneHandle {
     pub pane_id: String,
@@ -100,6 +111,7 @@ impl SpawnPaneSpec {
             cwd: params.cwd.clone(),
             title: params.title.clone(),
             visibility: PaneVisibility::Visible,
+            eager: false,
             command: PaneCommand::Agent(AgentSpawnSpec {
                 provider: params.agent.clone().unwrap_or_default(),
                 model: params.model.clone(),
@@ -183,6 +195,10 @@ impl ServiceContext {
             _ => return Err("spawn_visible_agent_impl called without Agent command".into()),
         };
 
+        if let Some(ref role_str) = agent.role {
+            ServiceContext::parse_role(role_str)?;
+        }
+
         let default_provider = crate::config::default_agent_provider();
         let agent_cmd = if agent.provider.is_empty() {
             default_provider
@@ -225,6 +241,20 @@ impl ServiceContext {
 
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
 
+        let default_chat_enabled = self
+            .app_handle
+            .state::<crate::config::ConfigState>()
+            .lock()
+            .ui
+            .default_new_agent_pane_chat;
+        let default_chat_view = should_default_agent_pane_to_chat(
+            default_chat_enabled,
+            spec.visibility,
+            self.agent_registry
+                .with_provider(&agent_cmd, |p| p.supports_chat_ui())
+                .unwrap_or(false),
+        );
+
         let (tab_id, pane_id) = {
             let mut mux = self.mux.lock();
             let result = mux.create_tab(&ws_id)?;
@@ -259,6 +289,11 @@ impl ServiceContext {
             if agent.auto_approve {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.auto_approve = true;
+                }
+            }
+            if default_chat_view {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.chat_view = true;
                 }
             }
             if let Err(e) = mux.rename_pane(&result.1, &title) {
@@ -391,10 +426,20 @@ impl ServiceContext {
         };
         self.emit_state_changed();
 
+        let pty_id = if spec.eager {
+            self.ensure_pane_pty_for_send(&pane_id)?;
+            self.mux
+                .lock()
+                .get_pane(&pane_id)
+                .and_then(|p| p.pty_id.clone())
+        } else {
+            None
+        };
+
         Ok(PaneHandle {
             pane_id,
             tab_id,
-            pty_id: None,
+            pty_id,
             workspace_id: ws_id,
             worker_id: None,
             warning,

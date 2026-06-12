@@ -18,6 +18,18 @@ pub(super) fn dispatch(
         }
 
         "bridge.send" => {
+            let service = params
+                .as_ref()
+                .and_then(|p| p.get("service"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("telegram");
+            crate::bridge::manager::ensure_supported_service(service).map_err(|msg| {
+                JsonRpcError {
+                    code: -32602,
+                    message: msg.to_string(),
+                }
+            })?;
+
             let chat_id = params
                 .as_ref()
                 .and_then(|p| p.get("chat_id"))

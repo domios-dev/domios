@@ -67,7 +67,7 @@ export function TabItem({
     const current = getCurrentPaneUiMode(p.id);
     if (current) return current === "chat";
     const client = getClientPaneUiMode(p.id);
-    return client ? client === "chat" : shouldDefaultNewAgentPaneToChat(p.agent_type);
+    return client ? client === "chat" : p.chat_view === true || shouldDefaultNewAgentPaneToChat(p.agent_type);
   };
   const [chatView, setChatView] = useState(() => resolveChatView(pane));
   const tabRef = useRef<HTMLDivElement>(null);
@@ -121,7 +121,7 @@ export function TabItem({
           setChatView(nextChatView);
           setClientPaneUiMode(pane.id, nextChatView ? "chat" : "terminal");
           emitPaneUiMode(pane.id, nextChatView ? "chat" : "terminal");
-          if (nextChatView) maybeAskDefaultNewAgentPaneToChat();
+          if (nextChatView) void maybeAskDefaultNewAgentPaneToChat();
         },
       });
     }

@@ -7,10 +7,9 @@
  * float-fuzzy and the embedding worker is async, so tests assert "top-K
  * contains id", never exact rank.
  */
-import { expect, test } from "@playwright/test";
-import { ApiClient } from "../../helpers/api-client";
+import { expect, test } from "../../helpers/fixtures";
+import { pollUntil } from "../../helpers/poll";
 
-const api = new ApiClient();
 const created: string[] = [];
 
 interface MemItem {
@@ -23,21 +22,22 @@ interface SearchHit {
   item: MemItem;
 }
 
-async function memSave(kind: string, title: string, body: string): Promise<string> {
+async function memSave(api: { post<T>(p: string, body?: unknown): Promise<T> }, kind: string, title: string, body: string): Promise<string> {
   const res = await api.post<{ id: string }>("/mem/items", { kind, title, body });
   expect(res.id).toBeTruthy();
   created.push(res.id);
   return res.id;
 }
 
-test.afterAll(async () => {
+test.afterEach(async ({ api }) => {
   for (const id of created) {
     await api.request("DELETE", `/mem/items/${id}`).catch(() => {});
   }
+  created.length = 0;
 });
 
-test("@golden save → get round-trip preserves kind/title/body", async () => {
-  const id = await memSave("fact", "pw mem roundtrip probe", "the quick zebra audits the graph");
+test("@golden save → get round-trip preserves kind/title/body", async ({ api }) => {
+  const id = await memSave(api, "fact", "pw mem roundtrip probe", "the quick zebra audits the graph");
   const item = await api.get<MemItem>(`/mem/items/${id}`);
   expect(item.id).toBe(id);
   expect(item.kind).toBe("fact");
@@ -45,8 +45,8 @@ test("@golden save → get round-trip preserves kind/title/body", async () => {
   expect(item.body).toContain("zebra audits");
 });
 
-test("@golden update mutates the body and history records it", async () => {
-  const id = await memSave("fact", "pw mem update probe", "version one of the body");
+test("@golden update mutates the body and history records it", async ({ api }) => {
+  const id = await memSave(api, "fact", "pw mem update probe", "version one of the body");
   await api.request("PATCH", `/mem/items/${id}`, { body: "version two of the body" });
   const item = await api.get<MemItem>(`/mem/items/${id}`);
   expect(item.body).toBe("version two of the body");
@@ -58,28 +58,27 @@ test("@golden update mutates the body and history records it", async () => {
   expect(entries.length, "update must leave a history trail").toBeGreaterThan(0);
 });
 
-test("@golden search finds a freshly saved fact by distinctive terms (rank-tolerant)", async () => {
+test("@golden search finds a freshly saved fact by distinctive terms (rank-tolerant)", async ({ api }) => {
   const marker = `quokka-canary-${Date.now()}`;
   const id = await memSave(
+    api,
     "fact",
     `pw search probe ${marker}`,
     `Distinctive testing fact: the ${marker} harness exercises hybrid FTS and vector recall.`,
   );
 
-  let found = false;
-  for (let i = 0; i < 10 && !found; i++) {
+  const found = await pollUntil(async () => {
     const res = await api.get<{ hits: SearchHit[] }>(
       `/mem/search?q=${encodeURIComponent(marker + " harness")}`,
     );
-    found = res.hits.slice(0, 5).some((h) => h.item.id === id);
-    if (!found) await new Promise((r) => setTimeout(r, 1000));
-  }
+    return res.hits.slice(0, 5).some((h) => h.item.id === id);
+  }, 10_000, 1_000, `mem search top-5 contains ${id}`);
   expect(found, `id ${id} not in top-5 for its own distinctive terms`).toBe(true);
 });
 
-test("@golden delete removes the item from get and search", async () => {
+test("@golden delete removes the item from get and search", async ({ api }) => {
   const marker = `wombat-delete-${Date.now()}`;
-  const id = await memSave("fact", `pw delete probe ${marker}`, `${marker} body to be removed`);
+  const id = await memSave(api, "fact", `pw delete probe ${marker}`, `${marker} body to be removed`);
 
   const del = await api.request<{ deleted: boolean }>("DELETE", `/mem/items/${id}`);
   expect(del.deleted).toBe(true);
@@ -97,7 +96,7 @@ test("@golden delete removes the item from get and search", async () => {
   expect(res.hits.some((h) => h.item.id === id)).toBe(false);
 });
 
-test("@golden wake-up and stats answer with content", async () => {
+test("@golden wake-up and stats answer with content", async ({ api }) => {
   const wake = await api.get<Record<string, unknown>>("/mem/wake-up");
   expect(typeof wake).toBe("object");
   const stats = await api.get<Record<string, unknown>>("/mem/stats");
@@ -105,9 +104,9 @@ test("@golden wake-up and stats answer with content", async () => {
   expect(Object.keys(stats).length).toBeGreaterThan(0);
 });
 
-test("@golden graph relate links two items and related returns the edge", async () => {
-  const a = await memSave("fact", "pw graph node alpha", "alpha node for relation test");
-  const b = await memSave("fact", "pw graph node beta", "beta node for relation test");
+test("@golden graph relate links two items and related returns the edge", async ({ api }) => {
+  const a = await memSave(api, "fact", "pw graph node alpha", "alpha node for relation test");
+  const b = await memSave(api, "fact", "pw graph node beta", "beta node for relation test");
 
   await api.post("/mem/graph/relate", { from: a, rel: "relates_to", to: b });
 
