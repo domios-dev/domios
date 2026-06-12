@@ -14,6 +14,7 @@
 pub mod blocker;
 mod instructions;
 mod lifecycle;
+mod state;
 mod watchdog;
 mod workspace;
 

@@ -1,6 +1,6 @@
 //! Start / restart / readiness-poll for the General Agent PTY+launch flow.
 
-use super::{general_dir, instructions, GENERAL_ALIAS};
+use super::{general_dir, instructions, state, GENERAL_ALIAS};
 
 /// Start the General Agent — called from start_servers on a background thread.
 ///
@@ -102,6 +102,7 @@ pub fn start_general_agent(
                 }
                 svc.set_pane_agent_type(&pid, None);
                 svc.set_agent_session_id(&pid, None);
+                state::clear_session_id();
                 if let Some(pane) = mux.lock().get_pane_mut(&pid) {
                     pane.pty_id = None;
                 }
@@ -122,23 +123,31 @@ pub fn start_general_agent(
         match pane {
             Some(pid) => {
                 let mut sid = m.get_pane(&pid).and_then(|p| p.agent_session_id.clone());
-                // If no session_id from snapshot, try detecting from filesystem (covers first launch, new machine, or wiped session store)
+                if sid.is_none() {
+                    sid = state::load_session_id(&svc.agent_registry, provider_name, &general_cwd);
+                    if let Some(ref stored) = sid {
+                        svc.set_agent_session_id(&pid, Some(stored.clone()));
+                        log::info!("[general-agent] Loaded durable session id: {}", stored);
+                    }
+                }
+                // If no session_id from snapshot or durable GA state, try detecting a GA-marked session from filesystem (covers first launch, new
+                // machine, or wiped session store). This is intentionally stricter than generic provider detection so worker JSONLs in the GA cwd
+                // cannot win by recency.
                 if sid.is_none() {
                     let exclude: Vec<String> = m.other_session_ids(&pid);
                     drop(m); // release lock before filesystem scan
-                    sid = crate::multiplexer::commands::detect_agent_session_id(
+                    sid = state::detect_owned_session_id(
                         &svc.agent_registry,
                         provider_name,
                         &general_cwd,
-                        Some(exclude),
-                        Some(86400 * 7), // 7 days max age
-                    )
-                    .ok()
-                    .flatten();
+                        &exclude,
+                        Some(std::time::Duration::from_secs(86400 * 7)), // 7 days max age
+                    );
                     if let Some(ref detected) = sid {
                         svc.set_agent_session_id(&pid, Some(detected.clone()));
+                        state::persist_session_id(provider_name, detected);
                         log::info!(
-                            "[general-agent] Detected session from filesystem: {}",
+                            "[general-agent] Detected GA-owned session from filesystem: {}",
                             detected
                         );
                     }
@@ -160,25 +169,28 @@ pub fn start_general_agent(
             .agent_registry
             .with_provider(provider_name, |p| p.session_exists(&general_cwd, id))
             .unwrap_or(false);
-        if !valid {
-            log::info!("[general-agent] Session '{}' not valid for provider '{}' — clearing, will detect fresh", id, provider_name);
+        let owned = valid
+            && state::session_id_is_owned(&svc.agent_registry, provider_name, &general_cwd, id);
+        if !owned {
+            log::info!("[general-agent] Session '{}' not valid or not GA-owned for provider '{}' — clearing, will detect fresh", id, provider_name);
             svc.set_agent_session_id(&pane_id, None);
+            state::clear_session_id();
             let exclude = mux.lock().other_session_ids(&pane_id);
-            let fresh = crate::multiplexer::commands::detect_agent_session_id(
+            let fresh = state::detect_owned_session_id(
                 &svc.agent_registry,
                 provider_name,
                 &general_cwd,
-                Some(exclude),
-                Some(86400 * 7),
-            )
-            .ok()
-            .flatten();
+                &exclude,
+                Some(std::time::Duration::from_secs(86400 * 7)),
+            );
             if let Some(ref sid) = fresh {
                 svc.set_agent_session_id(&pane_id, Some(sid.clone()));
-                log::info!("[general-agent] Detected fresh session: {}", sid);
+                state::persist_session_id(provider_name, sid);
+                log::info!("[general-agent] Detected fresh GA-owned session: {}", sid);
             }
             fresh
         } else {
+            state::persist_session_id(provider_name, id);
             session_id
         }
     } else {
@@ -315,6 +327,7 @@ pub fn start_general_agent(
         let pre_session_id = if injection != crate::agent::provider::SessionIdInjection::None {
             let id = uuid::Uuid::new_v4().to_string();
             svc.set_agent_session_id(&pane_id, Some(id.clone()));
+            state::persist_session_id(provider_name, &id);
             log::info!(
                 "[general-agent] Pre-assigned session id {} for fresh launch",
                 id
@@ -421,6 +434,7 @@ pub fn restart_general_agent(
             drop(m);
             svc.set_pane_agent_type(&pid, None);
             svc.set_agent_session_id(&pid, None);
+            state::clear_session_id();
             if let Some(pane) = mux.lock().get_pane_mut(&pid) {
                 pane.pty_id = None;
             }

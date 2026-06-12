@@ -2,10 +2,13 @@
   "description": "Session-restore metadata baseline. Dynamic ids and agent session ids are intentionally excluded.",
   "expected": {
     "general": {
+      "decoy_worker_session_seeded": true,
       "post_pane_count": 1,
       "post_tab_count": 1,
       "pre_pane_count": 2,
-      "pre_tab_count": 2
+      "pre_tab_count": 2,
+      "session_id_matches_after_sid_wipe": true,
+      "session_id_present_pre": true
     },
     "scenarios": {
       "WS-claude-renamed": {
