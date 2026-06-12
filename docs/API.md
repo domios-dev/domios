@@ -851,12 +851,13 @@ The hierarchy (Orchestrator -> Worker) is a logical chain, not visual splits. Ea
   "parent_pane_id": "a3f1b2c7", // parent Orchestrator for a Worker (8-char hex ID)
   "can_spawn": true,           // allow spawning children
   "task": "analyze the code",  // baked into launch via -p flag (instant start)
+  "model": "sonnet",           // optional; must match the provider's advertised model list when one exists
   "args": ["--verbose"],       // extra agent args
   "workspace_id": "b4e2c8d1"  // optional, defaults to active workspace
 }
 ```
 
-All fields are optional. `agent` defaults to `"claude"`. For Claude, `--dangerously-skip-permissions` is added automatically. When `task` is provided, it is passed via the `-p` flag so the agent starts working immediately (no delay). When `agent_name` is provided, it maps to `--agent <name>` which loads the agent definition from `.claude/agents/<name>.md`.
+All fields are optional. `agent` defaults to `"claude"`. For Claude, `--dangerously-skip-permissions` is added automatically. When `model` is provided and the provider advertises models, unknown ids are rejected before pane creation; run `codeterm agent models <provider>` for valid ids. When `task` is provided, it is passed via the `-p` flag so the agent starts working immediately (no delay). When `agent_name` is provided, it maps to `--agent <name>` which loads the agent definition from `.claude/agents/<name>.md`.
 
 **Response** (returned immediately, before agent is fully started):
 ```json
@@ -1142,4 +1143,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 55 -->
+<!-- revision: 56 -->
