@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        directory: [src-tauri, cli]
+        directory: [src-tauri, cli, crates/mem-store]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
