@@ -14,7 +14,7 @@ cli/src/mesh_cli/api_map.rs	1115
 # fmt reflow pushed over; split queued (post-PR).
 cli/src/cmd/mem/mod.rs	1111
 # fmt reflow pushed over; split queued (post-PR).
-crates/mem-store/src/tests/mod.rs	1022
+crates/mem-store/src/tests/mod.rs	1072
 
 # Baselined 2026-06-11 (A5): pre-existing >1000 files at HEAD on branch security.
 # Files with a dedicated split task lose their entry once split; the rest are
