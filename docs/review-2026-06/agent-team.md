@@ -74,6 +74,15 @@ re-deriving it.
 | **Opus** | strong reasoning, safe large refactors, catches spec errors | slower, costlier | god-file splits (A1, E3, F2), fixture/architecture design (D2, D5, E6), translation judgment (G1), anything where the task says "design" | bulk mechanical work (waste), trivial doc edits |
 | **GPT-5.5** | strong generalist from a different model family; excellent long-doc synthesis; uncorrelated blind spots | not integrated with mem/skills harness conventions — needs AGENTS.md (G1) landed first | large doc synthesis (B3, D6), provider-pattern writeups (F3), **cross-family review**: adversarial second opinion on Opus designs before implementation | tasks depending on Claude-harness specifics (skills, mem ids) until G1 lands |
 
+**TOKEN ECONOMICS OVERRIDE (user directive, 2026-06-11): Claude panes (Opus /
+Sonnet / Haiku) share the user's Claude token budget with the arbiter — they are
+PARKED. All execution routes to Spark (Codex) and Gpt5.5; for parallelism, spawn
+ephemeral codex workers (`codeterm agent spawn codex --role Worker --parent
+<arbiter> --task ...`). Claude tiers may be un-parked only by the user. The rubric
+below remains as capability reference for task-brief difficulty calibration: tasks
+formerly rated Opus-tier get extra-explicit briefs + tighter arbiter verification
+instead of a stronger model.**
+
 Routing heuristics:
 1. **Effort × ambiguity decides the tier.** S-effort + exact file:line spec → Spark or
    Sonnet. Any task containing "decide/design/define" → Opus. Long-document

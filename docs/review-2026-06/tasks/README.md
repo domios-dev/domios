@@ -13,6 +13,10 @@ Spawned (ephemeral) workers get the same line in `--task`.
 
 Workers go silent on long tasks. These four rules are non-negotiable:
 
+> Arbiter-side rule: no ACCEPTED within ~2 minutes of dispatch → nudge immediately.
+> A delivered-but-unconfirmed task is a stalled task (codex sessions can end their
+> turn before the message lands and never pick it up), not a long-running one.
+
 0. **Confirm receipt FIRST.** Before doing anything else, run:
    `codeterm send-text "TASK <ID> ACCEPTED, starting" --pane 5c64a651`
    If you don't know how to use `codeterm`, load the `codeterm` skill or run
@@ -36,6 +40,10 @@ Workers go silent on long tasks. These four rules are non-negotiable:
      in your report. The arbiter stages by pathspec and commits.
    - Your final report must include your `git status --short` lines so the
      arbiter can diff expectations against reality.
+   - **No formatter sweeps.** Never run `cargo fmt` / `pnpm format` beyond the
+     exact files of your task (incident: a workspace-wide fmt touched 49
+     out-of-scope files and tripped the size gate for everyone). Workspace-wide
+     formatting is task A4 — arbiter-scheduled, isolated commit.
 
 ## Rules baked into every brief (workers: read once, they apply always)
 
@@ -46,6 +54,10 @@ Workers go silent on long tasks. These four rules are non-negotiable:
    no formatting sweeps, no "while I'm here".
 3. **Exact commands.** Run verification commands exactly as written; paste their
    real output into the report. Output you didn't paste didn't happen.
+   **Windows shell-script rule:** NEVER invoke a `.sh` file bare or as `./x.sh`
+   from PowerShell/cmd — Windows pops a "choose an app" dialog on the user's
+   desktop instead of running it. Always prefix: `bash build.sh check`,
+   `bash scripts/foo.sh` (briefs write `./build.sh ...` for brevity — translate).
 4. **Forbidden, always:** anything on port 7685 (prod); `git commit`/`git push`
    unless the brief's Steps explicitly contain them; editing
    `docs/review-2026-06/` (arbiter's ledger); co-author lines in commits;
