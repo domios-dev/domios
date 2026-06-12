@@ -240,12 +240,16 @@ PY
 
 capture_general_session() {
   local out_path="${1:?usage: capture_general_session <out_json>}"
-  dev_get /api/panes | PYTHONIOENCODING=utf-8 python - "$out_path" <<'PY'
+  local panes_json
+  panes_json="$(mktemp)"
+  dev_get /api/panes > "$panes_json"
+  PYTHONIOENCODING=utf-8 python - "$panes_json" "$out_path" <<'PY'
 import json
 import sys
 
-out_path = sys.argv[1]
-panes = json.load(sys.stdin)
+panes_path, out_path = sys.argv[1:3]
+with open(panes_path, "r", encoding="utf-8") as f:
+    panes = json.load(f)
 pane = next(
     (
         p for p in panes
@@ -267,6 +271,9 @@ if not payload["session_id"]:
     sys.exit(1)
 print(payload["session_id"])
 PY
+  local rc=$?
+  rm -f "$panes_json"
+  return $rc
 }
 
 seed_general_decoy_worker_session() {
