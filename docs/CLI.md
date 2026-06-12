@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -30,11 +30,7 @@ Compact agent context (sends /compact to Claude)
 Link a pane as worker under a parent
 
 - `--pane` — Pane ID to link (default: current focused pane)
-- `--parent` — Parent pane ID (orchestrator or lead)
-
-#### `codeterm agent list`
-
-List agent panes and the hierarchy (same view as `pane list --agents`)
+- `--parent` — Parent pane ID (orchestrator)
 
 #### `codeterm agent model`
 
@@ -78,7 +74,7 @@ Restart agent (gracefully /exit + auto-resume to pick up settings or recover)
 
 #### `codeterm agent set-orchestrator`
 
-Mark a pane as orchestrator (top-level, can spawn leads/workers)
+Mark a pane as orchestrator (top-level, can spawn workers)
 
 - `--pane` — Pane ID (default: current focused pane)
 
@@ -956,14 +952,6 @@ Reject and block an incoming pairing request
 
 - `<request_id>` — Request ID of the pending pairing request
 
-#### `codeterm mesh send`
-
-Send text to a pane on a remote mesh peer
-
-- `--pane` — Target pane on remote instance (default: general)
-- `<target>` — Target peer name or instance ID
-- `<text>` — Text to send
-
 #### `codeterm mesh status`
 
 Show mesh status (identity, discovery, peers)
@@ -1036,7 +1024,7 @@ Get visible terminal text of a pane (what the user sees)
 
 #### `codeterm pane list`
 
-List all panes as a workspace-grouped tree. `--agents` filters to agent panes only (replaces the old `agent list`)
+List all panes as a workspace-grouped tree. `--agents` filters to agent panes only
 
 - `--agents` — Show only panes running an agent (have an agent_type)
 
@@ -1089,12 +1077,6 @@ Print a paste body to stdout. Does NOT delete unless --pop or the paste was crea
 #### `codeterm paste list`
 
 List local (or --mesh <peer>) pastes — id, size, ttl_remaining
-
-#### `codeterm paste pop`
-
-Get + delete in one call. Sugar for `paste get <id> --pop`
-
-- `<id>` — Paste id
 
 #### `codeterm paste put`
 
@@ -1190,9 +1172,9 @@ Send text to a pane (default: current pane)
 Aliases: send-text
 
 - `--from_file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
-- `--from_stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --from-stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
 - `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-- `<text>` — Text to send (positional, or omit and use --from-file/--from-stdin)
+- `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
+- `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 
 #### `codeterm service`
 
@@ -1342,10 +1324,7 @@ Save a custom theme from a TOML file
 Check for updates and manage CodeTerm version
 
 - `--after_update` — Message to inject into the General Agent pane after the new daemon boots. Useful for remote-triggered updates ("run the update and then verify health") — GA reads it as user input post-restart
-- `--apply` — Shortcut for `update install --auto`
-- `--channel` — Shortcut for `update channel [name]`. Pass without value to print current channel
-- `--check` — Shortcut for `update check`
-- `--manifest_url` — Override manifest URL when paired with --apply (or `install --auto`). Backend must be built with `dev-updater-allowlocal` for non-https URLs
+- `--manifest_url` — Override manifest URL when paired with `install --auto`. Backend must be built with `dev-updater-allowlocal` for non-https URLs
 
 #### `codeterm update channel`
 
@@ -1419,7 +1398,7 @@ Close/delete a workspace
 
 #### `codeterm workspace create`
 
-Create a new workspace
+Create a new workspace. With --cwd, reuses an existing workspace at that cwd
 
 - `--cwd` — Working directory — agents spawned with --workspace inherit this as their CWD
 - `<name>` — Workspace name

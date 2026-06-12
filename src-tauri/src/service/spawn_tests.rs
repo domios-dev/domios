@@ -1,5 +1,7 @@
 use super::*;
 use crate::service::ServiceContext;
+use std::path::PathBuf;
+use std::time::Duration;
 
 #[test]
 fn invalid_role_lead_is_rejected() {
@@ -27,6 +29,113 @@ fn agent_spec(provider: &str) -> SpawnPaneSpec {
     }
 }
 
+struct ModelProvider {
+    id: &'static str,
+    models: Vec<crate::agent::provider::ModelInfo>,
+}
+
+impl ModelProvider {
+    fn new(id: &'static str, model_ids: &[&str]) -> Self {
+        Self {
+            id,
+            models: model_ids
+                .iter()
+                .map(|id| crate::agent::provider::ModelInfo {
+                    id: (*id).into(),
+                    display_name: (*id).into(),
+                    description: None,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl crate::agent::provider::AgentProvider for ModelProvider {
+    fn id(&self) -> &str {
+        self.id
+    }
+
+    fn display_name(&self) -> &str {
+        self.id
+    }
+
+    fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
+        self.id.into()
+    }
+
+    fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
+        crate::agent::provider::ReadinessStrategy::FixedDelay {
+            duration: Duration::ZERO,
+        }
+    }
+
+    fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
+        crate::agent::provider::TaskDelivery::PtyInput
+    }
+
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+
+    fn detect_from_output(&self, _: &str) -> bool {
+        false
+    }
+
+    fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+        None
+    }
+
+    fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+        None
+    }
+
+    fn detect_launched_session_id(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+    ) -> Option<String> {
+        if let Some(sid) = injected_session_id {
+            if self.session_exists(cwd, sid) {
+                return Some(sid.to_string());
+            }
+        }
+        self.detect_session_id(cwd, exclude, max_age)
+    }
+
+    fn detect_started_session(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+        screen_text: Option<&str>,
+    ) -> Option<String> {
+        self.detect_started_session_with_markers(
+            cwd,
+            exclude,
+            max_age,
+            injected_session_id,
+            screen_text,
+        )
+    }
+
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+
+    fn available_models(&self) -> Vec<crate::agent::provider::ModelInfo> {
+        self.models.clone()
+    }
+}
+
+fn registry_with(provider: ModelProvider) -> crate::agent::registry::AgentRegistry {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(provider));
+    registry
+}
+
 #[test]
 fn default_visibility_is_visible() {
     let spec = SpawnPaneSpec::default();
@@ -37,6 +146,55 @@ fn default_visibility_is_visible() {
 fn default_command_is_shell() {
     let spec = SpawnPaneSpec::default();
     assert!(matches!(spec.command, PaneCommand::Shell));
+}
+
+#[test]
+fn validate_agent_model_accepts_advertised_id() {
+    let registry = registry_with(ModelProvider::new(
+        "opencode",
+        &["anthropic/claude-sonnet-4-6", "opencode/big-pickle"],
+    ));
+
+    assert!(validate_agent_model(&registry, "opencode", Some("opencode/big-pickle")).is_ok());
+    assert!(
+        validate_agent_model(&registry, "opencode", Some("anthropic/claude-sonnet-4-6")).is_ok()
+    );
+}
+
+#[test]
+fn validate_agent_model_rejects_bogus_id() {
+    let registry = registry_with(ModelProvider::new("opencode", &["opencode/big-pickle"]));
+
+    let err = validate_agent_model(&registry, "opencode", Some("does-not-exist")).unwrap_err();
+    assert!(err.contains("does-not-exist"));
+    assert!(err.contains("codeterm agent models opencode"));
+}
+
+#[test]
+fn validate_agent_model_accepts_claude_alias() {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+
+    assert!(validate_agent_model(&registry, "claude", Some("opus")).is_ok());
+}
+
+#[test]
+fn validate_agent_model_suggests_unique_prefixed_suffix() {
+    let registry = registry_with(ModelProvider::new(
+        "opencode",
+        &["opencode/big-pickle", "opencode/ring-2.6-1t"],
+    ));
+
+    let err = validate_agent_model(&registry, "opencode", Some("big-pickle")).unwrap_err();
+    assert!(err.contains("Did you mean 'opencode/big-pickle'?"));
+    assert!(err.contains("codeterm agent models opencode"));
+}
+
+#[test]
+fn validate_agent_model_passes_through_non_enumerable_provider() {
+    let registry = registry_with(ModelProvider::new("dynamic", &[]));
+
+    assert!(validate_agent_model(&registry, "dynamic", Some("anything-goes")).is_ok());
 }
 
 #[test]

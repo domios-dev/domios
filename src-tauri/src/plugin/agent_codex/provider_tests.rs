@@ -1,5 +1,7 @@
 use super::*;
 
+static CODEX_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn codex_provider_id() {
     let p = CodexProvider::new();
@@ -170,7 +172,8 @@ fn extract_uuid_from_stem() {
 }
 
 #[test]
-fn codex_detect_active_session_rolls_forward_from_stale_resume_id() {
+fn codex_detect_active_session_does_not_roll_to_foreign_newer_session() {
+    let _guard = CODEX_ENV_LOCK.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let sessions = dir.path().join("2026").join("06").join("06");
     std::fs::create_dir_all(&sessions).unwrap();
@@ -217,11 +220,62 @@ fn codex_detect_active_session_rolls_forward_from_stale_resume_id() {
         p.session_file_path(cwd, old_sid).as_deref(),
         Some(old_file.as_path())
     );
-    assert_eq!(
-        p.detect_active_session(cwd, old_sid).as_deref(),
-        Some(new_sid)
-    );
+    assert_eq!(p.detect_active_session(cwd, old_sid), None);
     assert_eq!(p.detect_active_session(cwd, new_sid), None);
+    unsafe {
+        match prev {
+            Some(value) => std::env::set_var("CODETERM_CODEX_SESSIONS_ROOT", value),
+            None => std::env::remove_var("CODETERM_CODEX_SESSIONS_ROOT"),
+        }
+    }
+}
+
+#[test]
+fn codex_detect_session_model_reads_the_claimed_session_only() {
+    let _guard = CODEX_ENV_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("2026").join("06").join("12");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let cwd = "/tmp/model-fidelity";
+    let sid_a = "019ebbbb-0000-7000-8000-000000000001";
+    let sid_b = "019ebbbb-0000-7000-8000-000000000002";
+    std::fs::write(
+        sessions.join(format!("rollout-2026-06-12T12-00-00-{sid_a}.jsonl")),
+        format!(
+            r#"{{"type":"session_meta","payload":{{"id":"{sid_a}","cwd":"{cwd}"}}}}
+{{"type":"turn_context","payload":{{"model":"gpt-5.4-mini"}}}}
+"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        sessions.join(format!("rollout-2026-06-12T12-00-01-{sid_b}.jsonl")),
+        format!(
+            r#"{{"type":"session_meta","payload":{{"id":"{sid_b}","cwd":"{cwd}"}}}}
+{{"type":"turn_context","payload":{{"model":"gpt-5.5"}}}}
+"#
+        ),
+    )
+    .unwrap();
+
+    let prev = std::env::var("CODETERM_CODEX_SESSIONS_ROOT").ok();
+    unsafe {
+        std::env::set_var(
+            "CODETERM_CODEX_SESSIONS_ROOT",
+            dir.path().to_string_lossy().as_ref(),
+        );
+    }
+    let p = CodexProvider::new();
+    assert_eq!(
+        p.detect_session_model(cwd, sid_a).as_deref(),
+        Some("GPT-5.4-mini")
+    );
+    assert_eq!(
+        p.detect_session_model(cwd, sid_b).as_deref(),
+        Some("GPT-5.5")
+    );
+    assert_eq!(p.detect_session_model(cwd, "missing-session"), None);
+    assert_eq!(p.detect_active_session(cwd, sid_a), None);
     unsafe {
         match prev {
             Some(value) => std::env::set_var("CODETERM_CODEX_SESSIONS_ROOT", value),

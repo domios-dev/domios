@@ -22,6 +22,7 @@ pub struct CreateShellPaneBody {
     pub workspace_id: Option<String>,
     pub cwd: Option<String>,
     pub title: Option<String>,
+    pub cmd: Option<String>,
     #[serde(default)]
     pub eager: bool,
 }
@@ -45,6 +46,22 @@ pub async fn create_shell_pane(
             ..Default::default()
         })
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if let Some(cmd) = body.cmd {
+        // send_text ensures the PTY itself (ensure_pane_pty_for_send), which a
+        // lazy pane needs — a pre-existence poll would never see one appear.
+        state
+            .svc
+            .send_text(&handle.pane_id, &cmd, true)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!(
+                        "pane created (id={}) but --cmd failed: {}",
+                        handle.pane_id, e
+                    ),
+                )
+            })?;
+    }
     // Mirror `pane_id` as `id` so the conventional CRUD idiom (`jq '.id'`, resp.get("id")) reaches the new pane without anyone having to learn our
     // per-resource naming. Both fields hold the same value.
     Ok(Json(serde_json::json!({

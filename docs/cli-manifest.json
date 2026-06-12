@@ -85,17 +85,10 @@
               "positional": false,
               "value_name": "PARENT",
               "default": null,
-              "help": "Parent pane ID (orchestrator or lead)",
+              "help": "Parent pane ID (orchestrator)",
               "aliases": []
             }
           ],
-          "subcommands": []
-        },
-        {
-          "name": "list",
-          "about": "List agent panes and the hierarchy (same view as `pane list --agents`)",
-          "aliases": [],
-          "args": [],
           "subcommands": []
         },
         {
@@ -235,7 +228,7 @@
         },
         {
           "name": "set-orchestrator",
-          "about": "Mark a pane as orchestrator (top-level, can spawn leads/workers)",
+          "about": "Mark a pane as orchestrator (top-level, can spawn workers)",
           "aliases": [],
           "args": [
             {
@@ -3391,38 +3384,6 @@
           "subcommands": []
         },
         {
-          "name": "send",
-          "about": "Send text to a pane on a remote mesh peer",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": "general",
-              "help": "Target pane on remote instance (default: general)",
-              "aliases": []
-            },
-            {
-              "name": "target",
-              "positional": true,
-              "value_name": "TARGET",
-              "default": null,
-              "help": "Target peer name or instance ID",
-              "aliases": []
-            },
-            {
-              "name": "text",
-              "positional": true,
-              "value_name": "TEXT",
-              "default": null,
-              "help": "Text to send",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
           "name": "status",
           "about": "Show mesh status (identity, discovery, peers)",
           "aliases": [],
@@ -3630,7 +3591,7 @@
         },
         {
           "name": "list",
-          "about": "List all panes as a workspace-grouped tree. `--agents` filters to agent panes only (replaces the old `agent list`)",
+          "about": "List all panes as a workspace-grouped tree. `--agents` filters to agent panes only",
           "aliases": [],
           "args": [
             {
@@ -3801,22 +3762,6 @@
           "about": "List local (or --mesh <peer>) pastes — id, size, ttl_remaining",
           "aliases": [],
           "args": [],
-          "subcommands": []
-        },
-        {
-          "name": "pop",
-          "about": "Get + delete in one call. Sugar for `paste get <id> --pop`",
-          "aliases": [],
-          "args": [
-            {
-              "name": "id",
-              "positional": true,
-              "value_name": "ID",
-              "default": null,
-              "help": "Paste id",
-              "aliases": []
-            }
-          ],
           "subcommands": []
         },
         {
@@ -4115,14 +4060,6 @@
           "aliases": []
         },
         {
-          "name": "from_stdin",
-          "positional": false,
-          "value_name": "FROM_STDIN",
-          "default": null,
-          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --from-stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
-          "aliases": []
-        },
-        {
           "name": "pane",
           "positional": false,
           "value_name": "PANE",
@@ -4131,11 +4068,21 @@
           "aliases": []
         },
         {
+          "name": "stdin",
+          "positional": false,
+          "value_name": "STDIN",
+          "default": null,
+          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
+          "aliases": [
+            "from-stdin"
+          ]
+        },
+        {
           "name": "text",
           "positional": true,
           "value_name": "TEXT",
-          "default": "",
-          "help": "Text to send (positional, or omit and use --from-file/--from-stdin)",
+          "default": null,
+          "help": "Text to send (positional, or omit and use --from-file/--stdin)",
           "aliases": []
         }
       ],
@@ -4687,35 +4634,11 @@
           "aliases": []
         },
         {
-          "name": "apply",
-          "positional": false,
-          "value_name": "APPLY",
-          "default": null,
-          "help": "Shortcut for `update install --auto`",
-          "aliases": []
-        },
-        {
-          "name": "channel",
-          "positional": false,
-          "value_name": "CHANNEL",
-          "default": null,
-          "help": "Shortcut for `update channel [name]`. Pass without value to print current channel",
-          "aliases": []
-        },
-        {
-          "name": "check",
-          "positional": false,
-          "value_name": "CHECK",
-          "default": null,
-          "help": "Shortcut for `update check`",
-          "aliases": []
-        },
-        {
           "name": "manifest_url",
           "positional": false,
           "value_name": "MANIFEST_URL",
           "default": null,
-          "help": "Override manifest URL when paired with --apply (or `install --auto`). Backend must be built with `dev-updater-allowlocal` for non-https URLs",
+          "help": "Override manifest URL when paired with `install --auto`. Backend must be built with `dev-updater-allowlocal` for non-https URLs",
           "aliases": []
         }
       ],
@@ -4954,7 +4877,7 @@
         },
         {
           "name": "create",
-          "about": "Create a new workspace",
+          "about": "Create a new workspace. With --cwd, reuses an existing workspace at that cwd",
           "aliases": [],
           "args": [
             {

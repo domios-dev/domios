@@ -89,10 +89,10 @@ def snapshot_panes(api: CodeTermAPI, pane_ids: list[str]) -> dict[str, dict]:
 # Scenarios that run on every pytest invocation
 # ---------------------------------------------------------------------------
 
-def test_update_check_endpoint_exists(api: CodeTermAPI):
+def test_update_check_endpoint_exists(api_only: CodeTermAPI):
     """`/api/update/check` returns a JSON envelope (200 or structured error)."""
     try:
-        result = api.get("/api/update/check")
+        result = api_only.get("/api/update/check")
     except Exception as exc:
         pytest.skip(f"update endpoint not yet wired: {exc}")
     assert isinstance(result, dict), "expected dict envelope"

@@ -1,6 +1,6 @@
 # Agent roles & orchestration
 
-CodeTerm has a 2-level agent hierarchy: **Orchestrator → Worker**. Flat by design — an Orchestrator and the Workers it spawns, exactly one level deep. No deeper nesting, no worker-spawns-worker.
+CodeTerm has a 2-level role hierarchy: **Orchestrator → Worker**. Flat by design — an Orchestrator and the Workers it spawns, exactly one level deep. No deeper nesting, no worker-spawns-worker.
 
 **Your role depends on how you were spawned.** Check `$CODETERM_ROLE` env var or look for a role marker in your initial task prompt.
 
@@ -151,5 +151,5 @@ Prompt templates compiled into the binary via `include_str!()`. Edit `.md` files
 - `src-tauri/prompts/cron_complete_suffix.md` — Appended to cron tasks (completion instruction)
 - `src-tauri/src/prompts.rs` — Rust module that loads all templates
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
 

@@ -34,16 +34,6 @@ pub enum MeshAction {
         #[arg(long, default_value = "general")]
         pane: String,
     },
-    /// Send text to a pane on a remote mesh peer
-    Send {
-        /// Target peer name or instance ID
-        target: String,
-        /// Text to send
-        text: String,
-        /// Target pane on remote instance (default: general)
-        #[arg(long, default_value = "general")]
-        pane: String,
-    },
     /// Get output from a pane on a remote mesh peer
     Output {
         /// Target peer name or instance ID
@@ -143,7 +133,7 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
                 eprintln!("Error: mesh management commands are local-only and cannot be relayed via --mesh");
                 std::process::exit(1);
             }
-            _ => {} // Status, Peers, Exec, Send, Output, Panes, Refresh, Announce — relayable
+            _ => {} // Status, Peers, Exec, Output, Panes, Refresh, Announce — relayable
         }
     }
 
@@ -156,30 +146,24 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         }
     };
 
-    // `update --apply` is a two-step flow: force-check then install.
+    // `update install --auto` is a two-step flow: force-check then install.
     if let Commands::Update {
         action,
-        check,
-        apply,
-        channel,
         manifest_url,
         after_update,
     } = &cli.command
     {
         let resolved = update::resolve_update_action(
             action.as_ref(),
-            *check,
-            *apply,
-            channel.clone(),
             manifest_url.clone(),
             after_update.clone(),
         );
         if let UpdateAction::Install {
             auto: true,
             manifest_url,
-            from_file: _,
-            continue_prompt: _,
-            continue_pane: _,
+            from_file: None,
+            continue_prompt: None,
+            continue_pane: None,
             after_update,
         } = &resolved
         {

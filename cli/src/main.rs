@@ -7,43 +7,11 @@ use cmd::print::{handle_result, print_human, print_object};
 use clap::Parser;
 use client::{discover_socket, SocketClient};
 
-fn strip_ansi(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            // Skip ESC sequences: ESC [ ... final_byte
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                while let Some(&nc) = chars.peek() {
-                    chars.next();
-                    if nc.is_ascii_alphabetic() || nc == '~' || nc == 'h' || nc == 'l' {
-                        break;
-                    }
-                }
-            } else if chars.peek() == Some(&']') {
-                // OSC sequence: ESC ] ... BEL or ST
-                chars.next();
-                while let Some(&nc) = chars.peek() {
-                    chars.next();
-                    if nc == '\x07' {
-                        break;
-                    }
-                    if nc == '\x1b' {
-                        chars.next();
-                        break;
-                    }
-                }
-            }
-        } else if c == '\r' {
-            // Skip carriage return
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
 pub use mesh_cli::{MeshAction, MeshPeerAction};
+
+pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
+    cmd::local_io::resolve_pane(client, id)
+}
 
 /// Determine the CodeTerm data directory.
 /// Dev instances use `~/.codeterm-dev/`, prod uses `~/.codeterm/`.
@@ -207,39 +175,6 @@ pub use args::usage::UsageAction;
 /// When running inside CodeTerm, $CODETERM_PANE_ID is set automatically by the PTY.
 /// This ensures commands like `pane split` always target the caller's pane,
 /// not whatever pane the user happens to have focused.
-pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
-    // 1. Explicit --pane/--id arg
-    if let Some(id) = id {
-        return id;
-    }
-    // 2. $CODETERM_PANE_ID env var (set by CodeTerm PTY for each shell)
-    if let Ok(env_id) = std::env::var("CODETERM_PANE_ID") {
-        if !env_id.is_empty() {
-            return env_id;
-        }
-    }
-    // 3. Fallback: ask server for focused pane
-    match client.call("pane.list", None) {
-        Ok(value) => {
-            if let Some(arr) = value.as_array() {
-                let pane = arr
-                    .iter()
-                    .find(|p| p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
-                    .or_else(|| arr.first());
-                if let Some(id) = pane.and_then(|p| p.get("id").and_then(|v| v.as_str())) {
-                    return id.to_string();
-                }
-            }
-            eprintln!("Error: no panes found");
-            std::process::exit(1);
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    }
-}
-
 fn main() {
     let cli = Cli::try_parse_from(std::env::args()).unwrap_or_else(|e| e.exit());
 
@@ -353,7 +288,7 @@ fn main() {
     }
 
     // `mem run-worker` opens knowledge.db directly via --db-path and never talks to the daemon socket — short-circuit before discover_socket so a
-    // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update --apply restarts the binary) doesn't make the worker exit 1 before it can do any work.
+    // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update install --auto restarts the binary) doesn't make the worker exit 1 before it can do any work.
     if let Commands::Mem {
         action: MemAction::RunWorker {
             ref kind,
@@ -440,75 +375,12 @@ fn main() {
 
         Commands::Capabilities => client.call("system.capabilities", None),
 
-        Commands::Workspace { action } => match action {
-            WorkspaceAction::List => client.call("workspace.list", None),
-            WorkspaceAction::Current => {
-                let result = client.call("workspace.list", None);
-                match result {
-                    Ok(value) => {
-                        if let Some(arr) = value.as_array() {
-                            let id = arr
-                                .iter()
-                                .find(|w| {
-                                    w.get("focused").and_then(|v| v.as_bool()).unwrap_or(false)
-                                })
-                                .or_else(|| arr.first())
-                                .and_then(|w| w.get("id").and_then(|v| v.as_str()));
-                            if let Some(id) = id {
-                                println!("{}", id);
-                            }
-                        }
-                        return;
-                    }
-                    Err(e) => {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    }
-                }
+        Commands::Workspace { action } => {
+            match cmd::local_io::handle_workspace_action(&mut client, action, cli.json) {
+                Some(result) => result,
+                None => return,
             }
-            WorkspaceAction::Create { name, cwd } => {
-                let mut params = serde_json::json!({ "name": name });
-                if let Some(cwd) = cwd {
-                    params["cwd"] = serde_json::json!(cwd);
-                }
-                match client.call("workspace.create", Some(params)) {
-                    Ok(val) if val.get("existing").and_then(|v| v.as_bool()) == Some(true) => {
-                        let ws_name = val.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-                        let ws_id = val.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                        if cli.json {
-                            println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                        } else {
-                            println!(
-                                "workspace with this cwd already exists: {} ({})",
-                                ws_name, ws_id
-                            );
-                        }
-                        return;
-                    }
-                    result => result,
-                }
-            }
-            WorkspaceAction::Focus { id } => client.call(
-                "workspace.focus",
-                Some(serde_json::json!({ "workspace_id": id })),
-            ),
-            WorkspaceAction::Rename { id, name } => client.call(
-                "workspace.rename",
-                Some(serde_json::json!({ "workspace_id": id, "name": name })),
-            ),
-            WorkspaceAction::Close { id } => client.call(
-                "workspace.close",
-                Some(serde_json::json!({ "workspace_id": id })),
-            ),
-            WorkspaceAction::MoveTab { tab_id, from, to } => client.call(
-                "workspace.move_tab",
-                Some(serde_json::json!({
-                    "tab_id": tab_id,
-                    "from_workspace_id": from,
-                    "to_workspace_id": to
-                })),
-            ),
-        },
+        }
 
         Commands::Pane { action } => {
             cmd::pane::handle_pane(&mut client, cli.json, action);
@@ -526,44 +398,17 @@ fn main() {
         }
 
         Commands::GetOutput { pane, lines } => {
-            let pane_id = resolve_pane(&mut client, pane);
-            let max_bytes = (lines as u64) * 80;
-            let result = client.call(
-                "pane.get_output",
-                Some(serde_json::json!({ "pane_id": pane_id, "max_bytes": max_bytes })),
-            );
-            match result {
-                Ok(value) => {
-                    if let Some(output) = value.get("output").and_then(|v| v.as_str()) {
-                        if cli.json {
-                            println!("{}", serde_json::to_string_pretty(&value).unwrap());
-                        } else {
-                            print!("{}", strip_ansi(output));
-                        }
-                    }
-                    return;
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            cmd::local_io::handle_get_output(&mut client, pane, lines, cli.json);
+            return;
         }
 
         Commands::SendText {
             pane,
             text,
             from_file,
-            from_stdin,
+            stdin,
         } => {
-            cmd::send_text::handle_send_text(
-                &mut client,
-                cli.json,
-                pane,
-                text,
-                from_file,
-                from_stdin,
-            );
+            cmd::local_io::handle_send_text(&mut client, cli.json, pane, text, from_file, stdin);
             return;
         }
 
@@ -751,21 +596,10 @@ fn main() {
 
         Commands::Update {
             action,
-            check,
-            apply,
-            channel,
             manifest_url,
             after_update,
         } => {
-            cmd::update::handle_update(
-                cli.json,
-                action,
-                check,
-                apply,
-                channel,
-                manifest_url,
-                after_update,
-            );
+            cmd::update::handle_update(cli.json, action, manifest_url, after_update);
             return;
         }
 
@@ -852,14 +686,18 @@ fn main() {
 }
 
 #[cfg(test)]
+fn test_env_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+#[cfg(test)]
 mod subcommand_contract_tests {
     use super::*;
     use clap::CommandFactory;
-    use std::sync::{Mutex, OnceLock};
 
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+    fn env_lock() -> &'static std::sync::Mutex<()> {
+        crate::test_env_lock()
     }
 
     fn restore_env(key: &str, value: Option<String>) {
@@ -1037,5 +875,107 @@ mod subcommand_contract_tests {
     fn top_level_docs_parse() {
         let parsed = Cli::try_parse_from(["codeterm", "docs"]).expect("docs parses");
         assert!(matches!(parsed.command, Commands::Docs { .. }));
+    }
+
+    #[test]
+    fn send_stdin_without_positional_parses() {
+        let parsed = Cli::try_parse_from(["codeterm", "send", "--stdin", "--pane", "abc123"])
+            .expect("send --stdin parses");
+        assert!(matches!(
+            parsed.command,
+            Commands::SendText {
+                text: None,
+                stdin: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn send_stdin_conflicts_with_positional_text() {
+        match Cli::try_parse_from(["codeterm", "send", "--stdin", "hello"]) {
+            Ok(_) => panic!("--stdin and positional text must conflict"),
+            Err(err) => assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict),
+        }
+    }
+
+    #[test]
+    fn workspace_reuse_notice_mentions_actual_and_requested_names() {
+        let value = serde_json::json!({
+            "id": "abcd1234",
+            "name": "Real Workspace",
+            "existing": true
+        });
+        assert_eq!(
+            cmd::local_io::workspace_reuse_notice(&value, "Requested Workspace").as_deref(),
+            Some("reused existing workspace abcd1234 'Real Workspace' (same cwd); requested name 'Requested Workspace' ignored")
+        );
+    }
+
+    #[test]
+    fn workspace_reuse_notice_absent_for_new_or_unmarked_workspace() {
+        let created = serde_json::json!({
+            "id": "abcd1234",
+            "name": "Requested Workspace",
+            "existing": false
+        });
+        let unmarked = serde_json::json!({
+            "id": "abcd1234",
+            "name": "Requested Workspace"
+        });
+        assert!(cmd::local_io::workspace_reuse_notice(&created, "Requested Workspace").is_none());
+        assert!(cmd::local_io::workspace_reuse_notice(&unmarked, "Requested Workspace").is_none());
+    }
+
+    #[test]
+    fn workspace_reuse_human_output_goes_to_stderr_only() {
+        let value = serde_json::json!({
+            "id": "abcd1234",
+            "name": "Real Workspace",
+            "existing": true
+        });
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        assert!(cmd::local_io::write_workspace_create_reuse_output(
+            &value,
+            "Requested Workspace",
+            false,
+            &mut stdout,
+            &mut stderr
+        )
+        .unwrap());
+
+        assert!(stdout.is_empty());
+        assert_eq!(
+            String::from_utf8(stderr).unwrap(),
+            "reused existing workspace abcd1234 'Real Workspace' (same cwd); requested name 'Requested Workspace' ignored\n"
+        );
+    }
+
+    #[test]
+    fn workspace_reuse_json_output_stays_on_stdout_only() {
+        let value = serde_json::json!({
+            "existing": true,
+            "id": "abcd1234",
+            "name": "Real Workspace"
+        });
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        assert!(cmd::local_io::write_workspace_create_reuse_output(
+            &value,
+            "Requested Workspace",
+            true,
+            &mut stdout,
+            &mut stderr
+        )
+        .unwrap());
+
+        assert!(stderr.is_empty());
+        assert_eq!(
+            String::from_utf8(stdout).unwrap(),
+            format!("{}\n", serde_json::to_string_pretty(&value).unwrap())
+        );
     }
 }

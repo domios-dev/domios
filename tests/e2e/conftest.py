@@ -135,6 +135,12 @@ def api(codeterm_instance):
     _cleanup_e2e_workspaces(client)
 
 
+@pytest.fixture(scope="session")
+def api_only(api: CodeTermAPI):
+    """REST-only client for tests that do not need a terminal pane."""
+    return api
+
+
 @pytest.fixture(scope="session", autouse=True)
 def sweep_e2e_workspaces(api):
     """Pre-run sweep for workspaces leaked by interrupted or failed tests."""
@@ -165,6 +171,50 @@ def _cleanup_e2e_workspaces(api: CodeTermAPI):
                 pass
     except Exception:
         pass
+
+
+@pytest.fixture()
+def api_pane(api_only: CodeTermAPI):
+    """Create a lazy pane for API metadata tests; no PTY is requested."""
+    ws_id = None
+    try:
+        ws = api_only.create_workspace(unique_name("e2e-ws-api"))
+        ws_id = ws["id"]
+        tab = api_only.create_tab(ws_id, eager=False)
+        yield tab["pane_id"]
+    finally:
+        if ws_id is not None:
+            try:
+                workspaces = api_only.list_workspaces()
+                if len(workspaces) > 1:
+                    api_only.close_workspace(ws_id)
+            except Exception:
+                pass
+
+
+@pytest.fixture(scope="module")
+def shared_eager_pane(api: CodeTermAPI):
+    """Module-scoped PTY pane for read-only shell probes with unique markers."""
+    ws_id = None
+    try:
+        ws = api.create_workspace(unique_name("e2e-ws-shared"))
+        ws_id = ws["id"]
+        tab = api.create_tab(ws_id, eager=True)
+        pane_id = tab["pane_id"]
+        api.wait_for_pty(pane_id, timeout=15)
+        try:
+            api.wait_for_output(pane_id, pattern=r"[\$#%>]", timeout=8)
+        except (TimeoutError, Exception):
+            time.sleep(2)
+        yield pane_id
+    finally:
+        if ws_id is not None:
+            try:
+                workspaces = api.list_workspaces()
+                if len(workspaces) > 1:
+                    api.close_workspace(ws_id)
+            except Exception:
+                pass
 
 
 @pytest.fixture()
