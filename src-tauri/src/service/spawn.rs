@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 
 use super::orchestrator::{build_agent_command, launch_agent_in_background, SpawnAgentParams};
 use super::ServiceContext;
@@ -80,6 +81,14 @@ pub struct AgentSpawnSpec {
 
 fn default_true() -> bool {
     true
+}
+
+pub(crate) fn should_default_agent_pane_to_chat(
+    default_enabled: bool,
+    visibility: PaneVisibility,
+    provider_supports_chat_ui: bool,
+) -> bool {
+    default_enabled && visibility == PaneVisibility::Visible && provider_supports_chat_ui
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -232,6 +241,20 @@ impl ServiceContext {
 
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
 
+        let default_chat_enabled = self
+            .app_handle
+            .state::<crate::config::ConfigState>()
+            .lock()
+            .ui
+            .default_new_agent_pane_chat;
+        let default_chat_view = should_default_agent_pane_to_chat(
+            default_chat_enabled,
+            spec.visibility,
+            self.agent_registry
+                .with_provider(&agent_cmd, |p| p.supports_chat_ui())
+                .unwrap_or(false),
+        );
+
         let (tab_id, pane_id) = {
             let mut mux = self.mux.lock();
             let result = mux.create_tab(&ws_id)?;
@@ -266,6 +289,11 @@ impl ServiceContext {
             if agent.auto_approve {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.auto_approve = true;
+                }
+            }
+            if default_chat_view {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.chat_view = true;
                 }
             }
             if let Err(e) = mux.rename_pane(&result.1, &title) {

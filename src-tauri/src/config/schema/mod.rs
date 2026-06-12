@@ -443,6 +443,8 @@ pub struct UiConfig {
     pub memory_tab_enabled: bool,
     #[serde(default = "default_true")]
     pub mesh_tab_enabled: bool,
+    #[serde(default)]
+    pub default_new_agent_pane_chat: bool,
 }
 
 impl Default for UiConfig {
@@ -450,6 +452,7 @@ impl Default for UiConfig {
         Self {
             memory_tab_enabled: true,
             mesh_tab_enabled: true,
+            default_new_agent_pane_chat: false,
         }
     }
 }

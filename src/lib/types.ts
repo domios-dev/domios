@@ -406,6 +406,7 @@ export interface MemoryConfig {
 export interface UiConfig {
   memory_tab_enabled?: boolean;
   mesh_tab_enabled?: boolean;
+  default_new_agent_pane_chat?: boolean;
 }
 
 export interface AppConfig {

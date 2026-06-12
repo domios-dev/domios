@@ -2,6 +2,7 @@
 
 use super::{json_str, resolve_refs, ServiceContext};
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 
 // ── Batch ───────────────────────────────────────────────────────────
 
@@ -322,6 +323,20 @@ impl ServiceContext {
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
         params.cwd = resolved_cwd;
 
+        let default_chat_enabled = self
+            .app_handle
+            .state::<crate::config::ConfigState>()
+            .lock()
+            .ui
+            .default_new_agent_pane_chat;
+        let default_chat_view = crate::service::spawn::should_default_agent_pane_to_chat(
+            default_chat_enabled,
+            crate::service::spawn::PaneVisibility::Visible,
+            self.agent_registry
+                .with_provider(agent_cmd, |p| p.supports_chat_ui())
+                .unwrap_or(false),
+        );
+
         // 2. Create new tab in the workspace (each agent gets its own tab)
         let (tab_id, pane_id) = {
             let mut mux = self.mux.lock();
@@ -339,6 +354,11 @@ impl ServiceContext {
             }
             if params.activate.unwrap_or(false) {
                 let _ = mux.set_active_tab(&ws_id, &result.0);
+            }
+            if default_chat_view {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.chat_view = true;
+                }
             }
             // Set report target for cron agents
             if let Some(ref rtid) = params.report_target_pane_id {
