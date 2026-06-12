@@ -301,7 +301,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       // Web UI delegates full agent spawn to the daemon.
       if (IS_WEB) {
-        const spawned = await webJson<{ pane_id: string }>("POST", "/api/agents/spawn", {
+        await webJson<{ pane_id: string }>("POST", "/api/agents/spawn", {
           agent: agentId,
           workspace_id: workspaceId,
           cwd,
