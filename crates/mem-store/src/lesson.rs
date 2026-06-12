@@ -70,7 +70,10 @@ pub fn promote_high_confidence_lessons(
     }
 
     tx.commit()?;
-    Ok(PromotionReport { promoted, already_high_confidence: already })
+    Ok(PromotionReport {
+        promoted,
+        already_high_confidence: already,
+    })
 }
 
 fn parse_tags(tags_json: &str) -> Vec<String> {

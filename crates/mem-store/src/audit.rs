@@ -1,7 +1,7 @@
 //! Audit-log writers for destructive graph operations.
 
-use rusqlite::Transaction;
 use crate::error::MemStoreResult;
+use rusqlite::Transaction;
 
 pub fn record_purge(
     tx: &Transaction,
