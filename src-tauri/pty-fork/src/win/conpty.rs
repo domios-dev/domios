@@ -11,8 +11,8 @@ use winapi::um::wincon::COORD;
 /// instead of buffering. Default CreatePipe buffer causes ConPTY to hold data.
 fn create_small_buffer_pipe() -> anyhow::Result<Pipe> {
     use std::ptr;
-    use winapi::um::namedpipeapi::CreatePipe;
     use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
+    use winapi::um::namedpipeapi::CreatePipe;
     use winapi::um::winnt::HANDLE;
 
     let mut sa = SECURITY_ATTRIBUTES {
@@ -150,4 +150,3 @@ impl SlavePty for ConPtySlavePty {
         Ok(Box::new(child))
     }
 }
-

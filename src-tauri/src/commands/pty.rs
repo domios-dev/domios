@@ -157,14 +157,14 @@ pub async fn spawn_pty(
             restored_from_snapshot && !is_protected && agent_type.is_some();
         let agent_type_for_fresh = agent_type.clone();
 
-            // Resume only restored snapshots; direct spawn uses backend start.
+        // Resume only restored snapshots; direct spawn uses backend start.
         if let Some(session_id) = session_id
             .filter(|_| !is_protected)
             .filter(|_| restored_from_snapshot)
         {
             let provider_id = agent_type.unwrap_or_else(crate::config::default_agent_provider);
 
-                // Clear stale id if session is gone to avoid resume loop.
+            // Clear stale id if session is gone to avoid resume loop.
             let session_valid = pane_cwd
                 .as_deref()
                 .map(|cwd| {
@@ -207,7 +207,7 @@ pub async fn spawn_pty(
                             return;
                         }
 
-        // Wait up to 60s for shell readiness before writing resume command.
+                        // Wait up to 60s for shell readiness before writing resume command.
                         let ready = tokio::task::spawn_blocking(move || {
                             crate::service::pty_io::poll_shell_prompt(
                                 &screen_state_clone,

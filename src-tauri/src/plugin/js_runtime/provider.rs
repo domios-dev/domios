@@ -127,8 +127,10 @@ impl crate::agent::usage_parser::UsageParser for VmUsageParser {
     fn parse(
         &self,
         raw_text: &str,
-    ) -> Result<crate::agent::usage_parser::UsageSnapshot, crate::agent::usage_parser::UsageParseError>
-    {
+    ) -> Result<
+        crate::agent::usage_parser::UsageSnapshot,
+        crate::agent::usage_parser::UsageParseError,
+    > {
         use crate::agent::usage_parser::UsageParseError;
         let now_ms = chrono::Utc::now().timestamp_millis();
         match call_json::<Option<crate::agent::usage_parser::UsageSnapshot>>(
@@ -244,9 +246,7 @@ impl JsProvider {
             // project dir — on macOS `/var/...` resolves to `/private/var/...`,
             // so a raw cwd would encode to a dir that doesn't exist. Match it
             // (verbatim-prefix stripped on Windows, see `canonical_cwd`).
-            super::CwdEncoding::DashEncoded => {
-                encode_cwd_dashed(&crate::paths::canonical_cwd(cwd))
-            }
+            super::CwdEncoding::DashEncoded => encode_cwd_dashed(&crate::paths::canonical_cwd(cwd)),
             super::CwdEncoding::None => cwd.to_string(),
         };
         Some(root.join(leaf))
@@ -467,9 +467,7 @@ impl AgentProvider for JsProvider {
         // None means "default recency window" (300s, same as native providers) —
         // never 0/unlimited: plugins treat 0 as "no cutoff", which let any stale
         // rollout in the cwd win the latch.
-        let max_age_ms = max_age
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(300_000);
+        let max_age_ms = max_age.map(|d| d.as_millis() as i64).unwrap_or(300_000);
         if let Some(v) = self.try_call::<Option<String>>(
             "detectSessionId",
             &[json!(cwd), json!(exclude), json!(max_age_ms)],
@@ -712,10 +710,7 @@ impl AgentProvider for JsProvider {
         // structured-capable, or a native fallback that serves chat.
         self.has_js("sessionJsonlPath")
             || self.uses_structured_chat()
-            || self
-                .native()
-                .map(|n| n.supports_chat_ui())
-                .unwrap_or(false)
+            || self.native().map(|n| n.supports_chat_ui()).unwrap_or(false)
     }
 
     fn parse_session_delta(
@@ -885,11 +880,17 @@ impl AgentProvider for JsProvider {
 
     fn settings_schema(&self) -> Vec<SettingField> {
         // Cached: describe() polls hit this; the plugin schema is a pure constant.
-        self.schema_cache.get_or_init(|| self.compute_schemas()).0.clone()
+        self.schema_cache
+            .get_or_init(|| self.compute_schemas())
+            .0
+            .clone()
     }
 
     fn notifications_schema(&self) -> Vec<SettingField> {
-        self.schema_cache.get_or_init(|| self.compute_schemas()).1.clone()
+        self.schema_cache
+            .get_or_init(|| self.compute_schemas())
+            .1
+            .clone()
     }
 
     fn install_bridge_rule(&self, payload: &str) -> Result<(), String> {

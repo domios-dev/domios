@@ -13,12 +13,12 @@ use super::agent::AgentAction;
 use super::cron::CronAction;
 use super::debug::DebugAction;
 use super::mem::MemAction;
-use super::service::ServiceAction;
 use super::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction,
-    PasteAction, ThemeAction, WorkspaceAction,
+    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
+    ThemeAction, WorkspaceAction,
 };
 use super::plugin::PluginAction;
+use super::service::ServiceAction;
 use super::sessions::SessionsAction;
 use super::system::SystemAction;
 use super::update::UpdateAction;

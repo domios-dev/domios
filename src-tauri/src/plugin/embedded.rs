@@ -206,8 +206,15 @@ mod tests {
         };
         let dst = tmp.path().join(id);
         std::fs::create_dir_all(&dst).unwrap();
-        std::fs::write(dst.join("plugin.json"), br#"{"id":"stub","version":"0.0.1"}"#).unwrap();
-        assert!(sync_to(id, tmp.path()).unwrap(), "older install must upgrade");
+        std::fs::write(
+            dst.join("plugin.json"),
+            br#"{"id":"stub","version":"0.0.1"}"#,
+        )
+        .unwrap();
+        assert!(
+            sync_to(id, tmp.path()).unwrap(),
+            "older install must upgrade"
+        );
         assert_ne!(installed_version(&dst).as_deref(), Some("0.0.1"));
     }
 
@@ -220,8 +227,15 @@ mod tests {
         };
         let dst = tmp.path().join(id);
         std::fs::create_dir_all(&dst).unwrap();
-        std::fs::write(dst.join("plugin.json"), br#"{"id":"stub","version":"9999.0.0"}"#).unwrap();
-        assert!(!sync_to(id, tmp.path()).unwrap(), "newer install must not downgrade");
+        std::fs::write(
+            dst.join("plugin.json"),
+            br#"{"id":"stub","version":"9999.0.0"}"#,
+        )
+        .unwrap();
+        assert!(
+            !sync_to(id, tmp.path()).unwrap(),
+            "newer install must not downgrade"
+        );
         assert_eq!(installed_version(&dst).as_deref(), Some("9999.0.0"));
     }
 }

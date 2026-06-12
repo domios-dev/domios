@@ -1,6 +1,9 @@
 use super::*;
 
-pub(super) fn last_change_for_install(version: Option<String>, channel: Option<String>) -> LastChange {
+pub(super) fn last_change_for_install(
+    version: Option<String>,
+    channel: Option<String>,
+) -> LastChange {
     LastChange {
         kind: "installed".to_string(),
         from_version: None,

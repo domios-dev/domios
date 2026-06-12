@@ -58,8 +58,13 @@ fn cap_submit_timeout(
 ) -> crate::agent::provider::VerifySubmitStrategy {
     use crate::agent::provider::VerifySubmitStrategy as S;
     match strategy {
-        S::ShellPrompt { timeout } => S::ShellPrompt { timeout: timeout.min(max) },
-        S::TuiInputDrained { timeout, idle_after_drain } => S::TuiInputDrained {
+        S::ShellPrompt { timeout } => S::ShellPrompt {
+            timeout: timeout.min(max),
+        },
+        S::TuiInputDrained {
+            timeout,
+            idle_after_drain,
+        } => S::TuiInputDrained {
             timeout: timeout.min(max),
             idle_after_drain,
         },
@@ -168,7 +173,12 @@ impl ServiceContext {
     /// Poll the pty's screen until the provider's TUI fingerprint shows (or the
     /// universal agent-TUI glyph check), bounded by `timeout`. Best-effort: a
     /// timeout just proceeds — the verified injection still runs.
-    fn await_agent_tui_on_screen(&self, pty_id: &str, agent_id: &str, timeout: std::time::Duration) {
+    fn await_agent_tui_on_screen(
+        &self,
+        pty_id: &str,
+        agent_id: &str,
+        timeout: std::time::Duration,
+    ) {
         let deadline = std::time::Instant::now() + timeout;
         loop {
             let screen = self.screen_state.lock().get_screen_text(pty_id);
@@ -292,7 +302,11 @@ impl ServiceContext {
                 .build()
                 .expect("backend reader runtime");
             rt.block_on(async {
-                match crate::service::pty_lifecycle::start_backend_reader(&svc_reader, &pty_id, true) {
+                match crate::service::pty_lifecycle::start_backend_reader(
+                    &svc_reader,
+                    &pty_id,
+                    true,
+                ) {
                     Ok(handle) => {
                         let _ = handle.await;
                     }

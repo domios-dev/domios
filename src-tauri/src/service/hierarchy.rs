@@ -82,7 +82,11 @@ impl ServiceContext {
                     "[report] target={} live_agent={} — {}",
                     target_id,
                     live,
-                    if live { "injecting into PTY" } else { "stored only (no agent TUI on screen)" },
+                    if live {
+                        "injecting into PTY"
+                    } else {
+                        "stored only (no agent TUI on screen)"
+                    },
                 );
                 if live {
                     let model = self

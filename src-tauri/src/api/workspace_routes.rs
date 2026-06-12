@@ -161,7 +161,12 @@ pub async fn create_tab(
             .svc
             .ensure_pane_pty_for_send(&pane_id)
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to spawn PTY"))?;
-        state.svc.mux.lock().get_pane(&pane_id).and_then(|p| p.pty_id.clone())
+        state
+            .svc
+            .mux
+            .lock()
+            .get_pane(&pane_id)
+            .and_then(|p| p.pty_id.clone())
     } else {
         None
     };

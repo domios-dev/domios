@@ -214,5 +214,7 @@ pub async fn snapshot(
     let (messages, total) =
         crate::service::pane_chat::pane_chat_snapshot(&state.svc, &pane_id, q.since)
             .map_err(|_| (StatusCode::BAD_REQUEST, "chat snapshot failed"))?;
-    Ok(Json(serde_json::json!({ "messages": messages, "count": total })))
+    Ok(Json(
+        serde_json::json!({ "messages": messages, "count": total }),
+    ))
 }

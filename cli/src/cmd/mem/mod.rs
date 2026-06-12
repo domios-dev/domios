@@ -7,7 +7,9 @@ use crate::{
 // Parse optional SKILL.md frontmatter (`title`, `area`, `tags`) between --- separators.
 fn strip_skill_frontmatter(body: &str) -> &str {
     let mut lines = body.lines();
-    if lines.next().map(|l| l.trim()) != Some("---") { return body; }
+    if lines.next().map(|l| l.trim()) != Some("---") {
+        return body;
+    }
     let mut consumed = body.lines().next().unwrap_or("").len() + 1;
     for line in lines {
         consumed += line.len() + 1;
@@ -28,26 +30,39 @@ fn parse_skill_frontmatter(body: &str) -> (Option<String>, Option<String>, Vec<S
     let mut tags = Vec::new();
     for line in lines {
         let t = line.trim();
-        if t == "---" { break; }
+        if t == "---" {
+            break;
+        }
         if let Some(v) = t.strip_prefix("title:") {
             title = Some(v.trim().trim_matches('"').to_string());
         } else if let Some(v) = t.strip_prefix("area:") {
             area = Some(v.trim().trim_matches('"').to_string());
         } else if let Some(v) = t.strip_prefix("tags:") {
-            tags = v.trim().trim_matches('[').trim_matches(']')
-                .split(',').map(|s| s.trim().trim_matches('"').to_string())
-                .filter(|s| !s.is_empty()).collect();
+            tags = v
+                .trim()
+                .trim_matches('[')
+                .trim_matches(']')
+                .split(',')
+                .map(|s| s.trim().trim_matches('"').to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
         }
     }
     (title, area, tags)
 }
 
-fn mem_get_request(http: &reqwest::blocking::Client, url: &str) -> Result<serde_json::Value, String> {
+fn mem_get_request(
+    http: &reqwest::blocking::Client,
+    url: &str,
+) -> Result<serde_json::Value, String> {
     let resp = http.get(url).send().map_err(|e| e.to_string())?;
     let status = resp.status();
     let val: serde_json::Value = resp.json().unwrap_or_default();
     if !status.is_success() {
-        return Err(val.get("message").and_then(|v| v.as_str()).map(String::from)
+        return Err(val
+            .get("message")
+            .and_then(|v| v.as_str())
+            .map(String::from)
             .unwrap_or_else(|| format!("HTTP {}", status)));
     }
     Ok(val)
@@ -58,12 +73,20 @@ fn mem_post_request(
     url: &str,
     body: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let resp = http.post(url).json(body).send().map_err(|e| e.to_string())?;
+    let resp = http
+        .post(url)
+        .json(body)
+        .send()
+        .map_err(|e| e.to_string())?;
     let status = resp.status();
     let text = resp.text().unwrap_or_default();
     let val: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
     if !status.is_success() {
-        return Err(if text.is_empty() { val.to_string() } else { text });
+        return Err(if text.is_empty() {
+            val.to_string()
+        } else {
+            text
+        });
     }
     Ok(val)
 }
@@ -80,27 +103,51 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
     };
 
     let result: Result<serde_json::Value, String> = match action {
-        MemAction::Search { query, kind, area, scope, limit, rerank } => {
-            let mut url = format!("{}/api/mem/search?q={}&limit={}",
-                base, urlencoding::encode(&query), limit);
-            if let Some(k) = &kind { url.push_str(&format!("&kind={}", k)); }
-            if let Some(a) = &area { url.push_str(&format!("&area={}", a)); }
-            if let Some(s) = &scope { url.push_str(&format!("&scope={}", s)); }
-            if rerank { url.push_str("&rerank=true"); }
+        MemAction::Search {
+            query,
+            kind,
+            area,
+            scope,
+            limit,
+            rerank,
+        } => {
+            let mut url = format!(
+                "{}/api/mem/search?q={}&limit={}",
+                base,
+                urlencoding::encode(&query),
+                limit
+            );
+            if let Some(k) = &kind {
+                url.push_str(&format!("&kind={}", k));
+            }
+            if let Some(a) = &area {
+                url.push_str(&format!("&area={}", a));
+            }
+            if let Some(s) = &scope {
+                url.push_str(&format!("&scope={}", s));
+            }
+            if rerank {
+                url.push_str("&rerank=true");
+            }
             mem_get_request(&http, &url)
         }
-        MemAction::Get { id } => {
-            mem_get_request(&http, &format!("{}/api/mem/items/{}", base, id))
-        }
+        MemAction::Get { id } => mem_get_request(&http, &format!("{}/api/mem/items/{}", base, id)),
         MemAction::Delete { id } => {
-            let resp = http.delete(format!("{}/api/mem/items/{}", base, id))
-                .send().map_err(|e| e.to_string());
+            let resp = http
+                .delete(format!("{}/api/mem/items/{}", base, id))
+                .send()
+                .map_err(|e| e.to_string());
             resp.map(|r| serde_json::json!({"deleted": r.status().is_success()}))
         }
         MemAction::Forget { area } => {
             let resp = http
-                .delete(format!("{}/api/mem/forget/{}", base, urlencoding::encode(&area)))
-                .send().map_err(|e| e.to_string());
+                .delete(format!(
+                    "{}/api/mem/forget/{}",
+                    base,
+                    urlencoding::encode(&area)
+                ))
+                .send()
+                .map_err(|e| e.to_string());
             resp.map(|r| {
                 if let Ok(v) = r.json::<serde_json::Value>() {
                     v
@@ -142,15 +189,29 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
         MemAction::Tail { follow, limit } => {
             return run_mem_tail(&http, &base, json_mode, follow, limit);
         }
-        MemAction::Update { id, title, summary, area, tags, body, importance, changed_by } => {
-            let tag_list: Option<Vec<String>> = tags.map(|t|
-                t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
-            );
+        MemAction::Update {
+            id,
+            title,
+            summary,
+            area,
+            tags,
+            body,
+            importance,
+            changed_by,
+        } => {
+            let tag_list: Option<Vec<String>> = tags.map(|t| {
+                t.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            });
             let payload = serde_json::json!({
                 "title": title, "summary": summary, "area": area,
                 "tags": tag_list, "body": body, "importance": importance,
             });
-            let mut req = http.patch(format!("{}/api/mem/items/{}", base, id)).json(&payload);
+            let mut req = http
+                .patch(format!("{}/api/mem/items/{}", base, id))
+                .json(&payload);
             if let Some(actor) = &changed_by {
                 let trimmed = actor.trim();
                 if trimmed.is_empty() {
@@ -164,14 +225,19 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 Ok(r) => {
                     let status = r.status();
                     let val: serde_json::Value = r.json().unwrap_or_default();
-                    if status.is_success() { Ok(val) } else { Err(val.to_string()) }
+                    if status.is_success() {
+                        Ok(val)
+                    } else {
+                        Err(val.to_string())
+                    }
                 }
                 Err(e) => Err(e),
             }
         }
         MemAction::Pin { id } => {
             let payload = serde_json::json!({ "pinned": true });
-            let resp = http.patch(format!("{}/api/mem/items/{}", base, id))
+            let resp = http
+                .patch(format!("{}/api/mem/items/{}", base, id))
                 .json(&payload)
                 .send()
                 .map_err(|e| e.to_string());
@@ -179,14 +245,19 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 Ok(r) => {
                     let status = r.status();
                     let val: serde_json::Value = r.json().unwrap_or_default();
-                    if status.is_success() { Ok(val) } else { Err(val.to_string()) }
+                    if status.is_success() {
+                        Ok(val)
+                    } else {
+                        Err(val.to_string())
+                    }
                 }
                 Err(e) => Err(e),
             }
         }
         MemAction::Unpin { id } => {
             let payload = serde_json::json!({ "pinned": false });
-            let resp = http.patch(format!("{}/api/mem/items/{}", base, id))
+            let resp = http
+                .patch(format!("{}/api/mem/items/{}", base, id))
                 .json(&payload)
                 .send()
                 .map_err(|e| e.to_string());
@@ -194,7 +265,11 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 Ok(r) => {
                     let status = r.status();
                     let val: serde_json::Value = r.json().unwrap_or_default();
-                    if status.is_success() { Ok(val) } else { Err(val.to_string()) }
+                    if status.is_success() {
+                        Ok(val)
+                    } else {
+                        Err(val.to_string())
+                    }
                 }
                 Err(e) => Err(e),
             }
@@ -206,7 +281,21 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             };
             mem_get_request(&http, &url)
         }
-        MemAction::Save { kind, title, body, summary, tags, area, importance, scope, workspace, pin, source_path, replace, skip_extract } => {
+        MemAction::Save {
+            kind,
+            title,
+            body,
+            summary,
+            tags,
+            area,
+            importance,
+            scope,
+            workspace,
+            pin,
+            source_path,
+            replace,
+            skip_extract,
+        } => {
             // Body: positional arg, else read stdin if piped
             let resolved_body = match body {
                 Some(b) => b,
@@ -220,11 +309,22 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 }
             };
             let resolved_title = title.unwrap_or_else(|| {
-                resolved_body.lines().next().unwrap_or("untitled").chars().take(80).collect()
+                resolved_body
+                    .lines()
+                    .next()
+                    .unwrap_or("untitled")
+                    .chars()
+                    .take(80)
+                    .collect()
             });
             let split_csv = |raw: Option<String>| -> Vec<String> {
-                raw.map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
-                    .unwrap_or_default()
+                raw.map(|t| {
+                    t.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default()
             };
             let tag_list = split_csv(tags);
             let resolved_scope = match (workspace, scope) {
@@ -255,19 +355,23 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             });
             mem_post_request(&http, &format!("{}/api/mem/items", base), &payload)
         }
-        MemAction::ExtractPending { limit } => {
-            mem_post_request(
-                &http,
-                &format!("{}/api/mem/extract-pending?limit={}", base, limit),
-                &serde_json::json!({}),
-            )
-        }
+        MemAction::ExtractPending { limit } => mem_post_request(
+            &http,
+            &format!("{}/api/mem/extract-pending?limit={}", base, limit),
+            &serde_json::json!({}),
+        ),
         MemAction::Skill { action } => match action {
             MemSkillAction::New { name, area } => {
-                let skills_root = dirs::home_dir().unwrap_or_default().join(data_dir_name()).join("skills");
+                let skills_root = dirs::home_dir()
+                    .unwrap_or_default()
+                    .join(data_dir_name())
+                    .join("skills");
                 let folder_path = skills_root.join(&name);
                 if folder_path.exists() {
-                    eprintln!("Error: skill folder already exists: {}", folder_path.display());
+                    eprintln!(
+                        "Error: skill folder already exists: {}",
+                        folder_path.display()
+                    );
                     std::process::exit(1);
                 }
                 if let Err(e) = std::fs::create_dir_all(folder_path.join("scripts")) {
@@ -312,9 +416,15 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 }
                 mem_post_request(&http, &format!("{}/api/mem/items", base), &payload)
             }
-            MemSkillAction::Add { folder, area, importance } => {
+            MemSkillAction::Add {
+                folder,
+                area,
+                importance,
+            } => {
                 let folder_expanded = if let Some(stripped) = folder.strip_prefix("~/") {
-                    dirs::home_dir().map(|h| h.join(stripped)).unwrap_or_else(|| std::path::PathBuf::from(&folder))
+                    dirs::home_dir()
+                        .map(|h| h.join(stripped))
+                        .unwrap_or_else(|| std::path::PathBuf::from(&folder))
                 } else if folder == "~" {
                     dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("~"))
                 } else {
@@ -336,20 +446,39 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 // Optional YAML-ish frontmatter parse: between two --- lines at top. Picks `title:`, `area:`, `tags:` (comma list) if present.
                 let (fm_title, fm_area, fm_tags) = parse_skill_frontmatter(&body);
                 // Title priority: frontmatter → first H1 → folder name.
-                let title = fm_title.or_else(|| body.lines()
-                    .find(|l| l.trim_start().starts_with("# "))
-                    .map(|l| l.trim_start().trim_start_matches("# ").trim().to_string()))
-                    .unwrap_or_else(|| folder_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "skill".into()));
+                let title = fm_title
+                    .or_else(|| {
+                        body.lines()
+                            .find(|l| l.trim_start().starts_with("# "))
+                            .map(|l| l.trim_start().trim_start_matches("# ").trim().to_string())
+                    })
+                    .unwrap_or_else(|| {
+                        folder_path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "skill".into())
+                    });
                 // Area priority: --area flag → frontmatter → parent folder name (if grandparent is skills/).
                 let area_resolved = area.clone().or(fm_area).or_else(|| {
-                    let parent = folder_path.parent()?.file_name()?.to_string_lossy().to_string();
-                    if parent == "skills" { None } else { Some(parent) }
+                    let parent = folder_path
+                        .parent()?
+                        .file_name()?
+                        .to_string_lossy()
+                        .to_string();
+                    if parent == "skills" {
+                        None
+                    } else {
+                        Some(parent)
+                    }
                 });
                 // Skip the YAML frontmatter block before picking summary.
                 let body_after_fm = strip_skill_frontmatter(&body);
-                let summary: String = body_after_fm.lines()
+                let summary: String = body_after_fm
+                    .lines()
                     .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
-                    .next().unwrap_or("").to_string();
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
                 let source = format!("file:{}", skill_md.display());
                 let mut tags: Vec<String> = vec!["folder-skill".into()];
                 tags.extend(fm_tags);
@@ -374,7 +503,8 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 match mem_get_request(&http, &format!("{}/api/mem/tail?limit=500", base)) {
                     Ok(resp) => {
                         if let Some(rows) = resp.get("rows").and_then(|v| v.as_array()) {
-                            let skills: Vec<&serde_json::Value> = rows.iter()
+                            let skills: Vec<&serde_json::Value> = rows
+                                .iter()
                                 .filter(|r| r.get("kind").and_then(|k| k.as_str()) == Some("skill"))
                                 .collect();
                             Ok(serde_json::json!({"skills": skills}))
@@ -386,26 +516,45 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 }
             }
         },
-        MemAction::WakeUp { budget, l0_only, no_l0, explain, workspace } => {
+        MemAction::WakeUp {
+            budget,
+            l0_only,
+            no_l0,
+            explain,
+            workspace,
+        } => {
             let mut url = format!("{}/api/mem/wake-up", base);
             let mut sep = '?';
             if let Some(b) = budget {
                 url.push_str(&format!("{}budget={}", sep, b));
                 sep = '&';
             }
-            if l0_only { url.push_str(&format!("{}l0_only=true", sep)); sep = '&'; }
-            if no_l0 { url.push_str(&format!("{}no_l0=true", sep)); sep = '&'; }
-            if explain { url.push_str(&format!("{}explain=true", sep)); sep = '&'; }
+            if l0_only {
+                url.push_str(&format!("{}l0_only=true", sep));
+                sep = '&';
+            }
+            if no_l0 {
+                url.push_str(&format!("{}no_l0=true", sep));
+                sep = '&';
+            }
+            if explain {
+                url.push_str(&format!("{}explain=true", sep));
+                sep = '&';
+            }
             if let Some(ws) = &workspace {
                 url.push_str(&format!("{}workspace={}", sep, urlencoding::encode(ws)));
                 let _ = sep;
             }
             mem_get_request(&http, &url)
         }
-        MemAction::Stats => {
-            mem_get_request(&http, &format!("{}/api/mem/stats", base))
-        }
-        MemAction::Learn { text, kind, tags, error, feature } => {
+        MemAction::Stats => mem_get_request(&http, &format!("{}/api/mem/stats", base)),
+        MemAction::Learn {
+            text,
+            kind,
+            tags,
+            error,
+            feature,
+        } => {
             let (resolved_text, resolved_kind) = if let Some(t) = error {
                 (t, "error".to_string())
             } else if let Some(t) = feature {
@@ -421,25 +570,41 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 (s, kind.unwrap_or_else(|| "insight".into()))
             };
             let tag_list: Vec<String> = tags
-                .map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+                .map(|t| {
+                    t.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
                 .unwrap_or_default();
-            mem_post_request(&http, &format!("{}/api/mem/learn", base), &serde_json::json!({
-                "text": resolved_text, "kind": resolved_kind, "tags": tag_list,
-            }))
+            mem_post_request(
+                &http,
+                &format!("{}/api/mem/learn", base),
+                &serde_json::json!({
+                    "text": resolved_text, "kind": resolved_kind, "tags": tag_list,
+                }),
+            )
         }
-        MemAction::LearnList => {
-            mem_get_request(&http, &format!("{}/api/mem/search?q=learning&kind=learning&limit=50", base))
-        }
-        MemAction::LearnPromote { id } => {
-            mem_post_request(&http, &format!("{}/api/mem/promote/{}", base, id), &serde_json::json!({}))
-        }
+        MemAction::LearnList => mem_get_request(
+            &http,
+            &format!("{}/api/mem/search?q=learning&kind=learning&limit=50", base),
+        ),
+        MemAction::LearnPromote { id } => mem_post_request(
+            &http,
+            &format!("{}/api/mem/promote/{}", base, id),
+            &serde_json::json!({}),
+        ),
         MemAction::Flush { pane, title } => {
             let pane_id = pane
                 .or_else(|| std::env::var("CODETERM_PANE_ID").ok())
                 .unwrap_or_else(|| "current".to_string());
-            mem_post_request(&http, &format!("{}/api/mem/flush", base), &serde_json::json!({
-                "pane": pane_id, "title": title,
-            }))
+            mem_post_request(
+                &http,
+                &format!("{}/api/mem/flush", base),
+                &serde_json::json!({
+                    "pane": pane_id, "title": title,
+                }),
+            )
         }
         MemAction::Sync { path } => {
             let mut url = format!("{}/api/mem/sync", base);
@@ -449,7 +614,12 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             mem_post_request(&http, &url, &serde_json::json!({}))
         }
         MemAction::Graph { action } => match action {
-            MemGraphAction::Create { id, entity_type, props, scope } => {
+            MemGraphAction::Create {
+                id,
+                entity_type,
+                props,
+                scope,
+            } => {
                 let props_val: serde_json::Value =
                     serde_json::from_str(&props).unwrap_or(serde_json::json!({}));
                 let payload = serde_json::json!({
@@ -457,7 +627,16 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/entities", base), &payload)
             }
-            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope, reason } => {
+            MemGraphAction::Relate {
+                from,
+                rel,
+                to,
+                valid_from,
+                valid_to,
+                confidence,
+                scope,
+                reason,
+            } => {
                 let payload = serde_json::json!({
                     "from": from, "rel": rel, "to": to,
                     "valid_from": valid_from, "valid_to": valid_to,
@@ -466,40 +645,104 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/relate", base), &payload)
             }
-            MemGraphAction::Related { id, rel, as_of, include_invalidated } => {
-                let mut url = format!("{}/api/mem/graph/related?id={}", base, urlencoding::encode(&id));
-                if let Some(r) = &rel { url.push_str(&format!("&rel={}", r)); }
-                if let Some(d) = &as_of { url.push_str(&format!("&as_of={}", urlencoding::encode(d))); }
-                if include_invalidated { url.push_str("&include_invalidated=true"); }
+            MemGraphAction::Related {
+                id,
+                rel,
+                as_of,
+                include_invalidated,
+            } => {
+                let mut url = format!(
+                    "{}/api/mem/graph/related?id={}",
+                    base,
+                    urlencoding::encode(&id)
+                );
+                if let Some(r) = &rel {
+                    url.push_str(&format!("&rel={}", r));
+                }
+                if let Some(d) = &as_of {
+                    url.push_str(&format!("&as_of={}", urlencoding::encode(d)));
+                }
+                if include_invalidated {
+                    url.push_str("&include_invalidated=true");
+                }
                 mem_get_request(&http, &url)
             }
-            MemGraphAction::Invalidate { from, rel, to, ended } => {
+            MemGraphAction::Invalidate {
+                from,
+                rel,
+                to,
+                ended,
+            } => {
                 let payload = serde_json::json!({
                     "from": from, "rel": rel, "to": to, "ended": ended,
                 });
-                mem_post_request(&http, &format!("{}/api/mem/graph/invalidate", base), &payload)
+                mem_post_request(
+                    &http,
+                    &format!("{}/api/mem/graph/invalidate", base),
+                    &payload,
+                )
             }
-            MemGraphAction::Timeline { entity, include_invalidated } => {
-                let mut url = format!("{}/api/mem/graph/timeline?entity={}", base, urlencoding::encode(&entity));
-                if include_invalidated { url.push_str("&include_invalidated=true"); }
+            MemGraphAction::Timeline {
+                entity,
+                include_invalidated,
+            } => {
+                let mut url = format!(
+                    "{}/api/mem/graph/timeline?entity={}",
+                    base,
+                    urlencoding::encode(&entity)
+                );
+                if include_invalidated {
+                    url.push_str("&include_invalidated=true");
+                }
                 mem_get_request(&http, &url)
             }
-            MemGraphAction::Traverse { from, hops, max_nodes, as_of, include_invalidated } => {
-                let mut url = format!("{}/api/mem/graph/traverse?from={}&hops={}&max_nodes={}",
-                    base, urlencoding::encode(&from), hops, max_nodes);
-                if let Some(d) = &as_of { url.push_str(&format!("&as_of={}", urlencoding::encode(d))); }
-                if include_invalidated { url.push_str("&include_invalidated=true"); }
+            MemGraphAction::Traverse {
+                from,
+                hops,
+                max_nodes,
+                as_of,
+                include_invalidated,
+            } => {
+                let mut url = format!(
+                    "{}/api/mem/graph/traverse?from={}&hops={}&max_nodes={}",
+                    base,
+                    urlencoding::encode(&from),
+                    hops,
+                    max_nodes
+                );
+                if let Some(d) = &as_of {
+                    url.push_str(&format!("&as_of={}", urlencoding::encode(d)));
+                }
+                if include_invalidated {
+                    url.push_str("&include_invalidated=true");
+                }
                 mem_get_request(&http, &url)
             }
-            MemGraphAction::Path { from, to, max_hops, include_invalidated } => {
-                let mut url = format!("{}/api/mem/graph/path?from={}&to={}&max_hops={}",
-                    base, urlencoding::encode(&from), urlencoding::encode(&to), max_hops);
-                if include_invalidated { url.push_str("&include_invalidated=true"); }
+            MemGraphAction::Path {
+                from,
+                to,
+                max_hops,
+                include_invalidated,
+            } => {
+                let mut url = format!(
+                    "{}/api/mem/graph/path?from={}&to={}&max_hops={}",
+                    base,
+                    urlencoding::encode(&from),
+                    urlencoding::encode(&to),
+                    max_hops
+                );
+                if include_invalidated {
+                    url.push_str("&include_invalidated=true");
+                }
                 mem_get_request(&http, &url)
             }
-            MemGraphAction::Tunnels { include_invalidated } => {
+            MemGraphAction::Tunnels {
+                include_invalidated,
+            } => {
                 let mut url = format!("{}/api/mem/graph/tunnels", base);
-                if include_invalidated { url.push_str("?include_invalidated=true"); }
+                if include_invalidated {
+                    url.push_str("?include_invalidated=true");
+                }
                 mem_get_request(&http, &url)
             }
             MemGraphAction::Alias { alias, canonical } => {
@@ -512,20 +755,30 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                     "group_by": group_by_vec,
                     "limit": limit,
                 });
-                mem_post_request(&http, &format!("{}/api/mem/graph/repair/find-relations", base), &payload)
+                mem_post_request(
+                    &http,
+                    &format!("{}/api/mem/graph/repair/find-relations", base),
+                    &payload,
+                )
             }
             MemGraphAction::DeleteRelations { rowids, actor } => {
-                let rowids_vec: Vec<i64> = rowids.split(',')
+                let rowids_vec: Vec<i64> = rowids
+                    .split(',')
                     .filter_map(|s| s.trim().parse::<i64>().ok())
                     .collect();
                 let payload = serde_json::json!({
                     "rowids": rowids_vec,
                     "actor": actor,
                 });
-                mem_post_request(&http, &format!("{}/api/mem/graph/repair/delete-relations", base), &payload)
+                mem_post_request(
+                    &http,
+                    &format!("{}/api/mem/graph/repair/delete-relations", base),
+                    &payload,
+                )
             }
             MemGraphAction::MergeRelations { keep, merge, actor } => {
-                let merge_vec: Vec<i64> = merge.split(',')
+                let merge_vec: Vec<i64> = merge
+                    .split(',')
                     .filter_map(|s| s.trim().parse::<i64>().ok())
                     .collect();
                 let payload = serde_json::json!({
@@ -533,9 +786,18 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                     "merge": merge_vec,
                     "actor": actor,
                 });
-                mem_post_request(&http, &format!("{}/api/mem/graph/repair/merge-relations", base), &payload)
+                mem_post_request(
+                    &http,
+                    &format!("{}/api/mem/graph/repair/merge-relations", base),
+                    &payload,
+                )
             }
-            MemGraphAction::FindDuplicateEntities { strategy, threshold, entity_type, limit } => {
+            MemGraphAction::FindDuplicateEntities {
+                strategy,
+                threshold,
+                entity_type,
+                limit,
+            } => {
                 let strategy_value = match strategy.as_str() {
                     "exact-name" | "exact_name" => serde_json::json!({"kind": "exact_name"}),
                     "alias-chain" | "alias_chain" => serde_json::json!({"kind": "alias_chain"}),
@@ -547,7 +809,10 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                         v
                     }
                     other => {
-                        eprintln!("unknown strategy: {} (use exact-name, alias-chain, or vector)", other);
+                        eprintln!(
+                            "unknown strategy: {} (use exact-name, alias-chain, or vector)",
+                            other
+                        );
                         std::process::exit(1);
                     }
                 };
@@ -555,11 +820,15 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                     "strategy": strategy_value,
                     "limit": limit,
                 });
-                mem_post_request(&http, &format!("{}/api/mem/graph/repair/find-entities", base), &payload)
+                mem_post_request(
+                    &http,
+                    &format!("{}/api/mem/graph/repair/find-entities", base),
+                    &payload,
+                )
             }
             MemGraphAction::AugmentEntity { id, patch, actor } => {
-                let patch_val: serde_json::Value = serde_json::from_str(&patch)
-                    .unwrap_or(serde_json::json!({}));
+                let patch_val: serde_json::Value =
+                    serde_json::from_str(&patch).unwrap_or(serde_json::json!({}));
                 if !patch_val.is_object() {
                     eprintln!("--patch must be a JSON object, got: {}", patch);
                     std::process::exit(1);
@@ -569,24 +838,45 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                     "patch": patch_val,
                     "actor": actor,
                 });
-                mem_post_request(&http, &format!("{}/api/mem/graph/repair/augment-entity", base), &payload)
+                mem_post_request(
+                    &http,
+                    &format!("{}/api/mem/graph/repair/augment-entity", base),
+                    &payload,
+                )
             }
             MemGraphAction::RepairOrphanVectors { dry_run, actor } => {
                 let payload = serde_json::json!({"dry_run": dry_run, "actor": actor});
-                mem_post_request(&http, &format!("{}/api/mem/graph/repair/orphan-vectors", base), &payload)
+                mem_post_request(
+                    &http,
+                    &format!("{}/api/mem/graph/repair/orphan-vectors", base),
+                    &payload,
+                )
             }
             MemGraphAction::RepairOrphanBlobs { dry_run, actor } => {
                 let payload = serde_json::json!({"dry_run": dry_run, "actor": actor});
-                mem_post_request(&http, &format!("{}/api/mem/graph/repair/orphan-blobs", base), &payload)
+                mem_post_request(
+                    &http,
+                    &format!("{}/api/mem/graph/repair/orphan-blobs", base),
+                    &payload,
+                )
             }
-            MemGraphAction::DeleteEntity { id, force, purge_history, actor } => {
+            MemGraphAction::DeleteEntity {
+                id,
+                force,
+                purge_history,
+                actor,
+            } => {
                 let payload = serde_json::json!({
                     "id": id,
                     "force": force,
                     "purge_history": purge_history,
                     "actor": actor,
                 });
-                mem_post_request(&http, &format!("{}/api/mem/graph/repair/delete-entity", base), &payload)
+                mem_post_request(
+                    &http,
+                    &format!("{}/api/mem/graph/repair/delete-entity", base),
+                    &payload,
+                )
             }
             // Local-only mutations + reads that benefit from direct DB access: route through the same dispatcher as main() so a future reorder of main.rs
             // cannot turn this into a panic in production. The run_* helpers exit; the line after never runs.
@@ -601,9 +891,14 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 crate::cmd::graph_mutate::try_dispatch_local(local);
                 unreachable!("local-only graph variant did not exit")
             }
-        }
+        },
         MemAction::Worker { action } => match action {
-            MemWorkerAction::Spawn { intent, task, agent, parent } => {
+            MemWorkerAction::Spawn {
+                intent,
+                task,
+                agent,
+                parent,
+            } => {
                 let payload = serde_json::json!({
                     "intent": intent,
                     "task": task,
@@ -612,9 +907,7 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 });
                 mem_post_request(&http, &format!("{}/api/mem/workers", base), &payload)
             }
-            MemWorkerAction::List => {
-                mem_get_request(&http, &format!("{}/api/mem/workers", base))
-            }
+            MemWorkerAction::List => mem_get_request(&http, &format!("{}/api/mem/workers", base)),
             MemWorkerAction::Get { id } => {
                 mem_get_request(&http, &format!("{}/api/mem/workers/{}", base, id))
             }
@@ -622,37 +915,51 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 match std::env::var("CODETERM_WORKER_ID") {
                     Ok(id) => {
                         let payload = serde_json::json!({ "text": text, "status": status });
-                        mem_post_request(&http, &format!("{}/api/mem/workers/{}/progress", base, id), &payload)
+                        mem_post_request(
+                            &http,
+                            &format!("{}/api/mem/workers/{}/progress", base, id),
+                            &payload,
+                        )
                     }
                     Err(_) => Err("not in a worker pane: $CODETERM_WORKER_ID is not set".into()),
                 }
             }
-            MemWorkerAction::Report { summary } => {
-                match std::env::var("CODETERM_WORKER_ID") {
-                    Ok(id) => {
-                        let payload = serde_json::json!({ "summary": summary });
-                        mem_post_request(&http, &format!("{}/api/mem/workers/{}/report", base, id), &payload)
-                    }
-                    Err(_) => Err("not in a worker pane: $CODETERM_WORKER_ID is not set".into()),
+            MemWorkerAction::Report { summary } => match std::env::var("CODETERM_WORKER_ID") {
+                Ok(id) => {
+                    let payload = serde_json::json!({ "summary": summary });
+                    mem_post_request(
+                        &http,
+                        &format!("{}/api/mem/workers/{}/report", base, id),
+                        &payload,
+                    )
                 }
-            }
+                Err(_) => Err("not in a worker pane: $CODETERM_WORKER_ID is not set".into()),
+            },
             MemWorkerAction::Kill { id } => {
-                let resp = http.delete(format!("{}/api/mem/workers/{}", base, id))
-                    .send().map_err(|e| e.to_string());
+                let resp = http
+                    .delete(format!("{}/api/mem/workers/{}", base, id))
+                    .send()
+                    .map_err(|e| e.to_string());
                 resp.map(|r| serde_json::json!({"ok": r.status().is_success()}))
             }
-        }
+        },
         MemAction::RunWorker { .. } => unreachable!("RunWorker is short-circuited in main()"),
         MemAction::Dream { .. } => unreachable!("Dream is short-circuited in main()"),
-        MemAction::Reembed { scope } => {
-            mem_post_request(
-                &http,
-                &format!("{}/api/mem/reembed?scope={}", base, urlencoding::encode(&scope)),
-                &serde_json::json!({}),
-            )
-        }
+        MemAction::Reembed { scope } => mem_post_request(
+            &http,
+            &format!(
+                "{}/api/mem/reembed?scope={}",
+                base,
+                urlencoding::encode(&scope)
+            ),
+            &serde_json::json!({}),
+        ),
         MemAction::Calibration { action } => match action {
-            MemCalibrationAction::Log { since, limit, count } => {
+            MemCalibrationAction::Log {
+                since,
+                limit,
+                count,
+            } => {
                 let mut url = format!("{}/api/mem/calibration/log", base);
                 let mut sep = '?';
                 if let Some(s) = &since {
@@ -728,12 +1035,12 @@ fn run_mem_tail(
             .unwrap_or("?")
             .replace('T', " ");
         let kind = row.get("kind").and_then(|v| v.as_str()).unwrap_or("?");
-        let who = row.get("changed_by").and_then(|v| v.as_str()).unwrap_or("?");
-        let title = row.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-        let area = row
-            .get("area")
+        let who = row
+            .get("changed_by")
             .and_then(|v| v.as_str())
-            .unwrap_or("(none)");
+            .unwrap_or("?");
+        let title = row.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+        let area = row.get("area").and_then(|v| v.as_str()).unwrap_or("(none)");
         println!(
             "{} | {:<12} | {:<15} | {:<60} | {}",
             ts,
@@ -762,7 +1069,11 @@ fn run_mem_tail(
             // In follow mode we remember the newest updated_at we've printed and poll with `since` every 500ms.
             let mut last_seen: Option<String> = rows
                 .iter()
-                .filter_map(|r| r.get("updated_at").and_then(|v| v.as_str()).map(String::from))
+                .filter_map(|r| {
+                    r.get("updated_at")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                })
                 .max();
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(500));
@@ -780,7 +1091,11 @@ fn run_mem_tail(
                     }
                     if let Some(newest) = next
                         .iter()
-                        .filter_map(|r| r.get("updated_at").and_then(|v| v.as_str()).map(String::from))
+                        .filter_map(|r| {
+                            r.get("updated_at")
+                                .and_then(|v| v.as_str())
+                                .map(String::from)
+                        })
                         .max()
                     {
                         last_seen = Some(newest);

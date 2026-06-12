@@ -385,12 +385,9 @@ impl ServiceContext {
 
         // 4c. Pin agent_session_id for resume up-front: we know the id from the user's request, so don't wait for detect_session_id polling.
         let launch_session_id = if params.resume_session_id.is_none() {
-            self
-                .agent_registry
+            self.agent_registry
                 .with_provider(agent_cmd, |p| p.session_id_injection())
-                .filter(|mode| {
-                    !matches!(mode, crate::agent::provider::SessionIdInjection::None)
-                })
+                .filter(|mode| !matches!(mode, crate::agent::provider::SessionIdInjection::None))
                 .map(|_| uuid::Uuid::new_v4().to_string())
         } else {
             None
@@ -412,14 +409,13 @@ impl ServiceContext {
             Some("Orchestrator") => format!("{}{}", t, crate::prompts::ORCHESTRATOR_SUFFIX),
             _ => t.clone(),
         });
-        let launch_cmd =
-            build_agent_command(
-                agent_cmd,
-                &params,
-                bg_task.as_deref(),
-                launch_session_id.as_deref(),
-                &self.agent_registry,
-            );
+        let launch_cmd = build_agent_command(
+            agent_cmd,
+            &params,
+            bg_task.as_deref(),
+            launch_session_id.as_deref(),
+            &self.agent_registry,
+        );
         launch_agent_in_background(
             self.clone(),
             pane_id.clone(),

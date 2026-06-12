@@ -400,7 +400,10 @@ impl ServiceContext {
 
         let pty_id = if spec.eager {
             self.ensure_pane_pty_for_send(&pane_id)?;
-            self.mux.lock().get_pane(&pane_id).and_then(|p| p.pty_id.clone())
+            self.mux
+                .lock()
+                .get_pane(&pane_id)
+                .and_then(|p| p.pty_id.clone())
         } else {
             None
         };

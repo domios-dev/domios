@@ -26,18 +26,30 @@ impl ChannelSource {
 
 pub(super) fn parse_channel_source(raw: &str) -> ChannelSource {
     let Some((base, fragment)) = raw.split_once('#') else {
-        return ChannelSource { base: raw.to_string(), git_ref: None, subdir: None };
+        return ChannelSource {
+            base: raw.to_string(),
+            git_ref: None,
+            subdir: None,
+        };
     };
     let (git_ref, subdir) = fragment
         .split_once(':')
         .map(|(r, s)| (empty_to_none(r), empty_to_none(s)))
         .unwrap_or_else(|| (empty_to_none(fragment), None));
-    ChannelSource { base: base.to_string(), git_ref, subdir }
+    ChannelSource {
+        base: base.to_string(),
+        git_ref,
+        subdir,
+    }
 }
 
 pub(super) fn empty_to_none(value: &str) -> Option<String> {
     let value = value.trim();
-    if value.is_empty() { None } else { Some(value.to_string()) }
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
 }
 
 pub(super) fn local_path_from_url(value: &str) -> Option<PathBuf> {
@@ -58,7 +70,13 @@ pub(super) fn clone_git_channel(source: &ChannelSource, cache_path: &Path) -> Re
     if tmp.exists() {
         fs::remove_dir_all(&tmp).map_err(|e| format!("clear {}: {e}", tmp.display()))?;
     }
-    run_git(["clone", "--depth", "1", &source.base, &tmp.to_string_lossy()])?;
+    run_git([
+        "clone",
+        "--depth",
+        "1",
+        &source.base,
+        &tmp.to_string_lossy(),
+    ])?;
     if let Some(git_ref) = &source.git_ref {
         run_git_in(&tmp, ["fetch", "--depth", "1", "origin", git_ref])?;
         run_git_in(&tmp, ["checkout", "FETCH_HEAD"])?;
@@ -80,11 +98,21 @@ pub(super) fn safe_channel_name(value: &str) -> String {
         .unwrap_or(value);
     let out = leaf
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .to_string();
-    if out.is_empty() { "channel".to_string() } else { out }
+    if out.is_empty() {
+        "channel".to_string()
+    } else {
+        out
+    }
 }
 
 pub(super) fn validate_relative_path(path: &str) -> Result<(), String> {
@@ -100,7 +128,10 @@ pub(super) fn absolutize(path: &Path) -> Result<PathBuf, String> {
 }
 
 pub(super) fn run_git<const N: usize>(args: [&str; N]) -> Result<(), String> {
-    let out = Command::new("git").args(args).output().map_err(|e| format!("run git: {e}"))?;
+    let out = Command::new("git")
+        .args(args)
+        .output()
+        .map_err(|e| format!("run git: {e}"))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
     }
@@ -147,7 +178,9 @@ pub(super) fn compat_reason(min: &str, app: Option<&str>) -> String {
 // no daemon); only block when we positively know app < min.
 pub(super) fn compat_check(min: Option<&str>) -> Result<(), String> {
     let Some(min) = min else { return Ok(()) };
-    let Some(app) = app_version() else { return Ok(()) };
+    let Some(app) = app_version() else {
+        return Ok(());
+    };
     if version_cmp(&app, min).is_lt() {
         Err(compat_reason(min, Some(&app)))
     } else {
@@ -177,5 +210,3 @@ pub(super) fn is_verified_install(id: &str, record: Option<&InstallRecord>) -> b
 pub(super) fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339()
 }
-
-

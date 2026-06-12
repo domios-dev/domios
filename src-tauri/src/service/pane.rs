@@ -607,7 +607,11 @@ impl ServiceContext {
         }
 
         let _ = self
-            .agent_restart(pane_id, true, crate::service::agent_restart::DEFAULT_GRACE_SECS)
+            .agent_restart(
+                pane_id,
+                true,
+                crate::service::agent_restart::DEFAULT_GRACE_SECS,
+            )
             .map_err(|e| {
                 log::warn!(
                     "[session-detect] relaunch blocked for pane {} (provider={}) {:?}",

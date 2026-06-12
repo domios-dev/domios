@@ -210,7 +210,10 @@ pub async fn format_attachment_line(
         }
     }
     // Non-voice attachment (photo/document/video/…): keep the real kind.
-    mk::Marker::new(kind).attr("file", path).attr_opt("name", filename).build()
+    mk::Marker::new(kind)
+        .attr("file", path)
+        .attr_opt("name", filename)
+        .build()
 }
 
 fn path_to_string(path: &Path) -> String {

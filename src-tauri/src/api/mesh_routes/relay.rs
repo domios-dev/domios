@@ -164,15 +164,21 @@ fn validate_relay_path(path: &str) -> Result<(), String> {
         return Err(format!("Relay path must start with /api/: {path}"));
     }
     if path.contains('@') {
-        return Err(format!("Relay path must not contain '@' (SSRF via userinfo): {path}"));
+        return Err(format!(
+            "Relay path must not contain '@' (SSRF via userinfo): {path}"
+        ));
     }
     if path.starts_with("//") {
-        return Err(format!("Relay path must not start with // (protocol-relative): {path}"));
+        return Err(format!(
+            "Relay path must not start with // (protocol-relative): {path}"
+        ));
     }
     // Block explicit scheme prefixes embedded in the path (e.g. /api/http://evil).
     for scheme in &["http://", "https://", "file://", "ftp://", "data:"] {
         if path.contains(scheme) {
-            return Err(format!("Relay path must not contain scheme '{scheme}': {path}"));
+            return Err(format!(
+                "Relay path must not contain scheme '{scheme}': {path}"
+            ));
         }
     }
     Ok(())
@@ -230,11 +236,12 @@ pub async fn mesh_relay(
                 .get("source_pane")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            body["text"] = serde_json::json!(
-                crate::service::msg_prefix::CtxPrefix::message(&sender_name, source_pane)
-                    .mesh(Some(sender_name.clone()))
-                    .wrap(text)
-            );
+            body["text"] = serde_json::json!(crate::service::msg_prefix::CtxPrefix::message(
+                &sender_name,
+                source_pane
+            )
+            .mesh(Some(sender_name.clone()))
+            .wrap(text));
             if let Some(obj) = body.as_object_mut() {
                 obj.remove("source_pane");
             }
@@ -291,8 +298,7 @@ pub async fn mesh_relay(
             .chars()
             .take(80)
             .collect::<String>();
-        let writer =
-            crate::service::activity::ActivityWriter::new(state.svc.services_store.conn());
+        let writer = crate::service::activity::ActivityWriter::new(state.svc.services_store.conn());
         let _ = writer.record(crate::service::activity::ActivityEvent::peer_relay(
             &sender_id,
             &sender_name,

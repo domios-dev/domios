@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use super::{discovery, transport, types};
 use super::MeshState;
+use super::{discovery, transport, types};
 
 pub async fn broadcast_sync(mesh: &MeshState) {
     let (payload, clients) = {
@@ -235,8 +235,7 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
         .unwrap_or_default();
     for (addresses, port, token, peer_id, peer_name) in &clients {
         report.sent += 1;
-        let stale_marker: Arc<Mutex<bool>> =
-            Arc::new(Mutex::new(false));
+        let stale_marker: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
         let result = transport::try_peer(addresses, |addr| {
             let url = format!("http://{}:{}/api/mesh/announce", addr.ip, port);
             let http = http.clone();

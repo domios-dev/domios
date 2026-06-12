@@ -744,7 +744,7 @@ impl AgentProvider for OpenCodeProvider {
                     Some(i) => i,
                     None => continue,
                 };
-        // Keep only sessions with matching cwd.
+                // Keep only sessions with matching cwd.
                 if info.directory.as_deref() != Some(cwd) {
                     continue;
                 }
@@ -894,7 +894,7 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {
-            // Use user override model list first.
+        // Use user override model list first.
         if let Some(o) = crate::agent::model_catalog::try_override("opencode") {
             return o;
         }
@@ -961,7 +961,7 @@ fn opencode_short_label(model_id: &str) -> String {
             return capitalize_family(fam);
         }
     }
-        // Keep up to two segments for opencode-zen labels.
+    // Keep up to two segments for opencode-zen labels.
     let trimmed: String = model_id.split('-').take(2).collect::<Vec<_>>().join("-");
     if trimmed.len() <= 14 {
         trimmed

@@ -273,7 +273,8 @@ async fn route_text_outbound(
         let last_idx = chunks.len().saturating_sub(1);
         for (i, chunk) in chunks.iter().enumerate() {
             let btns = if i == last_idx { buttons } else { None };
-            last_id = send_message_with_buttons(client, api_base, token, chat_id, chunk, btns).await;
+            last_id =
+                send_message_with_buttons(client, api_base, token, chat_id, chunk, btns).await;
         }
         if let Some(id) = last_id {
             chat_states.insert(

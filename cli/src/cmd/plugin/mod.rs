@@ -1,12 +1,12 @@
-mod types;
-mod install;
-mod update;
+mod audit;
 mod channel;
+mod install;
 mod list;
 mod state;
-mod audit;
-mod version;
+mod types;
+mod update;
 mod util;
+mod version;
 
 #[cfg(test)]
 mod tests;
@@ -21,21 +21,24 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use install::*;
-use update::*;
+use audit::*;
 use channel::*;
+use install::*;
 use list::*;
 use state::*;
-use audit::*;
-use version::*;
-use util::*;
 use types::*;
+use update::*;
+use util::*;
+use version::*;
 pub fn handle_plugin(json: bool, action: PluginAction) {
     let result = match action.clone() {
         PluginAction::List => list_installed(),
-        PluginAction::Install { id, from_dir, id_override, channel } => {
-            install_command(id, from_dir, id_override, channel)
-        }
+        PluginAction::Install {
+            id,
+            from_dir,
+            id_override,
+            channel,
+        } => install_command(id, from_dir, id_override, channel),
         PluginAction::Update { id } => update_command(id),
         PluginAction::UpdateSystem { id } => update_system_command(id),
         PluginAction::Remove { id, force } => remove_installed(&id, force),
@@ -69,7 +72,10 @@ fn print_human(value: &serde_json::Value) {
         }
         for p in arr {
             let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-            let version = p.get("version").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let version = p
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             let path = p.get("path").and_then(|v| v.as_str()).unwrap_or("");
             println!("{id}\t{version}\t{path}");
         }
@@ -93,4 +99,3 @@ fn print_human(value: &serde_json::Value) {
     }
     println!("{}", serde_json::to_string_pretty(value).unwrap());
 }
-

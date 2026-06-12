@@ -37,13 +37,20 @@ pub(super) fn update_one(id: &str) -> Result<(), String> {
         InstallSource::Channel { channel, path } => {
             refresh_channel(Some(&channel))?;
             let reg = read_channel_registry()?;
-            let ch = reg.channels.get(&channel).ok_or_else(|| format!("channel '{channel}' not registered"))?;
+            let ch = reg
+                .channels
+                .get(&channel)
+                .ok_or_else(|| format!("channel '{channel}' not registered"))?;
             let source = Path::new(&ch.path).join(&path);
             let after = manifest_version(&source).ok().flatten();
             let next_record = InstallRecord {
                 installed_at: now_rfc3339(),
                 version: after.clone(),
-                last_change: Some(last_change_for_update(before.clone(), after.clone(), Some(channel.clone()))),
+                last_change: Some(last_change_for_update(
+                    before.clone(),
+                    after.clone(),
+                    Some(channel.clone()),
+                )),
                 ..record
             };
             if let Err(reason) = compat_check(manifest_min_codeterm(&source).as_deref()) {
@@ -57,13 +64,20 @@ pub(super) fn update_one(id: &str) -> Result<(), String> {
             ensure_system_channel()?;
             refresh_channel(Some(&channel))?;
             let reg = read_channel_registry()?;
-            let ch = reg.channels.get(&channel).ok_or_else(|| format!("channel '{channel}' not registered"))?;
+            let ch = reg
+                .channels
+                .get(&channel)
+                .ok_or_else(|| format!("channel '{channel}' not registered"))?;
             let source = Path::new(&ch.path).join(&path);
             let after = manifest_version(&source).ok().flatten();
             let next_record = InstallRecord {
                 installed_at: now_rfc3339(),
                 version: after.clone(),
-                last_change: Some(last_change_for_update(before.clone(), after.clone(), Some(channel.clone()))),
+                last_change: Some(last_change_for_update(
+                    before.clone(),
+                    after.clone(),
+                    Some(channel.clone()),
+                )),
                 ..record
             };
             if let Err(reason) = compat_check(manifest_min_codeterm(&source).as_deref()) {
@@ -93,7 +107,9 @@ pub(super) fn update_system_command(id: Option<String>) -> Result<serde_json::Va
                 .iter()
                 .find(|plugin| plugin.id == id)
                 .cloned()
-                .ok_or_else(|| format!("'{id}' is not listed in the {SYSTEM_CHANNEL_NAME} channel"))?;
+                .ok_or_else(|| {
+                    format!("'{id}' is not listed in the {SYSTEM_CHANNEL_NAME} channel")
+                })?;
             vec![plugin]
         }
         None => manifest.plugins,
@@ -121,7 +137,10 @@ pub(super) fn update_system_command(id: Option<String>) -> Result<serde_json::Va
                 path: plugin_path,
             },
             installed_at: now_rfc3339(),
-            last_change: Some(last_change_for_install(version, Some(SYSTEM_CHANNEL_NAME.to_string()))),
+            last_change: Some(last_change_for_install(
+                version,
+                Some(SYSTEM_CHANNEL_NAME.to_string()),
+            )),
         };
         let before = manifest_version(&plugin_dir(&id)).ok().flatten();
         let result = install_from_dir(&source_dir, &id, Some(&record));
@@ -149,12 +168,18 @@ pub(super) fn update_system_command(id: Option<String>) -> Result<serde_json::Va
     }))
 }
 
-pub(super) fn removed_system_channel_warnings(current_ids: &[String]) -> Result<Vec<String>, String> {
+pub(super) fn removed_system_channel_warnings(
+    current_ids: &[String],
+) -> Result<Vec<String>, String> {
     let current: std::collections::BTreeSet<_> = current_ids.iter().cloned().collect();
     let mut warnings = Vec::new();
     for id in installed_ids()? {
         let record = read_install_record(&id).ok();
-        let Some(InstallRecord { source: InstallSource::SystemChannel { channel, .. }, .. }) = record else {
+        let Some(InstallRecord {
+            source: InstallSource::SystemChannel { channel, .. },
+            ..
+        }) = record
+        else {
             continue;
         };
         if channel == SYSTEM_CHANNEL_NAME && !current.contains(&id) {
@@ -184,4 +209,3 @@ pub(super) fn ensure_system_channel() -> Result<(), String> {
     }
     Err("failed to register system plugin channel".to_string())
 }
-

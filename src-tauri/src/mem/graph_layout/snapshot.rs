@@ -116,7 +116,14 @@ fn load_item_meta(conn: &Connection) -> Result<HashMap<String, ItemMeta>, String
     for r in rows {
         let (id, kind, importance) = r.map_err(|e| e.to_string())?;
         let has_vector = vector_ids.contains(&id);
-        meta.insert(id, ItemMeta { kind, importance, has_vector });
+        meta.insert(
+            id,
+            ItemMeta {
+                kind,
+                importance,
+                has_vector,
+            },
+        );
     }
 
     if let Ok(mut estmt) = conn.prepare("SELECT id FROM entities") {
@@ -137,7 +144,11 @@ fn load_pinned(conn: &Connection) -> HashMap<String, (f32, f32)> {
     let mut out = HashMap::new();
     if let Ok(mut stmt) = conn.prepare("SELECT mem_id, x, y FROM graph_pinned_positions") {
         if let Ok(rows) = stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?, r.get::<_, f64>(2)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, f64>(1)?,
+                r.get::<_, f64>(2)?,
+            ))
         }) {
             for r in rows.flatten() {
                 out.insert(r.0, (r.1 as f32, r.2 as f32));
@@ -258,7 +269,11 @@ fn aggregate_cluster_edges(
 /// version. Removed ids = positions the client had that are no longer live;
 /// caller passes none (we filter at read time so removed is derived from
 /// stale-id filtering at the client). We return added/moved only here.
-pub fn build_delta(conn: &Connection, cache: &LayoutCache, since_seq: u64) -> Result<DeltaResponse, String> {
+pub fn build_delta(
+    conn: &Connection,
+    cache: &LayoutCache,
+    since_seq: u64,
+) -> Result<DeltaResponse, String> {
     let version = cache.layout_version();
     let current_seq = cache.current_seq();
     if current_seq == since_seq {
@@ -300,9 +315,7 @@ pub fn load_labels(conn: &Connection, ids: &[String]) -> Result<Vec<(String, Str
         .prepare("SELECT properties_json FROM entities WHERE id = ?1")
         .map_err(|e| format!("prepare entity labels: {e}"))?;
     for id in ids.iter().take(MAX_IDS) {
-        let title: Option<String> = stmt
-            .query_row([id], |r| r.get::<_, String>(0))
-            .ok();
+        let title: Option<String> = stmt.query_row([id], |r| r.get::<_, String>(0)).ok();
         if let Some(t) = title {
             out.push((id.clone(), t));
             continue;
@@ -365,7 +378,12 @@ pub fn load_edges(conn: &Connection, ids: &[String]) -> Result<Vec<EdgeRow>, Str
             continue;
         }
         if seen.insert((from.clone(), to.clone(), rel.clone())) {
-            out.push(EdgeRow { from, to, rel, confidence });
+            out.push(EdgeRow {
+                from,
+                to,
+                rel,
+                confidence,
+            });
         }
     }
     Ok(out)
@@ -400,8 +418,22 @@ mod tests {
         insert_item(&conn, "fact_live", "fact", 3.0);
         let cache = cache_at(&std::env::temp_dir());
         let mut map = HashMap::new();
-        map.insert("fact_live".to_string(), Position { x: 1.0, y: 2.0, cluster_id: 0 });
-        map.insert("fact_deleted".to_string(), Position { x: 9.0, y: 9.0, cluster_id: 0 });
+        map.insert(
+            "fact_live".to_string(),
+            Position {
+                x: 1.0,
+                y: 2.0,
+                cluster_id: 0,
+            },
+        );
+        map.insert(
+            "fact_deleted".to_string(),
+            Position {
+                x: 9.0,
+                y: 9.0,
+                cluster_id: 0,
+            },
+        );
         cache.replace_all(map, "now".into());
 
         let snap = build_snapshot(&conn, &cache).unwrap();
@@ -421,7 +453,14 @@ mod tests {
         .unwrap();
         let cache = cache_at(&std::env::temp_dir());
         let mut map = HashMap::new();
-        map.insert("fact_pin".to_string(), Position { x: 1.0, y: 2.0, cluster_id: 0 });
+        map.insert(
+            "fact_pin".to_string(),
+            Position {
+                x: 1.0,
+                y: 2.0,
+                cluster_id: 0,
+            },
+        );
         cache.replace_all(map, "now".into());
 
         let snap = build_snapshot(&conn, &cache).unwrap();
@@ -438,7 +477,13 @@ mod tests {
         let cache = cache_at(&std::env::temp_dir());
         let seq = cache.current_seq();
         let d = build_delta(&conn, &cache, seq).unwrap();
-        assert!(matches!(d, DeltaResponse::Unchanged { unchanged: true, .. }));
+        assert!(matches!(
+            d,
+            DeltaResponse::Unchanged {
+                unchanged: true,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -448,7 +493,14 @@ mod tests {
         insert_item(&conn, "fact_x", "fact", 1.0);
         let cache = cache_at(&std::env::temp_dir());
         let before = cache.current_seq();
-        cache.upsert("fact_x".to_string(), Position { x: 7.0, y: 8.0, cluster_id: 0 });
+        cache.upsert(
+            "fact_x".to_string(),
+            Position {
+                x: 7.0,
+                y: 8.0,
+                cluster_id: 0,
+            },
+        );
         let d = build_delta(&conn, &cache, before).unwrap();
         match d {
             DeltaResponse::Changed { added_or_moved, .. } => {
@@ -471,9 +523,30 @@ mod tests {
 
         let cache = cache_at(&std::env::temp_dir());
         let mut map = HashMap::new();
-        map.insert("a".to_string(), Position { x: 0.0, y: 0.0, cluster_id: 0 });
-        map.insert("b".to_string(), Position { x: 0.0, y: 0.0, cluster_id: 1 });
-        map.insert("c".to_string(), Position { x: 0.0, y: 0.0, cluster_id: 1 });
+        map.insert(
+            "a".to_string(),
+            Position {
+                x: 0.0,
+                y: 0.0,
+                cluster_id: 0,
+            },
+        );
+        map.insert(
+            "b".to_string(),
+            Position {
+                x: 0.0,
+                y: 0.0,
+                cluster_id: 1,
+            },
+        );
+        map.insert(
+            "c".to_string(),
+            Position {
+                x: 0.0,
+                y: 0.0,
+                cluster_id: 1,
+            },
+        );
         cache.replace_all(map, "now".into());
 
         let snap = build_snapshot(&conn, &cache).unwrap();

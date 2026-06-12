@@ -59,8 +59,8 @@ mod claude {
     #[test]
     fn detect_from_title_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         let cases = [
             ("Claude Code", true),
@@ -79,8 +79,8 @@ mod claude {
     #[test]
     fn detect_from_output_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         let cases = [
             ("Do you want to proceed?", true),
@@ -99,8 +99,8 @@ mod claude {
     #[test]
     fn screen_has_tui_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         for s in ["? for shortcuts here", "ctrl+l help", "esc to interrupt"] {
             assert!(n.screen_has_tui(s), "native: {s}");
@@ -115,8 +115,8 @@ mod claude {
     #[test]
     fn is_output_noise_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         let noisy = [
             "bypass permissions on",
@@ -141,8 +141,8 @@ mod claude {
     #[test]
     fn extract_session_name_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         let explicit = "  Session: vivid-bhabha-1234\n  cwd: /tmp\n";
         assert_eq!(
@@ -172,8 +172,8 @@ mod claude {
     #[test]
     fn slash_commands_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         assert_eq!(n.compact_command(), j.compact_command());
         assert_eq!(n.exit_command(), j.exit_command());
@@ -187,8 +187,8 @@ mod claude {
     #[test]
     fn metadata_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         assert_eq!(n.id(), j.id());
         assert_eq!(n.display_name(), j.display_name());
@@ -208,8 +208,8 @@ mod claude {
     #[test]
     fn parse_session_messages_parity_on_jsonl_fixture() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         // Realistic Claude JSONL snippet: assistant with array content, user with string content, plus a non-message line that must be dropped by both impls.
         let jsonl = "{\"type\":\"summary\",\"x\":1}\n\
@@ -235,8 +235,8 @@ mod claude {
     #[test]
     fn resume_command_carries_session_id_and_skip_flag() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (_n, j) = pair();
         let cmd = j.build_resume_command("abc-def-123-456", true).unwrap();
         assert!(cmd.contains("--resume"));
@@ -280,8 +280,8 @@ mod claude {
     #[test]
     fn integration_install_creates_all_four_hooks_with_markers() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let provider = claude_in_temp(
             &dir.path().join("rule.md"),
@@ -334,8 +334,8 @@ mod claude {
     #[test]
     fn integration_install_preserves_unrelated_settings_fields() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("settings.json");
         std::fs::write(
@@ -355,8 +355,8 @@ mod claude {
     #[test]
     fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("settings.json");
         // Pre-existing settings with: a user hook (must survive), a stale codeterm v1 hook (must be removed), and an unrelated key.
@@ -403,8 +403,8 @@ mod claude {
     #[test]
     fn integration_uninstall_drops_notification_and_stop_keeps_precompact() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let provider = claude_in_temp(
             &dir.path().join("rule.md"),
@@ -438,8 +438,8 @@ mod claude {
     #[test]
     fn integration_ensure_on_startup_is_idempotent() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let provider = claude_in_temp(
             &dir.path().join("rule.md"),
@@ -462,8 +462,8 @@ mod claude {
     #[test]
     fn bridge_rule_install_via_host_writes_file() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let rule_path = dir.path().join("rules").join("codeterm.md");
         let provider = claude_in_temp(&rule_path, &dir.path().join("settings.json"));
@@ -485,8 +485,8 @@ mod claude {
     #[test]
     fn launch_command_no_task_matches_native_shape() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         let params = AgentLaunchParams {
             skip_permissions: true,
@@ -501,8 +501,8 @@ mod claude {
     #[test]
     fn launch_command_headless_uses_stdin_pipe_in_both() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         let params = AgentLaunchParams {
             task: Some("count files in repo".into()),
@@ -532,8 +532,8 @@ mod claude {
     #[test]
     fn launch_command_headless_writes_task_bytes_through_plugin() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (_n, j) = pair();
         let body = "do thing --kind fact `whoami` 'quotes'";
         let cmd = j.build_launch_command(&AgentLaunchParams {
@@ -571,8 +571,8 @@ mod claude {
     #[test]
     fn launch_command_session_id_only_in_visible_mode() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         let visible = AgentLaunchParams {
             session_id: Some("my-uuid".into()),
@@ -605,8 +605,8 @@ mod claude {
     #[test]
     fn session_jsonl_path_resolves_via_plugin() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let j = load_js("claude");
         let p = j.session_jsonl_path("/Users/foo/work/proj", "sess-abc-123");
         assert!(p.is_some(), "should return Some(path)");
@@ -627,8 +627,8 @@ mod claude {
     #[test]
     fn session_jsonl_path_returns_none_for_empty_sid() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let j = load_js("claude");
         assert!(
             j.session_jsonl_path("/proj", "").is_none(),
@@ -639,8 +639,8 @@ mod claude {
     #[test]
     fn parse_session_delta_handles_polymorphic_content() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let j = load_js("claude");
 
         // Mixed JSONL: summary (drop), user text (1 block), assistant with text + thinking + tool_use (3 blocks), user tool_result (1 block), and a malformed line (drop).
@@ -701,8 +701,8 @@ mod claude {
     #[test]
     fn rich_flatten_parity_block_derivable_kinds() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         use crate::service::pane_chat::rich_to_chat_msgs;
         let j = load_js("claude");
 
@@ -711,12 +711,18 @@ mod claude {
         // tool_result, user-turn tool_result, user image attachment,
         // assistant standalone image.
         let jsonl = concat!(
-            r#"{"type":"user","message":{"role":"user","content":"refactor please"},"timestamp":"2026-05-20T10:00:00Z"}"#, "\n",
-            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"on it"},{"type":"thinking","thinking":"let me think a lot AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA done"},{"type":"tool_use","id":"u1","name":"Bash","input":{"command":"ls -la /very/long/path/that/exceeds/eighty/characters/for/sure/abcdefghijklmnop"}}]}}"#, "\n",
-            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_result","tool_use_id":"u1","content":"file listing"}]}}"#, "\n",
-            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"u2","content":"grep output"}]}}"#, "\n",
-            r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"see image"},{"type":"image","source":{"media_type":"image/png","data":"BASE64DATA"}}]}}"#, "\n",
-            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"image","source":{"media_type":"image/jpeg","data":"IMGBYTES"}}]}}"#, "\n",
+            r#"{"type":"user","message":{"role":"user","content":"refactor please"},"timestamp":"2026-05-20T10:00:00Z"}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"on it"},{"type":"thinking","thinking":"let me think a lot AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA done"},{"type":"tool_use","id":"u1","name":"Bash","input":{"command":"ls -la /very/long/path/that/exceeds/eighty/characters/for/sure/abcdefghijklmnop"}}]}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_result","tool_use_id":"u1","content":"file listing"}]}}"#,
+            "\n",
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"u2","content":"grep output"}]}}"#,
+            "\n",
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"see image"},{"type":"image","source":{"media_type":"image/png","data":"BASE64DATA"}}]}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"image","source":{"media_type":"image/jpeg","data":"IMGBYTES"}}]}}"#,
+            "\n",
         );
         let tmp = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(tmp.path(), jsonl).unwrap();
@@ -772,7 +778,11 @@ mod claude {
         );
         let args = call.tool_args.as_deref().unwrap_or("");
         assert!(args.starts_with("ls -la"), "toolArgs summary: {args}");
-        assert!(args.len() <= 80, "toolArgs must be capped at 80: {}", args.len());
+        assert!(
+            args.len() <= 80,
+            "toolArgs must be capped at 80: {}",
+            args.len()
+        );
 
         // tool_result — both assistant-turn (u1) and user-turn (u2), toolId + collapsed
         let results = by_kind("tool_result");
@@ -807,22 +817,27 @@ mod claude {
     #[test]
     fn rich_flatten_parity_system_meta_local_command() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         use crate::service::pane_chat::rich_to_chat_msgs;
         let j = load_js("claude");
 
         let jsonl = concat!(
             // plain system row with a subtype
-            r#"{"type":"system","subtype":"hint","content":"heads up","uuid":"s1"}"#, "\n",
+            r#"{"type":"system","subtype":"hint","content":"heads up","uuid":"s1"}"#,
+            "\n",
             // isMeta user row → system, skill_context subtype via content prefix
-            r#"{"type":"user","isMeta":true,"uuid":"m1","message":{"role":"user","content":"Base directory for this skill: /x/y"}}"#, "\n",
+            r#"{"type":"user","isMeta":true,"uuid":"m1","message":{"role":"user","content":"Base directory for this skill: /x/y"}}"#,
+            "\n",
             // isMeta user row → system, generic meta subtype
-            r#"{"type":"user","isMeta":true,"uuid":"m2","message":{"role":"user","content":"<system reminder>be nice"}}"#, "\n",
+            r#"{"type":"user","isMeta":true,"uuid":"m2","message":{"role":"user","content":"<system reminder>be nice"}}"#,
+            "\n",
             // local-command echo in a user string turn → local_command + tagName
-            r#"{"type":"user","uuid":"c1","message":{"role":"user","content":"<command-name>compact</command-name>"}}"#, "\n",
+            r#"{"type":"user","uuid":"c1","message":{"role":"user","content":"<command-name>compact</command-name>"}}"#,
+            "\n",
             // a normal user turn must still be a user message, with its uuid as id base
-            r#"{"type":"user","uuid":"u9","message":{"role":"user","content":"hi there"}}"#, "\n",
+            r#"{"type":"user","uuid":"u9","message":{"role":"user","content":"hi there"}}"#,
+            "\n",
         );
         let tmp = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(tmp.path(), jsonl).unwrap();
@@ -843,31 +858,35 @@ mod claude {
             .expect("plain system row lost — plugin.js must emit `system` entries");
         assert_eq!(sys.system_subtype.as_deref(), Some("hint"));
 
-        let skill = find(&|m| m.kind == "system" && m.system_subtype.as_deref() == Some("skill_context"))
-            .expect("isMeta skill_context row lost");
+        let skill =
+            find(&|m| m.kind == "system" && m.system_subtype.as_deref() == Some("skill_context"))
+                .expect("isMeta skill_context row lost");
         assert!(skill.content.contains("Base directory"));
 
         let meta = find(&|m| m.kind == "system" && m.system_subtype.as_deref() == Some("meta"))
             .expect("isMeta meta row lost");
         assert!(meta.content.contains("be nice"));
 
-        let local = find(&|m| m.kind == "local_command")
-            .expect("local-command echo lost");
+        let local = find(&|m| m.kind == "local_command").expect("local-command echo lost");
         assert_eq!(local.tag_name.as_deref(), Some("command-name"));
         assert_eq!(local.content, "compact");
 
         // Normal user turn survives, and its id is uuid-derived (stable for
         // streaming mergeById, not a volatile delta index).
-        let user = find(&|m| m.kind == "user" && m.content == "hi there")
-            .expect("normal user turn lost");
-        assert!(user.id.starts_with("u9-"), "id must be uuid-based: {}", user.id);
+        let user =
+            find(&|m| m.kind == "user" && m.content == "hi there").expect("normal user turn lost");
+        assert!(
+            user.id.starts_with("u9-"),
+            "id must be uuid-based: {}",
+            user.id
+        );
     }
 
     #[test]
     fn parse_session_delta_holds_back_partial_line() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let j = load_js("claude");
 
         // One complete line + a truncated second line.
@@ -888,8 +907,8 @@ mod claude {
     #[test]
     fn parse_session_delta_from_nonzero_offset() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let j = load_js("claude");
         // Two lines; we ask for the slice starting at line 2.
         let line1 = r#"{"type":"user","message":{"role":"user","content":"first"}}"#;
@@ -908,8 +927,8 @@ mod claude {
     #[test]
     fn parse_session_delta_handles_non_ascii_offset_correctly() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let j = load_js("claude");
         // Each line ends in \n. Contains emoji (4 bytes UTF-8 each) so byte counts diverge from char counts.
         let line1 =
@@ -936,8 +955,8 @@ mod claude {
     fn parse_session_delta_advances_offset_when_plugin_blows_up() {
         // Defensive: feed the plugin malformed JSONL bytes. Plugin catch-blocks each line, but the test asserts the tailer doesn't get stuck at the same offset.
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let j = load_js("claude");
         let bad = "this is not json at all\nnot json either\n";
         let tmp = tempfile::NamedTempFile::new().unwrap();
@@ -962,8 +981,8 @@ mod codex {
     #[test]
     fn detect_from_title_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         for s in ["Codex", "codex prompt", "RUNNING CODEX"] {
             assert!(n.detect_from_title(s));
@@ -978,8 +997,8 @@ mod codex {
     #[test]
     fn detect_from_output_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         let cases = [
             ("OpenAI Codex v1.2", true),
@@ -999,8 +1018,8 @@ mod codex {
     #[test]
     fn screen_has_tui_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         for s in ["OpenAI Codex banner", "ctrl+c to cancel"] {
             assert!(n.screen_has_tui(s));
@@ -1015,8 +1034,8 @@ mod codex {
     #[test]
     fn has_event_markers_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         for s in [
             "Would you like to proceed",
@@ -1037,8 +1056,8 @@ mod codex {
     #[test]
     fn slash_commands_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         assert_eq!(n.compact_command(), j.compact_command());
         assert_eq!(n.exit_command(), j.exit_command());
@@ -1052,8 +1071,8 @@ mod codex {
     #[test]
     fn parse_session_messages_parity_on_rollout_fixture() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         let jsonl = "{\"type\":\"meta\",\"x\":1}\n\
             {\"type\":\"response_item\",\"timestamp\":\"2026-04-12T09:00:00Z\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}}\n\
@@ -1077,8 +1096,8 @@ mod codex {
     #[test]
     fn metadata_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         assert_eq!(n.id(), j.id());
         assert_eq!(n.display_name(), j.display_name());
@@ -1096,8 +1115,8 @@ mod codex {
     #[test]
     fn resume_command_carries_session_id() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (_n, j) = pair();
         let cmd = j.build_resume_command("uuid-1234", false).unwrap();
         assert_eq!(cmd, "codex resume 'uuid-1234'");
@@ -1115,8 +1134,8 @@ mod codex {
     #[test]
     fn codex_rollout_walk_via_plugin() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         // Plugin honours `CODETERM_CODEX_SESSIONS_ROOT` to avoid hitting the user's real `~/.codex/sessions` during tests. (dirs::home_dir ignores
         // HOME env on Windows, so HOME redirect would be ineffective.)
@@ -1242,8 +1261,8 @@ mod opencode {
     #[test]
     fn detect_from_title_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         for s in ["OpenCode", "opencode v0.3", "OpenCode Zen"] {
             assert!(n.detect_from_title(s));
@@ -1258,8 +1277,8 @@ mod opencode {
     #[test]
     fn detect_from_output_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         // Native + JS both require a two-part fingerprint: marker (opencode/OpenCode) AND a TUI/prompt signal (box-drawing or a permission line). Bare
         // mentions or bare signals must NOT match.
@@ -1281,8 +1300,8 @@ mod opencode {
     #[test]
     fn screen_has_tui_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         for s in ["tab agents", "Ctrl+P commands"] {
             assert!(n.screen_has_tui(s));
@@ -1297,8 +1316,8 @@ mod opencode {
     #[test]
     fn slash_commands_and_flags_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         assert_eq!(n.compact_command(), j.compact_command());
         assert_eq!(n.exit_command(), j.exit_command());
@@ -1312,8 +1331,8 @@ mod opencode {
     #[test]
     fn metadata_parity() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (n, j) = pair();
         assert_eq!(n.id(), j.id());
         assert_eq!(n.display_name(), j.display_name());
@@ -1327,8 +1346,8 @@ mod opencode {
     #[test]
     fn resume_command_drops_skip_flag_by_design() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let (_n, j) = pair();
         let cmd = j.build_resume_command("ses_abc123", true).unwrap();
         assert!(!cmd.contains("--dangerously-skip-permissions"));
@@ -1343,8 +1362,8 @@ mod opencode {
     #[test]
     fn opencode_sqlite_session_detection_via_plugin() {
         if require_plugins().is_none() {
-        return;
-    }
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let opencode_dir = dir.path().join("opencode");
         std::fs::create_dir_all(&opencode_dir).unwrap();
@@ -1512,6 +1531,3 @@ fn all_workspace_plugins_load() {
         assert_eq!(p.id(), id, "plugin id mismatch for {id}");
     }
 }
-
-
-

@@ -46,11 +46,11 @@ pub fn ensure_dreaming_cron(
                 if legacy_jitter_match {
                     j.jitter_max_ms = Some(1_800_000);
                 }
-            // Migrated schedule: stale `next_run` can cause an extra run on startup.
-            // Recompute to avoid double-fire after migration.
+                // Migrated schedule: stale `next_run` can cause an extra run on startup.
+                // Recompute to avoid double-fire after migration.
                 if j.enabled && !j.oneshot {
-                        // Only overwrite next_run when compute returns Some(_). None means no future run exists.
-                        // Keeping old next_run avoids accidentally disabling jobs (issue #96).
+                    // Only overwrite next_run when compute returns Some(_). None means no future run exists.
+                    // Keeping old next_run avoids accidentally disabling jobs (issue #96).
                     match crate::cron::store::compute_next_run_jittered_in(
                         &j.schedule,
                         j.jitter_max_ms,

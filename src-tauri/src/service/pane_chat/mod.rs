@@ -95,7 +95,10 @@ fn extract_local_command(content: &str) -> Option<(String, String)> {
 
 /// System provenance for an `isMeta` row, mirroring the desktop `metaSubtype`.
 fn meta_subtype(content: &str) -> String {
-    if content.trim_start().starts_with("Base directory for this skill:") {
+    if content
+        .trim_start()
+        .starts_with("Base directory for this skill:")
+    {
         "skill_context".to_string()
     } else {
         "meta".to_string()
@@ -180,7 +183,11 @@ pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
             .and_then(|v| v.as_str())
             .map(String::from);
         if let Some((tag, body)) = extract_local_command(&content) {
-            let kind = if tag == "local-command-caveat" { "system" } else { "local_command" };
+            let kind = if tag == "local-command-caveat" {
+                "system"
+            } else {
+                "local_command"
+            };
             out.push(ChatMsg {
                 id: id_at(0),
                 kind: kind.into(),
@@ -224,11 +231,13 @@ pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
                     // tool_result block in the user turn after the tool_use.
                     emitted_tool_result = true;
                     out.push(ChatMsg {
-                        id: format!("result-{}", b
-                            .data
-                            .get("tool_use_id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or(&base)),
+                        id: format!(
+                            "result-{}",
+                            b.data
+                                .get("tool_use_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(&base)
+                        ),
                         kind: "tool_result".into(),
                         tool_id: b
                             .data
@@ -249,7 +258,11 @@ pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
         // row — mirror the desktop's string-content handling.
         if attachments.is_empty() && !emitted_tool_result && !content.is_empty() {
             if let Some((tag, body)) = extract_local_command(&content) {
-                let kind = if tag == "local-command-caveat" { "system" } else { "local_command" };
+                let kind = if tag == "local-command-caveat" {
+                    "system"
+                } else {
+                    "local_command"
+                };
                 out.push(ChatMsg {
                     id: id_at(0),
                     kind: kind.into(),
@@ -296,14 +309,25 @@ pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
 
     for (i, b) in rich.blocks.iter().enumerate() {
         let id = id_at(i);
-        let get = |k: &str| b.data.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let get = |k: &str| {
+            b.data
+                .get(k)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        };
         let mut msg = match b.kind.as_str() {
             "text" => {
                 let t = get("text");
                 if t.trim().is_empty() {
                     continue;
                 }
-                ChatMsg { id, kind: role.to_string(), content: t.trim().to_string(), ..Default::default() }
+                ChatMsg {
+                    id,
+                    kind: role.to_string(),
+                    content: t.trim().to_string(),
+                    ..Default::default()
+                }
             }
             "thinking" => {
                 // Real claude thinking blocks carry `thinking`; some carry `text`.
@@ -322,7 +346,13 @@ pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
                 } else {
                     truncated
                 };
-                ChatMsg { id, kind: "thinking".into(), content, collapsed: true, ..Default::default() }
+                ChatMsg {
+                    id,
+                    kind: "thinking".into(),
+                    content,
+                    collapsed: true,
+                    ..Default::default()
+                }
             }
             "tool_use" => {
                 let name = get("name");
@@ -342,7 +372,11 @@ pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
             "tool_result" => ChatMsg {
                 id,
                 kind: "tool_result".into(),
-                tool_id: b.data.get("tool_use_id").and_then(|v| v.as_str()).map(String::from),
+                tool_id: b
+                    .data
+                    .get("tool_use_id")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
                 tool_result: Some(extract_tool_result_text(b.data.get("content"))),
                 collapsed: true,
                 ..Default::default()
@@ -352,7 +386,10 @@ pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
                 ChatMsg {
                     id,
                     kind: "image".into(),
-                    image_data: source.and_then(|s| s.get("data")).and_then(|v| v.as_str()).map(String::from),
+                    image_data: source
+                        .and_then(|s| s.get("data"))
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     image_mime_type: Some(
                         source
                             .and_then(|s| s.get("media_type"))
@@ -384,7 +421,10 @@ pub fn pane_chat_snapshot(
         let pane = m.get_pane(pane_id).ok_or("pane not found")?;
         let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
         let cwd = pane.cwd.clone().unwrap_or_default();
-        let sid = pane.agent_session_id.clone().ok_or("pane has no session_id yet")?;
+        let sid = pane
+            .agent_session_id
+            .clone()
+            .ok_or("pane has no session_id yet")?;
         (provider, cwd, sid)
     };
 
@@ -395,7 +435,9 @@ pub fn pane_chat_snapshot(
 
     let all: Vec<ChatMsg> = if structured {
         svc.agent_registry
-            .with_provider(&provider_id, |p| p.read_structured_chat(&cwd, &session_id, None))
+            .with_provider(&provider_id, |p| {
+                p.read_structured_chat(&cwd, &session_id, None)
+            })
             .map(|sc| sc.messages)
             .unwrap_or_default()
     } else {
@@ -432,7 +474,10 @@ mod chat_snapshot_tests {
         let rich = RichMessage {
             role: "assistant".into(),
             blocks: vec![
-                MessageBlock { kind: "text".into(), data: json!({"text": "hi"}) },
+                MessageBlock {
+                    kind: "text".into(),
+                    data: json!({"text": "hi"}),
+                },
                 MessageBlock {
                     kind: "tool_use".into(),
                     data: json!({"name": "Bash", "input": {"command": "codeterm pane list"}}),
@@ -446,6 +491,9 @@ mod chat_snapshot_tests {
         assert_eq!(msgs[0].content, "hi");
         assert_eq!(msgs[1].kind, "tool_call");
         assert_eq!(msgs[1].tool_name.as_deref(), Some("Bash"));
-        assert_eq!(msgs[1].tool_input.as_ref().unwrap()["command"], "codeterm pane list");
+        assert_eq!(
+            msgs[1].tool_input.as_ref().unwrap()["command"],
+            "codeterm pane list"
+        );
     }
 }

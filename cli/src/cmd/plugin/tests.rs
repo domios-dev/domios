@@ -19,7 +19,8 @@ mod store_index_tests {
     fn with_data_root<T>(f: impl FnOnce(PathBuf) -> T) -> T {
         let _guard = env_lock().lock().unwrap();
         let prev = std::env::var("CODETERM_DATA_DIR").ok();
-        let root = std::env::temp_dir().join(format!("codeterm-plugin-test-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("codeterm-plugin-test-{}", uuid::Uuid::new_v4()));
         std::env::set_var("CODETERM_DATA_DIR", &root);
         let result = f(root.clone());
         restore_env("CODETERM_DATA_DIR", prev);
@@ -78,13 +79,16 @@ mod store_index_tests {
         for p in &manifest.plugins {
             let rel = p.path.as_ref().expect("each channel plugin needs a path");
             let dir = plugins_dir.join(rel);
-            assert!(dir.is_dir(), "declared plugin dir missing: {}", dir.display());
+            assert!(
+                dir.is_dir(),
+                "declared plugin dir missing: {}",
+                dir.display()
+            );
 
             // channel.json#id must match the plugin's own plugin.json#id.
             let pj = std::fs::read_to_string(dir.join("plugin.json"))
                 .unwrap_or_else(|_| panic!("plugin.json missing in {}", dir.display()));
-            let pjv: serde_json::Value =
-                serde_json::from_str(&pj).expect("plugin.json must parse");
+            let pjv: serde_json::Value = serde_json::from_str(&pj).expect("plugin.json must parse");
             assert_eq!(
                 pjv.get("id").and_then(|v| v.as_str()),
                 Some(p.id.as_str()),
@@ -107,7 +111,8 @@ mod store_index_tests {
     fn plugin_storage_roots_follow_code_term_data_dir_override() {
         let _guard = env_lock().lock().unwrap();
         let prev = std::env::var("CODETERM_DATA_DIR").ok();
-        let root = std::env::temp_dir().join(format!("codeterm-plugin-root-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("codeterm-plugin-root-{}", uuid::Uuid::new_v4()));
         std::env::set_var("CODETERM_DATA_DIR", &root);
 
         assert_eq!(plugins_root(), root.join("plugins"));
@@ -152,7 +157,11 @@ mod store_index_tests {
         with_data_root(|root| {
             let prev_system_url = std::env::var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL").ok();
             let source = root.join("system-source");
-            write_channel(&source, SYSTEM_CHANNEL_NAME, &[("extra-system", "provider-extra")]);
+            write_channel(
+                &source,
+                SYSTEM_CHANNEL_NAME,
+                &[("extra-system", "provider-extra")],
+            );
             std::env::set_var(
                 "CODETERM_SYSTEM_PLUGIN_CHANNEL_URL",
                 format!("file://{}", source.display()),
@@ -193,10 +202,14 @@ mod store_index_tests {
             let listed = list_installed().unwrap();
             let rows = listed["plugins"].as_array().unwrap();
             // One real on-disk plugin + the always-present system intrinsics.
-            let non_system: Vec<_> = rows.iter().filter(|p| p["system"] != serde_json::json!(true)).collect();
+            let non_system: Vec<_> = rows
+                .iter()
+                .filter(|p| p["system"] != serde_json::json!(true))
+                .collect();
             assert_eq!(non_system.len(), 1);
             assert_eq!(non_system[0]["id"], serde_json::json!("real"));
-            assert!(rows.iter().any(|p| p["id"] == serde_json::json!("claude") && p["removable"] == serde_json::json!(false)));
+            assert!(rows.iter().any(|p| p["id"] == serde_json::json!("claude")
+                && p["removable"] == serde_json::json!(false)));
         });
     }
 
@@ -275,7 +288,8 @@ mod store_index_tests {
             .unwrap();
             std::fs::write(
                 cache.join("provider-needy/plugin.json"),
-                serde_json::json!({"id":"needy","version":"1.0.0","minCodeterm":"2.0.0"}).to_string(),
+                serde_json::json!({"id":"needy","version":"1.0.0","minCodeterm":"2.0.0"})
+                    .to_string(),
             )
             .unwrap();
             std::fs::write(cache.join("provider-needy/plugin.js"), "module.exports={};").unwrap();
@@ -292,13 +306,20 @@ mod store_index_tests {
             })
             .unwrap();
 
-            let err = install_command(Some("needy".to_string()), None, None, Some("needychan".to_string()))
-                .unwrap_err();
+            let err = install_command(
+                Some("needy".to_string()),
+                None,
+                None,
+                Some("needychan".to_string()),
+            )
+            .unwrap_err();
             assert!(err.contains("requires CodeTerm"), "got: {err}");
-            assert!(!plugin_dir("needy").exists(), "incompatible plugin must not be installed");
+            assert!(
+                !plugin_dir("needy").exists(),
+                "incompatible plugin must not be installed"
+            );
 
             restore_env("CODETERM_VERSION", prev_v);
         });
     }
 }
-

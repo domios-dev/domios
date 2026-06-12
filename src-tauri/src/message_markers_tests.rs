@@ -4,15 +4,24 @@ use super::*;
 /// `packages/chat-core/src/markers.test.ts`. If either side drifts, its test
 /// fails.
 const PARITY: &[(&str, &str)] = &[
-    ("-=-codeterm:voice file=/u/v.webm-=-привет", "voice→transcript payload"),
+    (
+        "-=-codeterm:voice file=/u/v.webm-=-привет",
+        "voice→transcript payload",
+    ),
     (
         "-=-codeterm:voice file=/u/v.webm status=untranscribed-=-no daemon",
         "voice→untranscribed note in payload",
     ),
     ("-=-codeterm:photo file=/u/p.jpg name=p.jpg-=-", "photo"),
-    ("-=-codeterm:telegram user=100000001 msg=12345-=-do the task", "telegram"),
+    (
+        "-=-codeterm:telegram user=100000001 msg=12345-=-do the task",
+        "telegram",
+    ),
     ("-=-codeterm:mesh peer=peer-a pane=abc12345-=-hi", "mesh"),
-    ("-=-codeterm:pane label=General%20Main pane=bda0e267-=-ping", "pane label has space"),
+    (
+        "-=-codeterm:pane label=General%20Main pane=bda0e267-=-ping",
+        "pane label has space",
+    ),
 ];
 
 #[test]
@@ -20,7 +29,10 @@ fn convenience_constructors_match_parity_wire() {
     assert_eq!(voice("/u/v.webm", Some("привет"), None), PARITY[0].0);
     assert_eq!(voice("/u/v.webm", None, Some("no daemon")), PARITY[1].0);
     assert_eq!(photo("/u/p.jpg", Some("p.jpg")), PARITY[2].0);
-    assert_eq!(telegram("100000001", Some("12345"), "do the task"), PARITY[3].0);
+    assert_eq!(
+        telegram("100000001", Some("12345"), "do the task"),
+        PARITY[3].0
+    );
     assert_eq!(mesh("peer-a", "abc12345", "hi"), PARITY[4].0);
     assert_eq!(pane("General Main", "bda0e267", "ping"), PARITY[5].0);
 }

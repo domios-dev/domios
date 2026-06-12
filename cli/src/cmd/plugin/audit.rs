@@ -81,16 +81,20 @@ pub(super) fn audit_command_failure(action: &PluginAction, error: &str) -> Resul
     append_audit_event(&event)
 }
 
-pub(super) fn command_failure_fields(action: &PluginAction) -> (String, Option<String>, Option<String>) {
+pub(super) fn command_failure_fields(
+    action: &PluginAction,
+) -> (String, Option<String>, Option<String>) {
     match action {
         PluginAction::List => ("list-failed".to_string(), None, None),
         PluginAction::Install { id, channel, .. } => {
             ("install-failed".to_string(), id.clone(), channel.clone())
         }
         PluginAction::Update { id } => ("update-failed".to_string(), id.clone(), None),
-        PluginAction::UpdateSystem { id } => {
-            ("update-system-failed".to_string(), id.clone(), Some(SYSTEM_CHANNEL_NAME.to_string()))
-        }
+        PluginAction::UpdateSystem { id } => (
+            "update-system-failed".to_string(),
+            id.clone(),
+            Some(SYSTEM_CHANNEL_NAME.to_string()),
+        ),
         PluginAction::Remove { id, .. } => ("remove-failed".to_string(), Some(id.clone()), None),
         PluginAction::Channel { command } => match command {
             PluginChannelAction::Add { name, .. } => {
@@ -100,12 +104,12 @@ pub(super) fn command_failure_fields(action: &PluginAction) -> (String, Option<S
             PluginChannelAction::Refresh { name } => {
                 ("refresh-failed".to_string(), None, name.clone())
             }
-            PluginChannelAction::Diff { name } => {
-                ("diff-failed".to_string(), None, name.clone())
-            }
-            PluginChannelAction::Remove { name, .. } => {
-                ("channel-remove-failed".to_string(), None, Some(name.clone()))
-            }
+            PluginChannelAction::Diff { name } => ("diff-failed".to_string(), None, name.clone()),
+            PluginChannelAction::Remove { name, .. } => (
+                "channel-remove-failed".to_string(),
+                None,
+                Some(name.clone()),
+            ),
         },
     }
 }

@@ -7,9 +7,7 @@ use rusqlite::{params, Connection};
 use tauri::Emitter;
 
 use crate::service::activity::{ActivityEvent, ActivityWriter};
-use crate::service::store::{
-    HealthMode, HealthSnapshot, HealthStatus, ServiceKind, ServicesStore,
-};
+use crate::service::store::{HealthMode, HealthSnapshot, HealthStatus, ServiceKind, ServicesStore};
 
 const TICK_SECS: u64 = 30;
 const HTTP_TIMEOUT_MS: u64 = 5_000;
