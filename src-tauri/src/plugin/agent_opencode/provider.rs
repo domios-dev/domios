@@ -21,12 +21,6 @@ use models::{
 
 /// OpenCode (sst/opencode) agent provider.
 ///
-/// Session storage layout (XDG_DATA_HOME, defaults to ~/.local/share):
-///   ~/.local/share/opencode/storage/session/<projectID>/<sessionID>.json   (metadata)
-///   ~/.local/share/opencode/storage/message/<sessionID>/<messageID>.json   (per-message header)
-///   ~/.local/share/opencode/storage/part/<messageID>/<partID>.json         (text parts)
-///   ~/.local/share/opencode/storage/project/<projectID>.json               (project worktree)
-///
 /// projectID is opaque (sha1 of cwd in current opencode), but we don't have
 /// to recompute it: the per-session JSON carries the authoritative `directory`
 /// field, so enumeration / detection walks the session tree and filters by
@@ -131,62 +125,21 @@ impl OpenCodeProvider {
         None
     }
 
-    /// Session id whose latest assistant message is most recent for `cwd`.
-    /// Used by `detect_active_session` to roll a stale pane onto the new
-    /// session opencode spawned after a `/model` swap.
-    fn db_newest_session_for_cwd(cwd: &str) -> Option<String> {
-        let path = Self::db_path()?;
-        let conn = rusqlite::Connection::open_with_flags(
-            &path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .ok()?;
-        let cwd_fwd = cwd.replace('\\', "/");
-        let cwd_bwd = cwd.replace('/', "\\");
-        let mut stmt = conn
-            .prepare(
-                "SELECT m.session_id FROM message m \
-             JOIN session s ON s.id = m.session_id \
-             WHERE (s.directory = ?1 OR s.directory = ?2) AND s.time_archived IS NULL \
-             ORDER BY m.time_created DESC LIMIT 1",
-            )
-            .ok()?;
-        stmt.query_row(rusqlite::params![cwd_fwd, cwd_bwd], |row| {
-            row.get::<_, String>(0)
-        })
-        .ok()
-    }
-
     /// modelID of the most recent assistant message for this pane's session.
-    /// Falls back to a cwd-wide scan when the specific session has no
-    /// assistant messages yet — that happens right after a `/model` swap
-    /// where opencode spawns a brand-new session row, but the focused-pane
-    /// poller hasn't yet swapped the pane's cached session_id over.
-    fn db_latest_assistant_model(cwd: &str, session_id: &str) -> Option<String> {
+    fn db_latest_assistant_model(session_id: &str) -> Option<String> {
         let path = Self::db_path()?;
         let conn = rusqlite::Connection::open_with_flags(
             &path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
         .ok()?;
-        if !session_id.is_empty() {
-            if let Some(model) = Self::scan_messages(
-                &conn,
-                "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-                rusqlite::params![session_id],
-            ) {
-                return Some(model);
-            }
+        if session_id.is_empty() {
+            return None;
         }
-        let cwd_fwd = cwd.replace('\\', "/");
-        let cwd_bwd = cwd.replace('/', "\\");
         Self::scan_messages(
             &conn,
-            "SELECT m.data FROM message m \
-             JOIN session s ON s.id = m.session_id \
-             WHERE (s.directory = ?1 OR s.directory = ?2) \
-             ORDER BY m.time_created DESC LIMIT 50",
-            rusqlite::params![cwd_fwd, cwd_bwd],
+            "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+            rusqlite::params![session_id],
         )
     }
 
@@ -482,19 +435,13 @@ impl AgentProvider for OpenCodeProvider {
             .unwrap_or(false)
     }
 
-    fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
-        let id = Self::db_latest_assistant_model(cwd, session_id)?;
+    fn detect_session_model(&self, _cwd: &str, session_id: &str) -> Option<String> {
+        let id = Self::db_latest_assistant_model(session_id)?;
         Some(opencode_short_label(&id))
     }
 
-    fn detect_active_session(&self, cwd: &str, current_sid: &str) -> Option<String> {
-        // `/model` can point to a newer session; prefer that one.
-        let latest = Self::db_newest_session_for_cwd(cwd)?;
-        if latest == current_sid {
-            None
-        } else {
-            Some(latest)
-        }
+    fn detect_active_session(&self, _cwd: &str, _current_sid: &str) -> Option<String> {
+        None
     }
 
     fn read_usage(&self, _cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
@@ -952,7 +899,11 @@ impl AgentProvider for OpenCodeProvider {
 
 /// Collapse common model family names for compact tab badges.
 fn opencode_short_label(model_id: &str) -> String {
-    let m = model_id.to_ascii_lowercase();
+    let m = model_id
+        .rsplit_once('/')
+        .map(|(_, model)| model)
+        .unwrap_or(model_id)
+        .to_ascii_lowercase();
     for fam in [
         "opus", "sonnet", "haiku", "codex", "gemini", "gpt", "deepseek", "qwen", "llama",
         "mistral", "grok",
@@ -962,11 +913,11 @@ fn opencode_short_label(model_id: &str) -> String {
         }
     }
     // Keep up to two segments for opencode-zen labels.
-    let trimmed: String = model_id.split('-').take(2).collect::<Vec<_>>().join("-");
+    let trimmed: String = m.split('-').take(2).collect::<Vec<_>>().join("-");
     if trimmed.len() <= 14 {
         trimmed
     } else {
-        model_id.split('-').next().unwrap_or(model_id).to_string()
+        m.split('-').next().unwrap_or(&m).to_string()
     }
 }
 

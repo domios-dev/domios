@@ -402,14 +402,8 @@ impl AgentProvider for CodexProvider {
         )
     }
 
-    fn detect_active_session(&self, cwd: &str, current_sid: &str) -> Option<String> {
-        let current_path = self.session_file_path(cwd, current_sid);
-        let current_ts = current_path
-            .as_ref()
-            .and_then(|p| std::fs::metadata(p).ok())
-            .and_then(|m| m.modified().or_else(|_| m.created()).ok())
-            .unwrap_or(std::time::UNIX_EPOCH);
-        latest_session_for_cwd(cwd, Some(current_sid), current_ts)
+    fn detect_active_session(&self, _cwd: &str, _current_sid: &str) -> Option<String> {
+        None
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
@@ -741,53 +735,6 @@ fn read_session_meta(path: &std::path::Path) -> Option<(Option<String>, Option<S
     Some((id, cwd))
 }
 
-fn latest_session_for_cwd(
-    cwd: &str,
-    exclude_sid: Option<&str>,
-    after: std::time::SystemTime,
-) -> Option<String> {
-    let root = CodexProvider::sessions_root()?;
-    if !root.exists() {
-        return None;
-    }
-    let mut best: Option<(String, std::time::SystemTime)> = None;
-    walk_jsonl_recursive(&root, 0, &mut |path| {
-        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-            return;
-        };
-        let (meta_sid, meta_cwd) = read_session_meta(path).unwrap_or((None, None));
-        let Some(recorded_cwd) = meta_cwd else {
-            return;
-        };
-        if !paths_equivalent(&recorded_cwd, cwd) {
-            return;
-        }
-        let sid = meta_sid.or_else(|| extract_session_uuid(stem).map(String::from));
-        let Some(sid) = sid else { return };
-        if exclude_sid == Some(sid.as_str()) {
-            return;
-        }
-        let Ok(meta) = std::fs::metadata(path) else {
-            return;
-        };
-        let ts = match meta.modified().or_else(|_| meta.created()) {
-            Ok(ts) => ts,
-            Err(_) => return,
-        };
-        if ts <= after {
-            return;
-        }
-        if best
-            .as_ref()
-            .map(|(_, best_ts)| ts > *best_ts)
-            .unwrap_or(true)
-        {
-            best = Some((sid, ts));
-        }
-    });
-    best.map(|(sid, _)| sid)
-}
-
 /// Tail-scan a codex jsonl for the latest `turn_context.payload.model`.
 /// Codex writes a fresh turn_context every interaction, so the last one is
 /// the active model — including post-`/model` swap.
@@ -842,9 +789,13 @@ fn codex_short_label(model_id: &str) -> String {
             return c.next().unwrap().to_ascii_uppercase().to_string() + c.as_str();
         }
     }
-    // GPT family: keep version + variant suffix so the badge can distinguish gpt-5 from gpt-4o / gpt-5-mini / etc. Cap at the first two segments.
+    // GPT family: keep version + variant suffix so the badge can distinguish gpt-5 from gpt-4o / gpt-5-mini / etc.
     if m.starts_with("gpt") {
-        let head: String = m.split('-').take(2).collect::<Vec<_>>().join("-");
+        let mut parts = m.split('-').take(3).collect::<Vec<_>>();
+        while parts.last() == Some(&"") {
+            parts.pop();
+        }
+        let head = parts.join("-");
         return format!("GPT{}", head.trim_start_matches("gpt"));
     }
     if let Some(first) = m.split('-').next() {
