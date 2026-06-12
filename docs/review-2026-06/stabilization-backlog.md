@@ -1264,6 +1264,8 @@ Tracked here so nothing silently drops; dispatch after the merge, briefs on dema
 | LLM-RERUN | Re-run the LLM e2e tranche when provider limits reset. | held |
 | SUITE-SPLIT | Split the hierarchy mega-suite; biome/clippy ratchet drains; file-size allowlist drain to zero. | held |
 | R1 | (see WS-G above) claude.json concurrent-corruption research. | held |
+| RESUME-SKIP-SIGNAL | Stale/never-materialized sid → restore silently starts a fresh session, no UI hint or notification; user caught it only by eyeballing (2026-06-12, rm-claude-1). Add a pane badge + notification on resume-skip. | new |
+| SEND-VERIFY-GAP | Verified-send returns ok yet the provider never records the input. Two live instances on 2026-06-12: matrix claude pane (send ok, JSONL never materialized) and a prod worker spawn whose --task left only mojibake in the codex composer. Strengthen agent-pane send verification against provider-store materialization (the matrix pre-kill gate is the prototype) or document the weaker guarantee honestly. | new |
 
 ## Dispatch order (arbiter cheat-sheet)
 
