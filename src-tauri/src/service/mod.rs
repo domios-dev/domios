@@ -18,6 +18,7 @@ pub mod cron;
 pub mod general_agent;
 pub mod health;
 mod hierarchy;
+mod inject_safety;
 pub mod inject_verify;
 pub mod input_parser;
 pub mod msg_prefix;
