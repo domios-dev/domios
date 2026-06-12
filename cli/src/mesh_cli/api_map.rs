@@ -1,7 +1,7 @@
 //! Map local CLI commands to relay `(method, path, body)` calls for peer dispatch.
 //! Update this match when new `super::Commands` variants are added.
 
-use crate::{Commands, ServiceAction, UpdateAction};
+use crate::{cmd::send_text::resolve_send_text_input, Commands, ServiceAction, UpdateAction};
 
 use super::update::resolve_update_action;
 use super::{parse_ip_port, MeshAction, MeshPeerAction};
@@ -49,38 +49,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             text,
             pane,
             from_file,
-            from_stdin,
+            stdin: use_stdin,
         } => {
-            let p = pane.as_deref().unwrap_or("general");
-            let source =
-                std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
-            let body_text = if *from_stdin {
-                use std::io::Read;
-                let mut buf = String::new();
-                if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
-                    eprintln!("Error: failed to read --from-stdin: {}", e);
-                    std::process::exit(1);
-                }
-                buf
-            } else if let Some(path) = from_file.as_ref() {
-                std::fs::read_to_string(path).unwrap_or_else(|_| text.clone())
-            } else {
-                text.clone()
-            };
-            if body_text.trim().is_empty() {
-                eprintln!("Error: send-text payload is empty (mesh path)");
-                eprintln!(
-                    "hint: --from-stdin via heredoc may have dropped under your shell wrapper;"
-                );
-                eprintln!("      try --from-file <path> with a real tempfile.");
-                std::process::exit(2);
-            }
-            let body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
-            (
-                "POST".into(),
-                format!("/api/panes/{}/send", p),
-                Some(body.to_string()),
-            )
+            let mut stdin = std::io::stdin();
+            send_text_to_api(text, pane, from_file, *use_stdin, &mut stdin)
         }
         Commands::Notify { title, body, level } => (
             "POST".into(),
@@ -800,6 +772,37 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             std::process::exit(2);
         }
     }
+}
+
+pub(crate) fn send_text_to_api<R: std::io::Read>(
+    text: &Option<String>,
+    pane: &Option<String>,
+    from_file: &Option<String>,
+    from_stdin: bool,
+    stdin: &mut R,
+) -> (String, String, Option<String>) {
+    let p = pane.as_deref().unwrap_or("general");
+    let source = std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
+    let (body_text, input_source) =
+        match resolve_send_text_input(text.clone(), from_file.clone(), from_stdin, stdin) {
+            Ok(value) => value,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        };
+    if body_text.trim().is_empty() {
+        eprintln!("Error: send-text payload is empty (mesh path, source: {input_source})");
+        eprintln!("hint: --stdin via heredoc may have dropped under your shell wrapper;");
+        eprintln!("      try --from-file <path> with a real tempfile.");
+        std::process::exit(2);
+    }
+    let body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
+    (
+        "POST".into(),
+        format!("/api/panes/{}/send", p),
+        Some(body.to_string()),
+    )
 }
 
 fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {

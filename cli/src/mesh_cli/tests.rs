@@ -479,10 +479,10 @@ fn mem_stats_still_routes_to_stats() {
 #[test]
 fn send_text_is_fire_and_forget_on_mesh() {
     let cmd = Commands::SendText {
-        text: "ping".into(),
+        text: Some("ping".into()),
         pane: Some("abc123".into()),
         from_file: None,
-        from_stdin: false,
+        stdin: false,
     };
     let (m, p, b) = cli_command_to_api(&cmd);
     assert_eq!(m, "POST");
@@ -493,6 +493,18 @@ fn send_text_is_fire_and_forget_on_mesh() {
         body.get("verify").is_none(),
         "send-text must never carry verify — the flag has been removed (#101)"
     );
+}
+
+#[test]
+fn send_text_stdin_mesh_body_preserves_exact_text() {
+    let text = "it's got 'quotes' and \"doubles\"\nsecond line\n";
+    let mut stdin = text.as_bytes();
+    let (m, p, b) =
+        super::api_map::send_text_to_api(&None, &Some("abc123".into()), &None, true, &mut stdin);
+    assert_eq!(m, "POST");
+    assert_eq!(p, "/api/panes/abc123/send");
+    let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
+    assert_eq!(body["text"], text);
 }
 
 /// `web link` embeds the LOCAL token — relaying would mint a link with
