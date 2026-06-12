@@ -58,7 +58,7 @@ Then: `Authorization: Bearer your-secret-token`
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/panes` | — | List all panes |
-| POST | `/api/panes` | `{title?, cwd?, workspace_id?}` | Create a shell pane |
+| POST | `/api/panes` | `{title?, cwd?, workspace_id?, cmd?, eager?}` | Create a shell pane. When `cmd` is provided, CodeTerm sends it to the fresh pane through the same verified send path used by `/api/panes/{id}/send`, with Enter appended. |
 | POST | `/api/panes/{id}/send` | `{text?, enter?, raw?, batch?: [{text, enter?, delay_ms?}], source_pane?}` | Send text to PTY. Fire-and-forget — returns `{ok:true}` as soon as bytes are written. Verification fields were removed in v1.2.3 (#101): TUI agents (Claude/Codex) intercept input and don't echo per-character, so the old `verify` flag couldn't deliver on its name. For agent request/response, a future `codeterm agent send` will hook into provider semantics. |
 | POST | `/api/panes/{id}/stop` | — | Stop the pane's PTY process |
 | POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
@@ -554,7 +554,7 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 | GET | `/api/mem/items/{id}` | — | Get one item (full body). On real (non-worker) reads, `evidence_count` is bumped for kinds `skill | lesson | rule | fact | preference`. Bump is suppressed when the request carries `X-CodeTerm-Worker-Id` so internal sweeps (dreamer, extraction) don't poison the score. |
 | GET | `/api/mem/pinned` | `?limit=N` | List items with `is_pinned_wakeup = 1`, ordered by `importance DESC, evidence_count DESC, updated_at DESC`. `limit` defaults to 100, hard-capped at 500. |
 | POST | `/api/mem/items` | `{kind, title, body, scope?, summary?, area?, tags?, source?, importance?, replace?, skip_extract?, source_path?, pinned?}` | Save a mem item. `pinned: true` atomically sets `is_pinned_wakeup = 1` in the same INSERT (no follow-up PATCH). `scope` accepts `"global"` (default) or `"workspace:<id>"`. `skip_extract: true` suppresses the auto-extraction cascade (seed loaders use this to avoid re-extracting bundled items on every startup). |
-| PATCH | `/api/mem/items/{id}` | `{title?, summary?, area?, tags?, body?, importance?, pinned?}` | Partial update. `pinned: true|false` toggles `is_pinned_wakeup`; the change is recorded in `mem_item_history` so the audit trail captures explicit pin intent. |
+| PATCH | `/api/mem/items/{id}` | `{title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partial update. `pinned: true|false` toggles `is_pinned_wakeup`; the change is recorded in `mem_item_history` so the audit trail captures explicit pin intent. `changed_by` is an optional audit actor; the server trims and sanitizes it, and falls back to the actor headers when omitted or blank. |
 | DELETE | `/api/mem/items/{id}` | — | Delete an item |
 | GET | `/api/mem/wake-up` | `?budget=N&l0_only=true&no_l0=true&workspace=<ws>&explain=true` | L0 + L1 critical-context digest. `workspace` boosts items scoped to that workspace (`scope = "workspace:<ws>"`) by `+0.5` in the L1 score and admits them alongside global rows. `explain=true` appends a per-item score breakdown comment block. L1 budget defaults to `[memory] l1_budget_tokens` (default 300) when `budget` is omitted. |
 | GET | `/api/mem/stats` | — | Counts per kind, totals, index health |
@@ -1013,7 +1013,7 @@ Newline-delimited JSON:
 | Method | Params | Description |
 |--------|--------|-------------|
 | `system.identify` | — | Version, platform, features |
-| `system.capabilities` | — | List all methods |
+| `system.capabilities` | — | List all methods. Socket-only; unsupported over mesh relay. |
 | `workspace.list` | — | List workspaces |
 | `workspace.create` | `{name}` | Create workspace |
 | `workspace.focus` | `{workspace_id}` | Focus workspace |
@@ -1142,4 +1142,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 54 -->
+<!-- revision: 55 -->
