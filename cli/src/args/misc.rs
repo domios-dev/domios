@@ -6,7 +6,7 @@ pub enum WorkspaceAction {
     List,
     /// Print the current (focused) workspace ID
     Current,
-    /// Create a new workspace
+    /// Create a new workspace. With --cwd, reuses an existing workspace at that cwd.
     Create {
         /// Workspace name
         name: String,
