@@ -7,9 +7,8 @@ mod migrations;
 mod store;
 
 pub(crate) fn init_v1_22_schema(conn: &Connection) {
-    conn
-        .execute_batch(
-            "CREATE TABLE relations (
+    conn.execute_batch(
+        "CREATE TABLE relations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             from_id TEXT NOT NULL,
             relation_type TEXT NOT NULL,
@@ -46,6 +45,6 @@ pub(crate) fn init_v1_22_schema(conn: &Connection) {
             accessed_at TEXT, access_count INTEGER NOT NULL DEFAULT 0,
             recurrence_count INTEGER NOT NULL DEFAULT 0
         );",
-        )
-        .unwrap();
+    )
+    .unwrap();
 }
