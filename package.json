@@ -14,13 +14,15 @@
     "test:pw:smoke": "playwright test -c tests/playwright --project=smoke",
     "test:pw:golden": "playwright test -c tests/playwright --project=golden",
     "test:pw:full": "playwright test -c tests/playwright --project=full",
-    "test:pw:lint": "node tests/playwright/helpers/check-tags.mjs"
+    "test:pw:lint": "node tests/playwright/helpers/check-tags.mjs",
+    "lint": "biome check ."
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.32.1",
   "devDependencies": {
+    "@biomejs/biome": "^2.4.16",
     "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "^4.2.1",
     "@tauri-apps/cli": "^2.10.1",

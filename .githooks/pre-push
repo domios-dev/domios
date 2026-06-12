@@ -17,3 +17,96 @@ if ! cargo check --manifest-path cli/Cargo.toml 2>&1 | tail -3; then
 fi
 
 echo "✅ cargo check passed"
+
+CLIPPY_ALLOW=(
+    -A unused-imports
+    -A unused-mut
+    -A unused-variables
+    -A dead-code
+    -A private-interfaces
+    -A clippy::empty_line_after_doc_comments
+    -A clippy::duplicated_attributes
+    -A clippy::manual_abs_diff
+    -A clippy::needless_range_loop
+    -A clippy::redundant_closure
+    -A clippy::new_without_default
+    -A clippy::question_mark
+    -A clippy::unnecessary_map_or
+    -A clippy::single_char_add_str
+    -A clippy::collapsible_else_if
+    -A clippy::field_reassign_with_default
+    -A clippy::items_after_test_module
+    -A clippy::too_many_arguments
+    -A clippy::await_holding_lock
+    -A clippy::type_complexity
+    -A clippy::unnecessary_get_then_check
+    -A clippy::ptr_arg
+    -A clippy::needless_as_bytes
+    -A clippy::single_element_loop
+    -A clippy::bool_assert_comparison
+    -A clippy::manual_repeat_n
+    -A clippy::len_zero
+    -A clippy::useless_vec
+    -A clippy::needless_borrows_for_generic_args
+    -A clippy::manual_clamp
+    -A clippy::upper_case_acronyms
+    -A clippy::needless_question_mark
+    -A clippy::implicit_saturating_sub
+    -A clippy::needless_borrow
+    -A clippy::derivable_impls
+    -A clippy::unnecessary_cast
+    -A clippy::trim_split_whitespace
+    -A clippy::should_implement_trait
+    -A clippy::collapsible_str_replace
+    -A clippy::missing_transmute_annotations
+    -A clippy::doc_lazy_continuation
+    -A clippy::manual_flatten
+    -A clippy::for_kv_map
+    -A clippy::manual_div_ceil
+    -A clippy::doc_overindented_list_items
+    -A clippy::useless_conversion
+    -A clippy::explicit_auto_deref
+    -A clippy::while_let_loop
+    -A clippy::map_identity
+    -A clippy::nonminimal_bool
+    -A clippy::manual_pattern_char_comparison
+    -A clippy::while_let_on_iterator
+    -A clippy::unnecessary_unwrap
+    -A clippy::single_match
+    -A clippy::unwrap_or_default
+    -A clippy::manual_split_once
+    -A clippy::wrong_self_convention
+    -A clippy::io_other_error
+    -A clippy::manual_is_multiple_of
+    -A clippy::clone_on_copy
+    -A clippy::large_enum_variant
+    -A clippy::manual_contains
+    -A clippy::map_flatten
+    -A clippy::print_literal
+    -A clippy::cloned_ref_to_slice_refs
+    -A clippy::filter_next
+    -A clippy::needless_return
+    -A clippy::collapsible_match
+)
+
+echo "Pre-push: running cargo fmt --check..."
+if ! cargo fmt --manifest-path src-tauri/Cargo.toml --all --check; then
+    echo "❌ src-tauri cargo fmt --check failed — push aborted"
+    exit 1
+fi
+if ! cargo fmt --manifest-path cli/Cargo.toml --all --check; then
+    echo "❌ CLI cargo fmt --check failed — push aborted"
+    exit 1
+fi
+
+echo "Pre-push: running cargo clippy..."
+if ! cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings "${CLIPPY_ALLOW[@]}"; then
+    echo "❌ src-tauri cargo clippy failed — push aborted"
+    exit 1
+fi
+if ! cargo clippy --manifest-path cli/Cargo.toml --workspace --all-targets -- -D warnings "${CLIPPY_ALLOW[@]}"; then
+    echo "❌ CLI cargo clippy failed — push aborted"
+    exit 1
+fi
+
+echo "✅ cargo fmt/clippy passed"
