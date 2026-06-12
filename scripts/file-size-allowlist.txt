@@ -8,7 +8,6 @@
 # Adding a new line to this list = admitting we shipped a >1000 file. Don't.
 
 # fmt reflow pushed over; split queued (post-PR).
-cli/src/main.rs	1041
 # fmt reflow pushed over; split queued (post-PR).
 cli/src/mesh_cli/api_map.rs	1115
 # fmt reflow pushed over; split queued (post-PR).

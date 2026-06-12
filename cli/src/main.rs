@@ -1,5 +1,3 @@
-use std::io::Write;
-
 mod client;
 mod cmd;
 mod mesh_cli;
@@ -9,74 +7,11 @@ use cmd::print::{handle_result, print_human, print_object};
 use clap::Parser;
 use client::{discover_socket, SocketClient};
 
-fn strip_ansi(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            // Skip ESC sequences: ESC [ ... final_byte
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                while let Some(&nc) = chars.peek() {
-                    chars.next();
-                    if nc.is_ascii_alphabetic() || nc == '~' || nc == 'h' || nc == 'l' {
-                        break;
-                    }
-                }
-            } else if chars.peek() == Some(&']') {
-                // OSC sequence: ESC ] ... BEL or ST
-                chars.next();
-                while let Some(&nc) = chars.peek() {
-                    chars.next();
-                    if nc == '\x07' {
-                        break;
-                    }
-                    if nc == '\x1b' {
-                        chars.next();
-                        break;
-                    }
-                }
-            }
-        } else if c == '\r' {
-            // Skip carriage return
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-fn workspace_reuse_notice(value: &serde_json::Value, requested_name: &str) -> Option<String> {
-    if value.get("existing").and_then(|v| v.as_bool()) != Some(true) {
-        return None;
-    }
-    let ws_name = value.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-    let ws_id = value.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-    Some(format!(
-        "reused existing workspace {} '{}' (same cwd); requested name '{}' ignored",
-        ws_id, ws_name, requested_name
-    ))
-}
-
-fn write_workspace_create_reuse_output<W: Write, E: Write>(
-    value: &serde_json::Value,
-    requested_name: &str,
-    json: bool,
-    stdout: &mut W,
-    stderr: &mut E,
-) -> std::io::Result<bool> {
-    let Some(notice) = workspace_reuse_notice(value, requested_name) else {
-        return Ok(false);
-    };
-    if json {
-        writeln!(stdout, "{}", serde_json::to_string_pretty(value).unwrap())?;
-    } else {
-        writeln!(stderr, "{}", notice)?;
-    }
-    Ok(true)
-}
-
 pub use mesh_cli::{MeshAction, MeshPeerAction};
+
+pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
+    cmd::local_io::resolve_pane(client, id)
+}
 
 /// Determine the CodeTerm data directory.
 /// Dev instances use `~/.codeterm-dev/`, prod uses `~/.codeterm/`.
@@ -240,39 +175,6 @@ pub use args::usage::UsageAction;
 /// When running inside CodeTerm, $CODETERM_PANE_ID is set automatically by the PTY.
 /// This ensures commands like `pane split` always target the caller's pane,
 /// not whatever pane the user happens to have focused.
-pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
-    // 1. Explicit --pane/--id arg
-    if let Some(id) = id {
-        return id;
-    }
-    // 2. $CODETERM_PANE_ID env var (set by CodeTerm PTY for each shell)
-    if let Ok(env_id) = std::env::var("CODETERM_PANE_ID") {
-        if !env_id.is_empty() {
-            return env_id;
-        }
-    }
-    // 3. Fallback: ask server for focused pane
-    match client.call("pane.list", None) {
-        Ok(value) => {
-            if let Some(arr) = value.as_array() {
-                let pane = arr
-                    .iter()
-                    .find(|p| p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
-                    .or_else(|| arr.first());
-                if let Some(id) = pane.and_then(|p| p.get("id").and_then(|v| v.as_str())) {
-                    return id.to_string();
-                }
-            }
-            eprintln!("Error: no panes found");
-            std::process::exit(1);
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    }
-}
-
 fn main() {
     let cli = Cli::try_parse_from(std::env::args()).unwrap_or_else(|e| e.exit());
 
@@ -473,73 +375,12 @@ fn main() {
 
         Commands::Capabilities => client.call("system.capabilities", None),
 
-        Commands::Workspace { action } => match action {
-            WorkspaceAction::List => client.call("workspace.list", None),
-            WorkspaceAction::Current => {
-                let result = client.call("workspace.list", None);
-                match result {
-                    Ok(value) => {
-                        if let Some(arr) = value.as_array() {
-                            let id = arr
-                                .iter()
-                                .find(|w| {
-                                    w.get("focused").and_then(|v| v.as_bool()).unwrap_or(false)
-                                })
-                                .or_else(|| arr.first())
-                                .and_then(|w| w.get("id").and_then(|v| v.as_str()));
-                            if let Some(id) = id {
-                                println!("{}", id);
-                            }
-                        }
-                        return;
-                    }
-                    Err(e) => {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    }
-                }
+        Commands::Workspace { action } => {
+            match cmd::local_io::handle_workspace_action(&mut client, action, cli.json) {
+                Some(result) => result,
+                None => return,
             }
-            WorkspaceAction::Create { name, cwd } => {
-                let requested_name = name.clone();
-                let mut params = serde_json::json!({ "name": name });
-                if let Some(cwd) = cwd {
-                    params["cwd"] = serde_json::json!(cwd);
-                }
-                match client.call("workspace.create", Some(params)) {
-                    Ok(val) if workspace_reuse_notice(&val, &requested_name).is_some() => {
-                        let _ = write_workspace_create_reuse_output(
-                            &val,
-                            &requested_name,
-                            cli.json,
-                            &mut std::io::stdout(),
-                            &mut std::io::stderr(),
-                        );
-                        return;
-                    }
-                    result => result,
-                }
-            }
-            WorkspaceAction::Focus { id } => client.call(
-                "workspace.focus",
-                Some(serde_json::json!({ "workspace_id": id })),
-            ),
-            WorkspaceAction::Rename { id, name } => client.call(
-                "workspace.rename",
-                Some(serde_json::json!({ "workspace_id": id, "name": name })),
-            ),
-            WorkspaceAction::Close { id } => client.call(
-                "workspace.close",
-                Some(serde_json::json!({ "workspace_id": id })),
-            ),
-            WorkspaceAction::MoveTab { tab_id, from, to } => client.call(
-                "workspace.move_tab",
-                Some(serde_json::json!({
-                    "tab_id": tab_id,
-                    "from_workspace_id": from,
-                    "to_workspace_id": to
-                })),
-            ),
-        },
+        }
 
         Commands::Pane { action } => {
             cmd::pane::handle_pane(&mut client, cli.json, action);
@@ -557,28 +398,8 @@ fn main() {
         }
 
         Commands::GetOutput { pane, lines } => {
-            let pane_id = resolve_pane(&mut client, pane);
-            let max_bytes = (lines as u64) * 80;
-            let result = client.call(
-                "pane.get_output",
-                Some(serde_json::json!({ "pane_id": pane_id, "max_bytes": max_bytes })),
-            );
-            match result {
-                Ok(value) => {
-                    if let Some(output) = value.get("output").and_then(|v| v.as_str()) {
-                        if cli.json {
-                            println!("{}", serde_json::to_string_pretty(&value).unwrap());
-                        } else {
-                            print!("{}", strip_ansi(output));
-                        }
-                    }
-                    return;
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            cmd::local_io::handle_get_output(&mut client, pane, lines, cli.json);
+            return;
         }
 
         Commands::SendText {
@@ -587,7 +408,7 @@ fn main() {
             from_file,
             stdin,
         } => {
-            cmd::send_text::handle_send_text(&mut client, cli.json, pane, text, from_file, stdin);
+            cmd::local_io::handle_send_text(&mut client, cli.json, pane, text, from_file, stdin);
             return;
         }
 
@@ -1086,7 +907,7 @@ mod subcommand_contract_tests {
             "existing": true
         });
         assert_eq!(
-            workspace_reuse_notice(&value, "Requested Workspace").as_deref(),
+            cmd::local_io::workspace_reuse_notice(&value, "Requested Workspace").as_deref(),
             Some("reused existing workspace abcd1234 'Real Workspace' (same cwd); requested name 'Requested Workspace' ignored")
         );
     }
@@ -1102,8 +923,8 @@ mod subcommand_contract_tests {
             "id": "abcd1234",
             "name": "Requested Workspace"
         });
-        assert!(workspace_reuse_notice(&created, "Requested Workspace").is_none());
-        assert!(workspace_reuse_notice(&unmarked, "Requested Workspace").is_none());
+        assert!(cmd::local_io::workspace_reuse_notice(&created, "Requested Workspace").is_none());
+        assert!(cmd::local_io::workspace_reuse_notice(&unmarked, "Requested Workspace").is_none());
     }
 
     #[test]
@@ -1116,7 +937,7 @@ mod subcommand_contract_tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
-        assert!(write_workspace_create_reuse_output(
+        assert!(cmd::local_io::write_workspace_create_reuse_output(
             &value,
             "Requested Workspace",
             false,
@@ -1142,7 +963,7 @@ mod subcommand_contract_tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
-        assert!(write_workspace_create_reuse_output(
+        assert!(cmd::local_io::write_workspace_create_reuse_output(
             &value,
             "Requested Workspace",
             true,
