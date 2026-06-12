@@ -10,7 +10,7 @@
  * the descriptor flows through automatically.
  */
 import { useCallback, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../lib/bridge";
 
 import type { ProviderDescriptor } from "../lib/types";
 import { setAgentDescriptors } from "../lib/agentDescriptorCache";

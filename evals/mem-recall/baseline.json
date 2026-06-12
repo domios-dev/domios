@@ -1,0 +1,15 @@
+{
+  "commit": "b2b29d3900b302ce6766a74c21983741ac29e98c",
+  "timestamp": "20260611-152515",
+  "fixture_path": "evals/mem-recall/benchmark.json",
+  "metrics": {
+    "num_queries": 15,
+    "recall_at_1": 0.6,
+    "recall_at_5": 0.6666666666666666,
+    "recall_at_10": 0.6666666666666666,
+    "mrr": 0.6222222222222222,
+    "p50_latency_ms": 4.7334,
+    "p95_latency_ms": 6.1374,
+    "total_wall_ms": 1457.6553
+  }
+}

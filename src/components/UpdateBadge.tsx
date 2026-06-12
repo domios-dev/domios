@@ -1,4 +1,5 @@
 import { useUpdate } from "../hooks/useUpdate";
+import { UI_BUTTON } from "./shared/design";
 
 interface UpdateBadgeProps {
   onNavigate?: () => void;
@@ -12,7 +13,7 @@ export function UpdateBadge({ onNavigate }: UpdateBadgeProps) {
       <button
         onClick={onNavigate}
         title={`Update available: v${latestVersion}`}
-        className="flex items-center gap-1.5 h-6 px-2 rounded text-[10px] font-medium text-white bg-[var(--ct-accent)] hover:opacity-90 transition-opacity"
+        className={`${UI_BUTTON.primary} ${UI_BUTTON.sm}`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-white" />
         <span>Update v{latestVersion}</span>
@@ -24,7 +25,7 @@ export function UpdateBadge({ onNavigate }: UpdateBadgeProps) {
     return (
       <span
         title="Installing update"
-        className="flex items-center gap-1 h-6 px-2 text-[10px] text-[var(--ct-muted-fg)]"
+        className={`${UI_BUTTON.base} ${UI_BUTTON.sm} ct-btn-ghost`}
       >
         <Spinner />
         <span>Updating</span>

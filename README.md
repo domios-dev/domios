@@ -143,20 +143,48 @@ sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
 ```
 
 **Build:**
+
+The repository ships a single entry point — `build.sh` — that handles the dev/prod split, loads MSVC env on Windows, isolates the dev instance from prod (separate port and data dir), and installs the CLI to the right places. Prefer it over invoking `pnpm tauri` / `cargo` directly.
+
 ```bash
 git clone https://github.com/rollacode/codeterm.git
 cd codeterm
 pnpm install
+```
 
-# Development
-pnpm tauri dev
+```bash
+# Dev (hot reload, port 7686, data dir ~/.codeterm-dev/, never touches prod on 7685)
+./build.sh dev
+./build.sh dev --wait   # background + block until /api/health responds (for scripts)
+```
+
+```bash
+# Windows (recommended)
+# In Git Bash:
+./build.cmd dev --wait
+```
+
+# Note: `./build.cmd dev --wait` already kills any existing dev process on 7686 before startup.
+
+```bash
+# CLI binary — installs to both ~/.codeterm/bin/ and ~/.codeterm-dev/bin/
+./build.sh cli
 
 # Production build
-pnpm tauri build
+./build.sh build
 
-# CLI tool
-cd cli && cargo build --release
+# Fast feedback
+./build.sh check        # cargo check only (~2s incremental)
+./build.sh test         # Rust unit tests
+./build.sh e2e          # E2E tests against dev (port 7686)
+./build.sh webdriver    # dev with WebDriver enabled (UI tests)
+./build.sh clean        # clean build cache
+./build.sh kill         # stop dev instance (safe, prod on 7685 untouched)
 ```
+
+> **Windows:** `build.sh` auto-loads the MSVC environment. To load it into your current shell instead, run `source build.sh env`.
+>
+> **Dev vs prod isolation:** dev runs on port `7686` with data dir `~/.codeterm-dev/`; prod runs on `7685` with `~/.codeterm/`. Both can run side-by-side. The CLI auto-routes to dev when invoked from inside a dev pane and to prod otherwise.
 
 ## Keyboard Shortcuts
 

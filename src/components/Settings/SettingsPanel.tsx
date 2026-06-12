@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import type { AppConfig } from "../../lib/types";
-import { CloseXIcon } from "../Icons";
 import {
   Sliders,
   Bot,
@@ -20,18 +19,22 @@ import {
   Power,
   Keyboard,
   FileText,
+  Package,
   type LucideIcon,
 } from "lucide-react";
 
 import logoUrl from "../../assets/logo.png";
 import { Toggle, InfoRow, AboutLink, SettingsPage, SettingsCard } from "./shared";
 import { KeybindGroup } from "./KeybindGroup";
+import { setDefaultNewAgentPaneToChat } from "../../lib/chatUiMode";
 import { UpdateSection } from "./UpdateSection";
 import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { IntegrationsTab } from "./IntegrationsTab";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
+import { PluginsTab } from "./PluginsTab";
+import { UI_PANEL } from "../shared/design";
 
 interface SettingsPanelProps {
   config: AppConfig;
@@ -45,6 +48,7 @@ export type SectionId =
   | "general"
   | "tabs"
   | "agents"
+  | "plugins"
   | "integrations"
   | "secrets"
   | "logs"
@@ -59,6 +63,7 @@ const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   general: Sliders,
   tabs: LayoutGrid,
   agents: Bot,
+  plugins: Package,
   integrations: Plug,
   secrets: KeyRound,
   logs: FileText,
@@ -69,6 +74,7 @@ const SECTIONS: { id: SectionId; label: string; desc: string }[] = [
   { id: "general", label: "General", desc: "Theme, fonts, cursor, keybindings" },
   { id: "tabs", label: "Tabs", desc: "Toggle Memory and Mesh tabs in the sidebar" },
   { id: "agents", label: "Agents", desc: "General Agent, notifications, and per-provider config" },
+  { id: "plugins", label: "Plugins", desc: "Installed bundles, channels, updates, audit events" },
   { id: "integrations", label: "Integrations", desc: "Telegram, Discord, external bridges" },
   { id: "secrets", label: "Secrets", desc: "Keychain — pluggable secret store" },
   { id: "logs", label: "Logs", desc: "App diagnostics — live, filterable, scoped" },
@@ -115,6 +121,7 @@ export function SettingsPanel({
   const [configPath, setConfigPath] = useState<string>("");
   const [themesDir, setThemesDir] = useState<string>("");
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
+  const chatUiDefault = localConfig.ui?.default_new_agent_pane_chat ?? false;
 
   const builtinThemes = ["github-dark", "dracula", "catppuccin-mocha", "one-dark", "nord", "github-light", "solarized-light", "pip-boy"];
 
@@ -168,7 +175,7 @@ export function SettingsPanel({
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-[var(--ct-sidebar-bg)]">
-      <div className="absolute inset-0 flex flex-col">
+      <div className="absolute inset-0 flex flex-col pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
         {/* Subtle dot grid background */}
         <div
           className="absolute inset-0 pointer-events-none"
@@ -178,17 +185,17 @@ export function SettingsPanel({
             opacity: 0.3,
           }}
         />
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ct-border)] relative z-10">
-          <div className="flex items-center gap-2 min-w-0">
+        {/* Header — iOS style: back (chevron + parent label) left, title centered. */}
+        <div className={`${UI_PANEL.toolbar} z-10 relative`}>
+          <div className="flex min-w-0 flex-1 items-center">
             {top.kind !== "root" && (
               <button
                 onClick={pop}
-                className="flex items-center gap-1 px-2 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors text-[11px]"
+                className="-ml-1 flex items-center gap-0.5 pr-2 text-[var(--ct-accent)] transition-opacity active:opacity-60"
                 title="Back"
               >
-                <ChevronLeft size={14} className="shrink-0" />
-                <span>
+                <ChevronLeft size={19} strokeWidth={2.4} className="shrink-0" />
+                <span className="truncate text-sm">
                   {stack.length >= 2 && stack[stack.length - 2].kind === "root"
                     ? "Settings"
                     : stack.length >= 2 && stack[stack.length - 2].kind === "section"
@@ -197,14 +204,12 @@ export function SettingsPanel({
                 </span>
               </button>
             )}
-            <h2 className="text-sm font-medium text-[var(--ct-fg)] truncate">{headerTitle}</h2>
           </div>
-          <button
-            onClick={onClose}
-            className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
-          >
-            <CloseXIcon />
-          </button>
+          <h2 className="pointer-events-none absolute left-1/2 max-w-[55%] -translate-x-1/2 truncate text-center text-sm font-semibold text-[var(--ct-fg)]">
+            {headerTitle}
+          </h2>
+          {/* Balances the back button so the centered title stays optically centered. */}
+          <div className="w-8 shrink-0" />
         </div>
 
         {/* Body */}
@@ -218,6 +223,7 @@ export function SettingsPanel({
                     return (
                       <button
                         key={s.id}
+                        data-testid={`settings-section-${s.id}`}
                         onClick={() => push({ kind: "section", id: s.id })}
                         className="flex items-start gap-3 p-4 rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 hover:bg-[var(--ct-hover)] hover:border-[var(--ct-accent)]/50 transition-colors text-left"
                       >
@@ -378,6 +384,14 @@ export function SettingsPanel({
                     checked={localConfig.terminal.copy_on_select}
                     onChange={(v) => update("terminal", { copy_on_select: v })}
                   />
+                  <Toggle
+                    label="Open agents in Chat UI by default"
+                    checked={chatUiDefault}
+                    onChange={async (v) => {
+                      update("ui", { ...localConfig.ui, default_new_agent_pane_chat: v });
+                      await setDefaultNewAgentPaneToChat(v);
+                    }}
+                  />
                 </SettingsCard>
 
                 <SettingsCard
@@ -461,12 +475,17 @@ export function SettingsPanel({
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}
                   onOpenProvider={(providerId) => push({ kind: "agent-provider", providerId })}
+                  onOpenPlugins={() => push({ kind: "section", id: "plugins" })}
                   onUpdateFullConfig={(next) => {
                     setLocalConfig(next);
                     onUpdateConfig(next).catch(() => {});
                   }}
                 />
               </SettingsPage>
+            )}
+
+            {top.kind === "section" && top.id === "plugins" && (
+              <PluginsTab />
             )}
 
             {top.kind === "agent-provider" && (

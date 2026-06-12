@@ -31,9 +31,7 @@ fn open_conn(db_path_arg: Option<&str>) -> Result<rusqlite::Connection, String> 
 pub fn handle_dream(action: MemDreamAction) -> ! {
     match action {
         MemDreamAction::Run { phase } => run_dream_phase(&phase),
-        MemDreamAction::Apply { plan_file, db_path } => {
-            run_apply(&plan_file, db_path.as_deref())
-        }
+        MemDreamAction::Apply { plan_file, db_path } => run_apply(&plan_file, db_path.as_deref()),
         MemDreamAction::Diary { limit } => run_diary(limit),
     }
 }
@@ -81,7 +79,10 @@ fn run_diary(limit: usize) -> ! {
             println!();
         }
         if count == 0 {
-            println!("No dream diary entries yet — the Dreamer hasn't logged anything in {area}.", area = "_dreams");
+            println!(
+                "No dream diary entries yet — the Dreamer hasn't logged anything in {area}.",
+                area = "_dreams"
+            );
             println!("Trigger a dream cycle with: codeterm mem dream run");
         }
         Ok(())
@@ -107,7 +108,11 @@ fn run_dream_phase(phase: &str) -> ! {
             std::process::exit(1);
         }
     };
-    let url = format!("{}/api/mem/dream?phase={}", base, urlencoding::encode(phase));
+    let url = format!(
+        "{}/api/mem/dream?phase={}",
+        base,
+        urlencoding::encode(phase)
+    );
     let resp = http.post(&url).json(&serde_json::json!({})).send();
     match resp {
         Ok(r) if r.status().is_success() => {
@@ -118,11 +123,17 @@ fn run_dream_phase(phase: &str) -> ! {
         Ok(r) => {
             let status = r.status();
             let body = r.text().unwrap_or_default();
-            println!("{}", serde_json::json!({"ok": false, "status": status.as_u16(), "body": body}));
+            println!(
+                "{}",
+                serde_json::json!({"ok": false, "status": status.as_u16(), "body": body})
+            );
             std::process::exit(1);
         }
         Err(e) => {
-            println!("{}", serde_json::json!({"ok": false, "error": e.to_string()}));
+            println!(
+                "{}",
+                serde_json::json!({"ok": false, "error": e.to_string()})
+            );
             std::process::exit(1);
         }
     }
@@ -133,12 +144,11 @@ fn run_apply(plan_file: &str, db_path: Option<&str>) -> ! {
     let result = (|| -> Result<(usize, usize, Vec<String>), String> {
         let md = std::fs::read_to_string(&plan_path)
             .map_err(|e| format!("read {}: {}", plan_path.display(), e))?;
-        let parsed = plan_format::read(&md)
-            .map_err(|e| format!("parse {}: {}", plan_path.display(), e))?;
+        let parsed =
+            plan_format::read(&md).map_err(|e| format!("parse {}: {}", plan_path.display(), e))?;
         let mut warnings = parsed.warnings.clone();
         let conn = open_conn(db_path)?;
-        let report = cluster::apply(&conn, &parsed.plan)
-            .map_err(|e| format!("apply: {}", e))?;
+        let report = cluster::apply(&conn, &parsed.plan).map_err(|e| format!("apply: {}", e))?;
         warnings.extend(report.errors.iter().cloned());
         Ok((
             report.clusters_applied as usize,
@@ -203,11 +213,9 @@ fn append_footer_and_rename(
         out.push('\n');
     }
 
-    // Rename `<stem>.md` → `<stem>-applied.md`. If the file already ends in
-    // `-applied.md`, append a numeric suffix to avoid clobbering history.
+    // Rename `<stem>.md` → `<stem>-applied.md`. If the file already ends in `-applied.md`, append a numeric suffix to avoid clobbering history.
     let new_path = build_applied_path(plan_path);
-    std::fs::write(&new_path, &out)
-        .map_err(|e| format!("write {}: {}", new_path.display(), e))?;
+    std::fs::write(&new_path, &out).map_err(|e| format!("write {}: {}", new_path.display(), e))?;
     if new_path != plan_path {
         let _ = std::fs::remove_file(plan_path);
     }

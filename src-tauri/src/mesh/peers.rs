@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use super::types::{MeshIdentity, PairedPeer, RevocationList};
 
-
 // ── Directory helpers ───────────────────────────────────────────────
 
 /// `~/.codeterm/mesh/` (or `~/.codeterm-dev/mesh/` in dev builds).
@@ -72,8 +71,8 @@ pub fn save_identity(identity: &MeshIdentity) {
 
 // ── Encryption key ──────────────────────────────────────────────────
 
-// ── Peer storage ────────────────────────────────────────────────────
-// Clean format: PairedPeer serialized directly. No encrypted tokens.
+// Peer storage.
+// PairedPeer serialized directly; no encrypted tokens.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PeersFile {
@@ -95,6 +94,8 @@ struct PairedPeerDisk {
     #[serde(default)]
     pub access_level: super::types::AccessLevel,
     pub version: Option<String>,
+    #[serde(default)]
+    pub https_url: Option<String>,
 }
 
 /// Load all paired peers from disk.
@@ -118,29 +119,43 @@ pub fn load_peers() -> HashMap<String, PairedPeer> {
         }
     };
     let mut scrubbed = 0usize;
-    let peers: HashMap<String, PairedPeer> = file.peers.into_iter().map(|(id, d)| {
-        let before = d.addresses.len();
-        let clean = crate::mesh::types::sanitize_addresses(&d.addresses);
-        scrubbed += before - clean.len();
-        (id, PairedPeer {
-            instance_id: d.instance_id,
-            instance_name: d.instance_name,
-            addresses: clean,
-            api_port: d.api_port,
-            public_key: d.public_key,
-            paired_at: d.paired_at,
-            last_seen: d.last_seen,
-            online: false,
-            is_primary: d.is_primary,
-            access_level: d.access_level,
-            version: d.version,
-            consecutive_misses: 0,
+    let peers: HashMap<String, PairedPeer> = file
+        .peers
+        .into_iter()
+        .map(|(id, d)| {
+            let before = d.addresses.len();
+            let clean = crate::mesh::types::sanitize_addresses(&d.addresses);
+            scrubbed += before - clean.len();
+            (
+                id,
+                PairedPeer {
+                    instance_id: d.instance_id,
+                    instance_name: d.instance_name,
+                    addresses: clean,
+                    api_port: d.api_port,
+                    public_key: d.public_key,
+                    paired_at: d.paired_at,
+                    last_seen: d.last_seen,
+                    online: false,
+                    is_primary: d.is_primary,
+                    access_level: d.access_level,
+                    version: d.version,
+                    https_url: d.https_url,
+                    consecutive_misses: 0,
+                },
+            )
         })
-    }).collect();
+        .collect();
     if scrubbed > 0 {
-        log::info!("[mesh/migrate] Scrubbed {} unparseable IP entries from peers.json", scrubbed);
+        log::info!(
+            "[mesh/migrate] Scrubbed {} unparseable IP entries from peers.json",
+            scrubbed
+        );
         if let Err(e) = save_peers(&peers) {
-            log::warn!("[mesh/migrate] Failed to persist scrubbed peers.json: {}", e);
+            log::warn!(
+                "[mesh/migrate] Failed to persist scrubbed peers.json: {}",
+                e
+            );
         }
     }
     peers
@@ -148,20 +163,27 @@ pub fn load_peers() -> HashMap<String, PairedPeer> {
 
 /// Save all paired peers to disk.
 pub fn save_peers(peers: &HashMap<String, PairedPeer>) -> Result<(), String> {
-    let on_disk: HashMap<String, PairedPeerDisk> = peers.iter().map(|(id, p)| {
-        (id.clone(), PairedPeerDisk {
-            instance_id: p.instance_id.clone(),
-            instance_name: p.instance_name.clone(),
-            addresses: p.addresses.clone(),
-            api_port: p.api_port,
-            public_key: p.public_key.clone(),
-            paired_at: p.paired_at.clone(),
-            last_seen: p.last_seen.clone(),
-            is_primary: p.is_primary,
-            access_level: p.access_level.clone(),
-            version: p.version.clone(),
+    let on_disk: HashMap<String, PairedPeerDisk> = peers
+        .iter()
+        .map(|(id, p)| {
+            (
+                id.clone(),
+                PairedPeerDisk {
+                    instance_id: p.instance_id.clone(),
+                    instance_name: p.instance_name.clone(),
+                    addresses: p.addresses.clone(),
+                    api_port: p.api_port,
+                    public_key: p.public_key.clone(),
+                    paired_at: p.paired_at.clone(),
+                    last_seen: p.last_seen.clone(),
+                    is_primary: p.is_primary,
+                    access_level: p.access_level.clone(),
+                    version: p.version.clone(),
+                    https_url: p.https_url.clone(),
+                },
+            )
         })
-    }).collect();
+        .collect();
     let file = PeersFile { peers: on_disk };
     let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
     std::fs::write(peers_path(), json).map_err(|e| e.to_string())
@@ -194,5 +216,4 @@ mod tests {
         let id2 = load_or_create_identity();
         assert_eq!(id1.instance_id, id2.instance_id);
     }
-
 }

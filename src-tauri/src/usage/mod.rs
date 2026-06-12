@@ -6,6 +6,4 @@ pub mod store;
 pub use poller::{PaneActivity, UsagePoller};
 pub use probe::{ProbeError, UsageProbe, UsageProbeOutcome};
 pub use projection::{ProjectionResponse, SessionProjection, WeeklyProjection};
-pub use store::{
-    DailyRollup, UsageSnapshotRow, UsageStore, UsageStoreHandle,
-};
+pub use store::{DailyRollup, UsageSnapshotRow, UsageStore, UsageStoreHandle};

@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { X, Pencil, UserMinus, Ban, CircleCheck } from "lucide-react";
+import { invoke } from "../../lib/bridge";
+import { X, Pencil, UserMinus, MessageSquare, SquareTerminal } from "lucide-react";
 import { getAgentProvider } from "../../lib/agentProviders";
+import {
+  emitPaneUiMode,
+  isChatUiSupported,
+  maybeAskDefaultNewAgentPaneToChat,
+  shouldDefaultNewAgentPaneToChat,
+} from "../../lib/chatUiMode";
+import {
+  getClientPaneUiMode,
+  getCurrentPaneUiMode,
+  listenCurrentPaneUiMode,
+  setClientPaneUiMode,
+} from "../../lib/clientPaneUiMode";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TelegramIcon, TerminalIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
@@ -23,6 +35,7 @@ interface TabItemProps {
   orchestrators?: Pane[];
   isAppearing?: boolean;
   isClosing?: boolean;
+  touchMode?: boolean;
 }
 
 export function TabItem({
@@ -40,12 +53,33 @@ export function TabItem({
   orchestrators: _orchestrators,
   isAppearing,
   isClosing,
+  touchMode = false,
 }: TabItemProps) {
   const agentProvider = getAgentProvider(pane?.agent_type);
   const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
+  // Mirror TerminalPane's mode resolution: no client override falls back to
+  // the agent default (claude/GA panes open in chat), so the menu reflects
+  // what's actually showing instead of always saying "Open Chat UI".
+  const resolveChatView = (p: typeof pane): boolean => {
+    if (!p) return false;
+    const current = getCurrentPaneUiMode(p.id);
+    if (current) return current === "chat";
+    const client = getClientPaneUiMode(p.id);
+    return client ? client === "chat" : p.chat_view === true || shouldDefaultNewAgentPaneToChat(p.agent_type);
+  };
+  const [chatView, setChatView] = useState(() => resolveChatView(pane));
   const tabRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!pane) {
+      setChatView(false);
+      return;
+    }
+    setChatView(resolveChatView(pane));
+    return listenCurrentPaneUiMode(pane.id, (mode) => setChatView(mode === "chat"));
+  }, [pane?.id, pane?.agent_type]);
 
   // Close animation phases
   const [closePhase, setClosePhase] = useState<0 | 1 | 2>(0);
@@ -60,26 +94,35 @@ export function TabItem({
   // Build menu items for the 3-dot dropdown
   const menuItems: DropdownMenuItem[] = useMemo(() => {
     const items: DropdownMenuItem[] = [];
-    items.push({
-      label: "Rename",
-      icon: <Pencil size={11} strokeWidth={2} />,
-      onClick: () => { setEditName(tab.title); setEditing(true); },
-    });
+    // Main (the protected GA pane) is the anchor — no rename.
+    if (!pane?.protected) {
+      items.push({
+        label: "Rename",
+        icon: <Pencil size={11} strokeWidth={2} />,
+        onClick: () => { setEditName(tab.title); setEditing(true); },
+      });
+    }
     // Role management — hide for Orchestrators (default role on all tabs)
-    if (pane?.role && pane.role !== "Orchestrator" && pane.role !== "Conductor") {
+    if (pane?.role && pane.role !== "Orchestrator") {
       items.push({
         label: "Remove Role",
         icon: <UserMinus size={11} strokeWidth={2} />,
         onClick: () => { if (pane) invoke("mux_clear_pane_role", { paneId: pane.id }); },
       });
     }
-    if (pane?.role && pane.role !== "Orchestrator" && (pane.role === "Conductor" || pane.role === "Lead")) {
+    if (pane && isChatUiSupported(pane.agent_type)) {
+      const nextChatView = !chatView;
       items.push({
-        label: pane.can_spawn ? "Disallow Spawning" : "Allow Spawning",
-        icon: pane.can_spawn
-          ? <Ban size={11} strokeWidth={2} />
-          : <CircleCheck size={11} strokeWidth={2} />,
-        onClick: () => { if (pane) invoke("mux_set_can_spawn", { paneId: pane.id, canSpawn: !pane.can_spawn }); },
+        label: nextChatView ? "Open Chat UI" : "Open Terminal",
+        icon: nextChatView
+          ? <MessageSquare size={11} strokeWidth={2} />
+          : <SquareTerminal size={11} strokeWidth={2} />,
+        onClick: () => {
+          setChatView(nextChatView);
+          setClientPaneUiMode(pane.id, nextChatView ? "chat" : "terminal");
+          emitPaneUiMode(pane.id, nextChatView ? "chat" : "terminal");
+          if (nextChatView) void maybeAskDefaultNewAgentPaneToChat();
+        },
       });
     }
     if (canClose && !pane?.protected) {
@@ -91,7 +134,7 @@ export function TabItem({
       });
     }
     return items;
-  }, [tab.title, pane, canClose, hasAgent, onClose]);
+  }, [tab.title, pane, chatView, canClose, hasAgent, onClose]);
 
   // Build animation CSS class
   const animClass = isClosing
@@ -105,9 +148,15 @@ export function TabItem({
   return (
     <div
       ref={tabRef}
+      data-testid="tab-item"
+      data-tab-id={tab.id}
       onClick={onClick}
-      draggable
+      draggable={!touchMode}
       onDragStart={(e) => {
+        if (touchMode) {
+          e.preventDefault();
+          return;
+        }
         e.dataTransfer.setData("text/plain", JSON.stringify({
           tabId: tab.id,
           fromWorkspaceId: workspaceId,
@@ -115,7 +164,9 @@ export function TabItem({
         e.dataTransfer.effectAllowed = "move";
       }}
       className={`
-        sidebar-tab group flex items-center justify-between pl-4 pr-2 py-1.5 cursor-pointer transition-colors relative
+        sidebar-tab group flex items-center justify-between cursor-pointer transition-colors relative
+        ${touchMode ? "sidebar-tab-touch" : ""}
+        ${touchMode ? "min-h-11 pl-5 pr-2 py-2" : "pl-4 pr-2 py-1.5"}
         ${animClass}
         ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
@@ -130,16 +181,18 @@ export function TabItem({
           }}
         />
       )}
-      <div className="flex items-center gap-2 min-w-0 relative z-[1]">
+      <div className={`flex items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
         {hasAgent ? (
           <AgentIcon
-            providerId={agentProvider?.id ?? "claude"}
+            // Pass agent_type directly — AgentIcon resolves via the backend descriptor cache (icon_svg ships with every registered provider, JS-plugin or
+            // native). Going through the FE-only getAgentProvider list dropped any third-party drop-in plugin to a "claude" fallback icon.
+            providerId={pane?.agent_type ?? "claude"}
             working={status === "Working"}
-            className={`shrink-0 leading-none ${isSubPane ? "text-[10px]" : "text-[12px]"}`}
+            className={`shrink-0 leading-none ${touchMode ? "text-[15px]" : isSubPane ? "text-[10px]" : "text-[12px]"}`}
             title={status === "Working" ? `${agentProvider?.displayName || "Agent"} working...` : status === "Waiting" ? `${agentProvider?.displayName || "Agent"} — waiting for input` : agentProvider?.displayName || "Agent"}
           />
         ) : (
-          <TerminalIcon className={`shrink-0 ${isSubPane ? "scale-90" : ""}`} />
+          <TerminalIcon className={`shrink-0 ${touchMode ? "scale-110" : isSubPane ? "scale-90" : ""}`} />
         )}
         {editing ? (
           <input
@@ -164,8 +217,13 @@ export function TabItem({
           />
         ) : (
           <span
-            className={`text-xs truncate ${isActive ? "font-medium" : ""}`}
-            onDoubleClick={(e) => { e.stopPropagation(); setEditName(tab.title); setEditing(true); }}
+            className={`${touchMode ? "text-[14px]" : "text-xs"} truncate ${isActive ? "font-medium" : ""}`}
+            onDoubleClick={(e) => {
+              if (pane?.protected) return; // Main is unrenameable
+              e.stopPropagation();
+              setEditName(tab.title);
+              setEditing(true);
+            }}
           >
             {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
           </span>
@@ -203,7 +261,7 @@ export function TabItem({
       </div>
       {/* Right slot: model badge by default, 3-dot menu on hover (layered) */}
       <div className="shrink-0 relative z-[1] flex items-center">
-        {pane?.agent_session_model && (
+        {pane?.agent_session_model && !touchMode && (
           <span
             className="sidebar-tab-badge px-1 py-0 text-[8px] leading-tight rounded font-mono uppercase tracking-wider border border-[var(--ct-border)] text-[var(--ct-muted-fg)]"
             title={pane.agent_session_model}
@@ -211,16 +269,20 @@ export function TabItem({
             {pane.agent_session_model}
           </span>
         )}
-        {canClose && (
+        {menuItems.length > 0 && (
           <DropdownMenu
             items={menuItems}
-            className="sidebar-tab-close absolute inset-y-0 right-0 flex items-center"
+            className={
+              touchMode
+                ? "flex h-11 w-11 items-center justify-center"
+                : "sidebar-tab-close absolute inset-y-0 right-0 flex items-center"
+            }
             trigger={
               <button
-                className="w-5 h-5 flex items-center justify-center rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-border)] transition-colors"
+                className={`${touchMode ? "h-11 w-11 text-[var(--ct-muted-fg)]" : "w-5 h-5 text-[var(--ct-muted-fg)]"} flex items-center justify-center rounded hover:text-[var(--ct-fg)] hover:bg-[var(--ct-border)] transition-colors`}
                 title="Tab actions"
               >
-                <span className="text-[13px] leading-none font-bold">⋮</span>
+                <span className={`${touchMode ? "text-[20px]" : "text-[13px]"} leading-none font-bold`}>⋮</span>
               </button>
             }
           />

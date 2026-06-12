@@ -28,6 +28,8 @@ export function useTauriFileDrop({
 
   useEffect(() => {
     if (!enabled) return;
+    // Native drag-drop is a Tauri webview feature — no-op in web mode.
+    if (!("__TAURI_INTERNALS__" in window)) return;
     let unlisten: (() => void) | null = null;
     let cancelled = false;
 
@@ -47,10 +49,8 @@ export function useTauriFileDrop({
         setIsDragOver(false);
         return;
       }
-      // "enter" and "over" both carry position — flip the flag based on
-      // whether the cursor is currently inside this specific container.
-      // Without the per-container check, every pane would highlight at
-      // once when one file is dragged into the window.
+      // "enter" and "over" both carry position — flip the flag based on whether the cursor is currently inside this specific container. Without the
+      // per-container check, every pane would highlight at once when one file is dragged into the window.
       if (payload.type === "enter" || payload.type === "over") {
         setIsDragOver(isDropInside(payload.position, el));
       }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "../../lib/bridge";
 import type { ApiConfig } from "../../lib/types";
 import { fetchGraphFull, isTauriEnv } from "./memoryApi";
 import type { MemEdge, MemNode } from "./types";

@@ -1,13 +1,5 @@
-// `mem run-worker` subprocess.
-//
-// Opens knowledge.db directly (multi-process WAL) and runs one phase of
-// dreaming or the librarian inline, then exits. The supervisor in the
-// daemon spawns this so a panic / OOM / hang in the maintenance pass
-// cannot take the API down.
-//
-// Graph mutations route through codeterm-mem-store (see Track 3 of v1.1.23).
-// mem_items / mem_fts / mem_vectors SQL stays inline here on purpose — keeping
-// the CLI free of the codeterm_lib dependency means it stays standalone.
+// `mem run-worker` processes one dreaming/librarian batch directly in knowledge.db.
+// It exits after one pass; supervisor runs it to isolate maintenance failures.
 
 use crate::data_dir_name;
 
@@ -20,7 +12,7 @@ pub fn run_mem_worker(kind: &str, db_path_arg: Option<&str>) {
                 worker_emit_error(&e);
                 std::process::exit(1);
             }
-        }
+        },
     };
 
     register_sqlite_vec_extension();
@@ -34,20 +26,26 @@ pub fn run_mem_worker(kind: &str, db_path_arg: Option<&str>) {
     };
 
     let result = match kind {
-        "dreaming-light" => worker_dreaming_light(&conn).map(|r| serde_json::json!({
-            "considered": r.considered, "promoted": r.promoted,
-            "dropped": r.dropped, "phase": r.phase,
-            "lessons_promoted": r.lessons_promoted,
-            "lessons_already_high_confidence": r.lessons_already_high_confidence,
-        })),
-        "dreaming-deep" => worker_dreaming_deep(&conn).map(|r| serde_json::json!({
-            "considered": r.considered, "promoted": r.promoted,
-            "dropped": r.dropped, "phase": r.phase,
-        })),
+        "dreaming-light" => worker_dreaming_light(&conn).map(|r| {
+            serde_json::json!({
+                "considered": r.considered, "promoted": r.promoted,
+                "dropped": r.dropped, "phase": r.phase,
+                "lessons_promoted": r.lessons_promoted,
+                "lessons_already_high_confidence": r.lessons_already_high_confidence,
+            })
+        }),
+        "dreaming-deep" => worker_dreaming_deep(&conn).map(|r| {
+            serde_json::json!({
+                "considered": r.considered, "promoted": r.promoted,
+                "dropped": r.dropped, "phase": r.phase,
+            })
+        }),
         "dreaming-normalize" => worker_dreaming_normalize(&conn),
         "librarian-once" => {
-            let skills_root = dirs::home_dir().unwrap_or_default()
-                .join(data_dir_name()).join("skills");
+            let skills_root = dirs::home_dir()
+                .unwrap_or_default()
+                .join(data_dir_name())
+                .join("skills");
             worker_librarian_once(&conn, &skills_root).map(|r| serde_json::json!(r))
         }
         other => Err(format!("unknown worker kind: {}", other)),
@@ -82,8 +80,7 @@ pub(crate) fn open_worker_db(db_path: &std::path::Path) -> Result<rusqlite::Conn
         .map_err(|e| format!("open {}: {}", db_path.display(), e))?;
     conn.busy_timeout(std::time::Duration::from_secs(5))
         .map_err(|e| format!("busy_timeout: {}", e))?;
-    codeterm_mem_store::migrations::run(&conn)
-        .map_err(|e| format!("migrations: {}", e))?;
+    codeterm_mem_store::migrations::run(&conn).map_err(|e| format!("migrations: {}", e))?;
     conn.execute_batch("PRAGMA synchronous = NORMAL;")
         .map_err(|e| format!("synchronous pragma: {}", e))?;
     Ok(conn)
@@ -92,12 +89,10 @@ pub(crate) fn open_worker_db(db_path: &std::path::Path) -> Result<rusqlite::Conn
 fn register_sqlite_vec_extension() {
     use std::sync::Once;
     static REGISTER: Once = Once::new();
-    REGISTER.call_once(|| {
-        unsafe {
-            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-                sqlite_vec::sqlite3_vec_init as *const (),
-            )));
-        }
+    REGISTER.call_once(|| unsafe {
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
     });
 }
 
@@ -116,22 +111,26 @@ fn worker_dreaming_light(conn: &rusqlite::Connection) -> Result<WorkerDreamRepor
     let one_day_ago = (now_ts - chrono::Duration::days(1)).to_rfc3339();
 
     let candidates: Vec<(String, i64, f64, String, Option<String>)> = {
-        let mut stmt = conn.prepare(
-            r#"SELECT id, access_count, importance, created_at, accessed_at
+        let mut stmt = conn
+            .prepare(
+                r#"SELECT id, access_count, importance, created_at, accessed_at
                FROM mem_items
                WHERE kind = 'learning'
                  AND access_count >= 3
                  AND created_at < ?1"#,
-        ).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(rusqlite::params![one_day_ago], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, f64>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, Option<String>>(4)?,
-            ))
-        }).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params![one_day_ago], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, f64>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
         rows.filter_map(|r| r.ok()).collect()
     };
 
@@ -146,8 +145,8 @@ fn worker_dreaming_light(conn: &rusqlite::Connection) -> Result<WorkerDreamRepor
             .as_ref()
             .and_then(|a| chrono::DateTime::parse_from_rfc3339(a).ok())
             .map(|a| {
-                let days = (now_ts - a.with_timezone(&chrono::Utc))
-                    .num_hours().max(0) as f64 / 24.0;
+                let days =
+                    (now_ts - a.with_timezone(&chrono::Utc)).num_hours().max(0) as f64 / 24.0;
                 (-days * 0.693 / 14.0).exp()
             })
             .unwrap_or(0.0);
@@ -155,14 +154,16 @@ fn worker_dreaming_light(conn: &rusqlite::Connection) -> Result<WorkerDreamRepor
         let age = chrono::DateTime::parse_from_rfc3339(created_at)
             .ok()
             .map(|c| {
-                let days = (now_ts - c.with_timezone(&chrono::Utc))
-                    .num_hours().max(0) as f64 / 24.0;
+                let days =
+                    (now_ts - c.with_timezone(&chrono::Utc)).num_hours().max(0) as f64 / 24.0;
                 (days / 7.0).min(1.0)
             })
             .unwrap_or(0.5);
 
         let score = frequency * 0.30 + recency * 0.25 + imp_score * 0.25 + age * 0.20;
-        if score < 0.5 { continue; }
+        if score < 0.5 {
+            continue;
+        }
 
         let now = chrono::Utc::now().to_rfc3339();
         let n = conn.execute(
@@ -188,10 +189,13 @@ fn worker_dreaming_light(conn: &rusqlite::Connection) -> Result<WorkerDreamRepor
         conn,
         codeterm_mem_store::lesson::DEFAULT_PROMOTION_THRESHOLD,
         &machine,
-    ).map_err(|e| format!("lesson promotion: {}", e))?;
+    )
+    .map_err(|e| format!("lesson promotion: {}", e))?;
 
     Ok(WorkerDreamReport {
-        considered, promoted, dropped: 0,
+        considered,
+        promoted,
+        dropped: 0,
         phase: "light".into(),
         lessons_promoted: promo.promoted,
         lessons_already_high_confidence: promo.already_high_confidence,
@@ -202,14 +206,23 @@ fn worker_dreaming_light(conn: &rusqlite::Connection) -> Result<WorkerDreamRepor
 /// mesh identity file when present; falls back to "unknown" so the worker
 /// stays useful before the user has set up mesh.
 fn local_machine_id() -> String {
-    let path = dirs::home_dir()
-        .map(|h| h.join(crate::data_dir_name()).join("mesh").join("identity.json"));
-    let Some(p) = path else { return "unknown".into() };
-    let Ok(content) = std::fs::read_to_string(&p) else { return "unknown".into() };
+    let path = dirs::home_dir().map(|h| {
+        h.join(crate::data_dir_name())
+            .join("mesh")
+            .join("identity.json")
+    });
+    let Some(p) = path else {
+        return "unknown".into();
+    };
+    let Ok(content) = std::fs::read_to_string(&p) else {
+        return "unknown".into();
+    };
     let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) else {
         return "unknown".into();
     };
-    val.get("instance_id").and_then(|v| v.as_str()).map(str::to_string)
+    val.get("instance_id")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
         .unwrap_or_else(|| "unknown".into())
 }
 
@@ -225,12 +238,14 @@ fn worker_dreaming_deep(conn: &rusqlite::Connection) -> Result<WorkerDreamReport
     for (kind, days) in tiers {
         let now = chrono::Utc::now().to_rfc3339();
         let cutoff = (chrono::Utc::now() - chrono::Duration::days(*days)).to_rfc3339();
-        let n = conn.execute(
-            "UPDATE mem_items SET importance = 0.0, updated_at = ?1 \
+        let n = conn
+            .execute(
+                "UPDATE mem_items SET importance = 0.0, updated_at = ?1 \
              WHERE kind = ?2 AND access_count = 0 AND created_at < ?3 \
              AND importance > 0.0 AND importance < 4.0",
-            rusqlite::params![&now, kind, &cutoff],
-        ).map_err(|e| e.to_string())? as u64;
+                rusqlite::params![&now, kind, &cutoff],
+            )
+            .map_err(|e| e.to_string())? as u64;
         total_expired += n;
     }
     Ok(WorkerDreamReport {
@@ -243,10 +258,8 @@ fn worker_dreaming_deep(conn: &rusqlite::Connection) -> Result<WorkerDreamReport
     })
 }
 
-// ---------------------------------------------------------------------------
-// Graph normalize phase. All graph SQL routes through codeterm-mem-store.
-// Constants + Levenshtein helpers stay here as caller-owned policy + pure utils.
-// ---------------------------------------------------------------------------
+// Graph normalize phase:
+// Policy and Levenshtein helpers are local; Graph SQL stays in codeterm-mem-store.
 
 const NORMALIZE_PROTECTED_TYPES: &[&str] = &["kind", "area", "agent", "workspace"];
 const NORMALIZE_ORPHAN_AGE_DAYS: i64 = 14;
@@ -263,8 +276,12 @@ fn lev(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
     let (n, m) = (a.len(), b.len());
-    if n == 0 { return m; }
-    if m == 0 { return n; }
+    if n == 0 {
+        return m;
+    }
+    if m == 0 {
+        return n;
+    }
     let mut prev: Vec<usize> = (0..=m).collect();
     let mut curr = vec![0usize; m + 1];
     for i in 1..=n {
@@ -280,7 +297,9 @@ fn lev(a: &str, b: &str) -> usize {
 
 fn lev_ratio(a: &str, b: &str) -> f64 {
     let max = a.chars().count().max(b.chars().count());
-    if max == 0 { return 1.0; }
+    if max == 0 {
+        return 1.0;
+    }
     1.0 - (lev(a, b) as f64 / max as f64)
 }
 
@@ -290,29 +309,35 @@ fn split_prefix(id: &str) -> Option<(&str, &str)> {
 
 fn worker_dreaming_normalize(conn: &rusqlite::Connection) -> Result<serde_json::Value, String> {
     let now = chrono::Utc::now().to_rfc3339();
-    let cutoff = (chrono::Utc::now() - chrono::Duration::days(NORMALIZE_ORPHAN_AGE_DAYS)).to_rfc3339();
+    let cutoff =
+        (chrono::Utc::now() - chrono::Duration::days(NORMALIZE_ORPHAN_AGE_DAYS)).to_rfc3339();
 
-    let relations_canonicalized = codeterm_mem_store::graph::canonicalize_relation_types(
-        conn, NORMALIZE_SYNONYMS,
-    ).map_err(|e| format!("canonicalize: {}", e))?;
+    let relations_canonicalized =
+        codeterm_mem_store::graph::canonicalize_relation_types(conn, NORMALIZE_SYNONYMS)
+            .map_err(|e| format!("canonicalize: {}", e))?;
 
     let (merged, flagged) = run_merge_pass(conn).map_err(|e| format!("merge pass: {}", e))?;
 
     let orphans_deleted = codeterm_mem_store::graph::cleanup_orphan_entities(
-        conn, NORMALIZE_PROTECTED_TYPES, &cutoff,
-    ).map_err(|e| format!("orphan cleanup: {}", e))?;
+        conn,
+        NORMALIZE_PROTECTED_TYPES,
+        &cutoff,
+    )
+    .map_err(|e| format!("orphan cleanup: {}", e))?;
 
-    let broken_relations_invalidated = codeterm_mem_store::graph::invalidate_broken_relations(
-        conn, &now,
-    ).map_err(|e| format!("broken invalidate: {}", e))?;
+    let broken_relations_invalidated =
+        codeterm_mem_store::graph::invalidate_broken_relations(conn, &now)
+            .map_err(|e| format!("broken invalidate: {}", e))?;
 
-    // Symmetric pass: revive edges whose targets reappeared. SQL guards on
-    // both endpoints existing in entities/mem_items, so this is never blind —
-    // only edges whose collateral cause is gone come back.
+    // Symmetric pass revives only edges with both endpoints still present.
     let revive_report = codeterm_mem_store::graph::revive_broken(
         conn,
-        codeterm_mem_store::graph::ReviveBrokenOptions { since: None, dry_run: false },
-    ).map_err(|e| format!("broken revive: {}", e))?;
+        codeterm_mem_store::graph::ReviveBrokenOptions {
+            since: None,
+            dry_run: false,
+        },
+    )
+    .map_err(|e| format!("broken revive: {}", e))?;
 
     Ok(serde_json::json!({
         "phase": "normalize",
@@ -325,11 +350,9 @@ fn worker_dreaming_normalize(conn: &rusqlite::Connection) -> Result<serde_json::
     }))
 }
 
-fn run_merge_pass(
-    conn: &rusqlite::Connection,
-) -> Result<(u64, Vec<serde_json::Value>), String> {
-    let entities = codeterm_mem_store::graph::list_entities_with_degree(conn)
-        .map_err(|e| e.to_string())?;
+fn run_merge_pass(conn: &rusqlite::Connection) -> Result<(u64, Vec<serde_json::Value>), String> {
+    let entities =
+        codeterm_mem_store::graph::list_entities_with_degree(conn).map_err(|e| e.to_string())?;
 
     use std::collections::HashMap;
     let mut buckets: HashMap<(String, String), Vec<(String, String, u32)>> = HashMap::new();
@@ -352,14 +375,18 @@ fn run_merge_pass(
                 let (a_id, a_suf, a_deg) = &entries[i];
                 let (b_id, b_suf, b_deg) = &entries[j];
                 let ratio = lev_ratio(a_suf, b_suf);
-                if ratio < NORMALIZE_RATIO_FLAG { continue; }
+                if ratio < NORMALIZE_RATIO_FLAG {
+                    continue;
+                }
                 if ratio >= NORMALIZE_RATIO_HARD && a_deg != b_deg {
                     let (alias, canonical) = if a_deg < b_deg {
                         (a_id.clone(), b_id.clone())
                     } else {
                         (b_id.clone(), a_id.clone())
                     };
-                    if codeterm_mem_store::graph::add_alias_with_rewire(conn, &alias, &canonical).is_ok() {
+                    if codeterm_mem_store::graph::add_alias_with_rewire(conn, &alias, &canonical)
+                        .is_ok()
+                    {
                         merged += 1;
                     }
                 } else {
@@ -398,13 +425,17 @@ fn librarian_scan_skill_folders(
     skills_root: &std::path::Path,
     report: &mut WorkerLibrarianReport,
 ) {
-    if !skills_root.is_dir() { return }
+    if !skills_root.is_dir() {
+        return;
+    }
     let mut known: std::collections::HashSet<String> = std::collections::HashSet::new();
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT source_path FROM mem_items WHERE source_path LIKE 'file:%SKILL.md'"
-    ) {
+    if let Ok(mut stmt) =
+        conn.prepare("SELECT source_path FROM mem_items WHERE source_path LIKE 'file:%SKILL.md'")
+    {
         if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
-            for row in rows.flatten() { known.insert(row); }
+            for row in rows.flatten() {
+                known.insert(row);
+            }
         }
     }
 
@@ -414,24 +445,34 @@ fn librarian_scan_skill_folders(
     };
     for entry in entries.flatten() {
         let folder = entry.path();
-        if !folder.is_dir() { continue; }
+        if !folder.is_dir() {
+            continue;
+        }
         let skill_md = folder.join("SKILL.md");
-        if !skill_md.is_file() { continue; }
+        if !skill_md.is_file() {
+            continue;
+        }
         let source = format!("file:{}", skill_md.display());
-        if known.contains(&source) { continue; }
+        if known.contains(&source) {
+            continue;
+        }
 
         let body = match std::fs::read_to_string(&skill_md) {
             Ok(s) => s,
             Err(_) => continue,
         };
-        let title = title_from_skill_md(&body)
-            .unwrap_or_else(|| folder.file_name().map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "skill".into()));
+        let title = title_from_skill_md(&body).unwrap_or_else(|| {
+            folder
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "skill".into())
+        });
         let area = area_from_skill_md(&body);
 
         let id = build_skill_id(&title);
         let now = chrono::Utc::now().to_rfc3339();
-        let tags_json = serde_json::to_string(&vec!["folder-skill", "auto-registered"]).unwrap_or("[]".into());
+        let tags_json =
+            serde_json::to_string(&vec!["folder-skill", "auto-registered"]).unwrap_or("[]".into());
         let result = conn.execute(
             r#"INSERT OR IGNORE INTO mem_items
                (id, uid, kind, scope, title, summary, area, tags_json,
@@ -440,8 +481,14 @@ fn librarian_scan_skill_folders(
                VALUES (?1, ?2, 'skill', 'global', ?3, NULL, ?4, ?5,
                        ?6, ?7, 4.0, ?8, ?8, ?7)"#,
             rusqlite::params![
-                &id, &uuid::Uuid::new_v4().to_string(),
-                &title, &area, &tags_json, &body, &source, &now,
+                &id,
+                &uuid::Uuid::new_v4().to_string(),
+                &title,
+                &area,
+                &tags_json,
+                &body,
+                &source,
+                &now,
             ],
         );
         match result {
@@ -453,19 +500,31 @@ fn librarian_scan_skill_folders(
                 );
                 report.skill_folders_registered += 1;
             }
-            Err(e) => report.errors.push(format!("register skill {}: {}", source, e)),
+            Err(e) => report
+                .errors
+                .push(format!("register skill {}: {}", source, e)),
         }
     }
 }
 
 fn build_skill_id(title: &str) -> String {
-    let slug: String = title.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+    let slug: String = title
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect();
     let trimmed = slug.trim_matches('_');
     let short = if trimmed.len() > 40 {
         // Slice at a char boundary to avoid panic on multi-byte UTF-8
-        trimmed.char_indices().nth(40).map_or(trimmed, |(i, _)| &trimmed[..i])
+        trimmed
+            .char_indices()
+            .nth(40)
+            .map_or(trimmed, |(i, _)| &trimmed[..i])
     } else {
         trimmed
     };
@@ -473,18 +532,37 @@ fn build_skill_id(title: &str) -> String {
 }
 
 fn title_from_skill_md(body: &str) -> Option<String> {
-    if let Some(line) = body.lines().take(20).find(|l| l.trim_start().starts_with("title:")) {
-        let v = line.trim_start().trim_start_matches("title:").trim().trim_matches('"').to_string();
-        if !v.is_empty() { return Some(v); }
+    if let Some(line) = body
+        .lines()
+        .take(20)
+        .find(|l| l.trim_start().starts_with("title:"))
+    {
+        let v = line
+            .trim_start()
+            .trim_start_matches("title:")
+            .trim()
+            .trim_matches('"')
+            .to_string();
+        if !v.is_empty() {
+            return Some(v);
+        }
     }
-    body.lines().find(|l| l.trim_start().starts_with("# "))
+    body.lines()
+        .find(|l| l.trim_start().starts_with("# "))
         .map(|l| l.trim_start().trim_start_matches("# ").trim().to_string())
 }
 
 fn area_from_skill_md(body: &str) -> Option<String> {
-    body.lines().take(20)
+    body.lines()
+        .take(20)
         .find(|l| l.trim_start().starts_with("area:"))
-        .map(|l| l.trim_start().trim_start_matches("area:").trim().trim_matches('"').to_string())
+        .map(|l| {
+            l.trim_start()
+                .trim_start_matches("area:")
+                .trim()
+                .trim_matches('"')
+                .to_string()
+        })
         .filter(|s| !s.is_empty())
 }
 
@@ -501,19 +579,23 @@ fn librarian_sync_files(
     report: &mut WorkerLibrarianReport,
 ) -> Result<(), String> {
     let items: Vec<LibrarianTrackedItem> = {
-        let mut stmt = conn.prepare(
-            "SELECT id, source_path, source_size, source_mtime, tags_json \
-             FROM mem_items WHERE source_path IS NOT NULL"
-        ).map_err(|e| format!("prepare: {}", e))?;
-        let rows = stmt.query_map([], |row| {
-            Ok(LibrarianTrackedItem {
-                id: row.get(0)?,
-                source_path: row.get(1)?,
-                source_size: row.get(2)?,
-                source_mtime: row.get(3)?,
-                tags_json: row.get(4)?,
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, source_path, source_size, source_mtime, tags_json \
+             FROM mem_items WHERE source_path IS NOT NULL",
+            )
+            .map_err(|e| format!("prepare: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(LibrarianTrackedItem {
+                    id: row.get(0)?,
+                    source_path: row.get(1)?,
+                    source_size: row.get(2)?,
+                    source_mtime: row.get(3)?,
+                    tags_json: row.get(4)?,
+                })
             })
-        }).map_err(|e| format!("query: {}", e))?;
+            .map_err(|e| format!("query: {}", e))?;
         rows.filter_map(|r| r.ok()).collect()
     };
 
@@ -543,7 +625,10 @@ fn librarian_sync_one(
     conn: &rusqlite::Connection,
     item: &LibrarianTrackedItem,
 ) -> Result<LibrarianSyncAction, String> {
-    let raw_path = item.source_path.strip_prefix("file:").unwrap_or(&item.source_path);
+    let raw_path = item
+        .source_path
+        .strip_prefix("file:")
+        .unwrap_or(&item.source_path);
     let path = std::path::Path::new(raw_path);
     let has_missing_tag = librarian_has_tag(&item.tags_json, "source-missing");
 
@@ -558,7 +643,9 @@ fn librarian_sync_one(
     };
 
     let current_size = meta.len() as i64;
-    let current_mtime = meta.modified().ok()
+    let current_mtime = meta
+        .modified()
+        .ok()
         .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
     let size_match = item.source_size.map_or(false, |s| s == current_size);
     let mtime_match = match (&item.source_mtime, &current_mtime) {
@@ -569,22 +656,22 @@ fn librarian_sync_one(
         return Ok(LibrarianSyncAction::Unchanged);
     }
 
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("read {}: {}", item.source_path, e))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("read {}: {}", item.source_path, e))?;
     let now = chrono::Utc::now().to_rfc3339();
     conn.execute(
         "UPDATE mem_items SET body_inline = ?1, body_blob_path = NULL, \
          source_size = ?2, source_mtime = ?3, updated_at = ?4 \
          WHERE id = ?5",
         rusqlite::params![&content, current_size, &current_mtime, &now, &item.id],
-    ).map_err(|e| format!("update: {}", e))?;
+    )
+    .map_err(|e| format!("update: {}", e))?;
     conn.execute(
         "UPDATE mem_fts SET body = ?1 WHERE mem_id = ?2",
         rusqlite::params![&content, &item.id],
-    ).map_err(|e| format!("update fts: {}", e))?;
-    // Drop any stale embedding so the daemon's reindex_missing pass picks
-    // it up on the next startup tick. Done via vec0 virtual table — the
-    // sqlite-vec auto-extension was registered before Connection::open.
+    )
+    .map_err(|e| format!("update fts: {}", e))?;
+    // Drop stale embeddings so next startup tick can rebuild vector index.
     let _ = conn.execute(
         "DELETE FROM mem_vectors WHERE mem_id = ?1",
         rusqlite::params![&item.id],
@@ -605,10 +692,13 @@ fn librarian_has_tag(tags_json: &str, tag: &str) -> bool {
 }
 
 fn librarian_add_tag(conn: &rusqlite::Connection, item_id: &str, tag: &str) -> Result<(), String> {
-    let current: String = conn.query_row(
-        "SELECT tags_json FROM mem_items WHERE id = ?1",
-        [item_id], |r| r.get(0),
-    ).map_err(|e| format!("read tags: {}", e))?;
+    let current: String = conn
+        .query_row(
+            "SELECT tags_json FROM mem_items WHERE id = ?1",
+            [item_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("read tags: {}", e))?;
     let mut tags: Vec<String> = serde_json::from_str(&current).unwrap_or_default();
     if !tags.iter().any(|t| t == tag) {
         tags.push(tag.to_string());
@@ -616,23 +706,32 @@ fn librarian_add_tag(conn: &rusqlite::Connection, item_id: &str, tag: &str) -> R
         conn.execute(
             "UPDATE mem_items SET tags_json = ?1, updated_at = ?2 WHERE id = ?3",
             rusqlite::params![&new_json, chrono::Utc::now().to_rfc3339(), item_id],
-        ).map_err(|e| format!("update tags: {}", e))?;
+        )
+        .map_err(|e| format!("update tags: {}", e))?;
     }
     Ok(())
 }
 
-fn librarian_remove_tag(conn: &rusqlite::Connection, item_id: &str, tag: &str) -> Result<(), String> {
-    let current: String = conn.query_row(
-        "SELECT tags_json FROM mem_items WHERE id = ?1",
-        [item_id], |r| r.get(0),
-    ).map_err(|e| format!("read tags: {}", e))?;
+fn librarian_remove_tag(
+    conn: &rusqlite::Connection,
+    item_id: &str,
+    tag: &str,
+) -> Result<(), String> {
+    let current: String = conn
+        .query_row(
+            "SELECT tags_json FROM mem_items WHERE id = ?1",
+            [item_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("read tags: {}", e))?;
     let mut tags: Vec<String> = serde_json::from_str(&current).unwrap_or_default();
     tags.retain(|t| t != tag);
     let new_json = serde_json::to_string(&tags).map_err(|e| format!("serialize: {}", e))?;
     conn.execute(
         "UPDATE mem_items SET tags_json = ?1, updated_at = ?2 WHERE id = ?3",
         rusqlite::params![&new_json, chrono::Utc::now().to_rfc3339(), item_id],
-    ).map_err(|e| format!("update tags: {}", e))?;
+    )
+    .map_err(|e| format!("update tags: {}", e))?;
     Ok(())
 }
 
@@ -682,7 +781,8 @@ mod tests {
                 accessed_at TEXT, access_count INTEGER NOT NULL DEFAULT 0,
                 recurrence_count INTEGER NOT NULL DEFAULT 0
             );",
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
@@ -703,10 +803,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        std::env::temp_dir().join(format!(
-            "codeterm-worker-test-{}-{}.db",
-            pid, nanos
-        ))
+        std::env::temp_dir().join(format!("codeterm-worker-test-{}-{}.db", pid, nanos))
     }
 
     /// `mem run-worker` against a pre-v1.1.23 backup must add the new
@@ -730,7 +827,8 @@ mod tests {
                            '[]', 'body', 3.0,
                            '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         // Open via the worker bootstrap — should run migrations.
@@ -764,8 +862,7 @@ mod tests {
 
     #[test]
     fn build_skill_id_non_ascii_does_not_panic() {
-        // Chinese characters are 3 bytes each → 14 chars × 3 = 42 bytes
-        // slicing at byte 40 would panic without the fix
+        // Non-ASCII can be 3-byte; keep guard to avoid panic on byte slicing.
         let long_chinese = "技能技能技能技能技能技能技能技能技能技能技能技能技能技能"; // 14 × 3 = 42 bytes as slug
         let result = std::panic::catch_unwind(|| build_skill_id(long_chinese));
         assert!(result.is_ok(), "should not panic on non-ASCII skill names");

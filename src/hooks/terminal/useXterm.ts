@@ -4,9 +4,21 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
-import { invoke } from "@tauri-apps/api/core";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { invoke } from "../../lib/bridge";
 import { mapCursorStyle, buildXtermTheme } from "../../components/Terminal/helpers";
 import type { ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
+import { shouldEnableXtermA11yMode } from "./xtermTestMode";
+
+// Playwright harness (`/web/?a11y=1`) can enable xterm screen-reader mode.
+// Production ignores VITE_CODETERM_TEST to avoid accidental renderer disable.
+const E2E_TEST_MODE = shouldEnableXtermA11yMode({
+  isViteDev: import.meta.env.DEV,
+  viteCodeTermTest: import.meta.env.VITE_CODETERM_TEST,
+  locationSearch: typeof window !== "undefined" ? window.location.search : "",
+});
+const MACOS_WEBGL_DISABLED = typeof navigator !== "undefined"
+  && /Mac/.test(navigator.platform);
 
 export interface UseXtermOptions {
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -61,6 +73,9 @@ export function useXterm({
       theme: buildXtermTheme(theme),
       overviewRuler: { width: 4 },
       allowProposedApi: true,
+      // DOM accessibility mirror for Playwright/e2e (`/web/?a11y=1`).
+      // It disables truecolor, so normal/dev sessions keep WebGL.
+      screenReaderMode: E2E_TEST_MODE,
       windowsPty: {
         backend: "conpty",
         buildNumber: winBuildNumber,
@@ -85,10 +100,30 @@ export function useXterm({
 
     term.open(containerRef.current);
 
-    // Copy-on-select removed: silently writing the clipboard every time the
-    // user highlights text is surprising and clobbers whatever they had
-    // copied moments earlier. Ctrl+Shift+C / Cmd+C with a selection and the
-    // right-click "Copy" item both still work.
+    // Use WebGL for Opencode/Codex after term.open(), fall back to DOM.
+    // Report webgl status so runtime metrics can track renderer choice.
+    if (E2E_TEST_MODE) {
+      // E2E mode reads accessibility DOM text; skip WebGL to avoid conflicts.
+      invoke("report_webgl_status", { state: "skipped_test_mode", detail: null }).catch(() => {});
+    } else if (MACOS_WEBGL_DISABLED) {
+      invoke("report_webgl_status", { state: "skipped_macos", detail: null }).catch(() => {});
+    } else
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        invoke("report_webgl_status", { state: "context_lost", detail: null }).catch(() => {});
+      });
+      term.loadAddon(webgl);
+      invoke("report_webgl_status", { state: "loaded", detail: null }).catch(() => {});
+    } catch (e) {
+      const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      console.warn("[useXterm] WebGL renderer unavailable, falling back to DOM:", e);
+      invoke("report_webgl_status", { state: "failed", detail }).catch(() => {});
+    }
+
+    // Copy-on-select is disabled to avoid overwriting the clipboard on highlight.
+    // Use Ctrl+Shift+C / Cmd+C / context menu Copy instead.
 
     // Visual bell
     term.onBell(() => {

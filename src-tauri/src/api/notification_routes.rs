@@ -39,8 +39,11 @@ pub async fn create_notification(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let id = state.svc.create_notification_ext(
-        body.title, body.body, body.level.as_deref(),
-        body.actions, body.sticky,
+        body.title,
+        body.body,
+        body.level.as_deref(),
+        body.actions,
+        body.sticky,
     );
     Ok(Json(serde_json::json!({"id": id})))
 }
@@ -66,11 +69,13 @@ pub async fn serve_file(
 ) -> Result<axum::response::Response, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
 
-    // Path guard: only serve files inside the CodeTerm data directory
+    // Path guard: only serve files inside the CodeTerm data directory. Canonicalize BOTH sides — on Windows canonicalize() yields a \\?\ verbatim
+    // path, so comparing against the plain data_dir() always failed the prefix check (every request 403'd).
     let requested = std::path::Path::new(&query.path)
         .canonicalize()
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid path"))?;
-    let allowed_prefix = crate::paths::data_dir();
+    let data_dir = crate::paths::data_dir();
+    let allowed_prefix = data_dir.canonicalize().unwrap_or(data_dir);
     if !requested.starts_with(&allowed_prefix) {
         return Err((StatusCode::FORBIDDEN, "Path not allowed"));
     }

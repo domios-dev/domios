@@ -19,14 +19,13 @@ pub struct ServiceQuery {
     pub service: String,
 }
 
-fn default_service() -> String { "telegram".to_string() }
+fn default_service() -> String {
+    "telegram".to_string()
+}
 
 fn ensure_telegram(service: &str) -> Result<(), (StatusCode, &'static str)> {
-    if service == "telegram" {
-        Ok(())
-    } else {
-        Err((StatusCode::BAD_REQUEST, "service unsupported"))
-    }
+    crate::bridge::manager::ensure_supported_service(service)
+        .map_err(|msg| (StatusCode::BAD_REQUEST, msg))
 }
 
 pub async fn bridge_state(
@@ -40,8 +39,13 @@ pub async fn bridge_state(
     let snap = state.svc.bridge_supervisor.snapshot();
     let token_present = bridge::telegram::token_path().exists();
 
-    let has_secret_in_vault = state.svc.secrets.read().await
-        .has(TELEGRAM_SECRET_NAME).await
+    let has_secret_in_vault = state
+        .svc
+        .secrets
+        .read()
+        .await
+        .has(TELEGRAM_SECRET_NAME)
+        .await
         .unwrap_or(false);
 
     let (config_enabled, instance_name) = {
@@ -75,7 +79,9 @@ pub struct StopBody {
     pub timeout_ms: u64,
 }
 
-fn default_stop_timeout_ms() -> u64 { 30_000 }
+fn default_stop_timeout_ms() -> u64 {
+    30_000
+}
 
 pub async fn bridge_stop(
     AxumState(state): AxumState<AppState>,
@@ -101,7 +107,9 @@ pub async fn bridge_stop(
         })));
     }
 
-    let elapsed = state.svc.bridge_supervisor
+    let elapsed = state
+        .svc
+        .bridge_supervisor
         .stop(Duration::from_millis(body.timeout_ms))
         .await
         .map_err(|_| (StatusCode::REQUEST_TIMEOUT, "bridge stop timed out"))?;
@@ -133,7 +141,9 @@ pub struct StartBody {
     pub wait_for_lock_ms: u64,
 }
 
-fn default_wait_for_lock_ms() -> u64 { 10_000 }
+fn default_wait_for_lock_ms() -> u64 {
+    10_000
+}
 
 pub async fn bridge_start(
     AxumState(state): AxumState<AppState>,
@@ -225,11 +235,9 @@ pub async fn bridge_start(
 fn persist_token_file(token: &str) -> Result<(), String> {
     let path = bridge::telegram::token_path();
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("create secrets dir: {}", e))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("create secrets dir: {}", e))?;
     }
-    std::fs::write(&path, token)
-        .map_err(|e| format!("write token: {}", e))?;
+    std::fs::write(&path, token).map_err(|e| format!("write token: {}", e))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

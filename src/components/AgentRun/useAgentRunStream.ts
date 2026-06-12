@@ -22,8 +22,8 @@ function baseUrl(api: ApiConfig): string {
   return `http://${host}:${api.port}`;
 }
 
-// Uses fetch+ReadableStream (not EventSource) so we can pass the bearer token
-// header. Opens with ?from=0 to replay the full PTY buffer then continue live.
+// Use fetch+ReadableStream so bearer token headers are sent.
+// `from=0` replays existing PTY history, then switches to live stream.
 export function useAgentRunStream({
   api,
   paneId,
@@ -51,10 +51,8 @@ export function useAgentRunStream({
 
     let cancelled = false;
 
-    // Throttle setState: claude with --include-partial-messages streams
-    // hundreds of deltas per second; without batching, React rerenders the
-    // event tree on each one and the Webview2 IPC chokes hard enough to
-    // freeze the entire Tauri window. Accumulate and flush every ~120ms.
+    // Throttle updates: partial-message mode can emit hundreds of deltas/sec.
+    // Batch for ~120ms to avoid WebView2 IPC overload and UI freezes.
     let pendingEvents: ClaudeStreamEvent[] = [];
     let pendingRawLines: RawLine[] = [];
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -89,8 +87,8 @@ export function useAgentRunStream({
       : {};
 
     const fallbackToHistorical = async () => {
-      // After daemon restart the live stream is gone but the on-disk log file
-      // is still there — fetch it once and feed through the parser.
+    // If daemon restarts, live streaming stops but on-disk logs remain.
+    // Fetch once and parse historical log content.
       try {
         const histUrl = `${baseUrl(api)}/api/agent-runs/${encodeURIComponent(paneId)}/log`;
         const r = await fetch(histUrl, { headers, signal: ctrl.signal });

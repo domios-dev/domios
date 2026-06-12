@@ -6,10 +6,7 @@ fn test_new_state_has_default_workspace() {
     let (state, initial_pane_id) = MultiplexerState::new();
     assert_eq!(state.list_workspaces().len(), 1);
     assert!(state.get_pane(&initial_pane_id).is_some());
-    assert_eq!(
-        state.list_workspaces()[0].name,
-        "Main"
-    );
+    assert_eq!(state.list_workspaces()[0].name, "Main");
     assert!(state.list_workspaces()[0].is_active);
 }
 
@@ -32,7 +29,7 @@ fn test_create_workspace() {
     let (mut state, _) = MultiplexerState::new();
     let info = state.create_workspace("Work".to_string(), None);
     assert_eq!(info.name, "Work");
-    assert_eq!(info.tab_count, 1);
+    assert_eq!(info.tab_count, 0);
     assert!(!info.is_active);
     assert_eq!(state.list_workspaces().len(), 2);
 }
@@ -80,17 +77,12 @@ fn test_create_tab_invalid_workspace() {
     assert!(result.is_err());
 }
 
-// split_pane removed — every tab now owns exactly one pane. The
-// regression tests that exercised split tree construction / collapse
-// went with it; close_pane behavior is now covered by close_tab tests
-// further down.
+// split_pane removed: each tab owns one pane.
+// Regressions are covered by close_tab-focused tests below.
 
 #[test]
 fn test_close_pane_preserves_active_tab_when_unrelated_single_leaf_tab_closes() {
-    // Regression: hidden usage-probe panes are single-leaf tabs. When such a
-    // probe finishes and closes its tab, the workspace's active_tab_id must
-    // stay pinned on whatever the user was viewing — NOT silently flip to
-    // ws.tabs.last(). The old code unconditionally reassigned to last().
+    // Probe tabs are single-leaf; closing them must keep the current active tab, not switch to ws.tabs.last().
     let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     let (tab2_id, _) = state.create_tab(&ws_id).unwrap();
@@ -99,7 +91,9 @@ fn test_close_pane_preserves_active_tab_when_unrelated_single_leaf_tab_closes() 
     // User parks on tab 2 (the middle one). tab 3 is a hidden probe tab.
     state.set_active_tab(&ws_id, &tab2_id).unwrap();
     assert_eq!(
-        state.get_workspace(&ws_id).and_then(|w| w.active_tab_id.clone()),
+        state
+            .get_workspace(&ws_id)
+            .and_then(|w| w.active_tab_id.clone()),
         Some(tab2_id.clone())
     );
 
@@ -107,7 +101,9 @@ fn test_close_pane_preserves_active_tab_when_unrelated_single_leaf_tab_closes() 
     state.close_pane(&tab3_pane_id).unwrap();
 
     assert_eq!(
-        state.get_workspace(&ws_id).and_then(|w| w.active_tab_id.clone()),
+        state
+            .get_workspace(&ws_id)
+            .and_then(|w| w.active_tab_id.clone()),
         Some(tab2_id),
         "Closing an unrelated single-leaf tab must not move active_tab_id"
     );
@@ -126,8 +122,8 @@ fn test_close_pane_returns_pty_id() {
 
 #[test]
 fn test_close_pane_clears_focus_when_no_general() {
-    // No `general` alias registered → fallback finds nothing → focus drops to None.
-    // Matches old behavior so existing callers without General are unaffected.
+    // No general alias -> focus becomes None after closing the pane.
+    // Preserves behavior for callers that still rely on this fallback.
     let (mut state, _initial_pane_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     let (_tab, new_pane_id) = state.create_tab(&ws_id).unwrap();
@@ -141,8 +137,7 @@ fn test_close_pane_clears_focus_when_no_general() {
 
 #[test]
 fn test_close_pane_falls_back_to_general() {
-    // With `general` alias registered, closing the focused pane moves focus to
-    // the General orchestrator pane instead of leaving the UI deselected.
+    // With `general` alias registered, closing the focused pane moves focus to the General orchestrator pane instead of leaving the UI deselected.
     let (mut state, general_pane_id) = MultiplexerState::new();
     state.register_alias("general", &general_pane_id);
 
@@ -359,21 +354,29 @@ fn test_worker_parent_must_allow_spawn() {
 }
 
 #[test]
-fn test_subworker_requires_worker_parent() {
-    // Lead under Orchestrator, Worker under Lead
+fn worker_under_orchestrator_is_depth_2_and_cannot_parent() {
+    // 2-level hierarchy: a Worker sits directly under the Orchestrator, and there is no third level — a Worker can't parent another Worker.
     let (mut state, orch_id) = MultiplexerState::new();
-    state.set_pane_role(&orch_id, AgentRole::Orchestrator, None).unwrap();
-
-    let lead_id = state.create_pane();
-    state.set_pane_role(&lead_id, AgentRole::Lead, Some(&orch_id)).unwrap();
+    state
+        .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
+        .unwrap();
 
     let worker_id = state.create_pane();
-    state.set_pane_role(&worker_id, AgentRole::Worker, Some(&lead_id)).unwrap();
+    state
+        .set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id))
+        .unwrap();
 
     let worker = state.get_pane(&worker_id).unwrap();
     assert_eq!(worker.role, Some(AgentRole::Worker));
-    assert_eq!(worker.depth, 3);
+    assert_eq!(worker.depth, 2);
     assert!(!worker.can_spawn);
+
+    let sub_id = state.create_pane();
+    let result = state.set_pane_role(&sub_id, AgentRole::Worker, Some(&worker_id));
+    assert!(
+        result.is_err(),
+        "a Worker must not be allowed to parent another Worker"
+    );
 }
 
 #[test]
@@ -468,7 +471,10 @@ fn test_set_can_spawn_on_orchestrator() {
 #[test]
 fn test_rename_pane_pins_title() {
     let (mut state, pane_id) = MultiplexerState::new();
-    assert_eq!(state.get_pane(&pane_id).unwrap().title_level, TitleLevel::Default);
+    assert_eq!(
+        state.get_pane(&pane_id).unwrap().title_level,
+        TitleLevel::Default
+    );
 
     state.rename_pane(&pane_id, "Custom").unwrap();
     let pane = state.get_pane(&pane_id).unwrap();
@@ -485,7 +491,10 @@ fn test_rename_pane_does_not_change_tab_title() {
     state.rename_pane(&pane_id, "My Pane").unwrap();
 
     let ws = state.get_workspace(&ws_id).unwrap();
-    assert_eq!(ws.tabs[0].title, original, "tab title must be stable across pane renames");
+    assert_eq!(
+        ws.tabs[0].title, original,
+        "tab title must be stable across pane renames"
+    );
 }
 
 #[test]
@@ -550,10 +559,8 @@ fn test_session_snapshot_roundtrip() {
 
     let pane = restored.get_pane(&pane_id).unwrap();
     assert_eq!(pane.cwd.as_deref(), Some("/test/path"));
-    // agent_type MUST survive even without a session_id. The spawn-on-mount
-    // path (commands::pty) launches a fresh agent in this case, otherwise
-    // a "silent" claude pane (spawned but never talked to before kill)
-    // would come back as a bare powershell.
+    // Restore agent_type even when session_id is missing.
+    // Without it, a previously silent pane can reappear as plain powershell after restart.
     assert_eq!(pane.agent_type.as_deref(), Some("claude"));
     assert_eq!(pane.role, Some(AgentRole::Orchestrator));
     assert_eq!(pane.depth, 1);
@@ -563,10 +570,8 @@ fn test_session_snapshot_roundtrip() {
 
 #[test]
 fn test_session_snapshot_preserves_agent_type_with_session_id() {
-    // Regression: codex/opencode panes silently failed to resume on app
-    // restart because agent_type was always dropped, so the resume launcher
-    // fell back to default_agent_provider (claude) and tried to claude-resume
-    // a non-claude session uuid → session_exists() bailed → resume cleared.
+    // Preserve `agent_type` on snapshot restore.
+    // Dropping to default claude prevented codex/opencode sessions from resuming.
     for provider in ["claude", "codex", "opencode"] {
         let (mut state, pane_id) = MultiplexerState::new();
         if let Some(pane) = state.get_pane_mut(&pane_id) {
@@ -593,12 +598,28 @@ fn test_session_snapshot_preserves_agent_type_with_session_id() {
 }
 
 #[test]
-fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
-    use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
+fn test_session_snapshot_preserves_chat_view() {
+    let (mut state, pane_id) = MultiplexerState::new();
+    if let Some(pane) = state.get_pane_mut(&pane_id) {
+        pane.agent_type = Some("codex".to_string());
+        pane.agent_session_id = Some("session-codex".to_string());
+        pane.chat_view = true;
+    }
 
-    // Legacy snapshot path: agent_type is None (saved before reliable tracking),
-    // but the title preserved when the snapshot was captured carries the
-    // provider name. Restore must recover agent_type so tab-bar icons show.
+    let snap = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&snap);
+    let pane = restored.get_pane(&pane_id).unwrap();
+    assert!(pane.chat_view, "chat_view must survive snapshot roundtrip");
+}
+
+#[test]
+fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
+    use crate::session::store::{
+        SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
+    };
+
+    // Legacy snapshot path: agent_type is None (saved before reliable tracking), but the title preserved when the snapshot was captured carries
+    // the provider name. Restore must recover agent_type so tab-bar icons show.
     for (title, expected) in [
         ("codex", "codex"),
         ("opencode session", "opencode"),
@@ -630,6 +651,8 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
                         parent_pane_id: None,
                         can_spawn: false,
                         depth: 0,
+                        chat_view: None,
+                        auto_approve: false,
                     },
                 }],
             }],
@@ -649,7 +672,9 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
 
 #[test]
 fn test_session_snapshot_no_agent_type_for_plain_title() {
-    use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
+    use crate::session::store::{
+        SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
+    };
 
     let snap = SessionSnapshot {
         version: "test".to_string(),
@@ -676,6 +701,8 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
                     parent_pane_id: None,
                     can_spawn: false,
                     depth: 0,
+                    chat_view: None,
+                    auto_approve: false,
                 },
             }],
         }],
@@ -700,10 +727,11 @@ fn test_session_snapshot_preserves_agent_type_locked() {
 
 #[test]
 fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
-    use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
-    // Snapshot saved BEFORE agent_type_locked existed: only agent_type populated.
-    // Restore code must treat it as locked — pre-lock snapshots only persisted
-    // agent_type via a real spawn or detection, both qualify as explicit intent.
+    use crate::session::store::{
+        SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
+    };
+    // Snapshot saved BEFORE agent_type_locked existed: only agent_type populated. Restore code must treat it as locked — pre-lock snapshots only
+    // persisted agent_type via a real spawn or detection, both qualify as explicit intent.
     let snap = SessionSnapshot {
         version: "test".to_string(),
         timestamp: 0,
@@ -729,6 +757,8 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
                     parent_pane_id: None,
                     can_spawn: false,
                     depth: 0,
+                    chat_view: None,
+                    auto_approve: false,
                 },
             }],
         }],

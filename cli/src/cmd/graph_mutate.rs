@@ -98,11 +98,7 @@ pub fn run_purge_invalidated(
     print_or_exit(result);
 }
 
-pub fn run_revive_broken(
-    since: Option<&str>,
-    dry_run: bool,
-    db_path: Option<&str>,
-) -> ! {
+pub fn run_revive_broken(since: Option<&str>, dry_run: bool, db_path: Option<&str>) -> ! {
     let result = (|| -> Result<graph::ReviveBrokenReport, String> {
         let conn = open_conn(db_path)?;
         graph::revive_broken(
@@ -122,31 +118,38 @@ pub fn run_hubs(threshold: u32, sample: u32, db_path: Option<&str>) -> ! {
         let conn = open_conn(db_path)?;
 
         // Hub list with degree (active edges only).
-        let mut stmt = conn.prepare(
-            "SELECT node, COUNT(*) FROM (
+        let mut stmt = conn
+            .prepare(
+                "SELECT node, COUNT(*) FROM (
                 SELECT from_id AS node FROM relations WHERE valid_to IS NULL
                 UNION ALL
                 SELECT to_id AS node FROM relations WHERE valid_to IS NULL
              ) GROUP BY node HAVING COUNT(*) >= ?1 ORDER BY 2 DESC",
-        ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
         let hubs: Vec<(String, i64)> = stmt
-            .query_map([threshold as i64], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .query_map([threshold as i64], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })
             .map_err(|e| e.to_string())?
             .filter_map(Result::ok)
             .collect();
 
-        // Existing topic_*/role_* anchors — Dreamer should prefer routing into
-        // these instead of inventing new slugs.
-        let mut anchor_stmt = conn.prepare(
-            "SELECT id, entity_type FROM entities
+        // Existing topic_*/role_* anchors — Dreamer should prefer routing into these instead of inventing new slugs.
+        let mut anchor_stmt = conn
+            .prepare(
+                "SELECT id, entity_type FROM entities
              WHERE id LIKE 'topic\\_%' ESCAPE '\\' OR id LIKE 'role\\_%' ESCAPE '\\'
              ORDER BY id",
-        ).map_err(|e| e.to_string())?;
+            )
+            .map_err(|e| e.to_string())?;
         let anchors: Vec<serde_json::Value> = anchor_stmt
-            .query_map([], |r| Ok(serde_json::json!({
-                "id": r.get::<_, String>(0)?,
-                "entity_type": r.get::<_, String>(1)?,
-            })))
+            .query_map([], |r| {
+                Ok(serde_json::json!({
+                    "id": r.get::<_, String>(0)?,
+                    "entity_type": r.get::<_, String>(1)?,
+                }))
+            })
             .map_err(|e| e.to_string())?
             .filter_map(Result::ok)
             .collect();
@@ -176,20 +179,20 @@ pub fn run_hubs(threshold: u32, sample: u32, db_path: Option<&str>) -> ! {
                      ORDER BY relation_type LIMIT ?2",
                 )
                 .map_err(|e| e.to_string())?
-                .query_map(rusqlite::params![&id, sample as i64], |r| Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                )))
+                .query_map(rusqlite::params![&id, sample as i64], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
+                })
                 .map_err(|e| e.to_string())?
                 .filter_map(Result::ok)
                 .map(|(rel, other, dir)| {
                     let title: Option<String> = conn
-                        .query_row(
-                            "SELECT title FROM mem_items WHERE id = ?1",
-                            [&other],
-                            |r| r.get(0),
-                        )
+                        .query_row("SELECT title FROM mem_items WHERE id = ?1", [&other], |r| {
+                            r.get(0)
+                        })
                         .ok();
                     serde_json::json!({
                         "id": other,
@@ -228,26 +231,41 @@ struct NodeMeta {
     is_entity: bool,
 }
 
-fn load_node_meta(conn: &rusqlite::Connection) -> Result<std::collections::HashMap<String, NodeMeta>, String> {
+fn load_node_meta(
+    conn: &rusqlite::Connection,
+) -> Result<std::collections::HashMap<String, NodeMeta>, String> {
     let mut meta: std::collections::HashMap<String, NodeMeta> = std::collections::HashMap::new();
     // mem_items: id → kind/title/area
-    let mut stmt = conn.prepare("SELECT id, kind, COALESCE(title,''), area FROM mem_items")
+    let mut stmt = conn
+        .prepare("SELECT id, kind, COALESCE(title,''), area FROM mem_items")
         .map_err(|e| e.to_string())?;
-    let rows = stmt.query_map([], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, String>(2)?,
-            r.get::<_, Option<String>>(3)?,
-        ))
-    }).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
     for row in rows.flatten() {
-        meta.insert(row.0, NodeMeta { kind: row.1, title: row.2, area: row.3, is_entity: false });
+        meta.insert(
+            row.0,
+            NodeMeta {
+                kind: row.1,
+                title: row.2,
+                area: row.3,
+                is_entity: false,
+            },
+        );
     }
     // entities: id → entity_type as "kind"
-    let mut estmt = conn.prepare("SELECT id, entity_type FROM entities")
+    let mut estmt = conn
+        .prepare("SELECT id, entity_type FROM entities")
         .map_err(|e| e.to_string())?;
-    let erows = estmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+    let erows = estmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
         .map_err(|e| e.to_string())?;
     for row in erows.flatten() {
         meta.entry(row.0.clone()).or_insert(NodeMeta {
@@ -261,20 +279,17 @@ fn load_node_meta(conn: &rusqlite::Connection) -> Result<std::collections::HashM
 }
 
 fn load_active_edges(conn: &rusqlite::Connection) -> Result<Vec<(String, String)>, String> {
-    let mut stmt = conn.prepare(
-        "SELECT from_id, to_id FROM relations WHERE valid_to IS NULL"
-    ).map_err(|e| e.to_string())?;
-    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+    let mut stmt = conn
+        .prepare("SELECT from_id, to_id FROM relations WHERE valid_to IS NULL")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
         .map_err(|e| e.to_string())?;
     Ok(rows.flatten().collect())
 }
 
-// Pick a single anchor candidate from a component's members. Heuristic:
-// 1. Most common non-empty area among members → topic_<area>.
-// 2. Else most common entity:Tech / entity:Project / entity:Topic in the
-//    component (with the assumption that one of the members already names
-//    the cluster).
-// 3. Else fall back to "topic_misc".
+// Pick anchor by most common non-empty area among members (`topic_<area>`),
+// else fall back to the most-common Tech/Project/Topic entity.
 fn suggested_anchor(members: &[(&str, &NodeMeta)]) -> String {
     let mut area_count: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
     for (_, m) in members {
@@ -287,8 +302,7 @@ fn suggested_anchor(members: &[(&str, &NodeMeta)]) -> String {
     if let Some((a, _)) = area_count.into_iter().max_by_key(|(_, c)| *c) {
         return format!("topic_{}", a.to_lowercase().replace([' ', '-'], "_"));
     }
-    // No shared area — see if a Tech/Project/Topic entity is in the cluster
-    // and use it as anchor candidate (it usually names the cluster best).
+    // No shared area: use a cluster member of type Tech/Project/Topic as anchor.
     for (id, m) in members {
         if m.is_entity {
             let prefixes = ["topic_", "project_", "tech_"];
@@ -306,9 +320,7 @@ pub fn run_islands(max_size: usize, limit: usize, db_path: Option<&str>) -> ! {
         let meta = load_node_meta(&conn)?;
         let edges = load_active_edges(&conn)?;
 
-        // Owned adjacency map over all known node ids. Both mem_items and
-        // entities live in `meta`; isolated entities still get a zero-edge
-        // entry so BFS treats them as their own component.
+        // Build adjacency over all node ids so BFS can detect isolated entities as singleton components.
         let mut adj: std::collections::HashMap<String, std::collections::HashSet<String>> =
             std::collections::HashMap::new();
         for id in meta.keys() {
@@ -397,31 +409,40 @@ pub fn run_orphans(limit: usize, db_path: Option<&str>) -> ! {
         let edges = load_active_edges(&conn)?;
 
         let mut degree: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-        for id in meta.keys() { degree.insert(id.as_str(), 0); }
+        for id in meta.keys() {
+            degree.insert(id.as_str(), 0);
+        }
         for (a, b) in &edges {
-            if let Some(d) = degree.get_mut(a.as_str()) { *d += 1; }
-            if let Some(d) = degree.get_mut(b.as_str()) { *d += 1; }
+            if let Some(d) = degree.get_mut(a.as_str()) {
+                *d += 1;
+            }
+            if let Some(d) = degree.get_mut(b.as_str()) {
+                *d += 1;
+            }
         }
 
-        let mut orphans: Vec<(&str, &NodeMeta)> = degree.iter()
+        let mut orphans: Vec<(&str, &NodeMeta)> = degree
+            .iter()
             .filter(|(_, d)| **d == 0)
             .filter_map(|(id, _)| meta.get_key_value(*id).map(|(k, v)| (k.as_str(), v)))
-            // Filter to interesting kinds — entities-only nodes with degree 0
-            // are usually trash from extraction (e.g. tech_foo created but
-            // never linked). Mem_items with degree 0 are real orphans the
-            // user might want to keep but shouldn't be invisible in graph.
+            // entities-only degree-0 nodes are often extraction noise (e.g. tech_foo).
+            // Mem_items with degree 0 are real orphans and should stay visible.
             .collect();
-        // Sort: real mem_items first (the user likely wants these bridged),
-        // then loose entities (often delete candidates).
+        // Sort: real mem_items first (the user likely wants these bridged), then loose entities (often delete candidates).
         orphans.sort_by_key(|(_, m)| (m.is_entity, m.kind.clone()));
         orphans.truncate(limit);
 
-        let out: Vec<serde_json::Value> = orphans.into_iter().map(|(id, m)| serde_json::json!({
-            "id": id,
-            "kind": m.kind,
-            "title": m.title,
-            "area": m.area,
-        })).collect();
+        let out: Vec<serde_json::Value> = orphans
+            .into_iter()
+            .map(|(id, m)| {
+                serde_json::json!({
+                    "id": id,
+                    "kind": m.kind,
+                    "title": m.title,
+                    "area": m.area,
+                })
+            })
+            .collect();
 
         Ok(serde_json::json!({
             "count": out.len(),
@@ -466,8 +487,7 @@ pub fn run_introduce_topic(
 
 fn parse_sources(arg: &str) -> Result<Vec<String>, String> {
     if let Some(path) = arg.strip_prefix('@') {
-        let body = std::fs::read_to_string(path)
-            .map_err(|e| format!("read {}: {}", path, e))?;
+        let body = std::fs::read_to_string(path).map_err(|e| format!("read {}: {}", path, e))?;
         Ok(body
             .lines()
             .map(|l| l.trim())
@@ -489,37 +509,61 @@ fn parse_sources(arg: &str) -> Result<Vec<String>, String> {
 /// `std::process::exit`, so `Some(())` is unreachable in practice.
 pub fn try_dispatch_local(action: &MemGraphAction) -> Option<()> {
     match action {
-        MemGraphAction::Route { from, to, via, rel_in, rel_out, reason, db_path } => {
-            run_route(
-                from, to, via,
-                rel_in.as_deref(), rel_out.as_deref(),
-                reason.as_deref(), db_path.as_deref(),
-            )
-        }
-        MemGraphAction::PurgeInvalidated { before, reason, dry_run, db_path } => {
-            run_purge_invalidated(
-                before.as_deref(), reason.as_deref(), *dry_run, db_path.as_deref(),
-            )
-        }
-        MemGraphAction::ReviveBroken { since, dry_run, db_path } => {
-            run_revive_broken(since.as_deref(), *dry_run, db_path.as_deref())
-        }
-        MemGraphAction::IntroduceTopic { topic_id, entity_type, sources, anchor, rel_source, rel_anchor, reason, db_path } => {
-            run_introduce_topic(
-                topic_id, entity_type, sources, anchor,
-                rel_source, rel_anchor,
-                reason.as_deref(), db_path.as_deref(),
-            )
-        }
-        MemGraphAction::Hubs { threshold, sample } => {
-            run_hubs(*threshold, *sample, None)
-        }
-        MemGraphAction::Islands { max_size, limit } => {
-            run_islands(*max_size, *limit, None)
-        }
-        MemGraphAction::Orphans { limit } => {
-            run_orphans(*limit, None)
-        }
+        MemGraphAction::Route {
+            from,
+            to,
+            via,
+            rel_in,
+            rel_out,
+            reason,
+            db_path,
+        } => run_route(
+            from,
+            to,
+            via,
+            rel_in.as_deref(),
+            rel_out.as_deref(),
+            reason.as_deref(),
+            db_path.as_deref(),
+        ),
+        MemGraphAction::PurgeInvalidated {
+            before,
+            reason,
+            dry_run,
+            db_path,
+        } => run_purge_invalidated(
+            before.as_deref(),
+            reason.as_deref(),
+            *dry_run,
+            db_path.as_deref(),
+        ),
+        MemGraphAction::ReviveBroken {
+            since,
+            dry_run,
+            db_path,
+        } => run_revive_broken(since.as_deref(), *dry_run, db_path.as_deref()),
+        MemGraphAction::IntroduceTopic {
+            topic_id,
+            entity_type,
+            sources,
+            anchor,
+            rel_source,
+            rel_anchor,
+            reason,
+            db_path,
+        } => run_introduce_topic(
+            topic_id,
+            entity_type,
+            sources,
+            anchor,
+            rel_source,
+            rel_anchor,
+            reason.as_deref(),
+            db_path.as_deref(),
+        ),
+        MemGraphAction::Hubs { threshold, sample } => run_hubs(*threshold, *sample, None),
+        MemGraphAction::Islands { max_size, limit } => run_islands(*max_size, *limit, None),
+        MemGraphAction::Orphans { limit } => run_orphans(*limit, None),
         MemGraphAction::Get { id } => run_entity_get(id, None),
         _ => None,
     }
@@ -576,7 +620,6 @@ pub fn run_entity_get(id: &str, db_path: Option<&str>) -> ! {
     print_or_exit(result);
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::parse_sources;
@@ -597,11 +640,7 @@ mod tests {
     fn parse_sources_at_file() {
         let mut tmp = std::env::temp_dir();
         tmp.push(format!("graph_mutate_sources_{}.txt", std::process::id()));
-        std::fs::write(
-            &tmp,
-            "# header comment\n\ns1\n s2 \n# inline\ns3\n",
-        )
-        .unwrap();
+        std::fs::write(&tmp, "# header comment\n\ns1\n s2 \n# inline\ns3\n").unwrap();
         let arg = format!("@{}", tmp.display());
         let v = parse_sources(&arg).unwrap();
         let _ = std::fs::remove_file(&tmp);

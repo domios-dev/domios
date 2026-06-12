@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { Bell, Bot, ChevronRight, FolderTree, Server, Eye } from "lucide-react";
+import { invoke } from "../../lib/bridge";
+import { Bell, Bot, ChevronRight, FolderTree, Puzzle, Server, Eye } from "lucide-react";
 import type { AppConfig, ProviderConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
@@ -13,11 +13,13 @@ export function AgentsOverview({
   config,
   onUpdate,
   onOpenProvider,
+  onOpenPlugins,
   onUpdateFullConfig,
 }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onOpenProvider: (providerId: string) => void;
+  onOpenPlugins: () => void;
   onUpdateFullConfig: (next: AppConfig) => void;
 }) {
   const { providers, loading, error } = useAgentProviders();
@@ -46,7 +48,7 @@ export function AgentsOverview({
               <span className="text-xs text-[var(--ct-muted-fg)]">Provider</span>
               <div className="flex items-center gap-2">
                 <select
-                  value={config.general_agent?.agent_provider ?? "claude"}
+                  value={config.general_agent?.agent_provider ?? providers[0]?.id ?? ""}
                   onChange={(e) => onUpdate("general_agent", { agent_provider: e.target.value })}
                   className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                 >
@@ -95,7 +97,22 @@ export function AgentsOverview({
         </div>
       </SettingsCard>
 
-      <SettingsCard icon={<Server size={16} />} title="Providers">
+      <SettingsCard
+        icon={<Server size={16} />}
+        title="Providers"
+        headerRight={
+          <button
+            type="button"
+            onClick={onOpenPlugins}
+            className="flex items-center gap-1 rounded-full bg-[var(--ct-accent)]/12 px-2.5 py-1 text-[10px] font-medium text-[var(--ct-accent)] transition-colors hover:bg-[var(--ct-accent)]/20 active:scale-95"
+            title="Providers are installed and managed as plugins"
+          >
+            <Puzzle size={11} strokeWidth={2.2} />
+            managed by plugins
+            <ChevronRight size={11} className="opacity-70" />
+          </button>
+        }
+      >
         {error && (
           <div className="text-[10px] text-[var(--ct-red)]">
             Failed to load agent providers: {error}
@@ -141,8 +158,7 @@ export function AgentProviderScreen({
   const { providers, loading, error } = useAgentProviders();
   const provider = providers.find((p) => p.id === providerId) ?? null;
 
-  // If a plugin was deactivated mid-navigation, pop back to the Agents
-  // overview so the user isn't stuck on a dead provider detail.
+  // If a plugin was deactivated mid-navigation, pop back to the Agents overview so the user isn't stuck on a dead provider detail.
   useEffect(() => {
     if (!loading && !provider) onProviderGone();
   }, [loading, provider, onProviderGone]);
@@ -213,13 +229,11 @@ function NotificationsGroup({
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onUpdateFullConfig: (next: AppConfig) => void;
 }) {
-  const { providers } = useAgentProviders();
-
   return (
     <SettingsCard
       icon={<Bell size={16} />}
       title="Notifications"
-      description="Get alerted when an agent finishes a task or needs your attention. Hooks auto-install on startup. Providers without hooks are notified via output detection."
+      description="Get alerted when an agent finishes a task or needs your attention. Hooks auto-install on startup."
     >
       <Toggle
         label="Desktop notifications"
@@ -246,20 +260,6 @@ function NotificationsGroup({
         hideActions
         hidePathLinks
       />
-
-      <div className="space-y-1.5">
-        {providers.map((p) => {
-          const installed = p.notifications_schema.length > 0;
-          return (
-            <div key={p.id} className="flex items-center justify-between">
-              <span className="text-xs text-[var(--ct-fg)]">{p.display_name}</span>
-              <SettingsPill tone={installed ? "green" : "muted"}>
-                {installed ? "installed" : "via output detection"}
-              </SettingsPill>
-            </div>
-          );
-        })}
-      </div>
     </SettingsCard>
   );
 }

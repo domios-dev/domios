@@ -2,7 +2,7 @@
 
 import time
 import pytest
-from helpers import CodeTermAPI, unique_name
+from helpers import CodeTermAPI, inject_screen_text, unique_name
 
 
 @pytest.fixture()
@@ -12,7 +12,7 @@ def three_panes(api: CodeTermAPI):
     ws_id = ws["id"]
     pane_ids = []
     for _ in range(3):
-        tab = api.create_tab(ws_id)
+        tab = api.create_tab(ws_id, eager=True)
         pid = tab["pane_id"]
         assert api.wait_for_pty(pid, timeout=15)
         pane_ids.append(pid)
@@ -32,23 +32,43 @@ def three_panes(api: CodeTermAPI):
 class TestMultiPanePrompts:
     """Test independent prompts across multiple panes."""
 
+    def _set_prompt(self, api, pane_id):
+        inject_screen_text(api, pane_id, (
+            "Do you want to proceed?\n"
+            "  > 1. Yes\n"
+            "    2. No\n"
+            "\nEsc to cancel \u00b7 Tab to amend\n"
+        ))
+        time.sleep(0.5)
+        api.post(f"/api/panes/{pane_id}/hook/permission")
+
+    def _pane(self, api, pane_id):
+        return next(p for p in api.list_panes() if p["id"] == pane_id)
+
     def test_two_panes_independent(self, api, three_panes):
         """Two panes can have prompts simultaneously."""
         _, panes = three_panes
-        api.post(f"/api/panes/{panes[0]}/hook/permission")
-        api.post(f"/api/panes/{panes[1]}/hook/permission")
+        self._set_prompt(api, panes[0])
+        self._set_prompt(api, panes[1])
         time.sleep(0.5)
+        pane_a = self._pane(api, panes[0])
+        pane_b = self._pane(api, panes[1])
+        assert pane_a.get("pending_prompt") is not None
+        assert pane_b.get("pending_prompt") is not None
 
     def test_respond_one_doesnt_clear_other(self, api, three_panes):
         """Responding in pane A should not affect pane B."""
         _, panes = three_panes
-        api.post(f"/api/panes/{panes[0]}/hook/permission")
-        api.post(f"/api/panes/{panes[1]}/hook/permission")
+        self._set_prompt(api, panes[0])
+        self._set_prompt(api, panes[1])
         time.sleep(0.5)
         api.post(f"/api/panes/{panes[0]}/prompt/respond", json={"value": "1"})
         time.sleep(0.5)
-        a = next(p for p in api.list_panes() if p["id"] == panes[0])
+        pane_list = api.list_panes()
+        a = next(p for p in pane_list if p["id"] == panes[0])
+        b = next(p for p in pane_list if p["id"] == panes[1])
         assert a.get("pending_prompt") is None
+        assert b.get("pending_prompt") is not None
 
     def test_uninvolved_pane_clean(self, api, three_panes):
         """Pane without hook call should have no prompt."""

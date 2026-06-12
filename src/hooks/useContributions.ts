@@ -12,7 +12,7 @@
  * unchanged.
  */
 import { useCallback, useEffect, useState } from "react";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "../lib/bridge";
 
 export interface ContributionsChangedPayload {
   kind: string;

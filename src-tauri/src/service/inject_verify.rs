@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use regex::Regex;
 
-use crate::ScreenStateHandle;
 use crate::pty::screen_state::screen_has_shell_prompt;
+use crate::ScreenStateHandle;
 
 #[derive(Debug, Clone)]
 pub struct VerifyOpts {
@@ -39,10 +39,24 @@ pub struct InjectionResult {
 
 #[derive(Debug, Clone)]
 pub enum InjectionError {
-    PromptNeverReady { waited: Duration },
-    EchoMismatch { expected_substr: String, screen_tail: String },
-    SubmitNeverConfirmed { waited: Duration, screen_tail: String },
-    PtyClosed { pty_id: String },
+    PromptNeverReady {
+        waited: Duration,
+    },
+    EchoMismatch {
+        expected_substr: String,
+        screen_tail: String,
+    },
+    SubmitNeverConfirmed {
+        waited: Duration,
+        screen_tail: String,
+    },
+    UnsafePromptVisible {
+        reason: String,
+        screen_tail: String,
+    },
+    PtyClosed {
+        pty_id: String,
+    },
 }
 
 impl std::fmt::Display for InjectionError {
@@ -51,18 +65,34 @@ impl std::fmt::Display for InjectionError {
             Self::PromptNeverReady { waited } => {
                 write!(f, "prompt never became ready after {:?}", waited)
             }
-            Self::EchoMismatch { expected_substr, screen_tail } => {
+            Self::EchoMismatch {
+                expected_substr,
+                screen_tail,
+            } => {
                 write!(
                     f,
                     "expected echo not found on screen; expected substring={:?}; screen_tail={:?}",
                     expected_substr, screen_tail
                 )
             }
-            Self::SubmitNeverConfirmed { waited, screen_tail } => {
+            Self::SubmitNeverConfirmed {
+                waited,
+                screen_tail,
+            } => {
                 write!(
                     f,
                     "submit not confirmed after {:?}; screen_tail={:?}",
                     waited, screen_tail
+                )
+            }
+            Self::UnsafePromptVisible {
+                reason,
+                screen_tail,
+            } => {
+                write!(
+                    f,
+                    "refusing to inject input while unsafe prompt is visible; reason={:?}; screen_tail={:?}",
+                    reason, screen_tail
                 )
             }
             Self::PtyClosed { pty_id } => write!(f, "pty {} is closed", pty_id),
@@ -131,21 +161,16 @@ pub fn screen_contains_echo(screen_tail: &str, expected: &str) -> bool {
     if n_flat.contains(&n_expected) {
         return true;
     }
-    // Long shell paste: prefix scrolls out of the tail-rows window before we
-    // poll, so the head of `expected` is never visible. The tail of the paste
-    // still is — match the last N chars instead. Gated on input size so a
-    // ~90-char command with a corrupted prefix is still caught by the strict
-    // substring check above.
+    // Long shell paste: prefix scrolls out of the tail-rows window before we poll, so the head of `expected` is never visible. The tail of the
+    // paste still is — match the last N chars instead. Gated on input size so a ~90-char command with a corrupted prefix is still caught by the strict substring check above.
     if expected.len() >= ECHO_SUFFIX_MATCH_MIN_INPUT_BYTES {
         let suffix = last_n_chars(&n_expected, ECHO_SUFFIX_MATCH_CHARS);
         if n_tail.contains(&suffix) || n_flat.contains(&suffix) {
             return true;
         }
     }
-    // Bracketed-paste TUI placeholder: Claude/Codex collapse multi-line pastes
-    // into "[Pasted text #N +M lines]" — literal text never appears, but the
-    // paste was accepted. Treat the placeholder as echo confirmation, but only
-    // for inputs that would actually trigger the placeholder rendering.
+    // Bracketed-paste TUI placeholder: Claude/Codex collapse multi-line pastes into "[Pasted text #N +M lines]" — literal text never appears, but
+    // the paste was accepted. Treat the placeholder as echo confirmation, but only for inputs that would trigger the placeholder rendering.
     let placeholder_eligible = expected.contains('\n') || expected.len() > ECHO_LONG_INPUT_BYTES;
     if placeholder_eligible && screen_has_paste_placeholder(screen_tail) {
         return true;
@@ -202,12 +227,18 @@ pub fn wait_for_submit_shell(
     let deadline = std::time::Instant::now() + timeout;
     loop {
         if std::time::Instant::now() >= deadline {
-            let tail = screen_state.lock().tail_text(pty_id, tail_rows).unwrap_or_default();
+            let tail = screen_state
+                .lock()
+                .tail_text(pty_id, tail_rows)
+                .unwrap_or_default();
             return Err(HelperErr::Timeout(tail));
         }
         let (tail_opt, hash_now) = {
             let s = screen_state.lock();
-            (s.tail_text(pty_id, tail_rows), s.get_content_hash(pty_id, 0))
+            (
+                s.tail_text(pty_id, tail_rows),
+                s.get_content_hash(pty_id, 0),
+            )
         };
         let tail = match tail_opt {
             Some(t) => t,
@@ -300,10 +331,7 @@ mod tests {
 
     #[test]
     fn screen_contains_echo_normalizes_whitespace() {
-        assert!(screen_contains_echo(
-            "user@host:~$  ls    -la\n",
-            "ls -la",
-        ));
+        assert!(screen_contains_echo("user@host:~$  ls    -la\n", "ls -la",));
         assert!(screen_contains_echo(
             "line1\n   user@host:~$\tls\t-la\nline3",
             "ls -la",
@@ -334,12 +362,21 @@ mod tests {
 
     #[test]
     fn long_paste_with_scrolled_out_prefix_matches_via_suffix() {
-        // 5000-char paste: only the trailing portion fits into the 8-row tail
-        // window. Echo verify must still confirm via suffix match.
+        // 5000-char paste: only the trailing portion fits into the 8-row tail window. Echo verify must still confirm via suffix match.
         let body: String = "A".repeat(4900);
-        let expected = format!("[Mesh: peer-a pane=abc12345] {} TAIL_TOKEN_END", body);
+        let expected = format!(
+            "-=-codeterm:mesh peer=peer-a pane=abc12345-=-{} TAIL_TOKEN_END",
+            body
+        );
         // Tail captured by screen_state contains only the last ~640 chars of the paste.
-        let visible_tail: String = expected.chars().rev().take(600).collect::<String>().chars().rev().collect();
+        let visible_tail: String = expected
+            .chars()
+            .rev()
+            .take(600)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect();
         assert!(
             screen_contains_echo(&visible_tail, &expected),
             "long paste should match via suffix even when prefix scrolled out"
@@ -348,8 +385,7 @@ mod tests {
 
     #[test]
     fn bracketed_paste_placeholder_counts_as_echo_for_multiline_input() {
-        // Claude TUI replaces multi-line pastes with the placeholder; literal
-        // text never appears on screen.
+        // Claude TUI replaces multi-line pastes with the placeholder; literal text never appears on screen.
         let screen = "> [Pasted text #1 +12 lines]\n  Press Enter to send";
         let expected = "line one\nline two\nline three\nline four";
         assert!(
@@ -361,7 +397,10 @@ mod tests {
     #[test]
     fn bracketed_paste_placeholder_counts_as_echo_for_long_input() {
         let screen = "> [Pasted text #7 +1 line]\n  Press Enter to send";
-        let expected = format!("[Mesh: PEER pane=abc12345] {}", "x".repeat(500));
+        let expected = format!(
+            "-=-codeterm:mesh peer=PEER pane=abc12345-=-{}",
+            "x".repeat(500)
+        );
         assert!(
             screen_contains_echo(screen, &expected),
             "long single-line paste replaced by placeholder must count as echo"
@@ -370,13 +409,13 @@ mod tests {
 
     #[test]
     fn bracketed_paste_placeholder_without_lines_suffix_counts_as_echo() {
-        // Real Claude Code render for a long single-line paste with no
-        // newlines is `[Pasted text #N]` WITHOUT the `+N lines` suffix.
-        // v1.1.18 regex required the suffix and missed this case entirely,
-        // which is why the v1.1.18 smoke test failed for ~4.7KB single-line
-        // mesh messages.
+        // Real Claude Code render for a long single-line paste with no newlines is `[Pasted text #N]` WITHOUT the `+N lines` suffix. v1.1.18 regex
+        // required the suffix and missed this case entirely, which is why the v1.1.18 smoke test failed for ~4.7KB single-line mesh messages.
         let screen = "> [Pasted text #1]";
-        let expected = format!("[Mesh: PEER pane=abc12345] {}", "x".repeat(4500));
+        let expected = format!(
+            "-=-codeterm:mesh peer=PEER pane=abc12345-=-{}",
+            "x".repeat(4500)
+        );
         assert!(
             screen_contains_echo(screen, &expected),
             "single-line paste without `+N lines` suffix must still count as echo"
@@ -385,8 +424,7 @@ mod tests {
 
     #[test]
     fn placeholder_does_not_falsely_match_short_single_line_input() {
-        // Defensive: a literal "[Pasted text #N +M lines]" on screen must not
-        // confirm an unrelated short input.
+        // Defensive: a literal "[Pasted text #N +M lines]" on screen must not confirm an unrelated short input.
         let screen = "> [Pasted text #3 +2 lines]";
         let expected = "ls -la";
         assert!(
@@ -398,9 +436,10 @@ mod tests {
     #[test]
     fn placeholder_regex_matches_singular_and_plural_lines() {
         assert!(screen_has_paste_placeholder("> [Pasted text #1 +1 line]"));
-        assert!(screen_has_paste_placeholder("> [Pasted text #99 +250 lines]"));
-        // v1.1.19 widened the regex to also accept the bare `[Pasted text #N]`
-        // shape (without the trailing `+M lines` suffix).
+        assert!(screen_has_paste_placeholder(
+            "> [Pasted text #99 +250 lines]"
+        ));
+        // v1.1.19 widened the regex to also accept the bare `[Pasted text #N]` shape (without the trailing `+M lines` suffix).
         assert!(screen_has_paste_placeholder("> [Pasted text #1]"));
         // Bracket pair is required; the unbracketed prose form must not match.
         assert!(!screen_has_paste_placeholder("Pasted text #1 +1 line"));
@@ -478,7 +517,13 @@ mod tests {
             std::thread::sleep(Duration::from_millis(40));
             feed(&h2, "p1", b"\nfile_a\nfile_b\nuser@host:/tmp$ ");
         });
-        let res = wait_for_submit_shell(&h, "p1", hash_before, Duration::from_secs(1), TEST_TAIL_ROWS);
+        let res = wait_for_submit_shell(
+            &h,
+            "p1",
+            hash_before,
+            Duration::from_secs(1),
+            TEST_TAIL_ROWS,
+        );
         join.join().unwrap();
         assert!(res.is_ok(), "expected new prompt to be observed");
     }

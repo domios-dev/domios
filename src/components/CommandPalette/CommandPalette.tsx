@@ -2,9 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { isMac } from "../../lib/keybindings";
 
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 export interface CommandItem {
   id: string;
@@ -19,9 +17,7 @@ interface CommandPaletteProps {
   commands: CommandItem[];
 }
 
-// ---------------------------------------------------------------------------
-// Icons (16x16 viewBox SVG path data)
-// ---------------------------------------------------------------------------
+// Icons (16x16 viewBox SVG path data).
 
 const ICONS = {
   tab: "M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9ZM3.5 3a.5.5 0 0 0-.5.5V5h10V3.5a.5.5 0 0 0-.5-.5h-9ZM13 6H3v6.5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V6Z",
@@ -37,9 +33,7 @@ const ICONS = {
   search: "M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm-.82 4.74a6 6 0 1 1 1.06-1.06l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04Z",
 };
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /** Format shortcut for display: replaces Ctrl with Cmd on macOS */
 function formatShortcut(shortcut: string): string {
@@ -52,9 +46,7 @@ function formatShortcut(shortcut: string): string {
   return shortcut;
 }
 
-// ---------------------------------------------------------------------------
 // Component
-// ---------------------------------------------------------------------------
 
 export function CommandPalette({ commands }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
@@ -453,9 +445,7 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
 // Default command definitions (factory)
-// ---------------------------------------------------------------------------
 
 interface CommandActions {
   newTab: () => void;

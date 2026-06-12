@@ -147,7 +147,13 @@ dev_wait_ready() {
 
 # Start dev in the background. Caller is responsible for waiting.
 dev_start_bg() {
-  ( cd "$EVAL_LIB_REPO_ROOT" && ./build.sh dev > /dev/null 2>&1 & )
+  (
+    cd "$EVAL_LIB_REPO_ROOT" || exit 1
+    local log_dir="$HOME/.codeterm-dev/logs"
+    mkdir -p "$log_dir"
+    "${BASH:-bash}" build.sh dev > "$log_dir/codeterm-stdout.log" 2> "$log_dir/codeterm-stderr.log" < /dev/null &
+    disown "$!" 2>/dev/null || true
+  )
 }
 
 # --- Snapshots -------------------------------------------------------

@@ -115,7 +115,9 @@ fn test_pty_multiple_instances() {
     #[cfg(not(target_os = "windows"))]
     let cmd = Some("/bin/sh".to_string());
 
-    let (id1, _r1) = manager.spawn(cmd.clone(), None, 80, 24, HashMap::new()).unwrap();
+    let (id1, _r1) = manager
+        .spawn(cmd.clone(), None, 80, 24, HashMap::new())
+        .unwrap();
     let (id2, _r2) = manager.spawn(cmd, None, 80, 24, HashMap::new()).unwrap();
 
     assert_ne!(id1, id2);

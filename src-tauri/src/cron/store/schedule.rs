@@ -7,6 +7,43 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MAX_CONSECUTIVE_FAILURES: u32 = 5;
 
+fn system_now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+/// First two fire times strictly after `now_ms`, in the given tz
+/// (None → UTC). The injectable-now core: `Schedule::upcoming` hardcodes
+/// the real current time, which made cron untestable without wall-clock
+/// waits — `Schedule::after` takes our time instead.
+fn first_two_fires_after(
+    sched: &cron::Schedule,
+    tz: Option<chrono_tz::Tz>,
+    now_ms: u64,
+) -> (Option<u64>, Option<u64>) {
+    use chrono::TimeZone;
+    match tz {
+        Some(tz) => {
+            let now = match tz.timestamp_millis_opt(now_ms as i64).single() {
+                Some(dt) => dt,
+                None => return (None, None),
+            };
+            let mut it = sched.after(&now).map(|dt| dt.timestamp_millis() as u64);
+            (it.next(), it.next())
+        }
+        None => {
+            let now = match chrono::Utc.timestamp_millis_opt(now_ms as i64).single() {
+                Some(dt) => dt,
+                None => return (None, None),
+            };
+            let mut it = sched.after(&now).map(|dt| dt.timestamp_millis() as u64);
+            (it.next(), it.next())
+        }
+    }
+}
+
 pub fn to_6field(expr: &str) -> String {
     let fields: Vec<&str> = expr.trim().split_whitespace().collect();
     if fields.len() == 5 {
@@ -31,18 +68,20 @@ pub fn compute_next_run(schedule: &str) -> Result<Option<u64>, String> {
     compute_next_run_in(schedule, None)
 }
 
-pub fn compute_next_run_in(
+pub fn compute_next_run_in(schedule: &str, tz: Option<&str>) -> Result<Option<u64>, String> {
+    compute_next_run_at(schedule, tz, system_now_ms())
+}
+
+pub fn compute_next_run_at(
     schedule: &str,
     tz: Option<&str>,
+    now_ms: u64,
 ) -> Result<Option<u64>, String> {
     use std::str::FromStr;
     let expr = to_6field(schedule);
     let sched = cron::Schedule::from_str(&expr).map_err(|e| format!("Invalid cron: {}", e))?;
     let parsed_tz = parse_tz(tz)?;
-    Ok(match parsed_tz {
-        Some(tz) => sched.upcoming(tz).next().map(|dt| dt.timestamp_millis() as u64),
-        None => sched.upcoming(chrono::Utc).next().map(|dt| dt.timestamp_millis() as u64),
-    })
+    Ok(first_two_fires_after(&sched, parsed_tz, now_ms).0)
 }
 
 pub fn compute_next_run_jittered(
@@ -57,29 +96,23 @@ pub fn compute_next_run_jittered_in(
     jitter_max_ms: Option<u64>,
     tz: Option<&str>,
 ) -> Result<Option<u64>, String> {
+    compute_next_run_jittered_at(schedule, jitter_max_ms, tz, system_now_ms())
+}
+
+pub fn compute_next_run_jittered_at(
+    schedule: &str,
+    jitter_max_ms: Option<u64>,
+    tz: Option<&str>,
+    now_ms: u64,
+) -> Result<Option<u64>, String> {
     use std::str::FromStr;
     let expr = to_6field(schedule);
     let sched = cron::Schedule::from_str(&expr).map_err(|e| format!("Invalid cron: {}", e))?;
     let parsed_tz = parse_tz(tz)?;
-    let (next, second) = match parsed_tz {
-        Some(tz) => {
-            let mut upcoming = sched.upcoming(tz);
-            let n = match upcoming.next() {
-                Some(dt) => dt.timestamp_millis() as u64,
-                None => return Ok(None),
-            };
-            let s = upcoming.next().map(|dt| dt.timestamp_millis() as u64);
-            (n, s)
-        }
-        None => {
-            let mut upcoming = sched.upcoming(chrono::Utc);
-            let n = match upcoming.next() {
-                Some(dt) => dt.timestamp_millis() as u64,
-                None => return Ok(None),
-            };
-            let s = upcoming.next().map(|dt| dt.timestamp_millis() as u64);
-            (n, s)
-        }
+    let (first, second) = first_two_fires_after(&sched, parsed_tz, now_ms);
+    let next = match first {
+        Some(n) => n,
+        None => return Ok(None),
     };
 
     let max = match jitter_max_ms {
@@ -100,7 +133,9 @@ pub fn compute_next_run_jittered_in(
 }
 
 pub fn compute_backoff(consecutive_failures: u32, base_ms: u64) -> u64 {
-    let factor = 1u64.checked_shl(consecutive_failures.min(10)).unwrap_or(1024);
+    let factor = 1u64
+        .checked_shl(consecutive_failures.min(10))
+        .unwrap_or(1024);
     let raw = base_ms.saturating_mul(factor);
     let capped = raw.min(3_600_000);
     use rand::Rng;
@@ -126,6 +161,10 @@ pub fn validate_tz(tz: &str) -> Result<(), String> {
 /// - ISO 8601: "2025-04-05T14:30:00Z", "2025-04-05T14:30:00+03:00"
 /// - Unix ms: "1712345678000" (13+ digits)
 pub fn parse_oneshot_schedule(schedule: &str) -> Result<u64, String> {
+    parse_oneshot_schedule_at(schedule, system_now_ms())
+}
+
+pub fn parse_oneshot_schedule_at(schedule: &str, now_ms: u64) -> Result<u64, String> {
     let s = schedule.trim();
 
     if let Some(rest) = s.strip_prefix("in ") {
@@ -133,20 +172,12 @@ pub fn parse_oneshot_schedule(schedule: &str) -> Result<u64, String> {
         if duration_ms == 0 {
             return Err("Duration must be > 0".into());
         }
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        return Ok(now + duration_ms);
+        return Ok(now_ms + duration_ms);
     }
 
     if s.len() >= 13 && s.chars().all(|c| c.is_ascii_digit()) {
         let ts: u64 = s.parse().map_err(|_| "Invalid timestamp".to_string())?;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        if ts <= now {
+        if ts <= now_ms {
             return Err("Oneshot time must be in the future".into());
         }
         return Ok(ts);
@@ -154,11 +185,7 @@ pub fn parse_oneshot_schedule(schedule: &str) -> Result<u64, String> {
 
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
         let ts = dt.timestamp_millis() as u64;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        if ts <= now {
+        if ts <= now_ms {
             return Err("Oneshot time must be in the future".into());
         }
         return Ok(ts);
@@ -178,7 +205,9 @@ fn parse_relative_duration(s: &str) -> Result<u64, String> {
         if c.is_ascii_digit() {
             num_buf.push(c);
         } else {
-            let n: u64 = num_buf.parse().map_err(|_| format!("Invalid number in duration: '{}'", s))?;
+            let n: u64 = num_buf
+                .parse()
+                .map_err(|_| format!("Invalid number in duration: '{}'", s))?;
             num_buf.clear();
             match c {
                 's' => total_ms += n * 1_000,
@@ -192,7 +221,9 @@ fn parse_relative_duration(s: &str) -> Result<u64, String> {
 
     if !num_buf.is_empty() {
         // bare number = minutes
-        let n: u64 = num_buf.parse().map_err(|_| format!("Invalid number in duration: '{}'", s))?;
+        let n: u64 = num_buf
+            .parse()
+            .map_err(|_| format!("Invalid number in duration: '{}'", s))?;
         total_ms += n * 60_000;
     }
 
@@ -210,7 +241,9 @@ mod tests {
     #[test]
     fn jitter_default_is_within_clamp() {
         let plain = compute_next_run("0 * * * *").unwrap().unwrap();
-        let jittered = compute_next_run_jittered("0 * * * *", None).unwrap().unwrap();
+        let jittered = compute_next_run_jittered("0 * * * *", None)
+            .unwrap()
+            .unwrap();
         assert!(jittered >= plain, "jitter never goes backwards");
         assert!(jittered <= plain + 1_800_000, "jitter capped at 30 min");
     }
@@ -218,7 +251,9 @@ mod tests {
     #[test]
     fn jitter_zero_is_no_op() {
         let plain = compute_next_run("0 * * * *").unwrap().unwrap();
-        let jittered = compute_next_run_jittered("0 * * * *", Some(0)).unwrap().unwrap();
+        let jittered = compute_next_run_jittered("0 * * * *", Some(0))
+            .unwrap()
+            .unwrap();
         assert_eq!(plain, jittered);
     }
 
@@ -226,7 +261,9 @@ mod tests {
     fn jitter_explicit_max_respected() {
         let plain = compute_next_run("0 * * * *").unwrap().unwrap();
         for _ in 0..10 {
-            let j = compute_next_run_jittered("0 * * * *", Some(5_000)).unwrap().unwrap();
+            let j = compute_next_run_jittered("0 * * * *", Some(5_000))
+                .unwrap()
+                .unwrap();
             assert!(j >= plain && j <= plain + 5_000);
         }
     }
@@ -316,20 +353,23 @@ mod tests {
 
     #[test]
     fn tz_riga_shifts_from_utc() {
-        // "0 3 * * *" in Europe/Riga (UTC+2 winter / +3 summer) fires at
-        // 00:00-01:00 UTC depending on DST. UTC interpretation fires at 03:00 UTC.
-        // The two MUST differ by 2-3 hours, never zero.
+        // "0 3 * * *" in Europe/Riga (UTC+2 winter / +3 summer) fires at 00:00-01:00 UTC depending on DST. UTC interpretation fires at 03:00 UTC. The
+        // two MUST differ by 2-3 hours, never zero.
         let utc = compute_next_run_in("0 3 * * *", None).unwrap().unwrap();
-        let riga = compute_next_run_in("0 3 * * *", Some("Europe/Riga")).unwrap().unwrap();
+        let riga = compute_next_run_in("0 3 * * *", Some("Europe/Riga"))
+            .unwrap()
+            .unwrap();
         let diff_ms = (utc as i64 - riga as i64).abs();
-        // Could be the same calendar day or different — both legitimate.
-        // The shift between them mod 24h is 2-3 hours.
+        // Could be the same calendar day or different — both legitimate. The shift between them mod 24h is 2-3 hours.
         let day_ms: i64 = 24 * 60 * 60 * 1000;
         let mod_diff = diff_ms.rem_euclid(day_ms);
         assert!(
-            mod_diff == 2 * 3_600_000 || mod_diff == 3 * 3_600_000
-              || (day_ms - mod_diff) == 2 * 3_600_000 || (day_ms - mod_diff) == 3 * 3_600_000,
-            "expected ±2 or ±3h shift between UTC and Europe/Riga, got mod_diff={}", mod_diff
+            mod_diff == 2 * 3_600_000
+                || mod_diff == 3 * 3_600_000
+                || (day_ms - mod_diff) == 2 * 3_600_000
+                || (day_ms - mod_diff) == 3 * 3_600_000,
+            "expected ±2 or ±3h shift between UTC and Europe/Riga, got mod_diff={}",
+            mod_diff
         );
     }
 
@@ -343,8 +383,12 @@ mod tests {
 
     #[test]
     fn tz_jittered_uses_tz_for_base_fire() {
-        let utc = compute_next_run_jittered_in("0 3 * * *", Some(0), None).unwrap().unwrap();
-        let riga = compute_next_run_jittered_in("0 3 * * *", Some(0), Some("Europe/Riga")).unwrap().unwrap();
+        let utc = compute_next_run_jittered_in("0 3 * * *", Some(0), None)
+            .unwrap()
+            .unwrap();
+        let riga = compute_next_run_jittered_in("0 3 * * *", Some(0), Some("Europe/Riga"))
+            .unwrap()
+            .unwrap();
         // Jitter=0 → deterministic; tz shift must show up.
         assert_ne!(utc, riga);
     }

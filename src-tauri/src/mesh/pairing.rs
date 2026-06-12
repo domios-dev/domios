@@ -68,8 +68,7 @@ pub fn encrypt_with_shared_secret(
         return Err("Nonce must be 12 bytes".to_string());
     }
 
-    let cipher =
-        Aes256Gcm::new_from_slice(&aes_key).map_err(|e| format!("Cipher init: {}", e))?;
+    let cipher = Aes256Gcm::new_from_slice(&aes_key).map_err(|e| format!("Cipher init: {}", e))?;
     let nonce = Nonce::from_slice(&nonce_bytes);
     let ciphertext = cipher
         .encrypt(nonce, plaintext.as_bytes())
@@ -109,8 +108,7 @@ pub fn decrypt_with_shared_secret(
         .decode(ciphertext_b64)
         .map_err(|e| format!("Bad ciphertext: {}", e))?;
 
-    let cipher =
-        Aes256Gcm::new_from_slice(&aes_key).map_err(|e| format!("Cipher init: {}", e))?;
+    let cipher = Aes256Gcm::new_from_slice(&aes_key).map_err(|e| format!("Cipher init: {}", e))?;
     let nonce = Nonce::from_slice(&nonce_bytes);
     let plaintext = cipher
         .decrypt(nonce, ciphertext.as_ref())
@@ -150,8 +148,7 @@ mod tests {
         let (priv_c, _pub_c) = generate_keypair();
         let nonce = generate_nonce();
 
-        let encrypted =
-            encrypt_with_shared_secret(&priv_a, &pub_b, &nonce, "secret").unwrap();
+        let encrypted = encrypt_with_shared_secret(&priv_a, &pub_b, &nonce, "secret").unwrap();
 
         // C tries to decrypt (should fail)
         let result = decrypt_with_shared_secret(&priv_c, &pub_b, &nonce, &encrypted);

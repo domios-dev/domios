@@ -1,39 +1,134 @@
 use rand::seq::SliceRandom;
 
 const ADJECTIVES: &[&str] = &[
-    "admiring", "adoring", "agile", "amazing", "ancient", "bold", "brave", "bright",
-    "calm", "charming", "cheerful", "clever", "cosmic", "crafty", "crisp", "curious",
-    "dapper", "daring", "dazzling", "deft", "delightful", "dreamy", "eager", "eclectic",
-    "elegant", "electric", "eloquent", "ethereal", "exuberant", "fancy", "fearless",
-    "festive", "fierce", "focused", "friendly", "frosty", "gallant", "gentle", "gifted",
-    "glowing", "golden", "graceful", "grand", "happy", "hardy", "heroic", "honest",
-    "hopeful", "humble", "inspired", "jolly", "jovial", "jubilant", "keen", "kind",
-    "lively", "lucid", "lucky", "luminous", "magical", "majestic", "mellow", "merry",
-    "mighty", "mindful", "modest", "mystic", "noble", "nostalgic", "optimistic",
-    "peaceful", "plucky", "polite", "proud", "quick", "quiet", "quirky", "radiant",
-    "regal", "robust", "sage", "savvy", "serene", "sharp", "shiny", "silent", "silly",
-    "sleek", "snappy", "sparkling", "spirited", "steady", "stellar", "sturdy", "sublime",
-    "sunny", "swift", "tender", "thoughtful", "thriving", "tidy", "tranquil", "trusty",
-    "valiant", "vibrant", "vigilant", "vivid", "warm", "whimsical", "wise", "witty",
-    "zany", "zealous", "zen",
+    "admiring",
+    "adoring",
+    "agile",
+    "amazing",
+    "ancient",
+    "bold",
+    "brave",
+    "bright",
+    "calm",
+    "charming",
+    "cheerful",
+    "clever",
+    "cosmic",
+    "crafty",
+    "crisp",
+    "curious",
+    "dapper",
+    "daring",
+    "dazzling",
+    "deft",
+    "delightful",
+    "dreamy",
+    "eager",
+    "eclectic",
+    "elegant",
+    "electric",
+    "eloquent",
+    "ethereal",
+    "exuberant",
+    "fancy",
+    "fearless",
+    "festive",
+    "fierce",
+    "focused",
+    "friendly",
+    "frosty",
+    "gallant",
+    "gentle",
+    "gifted",
+    "glowing",
+    "golden",
+    "graceful",
+    "grand",
+    "happy",
+    "hardy",
+    "heroic",
+    "honest",
+    "hopeful",
+    "humble",
+    "inspired",
+    "jolly",
+    "jovial",
+    "jubilant",
+    "keen",
+    "kind",
+    "lively",
+    "lucid",
+    "lucky",
+    "luminous",
+    "magical",
+    "majestic",
+    "mellow",
+    "merry",
+    "mighty",
+    "mindful",
+    "modest",
+    "mystic",
+    "noble",
+    "nostalgic",
+    "optimistic",
+    "peaceful",
+    "plucky",
+    "polite",
+    "proud",
+    "quick",
+    "quiet",
+    "quirky",
+    "radiant",
+    "regal",
+    "robust",
+    "sage",
+    "savvy",
+    "serene",
+    "sharp",
+    "shiny",
+    "silent",
+    "silly",
+    "sleek",
+    "snappy",
+    "sparkling",
+    "spirited",
+    "steady",
+    "stellar",
+    "sturdy",
+    "sublime",
+    "sunny",
+    "swift",
+    "tender",
+    "thoughtful",
+    "thriving",
+    "tidy",
+    "tranquil",
+    "trusty",
+    "valiant",
+    "vibrant",
+    "vigilant",
+    "vivid",
+    "warm",
+    "whimsical",
+    "wise",
+    "witty",
+    "zany",
+    "zealous",
+    "zen",
 ];
 
-const SCIENTISTS: &[&str] = &[
-    "archimedes", "aristotle", "avicenna", "babbage", "bardeen", "bell", "bhabha",
-    "bohr", "boltzmann", "born", "boyle", "brahe", "brahmagupta", "cantor", "carnot",
-    "cavendish", "chandrasekhar", "copernicus", "curie", "dalton", "darwin", "davinci",
-    "dijkstra", "dirac", "edison", "einstein", "euclid", "euler", "faraday", "fermat",
-    "fermi", "feynman", "fibonacci", "franklin", "galileo", "galois", "gauss", "godel",
-    "hamilton", "hawking", "heisenberg", "herschel", "hertz", "hilbert", "hopper",
-    "hubble", "huygens", "jansky", "kelvin", "kepler", "knuth", "lagrange", "lamarr",
-    "laplace", "lavoisier", "leibniz", "lemaitre", "liskov", "lorenz", "lovelace",
-    "mandelbrot", "marconi", "maxwell", "mccarthy", "mendel", "mendeleev", "minkowski",
-    "minsky", "mirzakhani", "mobius", "morse", "nash", "neumann", "newton", "nightingale",
-    "noether", "nyquist", "oppenheimer", "pasteur", "pauli", "pavlov", "peano", "penrose",
-    "planck", "poincare", "ptolemy", "ramanujan", "ritchie", "rontgen", "russell", "sagan",
-    "schrodinger", "shannon", "shockley", "sklodowska", "snell", "sommerfeld", "tesla",
-    "thomson", "torvalds", "turing", "vanleeuwenhoek", "volta", "watson", "watt", "wiener",
-    "wozniak", "yang", "yonath", "young",
+const NOTABLES: &[&str] = &[
+    "newton", "curie", "tesla", "bohr", "darwin", "edison", "kelvin", "watt", "volta", "pascal",
+    "halley", "hooke", "boyle", "joule", "ampere", "ohm", "fermi", "bell", "morse", "nobel",
+    "planck", "turing", "lovelace", "hopper", "ritchie", "pasteur", "faraday", "mendel", "galileo",
+    "kepler", "hertz", "watson", "franklin", "sagan", "hubble", "tycho", "euler", "gauss",
+    "fermat", "monet", "dali", "goya", "klimt", "vermeer", "turner", "renoir", "manet", "degas",
+    "munch", "klee", "miro", "rodin", "rubens", "raphael", "titian", "bach", "mozart", "verdi",
+    "liszt", "chopin", "brahms", "haydn", "grieg", "bizet", "ravel", "holst", "elgar", "handel",
+    "vivaldi", "puccini", "twain", "poe", "wilde", "dumas", "hugo", "verne", "orwell", "dante",
+    "byron", "keats", "frost", "joyce", "camus", "tolkien", "austen", "dickens", "kafka", "ibsen",
+    "cook", "drake", "polo", "hudson", "cabot", "scott", "amundsen", "columbus", "ford", "diesel",
+    "wright", "fulton",
 ];
 
 fn capitalize(word: &str) -> String {
@@ -44,14 +139,17 @@ fn capitalize(word: &str) -> String {
     }
 }
 
-/// Generate a single-word Title Case mnemonic name like "Curie" or "Newton".
-/// Adjectives stay around as a fallback when the scientist list is exhausted.
+/// Generate a single-word Title Case mnemonic name like "Curie" or "Monet".
+/// Short, easy-to-say surnames across science/art/music/letters/exploration.
+/// Adjectives stay around as a fallback when the notables list is exhausted.
 pub fn generate_tab_name() -> String {
     let mut rng = rand::thread_rng();
-    let sci = SCIENTISTS.choose(&mut rng).copied()
+    let name = NOTABLES
+        .choose(&mut rng)
+        .copied()
         .or_else(|| ADJECTIVES.choose(&mut rng).copied())
         .unwrap_or("Tab");
-    capitalize(sci)
+    capitalize(name)
 }
 
 #[cfg(test)]
@@ -72,6 +170,6 @@ mod tests {
     #[test]
     fn lists_are_nonempty() {
         assert!(!ADJECTIVES.is_empty());
-        assert!(!SCIENTISTS.is_empty());
+        assert!(!NOTABLES.is_empty());
     }
 }

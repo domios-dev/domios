@@ -54,8 +54,12 @@ pub async fn mem_calibration_log(
     let limit = p.limit.unwrap_or(50).min(500);
     let since = match p.since.as_deref() {
         Some(s) if !s.is_empty() => {
-            chrono::DateTime::parse_from_rfc3339(s)
-                .map_err(|e| (StatusCode::BAD_REQUEST, format!("since must be RFC3339: {}", e)))?;
+            chrono::DateTime::parse_from_rfc3339(s).map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("since must be RFC3339: {}", e),
+                )
+            })?;
             s.to_string()
         }
         _ => "1970-01-01T00:00:00Z".to_string(),
@@ -63,45 +67,46 @@ pub async fn mem_calibration_log(
     let count_only = p.count.unwrap_or(false);
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
-        svc.mem.with_conn(|conn| -> Result<serde_json::Value, String> {
-            if count_only {
-                let n: i64 = conn
-                    .query_row(
-                        "SELECT COUNT(*) FROM mem_item_history
+        svc.mem
+            .with_conn(|conn| -> Result<serde_json::Value, String> {
+                if count_only {
+                    let n: i64 = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM mem_item_history
                          WHERE changed_by LIKE 'dreamer-calibration%' AND changed_at >= ?1",
-                        params![&since],
-                        |r| r.get(0),
-                    )
-                    .map_err(|e| e.to_string())?;
-                Ok(serde_json::json!({ "count": n }))
-            } else {
-                let mut stmt = conn
-                    .prepare(
-                        "SELECT item_id, changed_at, changed_by, change_type,
+                            params![&since],
+                            |r| r.get(0),
+                        )
+                        .map_err(|e| e.to_string())?;
+                    Ok(serde_json::json!({ "count": n }))
+                } else {
+                    let mut stmt = conn
+                        .prepare(
+                            "SELECT item_id, changed_at, changed_by, change_type,
                                 old_importance, new_importance, old_kind, new_kind
                          FROM mem_item_history
                          WHERE changed_by LIKE 'dreamer-calibration%' AND changed_at >= ?1
                          ORDER BY changed_at DESC LIMIT ?2",
-                    )
-                    .map_err(|e| e.to_string())?;
-                let rows = stmt
-                    .query_map(params![&since, limit as i64], |r| {
-                        Ok(serde_json::json!({
-                            "item_id": r.get::<_, String>(0)?,
-                            "changed_at": r.get::<_, String>(1)?,
-                            "changed_by": r.get::<_, String>(2)?,
-                            "change_type": r.get::<_, String>(3)?,
-                            "old_importance": r.get::<_, Option<f64>>(4)?,
-                            "new_importance": r.get::<_, Option<f64>>(5)?,
-                            "old_kind": r.get::<_, Option<String>>(6)?,
-                            "new_kind": r.get::<_, Option<String>>(7)?,
-                        }))
-                    })
-                    .map_err(|e| e.to_string())?;
-                let entries: Vec<_> = rows.filter_map(|r| r.ok()).collect();
-                Ok(serde_json::json!({ "entries": entries }))
-            }
-        })
+                        )
+                        .map_err(|e| e.to_string())?;
+                    let rows = stmt
+                        .query_map(params![&since, limit as i64], |r| {
+                            Ok(serde_json::json!({
+                                "item_id": r.get::<_, String>(0)?,
+                                "changed_at": r.get::<_, String>(1)?,
+                                "changed_by": r.get::<_, String>(2)?,
+                                "change_type": r.get::<_, String>(3)?,
+                                "old_importance": r.get::<_, Option<f64>>(4)?,
+                                "new_importance": r.get::<_, Option<f64>>(5)?,
+                                "old_kind": r.get::<_, Option<String>>(6)?,
+                                "new_kind": r.get::<_, Option<String>>(7)?,
+                            }))
+                        })
+                        .map_err(|e| e.to_string())?;
+                    let entries: Vec<_> = rows.filter_map(|r| r.ok()).collect();
+                    Ok(serde_json::json!({ "entries": entries }))
+                }
+            })
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {}", e)))?
@@ -281,8 +286,14 @@ fn apply_promote(conn: &Connection, cand: &Candidate, new_imp: f64) -> Result<()
             params![new_imp, cand.id],
         )
         .map_err(|e| format!("promote update: {}", e))?;
-        let old = crate::mem::store::HistorySnapshot { importance: Some(cand.importance), ..Default::default() };
-        let new = crate::mem::store::HistorySnapshot { importance: Some(new_imp), ..Default::default() };
+        let old = crate::mem::store::HistorySnapshot {
+            importance: Some(cand.importance),
+            ..Default::default()
+        };
+        let new = crate::mem::store::HistorySnapshot {
+            importance: Some(new_imp),
+            ..Default::default()
+        };
         crate::mem::store::history_log(conn, &cand.id, "update", &old, &new, None);
         Ok(())
     })
@@ -295,8 +306,14 @@ fn apply_demote(conn: &Connection, cand: &Candidate, new_imp: f64) -> Result<(),
             params![new_imp, cand.id],
         )
         .map_err(|e| format!("demote update: {}", e))?;
-        let old = crate::mem::store::HistorySnapshot { importance: Some(cand.importance), ..Default::default() };
-        let new = crate::mem::store::HistorySnapshot { importance: Some(new_imp), ..Default::default() };
+        let old = crate::mem::store::HistorySnapshot {
+            importance: Some(cand.importance),
+            ..Default::default()
+        };
+        let new = crate::mem::store::HistorySnapshot {
+            importance: Some(new_imp),
+            ..Default::default()
+        };
         crate::mem::store::history_log(conn, &cand.id, "update", &old, &new, None);
         Ok(())
     })
@@ -309,8 +326,14 @@ fn apply_archive(conn: &Connection, cand: &Candidate) -> Result<(), String> {
             params![cand.id],
         )
         .map_err(|e| format!("archive update: {}", e))?;
-        let old = crate::mem::store::HistorySnapshot { kind: Some(cand.kind.clone()), ..Default::default() };
-        let new = crate::mem::store::HistorySnapshot { kind: Some("archived".to_string()), ..Default::default() };
+        let old = crate::mem::store::HistorySnapshot {
+            kind: Some(cand.kind.clone()),
+            ..Default::default()
+        };
+        let new = crate::mem::store::HistorySnapshot {
+            kind: Some("archived".to_string()),
+            ..Default::default()
+        };
         crate::mem::store::history_log(conn, &cand.id, "archive", &old, &new, None);
         Ok(())
     })
@@ -515,7 +538,10 @@ mod tests {
             assert_eq!(r["skipped_reason"], "too_many_candidates");
         } else {
             let applied = r["applied"].as_u64().unwrap_or(0);
-            assert!(applied <= MAX_CHANGES_PER_SESSION, "must cap at 30, got {applied}");
+            assert!(
+                applied <= MAX_CHANGES_PER_SESSION,
+                "must cap at 30, got {applied}"
+            );
         }
     }
 
@@ -627,7 +653,10 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert!((imp - 2.0).abs() < 0.01, "pinned item importance must not change");
+        assert!(
+            (imp - 2.0).abs() < 0.01,
+            "pinned item importance must not change"
+        );
         let hist_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM mem_item_history WHERE item_id = 'pinned_old'",
@@ -635,6 +664,9 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(hist_count, 0, "pinned item must have no history rows from sweep");
+        assert_eq!(
+            hist_count, 0,
+            "pinned item must have no history rows from sweep"
+        );
     }
 }

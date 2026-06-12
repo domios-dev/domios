@@ -1,6 +1,6 @@
 //! Start / restart / readiness-poll for the General Agent PTY+launch flow.
 
-use super::{general_dir, instructions, GENERAL_ALIAS};
+use super::{general_dir, instructions, state, GENERAL_ALIAS};
 
 /// Start the General Agent — called from start_servers on a background thread.
 ///
@@ -22,14 +22,8 @@ pub fn start_general_agent(
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
 
-    // Regenerate AGENT.md with the live mem snapshot in a detached thread.
-    // mem.wake_up() locks the shared rusqlite connection and can stall
-    // arbitrarily long when other in-process workers (extraction, embed
-    // queue) hold it; blocking GA bootstrap on that means the resume
-    // command never gets written to the PTY and the General tab stays
-    // dead until the user intervenes. The bootstrap copy from
-    // init_states already wrote a usable AGENT.md without a snapshot, so
-    // a delayed regen still leaves the agent with a coherent file.
+    // Regenerate AGENT.md in a background thread.
+    // If mem.lock is busy, delay the snapshot pass rather than blocking PTY resume.
     {
         let mem = svc.mem.clone();
         let provider_owned = provider_name.clone();
@@ -40,9 +34,8 @@ pub fn start_general_agent(
 
     let general_cwd = general_dir().to_string_lossy().to_string();
 
-    // Live PTY alone isn't enough: after snapshot rehydrate the frontend may race-spawn
-    // a bare shell into the pane while agent_type is cosmetically restored — verify with
-    // screen markers and tear down the bare shell if no agent is actually running.
+    // Live PTY alone isn't enough: after snapshot rehydrate the frontend may race-spawn a bare shell into the pane while agent_type is
+    // cosmetically restored — verify with screen markers and tear down the bare shell if no agent is running.
     {
         let (pane_id_opt, current_agent, current_pty_id) = {
             let m = mux.lock();
@@ -61,15 +54,26 @@ pub fn start_general_agent(
                 if let Some(pty_id) = current_pty_id.clone() {
                     let alive = pty.lock().get_session(&pty_id).is_some();
                     if alive {
-                        let agent_visible = screen_state.try_lock()
-                            .and_then(|ss| ss.get_screen_text(&pty_id))
-                            .map(|screen| svc.agent_registry.detect_from_output(&screen).is_some())
-                            .unwrap_or(false);
+                        // Grace-poll markers: after a daemon restart the live PTY
+                        // is up but the screen isn't rehydrated yet, so a one-shot
+                        // check would kill a healthy Main. Bail the instant markers
+                        // appear; only a genuinely bare shell survives the window.
+                        let mut agent_visible = false;
+                        for _ in 0..10 {
+                            let screen = screen_state.lock().get_screen_text(&pty_id);
+                            agent_visible = screen
+                                .map(|s| svc.agent_registry.detect_from_output(&s).is_some())
+                                .unwrap_or(false);
+                            if agent_visible {
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(300));
+                        }
                         if agent_visible {
                             log::info!("[general-agent] Already running (pane={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
                             return;
                         }
-                        log::info!("[general-agent] Pane has live PTY {} but no agent markers — killing bare shell and relaunching", pty_id);
+                        log::info!("[general-agent] Pane has live PTY {} but no agent markers after 3s grace — killing bare shell and relaunching", pty_id);
                         let _ = pty.lock().kill(&pty_id);
                         svc.set_pane_agent_type(&pid, None);
                         if let Some(pane) = mux.lock().get_pane_mut(&pid) {
@@ -78,19 +82,27 @@ pub fn start_general_agent(
                         std::thread::sleep(std::time::Duration::from_millis(300));
                     } else {
                         // Stale pty_id pointing at a dead session — clear it so spawn proceeds cleanly.
-                        log::info!("[general-agent] Clearing stale pty_id {} (session not in PtyManager)", pty_id);
+                        log::info!(
+                            "[general-agent] Clearing stale pty_id {} (session not in PtyManager)",
+                            pty_id
+                        );
                         if let Some(pane) = mux.lock().get_pane_mut(&pid) {
                             pane.pty_id = None;
                         }
                     }
                 }
             } else {
-                log::info!("[general-agent] Provider mismatch: running={}, wanted={} — restarting", current_agent, provider_name);
+                log::info!(
+                    "[general-agent] Provider mismatch: running={}, wanted={} — restarting",
+                    current_agent,
+                    provider_name
+                );
                 if let Some(pty_id) = current_pty_id {
                     let _ = pty.lock().kill(&pty_id);
                 }
                 svc.set_pane_agent_type(&pid, None);
                 svc.set_agent_session_id(&pid, None);
+                state::clear_session_id();
                 if let Some(pane) = mux.lock().get_pane_mut(&pid) {
                     pane.pty_id = None;
                 }
@@ -100,62 +112,86 @@ pub fn start_general_agent(
     }
 
     // Find General pane (already created by ensure_general_workspace in init_states)
-    let (pane_id, session_id) = {
+    let (pane_id, snapshot_session_id) = {
         let m = mux.lock();
-        let pane = m.resolve_pane_id(GENERAL_ALIAS)
-            .or_else(|| {
-                m.list_workspaces().iter()
-                    .find(|ws| ws.protected)
-                    .and_then(|ws| ws.pane_ids.first().cloned())
-            });
+        let pane = m.resolve_pane_id(GENERAL_ALIAS).or_else(|| {
+            m.list_workspaces()
+                .iter()
+                .find(|ws| ws.protected)
+                .and_then(|ws| ws.pane_ids.first().cloned())
+        });
         match pane {
             Some(pid) => {
-                let mut sid = m.get_pane(&pid).and_then(|p| p.agent_session_id.clone());
-                // If no session_id from snapshot, try detecting from filesystem
-                // (covers first launch, new machine, or wiped session store)
-                if sid.is_none() {
-                    let exclude: Vec<String> = m.other_session_ids(&pid);
-                    drop(m); // release lock before filesystem scan
-                    sid = crate::multiplexer::commands::detect_agent_session_id(
-                        &svc.agent_registry,
-                        provider_name,
-                        &general_cwd,
-                        Some(exclude),
-                        Some(86400 * 7), // 7 days max age
-                    ).ok().flatten();
-                    if let Some(ref detected) = sid {
-                        svc.set_agent_session_id(&pid, Some(detected.clone()));
-                        log::info!("[general-agent] Detected session from filesystem: {}", detected);
-                    }
-                }
+                let sid = m.get_pane(&pid).and_then(|p| p.agent_session_id.clone());
                 (pid, sid)
             }
             None => {
-                log::error!("[general-agent] No General pane found — ensure_general_workspace failed?");
+                log::error!(
+                    "[general-agent] No General pane found — ensure_general_workspace failed?"
+                );
                 return;
             }
         }
     };
+    let session_id = if snapshot_session_id.is_some() {
+        snapshot_session_id
+    } else if let Some(stored) =
+        state::load_session_id(&svc.agent_registry, provider_name, &general_cwd)
+    {
+        svc.set_agent_session_id(&pane_id, Some(stored.clone()));
+        log::info!("[general-agent] Loaded durable session id: {}", stored);
+        Some(stored)
+    } else {
+        // If no session_id from snapshot or durable GA state, try detecting a GA-marked session from filesystem (covers first launch, new
+        // machine, or wiped session store). This is intentionally stricter than generic provider detection so worker JSONLs in the GA cwd
+        // cannot win by recency.
+        let exclude = mux.lock().other_session_ids(&pane_id);
+        let detected = state::detect_owned_session_id(
+            &svc.agent_registry,
+            provider_name,
+            &general_cwd,
+            &exclude,
+            Some(std::time::Duration::from_secs(86400 * 7)), // 7 days max age
+        );
+        if let Some(ref sid) = detected {
+            svc.set_agent_session_id(&pane_id, Some(sid.clone()));
+            state::persist_session_id(provider_name, sid);
+            log::info!(
+                "[general-agent] Detected GA-owned session from filesystem: {}",
+                sid
+            );
+        }
+        detected
+    };
 
     // Validate session_id: if provider can't resolve it to a file, it's stale/wrong-provider
     let session_id = if let Some(ref id) = session_id {
-        let valid = svc.agent_registry.with_provider(provider_name, |p| {
-            p.session_exists(&general_cwd, id)
-        }).unwrap_or(false);
-        if !valid {
-            log::info!("[general-agent] Session '{}' not valid for provider '{}' — clearing, will detect fresh", id, provider_name);
+        let valid = svc
+            .agent_registry
+            .with_provider(provider_name, |p| p.session_exists(&general_cwd, id))
+            .unwrap_or(false);
+        let owned = valid
+            && state::session_id_is_owned(&svc.agent_registry, provider_name, &general_cwd, id);
+        if !owned {
+            log::info!("[general-agent] Session '{}' not valid or not GA-owned for provider '{}' — clearing, will detect fresh", id, provider_name);
             svc.set_agent_session_id(&pane_id, None);
+            state::clear_session_id();
             let exclude = mux.lock().other_session_ids(&pane_id);
-            let fresh = crate::multiplexer::commands::detect_agent_session_id(
-                &svc.agent_registry, provider_name, &general_cwd,
-                Some(exclude), Some(86400 * 7),
-            ).ok().flatten();
+            let fresh = state::detect_owned_session_id(
+                &svc.agent_registry,
+                provider_name,
+                &general_cwd,
+                &exclude,
+                Some(std::time::Duration::from_secs(86400 * 7)),
+            );
             if let Some(ref sid) = fresh {
                 svc.set_agent_session_id(&pane_id, Some(sid.clone()));
-                log::info!("[general-agent] Detected fresh session: {}", sid);
+                state::persist_session_id(provider_name, sid);
+                log::info!("[general-agent] Detected fresh GA-owned session: {}", sid);
             }
             fresh
         } else {
+            state::persist_session_id(provider_name, id);
             session_id
         }
     } else {
@@ -168,14 +204,15 @@ pub fn start_general_agent(
     let env_vars = {
         let mut env = std::collections::HashMap::new();
         env.insert("CODETERM_PANE_ID".to_string(), pane_id.clone());
-        env.insert("CODETERM_SOCKET_PATH".to_string(), crate::socket::server::socket_display_path());
+        env.insert(
+            "CODETERM_SOCKET_PATH".to_string(),
+            crate::socket::server::socket_display_path(),
+        );
         env.insert("CODETERM_ROLE".to_string(), "Orchestrator".to_string());
         if let Ok(port) = std::env::var("CODETERM_API_PORT") {
             env.insert("CODETERM_API_PORT".to_string(), port);
         }
-        // Hook callbacks POST to our REST API. Without the token they'd 401
-        // on any non-loopback bind and silently swallow the failure via
-        // `curl … || true`, so set it unconditionally.
+        // Hook callbacks POST to our REST API. Without the token they'd 401 on any non-loopback bind and silently swallow the failure via `curl … || true`, so set it unconditionally.
         let tok: Option<String> = config.lock().api.token.clone();
         if let Some(tok) = tok {
             if !tok.is_empty() {
@@ -208,13 +245,12 @@ pub fn start_general_agent(
         svc.kill_ptys(&[orphan]);
     }
     svc.set_and_lock_pane_agent_type(&pane_id, provider_name.to_string());
-    // Emit state NOW so frontend picks up pty_id immediately — don't wait for agent detection.
-    // Without this, frontend auto-spawns its own PTY and writes go to the wrong one.
+    // Emit state NOW so frontend picks up pty_id immediately — don't wait for agent detection. Without this, frontend auto-spawns its own PTY and
+    // writes go to the wrong one.
     svc.emit_state_changed();
     log::info!("[general-agent] PTY {} linked to pane {}", pty_id, pane_id);
 
-    // Start backend reader on a tokio runtime (start_backend_reader uses tokio::spawn,
-    // but we're on a plain std::thread — no tokio runtime here)
+    // Start backend reader on a tokio runtime (start_backend_reader uses tokio::spawn, but we're on a plain std::thread — no tokio runtime here)
     log::info!("[general-agent] Starting backend reader for PTY {}", pty_id);
     {
         let svc_clone = svc.clone();
@@ -225,33 +261,42 @@ pub fn start_general_agent(
                 .build()
                 .expect("Failed to create backend reader runtime");
             rt.block_on(async {
-                match crate::service::pty_lifecycle::start_backend_reader(&svc_clone, &pty_id_clone) {
-                    Ok(handle) => { let _ = handle.await; }
+                match crate::service::pty_lifecycle::start_backend_reader(
+                    &svc_clone,
+                    &pty_id_clone,
+                    true,
+                ) {
+                    Ok(handle) => {
+                        let _ = handle.await;
+                    }
                     Err(e) => log::error!("[general-agent] Failed to start backend reader: {}", e),
                 }
             });
         });
     }
-    log::info!("[general-agent] Backend reader started, waiting for shell prompt on PTY {}...", pty_id);
+    log::info!(
+        "[general-agent] Backend reader started, waiting for shell prompt on PTY {}...",
+        pty_id
+    );
 
-    // Wait for shell to be ready — same mechanism as regular pane resume in commands.rs.
-    // poll_shell_prompt polls screen_state (fed by the backend reader we just started)
-    // every 300ms, returns true when a shell prompt appears on the last non-empty line.
+    // Wait for shell to be ready — same mechanism as regular pane resume in commands.rs. poll_shell_prompt polls screen_state (fed by the backend
+    // reader we just started) every 300ms, returns true when a shell prompt appears on the last non-empty line.
     let ready = crate::service::pty_io::poll_shell_prompt(
         screen_state,
         &pty_id,
         std::time::Duration::from_secs(60),
     );
     if !ready {
-        log::warn!("[general-agent] Shell not ready within 60s for PTY {} — watchdog will retry", pty_id);
+        log::warn!(
+            "[general-agent] Shell not ready within 60s for PTY {} — watchdog will retry",
+            pty_id
+        );
         return;
     }
     log::info!("[general-agent] Shell ready, building launch command...");
 
-    // Build launch command.
-    // Resume only when the provider preserves prior context across resume
-    // (Claude replays JSONL → true; Codex restarts fresh → false).
-    // Single-source-of-truth comes from the AgentProvider trait.
+    // Build launch command. Resume only when the provider preserves prior context across resume (Claude replays JSONL → true; Codex restarts fresh
+    // → false). Single-source-of-truth comes from the AgentProvider trait.
     let preserves_context = svc
         .agent_registry
         .with_provider(provider_name, |p| p.preserves_context_on_resume())
@@ -259,20 +304,23 @@ pub fn start_general_agent(
     let use_resume = session_id.is_some() && preserves_context;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
-        match svc.agent_registry.with_provider(provider_name, |p| p.build_resume_command(sid, true)).flatten() {
+        match svc
+            .agent_registry
+            .with_provider(provider_name, |p| p.build_resume_command(sid, true))
+            .flatten()
+        {
             Some(cmd) => cmd,
             None => {
-                log::error!("[general-agent] Provider '{}' not registered or resume unsupported", provider_name);
+                log::error!(
+                    "[general-agent] Provider '{}' not registered or resume unsupported",
+                    provider_name
+                );
                 return;
             }
         }
     } else {
-        // Fresh start. If the provider supports session-id injection
-        // (claude --session-id <uuid>), pre-generate a UUID, write it to
-        // the pane BEFORE launch so subsequent restarts/resumes match this
-        // session deterministically, and pass it through. Without this we'd
-        // have to scan the JSONL dir post-launch and guess by mtime, which
-        // breaks when multiple panes share a cwd.
+        // For providers supporting session-id injection, pre-generate and pin it before launch.
+        // This avoids guessing by mtime after start, especially when multiple panes share a cwd.
         let injection = svc
             .agent_registry
             .with_provider(provider_name, |p| p.session_id_injection())
@@ -280,7 +328,11 @@ pub fn start_general_agent(
         let pre_session_id = if injection != crate::agent::provider::SessionIdInjection::None {
             let id = uuid::Uuid::new_v4().to_string();
             svc.set_agent_session_id(&pane_id, Some(id.clone()));
-            log::info!("[general-agent] Pre-assigned session id {} for fresh launch", id);
+            state::persist_session_id(provider_name, &id);
+            log::info!(
+                "[general-agent] Pre-assigned session id {} for fresh launch",
+                id
+            );
             Some(id)
         } else {
             None
@@ -293,37 +345,47 @@ pub fn start_general_agent(
             headless: false,
             session_id: pre_session_id,
         };
-        match svc.agent_registry.with_provider(provider_name, |p| p.build_launch_command(&params)) {
+        match svc
+            .agent_registry
+            .with_provider(provider_name, |p| p.build_launch_command(&params))
+        {
             Some(cmd) => cmd,
             None => {
-                log::error!("[general-agent] Provider '{}' not registered", provider_name);
+                log::error!(
+                    "[general-agent] Provider '{}' not registered",
+                    provider_name
+                );
                 return;
             }
         }
     };
 
-    // No bracket-paste: zsh ZLE binds the handler only after the first
-    // interactive cycle, so the markers leak as literal text on launch.
     log::info!("[general-agent] Launching on PTY {}: {}", pty_id, cmd);
-    let payload = format!("{}\r", cmd);
-    if let Err(e) = pty.lock().write(&pty_id, payload.as_bytes()) {
+    let payload: Vec<u8> = if cfg!(windows) {
+        // Bracketed paste + sacrificial space absorbs PSReadLine/ConPTY first-byte race on Windows.
+        format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes()
+    } else {
+        // No bracket-paste: zsh ZLE binds the handler only after the first interactive cycle, so the markers leak as literal text on launch.
+        format!("{}\r", cmd).into_bytes()
+    };
+    if let Err(e) = pty.lock().write(&pty_id, &payload) {
         log::error!("[general-agent] Failed to write launch command: {}", e);
         return;
     }
 
     // Poll screen for agent detection (up to 15s — Claude can take a while)
-    let launched = poll_agent_started(screen_state, &svc.agent_registry, &pty_id, std::time::Duration::from_secs(15));
+    let launched = poll_agent_started(
+        screen_state,
+        &svc.agent_registry,
+        &pty_id,
+        std::time::Duration::from_secs(15),
+    );
     if !launched {
         log::warn!("[general-agent] Agent not detected within 15s — watchdog will retry if needed");
     }
 
-    // Fresh-session init: when we couldn't resume, the agent has no prior
-    // context — kick it with a self-instructive init message. The instructions
-    // live inline so the orient procedure is consumed exactly once and isn't
-    // sitting in the system prompt burning tokens every turn.
-    //
-    // For resumed sessions we deliberately do NOT send init — the agent
-    // already has the previous turn-by-turn context replayed by `--resume`.
+    // Fresh session: send one inline orient message to seed context.
+    // Resume mode omits this because `--resume` already restores prior turns.
     if launched && !use_resume {
         std::thread::sleep(std::time::Duration::from_millis(800));
         let init_msg = "init [Orient yourself: \
@@ -341,7 +403,11 @@ pub fn start_general_agent(
     }
 
     svc.emit_state_changed();
-    log::info!("[general-agent] Started successfully (pane={}, pty={})", pane_id, pty_id);
+    log::info!(
+        "[general-agent] Started successfully (pane={}, pty={})",
+        pane_id,
+        pty_id
+    );
 }
 
 /// Restart the General Agent — kill current PTY and relaunch with current config.
@@ -369,6 +435,7 @@ pub fn restart_general_agent(
             drop(m);
             svc.set_pane_agent_type(&pid, None);
             svc.set_agent_session_id(&pid, None);
+            state::clear_session_id();
             if let Some(pane) = mux.lock().get_pane_mut(&pid) {
                 pane.pty_id = None;
             }
@@ -377,10 +444,8 @@ pub fn restart_general_agent(
 
     std::thread::sleep(std::time::Duration::from_millis(500));
 
-    // Re-generate instructions for potentially new provider in the background.
-    // Clone to avoid holding the config lock (deadlock with start_general_agent).
-    // Same rationale as the lifecycle::start_general_agent path: do not block
-    // restart on mem.wake_up().
+    // Re-generate instructions for potentially new provider in the background. Clone to avoid holding the config lock (deadlock with
+    // start_general_agent). Same rationale as the lifecycle::start_general_agent path: do not block restart on mem.wake_up().
     {
         let mem = svc.mem.clone();
         let provider_name = config.lock().general_agent.agent_provider.clone();
@@ -402,13 +467,19 @@ pub(super) fn poll_agent_started(
 ) -> bool {
     let deadline = std::time::Instant::now() + timeout;
     loop {
-        if std::time::Instant::now() > deadline { return false; }
-        let detected = screen_state.try_lock()
-            .and_then(|ss| ss.get_screen_text(pty_id).map(|screen| {
-                registry.detect_from_output(&screen).is_some()
-            }))
+        if std::time::Instant::now() > deadline {
+            return false;
+        }
+        let detected = screen_state
+            .try_lock()
+            .and_then(|ss| {
+                ss.get_screen_text(pty_id)
+                    .map(|screen| registry.detect_from_output(&screen).is_some())
+            })
             .unwrap_or(false);
-        if detected { return true; }
+        if detected {
+            return true;
+        }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 }

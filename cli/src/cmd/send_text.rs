@@ -51,7 +51,10 @@ pub enum SendTextOutcome {
 
 pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome {
     if let Some(err) = value.get("error").and_then(|v| v.as_str()) {
-        return SendTextOutcome::Error { msg: err.to_string(), exit_code: 2 };
+        return SendTextOutcome::Error {
+            msg: err.to_string(),
+            exit_code: 2,
+        };
     }
     if value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
         return SendTextOutcome::Success("OK (sent)".to_string());
@@ -86,41 +89,32 @@ pub fn handle_send_text(
     client: &mut SocketClient,
     json: bool,
     pane: Option<String>,
-    text: String,
+    text: Option<String>,
     from_file: Option<String>,
     from_stdin: bool,
 ) {
-    let (resolved_text, source) = if from_stdin {
-        use std::io::Read;
-        let mut buf = String::new();
-        if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
-            eprintln!("Error: failed to read --from-stdin: {}", e);
-            std::process::exit(1);
-        }
-        (buf, "--from-stdin")
-    } else if let Some(path) = from_file {
-        match std::fs::read_to_string(&path) {
-            Ok(s) => (s, "--from-file"),
+    let mut stdin = std::io::stdin();
+    let (resolved_text, source) =
+        match resolve_send_text_input(text, from_file, from_stdin, &mut stdin) {
+            Ok(value) => value,
             Err(e) => {
-                eprintln!("Error: failed to read --from-file {}: {}", path, e);
+                eprintln!("Error: {}", e);
                 std::process::exit(1);
             }
-        }
-    } else {
-        (text, "positional")
-    };
-    // Reject empty payloads loudly. Silent zero-byte sends were the bug behind
-    // several "mesh sent but recipient saw empty" reports.
+        };
+    // Reject empty payloads loudly. Silent zero-byte sends were the bug behind several "mesh sent but recipient saw empty" reports.
     if resolved_text.trim().is_empty() {
         eprintln!("Error: send-text payload is empty (source: {})", source);
-        eprintln!("hint: if using --from-stdin, ensure the heredoc actually delivered content;");
+        eprintln!("hint: if using --stdin, ensure the heredoc actually delivered content;");
         eprintln!("      if --from-file, verify the path exists and isn't 0 bytes;");
         eprintln!("      if positional, your shell may have eaten the content.");
         std::process::exit(2);
     }
     if let Err(msg) = guard_against_shell_mangle(&resolved_text) {
         eprintln!("Error: {}", msg);
-        eprintln!("hint: your shell expanded a command-substitution before codeterm-CLI received it.");
+        eprintln!(
+            "hint: your shell expanded a command-substitution before codeterm-CLI received it."
+        );
         eprintln!("      Use --from-file <path> or --from-stdin <<'EOF' ... EOF for content with backticks/$/code.");
         std::process::exit(2);
     }
@@ -129,10 +123,8 @@ pub fn handle_send_text(
         "pane_id": pane_id,
         "text": resolved_text,
     });
-    // Carry the sender's pane id when running inside CodeTerm so the daemon
-    // can prepend a [from <title> pane=<id>] return-address prefix on the
-    // recipient side. Skip when target is self (chatting with own pane —
-    // no point self-tagging).
+    // Carry the sender's pane id when running inside CodeTerm so the daemon can prepend a [from <title> pane=<id>] return-address prefix on the
+    // recipient side. Skip when target is self (chatting with own pane — no point self-tagging).
     if let Ok(my_pane) = std::env::var("CODETERM_PANE_ID") {
         if !my_pane.is_empty() && my_pane != pane_id {
             params["source_pane"] = serde_json::json!(my_pane);
@@ -142,9 +134,33 @@ pub fn handle_send_text(
     handle_send_text_result(json, result);
 }
 
+pub fn resolve_send_text_input<R: std::io::Read>(
+    text: Option<String>,
+    from_file: Option<String>,
+    from_stdin: bool,
+    stdin: &mut R,
+) -> Result<(String, &'static str), String> {
+    if from_stdin {
+        let mut buf = String::new();
+        stdin
+            .read_to_string(&mut buf)
+            .map_err(|e| format!("failed to read --stdin: {}", e))?;
+        return Ok((buf, "--stdin"));
+    }
+    if let Some(path) = from_file {
+        return std::fs::read_to_string(&path)
+            .map(|s| (s, "--from-file"))
+            .map_err(|e| format!("failed to read --from-file {}: {}", path, e));
+    }
+    Ok((text.unwrap_or_default(), "positional"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{analyze_send_text_response, guard_against_shell_mangle, SendTextOutcome};
+    use super::{
+        analyze_send_text_response, guard_against_shell_mangle, resolve_send_text_input,
+        SendTextOutcome,
+    };
 
     #[test]
     fn ok_response_is_success() {
@@ -209,8 +225,7 @@ mod tests {
 
     #[test]
     fn guard_handles_unterminated_fence_safely() {
-        // Unterminated fence treats the rest as code-block — better to skip a
-        // potentially-spurious guard than reject legitimate content.
+        // Unterminated fence treats the rest as code-block — better to skip a potentially-spurious guard than reject legitimate content.
         let payload = "```\n: command not found\nstill open\n";
         assert!(guard_against_shell_mangle(payload).is_ok());
     }
@@ -219,5 +234,14 @@ mod tests {
     fn guard_with_multiple_fences_strips_only_inside() {
         let payload = "outside ok\n```\n: command not found\n```\nbetween\n```\nbash: line 1: x\n```\ntrailing";
         assert!(guard_against_shell_mangle(payload).is_ok());
+    }
+
+    #[test]
+    fn stdin_resolution_preserves_quotes_and_trailing_newline() {
+        let input = "it's got 'quotes' and \"doubles\"\nsecond line\n";
+        let mut stdin = input.as_bytes();
+        let (text, source) = resolve_send_text_input(None, None, true, &mut stdin).unwrap();
+        assert_eq!(source, "--stdin");
+        assert_eq!(text, input);
     }
 }

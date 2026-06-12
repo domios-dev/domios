@@ -1,3 +1,4 @@
+pub mod chat_types;
 pub mod detector;
 pub mod git_info;
 pub mod model_catalog;

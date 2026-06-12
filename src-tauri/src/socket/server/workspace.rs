@@ -19,7 +19,10 @@ pub(super) fn dispatch(
         "workspace.list" => {
             crate::dispatch::dispatch(&crate::dispatch::Command::WorkspaceList, svc.as_ref())
                 .map(|r| r.into_json())
-                .map_err(|e| JsonRpcError { code: -32603, message: e })
+                .map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: e,
+                })
         }
 
         "workspace.create" => {
@@ -40,11 +43,52 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_bool());
 
             crate::dispatch::dispatch(
-                &crate::dispatch::Command::WorkspaceCreate { name, cwd, activate },
+                &crate::dispatch::Command::WorkspaceCreate {
+                    name,
+                    cwd,
+                    activate,
+                },
                 svc.as_ref(),
             )
             .map(|r| r.into_json())
-            .map_err(|e| JsonRpcError { code: -32603, message: e })
+            .map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e,
+            })
+        }
+
+        "workspace.create_tab" => {
+            let workspace_id = get_string_param(params, "workspace_id")?;
+            let eager = params
+                .as_ref()
+                .and_then(|p| p.get("eager"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let (tab_id, pane_id) =
+                svc.create_tab_with_activate(&workspace_id, false)
+                    .map_err(|e| JsonRpcError {
+                        code: -32602,
+                        message: e,
+                    })?;
+            let _ = svc.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
+            let pty_id = if eager {
+                svc.ensure_pane_pty_for_send(&pane_id)
+                    .map_err(|e| JsonRpcError {
+                        code: -32603,
+                        message: e,
+                    })?;
+                svc.mux
+                    .lock()
+                    .get_pane(&pane_id)
+                    .and_then(|p| p.pty_id.clone())
+            } else {
+                None
+            };
+            Ok(serde_json::json!({
+                "tab_id": tab_id,
+                "pane_id": pane_id,
+                "pty_id": pty_id
+            }))
         }
 
         "workspace.focus" => {
@@ -56,7 +100,12 @@ pub(super) fn dispatch(
                     message: e,
                 })?;
             }
-            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
+            {
+                let h = app.clone();
+                std::thread::spawn(move || {
+                    let _ = h.emit("mux-state-changed", ());
+                });
+            }
             Ok(serde_json::json!({"ok": true}))
         }
 
@@ -68,7 +117,10 @@ pub(super) fn dispatch(
                 svc.as_ref(),
             )
             .map(|r| r.into_json())
-            .map_err(|e| JsonRpcError { code: -32602, message: e })
+            .map_err(|e| JsonRpcError {
+                code: -32602,
+                message: e,
+            })
         }
 
         "workspace.close" => {
@@ -78,7 +130,10 @@ pub(super) fn dispatch(
                 svc.as_ref(),
             )
             .map(|r| r.into_json())
-            .map_err(|e| JsonRpcError { code: -32602, message: e })
+            .map_err(|e| JsonRpcError {
+                code: -32602,
+                message: e,
+            })
         }
 
         "workspace.move_tab" => {
@@ -87,12 +142,18 @@ pub(super) fn dispatch(
             let to_id = get_string_param(params, "to_workspace_id")?;
             {
                 let mut mux = mux.lock();
-                mux.move_tab(&tab_id, &from_id, &to_id).map_err(|e| JsonRpcError {
-                    code: -32602,
-                    message: e,
-                })?;
+                mux.move_tab(&tab_id, &from_id, &to_id)
+                    .map_err(|e| JsonRpcError {
+                        code: -32602,
+                        message: e,
+                    })?;
             }
-            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
+            {
+                let h = app.clone();
+                std::thread::spawn(move || {
+                    let _ = h.emit("mux-state-changed", ());
+                });
+            }
             Ok(serde_json::json!({"ok": true}))
         }
 

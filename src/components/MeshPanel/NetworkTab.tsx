@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { Radio, Search, Users } from "lucide-react";
 import { BroadcastToggle } from "./BroadcastToggle";
 import AddPeerPanel from "./AddPeerPanel";
@@ -74,7 +74,14 @@ export function NetworkTab({ data, triggerRefresh }: Props) {
             >
               <ul className="divide-y divide-[var(--ct-border)] rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)]">
                 {data.peers.map((peer) => (
-                  <li key={peer.instance_id} className="p-3">
+                  <li
+                    key={peer.instance_id}
+                    data-testid="mesh-peer"
+                    data-peer-id={peer.instance_id}
+                    data-online={String(!!peer.online)}
+                    data-pending={String(!!peer.pending)}
+                    className="p-3"
+                  >
                     <SettingsRow>
                       <div className="flex items-center gap-2 min-w-0">
                         <div className={`w-2 h-2 rounded-full flex-shrink-0 ${

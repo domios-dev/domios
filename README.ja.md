@@ -3,6 +3,7 @@
 </p>
 
 <h1 align="center">CodeTerm</h1>
+> README.md の翻訳は遅れることがあります。英語版が基準です。
 
 <p align="center">
   <strong>AIファーストのターミナルマルチプレクサ</strong><br>

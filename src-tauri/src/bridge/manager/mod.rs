@@ -1,18 +1,21 @@
 //! BridgeManager v4 — CLI-based bridge with typing indicator, auto-edit, markdown.
 //!
 //! Outbound: agents call `codeterm bridge send` → channel → Telegram API.
-//! Inbound: Telegram → PTY with [Telegram: user_id] prefix.
+//! Inbound: Telegram → PTY with a CodeTerm marker prefix.
 //! Features: typing indicator on inbound, auto-edit recent messages, markdown formatting.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
-use parking_lot::Mutex;
 
-use super::traits::{InboundAttachment, InboundMessage, InlineKeyboard, MessagingService, OutboundContent, ReplyContext};
-use super::voice_transcribe;
 use super::text_hooks;
+use super::traits::{
+    InboundAttachment, InboundMessage, InlineKeyboard, MessagingService, OutboundContent,
+    ReplyContext,
+};
+use super::voice_transcribe;
 use crate::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
 use crate::service::general_agent;
 use crate::service::ServiceContext;
@@ -32,9 +35,20 @@ pub struct OutboundMessage {
 
 pub type OutboundSender = Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<OutboundMessage>>>>;
 
-pub fn create_outbound_channel() -> (OutboundSender, tokio::sync::mpsc::UnboundedReceiver<OutboundMessage>) {
+pub fn create_outbound_channel() -> (
+    OutboundSender,
+    tokio::sync::mpsc::UnboundedReceiver<OutboundMessage>,
+) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     (Arc::new(Mutex::new(Some(tx))), rx)
+}
+
+pub(crate) fn ensure_supported_service(service: &str) -> Result<(), &'static str> {
+    if service == "telegram" {
+        Ok(())
+    } else {
+        Err("service unsupported")
+    }
 }
 
 /// Track last sent message per chat for auto-edit and append.
@@ -71,7 +85,9 @@ impl BridgeManager {
             let svc_status = status.clone();
             tokio::spawn(async move {
                 log::info!("[bridge] starting service: {}", id);
-                service.start(tx_clone.clone(), svc_cancel, svc_status).await;
+                service
+                    .start(tx_clone.clone(), svc_cancel, svc_status)
+                    .await;
                 log::info!("[bridge] service {} exited", id);
             });
         }
@@ -82,7 +98,8 @@ impl BridgeManager {
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(15))
             .tcp_keepalive(std::time::Duration::from_secs(15))
-            .build().unwrap_or_else(|_| reqwest::Client::new());
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
 
         // Keep tx alive — if we drop it and telegram service dies, rx closes and select! breaks.
         let _keep_tx = tx;
@@ -165,54 +182,17 @@ impl BridgeManager {
                         OutboundContent::Text { ref text } => {
                             log::info!("[bridge-outbound] {} {} chars to {}",
                                 if out_msg.append { "appending" } else { "sending" }, text.len(), chat_id);
-
-                            // Build final text — append to previous or replace
-                            let final_text = if out_msg.append {
-                                if let Some(state) = chat_states.get(&chat_id) {
-                                    if state.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS {
-                                        format!("{}\n\n{}", state.text, text)
-                                    } else {
-                                        text.clone()
-                                    }
-                                } else {
-                                    text.clone()
-                                }
-                            } else {
-                                text.clone()
-                            };
-
-                            // Edit only when --append flag is set AND there's a recent message to edit
-                            let can_edit = out_msg.append && chat_states.get(&chat_id)
-                                .map(|s| s.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS)
-                                .unwrap_or(false);
-
-                            let sanitized = super::sanitize::sanitize_html_for_telegram(&final_text);
-
-                            if can_edit && sanitized.len() <= super::telegram::TELEGRAM_MAX_LEN {
-                                let msg_id = chat_states[&chat_id].message_id;
-                                let edited = edit_message(&client, &api_base, &token, chat_id, msg_id, &sanitized).await;
-                                if !edited {
-                                    if let Some(new_id) = send_message(&client, &api_base, &token, chat_id, &sanitized).await {
-                                        chat_states.insert(chat_id, ChatState { message_id: new_id, sent_at: Instant::now(), text: final_text });
-                                    }
-                                } else {
-                                    if let Some(state) = chat_states.get_mut(&chat_id) {
-                                        state.sent_at = Instant::now();
-                                        state.text = final_text;
-                                    }
-                                }
-                            } else {
-                                let chunks: Vec<String> = super::response::chunk_message(&sanitized, super::telegram::TELEGRAM_MAX_LEN);
-                                let mut last_id = None;
-                                let last_idx = chunks.len().saturating_sub(1);
-                                for (i, chunk) in chunks.iter().enumerate() {
-                                    let btns = if i == last_idx { out_msg.buttons.as_ref() } else { None };
-                                    last_id = send_message_with_buttons(&client, &api_base, &token, chat_id, chunk, btns).await;
-                                }
-                                if let Some(id) = last_id {
-                                    chat_states.insert(chat_id, ChatState { message_id: id, sent_at: Instant::now(), text: final_text });
-                                }
-                            }
+                            route_text_outbound(
+                                &client,
+                                &api_base,
+                                &token,
+                                chat_id,
+                                text,
+                                out_msg.append,
+                                out_msg.buttons.as_ref(),
+                                &mut chat_states,
+                            )
+                            .await;
                         }
                         ref media_content => {
                             log::info!("[bridge-outbound] sending media {:?} to {}", std::mem::discriminant(media_content), chat_id);
@@ -234,6 +214,81 @@ impl BridgeManager {
     }
 }
 
+async fn route_text_outbound(
+    client: &reqwest::Client,
+    api_base: &str,
+    token: &str,
+    chat_id: i64,
+    text: &str,
+    append: bool,
+    buttons: Option<&InlineKeyboard>,
+    chat_states: &mut HashMap<i64, ChatState>,
+) {
+    // Build final text — append to previous or replace.
+    let final_text = if append {
+        if let Some(state) = chat_states.get(&chat_id) {
+            if state.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS {
+                format!("{}\n\n{}", state.text, text)
+            } else {
+                text.to_string()
+            }
+        } else {
+            text.to_string()
+        }
+    } else {
+        text.to_string()
+    };
+
+    // Edit only when --append flag is set AND there's a recent message to edit.
+    let can_edit = append
+        && chat_states
+            .get(&chat_id)
+            .map(|s| s.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS)
+            .unwrap_or(false);
+
+    let sanitized = super::sanitize::sanitize_html_for_telegram(&final_text);
+
+    if can_edit && sanitized.len() <= super::telegram::TELEGRAM_MAX_LEN {
+        let msg_id = chat_states[&chat_id].message_id;
+        let edited = edit_message(client, api_base, token, chat_id, msg_id, &sanitized).await;
+        if !edited {
+            if let Some(new_id) = send_message(client, api_base, token, chat_id, &sanitized).await {
+                chat_states.insert(
+                    chat_id,
+                    ChatState {
+                        message_id: new_id,
+                        sent_at: Instant::now(),
+                        text: final_text,
+                    },
+                );
+            }
+        } else if let Some(state) = chat_states.get_mut(&chat_id) {
+            state.sent_at = Instant::now();
+            state.text = final_text;
+        }
+    } else {
+        let chunks: Vec<String> =
+            super::response::chunk_message(&sanitized, super::telegram::TELEGRAM_MAX_LEN);
+        let mut last_id = None;
+        let last_idx = chunks.len().saturating_sub(1);
+        for (i, chunk) in chunks.iter().enumerate() {
+            let btns = if i == last_idx { buttons } else { None };
+            last_id =
+                send_message_with_buttons(client, api_base, token, chat_id, chunk, btns).await;
+        }
+        if let Some(id) = last_id {
+            chat_states.insert(
+                chat_id,
+                ChatState {
+                    message_id: id,
+                    sent_at: Instant::now(),
+                    text: final_text,
+                },
+            );
+        }
+    }
+}
+
 fn tg_url(base: &str, token: &str, method: &str) -> String {
     format!("{}/bot{}/{}", base.trim_end_matches('/'), token, method)
 }
@@ -243,14 +298,28 @@ async fn send_typing(client: &reqwest::Client, base: &str, token: &str, chat_id:
         .post(tg_url(base, token, "sendChatAction"))
         .json(&serde_json::json!({ "chat_id": chat_id, "action": "typing" }))
         .timeout(std::time::Duration::from_secs(5))
-        .send().await;
+        .send()
+        .await;
 }
 
-async fn send_message(client: &reqwest::Client, base: &str, token: &str, chat_id: i64, text: &str) -> Option<i64> {
+async fn send_message(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    chat_id: i64,
+    text: &str,
+) -> Option<i64> {
     send_message_with_buttons(client, base, token, chat_id, text, None).await
 }
 
-async fn send_message_with_buttons(client: &reqwest::Client, base: &str, token: &str, chat_id: i64, text: &str, buttons: Option<&InlineKeyboard>) -> Option<i64> {
+async fn send_message_with_buttons(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    chat_id: i64,
+    text: &str,
+    buttons: Option<&InlineKeyboard>,
+) -> Option<i64> {
     let mut payload = serde_json::json!({
         "chat_id": chat_id,
         "text": text,
@@ -265,7 +334,9 @@ async fn send_message_with_buttons(client: &reqwest::Client, base: &str, token: 
         .post(tg_url(base, token, "sendMessage"))
         .json(&payload)
         .timeout(std::time::Duration::from_secs(10))
-        .send().await.ok()?;
+        .send()
+        .await
+        .ok()?;
 
     let body: serde_json::Value = resp.json().await.ok()?;
 
@@ -282,15 +353,29 @@ async fn send_message_with_buttons(client: &reqwest::Client, base: &str, token: 
             .post(tg_url(base, token, "sendMessage"))
             .json(&payload2)
             .timeout(std::time::Duration::from_secs(10))
-            .send().await.ok()?;
+            .send()
+            .await
+            .ok()?;
         let body2: serde_json::Value = resp2.json().await.ok()?;
-        return body2.get("result").and_then(|r| r.get("message_id")).and_then(|v| v.as_i64());
+        return body2
+            .get("result")
+            .and_then(|r| r.get("message_id"))
+            .and_then(|v| v.as_i64());
     }
 
-    body.get("result").and_then(|r| r.get("message_id")).and_then(|v| v.as_i64())
+    body.get("result")
+        .and_then(|r| r.get("message_id"))
+        .and_then(|v| v.as_i64())
 }
 
-async fn edit_message(client: &reqwest::Client, base: &str, token: &str, chat_id: i64, message_id: i64, text: &str) -> bool {
+async fn edit_message(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    chat_id: i64,
+    message_id: i64,
+    text: &str,
+) -> bool {
     let resp = client
         .post(tg_url(base, token, "editMessageText"))
         .json(&serde_json::json!({
@@ -301,7 +386,8 @@ async fn edit_message(client: &reqwest::Client, base: &str, token: &str, chat_id
             "disable_web_page_preview": true,
         }))
         .timeout(std::time::Duration::from_secs(10))
-        .send().await;
+        .send()
+        .await;
 
     match resp {
         Ok(r) => {
@@ -309,7 +395,10 @@ async fn edit_message(client: &reqwest::Client, base: &str, token: &str, chat_id
             if body.get("ok").and_then(|v| v.as_bool()) == Some(true) {
                 return true;
             }
-            let desc = body.get("description").and_then(|v| v.as_str()).unwrap_or("");
+            let desc = body
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if desc.contains("message is not modified") {
                 return true;
             }
@@ -323,7 +412,8 @@ async fn edit_message(client: &reqwest::Client, base: &str, token: &str, chat_id
                         "disable_web_page_preview": true,
                     }))
                     .timeout(std::time::Duration::from_secs(10))
-                    .send().await;
+                    .send()
+                    .await;
                 return resp2.map(|r| r.status().is_success()).unwrap_or(false);
             }
             log::warn!("[bridge] editMessage failed: {}", desc);
@@ -336,13 +426,36 @@ async fn edit_message(client: &reqwest::Client, base: &str, token: &str, chat_id
     }
 }
 
-async fn send_media(client: &reqwest::Client, base: &str, token: &str, chat_id: i64, content: &OutboundContent) -> Result<(), String> {
+async fn send_media(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    chat_id: i64,
+    content: &OutboundContent,
+) -> Result<(), String> {
     let (method, file_path, raw_caption, filename) = match content {
-        OutboundContent::Photo { file, caption } => ("sendPhoto", file.as_str(), caption.as_deref(), None),
-        OutboundContent::Document { file, caption, filename } => ("sendDocument", file.as_str(), caption.as_deref(), filename.as_deref()),
-        OutboundContent::Voice { file, caption } => ("sendVoice", file.as_str(), caption.as_deref(), None),
-        OutboundContent::Animation { file, caption } => ("sendAnimation", file.as_str(), caption.as_deref(), None),
-        OutboundContent::Video { file, caption } => ("sendVideo", file.as_str(), caption.as_deref(), None),
+        OutboundContent::Photo { file, caption } => {
+            ("sendPhoto", file.as_str(), caption.as_deref(), None)
+        }
+        OutboundContent::Document {
+            file,
+            caption,
+            filename,
+        } => (
+            "sendDocument",
+            file.as_str(),
+            caption.as_deref(),
+            filename.as_deref(),
+        ),
+        OutboundContent::Voice { file, caption } => {
+            ("sendVoice", file.as_str(), caption.as_deref(), None)
+        }
+        OutboundContent::Animation { file, caption } => {
+            ("sendAnimation", file.as_str(), caption.as_deref(), None)
+        }
+        OutboundContent::Video { file, caption } => {
+            ("sendVideo", file.as_str(), caption.as_deref(), None)
+        }
         OutboundContent::Sticker { file } => ("sendSticker", file.as_str(), None, None),
         OutboundContent::Text { .. } => return Err("send_media called with Text content".into()),
     };
@@ -350,15 +463,15 @@ async fn send_media(client: &reqwest::Client, base: &str, token: &str, chat_id: 
     let caption = sanitized_caption.as_deref();
 
     // Read file
-    let file_bytes = tokio::fs::read(file_path).await.map_err(|e| format!("Failed to read file {}: {}", file_path, e))?;
-    let file_name = filename
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            std::path::Path::new(file_path)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "file".to_string())
-        });
+    let file_bytes = tokio::fs::read(file_path)
+        .await
+        .map_err(|e| format!("Failed to read file {}: {}", file_path, e))?;
+    let file_name = filename.map(|s| s.to_string()).unwrap_or_else(|| {
+        std::path::Path::new(file_path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "file".to_string())
+    });
 
     // Determine the multipart field name for the file
     let file_field = match method {
@@ -386,17 +499,28 @@ async fn send_media(client: &reqwest::Client, base: &str, token: &str, chat_id: 
         .post(&url)
         .multipart(form)
         .timeout(std::time::Duration::from_secs(30))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("{} request failed: {}", method, e))?;
 
-    let body: serde_json::Value = resp.json().await.map_err(|e| format!("{} parse failed: {}", method, e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("{} parse failed: {}", method, e))?;
     if body.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-        let desc = body.get("description").and_then(|v| v.as_str()).unwrap_or("unknown error");
+        let desc = body
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
         // Retry without parse_mode if caption parsing failed
         if caption.is_some() && desc.contains("parse") {
-            let file_bytes2 = tokio::fs::read(file_path).await.map_err(|e| format!("Re-read failed: {}", e))?;
+            let file_bytes2 = tokio::fs::read(file_path)
+                .await
+                .map_err(|e| format!("Re-read failed: {}", e))?;
             let file_name2 = std::path::Path::new(file_path)
-                .file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "file".to_string());
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "file".to_string());
             let part2 = reqwest::multipart::Part::bytes(file_bytes2).file_name(file_name2);
             let mut form2 = reqwest::multipart::Form::new()
                 .text("chat_id", chat_id.to_string())
@@ -404,12 +528,23 @@ async fn send_media(client: &reqwest::Client, base: &str, token: &str, chat_id: 
             if let Some(cap) = caption {
                 form2 = form2.text("caption", cap.to_string());
             }
-            let resp2 = client.post(&url).multipart(form2)
+            let resp2 = client
+                .post(&url)
+                .multipart(form2)
                 .timeout(std::time::Duration::from_secs(30))
-                .send().await.map_err(|e| e.to_string())?;
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
             let body2: serde_json::Value = resp2.json().await.map_err(|e| e.to_string())?;
             if body2.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-                return Err(format!("{} failed: {}", method, body2.get("description").and_then(|v| v.as_str()).unwrap_or("unknown")));
+                return Err(format!(
+                    "{} failed: {}",
+                    method,
+                    body2
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                ));
             }
         } else {
             return Err(format!("{} failed: {}", method, desc));
@@ -431,29 +566,17 @@ pub async fn build_message_body(msg: &InboundMessage, voice_cfg: &VoiceTranscrib
     parts.join("\n")
 }
 
-async fn format_attachment_line(att: &InboundAttachment, voice_cfg: &VoiceTranscribeConfig) -> String {
-    let desc = if let Some(ref name) = att.filename {
-        format!("[{}: {}]", att.kind, name)
-    } else {
-        format!("[{}]", att.kind)
-    };
-    let file_uri = format!("file://{}", att.path.replace('\\', "/"));
-
-    if att.kind == "voice" && voice_cfg.enabled && !att.path.is_empty() {
-        match voice_transcribe::transcribe(std::path::Path::new(&att.path), voice_cfg).await {
-            Ok(t) => {
-                let escaped = t.text.replace('"', "\\\"");
-                return format!("{} (voice transcript: \"{}\") {}", desc, escaped, file_uri);
-            }
-            Err(e) => {
-                log::warn!("[bridge] voice transcribe failed for {}: {}", att.path, e);
-                if !voice_cfg.fallback_raw_on_error {
-                    return format!("{} (transcription unavailable: {})", desc, e);
-                }
-            }
-        }
-    }
-    format!("{} {}", desc, file_uri)
+async fn format_attachment_line(
+    att: &InboundAttachment,
+    voice_cfg: &VoiceTranscribeConfig,
+) -> String {
+    voice_transcribe::format_attachment_line(
+        &att.path,
+        &att.kind,
+        att.filename.as_deref(),
+        voice_cfg,
+    )
+    .await
 }
 
 enum HookOutcome {
@@ -488,17 +611,25 @@ async fn apply_hook(
         user_id: msg.user_id.to_string(),
         msg_id: msg.message_id.map(|id| id.to_string()),
         pane_id: pane_id.to_string(),
-        attachments: msg.attachments.iter().map(|a| text_hooks::HookAttachment {
-            kind: a.kind.clone(),
-            path: a.path.clone(),
-            filename: a.filename.clone(),
-        }).collect(),
+        attachments: msg
+            .attachments
+            .iter()
+            .map(|a| text_hooks::HookAttachment {
+                kind: a.kind.clone(),
+                path: a.path.clone(),
+                filename: a.filename.clone(),
+            })
+            .collect(),
     };
 
     let decision = match text_hooks::pre_forward(&req, cfg).await {
         Ok(d) => d,
         Err(e) => {
-            log::warn!("[bridge] text_hooks pre_forward failed: {} (fallback={})", e, cfg.fallback_on_error);
+            log::warn!(
+                "[bridge] text_hooks pre_forward failed: {} (fallback={})",
+                e,
+                cfg.fallback_on_error
+            );
             return match cfg.fallback_on_error.as_str() {
                 "drop" => HookOutcome::Replaced,
                 _ => HookOutcome::Forward,
@@ -510,18 +641,25 @@ async fn apply_hook(
         text_hooks::HookDecision::Forward => HookOutcome::Forward,
         text_hooks::HookDecision::ForwardWithMetadata { metadata } => {
             let json = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".into());
-            HookOutcome::Annotated(format!("{}\n\n[Hook metadata: {}]", body, json))
+            let marker = crate::message_markers::hook(&json);
+            HookOutcome::Annotated(format!("{}\n\n{}", body, marker))
         }
         text_hooks::HookDecision::Replace { respond } => {
             for reply in respond {
                 if reply.channel != "telegram" {
-                    log::warn!("[bridge] text_hooks replace: unsupported channel {}, skipping", reply.channel);
+                    log::warn!(
+                        "[bridge] text_hooks replace: unsupported channel {}, skipping",
+                        reply.channel
+                    );
                     continue;
                 }
                 let chat_id: i64 = match reply.to.parse() {
                     Ok(n) => n,
                     Err(_) => {
-                        log::warn!("[bridge] text_hooks replace: invalid telegram to={}", reply.to);
+                        log::warn!(
+                            "[bridge] text_hooks replace: invalid telegram to={}",
+                            reply.to
+                        );
                         continue;
                     }
                 };
@@ -552,7 +690,8 @@ async fn inject_message(
 ) -> Result<(), String> {
     let (pane_id, agent_type) = {
         let mux = svc.mux.lock();
-        let pid = mux.resolve_pane_id(general_agent::GENERAL_ALIAS)
+        let pid = mux
+            .resolve_pane_id(general_agent::GENERAL_ALIAS)
             .ok_or("General Agent not found")?;
         let at = mux.get_pane(&pid).and_then(|p| p.agent_type.clone());
         (pid, at)
@@ -566,15 +705,24 @@ async fn inject_message(
         HookOutcome::Replaced => return Ok(()),
     };
 
-    let msg_id_suffix = msg.message_id.map(|id| format!(" msg_id={}", id)).unwrap_or_default();
-    let prefixed = format!("[{}: {}{}] {}",
-        capitalize(&msg.service), msg.user_id, msg_id_suffix, body);
+    let msg_id = msg.message_id.map(|id| id.to_string());
+    let prefixed = match msg.service.as_str() {
+        "telegram" => {
+            crate::message_markers::telegram(&msg.user_id.to_string(), msg_id.as_deref(), &body)
+        }
+        service => crate::message_markers::Marker::new(service)
+            .attr("user", &msg.user_id.to_string())
+            .attr_opt("msg", msg_id.as_deref())
+            .payload(&body)
+            .build(),
+    };
 
     if agent_type.is_none() {
         let preview: String = prefixed.chars().take(120).collect();
         log::info!(
             "[bridge] queued inbound for pane={} (agent restarting): {}",
-            pane_id, preview,
+            pane_id,
+            preview,
         );
         super::inbound_buffer::push(&pane_id, prefixed);
         return Ok(());
@@ -582,7 +730,10 @@ async fn inject_message(
 
     let pty_id = svc.resolve_pty_id(&pane_id)?;
     let paste = format!("\x1b[200~{}\x1b[201~", prefixed);
-    svc.pty.lock().write(&pty_id, paste.as_bytes()).map_err(|e| e.to_string())?;
+    svc.pty
+        .lock()
+        .write(&pty_id, paste.as_bytes())
+        .map_err(|e| e.to_string())?;
 
     // Send Enter with retry — Claude TUI needs time to process paste
     let pty = svc.pty.clone();
@@ -596,15 +747,6 @@ async fn inject_message(
 
     Ok(())
 }
-
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-    }
-}
-
 
 #[cfg(test)]
 mod tests;

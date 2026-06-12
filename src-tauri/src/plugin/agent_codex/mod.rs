@@ -11,9 +11,9 @@ pub mod usage;
 
 pub use provider::CodexProvider;
 
+use super::Plugin;
 use crate::agent::provider::AgentProvider;
 use crate::api::events::SystemEvent;
-use super::Plugin;
 
 pub const PLUGIN_ID: &str = "agent-codex";
 pub const PROVIDER_ID: &str = "codex";
@@ -43,10 +43,7 @@ impl AgentCodexPlugin {
             },
             capabilities: super::PluginCapabilities {
                 agent_providers: vec![PROVIDER_ID.into()],
-                hooks: vec![
-                    "mux-state-changed".into(),
-                    "pane-title-pinned".into(),
-                ],
+                hooks: vec!["mux-state-changed".into(), "pane-title-pinned".into()],
                 ..Default::default()
             },
             permissions: super::PluginPermissions::default(),

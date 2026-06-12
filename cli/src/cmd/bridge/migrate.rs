@@ -39,7 +39,11 @@ const EXIT_SPLIT_BRAIN: i32 = 7;
 
 pub fn run_migrate(json: bool, args: MigrateArgs) {
     let started = Instant::now();
-    if std::env::var("CODETERM_MESH_TARGET").ok().filter(|s| !s.is_empty()).is_some() {
+    if std::env::var("CODETERM_MESH_TARGET")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .is_some()
+    {
         eprintln!("Error: bridge migrate must run locally on the source machine. Aborting.");
         std::process::exit(EXIT_USAGE);
     }
@@ -130,7 +134,10 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
         "integrations.telegram_enabled",
         serde_json::json!(false),
     ) {
-        eprintln!("Error: failed to persist source telegram_enabled=false: {}", e);
+        eprintln!(
+            "Error: failed to persist source telegram_enabled=false: {}",
+            e
+        );
         eprintln!("hint: aborting before stopping the poller — source remains active.");
         std::process::exit(1);
     }
@@ -162,7 +169,10 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
         "integrations.telegram_enabled",
         serde_json::json!(true),
     ) {
-        eprintln!("Warning: failed to persist target telegram_enabled=true: {}", e);
+        eprintln!(
+            "Warning: failed to persist target telegram_enabled=true: {}",
+            e
+        );
         eprintln!("hint: /api/bridge/start will still flip it; future reboots may not auto-start.");
     }
     log_step(json, "config", "target telegram_enabled=true");
@@ -188,7 +198,9 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
         Err(_) => false,
     };
     if claim_resp.is_err() || !claimed_lock {
-        let err_msg = claim_resp.err().unwrap_or_else(|| "claim returned ok=false".to_string());
+        let err_msg = claim_resp
+            .err()
+            .unwrap_or_else(|| "claim returned ok=false".to_string());
         eprintln!("Error: target claim failed: {}", err_msg);
         if args.no_rollback {
             eprintln!("--no-rollback set: leaving source disabled.");
@@ -306,13 +318,7 @@ fn log_step(json: bool, step: &str, msg: &str) {
     }
 }
 
-fn report_split_brain(
-    json: bool,
-    source: &str,
-    target: &str,
-    service: &str,
-    rollback_err: &str,
-) {
+fn report_split_brain(json: bool, source: &str, target: &str, service: &str, rollback_err: &str) {
     let repair_cmd = format!(
         "codeterm config set integrations.{}_enabled true && codeterm bridge restart",
         service
@@ -524,7 +530,12 @@ fn relay_get(
     signed: &str,
     path: &str,
 ) -> Result<serde_json::Value, String> {
-    relay_send(http, peer_url, signed, relay_envelope("GET", path, serde_json::Value::Null))
+    relay_send(
+        http,
+        peer_url,
+        signed,
+        relay_envelope("GET", path, serde_json::Value::Null),
+    )
 }
 
 fn relay_post(
@@ -534,7 +545,12 @@ fn relay_post(
     path: &str,
     body: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    relay_send(http, peer_url, signed, relay_envelope("POST", path, body.clone()))
+    relay_send(
+        http,
+        peer_url,
+        signed,
+        relay_envelope("POST", path, body.clone()),
+    )
 }
 
 fn relay_patch_config(
@@ -545,7 +561,12 @@ fn relay_patch_config(
     value: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let body = serde_json::json!({"key": key, "value": value});
-    relay_send(http, peer_url, signed, relay_envelope("PATCH", "/api/config", body))
+    relay_send(
+        http,
+        peer_url,
+        signed,
+        relay_envelope("PATCH", "/api/config", body),
+    )
 }
 
 fn relay_get_state(

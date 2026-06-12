@@ -5,10 +5,7 @@ import { NODE_W, NODE_H } from "./layout";
 // Role icons (simple text)
 const ROLE_ICON: Record<string, string> = {
   Orchestrator: "\u2699",  // gear
-  Lead: "\u25C6",          // diamond
   Worker: "\u25CF",        // circle
-  Conductor: "\u2699",
-  SubWorker: "\u25CF",
 };
 
 /**
@@ -72,12 +69,8 @@ function readThemeColors(): ThemeColors {
 function getRoleBorderColor(role: string | null, colors: ThemeColors): string {
   switch (role) {
     case "Orchestrator":
-    case "Conductor":
       return colors.accent;
-    case "Lead":
-      return colors.cyan;
     case "Worker":
-    case "SubWorker":
       return rgba(colors.fg, 0.6);
     default:
       return colors.border;
@@ -300,8 +293,7 @@ function drawEdge(
       continue;
     }
 
-    // Particle travels from child (t=0) to parent (t=1)
-    // Map progress: child is at bezier t=1, parent at t=0
+    // Particle travels from child (t=0) to parent (t=1). Progress maps child at bezier t=1 and parent at t=0.
     const t = 1 - p.progress;
     const pt = bezierPoint(b.x0, b.y0, b.cx0, b.cy0, b.cx1, b.cy1, b.x1, b.y1, t);
 

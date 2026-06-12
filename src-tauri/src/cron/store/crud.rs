@@ -1,21 +1,12 @@
 //! CronStore CRUD: create / read / update / delete + run history recording.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use super::{
-    compute_backoff, compute_next_run_jittered_in, default_max_history, parse_oneshot_schedule,
+    compute_backoff, compute_next_run_jittered_at, default_max_history, parse_oneshot_schedule_at,
     validate_schedule, validate_tz, CronCreateParams, CronJob, CronRunInfo, CronRunStatus,
     CronStore, CronUpdateParams, MAX_CONSECUTIVE_FAILURES,
 };
 
 impl CronStore {
-    pub(super) fn now_ms() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64
-    }
-
     pub fn create(&mut self, params: CronCreateParams) -> Result<CronJob, String> {
         let oneshot = params.oneshot.unwrap_or(false);
         let jitter = params.jitter_max_ms;
@@ -30,18 +21,19 @@ impl CronStore {
         }
         let timeout_seconds = params.timeout_seconds.filter(|n| *n > 0);
 
+        let now_ms = self.now_ms();
         let next_run = if !params.enabled.unwrap_or(true) {
             if oneshot {
-                parse_oneshot_schedule(&params.schedule)?;
+                parse_oneshot_schedule_at(&params.schedule, now_ms)?;
             } else {
                 validate_schedule(&params.schedule)?;
             }
             None
         } else if oneshot {
-            Some(parse_oneshot_schedule(&params.schedule)?)
+            Some(parse_oneshot_schedule_at(&params.schedule, now_ms)?)
         } else {
             validate_schedule(&params.schedule)?;
-            compute_next_run_jittered_in(&params.schedule, jitter, tz.as_deref())?
+            compute_next_run_jittered_at(&params.schedule, jitter, tz.as_deref(), now_ms)?
         };
 
         let job = CronJob {
@@ -51,7 +43,9 @@ impl CronStore {
             workspace_id: params.workspace_id,
             schedule: params.schedule,
             enabled: params.enabled.unwrap_or(true),
-            agent: params.agent.unwrap_or_else(crate::config::default_agent_provider),
+            agent: params
+                .agent
+                .unwrap_or_else(crate::config::default_agent_provider),
             model: params.model,
             task: params.task,
             cwd: params.cwd,
@@ -59,7 +53,7 @@ impl CronStore {
             creator_pane_id: params.creator_pane_id,
             oneshot,
             max_history: params.max_history.unwrap_or(default_max_history()),
-            created_at: Self::now_ms(),
+            created_at: now_ms,
             last_run: None,
             next_run,
             jitter_max_ms: jitter,
@@ -103,6 +97,7 @@ impl CronStore {
     }
 
     pub fn update(&mut self, id: &str, patch: CronUpdateParams) -> Result<CronJob, String> {
+        let now_ms = self.now_ms();
         let job = self
             .file
             .jobs
@@ -118,7 +113,7 @@ impl CronStore {
         }
         if let Some(schedule) = patch.schedule {
             if job.oneshot {
-                parse_oneshot_schedule(&schedule)?;
+                parse_oneshot_schedule_at(&schedule, now_ms)?;
             } else {
                 validate_schedule(&schedule)?;
             }
@@ -164,9 +159,14 @@ impl CronStore {
         job.next_run = if !job.enabled {
             None
         } else if job.oneshot {
-            Some(parse_oneshot_schedule(&job.schedule)?)
+            Some(parse_oneshot_schedule_at(&job.schedule, now_ms)?)
         } else {
-            compute_next_run_jittered_in(&job.schedule, job.jitter_max_ms, job.tz.as_deref())?
+            compute_next_run_jittered_at(
+                &job.schedule,
+                job.jitter_max_ms,
+                job.tz.as_deref(),
+                now_ms,
+            )?
         };
 
         let updated = job.clone();
@@ -177,7 +177,10 @@ impl CronStore {
     pub fn delete(&mut self, id: &str) -> Result<(), String> {
         if let Some(job) = self.file.jobs.iter().find(|j| j.id == id) {
             if job.protected {
-                return Err(format!("Cron job '{}' is protected and cannot be deleted. Use disable instead.", job.name));
+                return Err(format!(
+                    "Cron job '{}' is protected and cannot be deleted. Use disable instead.",
+                    job.name
+                ));
             }
         }
         let before = self.file.jobs.len();
@@ -190,6 +193,7 @@ impl CronStore {
     }
 
     pub fn set_enabled(&mut self, id: &str, enabled: bool) -> Result<CronJob, String> {
+        let now_ms = self.now_ms();
         let job = self
             .file
             .jobs
@@ -201,9 +205,14 @@ impl CronStore {
         job.next_run = if !enabled {
             None
         } else if job.oneshot {
-            Some(parse_oneshot_schedule(&job.schedule)?)
+            Some(parse_oneshot_schedule_at(&job.schedule, now_ms)?)
         } else {
-            compute_next_run_jittered_in(&job.schedule, job.jitter_max_ms, job.tz.as_deref())?
+            compute_next_run_jittered_at(
+                &job.schedule,
+                job.jitter_max_ms,
+                job.tz.as_deref(),
+                now_ms,
+            )?
         };
         if enabled {
             job.consecutive_failures = 0;
@@ -215,6 +224,7 @@ impl CronStore {
     }
 
     pub fn record_run(&mut self, job_id: &str, run: CronRunInfo) -> Result<(), String> {
+        let store_now_ms = self.now_ms();
         if let Some(job) = self.file.jobs.iter_mut().find(|j| j.id == job_id) {
             let was_failure = matches!(run.status, CronRunStatus::Failed);
             let was_success = matches!(run.status, CronRunStatus::Success);
@@ -227,18 +237,27 @@ impl CronStore {
                     job.next_run = None;
                     log::warn!(
                         "[cron] auto-disabled job {} after {} consecutive failures",
-                        job_id, job.consecutive_failures
+                        job_id,
+                        job.consecutive_failures
                     );
                 } else if !job.oneshot && job.enabled {
-                    let now_ms = Self::now_ms();
-                    let base_ms = compute_next_run_jittered_in(&job.schedule, Some(0), job.tz.as_deref())?
-                        .map(|t| t.saturating_sub(now_ms))
-                        .unwrap_or(60_000);
+                    let now_ms = store_now_ms;
+                    let base_ms = compute_next_run_jittered_at(
+                        &job.schedule,
+                        Some(0),
+                        job.tz.as_deref(),
+                        now_ms,
+                    )?
+                    .map(|t| t.saturating_sub(now_ms))
+                    .unwrap_or(60_000);
                     let backoff = compute_backoff(job.consecutive_failures, base_ms);
                     job.next_run = Some(now_ms + backoff);
                     log::info!(
                         "[cron] {} backoff after failure {}/{}: +{}ms",
-                        job_id, job.consecutive_failures, MAX_CONSECUTIVE_FAILURES, backoff
+                        job_id,
+                        job.consecutive_failures,
+                        MAX_CONSECUTIVE_FAILURES,
+                        backoff
                     );
                 }
             } else {
@@ -249,7 +268,12 @@ impl CronStore {
                     job.next_run = None;
                     job.enabled = false;
                 } else if job.enabled {
-                    job.next_run = compute_next_run_jittered_in(&job.schedule, job.jitter_max_ms, job.tz.as_deref())?;
+                    job.next_run = compute_next_run_jittered_at(
+                        &job.schedule,
+                        job.jitter_max_ms,
+                        job.tz.as_deref(),
+                        store_now_ms,
+                    )?;
                 }
             }
 
@@ -270,7 +294,7 @@ impl CronStore {
         run_id: &str,
         status: CronRunStatus,
     ) -> Result<(), String> {
-        let now = Self::now_ms();
+        let now = self.now_ms();
         let mut started_at: Option<u64> = None;
         if let Some(history) = self.file.history.get_mut(job_id) {
             if let Some(run) = history.iter_mut().find(|r| r.run_id == run_id) {
@@ -291,16 +315,17 @@ impl CronStore {
             }
         }
 
-        // Observability parity: terminal states (Failed/Cancelled) get a
-        // "Cron run completed" log line just like Success runs do (which
-        // are emitted by service::cron_complete). Without this, dashboards
-        // and grep-based observability miss every Failed/Cancelled run.
+        // Observability parity: terminal states (Failed/Cancelled) get a "Cron run completed" log line just like Success runs do (which are emitted by
+        // service::cron_complete). Without this, dashboards and grep-based observability miss every Failed/Cancelled run.
         let elapsed_ms = started_at.map(|s| now.saturating_sub(s));
         match status {
             CronRunStatus::Failed | CronRunStatus::Cancelled => {
                 log::info!(
                     "Cron run completed: job={}, run={}, status={:?}, elapsed_ms={}",
-                    job_id, run_id, status, elapsed_ms.unwrap_or(0)
+                    job_id,
+                    run_id,
+                    status,
+                    elapsed_ms.unwrap_or(0)
                 );
             }
             _ => {}

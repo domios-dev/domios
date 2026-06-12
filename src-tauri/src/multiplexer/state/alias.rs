@@ -25,7 +25,8 @@ impl MultiplexerState {
 
     /// Register a human-readable alias for a pane ID.
     pub fn register_alias(&mut self, alias: &str, pane_id: &str) {
-        self.pane_aliases.insert(alias.to_string(), pane_id.to_string());
+        self.pane_aliases
+            .insert(alias.to_string(), pane_id.to_string());
     }
 
     /// Remove a pane alias.

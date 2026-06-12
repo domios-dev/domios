@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { open } from "@tauri-apps/plugin-dialog";
+import { IS_WEB } from "../../lib/webApi";
+import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
+import { KeepAwakeTray } from "../Titlebar/KeepAwakeTray";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
 import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
@@ -9,6 +13,7 @@ import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
+import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
 
@@ -45,7 +50,7 @@ interface SidebarProps {
   onOpenMemory?: () => void;
   onOpenMesh?: () => void;
   onNavigateToTab?: () => void;
-  mainView?: "workspace" | "settings" | "memory" | "mesh";
+  mainView?: "workspace" | "settings" | "memory" | "mesh" | "git";
   config?: AppConfig;
 }
 
@@ -71,18 +76,20 @@ export function Sidebar({
     spawnClaudeTab,
     spawnAgentTab,
   } = useMultiplexer();
-  // When mainView leaves the workspace (Memory / Settings open), suppress the
-  // "active" highlight on the current workspace + tab so the sidebar clearly
-  // shows where the user actually is in the hierarchy. Backend focus state
-  // is unchanged — returning to workspace restores the visual highlight.
+  // When mainView leaves the workspace (Memory / Settings open), suppress the "active" highlight on the current workspace + tab so the sidebar
+  // clearly shows where the user is in the hierarchy. Backend focus state is unchanged — returning to workspace restores the visual highlight.
   const isWorkspaceMode = mainView === "workspace";
 
-  // Agent spawn modal state. `workspaceId` is captured up front so the
-  // confirm step targets the workspace that opened the menu, not whatever
+  // Agent spawn modal state. `workspaceId` is captured up front so the confirm step targets the workspace that opened the menu, not whatever
   // happens to be active when the user clicks Continue.
   const [agentSpawnModal, setAgentSpawnModal] = useState<
     { folder: string; agentId: string; workspaceId: string } | null
   >(null);
+  const [folderPicker, setFolderPicker] = useState<{
+    title: string;
+    initialPath?: string | null;
+    onSelect: (path: string) => void;
+  } | null>(null);
   const [claudeSkipPerms, setClaudeSkipPerms] = useState(() => {
     try { return localStorage.getItem("codeterm-claude-skip-perms") === "true"; } catch { return false; }
   });
@@ -95,21 +102,35 @@ export function Sidebar({
     workspaceId: string,
     workspaceCwd: string | null,
   ) => {
-    // Spawning from a workspace's 3-dot menu — the workspace folder is the
-    // implicit choice; no need for a folder picker. Older versions opened a
+    // Spawning from a workspace's 3-dot menu — the workspace folder is the implicit choice; no need for a folder picker. Older versions opened a
     // dialog here even though the user had already selected the workspace.
     let folder: string | null = workspaceCwd;
     if (!folder) {
       const provider = getAgentProvider(agentId);
-      try {
-        folder = await open({
-          directory: true,
-          multiple: false,
-          title: `Choose project folder for ${provider?.displayName ?? agentId}`,
+      if (IS_WEB) {
+        setFolderPicker({
+          title: `Project folder for ${provider?.displayName ?? agentId}`,
+          initialPath: workspaceCwd,
+          onSelect: (path) => {
+            if (claudeRememberChoice) {
+              spawnAgentTab(workspaceId, agentId, claudeSkipPerms, path);
+            } else {
+              setAgentSpawnModal({ folder: path, agentId, workspaceId });
+            }
+          },
         });
-      } catch (err) {
-        console.error(`[agent-spawn] folder picker failed:`, err);
         return;
+      } else {
+        try {
+          folder = await open({
+            directory: true,
+            multiple: false,
+            title: `Choose project folder for ${provider?.displayName ?? agentId}`,
+          });
+        } catch (err) {
+          console.error(`[agent-spawn] folder picker failed:`, err);
+          return;
+        }
       }
       if (!folder) return;
     }
@@ -155,10 +176,21 @@ export function Sidebar({
 
   const handleNewWorkspace = useCallback(async () => {
     let folder: string | null;
-    try {
-      folder = await open({ directory: true, multiple: false, title: "Choose workspace folder" });
-    } catch {
+    if (IS_WEB) {
+      setFolderPicker({
+        title: "Workspace folder",
+        onSelect: async (path) => {
+          const basename = path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
+          await createWorkspace(basename, path);
+        },
+      });
       return;
+    } else {
+      try {
+        folder = await open({ directory: true, multiple: false, title: "Choose workspace folder" });
+      } catch {
+        return;
+      }
     }
     if (!folder) return;
     const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
@@ -184,17 +216,36 @@ export function Sidebar({
   }, []);
 
   const [sidebarWidth, setSidebarWidth] = useState(220);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const lastExpandedWidth = useRef(220);
   const sidebarDragging = useRef(false);
+  const sidebarMoved = useRef(false);
 
   const handleSidebarDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     sidebarDragging.current = true;
+    sidebarMoved.current = false;
     const startX = e.clientX;
     const startWidth = sidebarWidth;
+    const startCollapsed = isSidebarCollapsed;
+    if (!startCollapsed) {
+      lastExpandedWidth.current = sidebarWidth;
+    }
     const onMove = (ev: MouseEvent) => {
       if (!sidebarDragging.current) return;
-      const newWidth = Math.max(48, Math.min(400, startWidth + ev.clientX - startX));
+      const delta = ev.clientX - startX;
+      if (Math.abs(delta) > 3) {
+        sidebarMoved.current = true;
+      }
+      const baseWidth = startCollapsed ? lastExpandedWidth.current : startWidth;
+      const newWidth = Math.max(48, Math.min(400, baseWidth + delta));
+      if (newWidth <= 56) {
+        setIsSidebarCollapsed(true);
+        return;
+      }
+      setIsSidebarCollapsed(false);
       setSidebarWidth(newWidth);
+      lastExpandedWidth.current = newWidth;
     };
     const onUp = () => {
       sidebarDragging.current = false;
@@ -207,10 +258,26 @@ export function Sidebar({
     document.addEventListener("mouseup", onUp);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-  }, [sidebarWidth]);
+  }, [isSidebarCollapsed, sidebarWidth]);
+
+  const handleSidebarGrabClick = useCallback(() => {
+    if (sidebarMoved.current) {
+      sidebarMoved.current = false;
+      return;
+    }
+    if (isSidebarCollapsed) {
+      setSidebarWidth(lastExpandedWidth.current);
+      setIsSidebarCollapsed(false);
+    } else {
+      lastExpandedWidth.current = sidebarWidth;
+      setIsSidebarCollapsed(true);
+    }
+  }, [isSidebarCollapsed, sidebarWidth]);
 
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const isCompact = sidebarWidth < 100;
+  const touchMode = useTouchOptimizedUi();
+  const visibleSidebarWidth = isSidebarCollapsed ? 16 : touchMode ? Math.round(sidebarWidth * 1.3) : sidebarWidth;
+  const isCompact = !touchMode && !isSidebarCollapsed && sidebarWidth < 100;
 
   // Track tabs for appear/close animations
   const prevTabIdsRef = useRef<Set<string>>(new Set());
@@ -248,9 +315,8 @@ export function Sidebar({
     return () => clearTimeout(timer);
   }, [appearingTabs]);
 
-  // Fire backend PTY-kill immediately so it runs in parallel with the visual
-  // exit animation; defer the local state dispatch (which removes the tab)
-  // until the 350ms animation completes so the pill doesn't disappear mid-fade.
+  // Fire backend PTY-kill immediately so it runs in parallel with the visual exit animation; defer the local state dispatch (which removes the
+  // tab) until the 350ms animation completes so the pill doesn't disappear mid-fade.
   const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
     const ws = state.workspaces.find((w) => w.id === wsId);
     const tab = ws?.tabs.find((t) => t.id === tabId);
@@ -274,329 +340,377 @@ export function Sidebar({
 
   return (
     <>
-      <aside
-        ref={sidebarRef}
-        className="shrink-0 bg-[var(--ct-sidebar-bg)] flex flex-col select-none overflow-hidden relative"
-        style={{ width: sidebarWidth, boxShadow: "inset -0.5px 0 0 var(--ct-border-subtle)" }}
-      >
-        {/* Panes header with action icons */}
-        <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
-          {!isCompact && (
-            <span className="text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] truncate">
-              Panes
-            </span>
-          )}
-          <div className="flex items-center gap-1">
-            {/* New workspace */}
-            <button
-              onClick={handleNewWorkspace}
-              className="flex items-center justify-center w-6 h-6 rounded border border-[var(--ct-border)] hover:bg-[var(--ct-hover)] hover:border-[var(--ct-muted)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
-              title="New workspace"
-            >
-              <FolderPlusIcon size={12} />
-            </button>
-          </div>
-        </div>
+      <div
+        className="relative overflow-visible shrink-0 h-full"
+        style={{
+          width: visibleSidebarWidth,
+          boxShadow: "inset -0.5px 0 0 var(--ct-border-subtle)",
+          transition: sidebarDragging.current ? undefined : "width 180ms cubic-bezier(0.16, 1, 0.3, 1)",
+        }}
+        >
+        <aside
+          ref={sidebarRef}
+          data-touch-mode={touchMode ? "true" : "false"}
+          className="shrink-0 h-full min-h-0 bg-[var(--ct-sidebar-bg)] flex flex-col select-none overflow-visible overflow-y-hidden relative"
+          style={{ width: visibleSidebarWidth }}
+        >
+          {!isSidebarCollapsed && (
+            <>
+              {/* Web mirror: the titlebar is stripped, so the host picker (with
+                  its online dot) and keep-awake live at the top of the sidebar. */}
+              {IS_WEB && (
+                <div className="flex items-center gap-2 px-2 pt-2 pb-1 border-b border-[var(--ct-border)]">
+                  <WebPeerPicker />
+                  <div className="ml-auto">
+                    <KeepAwakeTray />
+                  </div>
+                </div>
+              )}
+              {/* Panes header with action icons */}
+              <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
+                {!isCompact && (
+                  <span className="text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] truncate">
+                    Panes
+                  </span>
+                )}
+                <div className="flex items-center gap-1">
+                  {/* New workspace */}
+                  <button
+                    onClick={handleNewWorkspace}
+                    className="flex items-center justify-center w-6 h-6 rounded border border-[var(--ct-border)] hover:bg-[var(--ct-hover)] hover:border-[var(--ct-muted)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+                    title="New workspace"
+                  >
+                    <FolderPlusIcon size={12} />
+                  </button>
+                </div>
+              </div>
 
-        {/* Workspace tree */}
-        <div className="flex-1 overflow-y-auto">
-          {isCompact ? (
-            /* Compact mode — icon list with collapsible tabs */
-            <div className="flex flex-col items-center py-1">
-              {state.workspaces.map((ws) => {
+            <div className="flex-1 overflow-y-auto">
+              {isCompact ? (
+                /* Compact mode — icon list with collapsible tabs */
+                <div className="flex flex-col items-center py-1">
+                  {state.workspaces.map((ws) => {
+                    const isActive = ws.id === state.active_workspace_id;
+                    const isActiveVisual = isActive && isWorkspaceMode;
+                    const isExpanded = expandedWorkspaces.has(ws.id);
+                    return (
+                      <div key={ws.id} className="w-full flex flex-col items-center">
+                        <button
+                          onClick={() => { setActiveWorkspace(ws.id); toggleExpanded(ws.id); onNavigateToTab?.(); }}
+                          className={`w-full py-1.5 flex items-center justify-center transition-colors ${
+                            isActiveVisual ? "text-[var(--ct-fg)]" : "text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)]"
+                          }`}
+                          title={ws.name}
+                        >
+                          <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
+                        </button>
+                        {isExpanded && ws.tabs.map((tab) => {
+                          const tabPaneIds = collectPaneIds(tab, state.panes);
+                          const isTabActive = isActiveVisual && tab.id === ws.active_tab_id;
+                          return (
+                            <button
+                              key={tab.id}
+                              onClick={() => { setActiveWorkspace(ws.id); setActiveTab(ws.id, tab.id); onNavigateToTab?.(); }}
+                              className={`w-8 h-7 flex items-center justify-center rounded transition-colors ${
+                                isTabActive
+                                  ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                                  : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"
+                              }`}
+                              title={tab.title}
+                            >
+                              {(() => {
+                                // Any pane with an agent_type set (backend already classified) — don't gate on the FE-only `getAgentProvider` registry, or drop-in plugins
+                                // without a FE module wouldn't surface here.
+                                const agentPid = tabPaneIds.find((pid) => !!state.panes[pid]?.agent_type);
+                                const agentType = agentPid ? state.panes[agentPid]?.agent_type : undefined;
+                                return agentType ? (
+                                  <AgentIcon providerId={agentType} className="text-[12px]" />
+                                ) : (
+                                  <TerminalIcon size={11} />
+                                );
+                              })()}
+                            </button>
+                          );
+                        })}
+                        <div className="w-5 h-px bg-[var(--ct-border)] my-0.5" />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : state.workspaces.map((ws) => {
+                const allPaneIds = ws.tabs.flatMap((t) => collectPaneIds(t, state.panes));
+                const wsStatus = aggregateStatus(allPaneIds, state.paneStatuses);
+                const hasWaiting = allPaneIds.some(
+                  (pid) => state.paneStatuses[pid] === "Waiting",
+                );
                 const isActive = ws.id === state.active_workspace_id;
                 const isActiveVisual = isActive && isWorkspaceMode;
                 const isExpanded = expandedWorkspaces.has(ws.id);
+                // Orchestrators available for linking (across all workspaces)
+                const wsOrchestrators = Object.values(state.panes).filter(
+                  (p) => p.role === "Orchestrator",
+                );
+
                 return (
-                  <div key={ws.id} className="w-full flex flex-col items-center">
-                    <button
-                      onClick={() => { setActiveWorkspace(ws.id); toggleExpanded(ws.id); onNavigateToTab?.(); }}
-                      className={`w-full py-1.5 flex items-center justify-center transition-colors ${
-                        isActiveVisual ? "text-[var(--ct-fg)]" : "text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)]"
-                      }`}
-                      title={ws.name}
+                  <div key={ws.id}>
+                    <WorkspaceItem
+                      workspace={ws}
+                      isActive={isActiveVisual}
+                      isExpanded={isExpanded}
+                      onClick={() => { setActiveWorkspace(ws.id); onNavigateToTab?.(); }}
+                      onToggleExpand={() => toggleExpanded(ws.id)}
+                      onClose={() => closeWorkspace(ws.id)}
+                      onRename={(name) => renameWorkspace(ws.id, name)}
+                      onNewTerminal={() => createTab(ws.id)}
+                      onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
+                      canClose={true}
+                      status={wsStatus}
+                      hasWaiting={hasWaiting}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        try {
+                          const data = JSON.parse(e.dataTransfer.getData("text/plain"));
+                          if (data.tabId && data.fromWorkspaceId && data.fromWorkspaceId !== ws.id) {
+                            moveTab(data.tabId, data.fromWorkspaceId, ws.id);
+                          }
+                        } catch { /* ignore */ }
+                      }}
+                      touchMode={touchMode}
+                    />
+                    {/* Animated expand/collapse using grid-template-rows */}
+                    <div
+                      className="grid transition-[grid-template-rows] duration-[320ms]"
+                      style={{
+                        gridTemplateRows: isExpanded ? "1fr" : "0fr",
+                        transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+                      }}
                     >
-                      <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
-                    </button>
-                    {isExpanded && ws.tabs.map((tab) => {
-                      const tabPaneIds = collectPaneIds(tab, state.panes);
-                      const isTabActive = isActiveVisual && tab.id === ws.active_tab_id;
-                      return (
-                        <button
-                          key={tab.id}
-                          onClick={() => { setActiveWorkspace(ws.id); setActiveTab(ws.id, tab.id); onNavigateToTab?.(); }}
-                          className={`w-8 h-7 flex items-center justify-center rounded transition-colors ${
-                            isTabActive
-                              ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                              : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"
-                          }`}
-                          title={tab.title}
-                        >
+                      <div className="overflow-hidden">
+                        {/* Content always rendered — CSS grid-template-rows handles show/hide with animation */}
+                        <>
                           {(() => {
-                            const agentPid = tabPaneIds.find((pid) => !!getAgentProvider(state.panes[pid]?.agent_type));
-                            const tabProvider = agentPid ? getAgentProvider(state.panes[agentPid]?.agent_type) : undefined;
-                            return tabProvider ? (
-                              <AgentIcon providerId={tabProvider.id} className="text-[12px]" />
-                            ) : (
-                              <TerminalIcon size={11} />
-                            );
+                            // Build pane→tab lookup and find which tabs are children
+                            const paneToTab: Record<string, typeof ws.tabs[0]> = {};
+                            for (const tab of ws.tabs) {
+                              const pids = collectPaneIds(tab, state.panes);
+                              if (pids[0]) paneToTab[pids[0]] = tab;
+                            }
+                            // Set of pane IDs that are children (have a parent) — skip at top level
+                            const childPaneIds = new Set<string>();
+                            for (const tab of ws.tabs) {
+                              const pids = collectPaneIds(tab, state.panes);
+                              const pane = pids[0] ? state.panes[pids[0]] : null;
+                              if (pane?.parent_pane_id) childPaneIds.add(pids[0]);
+                            }
+
+                            // Render a tab + its children recursively
+                            const renderTab = (tab: Tab, index: number, depth: number): React.ReactNode => {
+                              const tabPids = collectPaneIds(tab, state.panes);
+                              const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
+                              // Find child tabs (tabs whose pane.parent_pane_id === this pane)
+                              const childTabs = firstPane
+                                ? ws.tabs.filter((t) => {
+                                    const tPids = collectPaneIds(t, state.panes);
+                                    const tPane = tPids[0] ? state.panes[tPids[0]] : null;
+                                    return tPane?.parent_pane_id === firstPane.id;
+                                  })
+                                : [];
+
+                              const isClosing = closingTabs.has(tab.id);
+                              const isAppearing = appearingTabs.has(tab.id);
+
+                              return (
+                                <div key={tab.id} style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
+                                  <TabItem
+                                    tab={tab}
+                                    index={index}
+                                    isActive={isActiveVisual && tab.id === ws.active_tab_id}
+                                    onClick={() => {
+                                      setActiveWorkspace(ws.id);
+                                      setActiveTab(ws.id, tab.id);
+                                      onNavigateToTab?.();
+                                    }}
+                                    onClose={() => animatedCloseTab(ws.id, tab.id)}
+                                    canClose={true}
+                                    paneCount={tabPids.length}
+                                    workspaceId={ws.id}
+                                    hasAgent={tabPids.some(
+                                      (pid) => !!state.panes[pid]?.agent_type
+                                    )}
+                                    status={aggregateStatus(tabPids, state.paneStatuses)}
+                                    onRename={(title) => {
+                                      setTabTitle(ws.id, tab.id, title);
+                                      invoke("mux_rename_tab", { workspaceId: ws.id, tabId: tab.id, title }).catch(() => {});
+                                    }}
+                                    pane={firstPane}
+                                    orchestrators={wsOrchestrators}
+                                    isAppearing={isAppearing}
+                                    isClosing={isClosing}
+                                    touchMode={touchMode}
+                                  />
+                                  {childTabs.map((ct, ci) => renderTab(ct, ci, depth + 1))}
+                                </div>
+                              );
+                            };
+
+                            // Only render top-level tabs (not children)
+                            return ws.tabs
+                              .filter((tab) => {
+                                const pids = collectPaneIds(tab, state.panes);
+                                if (pids.length === 0) return false;
+                                if (childPaneIds.has(pids[0])) return false;
+                                return true;
+                              })
+                              .map((tab, index) => renderTab(tab, index, 0));
                           })()}
-                        </button>
-                      );
-                    })}
-                    <div className="w-5 h-px bg-[var(--ct-border)] my-0.5" />
+                          {/* Add tab button */}
+                          <button
+                            onClick={async () => {
+                              try {
+                                const cfg = await invoke<{ agent: { resume_skip_permissions: boolean } }>("get_config");
+                                const skip = cfg.agent.resume_skip_permissions;
+                                spawnClaudeTab(ws.id, skip, ws.cwd ?? undefined);
+                              } catch {
+                                spawnClaudeTab(ws.id, false, ws.cwd ?? undefined);
+                              }
+                            }}
+                            className="flex items-center gap-2 mx-2 mt-1 mb-0.5 px-5 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
+                            title="New Claude session in this workspace"
+                          >
+                            <Plus size={10} strokeWidth={1.5} />
+                            <span className="text-[11px]">New session</span>
+                          </button>
+                        </>
+                      </div>
+                    </div>
+                    {!isExpanded && isActiveVisual && ws.active_tab_id ? (
+                      /* Collapsed but active — show selected tab */
+                      (() => {
+                        const activeTab = ws.tabs.find((t) => t.id === ws.active_tab_id);
+                        if (!activeTab) return null;
+                        const atPids = collectPaneIds(activeTab, state.panes);
+                        const atFirstPane = atPids[0] ? state.panes[atPids[0]] : null;
+                        return (
+                          <TabItem
+                            tab={activeTab}
+                            index={0}
+                            isActive={isActiveVisual}
+                            onClick={() => { setActiveTab(ws.id, activeTab.id); onNavigateToTab?.(); }}
+                            onClose={() => animatedCloseTab(ws.id, activeTab.id)}
+                            canClose={true}
+                            paneCount={atPids.length}
+                            workspaceId={ws.id}
+                            hasAgent={atPids.some(
+                              (pid) => !!state.panes[pid]?.agent_type
+                            )}
+                            status={aggregateStatus(atPids, state.paneStatuses)}
+                            onRename={(title) => {
+                              setTabTitle(ws.id, activeTab.id, title);
+                              invoke("mux_rename_tab", { workspaceId: ws.id, tabId: activeTab.id, title }).catch(() => {});
+                            }}
+                            pane={atFirstPane}
+                            orchestrators={wsOrchestrators}
+                            touchMode={touchMode}
+                          />
+                        );
+                      })()
+                    ) : null}
                   </div>
                 );
               })}
             </div>
-          ) : state.workspaces.map((ws) => {
-            const allPaneIds = ws.tabs.flatMap((t) => collectPaneIds(t, state.panes));
-            const wsStatus = aggregateStatus(allPaneIds, state.paneStatuses);
-            const hasWaiting = allPaneIds.some(
-              (pid) => state.paneStatuses[pid] === "Waiting",
-            );
-            const isActive = ws.id === state.active_workspace_id;
-            const isActiveVisual = isActive && isWorkspaceMode;
-            const isExpanded = expandedWorkspaces.has(ws.id);
-            // Orchestrators available for linking (across all workspaces)
-            const wsOrchestrators = Object.values(state.panes).filter(
-              (p) => p.role === "Orchestrator" || p.role === "Conductor" || p.role === "Lead" || (p.role === "Worker" && p.can_spawn),
-            );
 
-            return (
-              <div key={ws.id}>
-                <WorkspaceItem
-                  workspace={ws}
-                  isActive={isActiveVisual}
-                  isExpanded={isExpanded}
-                  onClick={() => { setActiveWorkspace(ws.id); onNavigateToTab?.(); }}
-                  onToggleExpand={() => toggleExpanded(ws.id)}
-                  onClose={() => closeWorkspace(ws.id)}
-                  onRename={(name) => renameWorkspace(ws.id, name)}
-                  onNewTerminal={() => createTab(ws.id)}
-                  onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
-                  canClose={true}
-                  status={wsStatus}
-                  hasWaiting={hasWaiting}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    try {
-                      const data = JSON.parse(e.dataTransfer.getData("text/plain"));
-                      if (data.tabId && data.fromWorkspaceId && data.fromWorkspaceId !== ws.id) {
-                        moveTab(data.tabId, data.fromWorkspaceId, ws.id);
-                      }
-                    } catch { /* ignore */ }
-                  }}
-                />
-                {/* Animated expand/collapse using grid-template-rows */}
-                <div
-                  className="grid transition-[grid-template-rows] duration-[320ms]"
-                  style={{
-                    gridTemplateRows: isExpanded ? "1fr" : "0fr",
-                    transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-                  }}
+            {/* Memory + Settings buttons at bottom */}
+            <div className={`border-t border-[var(--ct-border)] mt-auto ${isCompact ? "px-1 py-2 flex flex-col items-center gap-1" : "px-3 py-2 flex flex-col gap-1"}`}>
+              {(config?.ui?.memory_tab_enabled ?? true) && (
+                <button
+                  onClick={onOpenMemory}
+                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                    mainView === "memory"
+                      ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                      : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                  }`}
+                  title="Memory Graph (Ctrl+Shift+M)"
                 >
-                  <div className="overflow-hidden">
-                {/* Content always rendered — CSS grid-template-rows handles show/hide with animation */}
-                  <>
-                    {(() => {
-                      // Build pane→tab lookup and find which tabs are children
-                      const paneToTab: Record<string, typeof ws.tabs[0]> = {};
-                      for (const tab of ws.tabs) {
-                        const pids = collectPaneIds(tab, state.panes);
-                        if (pids[0]) paneToTab[pids[0]] = tab;
-                      }
-                      // Set of pane IDs that are children (have a parent) — skip at top level
-                      const childPaneIds = new Set<string>();
-                      for (const tab of ws.tabs) {
-                        const pids = collectPaneIds(tab, state.panes);
-                        const pane = pids[0] ? state.panes[pids[0]] : null;
-                        if (pane?.parent_pane_id) childPaneIds.add(pids[0]);
-                      }
-
-                      // Render a tab + its children recursively
-                      const renderTab = (tab: Tab, index: number, depth: number): React.ReactNode => {
-                        const tabPids = collectPaneIds(tab, state.panes);
-                        const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
-                        // Find child tabs (tabs whose pane.parent_pane_id === this pane)
-                        const childTabs = firstPane
-                          ? ws.tabs.filter((t) => {
-                              const tPids = collectPaneIds(t, state.panes);
-                              const tPane = tPids[0] ? state.panes[tPids[0]] : null;
-                              return tPane?.parent_pane_id === firstPane.id;
-                            })
-                          : [];
-
-                        const isClosing = closingTabs.has(tab.id);
-                        const isAppearing = appearingTabs.has(tab.id);
-
-                        return (
-                          <div key={tab.id} style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
-                            <TabItem
-                              tab={tab}
-                              index={index}
-                              isActive={isActiveVisual && tab.id === ws.active_tab_id}
-                              onClick={() => {
-                                setActiveWorkspace(ws.id);
-                                setActiveTab(ws.id, tab.id);
-                                onNavigateToTab?.();
-                              }}
-                              onClose={() => animatedCloseTab(ws.id, tab.id)}
-                              canClose={true}
-                              paneCount={tabPids.length}
-                              workspaceId={ws.id}
-                              hasAgent={tabPids.some(
-                                (pid) => !!getAgentProvider(state.panes[pid]?.agent_type)
-                              )}
-                              status={aggregateStatus(tabPids, state.paneStatuses)}
-                              onRename={(title) => {
-                                setTabTitle(ws.id, tab.id, title);
-                                invoke("mux_rename_tab", { workspaceId: ws.id, tabId: tab.id, title }).catch(() => {});
-                              }}
-                              pane={firstPane}
-                              orchestrators={wsOrchestrators}
-                              isAppearing={isAppearing}
-                              isClosing={isClosing}
-                            />
-                            {childTabs.map((ct, ci) => renderTab(ct, ci, depth + 1))}
-                          </div>
-                        );
-                      };
-
-                      // Only render top-level tabs (not children)
-                      return ws.tabs
-                        .filter((tab) => {
-                          const pids = collectPaneIds(tab, state.panes);
-                          if (pids.length === 0) return false;
-                          if (childPaneIds.has(pids[0])) return false;
-                          return true;
-                        })
-                        .map((tab, index) => renderTab(tab, index, 0));
-                    })()}
-                    {/* Add tab button */}
-                    <button
-                      onClick={async () => {
-                        try {
-                          const cfg = await invoke<{ agent: { resume_skip_permissions: boolean } }>("get_config");
-                          const skip = cfg.agent.resume_skip_permissions;
-                          spawnClaudeTab(ws.id, skip, ws.cwd ?? undefined);
-                        } catch {
-                          spawnClaudeTab(ws.id, false, ws.cwd ?? undefined);
-                        }
-                      }}
-                      className="flex items-center gap-2 mx-2 mt-1 mb-0.5 px-5 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
-                      title="New Claude session in this workspace"
-                    >
-                      <Plus size={10} strokeWidth={1.5} />
-                      <span className="text-[11px]">New session</span>
-                    </button>
-                  </>
-                  </div>
-                </div>
-                {!isExpanded && isActiveVisual && ws.active_tab_id ? (
-                  /* Collapsed but active — show selected tab */
-                  (() => {
-                    const activeTab = ws.tabs.find((t) => t.id === ws.active_tab_id);
-                    if (!activeTab) return null;
-                    const atPids = collectPaneIds(activeTab, state.panes);
-                    const atFirstPane = atPids[0] ? state.panes[atPids[0]] : null;
-                    return (
-                      <TabItem
-                        tab={activeTab}
-                        index={0}
-                        isActive={isActiveVisual}
-                        onClick={() => { setActiveTab(ws.id, activeTab.id); onNavigateToTab?.(); }}
-                        onClose={() => animatedCloseTab(ws.id, activeTab.id)}
-                        canClose={true}
-                        paneCount={atPids.length}
-                        workspaceId={ws.id}
-                        hasAgent={atPids.some(
-                          (pid) => !!getAgentProvider(state.panes[pid]?.agent_type)
-                        )}
-                        status={aggregateStatus(atPids, state.paneStatuses)}
-                        onRename={(title) => {
-                          setTabTitle(ws.id, activeTab.id, title);
-                          invoke("mux_rename_tab", { workspaceId: ws.id, tabId: activeTab.id, title }).catch(() => {});
-                        }}
-                        pane={atFirstPane}
-                        orchestrators={wsOrchestrators}
-                      />
-                    );
-                  })()
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Memory + Settings buttons at bottom */}
-        <div className={`border-t border-[var(--ct-border)] ${isCompact ? "px-1 py-2 flex flex-col items-center gap-1" : "px-3 py-2 flex flex-col gap-1"}`}>
-          {(config?.ui?.memory_tab_enabled ?? true) && (
-            <button
-              onClick={onOpenMemory}
-              className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
-                mainView === "memory"
-                  ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                  : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-              }`}
-              title="Memory Graph (Ctrl+Shift+M)"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                <circle cx="12" cy="5" r="2" />
-                <circle cx="5" cy="19" r="2" />
-                <circle cx="19" cy="19" r="2" />
-                <circle cx="12" cy="13" r="2" />
-                <line x1="12" y1="7" x2="12" y2="11" />
-                <line x1="10.5" y1="14.5" x2="6.5" y2="17.5" />
-                <line x1="13.5" y1="14.5" x2="17.5" y2="17.5" />
-              </svg>
-              {!isCompact && <span className="text-[11px]">Memory</span>}
-            </button>
-          )}
-          {(config?.ui?.mesh_tab_enabled ?? true) && (
-            <button
-              onClick={onOpenMesh}
-              className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
-                mainView === "mesh"
-                  ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                  : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-              }`}
-              title="Mesh"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                <circle cx="12" cy="12" r="2" />
-                <circle cx="4" cy="6" r="2" />
-                <circle cx="20" cy="6" r="2" />
-                <circle cx="4" cy="18" r="2" />
-                <circle cx="20" cy="18" r="2" />
-                <line x1="6" y1="6" x2="10.5" y2="11" />
-                <line x1="18" y1="6" x2="13.5" y2="11" />
-                <line x1="6" y1="18" x2="10.5" y2="13" />
-                <line x1="18" y1="18" x2="13.5" y2="13" />
-              </svg>
-              {!isCompact && <span className="text-[11px]">Mesh</span>}
-            </button>
-          )}
-          <button
-            onClick={onOpenSettings}
-            className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
-              mainView === "settings"
-                ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-            }`}
-            title="Settings (Ctrl+,)"
-          >
-            <GearIcon className="shrink-0" />
-            {!isCompact && <span className="text-[11px]">Settings</span>}
-          </button>
-        </div>
-        {/* Resize handle */}
-        <div
-          onMouseDown={handleSidebarDragStart}
-          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--ct-accent)] transition-colors"
-        />
+                  <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                    <circle cx="12" cy="5" r="2" />
+                    <circle cx="5" cy="19" r="2" />
+                    <circle cx="19" cy="19" r="2" />
+                    <circle cx="12" cy="13" r="2" />
+                    <line x1="12" y1="7" x2="12" y2="11" />
+                    <line x1="10.5" y1="14.5" x2="6.5" y2="17.5" />
+                    <line x1="13.5" y1="14.5" x2="17.5" y2="17.5" />
+                  </svg>
+                  {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Memory</span>}
+                </button>
+              )}
+              {(config?.ui?.mesh_tab_enabled ?? true) && (
+                <button
+                  data-testid="nav-mesh"
+                  onClick={onOpenMesh}
+                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                    mainView === "mesh"
+                      ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                      : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                  }`}
+                  title="Mesh"
+                >
+                  <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                    <circle cx="12" cy="12" r="2" />
+                    <circle cx="4" cy="6" r="2" />
+                    <circle cx="20" cy="6" r="2" />
+                    <circle cx="4" cy="18" r="2" />
+                    <circle cx="20" cy="18" r="2" />
+                    <line x1="6" y1="6" x2="10.5" y2="11" />
+                    <line x1="18" y1="6" x2="13.5" y2="11" />
+                    <line x1="6" y1="18" x2="10.5" y2="13" />
+                    <line x1="18" y1="18" x2="13.5" y2="13" />
+                  </svg>
+                  {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Mesh</span>}
+                </button>
+              )}
+              <button
+                data-testid="nav-settings"
+                onClick={onOpenSettings}
+                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                  mainView === "settings"
+                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                    : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                }`}
+                title="Settings (Ctrl+,)"
+              >
+                <GearIcon size={touchMode ? 18 : 14} className="shrink-0" />
+                {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Settings</span>}
+              </button>
+            </div>
+          </>
+        )}
       </aside>
+
+      {/* Resize/collapse grabber */}
+      <button
+        type="button"
+        onMouseDown={handleSidebarDragStart}
+        onClick={handleSidebarGrabClick}
+        className={`absolute top-1/2 z-20 flex -translate-y-1/2 cursor-col-resize items-center justify-center rounded-r !border border-l-0 !border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-surface)_78%,transparent)] text-[var(--ct-muted-fg)] shadow-sm transition-colors hover:border-[var(--ct-accent)] hover:bg-[var(--ct-surface)] hover:text-[var(--ct-fg)] ${isSidebarCollapsed ? "left-0 h-8 w-2.5" : "left-[100%] -ml-[2px] h-9 w-3"}`}
+        title={isSidebarCollapsed ? "Expand sidebar" : "Resize sidebar; click to collapse"}
+      >
+        <span className="h-4 w-px rounded-full bg-current opacity-60" />
+      </button>
+    </div>
+
+      {folderPicker && (
+        <RemoteFolderPicker
+          title={folderPicker.title}
+          initialPath={folderPicker.initialPath}
+          onCancel={() => setFolderPicker(null)}
+          onSelect={(path) => {
+            setFolderPicker(null);
+            folderPicker.onSelect(path);
+          }}
+        />
+      )}
 
       {/* Agent spawn modal */}
       {agentSpawnModal && (

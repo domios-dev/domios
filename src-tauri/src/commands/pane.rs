@@ -3,6 +3,9 @@ use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
 use crate::ScreenStateHandle;
 
+// NOTE: keep `RichMessage`/`SessionDelta` and `spawn_tailer`/`DeltaSink`
+// for future non-UI consumers. Frontend uses raw-text tailer + TS parser today.
+
 #[tauri::command]
 pub async fn get_pane_output(
     svc: tauri::State<'_, ServiceState>,
@@ -71,24 +74,32 @@ pub async fn get_pane_git_info(
     mux: tauri::State<'_, MuxState>,
     pane_id: String,
 ) -> Result<Option<GitInfo>, String> {
+    // Agent panes never emit OSC7 — fall back to their workspace's cwd.
     let cwd = {
         let mux = mux.lock();
-        mux.get_pane(&pane_id).and_then(|p| p.cwd.clone())
+        mux.get_pane(&pane_id)
+            .and_then(|p| p.cwd.clone())
+            .or_else(|| {
+                mux.list_workspaces()
+                    .into_iter()
+                    .find(|ws| ws.pane_ids.iter().any(|p| p == &pane_id))
+                    .and_then(|ws| ws.cwd)
+            })
     };
     let Some(cwd) = cwd else { return Ok(None) };
-    Ok(tokio::task::spawn_blocking(move || git_info::get_git_info(&cwd))
-        .await
-        .map_err(|e| format!("join: {}", e))?)
+    Ok(
+        tokio::task::spawn_blocking(move || git_info::get_git_info(&cwd))
+            .await
+            .map_err(|e| format!("join: {}", e))?,
+    )
 }
 
 #[tauri::command]
 pub async fn list_agent_providers(
     svc: tauri::State<'_, ServiceState>,
 ) -> Result<serde_json::Value, String> {
-    let result = crate::dispatch::dispatch(
-        &crate::dispatch::Command::ListAgentProviders,
-        svc.as_ref(),
-    )?;
+    let result =
+        crate::dispatch::dispatch(&crate::dispatch::Command::ListAgentProviders, svc.as_ref())?;
     Ok(result.into_json())
 }
 
@@ -126,42 +137,27 @@ pub fn read_session_jsonl(
     // 1. Get agent_session_id, agent_type, and cwd from pane
     let (mut session_id, cwd, agent_type) = {
         let m = mux.lock();
-        let pane = m.get_pane(&pane_id)
+        let pane = m
+            .get_pane(&pane_id)
             .ok_or_else(|| "Pane not found".to_string())?;
         let sid = pane.agent_session_id.clone();
-        let cwd = pane.cwd.clone()
+        let cwd = pane
+            .cwd
+            .clone()
             .ok_or_else(|| "Pane has no CWD".to_string())?;
-        let at = pane.agent_type.clone().unwrap_or_else(crate::config::default_agent_provider);
+        let at = pane
+            .agent_type
+            .clone()
+            .unwrap_or_else(crate::config::default_agent_provider);
         (sid, cwd, at)
     };
 
-    let needs_detect = if session_id.is_none() {
-        true
-    } else if let Some(ref sid) = session_id {
-        svc.agent_registry.with_provider(&agent_type, |p| p.session_file_path(&cwd, sid))
-            .flatten()
-            .map(|path| !path.exists())
-            .unwrap_or(true)
-    } else { false };
+    let session_id =
+        session_id.ok_or_else(|| "No agent session linked to this pane".to_string())?;
 
-    if needs_detect {
-        let exclude = mux.lock().other_session_ids(&pane_id);
-        let max_age = Some(std::time::Duration::from_secs(86400));
-        let detected = svc.agent_registry.with_provider(&agent_type, |p| {
-            p.detect_session_id(&cwd, &exclude, max_age)
-        }).flatten();
-        if let Some(detected) = detected {
-            log::info!("[read_session_jsonl] detected session {} for pane {}", detected, pane_id);
-            svc.set_agent_session_id(&pane_id, Some(detected.clone()));
-            svc.emit_state_changed();
-            session_id = Some(detected);
-        }
-    }
-
-    let session_id = session_id
-        .ok_or_else(|| "No agent session linked to this pane".to_string())?;
-
-    let jsonl_path = svc.agent_registry.with_provider(&agent_type, |p| p.session_file_path(&cwd, &session_id))
+    let jsonl_path = svc
+        .agent_registry
+        .with_provider(&agent_type, |p| p.session_file_path(&cwd, &session_id))
         .flatten()
         .ok_or_else(|| format!("No session file path for agent type: {}", agent_type))?;
 
@@ -178,13 +174,15 @@ pub fn read_session_jsonl(
         if skip >= file_len {
             return Ok(String::new());
         }
-        file.seek(SeekFrom::Start(skip)).map_err(|e| e.to_string())?;
+        file.seek(SeekFrom::Start(skip))
+            .map_err(|e| e.to_string())?;
         let mut buf = String::new();
         file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
         Ok(buf)
     } else if let Some(tail) = tail_bytes {
         let start = if file_len > tail { file_len - tail } else { 0 };
-        file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+        file.seek(SeekFrom::Start(start))
+            .map_err(|e| e.to_string())?;
         let mut buf = String::new();
         file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
         if start > 0 {
@@ -198,4 +196,300 @@ pub fn read_session_jsonl(
         file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
         Ok(buf)
     }
+}
+
+// Chat UI mode — thin Tauri wrappers over the pane_chat service.
+
+#[derive(serde::Serialize)]
+pub struct ChatStartResult {
+    /// Raw JSONL text from the recent window — frontend parses via the
+    /// claude TS plugin's `parseJsonlSession`. The window is anchored to
+    /// a `\n` boundary so the parser never sees a partial first line.
+    pub text: String,
+    pub start_offset: u64,
+    pub offset: u64,
+    /// Agent pane exists but its session hasn't been created yet — render an empty chat and retry once the mux reports a session id.
+    #[serde(default)]
+    pub pending: bool,
+    /// Structured providers (sqlite-backed, e.g. opencode) return parsed
+    /// messages here instead of raw `text`; the frontend renders them directly
+    /// and listens on `pane-chat-msg-{id}` for deltas. `None` = JSONL provider.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub messages: Option<Vec<crate::agent::chat_types::ChatMsg>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+#[tauri::command]
+pub async fn chat_start(
+    svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+) -> Result<ChatStartResult, String> {
+    chat_start_core(&svc, pane_id)
+}
+
+/// Shared by the Tauri command and the web mirror's
+/// POST /api/panes/{id}/chat-raw/start — identical result shape, so the
+/// chat view renders the same in both shells.
+pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
+    let started = std::time::Instant::now();
+    let (provider_id, cwd, mut session_id, mux_ms) = {
+        let t = std::time::Instant::now();
+        let m = svc.mux.lock();
+        let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
+        let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
+        let cwd = pane.cwd.clone().unwrap_or_default();
+        let Some(sid) = pane.agent_session_id.clone() else {
+            // Fresh agent pane: the session file appears with the first agent reply.
+            return Ok(ChatStartResult {
+                text: String::new(),
+                start_offset: 0,
+                offset: 0,
+                pending: true,
+                messages: None,
+                cursor: None,
+            });
+        };
+        (provider, cwd, sid, t.elapsed().as_millis())
+    };
+
+    // Chat view is a reader for the tab's saved conversation, not a session detector. A provider may still report that the live process has rolled
+    // to a newer backing session (Codex resume starts a fresh rollout). Only accept that provider-owned handoff when no sibling pane already owns it.
+    let detect_started = std::time::Instant::now();
+    if let Some(active_sid) = svc
+        .agent_registry
+        .with_provider(&provider_id, |p| p.detect_active_session(&cwd, &session_id))
+        .flatten()
+    {
+        let claimed = {
+            let mut mux = svc.mux.lock();
+            if mux.other_session_ids(&pane_id).contains(&active_sid) {
+                false
+            } else if let Some(pane) = mux.get_pane_mut(&pane_id) {
+                if pane.agent_type.as_deref() == Some(provider_id.as_str()) {
+                    pane.agent_session_id = Some(active_sid.clone());
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+        if claimed {
+            log::info!(
+                "[chat_start] rolled pane {} from {} -> {} ({})",
+                pane_id,
+                session_id,
+                active_sid,
+                provider_id,
+            );
+            svc.emit_state_changed();
+            session_id = active_sid;
+        }
+    }
+    let detect_ms = detect_started.elapsed().as_millis();
+
+    // DB-backed providers (sqlite, e.g. opencode) have no tailable JSONL: read
+    // structured messages in Rust and stream deltas from a DB poller.
+    if svc
+        .agent_registry
+        .with_provider(&provider_id, |p| p.uses_structured_chat())
+        .unwrap_or(false)
+    {
+        let delta = svc
+            .agent_registry
+            .with_provider(&provider_id, |p| {
+                p.read_structured_chat(&cwd, &session_id, None)
+            })
+            .unwrap_or_default();
+        let cursor = delta.cursor.clone();
+        if !svc.chat_registry.acquire(&pane_id) {
+            let sink =
+                crate::service::pane_chat::structured_sink::make_sink(svc.app_handle.clone());
+            let handle = crate::service::pane_chat::spawn_structured_poller(
+                crate::service::pane_chat::StructuredPollConfig {
+                    pane_id: pane_id.clone(),
+                    provider_id: provider_id.clone(),
+                    cwd: cwd.clone(),
+                    session_id: session_id.clone(),
+                    start_cursor: cursor.clone(),
+                    poll_interval: std::time::Duration::from_millis(500),
+                },
+                svc.agent_registry.clone(),
+                sink,
+            );
+            svc.chat_registry.insert(pane_id.clone(), handle);
+        }
+        return Ok(ChatStartResult {
+            text: String::new(),
+            start_offset: 0,
+            offset: 0,
+            pending: false,
+            messages: Some(delta.messages),
+            cursor,
+        });
+    }
+
+    // JSONL providers (claude, codex): parse to normalized `ChatMsg` in Rust —
+    // the SAME shape the DB-backed providers emit — so every provider renders
+    // through one client path. No second TS parser.
+    let path_started = std::time::Instant::now();
+    let path = svc
+        .agent_registry
+        .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
+        .flatten()
+        .ok_or("provider has no JSONL")?;
+    let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let path_ms = path_started.elapsed().as_millis();
+
+    // A missing file is NOT an error: the session id is detected from CLI output
+    // before the provider writes the first JSONL line. The tailer streams the
+    // history in as deltas the moment the file appears.
+    let read_started = std::time::Instant::now();
+    let (messages, msg_count) =
+        crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
+    let read_ms = read_started.elapsed().as_millis();
+
+    // Multiple webviews can attach to the same pane. The tailer is per pane, but subscriptions are per client; share the existing worker when one
+    // is already running so one client's stop() cannot kill another's stream.
+    let tailer_started = std::time::Instant::now();
+    if !svc.chat_registry.acquire(&pane_id) {
+        let sink = crate::service::pane_chat::structured_sink::make_flatten_sink(
+            svc.app_handle.clone(),
+            msg_count,
+        );
+        let handle = crate::service::pane_chat::spawn_tailer(
+            crate::service::pane_chat::TailConfig {
+                pane_id: pane_id.clone(),
+                provider_id: provider_id.clone(),
+                cwd: cwd.clone(),
+                session_id: session_id.clone(),
+                start_offset: total,
+                poll_interval: std::time::Duration::from_millis(500),
+            },
+            svc.agent_registry.clone(),
+            sink,
+        );
+        svc.chat_registry.insert(pane_id.clone(), handle);
+    }
+    let tailer_ms = tailer_started.elapsed().as_millis();
+    let total_ms = started.elapsed().as_millis();
+    if total_ms > 250 {
+        log::warn!(
+            "[chat_start.slow] pane={} provider={} total_ms={} mux={} detect={} path={} read={} tailer={} total_bytes={} messages={}",
+            pane_id,
+            provider_id,
+            total_ms,
+            mux_ms,
+            detect_ms,
+            path_ms,
+            read_ms,
+            tailer_ms,
+            total,
+            msg_count
+        );
+    }
+
+    Ok(ChatStartResult {
+        text: String::new(),
+        start_offset: 0,
+        offset: total,
+        pending: false,
+        messages: Some(messages),
+        cursor: None,
+    })
+}
+
+#[tauri::command]
+pub async fn chat_stop(svc: tauri::State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
+    svc.chat_registry.stop(&pane_id);
+    Ok(())
+}
+
+/// Format an uploaded voice attachment for sending to an agent: transcribe it
+/// (via the configured transcriber daemon) and wrap it in the same
+/// `-=-codeterm:voice ...-=-` marker shape the Telegram bridge uses.
+#[tauri::command]
+pub async fn transcribe_voice_attachment(path: String) -> Result<String, String> {
+    let cfg = crate::config::load_config().integrations.voice_transcribe;
+    Ok(crate::bridge::voice_transcribe::format_attachment_line(&path, "voice", None, &cfg).await)
+}
+
+#[derive(serde::Serialize)]
+pub struct ChatBackfillResult {
+    pub text: String,
+    pub start_offset: u64,
+    pub end_offset: u64,
+}
+
+#[tauri::command]
+pub async fn chat_backfill(
+    svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+    before_offset: u64,
+    max_bytes: Option<u64>,
+) -> Result<ChatBackfillResult, String> {
+    chat_backfill_core(&svc, pane_id, before_offset, max_bytes)
+}
+
+/// Shared by the Tauri command and the web mirror's
+/// POST /api/panes/{id}/chat-raw/backfill.
+pub fn chat_backfill_core(
+    svc: &ServiceState,
+    pane_id: String,
+    before_offset: u64,
+    max_bytes: Option<u64>,
+) -> Result<ChatBackfillResult, String> {
+    let (provider_id, cwd, session_id) = {
+        let m = svc.mux.lock();
+        let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
+        (
+            pane.agent_type.clone().ok_or("no agent_type")?,
+            pane.cwd.clone().unwrap_or_default(),
+            pane.agent_session_id.clone().ok_or("no session_id")?,
+        )
+    };
+    let path = svc
+        .agent_registry
+        .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
+        .flatten()
+        .ok_or("no JSONL")?;
+
+    let max_bytes = max_bytes.unwrap_or(128 * 1024);
+    let start = before_offset.saturating_sub(max_bytes);
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("read jsonl: {e}"))?;
+    let total = bytes.len() as u64;
+    let clamped_end = before_offset.min(total) as usize;
+    let clamped_start = (start as usize).min(clamped_end);
+    let window = &bytes[clamped_start..clamped_end];
+    // Align to the first \n so the parser doesn't see a partial first line.
+    let aligned_offset = if clamped_start == 0 {
+        0usize
+    } else {
+        window
+            .iter()
+            .position(|&b| b == b'\n')
+            .map(|i| i + 1)
+            .unwrap_or(0)
+    };
+    let text = String::from_utf8_lossy(&window[aligned_offset..]).to_string();
+
+    Ok(ChatBackfillResult {
+        text,
+        start_offset: clamped_start as u64 + aligned_offset as u64,
+        end_offset: before_offset,
+    })
+}
+
+#[tauri::command]
+pub async fn chat_send_text(
+    svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+    text: String,
+    enter: Option<bool>,
+) -> Result<(), String> {
+    let enter = enter.unwrap_or(true);
+    svc.send_text_when_ready(&pane_id, &text, enter).await
 }

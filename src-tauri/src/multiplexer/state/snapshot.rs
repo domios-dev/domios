@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{MultiplexerState, MultiplexerSnapshot};
+use super::{MultiplexerSnapshot, MultiplexerState};
 use crate::multiplexer::types::{Pane, PaneType, Tab, TitleLevel, Workspace};
 
 fn derive_agent_type_from_title(title: Option<&str>) -> Option<String> {
@@ -29,7 +29,10 @@ impl MultiplexerState {
         use crate::session::store::*;
         use std::time::{SystemTime, UNIX_EPOCH};
 
-        fn pane_to_leaf_snapshot(pane_id: &str, panes: &HashMap<String, Pane>) -> SplitNodeSnapshot {
+        fn pane_to_leaf_snapshot(
+            pane_id: &str,
+            panes: &HashMap<String, Pane>,
+        ) -> SplitNodeSnapshot {
             let pane = panes.get(pane_id);
             SplitNodeSnapshot::Leaf {
                 pane_id: pane_id.to_string(),
@@ -43,29 +46,41 @@ impl MultiplexerState {
                 parent_pane_id: pane.and_then(|p| p.parent_pane_id.clone()),
                 can_spawn: pane.map(|p| p.can_spawn).unwrap_or(false),
                 depth: pane.map(|p| p.depth).unwrap_or(0),
+                chat_view: pane.map(|p| p.chat_view),
+                auto_approve: pane.map(|p| p.auto_approve).unwrap_or(false),
             }
         }
 
-        let workspaces = self.workspaces.iter().map(|ws| {
-            WorkspaceSnapshot {
-                id: ws.id.clone(),
-                name: ws.name.clone(),
-                active_tab_id: ws.active_tab_id.clone(),
-                cwd: ws.cwd.clone(),
-                protected: ws.protected,
-                tabs: ws.tabs.iter().filter(|tab| {
-                    // Skip hidden worker panes — they're ephemeral and shouldn't
-                    // persist across restarts. Prevents ghost tabs in sidebar.
-                    !self.panes.get(&tab.pane_id).map(|p| p.hidden).unwrap_or(false)
-                }).map(|tab| {
-                    TabSnapshot {
-                        id: tab.id.clone(),
-                        title: tab.title.clone(),
-                        split_tree: pane_to_leaf_snapshot(&tab.pane_id, &self.panes),
-                    }
-                }).collect(),
-            }
-        }).collect();
+        let workspaces = self
+            .workspaces
+            .iter()
+            .map(|ws| {
+                WorkspaceSnapshot {
+                    id: ws.id.clone(),
+                    name: ws.name.clone(),
+                    active_tab_id: ws.active_tab_id.clone(),
+                    cwd: ws.cwd.clone(),
+                    protected: ws.protected,
+                    tabs: ws
+                        .tabs
+                        .iter()
+                        .filter(|tab| {
+                            // Skip hidden worker panes — they're ephemeral and shouldn't persist across restarts. Prevents ghost tabs in sidebar.
+                            !self
+                                .panes
+                                .get(&tab.pane_id)
+                                .map(|p| p.hidden)
+                                .unwrap_or(false)
+                        })
+                        .map(|tab| TabSnapshot {
+                            id: tab.id.clone(),
+                            title: tab.title.clone(),
+                            split_tree: pane_to_leaf_snapshot(&tab.pane_id, &self.panes),
+                        })
+                        .collect(),
+                }
+            })
+            .collect();
 
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -94,22 +109,38 @@ impl MultiplexerState {
         fn first_leaf(node: &SplitNodeSnapshot) -> Option<&SplitNodeSnapshot> {
             match node {
                 SplitNodeSnapshot::Leaf { .. } => Some(node),
-                SplitNodeSnapshot::Split { children, .. } => {
-                    children.iter().find_map(first_leaf)
-                }
+                SplitNodeSnapshot::Split { children, .. } => children.iter().find_map(first_leaf),
             }
         }
 
-        fn install_leaf(leaf: &SplitNodeSnapshot, panes: &mut HashMap<String, Pane>) -> Option<String> {
+        fn install_leaf(
+            leaf: &SplitNodeSnapshot,
+            panes: &mut HashMap<String, Pane>,
+        ) -> Option<String> {
             let SplitNodeSnapshot::Leaf {
-                pane_id, cwd, title, title_level, agent_type, agent_type_locked,
-                claude_session_id, role, parent_pane_id, can_spawn, depth,
-            } = leaf else { return None };
+                pane_id,
+                cwd,
+                title,
+                title_level,
+                agent_type,
+                agent_type_locked,
+                claude_session_id,
+                role,
+                parent_pane_id,
+                can_spawn,
+                depth,
+                chat_view,
+                auto_approve,
+            } = leaf
+            else {
+                return None;
+            };
 
             let parsed_role = role.as_deref().and_then(|r| match r {
-                "Orchestrator" | "Conductor" => Some(crate::multiplexer::types::AgentRole::Orchestrator),
-                "Lead" => Some(crate::multiplexer::types::AgentRole::Lead),
-                "Worker" | "SubWorker" => Some(crate::multiplexer::types::AgentRole::Worker),
+                "Orchestrator" | "Conductor" => {
+                    Some(crate::multiplexer::types::AgentRole::Orchestrator)
+                }
+                "Worker" => Some(crate::multiplexer::types::AgentRole::Worker),
                 _ => None,
             });
             let restored_title = title.as_deref().unwrap_or("Terminal").to_string();
@@ -117,10 +148,19 @@ impl MultiplexerState {
                 Some("User") => TitleLevel::User,
                 Some("Agent") => TitleLevel::Agent,
                 Some("Auto") => TitleLevel::Auto,
-                _ => if role.is_some() { TitleLevel::User } else { TitleLevel::Default },
+                _ => {
+                    if role.is_some() {
+                        TitleLevel::User
+                    } else {
+                        TitleLevel::Default
+                    }
+                }
             };
             let restored_session_id = claude_session_id.as_ref().and_then(|sid| {
-                if panes.values().any(|p| p.agent_session_id.as_deref() == Some(sid.as_str())) {
+                if panes
+                    .values()
+                    .any(|p| p.agent_session_id.as_deref() == Some(sid.as_str()))
+                {
                     None
                 } else {
                     Some(sid.clone())
@@ -129,38 +169,42 @@ impl MultiplexerState {
             let restored_agent_type = agent_type
                 .clone()
                 .or_else(|| derive_agent_type_from_title(title.as_deref()));
-            let restored_locked = *agent_type_locked
-                || (!*agent_type_locked && restored_agent_type.is_some());
-            panes.insert(pane_id.clone(), Pane {
-                id: pane_id.clone(),
-                pty_id: None,
-                pane_type: PaneType::Terminal,
-                title: restored_title,
-                cwd: cwd.clone(),
-                url: None,
-                agent_type: restored_agent_type,
-                agent_type_locked: restored_locked,
-                agent_session_id: restored_session_id,
-                agent_session_name: None,
-                agent_session_model: None,
-                role: parsed_role,
-                parent_pane_id: parent_pane_id.clone(),
-                can_spawn: *can_spawn,
-                depth: *depth,
-                report_target_pane_id: None,
-                spawned_by_pane_id: None,
-                title_level: restored_level,
-                chat_view: false,
-                pending_prompt: None,
-                auto_approve: false,
-                protected: false,
-                connected_services: vec![],
-                agent_set_at: None,
-                hidden: false,
-                show_in_tabbar: true,
-                worker_id: None,
-                restored_from_snapshot: true,
-            });
+            let restored_locked =
+                *agent_type_locked || (!*agent_type_locked && restored_agent_type.is_some());
+            panes.insert(
+                pane_id.clone(),
+                Pane {
+                    id: pane_id.clone(),
+                    pty_id: None,
+                    pane_type: PaneType::Terminal,
+                    title: restored_title,
+                    cwd: cwd.clone(),
+                    url: None,
+                    agent_type: restored_agent_type,
+                    agent_type_locked: restored_locked,
+                    agent_session_id: restored_session_id,
+                    agent_session_name: None,
+                    agent_session_model: None,
+                    role: parsed_role,
+                    parent_pane_id: parent_pane_id.clone(),
+                    can_spawn: *can_spawn,
+                    depth: *depth,
+                    report_target_pane_id: None,
+                    spawned_by_pane_id: None,
+                    title_level: restored_level,
+                    chat_view: chat_view.unwrap_or(false),
+                    pending_prompt: None,
+                    auto_approve: *auto_approve,
+                    protected: false,
+                    connected_services: vec![],
+                    agent_set_at: None,
+                    agent_booting: false,
+                    hidden: false,
+                    show_in_tabbar: true,
+                    worker_id: None,
+                    restored_from_snapshot: true,
+                },
+            );
             Some(pane_id.clone())
         }
 

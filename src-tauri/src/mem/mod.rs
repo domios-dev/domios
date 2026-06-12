@@ -1,32 +1,34 @@
 //! Unified mem store — one SQLite, one CLI, one query path. See docs/plans/mem-architecture.md.
 
-pub mod store;
-pub mod search;
-pub mod graph;
-pub mod graph_repair;
-pub mod layers;
-pub mod extract;
-pub mod seed;
-pub mod ids;
-pub mod learnings;
-pub mod dreaming;
-pub mod rerank;
-pub mod embeddings;
-pub mod embed_queue;
-pub mod worker_pool;
 pub mod activity;
-pub mod workers;
 pub mod auto_extract;
+pub mod dreaming;
+pub mod embed_queue;
+pub mod embeddings;
+pub mod extract;
 pub mod file_sync;
+pub mod graph;
+pub mod graph_layout;
+pub mod graph_repair;
+pub mod ids;
+pub mod layers;
+pub mod learnings;
+pub mod rerank;
+pub mod search;
+pub mod seed;
+pub mod store;
 pub mod supervisor;
+pub mod worker_pool;
+pub mod workers;
 
 mod manager_crud;
 mod manager_graph;
+mod manager_layout;
 mod manager_queries;
 mod manager_search;
-mod reindex;
 #[cfg(test)]
 mod manager_tests;
+mod reindex;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -36,12 +38,12 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-pub use store::{MemItem, MemKind, MemScope, NewMemItem};
 pub use graph::{Entity, Relation};
-pub use search::{SearchHit, SearchQuery};
 pub use layers::WakeUpOptions;
 #[cfg(feature = "embeddings")]
 pub use reindex::compose_embed_text;
+pub use search::{SearchHit, SearchQuery};
+pub use store::{MemItem, MemKind, MemScope, NewMemItem};
 
 /// Cap on concurrent long-running mem operations (dreaming, extraction,
 /// embedding). API search / recall / save / get never acquire this permit,
@@ -54,47 +56,49 @@ pub struct MemManager {
     pub(super) blobs_dir: PathBuf,
     pub(super) embed_queue: embed_queue::EmbedQueue,
     pub(super) heavy_ops_permits: Arc<Semaphore>,
+    pub(super) layout: graph_layout::LayoutState,
 }
 
 impl MemManager {
     pub fn open(data_dir: &std::path::Path) -> Result<Arc<Self>, String> {
         let mem_dir = data_dir.join("mem");
-        std::fs::create_dir_all(&mem_dir)
-            .map_err(|e| format!("create mem dir: {}", e))?;
+        std::fs::create_dir_all(&mem_dir).map_err(|e| format!("create mem dir: {}", e))?;
         let blobs_dir = mem_dir.join("blobs");
-        std::fs::create_dir_all(&blobs_dir)
-            .map_err(|e| format!("create blobs dir: {}", e))?;
+        std::fs::create_dir_all(&blobs_dir).map_err(|e| format!("create blobs dir: {}", e))?;
 
         // sqlite-vec must register BEFORE Connection::open
         embeddings::ensure_extension_registered();
 
         let db_path = mem_dir.join("knowledge.db");
-        let conn = Connection::open(&db_path)
-            .map_err(|e| format!("open knowledge.db: {}", e))?;
-        // concurrent writers wait up to 5s instead of failing — required for
-        // multi-process access (daemon + `mem run-worker` subprocess share the DB).
+        let conn = Connection::open(&db_path).map_err(|e| format!("open knowledge.db: {}", e))?;
+        // concurrent writers wait up to 5s instead of failing — required for multi-process access (daemon + `mem run-worker` subprocess share the DB).
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| format!("set busy_timeout: {}", e))?;
 
         // WAL + synchronous=NORMAL pragmas come from store::init_schema.
-        store::init_schema(&conn)
-            .map_err(|e| format!("init schema: {}", e))?;
+        store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
 
         // non-fatal — FTS5 hybrid still works without vectors
         if let Err(e) = embeddings::init_extension(&conn) {
-            log::warn!("[mem] sqlite-vec init failed: {} — semantic recall disabled", e);
+            log::warn!(
+                "[mem] sqlite-vec init failed: {} — semantic recall disabled",
+                e
+            );
         }
 
-        // Backfill: any entity row that has no mem_vectors entry (typically
-        // entities created before v1.1.23 wired auto-embed-on-create) gets
-        // embedded now. Idempotent — entities already embedded are skipped.
-        // Best-effort: errors logged, never block startup.
+        // Backfill: any entity row that has no mem_vectors entry (typically entities created before v1.1.23 wired auto-embed-on-create) gets embedded
+        // now. Idempotent — entities already embedded are skipped. Best-effort: errors logged, never block startup.
         if let Err(e) = backfill_entity_embeddings(&conn) {
             log::warn!("[mem] entity-embedding backfill failed: {}", e);
         }
 
         let heavy_ops_permits = Arc::new(Semaphore::new(HEAVY_OPS_PERMITS));
-        let embed_queue = embed_queue::EmbedQueue::start(db_path.clone(), heavy_ops_permits.clone());
+        let layout = graph_layout::LayoutState::load(&mem_dir);
+        let embed_queue = embed_queue::EmbedQueue::start(
+            db_path.clone(),
+            heavy_ops_permits.clone(),
+            layout.cache.clone(),
+        );
 
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
@@ -102,23 +106,24 @@ impl MemManager {
             blobs_dir,
             embed_queue,
             heavy_ops_permits,
+            layout,
         }))
     }
 
     #[cfg(test)]
     pub fn open_in_memory() -> Result<Arc<Self>, String> {
-        let conn = Connection::open_in_memory()
-            .map_err(|e| format!("open :memory:: {}", e))?;
-        store::init_schema(&conn)
-            .map_err(|e| format!("init schema: {}", e))?;
+        let conn = Connection::open_in_memory().map_err(|e| format!("open :memory:: {}", e))?;
+        store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
         let tmp = std::env::temp_dir().join(format!("mem-test-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(tmp.join("blobs")).ok();
+        let layout = graph_layout::LayoutState::load(&tmp);
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             db_path: tmp.join("knowledge.db"),
             blobs_dir: tmp.join("blobs"),
             embed_queue: embed_queue::EmbedQueue::disabled(),
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
+            layout,
         }))
     }
 
@@ -138,37 +143,39 @@ impl MemManager {
     /// the real insert / FTS search path without spinning up tokio tasks,
     /// calling any LLM, or requiring API keys / model weights.
     pub fn open_offline(data_dir: &std::path::Path) -> Result<Arc<Self>, String> {
-        std::fs::create_dir_all(data_dir)
-            .map_err(|e| format!("create data dir: {}", e))?;
+        std::fs::create_dir_all(data_dir).map_err(|e| format!("create data dir: {}", e))?;
         let blobs_dir = data_dir.join("blobs");
-        std::fs::create_dir_all(&blobs_dir)
-            .map_err(|e| format!("create blobs dir: {}", e))?;
+        std::fs::create_dir_all(&blobs_dir).map_err(|e| format!("create blobs dir: {}", e))?;
 
         embeddings::ensure_extension_registered();
 
         let db_path = data_dir.join("knowledge.db");
-        let conn = Connection::open(&db_path)
-            .map_err(|e| format!("open knowledge.db: {}", e))?;
+        let conn = Connection::open(&db_path).map_err(|e| format!("open knowledge.db: {}", e))?;
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| format!("set busy_timeout: {}", e))?;
 
-        store::init_schema(&conn)
-            .map_err(|e| format!("init schema: {}", e))?;
+        store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
 
         // Non-fatal: offline mode is allowed to run FTS5-only without vectors.
         let _ = embeddings::init_extension(&conn);
 
+        let layout = graph_layout::LayoutState::load(data_dir);
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             db_path,
             blobs_dir,
             embed_queue: embed_queue::EmbedQueue::disabled(),
             heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
+            layout,
         }))
     }
 
-    pub fn db_path(&self) -> &std::path::Path { &self.db_path }
-    pub fn blobs_dir(&self) -> &std::path::Path { &self.blobs_dir }
+    pub fn db_path(&self) -> &std::path::Path {
+        &self.db_path
+    }
+    pub fn blobs_dir(&self) -> &std::path::Path {
+        &self.blobs_dir
+    }
 
     /// Flush WAL to the main database and truncate the WAL file. Returns
     /// `(busy, log_frames, checkpointed)` from `PRAGMA wal_checkpoint(TRUNCATE)`
@@ -259,9 +266,8 @@ pub struct MemStats {
 /// failure (logged) so one bad row can't block the whole backfill.
 fn backfill_entity_embeddings(conn: &Connection) -> Result<(), String> {
     use rusqlite::params;
-    // Pull entities lacking any mem_vectors row (matched on the canonical id —
-    // chunked vectors live under `<id>_chunk_N`, but graph-entity bodies are
-    // tiny so we expect one row per id). LEFT JOIN to detect absence.
+    // Pull entities lacking any mem_vectors row (matched on the canonical id — chunked vectors live under `<id>_chunk_N`, but graph-entity bodies
+    // are tiny so we expect one row per id). LEFT JOIN to detect absence.
     let mut stmt = conn
         .prepare(
             "SELECT e.id, e.entity_type, e.properties_json
@@ -287,7 +293,10 @@ fn backfill_entity_embeddings(conn: &Connection) -> Result<(), String> {
         return Ok(());
     }
 
-    log::info!("[mem.backfill] embedding {} entities missing from mem_vectors", rows.len());
+    log::info!(
+        "[mem.backfill] embedding {} entities missing from mem_vectors",
+        rows.len()
+    );
     let total = rows.len();
     let mut ok_count = 0usize;
     for (id, entity_type, props_json) in rows {
@@ -298,6 +307,10 @@ fn backfill_entity_embeddings(conn: &Connection) -> Result<(), String> {
         }
         let _ = params![]; // silence unused import warning if rusqlite path inactive
     }
-    log::info!("[mem.backfill] entity embedding backfill done: {}/{} OK", ok_count, total);
+    log::info!(
+        "[mem.backfill] entity embedding backfill done: {}/{} OK",
+        ok_count,
+        total
+    );
     Ok(())
 }

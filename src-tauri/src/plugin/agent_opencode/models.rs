@@ -39,9 +39,7 @@ pub(super) fn fetch_opencode_models() -> Result<Vec<ModelInfo>, String> {
     let mut cmd = Command::new("opencode");
     cmd.arg("models");
     crate::process_util::no_window_std(&mut cmd);
-    let output = cmd
-        .output()
-        .map_err(|e| format!("spawn opencode: {}", e))?;
+    let output = cmd.output().map_err(|e| format!("spawn opencode: {}", e))?;
 
     if !output.status.success() {
         return Err(format!(

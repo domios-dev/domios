@@ -37,7 +37,7 @@ IS_WINDOWS = sys.platform == "win32"
 def echo_env(var_name: str) -> str:
     """Return platform-appropriate command to echo an env var."""
     if IS_WINDOWS:
-        return f"echo %{var_name}%"
+        return f"Write-Output $env:{var_name}"
     return f"echo ${var_name}"
 
 
@@ -201,8 +201,11 @@ class CodeTermAPI:
 
     # -- Workspace / Pane CRUD shortcuts ------------------------------------
 
-    def create_workspace(self, name: str) -> dict:
-        return self.post("/api/workspaces", json={"name": name})
+    def create_workspace(self, name: str, cwd: str | None = None) -> dict:
+        body: dict = {"name": name}
+        if cwd is not None:
+            body["cwd"] = cwd
+        return self.post("/api/workspaces", json=body)
 
     def list_workspaces(self) -> list[dict]:
         return self.get("/api/workspaces")
@@ -213,8 +216,9 @@ class CodeTermAPI:
     def close_workspace(self, ws_id: str) -> dict:
         return self.post(f"/api/workspaces/{ws_id}/close")
 
-    def create_tab(self, ws_id: str) -> dict:
-        return self.post(f"/api/workspaces/{ws_id}/tabs")
+    def create_tab(self, ws_id: str, eager: bool = False) -> dict:
+        body = {"eager": True} if eager else {}
+        return self.post(f"/api/workspaces/{ws_id}/tabs", json=body)
 
     def list_panes(self) -> list[dict]:
         return self.get("/api/panes")

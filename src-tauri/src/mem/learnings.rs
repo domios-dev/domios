@@ -3,7 +3,7 @@
 //! `learn promote <id>` rewrites the row's kind to `fact` (preserving body
 //! and graph relations) so it gets included in dreaming consolidation.
 
-use super::{store::MemKind, MemManager, NewMemItem, MemScope};
+use super::{store::MemKind, MemManager, MemScope, NewMemItem};
 
 #[derive(Debug, Clone)]
 pub enum LearnKind {
@@ -33,7 +33,12 @@ pub fn learn(
     let title = format!(
         "{} {}",
         learn_kind.tag(),
-        text.lines().next().unwrap_or("untitled").chars().take(60).collect::<String>()
+        text.lines()
+            .next()
+            .unwrap_or("untitled")
+            .chars()
+            .take(60)
+            .collect::<String>()
     );
     mem.save(NewMemItem {
         kind: MemKind::Learning,
@@ -72,7 +77,11 @@ pub fn flush_pane(
         title,
         summary: Some(format!("PTY scrollback flush from {}", pane_id)),
         area: None,
-        tags: vec!["flush".into(), "conversation".into(), format!("pane:{}", pane_id)],
+        tags: vec![
+            "flush".into(),
+            "conversation".into(),
+            format!("pane:{}", pane_id),
+        ],
         body,
         source: Some(format!("pane:{}", pane_id)),
         importance: 2.5,

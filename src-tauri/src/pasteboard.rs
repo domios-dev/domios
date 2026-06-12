@@ -82,7 +82,9 @@ pub struct PasteboardState {
 
 impl PasteboardState {
     pub fn new() -> Self {
-        Self { inner: Arc::new(RwLock::new(HashMap::new())) }
+        Self {
+            inner: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
     pub fn put(&self, params: PutParams) -> Result<PasteEntry, PasteError> {
@@ -221,13 +223,21 @@ mod tests {
     #[test]
     fn pop_on_read_consumes_entry() {
         let pb = PasteboardState::new();
-        let entry = pb.put(PutParams {
-            body: "one-shot".into(),
-            pop_on_read: Some(true),
-            ..Default::default()
-        }).unwrap();
-        assert!(pb.get(&entry.id, false).is_some(), "first read returns the entry");
-        assert!(pb.get(&entry.id, false).is_none(), "second read finds nothing");
+        let entry = pb
+            .put(PutParams {
+                body: "one-shot".into(),
+                pop_on_read: Some(true),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(
+            pb.get(&entry.id, false).is_some(),
+            "first read returns the entry"
+        );
+        assert!(
+            pb.get(&entry.id, false).is_none(),
+            "second read finds nothing"
+        );
     }
 
     #[test]
@@ -260,20 +270,29 @@ mod tests {
     fn ttl_is_clamped_to_max() {
         let pb = PasteboardState::new();
         let huge = MAX_TTL_MS + 5 * 60 * 60 * 1000;
-        let entry = pb.put(PutParams {
-            body: "X".into(),
-            ttl_ms: Some(huge),
-            ..Default::default()
-        }).unwrap();
+        let entry = pb
+            .put(PutParams {
+                body: "X".into(),
+                ttl_ms: Some(huge),
+                ..Default::default()
+            })
+            .unwrap();
         let span = entry.expires_at.saturating_sub(entry.created_at);
-        assert!(span <= MAX_TTL_MS + 1, "TTL must be clamped to 24h, got {}", span);
+        assert!(
+            span <= MAX_TTL_MS + 1,
+            "TTL must be clamped to 24h, got {}",
+            span
+        );
     }
 
     #[test]
     fn empty_body_rejected() {
         let pb = PasteboardState::new();
         assert!(matches!(
-            pb.put(PutParams { body: String::new(), ..Default::default() }),
+            pb.put(PutParams {
+                body: String::new(),
+                ..Default::default()
+            }),
             Err(PasteError::Empty),
         ));
     }
@@ -281,11 +300,13 @@ mod tests {
     #[test]
     fn gc_removes_expired_entries() {
         let pb = PasteboardState::new();
-        let entry = pb.put(PutParams {
-            body: "blip".into(),
-            ttl_ms: Some(10),
-            ..Default::default()
-        }).unwrap();
+        let entry = pb
+            .put(PutParams {
+                body: "blip".into(),
+                ttl_ms: Some(10),
+                ..Default::default()
+            })
+            .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
         pb.gc();
         assert!(pb.get(&entry.id, false).is_none());

@@ -7,8 +7,7 @@ const INNER_RADIUS_FACTOR = 60;
 
 export function layoutLouvain(graph: Graph): void {
   if (graph.order === 0) return;
-  // Louvain requires a non-mixed graph; inferType returns "mixed" when
-  // directedSize === 0 && undirectedSize === 0 (no edges). Skip community
+  // Louvain requires a non-mixed graph; inferType returns "mixed" when directedSize === 0 && undirectedSize === 0 (no edges). Skip community
   // detection in that case — every node is its own cluster anyway.
   if (graph.size === 0) {
     graph.forEachNode((id) => {
@@ -41,8 +40,8 @@ export function layoutLouvain(graph: Graph): void {
     arr.push(id);
   });
 
-  // Big clusters first so they get adjacent ring slots; singletons fill the
-  // tail. The physics worker animates from this seed (no fa2/noverlap pass).
+  // Big clusters first so they get adjacent ring slots; singletons fill the tail. The physics worker animates from this seed (no fa2/noverlap
+  // pass).
   const communities = [...buckets.values()].sort((a, b) => b.length - a.length);
   const k = Math.max(1, communities.length);
   const N = graph.order;

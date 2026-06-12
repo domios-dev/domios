@@ -2,6 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
+fn default_true() -> bool {
+    true
+}
+
 // ── Identity ────────────────────────────────────────────────────────
 
 /// Persistent identity for this CodeTerm instance.
@@ -40,7 +44,10 @@ pub struct PeerAddress {
 
 impl PeerAddress {
     pub fn from_ip(ip: &str) -> Self {
-        Self { ip: ip.to_string(), is_tailscale: is_tailscale_ip(ip) }
+        Self {
+            ip: ip.to_string(),
+            is_tailscale: is_tailscale_ip(ip),
+        }
     }
 }
 
@@ -57,12 +64,22 @@ pub fn is_tailscale_ip(ip: &str) -> bool {
 /// RFC1918 private LAN ranges: 10/8, 172.16/12, 192.168/16, plus loopback 127/8.
 /// Tailscale CGNAT is intentionally NOT included here — it has its own tier.
 pub fn is_lan_private_ip(ip: &str) -> bool {
-    let Ok(addr) = ip.parse::<std::net::Ipv4Addr>() else { return false; };
+    let Ok(addr) = ip.parse::<std::net::Ipv4Addr>() else {
+        return false;
+    };
     let o = addr.octets();
-    if o[0] == 10 { return true; }
-    if o[0] == 192 && o[1] == 168 { return true; }
-    if o[0] == 172 && (16..32).contains(&o[1]) { return true; }
-    if o[0] == 127 { return true; }
+    if o[0] == 10 {
+        return true;
+    }
+    if o[0] == 192 && o[1] == 168 {
+        return true;
+    }
+    if o[0] == 172 && (16..32).contains(&o[1]) {
+        return true;
+    }
+    if o[0] == 127 {
+        return true;
+    }
     false
 }
 
@@ -70,9 +87,13 @@ pub fn is_lan_private_ip(ip: &str) -> bool {
 /// stable across networks), then LAN private (fast, no internet hop), then
 /// anything else (treated as last-resort public).
 pub fn address_tier(addr: &PeerAddress) -> u8 {
-    if addr.is_tailscale { 0 }
-    else if is_lan_private_ip(&addr.ip) { 1 }
-    else { 2 }
+    if addr.is_tailscale {
+        0
+    } else if is_lan_private_ip(&addr.ip) {
+        1
+    } else {
+        2
+    }
 }
 
 /// Drop addresses whose `ip` field doesn't parse as a real IpAddr.
@@ -135,6 +156,13 @@ pub struct PeerAnnounce {
     pub instance_name: String,
     pub addresses: Vec<PeerAddress>,
     pub api_port: u16,
+    #[serde(default = "default_true")]
+    pub online: bool,
+    /// `https://<host>.<tailnet>.ts.net` when the sender fronts its API with
+    /// tailscale serve — lets https-origin browsers target it without
+    /// mixed-content blocking.
+    #[serde(default)]
+    pub https_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,6 +208,9 @@ pub struct PairedPeer {
     #[serde(default)]
     pub access_level: AccessLevel,
     pub version: Option<String>,
+    /// Peer's tailscale-serve HTTPS front, learned from its announces.
+    #[serde(default)]
+    pub https_url: Option<String>,
     /// Runtime-only miss counter; not persisted to disk or sent over API.
     #[serde(skip)]
     pub consecutive_misses: u8,
@@ -215,8 +246,8 @@ pub enum Permission {
     Admin,
 }
 
-// ── Pairing protocol ────────────────────────────────────────────────
-// Clean Ed25519-only pairing: exchange public keys, no DH/encrypted tokens.
+// Pairing protocol.
+// Ed25519-only pairing: exchange public keys, no DH/encrypted tokens.
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -234,6 +265,12 @@ pub struct PairingRequest {
     pub from_instance_name: String,
     pub from_address: String,
     pub from_port: u16,
+    /// All sender addresses (Tailscale + LAN). The approver walks these in
+    /// tier order for the accept callback instead of betting on the single
+    /// `from_address` (#126). Additive: absent from pre-1.3.3 peers, in
+    /// which case `from_address` is the only candidate.
+    #[serde(default)]
+    pub from_addresses: Vec<PeerAddress>,
     /// Ed25519 public key (base64) — the ONLY auth credential exchanged.
     pub public_key: String,
     /// Unix timestamp (seconds). Reject if >60s old.
@@ -244,6 +281,22 @@ pub struct PairingRequest {
     /// None for direct pair requests. Used by the UI to show "Introduced by X".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub introduced_by: Option<String>,
+}
+
+impl PairingRequest {
+    /// Sanitized candidate addresses for the accept callback, legacy
+    /// `from_address` included (deduped). Never empty unless every address
+    /// is unparseable.
+    pub fn callback_addresses(&self) -> Vec<PeerAddress> {
+        let mut addrs = sanitize_addresses(&self.from_addresses);
+        let legacy = sanitize_addresses(&[PeerAddress::from_ip(&self.from_address)]);
+        for a in legacy {
+            if !addrs.iter().any(|x| x.ip == a.ip) {
+                addrs.push(a);
+            }
+        }
+        addrs
+    }
 }
 
 fn default_pairing_status() -> PairingStatus {
@@ -294,7 +347,9 @@ pub struct RelayCommand {
     pub body: serde_json::Value,
 }
 
-fn default_method() -> String { "GET".to_string() }
+fn default_method() -> String {
+    "GET".to_string()
+}
 
 /// Relay response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -394,9 +449,18 @@ mod tests {
 
     #[test]
     fn address_tier_orders_tailscale_first_then_lan_then_public() {
-        let ts = PeerAddress { ip: "100.65.0.30".into(), is_tailscale: true };
-        let lan = PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false };
-        let pub_ip = PeerAddress { ip: "8.8.8.8".into(), is_tailscale: false };
+        let ts = PeerAddress {
+            ip: "100.65.0.30".into(),
+            is_tailscale: true,
+        };
+        let lan = PeerAddress {
+            ip: "192.168.1.2".into(),
+            is_tailscale: false,
+        };
+        let pub_ip = PeerAddress {
+            ip: "8.8.8.8".into(),
+            is_tailscale: false,
+        };
         assert!(address_tier(&ts) < address_tier(&lan));
         assert!(address_tier(&lan) < address_tier(&pub_ip));
     }
@@ -404,9 +468,18 @@ mod tests {
     #[test]
     fn address_tier_min_picks_tailscale() {
         let addrs = vec![
-            PeerAddress { ip: "8.8.8.8".into(), is_tailscale: false },
-            PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false },
-            PeerAddress { ip: "100.65.0.30".into(), is_tailscale: true },
+            PeerAddress {
+                ip: "8.8.8.8".into(),
+                is_tailscale: false,
+            },
+            PeerAddress {
+                ip: "192.168.1.2".into(),
+                is_tailscale: false,
+            },
+            PeerAddress {
+                ip: "100.65.0.30".into(),
+                is_tailscale: true,
+            },
         ];
         let pick = addrs.iter().min_by_key(|a| address_tier(a)).unwrap();
         assert_eq!(pick.ip, "100.65.0.30");
@@ -415,9 +488,18 @@ mod tests {
     #[test]
     fn sanitize_addresses_passes_clean_ips_through() {
         let addrs = vec![
-            PeerAddress { ip: "100.65.0.30".into(), is_tailscale: true },
-            PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false },
-            PeerAddress { ip: "::1".into(), is_tailscale: false },
+            PeerAddress {
+                ip: "100.65.0.30".into(),
+                is_tailscale: true,
+            },
+            PeerAddress {
+                ip: "192.168.1.2".into(),
+                is_tailscale: false,
+            },
+            PeerAddress {
+                ip: "::1".into(),
+                is_tailscale: false,
+            },
         ];
         let out = sanitize_addresses(&addrs);
         assert_eq!(out.len(), 3);
@@ -425,25 +507,52 @@ mod tests {
 
     #[test]
     fn sanitize_addresses_drops_unparseable_strings() {
-        // The actual poison strings observed in the wild from a broken
-        // `tailscale ip -4` GUI bridge: error text on stdout instead of an IP.
+        // The actual poison strings observed in the wild from a broken `tailscale ip -4` GUI bridge: error text on stdout instead of an IP.
         let poisoned = vec![
-            PeerAddress { ip: "Tailscale daemon is not running.".into(), is_tailscale: false },
-            PeerAddress { ip: "failed to connect to local backend".into(), is_tailscale: false },
-            PeerAddress { ip: "".into(), is_tailscale: false },
-            PeerAddress { ip: "not-an-ip".into(), is_tailscale: false },
+            PeerAddress {
+                ip: "Tailscale daemon is not running.".into(),
+                is_tailscale: false,
+            },
+            PeerAddress {
+                ip: "failed to connect to local backend".into(),
+                is_tailscale: false,
+            },
+            PeerAddress {
+                ip: "".into(),
+                is_tailscale: false,
+            },
+            PeerAddress {
+                ip: "not-an-ip".into(),
+                is_tailscale: false,
+            },
         ];
         let out = sanitize_addresses(&poisoned);
-        assert!(out.is_empty(), "all entries should be dropped, got: {:?}", out);
+        assert!(
+            out.is_empty(),
+            "all entries should be dropped, got: {:?}",
+            out
+        );
     }
 
     #[test]
     fn sanitize_addresses_preserves_clean_drops_poisoned_in_mixed_list() {
         let mixed = vec![
-            PeerAddress { ip: "100.65.0.30".into(), is_tailscale: true },
-            PeerAddress { ip: "Tailscale daemon is not running.".into(), is_tailscale: false },
-            PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false },
-            PeerAddress { ip: "garbage".into(), is_tailscale: false },
+            PeerAddress {
+                ip: "100.65.0.30".into(),
+                is_tailscale: true,
+            },
+            PeerAddress {
+                ip: "Tailscale daemon is not running.".into(),
+                is_tailscale: false,
+            },
+            PeerAddress {
+                ip: "192.168.1.2".into(),
+                is_tailscale: false,
+            },
+            PeerAddress {
+                ip: "garbage".into(),
+                is_tailscale: false,
+            },
         ];
         let out = sanitize_addresses(&mixed);
         assert_eq!(out.len(), 2);
@@ -461,8 +570,7 @@ mod tests {
 
     #[test]
     fn proactive_sync_fires_on_reconnect_regardless_of_last_sync() {
-        // offline→online transition always triggers sync to refresh gossip
-        // immediately; previous last_sync timestamp is irrelevant.
+        // offline→online transition always triggers sync to refresh gossip immediately; previous last_sync timestamp is irrelevant.
         assert!(should_proactive_sync(true, false, 1000, None, 60));
         assert!(should_proactive_sync(true, false, 1000, Some(999), 60));
         assert!(should_proactive_sync(true, false, 1000, Some(0), 60));
@@ -470,33 +578,83 @@ mod tests {
 
     #[test]
     fn proactive_sync_fires_when_last_sync_unknown_for_steady_online_peer() {
-        // First iteration after a state where peer was already online but
-        // we have no record of having synced — must sync to populate the map.
+        // First iteration after a state where peer was already online but we have no record of having synced — must sync to populate the map.
         assert!(should_proactive_sync(true, true, 1000, None, 60));
     }
 
     #[test]
     fn proactive_sync_fires_when_interval_elapsed() {
-        // Peer steady online and last_sync ≥ interval ago → sync to refresh
-        // gossip-discovered peers' last_seen before TTL eviction.
+        // Peer steady online and last_sync ≥ interval ago → sync to refresh gossip-discovered peers' last_seen before TTL eviction.
         assert!(should_proactive_sync(true, true, 1060, Some(1000), 60));
         assert!(should_proactive_sync(true, true, 1500, Some(1000), 60));
     }
 
     #[test]
     fn proactive_sync_skips_when_recently_synced() {
-        // Peer steady online and last_sync < interval ago → skip to avoid
-        // hammering paired peers. Network traffic stays bounded.
+        // Peer steady online and last_sync < interval ago → skip to avoid hammering paired peers. Network traffic stays bounded.
         assert!(!should_proactive_sync(true, true, 1059, Some(1000), 60));
         assert!(!should_proactive_sync(true, true, 1001, Some(1000), 60));
         assert!(!should_proactive_sync(true, true, 1000, Some(1000), 60));
     }
 
+    fn pairing_request_with(
+        from_address: &str,
+        from_addresses: Vec<PeerAddress>,
+    ) -> PairingRequest {
+        PairingRequest {
+            request_id: "r1".into(),
+            from_instance_id: "peer-a".into(),
+            from_instance_name: "A".into(),
+            from_address: from_address.into(),
+            from_port: 7685,
+            from_addresses,
+            public_key: "pk".into(),
+            timestamp: 0,
+            status: PairingStatus::Pending,
+            introduced_by: None,
+        }
+    }
+
+    /// #126 regression: pre-1.3.3 peers send only `from_address` — it must
+    /// remain the callback candidate.
+    #[test]
+    fn callback_addresses_falls_back_to_legacy_single_address() {
+        let req = pairing_request_with("192.168.1.124", vec![]);
+        let addrs = req.callback_addresses();
+        assert_eq!(addrs.len(), 1);
+        assert_eq!(addrs[0].ip, "192.168.1.124");
+    }
+
+    /// #126 regression: with `from_addresses` present, the approver gets all
+    /// candidates (Tailscale + LAN), so an unreachable LAN `from_address`
+    /// no longer kills the accept callback with a 502.
+    #[test]
+    fn callback_addresses_includes_all_candidates_deduped() {
+        let req = pairing_request_with(
+            "192.168.1.124",
+            vec![
+                PeerAddress::from_ip("100.65.0.30"),
+                PeerAddress::from_ip("192.168.1.124"),
+            ],
+        );
+        let addrs = req.callback_addresses();
+        let ips: Vec<&str> = addrs.iter().map(|a| a.ip.as_str()).collect();
+        assert_eq!(ips, vec!["100.65.0.30", "192.168.1.124"]);
+    }
+
+    #[test]
+    fn callback_addresses_sanitizes_poison() {
+        let req = pairing_request_with(
+            "not-an-ip",
+            vec![PeerAddress::from_ip("Tailscale daemon is not running.")],
+        );
+        assert!(req.callback_addresses().is_empty());
+    }
+
     #[test]
     fn proactive_sync_handles_clock_skew_via_saturating_sub() {
-        // If now < last_sync (clock went backwards from system update or
-        // similar), saturating_sub yields 0 — interval comparison fails,
-        // we skip. Sane behavior: don't blast sync requests after clock skew.
+        // If now < last_sync (clock went backwards from system update or similar), saturating_sub yields 0 — interval comparison fails, we skip. Sane
+        // behavior: don't blast sync requests after clock skew.
         assert!(!should_proactive_sync(true, true, 500, Some(1000), 60));
     }
 }

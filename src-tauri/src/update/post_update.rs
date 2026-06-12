@@ -39,10 +39,12 @@ async fn run(svc: &ServiceState) -> Result<(), String> {
         Ok(t) if !t.trim().is_empty() => t,
         _ => return Ok(()),
     };
-    log::info!("[post-update] message queued ({} chars) — waiting for general pane", text.len());
+    log::info!(
+        "[post-update] message queued ({} chars) — waiting for general pane",
+        text.len()
+    );
 
-    // Wait up to 60s for the General Agent pane to appear and have a live
-    // PTY. The GA spawn task starts in start_servers but the agent process
+    // Wait up to 60s for the General Agent pane to appear and have a live PTY. The GA spawn task starts in start_servers but the agent process
     // takes a few seconds to come up after restart.
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
     let mut pane_id: Option<String> = None;
@@ -76,13 +78,19 @@ async fn run(svc: &ServiceState) -> Result<(), String> {
 
     match svc.send_text(&pane_id, &text, true) {
         Ok(_) => {
-            log::info!("[post-update] injected message into general pane {}", pane_id);
+            log::info!(
+                "[post-update] injected message into general pane {}",
+                pane_id
+            );
             if let Err(e) = std::fs::remove_file(&p) {
                 log::warn!("[post-update] failed to delete {}: {}", p.display(), e);
             }
         }
         Err(e) => {
-            log::warn!("[post-update] send_text failed: {} — leaving file for retry on next boot", e);
+            log::warn!(
+                "[post-update] send_text failed: {} — leaving file for retry on next boot",
+                e
+            );
         }
     }
     Ok(())

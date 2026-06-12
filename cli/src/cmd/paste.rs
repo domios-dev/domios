@@ -10,7 +10,14 @@ pub fn handle_paste(json: bool, action: PasteAction) {
         }
     };
     match action {
-        PasteAction::Put { body, from_file, from_stdin, ttl, content_type, pop } => {
+        PasteAction::Put {
+            body,
+            from_file,
+            from_stdin,
+            ttl,
+            content_type,
+            pop,
+        } => {
             let resolved_body = if from_stdin {
                 read_stdin_or_die("--from-stdin")
             } else if let Some(path) = from_file {
@@ -26,7 +33,9 @@ pub fn handle_paste(json: bool, action: PasteAction) {
             };
             if resolved_body.trim().is_empty() {
                 eprintln!("Error: paste body is empty (positional, --from-file, and --from-stdin all yielded nothing).");
-                eprintln!("hint: pipe via heredoc — codeterm paste put --from-stdin <<'EOF' ... EOF");
+                eprintln!(
+                    "hint: pipe via heredoc — codeterm paste put --from-stdin <<'EOF' ... EOF"
+                );
                 std::process::exit(2);
             }
             let mut payload = serde_json::json!({ "body": resolved_body });
@@ -39,12 +48,19 @@ pub fn handle_paste(json: bool, action: PasteAction) {
             if pop {
                 payload["pop_on_read"] = serde_json::json!(true);
             }
-            match http.post(format!("{}/api/pasteboard", base)).json(&payload).send() {
+            match http
+                .post(format!("{}/api/pasteboard", base))
+                .json(&payload)
+                .send()
+            {
                 Ok(resp) => {
                     let status = resp.status();
                     let val: serde_json::Value = resp.json().unwrap_or_default();
                     if !status.is_success() {
-                        let msg = val.get("error").and_then(|v| v.as_str()).unwrap_or("paste put failed");
+                        let msg = val
+                            .get("error")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("paste put failed");
                         eprintln!("Error: HTTP {}: {}", status.as_u16(), msg);
                         std::process::exit(1);
                     }
@@ -57,47 +73,62 @@ pub fn handle_paste(json: bool, action: PasteAction) {
                         std::process::exit(1);
                     }
                 }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
         PasteAction::Get { id, pop } => fetch_paste(&http, &base, &id, pop, json),
-        PasteAction::Pop { id } => fetch_paste(&http, &base, &id, true, json),
-        PasteAction::List => {
-            match http.get(format!("{}/api/pasteboard", base)).send() {
-                Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                        return;
-                    }
-                    let Some(arr) = val.as_array() else {
-                        eprintln!("Unexpected response shape");
-                        std::process::exit(1);
-                    };
-                    if arr.is_empty() {
-                        println!("No pastes.");
-                        return;
-                    }
-                    println!("{:<14}  {:>8}  {:>9}  {}", "id", "size", "ttl_left", "content_type");
-                    for entry in arr {
-                        let id = entry.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                        let size = entry.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
-                        let ttl_left_ms = entry.get("ttl_remaining_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-                        let ct = entry.get("content_type").and_then(|v| v.as_str()).unwrap_or("-");
-                        println!(
-                            "{:<14}  {:>8}  {:>9}  {}",
-                            id,
-                            size,
-                            format_ms(ttl_left_ms),
-                            ct,
-                        );
-                    }
+        PasteAction::List => match http.get(format!("{}/api/pasteboard", base)).send() {
+            Ok(resp) => {
+                let val: serde_json::Value = resp.json().unwrap_or_default();
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                    return;
                 }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                let Some(arr) = val.as_array() else {
+                    eprintln!("Unexpected response shape");
+                    std::process::exit(1);
+                };
+                if arr.is_empty() {
+                    println!("No pastes.");
+                    return;
+                }
+                println!(
+                    "{:<14}  {:>8}  {:>9}  {}",
+                    "id", "size", "ttl_left", "content_type"
+                );
+                for entry in arr {
+                    let id = entry.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                    let size = entry.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let ttl_left_ms = entry
+                        .get("ttl_remaining_ms")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let ct = entry
+                        .get("content_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-");
+                    println!(
+                        "{:<14}  {:>8}  {:>9}  {}",
+                        id,
+                        size,
+                        format_ms(ttl_left_ms),
+                        ct,
+                    );
+                }
             }
-        }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        },
         PasteAction::Rm { id } => {
-            match http.delete(format!("{}/api/pasteboard/{}", base, id)).send() {
+            match http
+                .delete(format!("{}/api/pasteboard/{}", base, id))
+                .send()
+            {
                 Ok(resp) => {
                     if resp.status().is_success() {
                         println!("Deleted: {}", id);
@@ -106,7 +137,10 @@ pub fn handle_paste(json: bool, action: PasteAction) {
                         std::process::exit(1);
                     }
                 }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
     }
@@ -136,7 +170,10 @@ fn fetch_paste(http: &reqwest::blocking::Client, base: &str, id: &str, pop: bool
                 print!("{}", body);
             }
         }
-        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
     }
 }
 
@@ -156,7 +193,9 @@ fn read_stdin_or_die(source: &str) -> String {
 /// paths interpret `--ttl` the same way.
 pub fn parse_duration_ms(s: &str) -> Option<u64> {
     let s = s.trim();
-    if s.is_empty() { return None; }
+    if s.is_empty() {
+        return None;
+    }
     let mut total: u64 = 0;
     let mut num = String::new();
     for c in s.chars() {
@@ -179,7 +218,11 @@ pub fn parse_duration_ms(s: &str) -> Option<u64> {
         let n: u64 = num.parse().ok()?;
         total += n * 60 * 1_000;
     }
-    if total == 0 { None } else { Some(total) }
+    if total == 0 {
+        None
+    } else {
+        Some(total)
+    }
 }
 
 fn format_ms(ms: u64) -> String {

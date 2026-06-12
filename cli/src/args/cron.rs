@@ -124,3 +124,60 @@ pub enum CronAction {
         summary: Option<String>,
     },
 }
+
+/// Single source of truth for the `cron.create` request body, shared by the
+/// local socket path (`cmd/cron.rs`) and the mesh HTTP path
+/// (`mesh_cli/api_map.rs`). Both transports deserialize into the server's
+/// `CronCreateParams`, so the JSON shape must match in exactly one place —
+/// add a new cron field here and both paths pick it up. `workspace_id` is
+/// passed already-resolved because resolution differs per transport (local
+/// falls back to the active workspace; mesh requires it explicit).
+#[allow(clippy::too_many_arguments)]
+pub fn cron_create_body(
+    name: &str,
+    schedule: &str,
+    task: &str,
+    workspace_id: &str,
+    agent: &str,
+    model: Option<&str>,
+    cwd: Option<&str>,
+    description: Option<&str>,
+    creator_pane: Option<&str>,
+    once: bool,
+    jitter_max_ms: Option<u64>,
+    tz: Option<&str>,
+    timeout_secs: Option<u64>,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "name": name,
+        "schedule": schedule,
+        "task": task,
+        "workspace_id": workspace_id,
+        "agent": agent,
+    });
+    if let Some(m) = model {
+        body["model"] = serde_json::json!(m);
+    }
+    if let Some(c) = cwd {
+        body["cwd"] = serde_json::json!(c);
+    }
+    if let Some(d) = description {
+        body["description"] = serde_json::json!(d);
+    }
+    if let Some(cp) = creator_pane {
+        body["creator_pane_id"] = serde_json::json!(cp);
+    }
+    if once {
+        body["oneshot"] = serde_json::json!(true);
+    }
+    if let Some(j) = jitter_max_ms {
+        body["jitter_max_ms"] = serde_json::json!(j);
+    }
+    if let Some(z) = tz {
+        body["tz"] = serde_json::json!(z);
+    }
+    if let Some(t) = timeout_secs {
+        body["timeout_seconds"] = serde_json::json!(t);
+    }
+    body
+}

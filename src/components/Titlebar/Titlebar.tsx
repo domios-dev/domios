@@ -1,38 +1,40 @@
 import { useCallback, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ThemeConfig } from "../../lib/types";
-import { HamburgerIcon, CloseXIcon } from "../Icons";
+import { CloseXIcon } from "../Icons";
+import logoUrl from "../../assets/logo.png";
 
 import { isMac } from "../../lib/keybindings";
+import { UI_BUTTON } from "../shared/design";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { MeshPresenceTray } from "./MeshPresenceTray";
-import { UpdateBadge } from "../UpdateBadge";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
   onNewTab?: () => void;
-  workspaceName?: string;
-  tabTitle?: string;
   theme?: ThemeConfig;
   onOpenSettingsAbout?: () => void;
 }
 
 export function Titlebar({
-  onToggleSidebar,
-  workspaceName,
-  tabTitle,
+  onToggleSidebar: _onToggleSidebar,
   theme: _theme,
-  onOpenSettingsAbout,
+  onOpenSettingsAbout: _onOpenSettingsAbout,
 }: TitlebarProps) {
   void _theme;
-  const appWindow = getCurrentWindow();
-  const handleMinimize = useCallback(() => appWindow.minimize(), [appWindow]);
-  const handleMaximize = useCallback(() => appWindow.toggleMaximize(), [appWindow]);
-  const handleClose = useCallback(() => appWindow.close(), [appWindow]);
+  void _onToggleSidebar;
+  void _onOpenSettingsAbout;
+  // Window chrome controls only exist in the Tauri shell; the browser tab owns its own window in web-mirror mode.
+  const isTauri = "__TAURI_INTERNALS__" in window;
+  const appWindow = isTauri ? getCurrentWindow() : null;
+  const handleMinimize = useCallback(() => appWindow?.minimize(), [appWindow]);
+  const handleMaximize = useCallback(() => appWindow?.toggleMaximize(), [appWindow]);
+  const handleClose = useCallback(() => appWindow?.close(), [appWindow]);
 
   return (
     <div
-      className="flex items-center h-9 bg-[var(--ct-titlebar-bg)] select-none shrink-0"
+      data-testid="titlebar"
+      className="flex items-center h-8 bg-[var(--ct-titlebar-bg)] select-none shrink-0"
       style={{ boxShadow: "inset 0 -0.5px 0 var(--ct-border-subtle)" }}
       data-tauri-drag-region
     >
@@ -45,46 +47,24 @@ export function Titlebar({
         />
       )}
 
-      {/* Left: sidebar toggle + breadcrumb */}
-      <div className="flex items-center gap-1.5 pl-3" data-tauri-drag-region>
-        <button
-          onClick={onToggleSidebar}
-          className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
-          title="Toggle sidebar"
+      <div className="flex items-center gap-2 pl-3" data-tauri-drag-region>
+        <img
+          src={logoUrl}
+          alt=""
+          className="h-4 w-4 rounded-sm opacity-90"
+          data-tauri-drag-region
+        />
+        <span
+          className="text-[11px] font-medium text-[var(--ct-muted-fg)]"
+          data-tauri-drag-region
         >
-          <HamburgerIcon size={15} />
-        </button>
-
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-1 ml-1" data-tauri-drag-region>
-          <span className="text-[11px] text-[var(--ct-muted)]" data-tauri-drag-region>
-            CodeTerm
-          </span>
-          {workspaceName && (
-            <>
-              <Chevron />
-              <span className="text-[11px] text-[var(--ct-muted-fg)]" data-tauri-drag-region>
-                {workspaceName}
-              </span>
-            </>
-          )}
-          {tabTitle && (
-            <>
-              <Chevron />
-              <span className="text-[11px] text-[var(--ct-fg)]" data-tauri-drag-region>
-                {tabTitle}
-              </span>
-            </>
-          )}
-        </div>
+          CodeTerm
+        </span>
       </div>
 
-      {/* Spacer — drag region */}
       <div className="flex-1" data-tauri-drag-region />
 
-      {/* Tray area — right side, before window controls */}
-      <div className="flex items-center gap-1 pr-1">
-        <UpdateBadge onNavigate={onOpenSettingsAbout} />
+      <div className="flex items-center h-full gap-1">
         <MeshPresenceTray />
         <KeepAwakeTray />
       </div>
@@ -195,7 +175,7 @@ function WindowsControls({
     <div className="flex items-center h-full">
       <button
         onClick={onMinimize}
-        className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+        className={`${UI_BUTTON.ghost} h-full w-12`} 
         title="Minimize"
       >
         <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor">
@@ -204,7 +184,7 @@ function WindowsControls({
       </button>
       <button
         onClick={onMaximize}
-        className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+        className={`${UI_BUTTON.ghost} h-full w-12`}
         title="Maximize"
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
@@ -213,25 +193,11 @@ function WindowsControls({
       </button>
       <button
         onClick={onClose}
-        className="inline-flex items-center justify-center w-12 h-full hover:bg-[#e81123] text-[var(--ct-muted)] hover:text-white transition-colors"
+        className={`${UI_BUTTON.base} h-full w-12 text-[var(--ct-muted)] hover:text-white hover:bg-[#e81123] transition-colors`} 
         title="Close"
       >
         <CloseXIcon />
       </button>
     </div>
-  );
-}
-
-// ── Shared ────────────────────────────────────────────────────────────
-
-function Chevron() {
-  return (
-    <svg
-      width="12" height="12" viewBox="0 0 16 16" fill="none"
-      stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"
-      className="text-[var(--ct-muted)] opacity-50 shrink-0"
-    >
-      <path d="M6 4l4 4-4 4" />
-    </svg>
   );
 }

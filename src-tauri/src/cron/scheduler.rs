@@ -1,7 +1,10 @@
 //! Background cron scheduler — fires cron jobs and spawns agents.
+//!
+//! Time comes exclusively from the store's injected Clock, never from
+//! SystemTime directly — that's what makes cron time-travel testable.
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use parking_lot::Mutex;
 use tauri::Emitter;
@@ -15,11 +18,7 @@ pub type CronState = Arc<Mutex<CronStore>>;
 pub type CronWake = Arc<std::sync::Condvar>;
 
 /// Start the cron scheduler in a background thread.
-pub fn start(
-    cron_state: CronState,
-    cron_wake: CronWake,
-    service: ServiceState,
-) {
+pub fn start(cron_state: CronState, cron_wake: CronWake, service: ServiceState) {
     let wake_mutex = Arc::new(std::sync::Mutex::new(()));
 
     std::thread::spawn(move || {
@@ -49,7 +48,7 @@ struct FireSpec {
 
 /// One scheduler tick: fire any overdue jobs, return ms until next fire.
 fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
-    let now_ms = now();
+    let now_ms = cron_state.lock().now_ms();
     let mut next_fire: Option<u64> = None;
     let mut to_fire: Vec<FireSpec> = Vec::new();
 
@@ -109,7 +108,7 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
     // Sleep duration: min of (next_fire - now, 60s)
     match next_fire {
         Some(nr) => {
-            let now_ms = now();
+            let now_ms = cron_state.lock().now_ms();
             if nr > now_ms {
                 (nr - now_ms).min(60_000)
             } else {
@@ -120,11 +119,7 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
     }
 }
 
-fn fire_job(
-    cron_state: &CronState,
-    service: &ServiceState,
-    spec: &FireSpec,
-) {
+fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     let job_id = spec.job_id.as_str();
     let agent = spec.agent.as_str();
     let model = spec.model.as_deref();
@@ -141,7 +136,7 @@ fn fire_job(
     // Record run as Running
     let run_info = CronRunInfo {
         run_id: run_id.clone(),
-        started_at: now(),
+        started_at: cron_state.lock().now_ms(),
         finished_at: None,
         status: CronRunStatus::Running,
         pane_id: None,
@@ -163,24 +158,23 @@ fn fire_job(
     }
     task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
 
-    // Model priority: per-job override → mem_cfg.dreaming_model (legacy
-    // fallback for the auto-installed dreaming cron) → mem_cfg.worker_model
-    // (shared default). Short labels (haiku|sonnet|opus) resolve at runtime
-    // via agent::models.
-    let model = model.map(|s| s.to_string()).or_else(|| {
-        let mem_cfg = crate::config::memory_config();
-        if !mem_cfg.dreaming_model.is_empty() {
-            Some(mem_cfg.dreaming_model.clone())
-        } else if !mem_cfg.worker_model.is_empty() {
-            Some(mem_cfg.worker_model.clone())
-        } else {
-            None
-        }
-    }).map(|s| crate::agent::models::canonicalize_short(&s).to_string());
+    // Model priority: per-job override → mem_cfg.dreaming_model (legacy fallback for the auto-installed dreaming cron) → mem_cfg.worker_model
+    // (shared default). Short labels (haiku|sonnet|opus) resolve at runtime via agent::models.
+    let model = model
+        .map(|s| s.to_string())
+        .or_else(|| {
+            let mem_cfg = crate::config::memory_config();
+            if !mem_cfg.dreaming_model.is_empty() {
+                Some(mem_cfg.dreaming_model.clone())
+            } else if !mem_cfg.worker_model.is_empty() {
+                Some(mem_cfg.worker_model.clone())
+            } else {
+                None
+            }
+        })
+        .map(|s| crate::agent::models::canonicalize_short(&s).to_string());
 
-    // Carry the cron job's human name into the pane title so that
-    // [Report from <title>] shows "cron:my-job" instead of the
-    // default "Terminal" when the agent reports back to its creator.
+    // Include cron job name in the pane title so reports show `cron:<job>` instead of plain `Terminal`.
     let job_name = cron_state
         .lock()
         .get(job_id)
@@ -197,9 +191,9 @@ fn fire_job(
         parent_pane_id: None,
         cwd: cwd.map(|s| s.to_string()),
         title: Some(pane_title),
-        // Hidden — user observes cron runs via the cron history log
-        // viewer, not as a live tab. Mirrors the mem worker pattern.
+        // Hidden — user observes cron runs via the cron history log viewer, not as a live tab. Mirrors the mem worker pattern.
         visibility: PaneVisibility::Hidden,
+        eager: false,
         command: PaneCommand::Agent(AgentSpawnSpec {
             provider: agent.to_string(),
             model,
@@ -216,7 +210,9 @@ fn fire_job(
         Ok(handle) => {
             log::info!(
                 "Cron agent spawned: job={}, pane={}, tab={}",
-                job_id, handle.pane_id, handle.tab_id
+                job_id,
+                handle.pane_id,
+                handle.tab_id
             );
 
             // Update run with pane/tab info + register ownership
@@ -253,7 +249,9 @@ fn fire_job(
                 if job_timeout.is_some() {
                     log::info!(
                         "[cron] fire {} run={} timeout={}s (per-job override)",
-                        job_id, run_id, timeout
+                        job_id,
+                        run_id,
+                        timeout
                     );
                 }
                 service.run_watcher.register(
@@ -278,7 +276,6 @@ fn fire_job(
                     "tab_id": handle.tab_id,
                 }),
             );
-
         }
         Err(e) => {
             log::error!("Cron agent spawn failed: job={}, error={}", job_id, e);
@@ -290,20 +287,9 @@ fn fire_job(
             }
 
             // Notification
-            service.create_notification(
-                format!("Cron failed: {}", job_id),
-                Some(e),
-                Some("error"),
-            );
+            service.create_notification(format!("Cron failed: {}", job_id), Some(e), Some("error"));
         }
     }
-}
-
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -311,13 +297,14 @@ fn now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cron::store::{CronCreateParams, CronStore, compute_next_run};
+    use crate::cron::clock::{Clock, SystemClock};
+    use crate::cron::store::{compute_next_run, CronCreateParams, CronStore};
 
     #[test]
     fn test_compute_next_fire_soonest() {
         // Test that compute_next_run returns a future time
         let next = compute_next_run("* * * * *").unwrap().unwrap();
-        let now_ms = now();
+        let now_ms = SystemClock.now_ms();
         assert!(next > now_ms);
         assert!(next - now_ms <= 60_000 + 1000);
     }
@@ -328,43 +315,47 @@ mod tests {
         let path = dir.path().join("crons.json");
         let mut store = CronStore::new_with_path(path);
 
-        store.create(CronCreateParams {
-            name: "Enabled".into(),
-            workspace_id: "ws".into(),
-            schedule: "0 * * * *".into(),
-            task: "test".into(),
-            description: None,
-            agent: None,
-            model: None,
-            cwd: None,
-            role: None,
-            creator_pane_id: None,
-            enabled: Some(true),
-            max_history: None,
-            oneshot: None,
-            jitter_max_ms: Some(0),
-            tz: None,
-            timeout_seconds: None,
-        }).unwrap();
+        store
+            .create(CronCreateParams {
+                name: "Enabled".into(),
+                workspace_id: "ws".into(),
+                schedule: "0 * * * *".into(),
+                task: "test".into(),
+                description: None,
+                agent: None,
+                model: None,
+                cwd: None,
+                role: None,
+                creator_pane_id: None,
+                enabled: Some(true),
+                max_history: None,
+                oneshot: None,
+                jitter_max_ms: Some(0),
+                tz: None,
+                timeout_seconds: None,
+            })
+            .unwrap();
 
-        store.create(CronCreateParams {
-            name: "Disabled".into(),
-            workspace_id: "ws".into(),
-            schedule: "0 * * * *".into(),
-            task: "test".into(),
-            description: None,
-            agent: None,
-            model: None,
-            cwd: None,
-            role: None,
-            creator_pane_id: None,
-            enabled: Some(false),
-            max_history: None,
-            oneshot: None,
-            jitter_max_ms: Some(0),
-            tz: None,
-            timeout_seconds: None,
-        }).unwrap();
+        store
+            .create(CronCreateParams {
+                name: "Disabled".into(),
+                workspace_id: "ws".into(),
+                schedule: "0 * * * *".into(),
+                task: "test".into(),
+                description: None,
+                agent: None,
+                model: None,
+                cwd: None,
+                role: None,
+                creator_pane_id: None,
+                enabled: Some(false),
+                max_history: None,
+                oneshot: None,
+                jitter_max_ms: Some(0),
+                tz: None,
+                timeout_seconds: None,
+            })
+            .unwrap();
 
         let enabled = store.list_enabled();
         assert_eq!(enabled.len(), 1);

@@ -11,7 +11,8 @@
 #   ./build.sh clean     — clean build cache
 #   ./build.sh kill      — kill dev instance (safe, won't touch prod)
 #   ./build.sh webdriver — dev with WebDriver for UI tests
-#   ./build.sh e2e       — run E2E tests against dev (port 7686)
+#   ./build.sh e2e       — run non-LLM E2E tests against dev (port 7686)
+#   ./build.sh e2e:llm   — run LLM E2E tests against dev (real provider tokens)
 #   source build.sh env  — load MSVC env vars into current shell (Windows only)
 
 set -e
@@ -47,8 +48,10 @@ setup_env() {
 
 # --- Kill dev instance only (never prod) ---
 kill_dev() {
+  kill_web_watch 2>/dev/null || true
   if [[ "$OSTYPE" == darwin* ]]; then
     pgrep -f "target/debug/codeterm" | xargs kill 2>/dev/null || true
+    pgrep -f "pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json" | xargs kill 2>/dev/null || true
     lsof -ti:1420 | xargs kill -9 2>/dev/null || true
   else
     local dev_pid
@@ -63,6 +66,9 @@ kill_dev() {
 
 setup_env
 
+# Wire .githooks as the hooks directory
+git config core.hooksPath .githooks 2>/dev/null || true
+
 # Copy the freshly-built CLI into a target bin dir. Both prod (~/.codeterm/bin)
 # and dev (~/.codeterm-dev/bin) need the same binary so the dev daemon's
 # resolve_cli_path (which prefers data_dir/bin first) doesn't shell into a
@@ -76,6 +82,51 @@ install_cli_to() {
     cp cli/target/release/codeterm.exe "$bin_dir/codeterm.exe"
   fi
   echo "CLI installed to $bin_dir"
+}
+
+start_dev_wait_process() {
+  local log="$1"
+  local cmd=(pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json)
+  if [[ "$OSTYPE" == darwin* ]] && command -v script >/dev/null 2>&1; then
+    # macOS Tauri dev is more reliable with a controlling pseudo-tty. Plain
+    # `nohup pnpm tauri dev` can report healthy, then exit as the launcher shell
+    # tears down; `script` keeps the dev command in a pty while still detaching.
+    nohup script -q "$log" "${cmd[@]}" </dev/null >/dev/null 2>&1 &
+  else
+    nohup "${cmd[@]}" </dev/null >> "$log" 2>&1 &
+  fi
+  echo $!
+}
+
+# /web browser clients are served the static dist/ bundle, NOT vite HMR.
+# Watch-rebuild it so phone/browser mirrors pick up frontend edits on reload.
+start_web_watch() {
+  kill_web_watch
+  nohup pnpm exec vite build --watch </dev/null >> /tmp/codeterm-web-watch.log 2>&1 &
+  echo $! > /tmp/codeterm-web-watch.pid
+  echo "Web bundle watcher started (dist/ auto-rebuilds, log /tmp/codeterm-web-watch.log)"
+}
+
+kill_web_watch() {
+  if [ -f /tmp/codeterm-web-watch.pid ]; then
+    kill "$(cat /tmp/codeterm-web-watch.pid)" 2>/dev/null || true
+    rm -f /tmp/codeterm-web-watch.pid
+  fi
+  if [[ "$OSTYPE" == darwin* ]]; then
+    pgrep -f "vite build --watch" | xargs kill 2>/dev/null || true
+  fi
+}
+
+dev_health_status() {
+  curl -s --max-time 2 http://127.0.0.1:7686/api/health 2>/dev/null || true
+}
+
+dev_listener_pid() {
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    lsof -tiTCP:7686 -sTCP:LISTEN 2>/dev/null | head -1 || true
+  else
+    netstat -ano 2>/dev/null | grep ":7686.*LISTEN" | awk '{print $5}' | head -1 || true
+  fi
 }
 
 # Auto-install node deps if lockfile is newer than node_modules
@@ -131,6 +182,13 @@ case "$CMD" in
     install_cli_to "$HOME/.codeterm/bin"
     install_cli_to "$HOME/.codeterm-dev/bin"
     echo "Starting dev..."
+    # Mark the daemon as dev: bundle hashes are bypassed (live edits
+    # to <repo>/plugins/<id>/ don't trip the verifier) and the
+    # first-launch embedded extract is skipped so ~/.codeterm/plugins/
+    # doesn't shadow the workspace.
+    export CODETERM_DEV=1
+    export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=9223}"
+    start_web_watch
 
     WAIT=0
     for arg in "${@:2}"; do
@@ -142,9 +200,7 @@ case "$CMD" in
     if [ "$WAIT" -eq 1 ]; then
       LOG=/tmp/codeterm-dev.log
       : > "$LOG"
-      ( pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json >> "$LOG" 2>&1 ) &
-      DEV_PID=$!
-      disown "$DEV_PID" 2>/dev/null || true
+      DEV_PID=$(start_dev_wait_process "$LOG")
       echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
       DEADLINE=$(( $(date +%s) + 300 ))
       while : ; do
@@ -158,12 +214,35 @@ case "$CMD" in
           tail -25 "$LOG"
           exit 1
         fi
-        HEALTH=$(curl -s --max-time 2 http://127.0.0.1:7686/api/health 2>/dev/null || true)
+        HEALTH=$(dev_health_status)
         if [ -n "$HEALTH" ]; then
           SHA=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('build','')[:8])" 2>/dev/null || true)
           STATUS=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
           if [ "$STATUS" = "ok" ]; then
-            echo "Dev ready: build $SHA, pid $DEV_PID"
+            STABLE=1
+            for _ in 1 2 3 4; do
+              sleep 2
+              if ! kill -0 "$DEV_PID" 2>/dev/null; then
+                STABLE=0
+                break
+              fi
+              if [ -z "$(dev_listener_pid)" ]; then
+                STABLE=0
+                break
+              fi
+              HEALTH=$(dev_health_status)
+              STATUS=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+              if [ "$STATUS" != "ok" ]; then
+                STABLE=0
+                break
+              fi
+            done
+            if [ "$STABLE" != "1" ]; then
+              echo "Dev process became unhealthy immediately after reporting ready. Last log lines:"
+              tail -25 "$LOG"
+              exit 1
+            fi
+            echo "Dev ready: build $SHA, launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
             exit 0
           fi
         fi
@@ -177,16 +256,67 @@ case "$CMD" in
     kill_dev
     ensure_deps
     echo "Starting dev with WebDriver..."
+    export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=9223}"
     pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json -- --features webdriver
     ;;
   e2e)
     export CODETERM_API_URL="http://127.0.0.1:7686"
     cd tests/e2e
     pip install -q -r requirements.txt 2>/dev/null
-    python -m pytest -v --tb=short "${@:2}"
+    python -m pytest -m "not llm" -v --tb=short "${@:2}"
+    ;;
+  e2e:llm)
+    export CODETERM_API_URL="http://127.0.0.1:7686"
+    cd tests/e2e
+    pip install -q -r requirements.txt 2>/dev/null
+    python -m pytest -m llm -v --tb=short "${@:2}"
+    ;;
+  test:all)
+    # Aggregate runner for every NON-LLM test layer. Unit layers always run;
+    # dev-dependent integration layers (pytest e2e, Playwright @smoke) run only
+    # when dev (7686) is healthy, otherwise they SKIP loudly. Exits non-zero iff
+    # an EXECUTED layer failed (SKIP never fails the run). LLM-judged layers
+    # (evals/, Playwright @golden) are excluded by design — see docs/TESTING.md.
+    ta_names=(); ta_status=()
+    ta_record() { ta_names+=("$1"); ta_status+=("$2"); }
+    ta_run() { # name, cmd...
+      local name="$1"; shift
+      echo; echo "═══════════ layer: $name ═══════════"
+      if "$@"; then ta_record "$name" PASS; else ta_record "$name" FAIL; fi
+    }
+
+    ta_run "rust-unit"  cargo test --manifest-path src-tauri/Cargo.toml --lib
+    ta_run "ts-unit"    pnpm -s test:unit
+    ta_run "plugin"     pnpm -s test:plugins
+
+    DEV_STATUS=$(dev_health_status | python -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+    if [ "$DEV_STATUS" = "ok" ]; then
+      ta_run "e2e-pytest" bash -c 'cd tests/e2e && pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:7686 python -m pytest -m "not llm" -q'
+      ta_run "playwright-smoke" pnpm -s test:pw:smoke
+    else
+      echo
+      echo ">>> SKIPPED e2e-pytest — dev 7686 not healthy (start with ./build.sh dev)"
+      ta_record "e2e-pytest" SKIP
+      echo ">>> SKIPPED playwright-smoke — dev 7686 not healthy (start with ./build.sh dev)"
+      ta_record "playwright-smoke" SKIP
+    fi
+
+    echo; echo "════════════ test:all summary ════════════"
+    ta_rc=0
+    for i in "${!ta_names[@]}"; do
+      printf '  %-18s %s\n' "${ta_names[$i]}" "${ta_status[$i]}"
+      [ "${ta_status[$i]}" = "FAIL" ] && ta_rc=1
+    done
+    echo "──────────────────────────────────────────"
+    if [ "$ta_rc" -eq 0 ]; then
+      echo "✅ all executed layers passed"
+    else
+      echo "❌ one or more executed layers failed"
+    fi
+    exit "$ta_rc"
     ;;
   *)
-    echo "Usage: ./build.sh {dev|check|test|build|cli|clean|kill|webdriver|e2e|env}"
+    echo "Usage: ./build.sh {dev|check|test|test:all|build|cli|clean|kill|webdriver|e2e|env}"
     exit 1
     ;;
 esac

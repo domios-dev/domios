@@ -3,25 +3,15 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::blob::{read_blob, write_blob};
-use super::{
-    history_log, HistorySnapshot, MemItem, MemUpdate, NewMemItem, INLINE_BODY_LIMIT,
-};
+use super::{history_log, HistorySnapshot, MemItem, MemUpdate, NewMemItem, INLINE_BODY_LIMIT};
 use crate::mem::ids;
 
 /// >2KB bodies go to content-addressed blob.
-pub fn insert(
-    conn: &Connection,
-    item: &NewMemItem,
-    blobs_dir: &Path,
-) -> Result<String, String> {
+pub fn insert(conn: &Connection, item: &NewMemItem, blobs_dir: &Path) -> Result<String, String> {
     insert_with_options(conn, item, blobs_dir, false)
 }
 
-pub fn upsert(
-    conn: &Connection,
-    item: &NewMemItem,
-    blobs_dir: &Path,
-) -> Result<String, String> {
+pub fn upsert(conn: &Connection, item: &NewMemItem, blobs_dir: &Path) -> Result<String, String> {
     insert_with_options(conn, item, blobs_dir, true)
 }
 
@@ -75,8 +65,8 @@ fn insert_with_options(
     let uid = ulid::Ulid::new().to_string();
     let now = chrono::Utc::now().to_rfc3339();
     let scope_str = item.scope.as_str();
-    let tags_json = serde_json::to_string(&item.tags)
-        .map_err(|e| format!("serialize tags: {}", e))?;
+    let tags_json =
+        serde_json::to_string(&item.tags).map_err(|e| format!("serialize tags: {}", e))?;
 
     let (body_inline, body_blob_path): (Option<String>, Option<String>) =
         if item.body.len() > INLINE_BODY_LIMIT {
@@ -86,9 +76,8 @@ fn insert_with_options(
             (Some(item.body.clone()), None)
         };
 
-    // source_path stores the raw "file:..." form (it's also a tag for
-    // librarian's source-missing handling). Strip the scheme before any
-    // std::fs call — both here and in mem/file_sync.rs::sync_one.
+    // source_path stores the raw "file:..." form (it's also a tag for librarian's source-missing handling). Strip the scheme before any std::fs
+    // call — both here and in mem/file_sync.rs::sync_one.
     let (source_size, source_mtime) = item
         .source_path
         .as_ref()
@@ -175,12 +164,28 @@ pub fn exists(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
     Ok(n > 0)
 }
 
-pub fn get(
-    conn: &Connection,
-    id: &str,
-    blobs_dir: &Path,
-) -> Result<Option<MemItem>, String> {
-    let row: Option<(String, String, String, String, String, Option<String>, Option<String>, String, Option<String>, Option<String>, Option<String>, f64, String, String, Option<String>, i64, i64, Option<i64>, Option<String>)> = conn
+pub fn get(conn: &Connection, id: &str, blobs_dir: &Path) -> Result<Option<MemItem>, String> {
+    let row: Option<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        f64,
+        String,
+        String,
+        Option<String>,
+        i64,
+        i64,
+        Option<i64>,
+        Option<String>,
+    )> = conn
         .query_row(
             r#"SELECT id, uid, kind, scope, title, summary, area, tags_json,
                       body_inline, body_blob_path, source, importance,
@@ -190,20 +195,53 @@ pub fn get(
             params![id],
             |r| {
                 Ok((
-                    r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
-                    r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
-                    r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?, r.get(14)?,
-                    r.get(15)?, r.get(16)?, r.get(17)?, r.get(18)?,
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                    r.get(9)?,
+                    r.get(10)?,
+                    r.get(11)?,
+                    r.get(12)?,
+                    r.get(13)?,
+                    r.get(14)?,
+                    r.get(15)?,
+                    r.get(16)?,
+                    r.get(17)?,
+                    r.get(18)?,
                 ))
             },
         )
         .optional()
         .map_err(|e| format!("query mem_item: {}", e))?;
 
-    let Some((id, uid, kind, scope, title, summary, area, tags_json,
-              body_inline, body_blob_path, source, importance,
-              created_at, mut updated_at, accessed_at, access_count, recurrence_count,
-              stored_source_size, stored_source_mtime)) = row else {
+    let Some((
+        id,
+        uid,
+        kind,
+        scope,
+        title,
+        summary,
+        area,
+        tags_json,
+        body_inline,
+        body_blob_path,
+        source,
+        importance,
+        created_at,
+        mut updated_at,
+        accessed_at,
+        access_count,
+        recurrence_count,
+        stored_source_size,
+        stored_source_mtime,
+    )) = row
+    else {
         return Ok(None);
     };
 
@@ -217,16 +255,12 @@ pub fn get(
 
     if let Some(ref src) = source {
         if let Some(path) = src.strip_prefix("file:") {
-            // Debounce the disk-touching freshness check: only run it if we
-            // haven't read this row in the last 10 seconds. Hot search loops
-            // (mem search returning N skill rows) would otherwise stat + UPDATE
-            // every row on every call. Librarian still does the canonical
-            // hourly sweep — this in-line check is opportunistic.
-            let recently_accessed = accessed_at.as_ref()
+            // Debounce the disk-touching freshness check: only run it if we haven't read this row in the last 10 seconds. Hot search loops (mem search
+            // Skip redundant stat+UPDATE when row was just touched recently; opportunistic refresh only.
+            let recently_accessed = accessed_at
+                .as_ref()
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                .map(|t| {
-                    (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds() < 10
-                })
+                .map(|t| (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds() < 10)
                 .unwrap_or(false);
             if !recently_accessed {
                 if let Ok(meta) = std::fs::metadata(path) {
@@ -271,8 +305,19 @@ pub fn get(
     };
 
     Ok(Some(MemItem {
-        id, uid, kind, scope, title, summary, area, tags, body, source,
-        importance, created_at, updated_at,
+        id,
+        uid,
+        kind,
+        scope,
+        title,
+        summary,
+        area,
+        tags,
+        body,
+        source,
+        importance,
+        created_at,
+        updated_at,
         accessed_at: new_accessed_at,
         access_count: new_access_count,
         recurrence_count,
@@ -395,8 +440,8 @@ pub fn update(
     let new_body = patch.body.clone().unwrap_or(prev.body);
     let new_importance = patch.importance.unwrap_or(prev.importance);
 
-    let tags_json = serde_json::to_string(&new_tags)
-        .map_err(|e| format!("serialize tags: {}", e))?;
+    let tags_json =
+        serde_json::to_string(&new_tags).map_err(|e| format!("serialize tags: {}", e))?;
     let now = chrono::Utc::now().to_rfc3339();
 
     let (body_inline, body_blob_path): (Option<String>, Option<String>) =
@@ -417,11 +462,20 @@ pub fn update(
                is_pinned_wakeup = COALESCE(?11, is_pinned_wakeup)
            WHERE id = ?9"#,
         params![
-            &new_title, &new_summary, &new_area, &tags_json,
-            &body_inline, &body_blob_path, new_importance, &now, &id, recur_bump,
+            &new_title,
+            &new_summary,
+            &new_area,
+            &tags_json,
+            &body_inline,
+            &body_blob_path,
+            new_importance,
+            &now,
+            &id,
+            recur_bump,
             pinned_param,
         ],
-    ).map_err(|e| format!("update mem_item: {}", e))?;
+    )
+    .map_err(|e| format!("update mem_item: {}", e))?;
 
     let tags_text = new_tags.join(" ");
     let _ = conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&id]);
@@ -429,14 +483,17 @@ pub fn update(
         r#"INSERT INTO mem_fts (mem_id, title, summary, body, tags)
            VALUES (?1, ?2, ?3, ?4, ?5)"#,
         params![
-            &id, &new_title, new_summary.as_deref().unwrap_or(""), &new_body, &tags_text,
+            &id,
+            &new_title,
+            new_summary.as_deref().unwrap_or(""),
+            &new_body,
+            &tags_text,
         ],
-    ).map_err(|e| format!("update fts: {}", e))?;
+    )
+    .map_err(|e| format!("update fts: {}", e))?;
 
-    // Record only the fields that actually changed. If nothing changed
-    // (e.g. patch touched only tags/area/summary), still emit an update row
-    // so the caller can see the write happened — but leave old_/new_ at
-    // None for fields that were unchanged.
+    // Record only the fields that changed. If nothing changed (e.g. patch touched only tags/area/summary), still emit an update row so the caller
+    // can see the write happened — but leave old_/new_ at None for fields that were unchanged.
     let mut old = HistorySnapshot::default();
     let mut new = HistorySnapshot::default();
     let mut dirty = false;
@@ -458,8 +515,7 @@ pub fn update(
     if patch.pinned.is_some() && Some(prev_pinned) != patch.pinned {
         dirty = true;
     }
-    // Kind is not patchable via MemUpdate, but record it so downstream
-    // consumers can see which kind the item was at update time.
+    // Kind is not patchable via MemUpdate, but record it so downstream consumers can see which kind the item was at update time.
     if dirty {
         old.kind = Some(prev_kind.clone());
         new.kind = Some(prev_kind);

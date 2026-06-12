@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "name": "codeterm-core",
+  "displayName": "CodeTerm Core",
+  "description": "Official provider plugins shipped by the CodeTerm team.",
+  "plugins": [
+    { "id": "claude", "path": "provider-claude", "version": "0.1.0", "minCodeterm": "1.0.0" },
+    { "id": "codex", "path": "provider-codex", "version": "0.1.0", "minCodeterm": "1.0.0" },
+    { "id": "opencode", "path": "provider-opencode", "version": "0.1.0", "minCodeterm": "1.0.0" }
+  ]
+}

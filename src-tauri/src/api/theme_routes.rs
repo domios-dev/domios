@@ -28,15 +28,28 @@ pub async fn save_theme_api(
     Json(body): Json<SaveThemeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let dir = crate::config::schema::user_themes_dir()
-        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Cannot determine themes directory"))?;
-    std::fs::create_dir_all(&dir).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create themes dir"))?;
+    let dir = crate::config::schema::user_themes_dir().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Cannot determine themes directory",
+    ))?;
+    std::fs::create_dir_all(&dir).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to create themes dir",
+        )
+    })?;
     crate::config::schema::parse_builtin_theme(&body.toml)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid theme TOML"))?;
     let path = dir.join(format!("{}.toml", body.id));
-    std::fs::write(&path, &body.toml)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write theme file"))?;
-    Ok(Json(serde_json::json!({ "ok": true, "path": path.to_string_lossy() })))
+    std::fs::write(&path, &body.toml).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to write theme file",
+        )
+    })?;
+    Ok(Json(
+        serde_json::json!({ "ok": true, "path": path.to_string_lossy() }),
+    ))
 }
 
 pub async fn delete_theme_api(
@@ -81,52 +94,98 @@ pub async fn apply_theme_api(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+/// Query string: `?provider=<id>` (default `claude` for back-compat —
+/// the old endpoints had no provider param and were Claude-only).
+#[derive(serde::Deserialize)]
+pub struct ProviderQuery {
+    #[serde(default = "default_provider")]
+    pub provider: String,
+}
+
+fn default_provider() -> String {
+    "claude".into()
+}
+
 pub async fn check_rules_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let status = crate::commands::check_rule_installed()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to check rules"))?;
-    Ok(Json(serde_json::to_value(status).unwrap_or_default()))
+    let status = state
+        .svc
+        .agent_registry
+        .with_provider(&q.provider, |p| p.check_rule_status())
+        .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?;
+    Ok(Json(status))
 }
 
 pub async fn install_rules_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    crate::commands::install_project_rules()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to install rules"))?;
+    state
+        .svc
+        .agent_registry
+        .with_provider(&q.provider, |p| p.install_rule())
+        .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to install rule"))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 pub async fn check_hooks_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let status = crate::commands::check_claude_hooks()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to check hooks"))?;
-    Ok(Json(serde_json::to_value(status).unwrap_or_default()))
+    let status = state
+        .svc
+        .agent_registry
+        .with_provider(&q.provider, |p| p.check_integration())
+        .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?;
+    Ok(Json(status))
 }
 
 pub async fn install_hooks_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    crate::commands::install_claude_hooks(None)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to install hooks"))?;
+    let port = state.api_port;
+    state
+        .svc
+        .agent_registry
+        .with_provider(&q.provider, |p| p.install_integration(port))
+        .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to install integration",
+            )
+        })?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 pub async fn uninstall_hooks_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    crate::commands::uninstall_claude_hooks()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to uninstall hooks"))?;
+    state
+        .svc
+        .agent_registry
+        .with_provider(&q.provider, |p| p.uninstall_integration())
+        .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to uninstall integration",
+            )
+        })?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }

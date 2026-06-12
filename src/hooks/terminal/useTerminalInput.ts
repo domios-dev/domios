@@ -1,6 +1,6 @@
 import { useEffect, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { isMac } from "../../lib/keybindings";
 import { routeClipboardToTerm } from "../../lib/clipboardPaste";
 
@@ -33,8 +33,7 @@ export function useTerminalInput({
     if (selection) navigator.clipboard.writeText(selection).catch(() => {});
   }, [termRef]);
 
-  // Programmatic paste — called from the custom right-click menu and the
-  // Ctrl+Shift+V window-level handler. Funnels through the same unified
+  // Programmatic paste — called from the custom right-click menu and the Ctrl+Shift+V window-level handler. Funnels through the same unified
   // route as the keyboard path so file/image/text handling is consistent.
   const pasteFromClipboard = useCallback(() => {
     const term = termRef.current;
@@ -44,20 +43,10 @@ export function useTerminalInput({
   useEffect(() => {
     const term = termRef.current;
     if (!term || !termReady) return;
-    if (!connectedPtyRef.current) return;
+    // No connectedPtyRef guard — PTY connects async; onData checks the ref at write time.
 
-    // Keyboard paths.
-    //
-    // Ctrl+V / Cmd+V — explicit handler that calls routeClipboardToTerm
-    // and preventDefaults the keydown. The DOM `paste` event listener
-    // below is unreliable on Windows WebView2 for keyboard-triggered
-    // pastes (often fires with empty clipboardData, or doesn't fire at
-    // all when focus is on the xterm helper textarea), so we drive the
-    // paste from the keydown directly instead of waiting for the browser
-    // to synthesize a paste event.
-    //
-    // Ctrl+C / Cmd+C — copy ONLY when there's a selection; otherwise
-    // pass through to xterm so SIGINT works.
+    // Ctrl+V/Cmd+V: handle paste at keydown so we don't depend on WebView2's flaky `paste` event.
+    // Ctrl+C/Cmd+C: copy only on selection; pass through for SIGINT when nothing selected.
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       const mod = isMac ? e.metaKey : e.ctrlKey;
@@ -94,11 +83,8 @@ export function useTerminalInput({
       if (currentPty) invoke("write_pty_string", { ptyId: currentPty, data });
     });
 
-    // Safety net for paste events we didn't originate from the keydown
-    // path — WebView2 native context menu "Paste", programmatic
-    // execCommand("paste"), etc. Capture phase + stopImmediatePropagation
-    // cancels xterm.js's own bubble-phase listener (#1803, #3516) so
-    // routeClipboardToTerm fires exactly once.
+    // Safety net for paste events we didn't originate from the keydown path — WebView2 native context menu "Paste", programmatic
+    // execCommand("paste"), etc. Capture phase + stopImmediatePropagation cancels xterm.js's own bubble-phase listener (#1803, #3516) so routeClipboardToTerm fires exactly once.
     const el = containerRef.current;
     const onPaste = (ev: Event) => {
       ev.stopImmediatePropagation();

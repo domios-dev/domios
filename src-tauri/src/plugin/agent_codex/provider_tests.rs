@@ -1,5 +1,7 @@
 use super::*;
 
+static CODEX_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn codex_provider_id() {
     let p = CodexProvider::new();
@@ -80,8 +82,7 @@ fn codex_launch_interactive_skip_perms() {
         headless: false,
         session_id: None,
     });
-    // Codex CLI removed --full-auto; the surviving skip-approvals flag is
-    // --dangerously-bypass-approvals-and-sandbox (same one codex exec uses).
+    // Codex CLI removed --full-auto; the surviving skip-approvals flag is --dangerously-bypass-approvals-and-sandbox (same one codex exec uses).
     assert_eq!(cmd, "codex --dangerously-bypass-approvals-and-sandbox");
 }
 
@@ -139,7 +140,9 @@ fn codex_launch_headless_without_task_falls_back_to_tui() {
 #[test]
 fn codex_resume_command_with_uuid() {
     let p = CodexProvider::new();
-    let cmd = p.build_resume_command("019d6240-e61f-7463-9d7d-6d5afa4e7f93", true).unwrap();
+    let cmd = p
+        .build_resume_command("019d6240-e61f-7463-9d7d-6d5afa4e7f93", true)
+        .unwrap();
     assert!(cmd.contains("codex resume"));
     assert!(cmd.contains("--dangerously-bypass-approvals-and-sandbox"));
     assert!(cmd.contains("019d6240-e61f-7463-9d7d-6d5afa4e7f93"));
@@ -148,7 +151,12 @@ fn codex_resume_command_with_uuid() {
 #[test]
 fn codex_resume_command_extracts_uuid_from_stem() {
     let p = CodexProvider::new();
-    let cmd = p.build_resume_command("rollout-2026-04-06T13-05-13-019d6240-e61f-7463-9d7d-6d5afa4e7f93", true).unwrap();
+    let cmd = p
+        .build_resume_command(
+            "rollout-2026-04-06T13-05-13-019d6240-e61f-7463-9d7d-6d5afa4e7f93",
+            true,
+        )
+        .unwrap();
     assert!(cmd.contains("019d6240-e61f-7463-9d7d-6d5afa4e7f93"));
     assert!(!cmd.contains("rollout-"));
 }
@@ -164,6 +172,119 @@ fn extract_uuid_from_stem() {
 }
 
 #[test]
+fn codex_detect_active_session_does_not_roll_to_foreign_newer_session() {
+    let _guard = CODEX_ENV_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("2026").join("06").join("06");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let cwd = "/Users/rollacode/.codeterm-dev/general";
+    let old_sid = "019e1b8c-6ff3-7ec1-8088-856525752ce7";
+    let new_sid = "019e9e33-c35c-7cd0-98e8-4e7aa7a7f537";
+    let old_file = sessions.join(format!("rollout-2026-05-12T12-37-29-{old_sid}.jsonl"));
+    let new_file = sessions.join(format!("rollout-2026-06-06T21-30-53-{new_sid}.jsonl"));
+    std::fs::write(
+        &old_file,
+        format!(
+            r#"{{"timestamp":"2026-05-12T09:41:43.084Z","type":"session_meta","payload":{{"id":"{old_sid}","cwd":"{cwd}"}}}}
+{{"timestamp":"2026-05-12T09:41:43.090Z","type":"response_item","payload":{{"type":"message","role":"user","content":[{{"type":"input_text","text":"echo BANANA-7"}}]}}}}
+"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        &new_file,
+        format!(
+            r#"{{"timestamp":"2026-06-06T18:30:54.000Z","type":"session_meta","payload":{{"id":"{new_sid}","cwd":"{cwd}"}}}}
+{{"timestamp":"2026-06-06T18:31:10.207Z","type":"response_item","payload":{{"type":"message","role":"user","content":[{{"type":"input_text","text":"Йо?"}}]}}}}
+"#
+        ),
+    )
+    .unwrap();
+    let base = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000);
+    filetime::set_file_mtime(&old_file, filetime::FileTime::from_system_time(base)).unwrap();
+    filetime::set_file_mtime(
+        &new_file,
+        filetime::FileTime::from_system_time(base + std::time::Duration::from_secs(60)),
+    )
+    .unwrap();
+
+    let prev = std::env::var("CODETERM_CODEX_SESSIONS_ROOT").ok();
+    unsafe {
+        std::env::set_var(
+            "CODETERM_CODEX_SESSIONS_ROOT",
+            dir.path().to_string_lossy().as_ref(),
+        );
+    }
+    let p = CodexProvider::new();
+    assert_eq!(
+        p.session_file_path(cwd, old_sid).as_deref(),
+        Some(old_file.as_path())
+    );
+    assert_eq!(p.detect_active_session(cwd, old_sid), None);
+    assert_eq!(p.detect_active_session(cwd, new_sid), None);
+    unsafe {
+        match prev {
+            Some(value) => std::env::set_var("CODETERM_CODEX_SESSIONS_ROOT", value),
+            None => std::env::remove_var("CODETERM_CODEX_SESSIONS_ROOT"),
+        }
+    }
+}
+
+#[test]
+fn codex_detect_session_model_reads_the_claimed_session_only() {
+    let _guard = CODEX_ENV_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("2026").join("06").join("12");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let cwd = "/tmp/model-fidelity";
+    let sid_a = "019ebbbb-0000-7000-8000-000000000001";
+    let sid_b = "019ebbbb-0000-7000-8000-000000000002";
+    std::fs::write(
+        sessions.join(format!("rollout-2026-06-12T12-00-00-{sid_a}.jsonl")),
+        format!(
+            r#"{{"type":"session_meta","payload":{{"id":"{sid_a}","cwd":"{cwd}"}}}}
+{{"type":"turn_context","payload":{{"model":"gpt-5.4-mini"}}}}
+"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        sessions.join(format!("rollout-2026-06-12T12-00-01-{sid_b}.jsonl")),
+        format!(
+            r#"{{"type":"session_meta","payload":{{"id":"{sid_b}","cwd":"{cwd}"}}}}
+{{"type":"turn_context","payload":{{"model":"gpt-5.5"}}}}
+"#
+        ),
+    )
+    .unwrap();
+
+    let prev = std::env::var("CODETERM_CODEX_SESSIONS_ROOT").ok();
+    unsafe {
+        std::env::set_var(
+            "CODETERM_CODEX_SESSIONS_ROOT",
+            dir.path().to_string_lossy().as_ref(),
+        );
+    }
+    let p = CodexProvider::new();
+    assert_eq!(
+        p.detect_session_model(cwd, sid_a).as_deref(),
+        Some("GPT-5.4-mini")
+    );
+    assert_eq!(
+        p.detect_session_model(cwd, sid_b).as_deref(),
+        Some("GPT-5.5")
+    );
+    assert_eq!(p.detect_session_model(cwd, "missing-session"), None);
+    assert_eq!(p.detect_active_session(cwd, sid_a), None);
+    unsafe {
+        match prev {
+            Some(value) => std::env::set_var("CODETERM_CODEX_SESSIONS_ROOT", value),
+            None => std::env::remove_var("CODETERM_CODEX_SESSIONS_ROOT"),
+        }
+    }
+}
+
+#[test]
 fn codex_compact_and_exit() {
     let p = CodexProvider::new();
     assert_eq!(p.compact_command(), Some("/compact"));
@@ -176,7 +297,10 @@ fn codex_event_detection() {
     let p = CodexProvider::new();
     let events = p.detect_events("Would you like to run the following command?\n$ ls -la");
     assert_eq!(events.len(), 1);
-    assert!(matches!(events[0], crate::agent::detector::AgentEvent::PermissionRequest));
+    assert!(matches!(
+        events[0],
+        crate::agent::detector::AgentEvent::PermissionRequest
+    ));
 
     let events = p.detect_events("Hello, how can I help?");
     assert!(events.is_empty());
@@ -252,42 +376,34 @@ fn codex_settings_schema_round_trips_as_json() {
 }
 
 #[test]
-fn codex_notifications_schema_present() {
-    // Codex has no hook file system, but PTY-output detection always runs.
-    // The schema surfaces that as a read-only "auto-enabled" badge so the
-    // Notifications tab lists Codex alongside Claude.
+fn codex_does_not_contribute_notifications_card() {
+    // Codex notifications fire automatically via the PTY event pipeline — no user-facing setting to render. Keeping the Notifications tab free of
+    // "auto-enabled, no setup required" cards keeps the UI honest.
     let p = CodexProvider::new();
-    let schema = p.notifications_schema();
-    assert!(!schema.is_empty(), "Codex must contribute notifications");
-    match &schema[0] {
-        crate::agent::provider::SettingField::Section { title, fields, .. } => {
-            assert_eq!(title, "Codex Notifications");
-            let mut saw_badge = false;
-            for f in fields {
-                if let crate::agent::provider::SettingField::Badge { query_command, .. } = f {
-                    if query_command == "check_pty_status_available" {
-                        saw_badge = true;
-                    }
-                }
-            }
-            assert!(saw_badge, "expected Badge wired to check_pty_status_available");
-        }
-        _ => panic!("expected Section as top-level notifications field"),
-    }
-    assert!(!p.describe().notifications_schema.is_empty());
+    assert!(p.notifications_schema().is_empty());
+    assert!(p.describe().notifications_schema.is_empty());
 }
 
-// Meta filter — these strings are injections CodeTerm writes to a codex
-// session as role=user. Session search must mark them is_meta so they
-// don't pollute results with our own bootstrap noise.
+// Meta filter for CodeTerm bootstrap lines injected into codex sessions.
+// Tag them is_meta so search can ignore its own bootstrap noise.
 #[test]
 fn is_codeterm_injection_matches_known_boot_prompts() {
-    assert!(is_codeterm_injection("# AGENTS.md instructions for /Users/x/proj"));
+    assert!(is_codeterm_injection(
+        "# AGENTS.md instructions for /Users/x/proj"
+    ));
     assert!(is_codeterm_injection("<INSTRUCTIONS>\nYou are..."));
-    assert!(is_codeterm_injection("<environment_context>\n  <cwd>/x</cwd>\n</environment_context>"));
-    assert!(is_codeterm_injection("<permissions instructions>\nFilesystem sandboxing..."));
-    assert!(is_codeterm_injection("You are a Graph Worker for the CodeTerm memory system."));
-    assert!(is_codeterm_injection("You are the General Agent — the always-on system brain"));
+    assert!(is_codeterm_injection(
+        "<environment_context>\n  <cwd>/x</cwd>\n</environment_context>"
+    ));
+    assert!(is_codeterm_injection(
+        "<permissions instructions>\nFilesystem sandboxing..."
+    ));
+    assert!(is_codeterm_injection(
+        "You are a Graph Worker for the CodeTerm memory system."
+    ));
+    assert!(is_codeterm_injection(
+        "You are the General Agent — the always-on system brain"
+    ));
     // Leading whitespace is ok — real codex payloads don't trim.
     assert!(is_codeterm_injection("   \n<INSTRUCTIONS>payload"));
 }
@@ -297,9 +413,10 @@ fn is_codeterm_injection_leaves_real_user_messages_alone() {
     assert!(!is_codeterm_injection("fix the bug in parser.rs"));
     assert!(!is_codeterm_injection("why did the deploy fail?"));
     assert!(!is_codeterm_injection("# TODO list\n- ship v2"));
-    // User could paste the literal strings inside a question — that's
-    // legitimate. Strict `starts_with` keeps false positives low.
-    assert!(!is_codeterm_injection("looking at <INSTRUCTIONS> — what does it mean"));
+    // User could paste the literal strings inside a question — that's legitimate. Strict `starts_with` keeps false positives low.
+    assert!(!is_codeterm_injection(
+        "looking at <INSTRUCTIONS> — what does it mean"
+    ));
 }
 
 #[test]

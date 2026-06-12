@@ -7,23 +7,27 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 
-pub async fn network_info(
-    AxumState(state): AxumState<AppState>,
-) -> Json<serde_json::Value> {
+pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
     let local_ip = local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
-    // Single source of truth: read the cached value populated by
-    // `mesh::discovery::detect_tailscale` from the periodic refresh loop.
-    // Avoids duplicating the probe logic (which previously lacked IP
-    // validation, the GUI-bridge fallback, and a timeout).
+    // Single source of truth: read the cached value populated by `mesh::discovery::detect_tailscale` from the periodic refresh loop. Avoids
+    // duplicating the probe logic (which previously lacked IP validation, the GUI-bridge fallback, and a timeout).
     let tailscale_ip = state.mesh.lock().tailscale_ip.clone();
+    let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
+    let tailscale_https_url = if crate::mesh::discovery::tailscale_serve_https_enabled() {
+        tailscale_dns.as_ref().map(|dns| format!("https://{}", dns))
+    } else {
+        None
+    };
     let port = state.api_port;
 
     Json(serde_json::json!({
         "local_ip": local_ip,
         "tailscale_ip": tailscale_ip,
+        "tailscale_dns": tailscale_dns,
         "api_port": port,
         "api_url": format!("http://{}:{}", local_ip, port),
         "tailscale_url": tailscale_ip.as_ref().map(|ip| format!("http://{}:{}", ip, port)),
+        "tailscale_https_url": tailscale_https_url,
     }))
 }
 
@@ -39,7 +43,9 @@ pub async fn keepawake_status_handler(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let st = crate::keepawake::status(&state.keepawake);
-    Ok(Json(serde_json::to_value(st).unwrap_or(serde_json::Value::Null)))
+    Ok(Json(
+        serde_json::to_value(st).unwrap_or(serde_json::Value::Null),
+    ))
 }
 
 pub async fn keepawake_start_handler(
@@ -56,7 +62,9 @@ pub async fn keepawake_start_handler(
         body.display,
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::to_value(st).unwrap_or(serde_json::Value::Null)))
+    Ok(Json(
+        serde_json::to_value(st).unwrap_or(serde_json::Value::Null),
+    ))
 }
 
 pub async fn keepawake_stop_handler(

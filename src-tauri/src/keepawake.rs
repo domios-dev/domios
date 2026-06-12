@@ -1,6 +1,6 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,7 @@ const EVENT_CHANGED: &str = "keepawake-changed";
 /// File inside the CodeTerm data dir where the last session is snapshotted
 /// so we can resume across restarts.
 const PERSIST_FILE: &str = "keepawake.json";
+const CHILDREN_FILE: &str = "keepawake-children.json";
 
 /// Shared state managed by Tauri.
 pub type KeepAwakeState = Arc<Mutex<Option<ActiveSession>>>;
@@ -34,6 +35,22 @@ pub struct ActiveSession {
     session_id: u64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+struct KeepAwakeChild {
+    pid: u32,
+    spawned_at_ms: i64,
+    display: bool,
+    wrapper: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProcessSnapshot {
+    ppid: u32,
+    command: String,
+}
+
+static CHILD_REGISTRY: OnceLock<Mutex<Vec<KeepAwakeChild>>> = OnceLock::new();
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KeepAwakeStatus {
     pub active: bool,
@@ -44,6 +61,223 @@ pub struct KeepAwakeStatus {
 
 fn persist_path() -> PathBuf {
     crate::paths::data_dir().join(PERSIST_FILE)
+}
+
+fn children_path() -> PathBuf {
+    crate::paths::data_dir().join(CHILDREN_FILE)
+}
+
+fn child_registry() -> &'static Mutex<Vec<KeepAwakeChild>> {
+    CHILD_REGISTRY.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn load_children_from(path: &std::path::Path) -> Vec<KeepAwakeChild> {
+    let Ok(bytes) = std::fs::read(path) else {
+        return Vec::new();
+    };
+    serde_json::from_slice::<Vec<KeepAwakeChild>>(&bytes).unwrap_or_default()
+}
+
+fn save_children_to(path: &std::path::Path, children: &[KeepAwakeChild]) {
+    if children.is_empty() {
+        let _ = std::fs::remove_file(path);
+        return;
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let bytes = match serde_json::to_vec(children) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            log::warn!("[keepawake] failed to serialize child registry: {}", e);
+            return;
+        }
+    };
+    let tmp = path.with_extension("json.tmp");
+    if let Err(e) = std::fs::write(&tmp, bytes) {
+        log::warn!("[keepawake] failed to write child registry tmp: {}", e);
+        return;
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        log::warn!("[keepawake] failed to rename child registry: {}", e);
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+fn register_child(pid: u32, display: bool, wrapper: bool) {
+    let child = KeepAwakeChild {
+        pid,
+        spawned_at_ms: now_ms(),
+        display,
+        wrapper,
+    };
+    let path = children_path();
+    let mut guard = child_registry().lock();
+    guard.retain(|c| c.pid != pid);
+    guard.push(child);
+    save_children_to(&path, &guard);
+}
+
+fn unregister_child(pid: u32) {
+    let path = children_path();
+    let mut guard = child_registry().lock();
+    guard.retain(|c| c.pid != pid);
+    save_children_to(&path, &guard);
+}
+
+pub(crate) fn reap_orphaned_children_on_startup() {
+    let path = children_path();
+    let entries = load_children_from(&path);
+    let outcome = reap_journaled_orphans(entries, inspect_process, terminate_pid);
+    if !outcome.killed.is_empty() {
+        log::warn!(
+            "[keepawake] reaped orphaned keepawake child pid(s): {:?}",
+            outcome.killed
+        );
+    }
+    if !outcome.skipped.is_empty() {
+        log::warn!(
+            "[keepawake] skipped stale child registry pid(s): {:?}",
+            outcome.skipped
+        );
+    }
+    *child_registry().lock() = outcome.kept.clone();
+    save_children_to(&path, &outcome.kept);
+}
+
+pub(crate) fn cleanup_active_children_for_exit() {
+    let killed = cleanup_active_children_with(terminate_pid);
+    if !killed.is_empty() {
+        log::warn!("[keepawake] terminated active child pid(s): {:?}", killed);
+    }
+}
+
+fn cleanup_active_children_with<K>(mut kill: K) -> Vec<u32>
+where
+    K: FnMut(u32) -> Result<(), String>,
+{
+    let path = children_path();
+    let mut guard = child_registry().lock();
+    let entries = std::mem::take(&mut *guard);
+    let killed = cleanup_child_entries(entries, &mut kill);
+    save_children_to(&path, &[]);
+    killed
+}
+
+fn cleanup_child_entries<K>(entries: Vec<KeepAwakeChild>, mut kill: K) -> Vec<u32>
+where
+    K: FnMut(u32) -> Result<(), String>,
+{
+    let mut killed = Vec::new();
+    for child in entries {
+        if kill(child.pid).is_ok() {
+            killed.push(child.pid);
+        }
+    }
+    killed
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ReapOutcome {
+    killed: Vec<u32>,
+    skipped: Vec<u32>,
+    kept: Vec<KeepAwakeChild>,
+}
+
+fn reap_journaled_orphans<I, K>(
+    entries: Vec<KeepAwakeChild>,
+    inspect: I,
+    mut kill: K,
+) -> ReapOutcome
+where
+    I: Fn(u32) -> Option<ProcessSnapshot>,
+    K: FnMut(u32) -> Result<(), String>,
+{
+    let mut outcome = ReapOutcome::default();
+    for child in entries {
+        let Some(snapshot) = inspect(child.pid) else {
+            continue;
+        };
+        if should_reap_child(&snapshot) {
+            if snapshot.ppid == 1 {
+                match kill(child.pid) {
+                    Ok(()) => outcome.killed.push(child.pid),
+                    Err(e) => {
+                        log::warn!("[keepawake] failed to terminate pid {}: {}", child.pid, e);
+                        outcome.kept.push(child);
+                    }
+                }
+            } else {
+                outcome.kept.push(child);
+            }
+        } else {
+            outcome.skipped.push(child.pid);
+        }
+    }
+    outcome
+}
+
+fn should_reap_child(snapshot: &ProcessSnapshot) -> bool {
+    snapshot.command.contains("codeterm-keepawake-wrapper")
+        || snapshot.command.contains("caffeinate")
+}
+
+fn inspect_process(pid: u32) -> Option<ProcessSnapshot> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let output = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "ppid=", "-o", "command="])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        parse_ps_snapshot(&String::from_utf8_lossy(&output.stdout))
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
+fn parse_ps_snapshot(output: &str) -> Option<ProcessSnapshot> {
+    let line = output.lines().find(|l| !l.trim().is_empty())?.trim();
+    let (ppid, command) = line.split_once(char::is_whitespace)?;
+    Some(ProcessSnapshot {
+        ppid: ppid.trim().parse().ok()?,
+        command: command.trim().to_string(),
+    })
+}
+
+fn terminate_pid(pid: u32) -> Result<(), String> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let status = std::process::Command::new("kill")
+            .arg("-TERM")
+            .arg(pid.to_string())
+            .status()
+            .map_err(|e| e.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("kill exited with {}", status))
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        let status = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status()
+            .map_err(|e| e.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("taskkill exited with {}", status))
+        }
+    }
 }
 
 /// Snapshot a status to disk so the next launch can resume it. Inactive
@@ -95,7 +329,11 @@ fn clear_if_owner(state: &KeepAwakeState, my_id: u64, app: &AppHandle) {
         Some(s) if s.session_id == my_id => {
             *guard = None;
             drop(guard);
-            let off = KeepAwakeStatus { active: false, display: false, expires_at: None };
+            let off = KeepAwakeStatus {
+                active: false,
+                display: false,
+                expires_at: None,
+            };
             save_snapshot(&off);
             let _ = app.emit(EVENT_CHANGED, &off);
         }
@@ -111,8 +349,8 @@ pub fn start(
     duration_secs: Option<u64>,
     display: Option<bool>,
 ) -> Result<KeepAwakeStatus, String> {
-    // Stop any existing session first. Don't emit an intermediate "off" state —
-    // a `start` call is a single atomic transition from the frontend's view.
+    // Stop any existing session first. Don't emit an intermediate "off" state — a `start` call is a single atomic transition from the frontend's
+    // view.
     stop_inner(state);
 
     let display = display.unwrap_or(false);
@@ -130,8 +368,17 @@ pub fn start(
         session_id,
     )?;
 
-    let session = ActiveSession { stop_tx, display, expires_at, session_id };
-    let status = KeepAwakeStatus { active: true, display, expires_at };
+    let session = ActiveSession {
+        stop_tx,
+        display,
+        expires_at,
+        session_id,
+    };
+    let status = KeepAwakeStatus {
+        active: true,
+        display,
+        expires_at,
+    };
     *state.lock() = Some(session);
 
     log::info!(
@@ -149,7 +396,11 @@ pub fn start(
 pub fn stop(state: &KeepAwakeState, app: &AppHandle) -> Result<(), String> {
     stop_inner(state);
     log::info!("[keepawake] stopped");
-    let off = KeepAwakeStatus { active: false, display: false, expires_at: None };
+    let off = KeepAwakeStatus {
+        active: false,
+        display: false,
+        expires_at: None,
+    };
     save_snapshot(&off);
     let _ = app.emit(EVENT_CHANGED, &off);
     Ok(())
@@ -278,9 +529,7 @@ mod platform {
                 // Reset execution state
                 SetThreadExecutionState(ES_CONTINUOUS);
 
-                // If timer expired naturally (not stopped early), clear shared
-                // state — but only if we still own it. A fresh start() could
-                // have replaced us in the tiny window after recv_timeout.
+                // On natural expiry, clear shared state only if still owned; a rapid restart may replace the owner.
                 if !stopped_early {
                     clear_if_owner(&state, session_id, &app);
                 }
@@ -294,6 +543,8 @@ mod platform {
 mod platform {
     use super::*;
 
+    const WRAPPER_MARKER: &str = "codeterm-keepawake-wrapper";
+
     pub fn start(
         display: bool,
         duration_secs: Option<u64>,
@@ -302,19 +553,16 @@ mod platform {
         app: AppHandle,
         session_id: u64,
     ) -> Result<(), String> {
-        // Spawn caffeinate eagerly so failure surfaces as an Err before we
-        // record any session state.
-        let mut cmd = std::process::Command::new("caffeinate");
-        cmd.arg("-i").arg("-s"); // idle + system sleep prevention
-        if display {
-            cmd.arg("-d"); // display sleep prevention
+        // Spawn eagerly so failure surfaces as an Err before we record any session state. The shell wrapper owns the real caffeinate process and
+        // terminates it if CodeTerm disappears and launchd reparents the wrapper to PID 1.
+        let (child, caffeinate_pid) = spawn_keepawake_child(display, session_id)?;
+        let child_pid = child.id();
+        register_child(child_pid, display, true);
+        if let Some(pid) = caffeinate_pid {
+            register_child(pid, display, false);
         }
-        let child = cmd
-            .spawn()
-            .map_err(|e| format!("caffeinate spawn failed: {}", e))?;
 
-        // Share the Child between the worker thread and the error cleanup
-        // path. Whichever gets there first takes it and reaps it.
+        // Share the Child between the worker thread and the error cleanup path. Whichever gets there first takes it and reaps it.
         let child_slot = Arc::new(Mutex::new(Some(child)));
         let child_for_thread = Arc::clone(&child_slot);
 
@@ -332,6 +580,10 @@ mod platform {
                     let _ = c.kill();
                     let _ = c.wait();
                 }
+                unregister_child(child_pid);
+                if let Some(pid) = caffeinate_pid {
+                    unregister_child(pid);
+                }
 
                 if !stopped_early {
                     clear_if_owner(&state, session_id, &app);
@@ -339,14 +591,84 @@ mod platform {
             })
             .map(|_| ())
             .map_err(|e| {
-                // Thread spawn failed after caffeinate was already running —
-                // reap it here so we don't orphan the child process.
+                // Thread spawn failed after caffeinate was already running — reap it here so we don't orphan the child process.
                 if let Some(mut c) = child_slot.lock().take() {
                     let _ = c.kill();
                     let _ = c.wait();
                 }
+                unregister_child(child_pid);
+                if let Some(pid) = caffeinate_pid {
+                    unregister_child(pid);
+                }
                 format!("failed to spawn keepawake thread: {}", e)
             })
+    }
+
+    fn spawn_keepawake_child(
+        display: bool,
+        session_id: u64,
+    ) -> Result<(std::process::Child, Option<u32>), String> {
+        let pid_file = child_pid_file(session_id);
+        if let Some(parent) = pid_file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::remove_file(&pid_file);
+        let script = keepawake_wrapper_script();
+        let mut cmd = std::process::Command::new("/bin/sh");
+        cmd.arg("-c").arg(script).arg(WRAPPER_MARKER).arg(&pid_file);
+        cmd.arg("-i").arg("-s");
+        if display {
+            cmd.arg("-d");
+        }
+        let child = cmd
+            .spawn()
+            .map_err(|e| format!("caffeinate wrapper spawn failed: {}", e))?;
+        let caffeinate_pid = wait_for_caffeinate_pid(&pid_file);
+        let _ = std::fs::remove_file(&pid_file);
+        Ok((child, caffeinate_pid))
+    }
+
+    fn child_pid_file(session_id: u64) -> PathBuf {
+        crate::paths::data_dir()
+            .join("state")
+            .join(format!("keepawake-{}-caffeinate.pid", session_id))
+    }
+
+    fn wait_for_caffeinate_pid(path: &std::path::Path) -> Option<u32> {
+        for _ in 0..20 {
+            if let Ok(s) = std::fs::read_to_string(path) {
+                if let Ok(pid) = s.trim().parse::<u32>() {
+                    return Some(pid);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        None
+    }
+
+    pub(crate) fn keepawake_wrapper_script() -> &'static str {
+        r#"
+pid_file=$1
+shift
+caffeinate "$@" &
+child=$!
+printf '%s\n' "$child" > "$pid_file"
+cleanup() {
+  kill "$child" 2>/dev/null
+  wait "$child" 2>/dev/null
+}
+trap 'cleanup; exit 0' TERM INT HUP
+trap 'cleanup' EXIT
+while kill -0 "$child" 2>/dev/null; do
+  ppid=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')
+  if [ "$ppid" = "1" ]; then
+    cleanup
+    exit 0
+  fi
+  sleep 2
+done
+wait "$child" 2>/dev/null
+"#
     }
 }
 
@@ -365,5 +687,104 @@ mod platform {
     ) -> Result<(), String> {
         log::warn!("[keepawake] not supported on this platform");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex as StdMutex};
+
+    fn child(pid: u32, wrapper: bool) -> KeepAwakeChild {
+        KeepAwakeChild {
+            pid,
+            spawned_at_ms: 123,
+            display: false,
+            wrapper,
+        }
+    }
+
+    #[test]
+    fn child_journal_round_trips_and_empty_save_removes_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(CHILDREN_FILE);
+        let entries = vec![child(10, true), child(11, false)];
+
+        save_children_to(&path, &entries);
+        assert_eq!(load_children_from(&path), entries);
+
+        save_children_to(&path, &[]);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn reap_kills_only_orphaned_keepawake_processes() {
+        let entries = vec![child(10, true), child(11, false), child(12, false)];
+        let killed = Arc::new(StdMutex::new(Vec::new()));
+        let killed_for_closure = Arc::clone(&killed);
+
+        let outcome = reap_journaled_orphans(
+            entries,
+            |pid| match pid {
+                10 => Some(ProcessSnapshot {
+                    ppid: 1,
+                    command: "/bin/sh codeterm-keepawake-wrapper".into(),
+                }),
+                11 => Some(ProcessSnapshot {
+                    ppid: 10,
+                    command: "caffeinate -i -s".into(),
+                }),
+                12 => Some(ProcessSnapshot {
+                    ppid: 1,
+                    command: "python something_else.py".into(),
+                }),
+                _ => None,
+            },
+            |pid| {
+                killed_for_closure.lock().unwrap().push(pid);
+                Ok(())
+            },
+        );
+
+        assert_eq!(*killed.lock().unwrap(), vec![10]);
+        assert_eq!(outcome.killed, vec![10]);
+        assert_eq!(outcome.kept, vec![child(11, false)]);
+        assert_eq!(outcome.skipped, vec![12]);
+    }
+
+    #[test]
+    fn exit_cleanup_attempts_all_registered_children() {
+        let entries = vec![child(20, true), child(21, false)];
+        let killed = Arc::new(StdMutex::new(Vec::new()));
+        let killed_for_closure = Arc::clone(&killed);
+
+        let result = cleanup_child_entries(entries, |pid| {
+            killed_for_closure.lock().unwrap().push(pid);
+            Ok(())
+        });
+
+        assert_eq!(result, vec![20, 21]);
+        assert_eq!(*killed.lock().unwrap(), vec![20, 21]);
+    }
+
+    #[test]
+    fn parse_ps_snapshot_reads_ppid_and_command() {
+        let snapshot = parse_ps_snapshot("    1 /bin/sh codeterm-keepawake-wrapper -i -s\n")
+            .expect("snapshot parsed");
+
+        assert_eq!(snapshot.ppid, 1);
+        assert_eq!(snapshot.command, "/bin/sh codeterm-keepawake-wrapper -i -s");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_wrapper_kills_caffeinate_when_parent_disappears() {
+        let script = platform::keepawake_wrapper_script();
+
+        assert!(script.contains("caffeinate \"$@\" &"));
+        assert!(script.contains("printf '%s\\n' \"$child\""));
+        assert!(script.contains("trap 'cleanup; exit 0' TERM INT HUP"));
+        assert!(script.contains("[ \"$ppid\" = \"1\" ]"));
+        assert!(script.contains("cleanup"));
     }
 }

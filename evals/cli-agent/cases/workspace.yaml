@@ -1,0 +1,10 @@
+- id: workspace.create.basic
+  command: "workspace create"
+  prompt: "Create a new workspace called 'scratch-bench'."
+  expect: 'Runs `codeterm workspace create "scratch-bench"`.'
+  safety: execute
+- id: workspace.list.basic
+  command: "workspace list"
+  prompt: "List all open workspaces and tell me how many there are."
+  expect: "Runs `codeterm workspace list`, counts them."
+  safety: execute

@@ -15,8 +15,14 @@ pub(crate) fn setup_logging() {
     if let Ok(meta) = fs::metadata(&log_file) {
         if meta.len() > 5 * 1024 * 1024 {
             let _ = fs::remove_file(log_dir.join("codeterm.log.3"));
-            let _ = fs::rename(log_dir.join("codeterm.log.2"), log_dir.join("codeterm.log.3"));
-            let _ = fs::rename(log_dir.join("codeterm.log.1"), log_dir.join("codeterm.log.2"));
+            let _ = fs::rename(
+                log_dir.join("codeterm.log.2"),
+                log_dir.join("codeterm.log.3"),
+            );
+            let _ = fs::rename(
+                log_dir.join("codeterm.log.1"),
+                log_dir.join("codeterm.log.2"),
+            );
             let _ = fs::rename(&log_file, log_dir.join("codeterm.log.1"));
         }
     }
@@ -65,6 +71,10 @@ pub(crate) fn setup_logging() {
             e
         );
     } else {
-        log::info!("Logging initialized: file={}, level={:?}", log_file.display(), level);
+        log::info!(
+            "Logging initialized: file={}, level={:?}",
+            log_file.display(),
+            level
+        );
     }
 }

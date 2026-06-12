@@ -37,7 +37,7 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
     return { top, left };
   }, [items.length]);
 
-  const toggle = useCallback((e: React.MouseEvent) => {
+  const toggle = useCallback((e: React.MouseEvent | React.PointerEvent) => {
     e.stopPropagation();
     e.preventDefault();
     setOpen((v) => {
@@ -81,7 +81,12 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
 
   return (
     <>
-      <div ref={triggerRef} onMouseDown={toggle} className={className}>
+      <div
+        ref={triggerRef}
+        onPointerDown={toggle}
+        onPointerUp={(e) => e.stopPropagation()}
+        className={className}
+      >
         {trigger}
       </div>
       {open && pos && createPortal(

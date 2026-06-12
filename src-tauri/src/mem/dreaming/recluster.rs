@@ -39,8 +39,9 @@ pub struct AnthropicCaller;
 #[async_trait]
 impl LlmCaller for AnthropicCaller {
     async fn complete(&self, prompt: &str, model: &str) -> Result<String, String> {
-        let api_key = std::env::var("ANTHROPIC_API_KEY")
-            .map_err(|_| "ANTHROPIC_API_KEY not set — the recluster phase needs an Anthropic key".to_string())?;
+        let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
+            "ANTHROPIC_API_KEY not set — the recluster phase needs an Anthropic key".to_string()
+        })?;
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(60))
             .build()
@@ -389,12 +390,7 @@ fn build_prompt(hubs: &[HubInfo], anchors: &[AnchorInfo]) -> String {
     );
     s.push_str(&format!("Hubs (top {} by active degree):\n", hubs.len()));
     for (i, hub) in hubs.iter().enumerate() {
-        s.push_str(&format!(
-            "{}. {} (degree {})\n",
-            i + 1,
-            hub.id,
-            hub.degree
-        ));
+        s.push_str(&format!("{}. {} (degree {})\n", i + 1, hub.id, hub.degree));
         let dist = if hub.relation_dist.is_empty() {
             "(none)".to_string()
         } else {
@@ -407,7 +403,11 @@ fn build_prompt(hubs: &[HubInfo], anchors: &[AnchorInfo]) -> String {
         s.push_str(&format!("   relation type distribution: {}\n", dist));
         s.push_str(&format!("   neighbors (top {}):\n", hub.neighbors.len()));
         for n in &hub.neighbors {
-            let title = if n.title.is_empty() { "(no title)" } else { &n.title };
+            let title = if n.title.is_empty() {
+                "(no title)"
+            } else {
+                &n.title
+            };
             if n.summary.is_empty() {
                 s.push_str(&format!("   - {}: {}\n", n.id, title));
             } else {
@@ -438,8 +438,12 @@ fn build_prompt(hubs: &[HubInfo], anchors: &[AnchorInfo]) -> String {
 
 fn parse_response(raw: &str) -> Result<Vec<RawCluster>, String> {
     let trimmed = raw.trim();
-    let start = trimmed.find('{').ok_or_else(|| "no JSON object in response".to_string())?;
-    let end = trimmed.rfind('}').ok_or_else(|| "unterminated JSON object".to_string())?;
+    let start = trimmed
+        .find('{')
+        .ok_or_else(|| "no JSON object in response".to_string())?;
+    let end = trimmed
+        .rfind('}')
+        .ok_or_else(|| "unterminated JSON object".to_string())?;
     let json = &trimmed[start..=end];
     let val: serde_json::Value =
         serde_json::from_str(json).map_err(|e| format!("parse JSON: {}", e))?;
@@ -467,7 +471,10 @@ fn validate_cluster(conn: &Connection, c: &RawCluster) -> Result<(), String> {
         return Err(format!("cluster {} anchor equals topic_id", c.topic_id));
     }
     if !entity_exists(conn, &c.anchor)? {
-        return Err(format!("cluster {}: anchor {} not in entities", c.topic_id, c.anchor));
+        return Err(format!(
+            "cluster {}: anchor {} not in entities",
+            c.topic_id, c.anchor
+        ));
     }
     for src in &c.sources {
         if src == &c.anchor {
@@ -502,11 +509,9 @@ fn is_valid_slug(s: &str) -> bool {
 }
 
 fn entity_exists(conn: &Connection, id: &str) -> Result<bool, String> {
-    conn.query_row(
-        "SELECT 1 FROM entities WHERE id = ?1",
-        params![id],
-        |_| Ok(()),
-    )
+    conn.query_row("SELECT 1 FROM entities WHERE id = ?1", params![id], |_| {
+        Ok(())
+    })
     .map(|_| true)
     .or_else(|e| match e {
         rusqlite::Error::QueryReturnedNoRows => Ok(false),
@@ -515,11 +520,9 @@ fn entity_exists(conn: &Connection, id: &str) -> Result<bool, String> {
 }
 
 fn mem_item_exists(conn: &Connection, id: &str) -> Result<bool, String> {
-    conn.query_row(
-        "SELECT 1 FROM mem_items WHERE id = ?1",
-        params![id],
-        |_| Ok(()),
-    )
+    conn.query_row("SELECT 1 FROM mem_items WHERE id = ?1", params![id], |_| {
+        Ok(())
+    })
     .map(|_| true)
     .or_else(|e| match e {
         rusqlite::Error::QueryReturnedNoRows => Ok(false),
@@ -540,11 +543,7 @@ fn to_action(raw: RawCluster, timestamp: &str) -> ClusterAction {
     }
 }
 
-fn write_plan(
-    plan_dir: &Path,
-    timestamp: &str,
-    plan: &ClusterPlan,
-) -> Result<PathBuf, String> {
+fn write_plan(plan_dir: &Path, timestamp: &str, plan: &ClusterPlan) -> Result<PathBuf, String> {
     std::fs::create_dir_all(plan_dir)
         .map_err(|e| format!("create_dir_all {}: {}", plan_dir.display(), e))?;
     let safe_ts = timestamp.replace(':', "").replace('.', "");

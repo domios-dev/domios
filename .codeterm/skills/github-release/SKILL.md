@@ -17,13 +17,30 @@ Full pipeline: bump version on develop → merge to master → tag → checkout 
 ## Two-repo layout (since 2026-05-03)
 
 - **`rollacode/codeterm`** — private source repo. Releases here for archive only; the GUI updater can't reach private-repo assets anonymously.
-- **`rollacode/codeterm-releases`** — public mirror, artifacts + `latest.json` only. The Tauri-plugin-updater endpoint baked into `tauri.conf.json` points here. Without this mirror, `update --apply` from the GUI hangs/404s.
+- **`rollacode/codeterm-releases`** — public mirror, artifacts + `latest.json` only. The Tauri-plugin-updater endpoint baked into `tauri.conf.json` points here. Without this mirror, `update install --auto` from the GUI hangs/404s.
 
 ## When to use
 
 User says: «сделай релиз», «выпусти vX.Y.Z», «ship it», «bump version + release», «assemble the binaries and put on github».
 
 For just **building locally** (no release), use `prod-build`. For **just** the macOS x86_64 cross-compile gotchas, see `macos-x86_64-release`. This skill ties all three targets + upload + brew in one flow.
+
+## Agent report contract — machine-token first line
+
+Every worker that finishes a step reports back via `codeterm agent report`. The orchestrator parses the FIRST LINE of the report as a structured event, never regex-greps the prose. Sourced from `scripts/lib/report.sh` which both mac and win helpers `source`:
+
+| Outcome  | First line                                     |
+| -------- | ---------------------------------------------- |
+| Ready    | `WINDOWS_READY=<ver> sig=<base64>` (or similar key=val pairs) |
+| Blocked  | `BLOCKED step=<name> err=<short>`              |
+
+A blank line separates the token from free-form prose. Helpers:
+
+- `report_ready KEY=VAL ...` — emits the kv line + `\n\n` + stdin prose
+- `report_blocked STEP MSG` — emits `BLOCKED step=… err=…` + `\n\n` + stdin prose
+- `validate_b64_sig RAW` — echoes the trimmed sig if it looks valid (≥200 chars, only b64 alphabet), exits non-zero otherwise. Wrap the output of any `*-bundle.sh` before reporting it.
+
+Reason: v1.3.2 release wasted a round-trip because BLACKSTAR reported "sig: \<base64\>" inside prose and the mac orchestrator couldn't extract it without human relay. Machine token on line 1 fixes that class permanently.
 
 ## Release-pipeline secrets backup
 
@@ -52,8 +69,8 @@ Stored in Bitwarden vault (retrieve via `codeterm mem secret get --name <slug>` 
   ```
   Note the env var is `APPLE_APP_SPECIFIC_PASSWORD`, NOT `APPLE_PASSWORD`.
 - `gh` logged in as `rollacode`: `gh auth status`.
-- Windows builder mesh peer paired and online: `codeterm mesh peers`. Default = **ROG** (primary, Windows 11, `100.64.10.9`, codeterm workspace at `C:\Users\dev\Developer\codeterm`, workspace id `28fa3d8d`). Fallback = BLACKSTAR.
-- **Windows builder prereqs** (verify on ROG before spawning the agent):
+- Windows builder mesh peer paired and online: `codeterm mesh peers`. Default = **BLACKSTAR** (Windows 11, has its own minisign key copy since 2026-05-18, workspace at `C:\Developer\codeterm`). Fallback = **ROG** (primary workstation, Windows 11, `100.64.10.9`, codeterm workspace at `C:\Users\dev\Developer\codeterm`, workspace id `28fa3d8d`).
+- **Windows builder prereqs** (verify on the chosen peer before invoking `win-release.sh`):
   - `gh auth status` shows `rollacode (keyring)` as **valid**, not just `r0llac0de (work)` as the active account. The work account has happened to retain push access to `rollacode/codeterm` (so uploads can succeed even when rollacode keyring is stale), but this is fragile — refresh via `gh auth login` if rollacode is invalid. *(v1.2.1 caught: rollacode keyring expired silently; r0llac0de was the actual writer.)*
   - `node --version` ≥ 22.12 (Vite 8 hard requirement). If lower, `nvm use 22.22.0` (or whichever 22.12+ is installed). nvm-windows shim is usually not on PATH by default — prepend the version dir manually if `nvm use` doesn't work.
   - Windows SDK matches what `build.sh` expects (default `SDK_VER=10.0.22621.0`). Check `ls "/c/Program Files (x86)/Windows Kits/10/Include"`. On ROG only `10.0.26100.0` is installed → build.sh has a local stash with the override; restore via `git stash pop` after `git checkout v$VER`. A clean ROG without that stash dead-ends on `sqlite-sys: malloc.h not found`.
@@ -183,7 +200,7 @@ The GUI updater fetches `latest.json` anonymously, so the manifest plus the asse
 - macOS: `<name>_<ver>_<arch>.app.tar.gz` (the `.app` bundle wrapped in gzipped tar)
 - Windows: `<name>_<ver>_x64-setup.nsis.zip` (the NSIS installer wrapped in a zip)
 
-Pointing `latest.json` at `.dmg` / `.exe` URLs makes `codeterm update --apply` fail with `invalid gzip header` on macOS and an analogous unpack error on Windows. The user-facing direct downloads (`.dmg` / `.exe`) still belong on the mirror — they are useful for first-install / out-of-band install — but the updater URLs in `latest.json` MUST point at the `.app.tar.gz` / `.nsis.zip` artifacts. Keep both formats side-by-side on the release.
+Pointing `latest.json` at `.dmg` / `.exe` URLs makes `codeterm update install --auto` fail with `invalid gzip header` on macOS and an analogous unpack error on Windows. The user-facing direct downloads (`.dmg` / `.exe`) still belong on the mirror — they are useful for first-install / out-of-band install — but the updater URLs in `latest.json` MUST point at the `.app.tar.gz` / `.nsis.zip` artifacts. Keep both formats side-by-side on the release.
 
 ```bash
 WORK=/tmp/codeterm-${VER}-mirror
@@ -203,14 +220,18 @@ for art in \
   "$WORK"/CodeTerm_${VER}_aarch64.app.tar.gz \
   "$WORK"/CodeTerm_${VER}_x64.app.tar.gz; do
   TAURI_SIGNING_PRIVATE_KEY="$KEY_B64" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
-    npx --yes @tauri-apps/cli signer sign "$art"
+    node_modules/.bin/tauri signer sign "$art"
 done
+# NOTE: use `node_modules/.bin/tauri`, NOT `npx --yes @tauri-apps/cli signer sign`
+# — npx fails with "Unknown command: @tauri-apps/cli" on Windows and is brittle
+# on macOS too. Direct binary always works.
 
-# 3. BLACKSTAR is responsible for the Windows .nsis.zip + .nsis.zip.sig.
-# Tauri's NSIS bundler emits CodeTerm_${VER}_x64-setup.nsis.zip alongside the .exe in
-# src-tauri/target/release/bundle/nsis/. If the bundler skipped it (bundle config),
-# BLACKSTAR can produce one with: cd <nsis-dir> && zip CodeTerm_${VER}_x64-setup.nsis.zip
-# CodeTerm_${VER}_x64-setup.exe. Sign with the same minisign key.
+# 3. The Windows mesh worker (win-release.sh on BLACKSTAR / ROG) signs its own
+# .nsis.zip with the same minisign key (~/.tauri/codeterm.key, restored from
+# Bitwarden slug codeterm-tauri-minisign-private-key). Since v1.3.3 the Tauri
+# bundler emits CodeTerm_${VER}_x64-setup.nsis.zip alongside the .exe automatically
+# (bundle.createUpdaterArtifacts = true in tauri.conf.json) — the worker's
+# Compress-Archive fallback only fires if that flag is ever turned off.
 
 # 4. Optional verify (requires `brew install minisign`):
 # base64 -D < "$WORK"/CodeTerm_${VER}_aarch64.app.tar.gz.sig > /tmp/check.minisig
@@ -272,9 +293,9 @@ curl -sIL https://github.com/rollacode/codeterm-releases/releases/latest/downloa
 
 # 8. End-to-end smoke: a freshly-installed v$VER- daemon should pick this up.
 # Run on the build host (after self-installing v$VER- via codeterm self-update or DMG):
-codeterm update --check     # → 'Update available!' OR 'Up to date' (latest manifest is current)
+codeterm update check       # → 'Update available!' OR 'Up to date' (latest manifest is current)
 # On the previous-version host (still on v<previous>):
-codeterm update --apply     # → must NOT fail with 'invalid gzip header'.
+codeterm update install --auto     # → must NOT fail with 'invalid gzip header'.
                             # If it does, the manifest is still wrong — fix and re-publish before continuing.
 ```
 
@@ -282,83 +303,61 @@ If the Windows build is still pending when you mirror, leave the `windows-x86_64
 
 ### 8. Windows build
 
-**Preferred path: CI** (`.github/workflows/release-windows.yml`, runs automatically on tag push). Block on it with:
+**Default path: dispatch a worker on a paired Windows mesh peer** running `win-release.sh`. The script is the single end-to-end Windows pipeline (checkout → install → bundle → sign → upload → machine-parseable agent report). BLACKSTAR is the primary builder; ROG is a fallback with the same flow.
 
 ```bash
-.codeterm/skills/github-release/scripts/wait-ci.sh latest release-windows.yml
-```
-
-The helper wraps `gh run watch --exit-status` so the caller gets exactly one notification when the run finishes — no token-burning poll loop.
-
-If CI fails the "Publish per-platform updater fragment" step (it has happened: Tauri's NSIS bundler sometimes skips `.nsis.zip` next to the `.exe`), do the manual workaround:
-
-```bash
-WORK=/tmp/codeterm-${VER}-mirror
-gh release download v$VER --pattern "CodeTerm_${VER}_x64-setup.exe" --dir "$WORK"
-(cd "$WORK" && zip -0 CodeTerm_${VER}_x64-setup.nsis.zip CodeTerm_${VER}_x64-setup.exe)
-KEY_B64=$(cat ~/.tauri/codeterm.key | tr -d '\n')
-TAURI_SIGNING_PRIVATE_KEY="$KEY_B64" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
-  npx --yes @tauri-apps/cli signer sign "$WORK/CodeTerm_${VER}_x64-setup.nsis.zip"
-WIN_SIG=$(cat "$WORK/CodeTerm_${VER}_x64-setup.nsis.zip.sig" | tr -d '\n')
-# Patch latest.json then `gh release upload v$VER --repo ${MIRROR} ... --clobber` the .exe, .nsis.zip, latest.json.
-```
-
-**Fallback path: build on ROG via mesh** (manual orchestration, slower but unblocks if CI runner has an outage). Walks below for completeness.
-
-**Default builder = ROG** (Windows 11, primary workstation as of 2026-05-12). Fallback = BLACKSTAR.
-
-Spawn a claude agent in ROG's `codeterm` workspace AND open a parallel shell pane for tactical intervention (`codeterm --mesh ROG pane new --workspace <id>`). The agent runs the long compile; the shell pane handles upload + nsis.zip regeneration faster than re-prompting the agent.
-
-```bash
-WORKSPACE_ID=$(codeterm --mesh ROG --json workspace list \
+WORKSPACE_ID=$(codeterm --mesh BLACKSTAR --json workspace list \
   | python3 -c "import json,sys; print(next(w['id'] for w in json.load(sys.stdin) if w['name']=='codeterm'))")
 
-# ROG repo path: C:\Users\dev\Developer\codeterm (note the \amigo\ not \User\)
-codeterm --mesh ROG agent spawn claude \
+codeterm --mesh BLACKSTAR agent spawn claude \
   --workspace "$WORKSPACE_ID" \
   --title "v$VER windows release" \
   --role Orchestrator \
   --model haiku \
-  --task "You are on ROG (Windows 11) via mesh. Build CodeTerm v$VER Windows release.
-
-Steps:
-1. cd C:\\Users\\dev\\Developer\\codeterm
-2. git fetch origin --tags && git checkout v$VER
-3. pnpm install   (if 'UNKNOWN package.json', rm -rf node_modules && pnpm install)
-4. ./build.sh build   (git-bash; ROG has local SDK 26100 tweaks in build.sh — restore via git stash if needed)
-5. NSIS exe + nsis.zip at src-tauri/target/release/bundle/nsis/CodeTerm_${VER}_x64-setup.{exe,nsis.zip}
-   (Tauri v2 NSIS bundler emits both natively with Store compression — verified v1.2.1 on ROG.)
-6. ONLY if .nsis.zip is stale (timestamp < exe — e.g. you did a partial rebuild that bypassed the bundler),
-   regenerate manually:
-   cd src-tauri/target/release/bundle/nsis/
-   rm -f CodeTerm_${VER}_x64-setup.nsis.zip
-   '/c/Program Files/7-Zip/7z.exe' a -tzip -mm=Copy CodeTerm_${VER}_x64-setup.nsis.zip CodeTerm_${VER}_x64-setup.exe
-   # Mandatory: -mm=Copy (Store). Deflate64 (7z's default) breaks tauri-plugin-updater's zip-rs unpack.
-7. cd back to repo root, then upload with full paths from there (MSYS git-bash gets confused if you stay in
-   the subdir and use relative paths after a stale cd — gh fails with 'no matches found'):
-   cd /c/Users/amigo/Developer/codeterm
-   gh release upload v$VER src-tauri/target/release/bundle/nsis/CodeTerm_${VER}_x64-setup.exe \\
-     src-tauri/target/release/bundle/nsis/CodeTerm_${VER}_x64-setup.nsis.zip --clobber --repo rollacode/codeterm
-8. codeterm agent report STATUS/ASSETS/PATHS/ISSUES"
-
-# Parallel shell pane on ROG for upload + 7z (faster than waiting on agent):
-codeterm --mesh ROG pane new --workspace "$WORKSPACE_ID"
-# Then: codeterm --mesh ROG pane exec --pane <id> --timeout 60000 "..."
+  --task "bash .codeterm/skills/github-release/scripts/win-release.sh $VER"
 ```
 
-ROG-specific gotchas (verified v1.2.1):
-- ROG has local edits to `build.sh` (SDK_VER 10.0.26100.0 vs 22621.0), `package.json`, `pnpm-lock.yaml`. These are environment-specific and need to be restored after `git checkout v$VER` (the agent does `git stash pop` automatically). The `@rolldown/binding-win32-x64-msvc` 1.0.0-rc.9 pin is in this same stash — long-term that pin should land upstream in the committed lockfile.
-- `nvm use 22.22.0` (or any 22.12+) BEFORE `./build.sh build` — Vite 8 fails on lower.
-- Tauri NSIS bundler emits both `.exe` AND `.nsis.zip` natively (Store compression). The manual 7z step in (6) above is only needed if you did a partial rebuild that bypassed the bundler. Check timestamps first.
-- `git rev-parse v$VER` returns the annotated-tag SHA (`1750c20...` for v1.2.1), NOT the commit it points to (`0464b5a...` = the develop→master merge). Don't panic — `git checkout v$VER` puts you on the right commit. Use `git rev-parse v$VER^{commit}` for the actual commit SHA.
-- gh on ROG is authed as `rollacode` user; if `rollacode (keyring)` is stale, `r0llac0de (work)` fallback also has push access to `rollacode/codeterm` — uploads succeed either way but rollacode token should be refreshed.
-- BLACKSTAR fallback: workspace at `C:\\Developer\\codeterm` (no `amigo` user). Same flow otherwise.
+The agent's final `codeterm agent report` line is parseable:
 
-Alternative coordination paths:
-- **Send to existing General Agent instead of spawning a fresh sub-pane.** `codeterm --mesh ROG send-text --pane <general_pane> --from-file <msg.txt>`. Bypasses agent_spawn pipeline (resilient to PowerShell argv-split bugs on Windows), uses existing GA context, reports auto-route back through the bridge. Find the General pane via `codeterm --mesh ROG pane list --json | jq '.[] | select(.cwd | contains(".codeterm/general"))'`.
-- **Parallel shell pane for tactical interventions.** Agent does the long compile; a separate `codeterm --mesh ROG pane new` handles 7z / gh upload / verify steps — seconds instead of minutes-per-agent-prompt.
+```
+WINDOWS_READY=1.3.3 sig=dW50cnVzdGVkIGNvbW1lbnQ6...
 
-Wall times (ROG, cold): ~5min per successful build, +2min per failed retry (node version, SDK). Cache-warm: ~3min.
+Windows release v1.3.3 built, signed, and uploaded to both repos.
+```
+
+Grep the first line for `WINDOWS_READY=` (success) or `BLOCKED step=` (failure) — the orchestrator does NOT need to read the prose.
+
+What the script does internally (`scripts/win-bundle.sh` + `win-upload.sh`):
+
+1. `git -c core.autocrlf=false checkout v$VER` (CRLF phantom-dirt workaround on Windows is built in).
+2. `pnpm install --frozen-lockfile`.
+3. **Export `TAURI_SIGNING_PRIVATE_KEY` BEFORE `./build.sh build`.** Without this env var, the Tauri bundler silently SKIPS the `.nsis.zip` and we fall back to repacking — historically this trap shipped DEFLATE-compressed zips that tauri-updater rejects (`Compression method not supported`). Caught the project on v1.1.22 AND v1.3.2 because the env-export was only done at the sign step. As of 2026-05-20 `win-bundle.sh` exports both `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` at script entry, so the bundler emits a proper STORED-compressed updater bundle the first time.
+4. `./build.sh build` (NSIS bundler emits `.exe` + `.nsis.zip` natively when the key env is exported).
+5. If the bundler still skips the `.nsis.zip` (very old tauri-cli), fallback uses `python zipfile.ZIP_STORED` — NEVER `powershell Compress-Archive`, whose `-CompressionLevel Optimal` always writes DEFLATE.
+6. **Verify compression method bytes 8-9 of the local file header are `00 00` (STORED) before signing.** `win-bundle.sh` does this and exits with `BLOCKED:` on any other value. Manual check: `od -A x -t x1 -N 10 CodeTerm_*_x64-setup.nsis.zip` — bytes at offset 8-9 must be `00 00`. `08 00` = DEFLATE (broken), `09 00` = Deflate64 (broken).
+7. Signs `.nsis.zip` via `node_modules/.bin/tauri signer sign` (NOT `npx --yes @tauri-apps/cli signer sign` — npx fails with "Unknown command" on Windows).
+8. Idempotent `gh release view || gh release create --draft` for both repos, then `gh release upload --clobber` for `.exe` + `.nsis.zip`.
+
+Wall times (BLACKSTAR, cache-warm): ~3min build, +~30s install if `node_modules` cold, +~10s upload. Cold from a fresh `pnpm install`: ~5-7min total.
+
+**CI path (`release-windows.yml`)**: still triggers automatically on tag push and uploads `.exe` + `.nsis.zip` to the private repo. The mesh-worker flow is preferred because BLACKSTAR has the minisign key locally and can sign in one shot — CI does not have access to `~/.tauri/codeterm.key` so its outputs need to be re-signed manually anyway. Treat CI artifacts as a back-up source for `gh release download` when the worker is offline.
+
+Direct local invocation (on a Windows machine with a checkout, e.g. for testing the pipeline without dispatching an agent):
+
+```bash
+# In Git Bash on BLACKSTAR / ROG:
+bash .codeterm/skills/github-release/scripts/win-release.sh $VER
+# stdout is the machine-parseable agent report
+```
+
+ROG-specific gotchas (still relevant if you fall back to ROG):
+- Local SDK pinning (`build.sh` SDK_VER + `@rolldown/binding-win32-x64-msvc` 1.0.0-rc.9). Stored in a local `git stash` on the machine; `win-release.sh` does not auto-pop it — manual `git stash pop` if you see "SDK not found".
+- `nvm use 22.22.0` (or any 22.12+) BEFORE invocation — Vite 8 fails on lower Node.
+- gh authed as `rollacode (keyring)` should be valid; `r0llac0de (work)` is the work fallback and has push access too.
+
+Alternative paths (debugging tactics, not normal flow):
+- Send to an existing General Agent pane via `codeterm --mesh BLACKSTAR send-text --pane <general> --from-file <msg.txt>` to bypass `agent spawn` argv-split bugs.
+- Open a parallel shell pane on the builder with `pane new --workspace` for tactical interventions while the agent runs the long compile.
 
 ### 9. Publish release + verify
 
@@ -366,7 +365,9 @@ Wall times (ROG, cold): ~5min per successful build, +2min per failed retry (node
 # Private source repo:
 gh release edit v$VER --draft=false --latest
 gh release view v$VER --json assets --jq '.assets[] | "\(.name)  \(.size)B"'
-# Expect 3 assets here: aarch64.dmg, x64.dmg, x64-setup.exe.
+# Expect 4-5 assets on the source repo: aarch64.dmg, x64.dmg, x64-setup.exe + the
+# Linux artifacts (`amd64.deb`, `amd64.AppImage`) when CI shipped them via release-linux.yml.
+# The mirror (codeterm-releases) holds the same set plus `.app.tar.gz`, `.nsis.zip`, and `latest.json`.
 
 # Public mirror — once Windows .exe arrives, also update its sig in latest.json
 # and re-upload --clobber. Verify GUI updater can resolve anonymously:
@@ -403,6 +404,8 @@ git push origin main
 ```
 
 Both repos are currently PRIVATE — `brew install codeterm` still won't work for the public. Bumping the cask keeps the tap self-consistent for when repos go public.
+
+### 12. Regenerate translated READMEs from README.md (agent pass) translations must not ship stale
 
 ## Retag in-place (post-publish hotfix)
 
@@ -447,7 +450,7 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 | DMG `spctl` → "rejected, Unnotarized Developer ID" | tauri signed the `.app` but left the DMG wrapper unsigned | Run `xcrun notarytool submit … --wait && xcrun stapler staple …` manually |
 | `notarytool store-credentials` → HTTP 401 | keychain creds expired OR used `APPLE_PASSWORD` instead of `APPLE_APP_SPECIFIC_PASSWORD` | source the env file, use correct var name |
 | `git push origin master` → non-fast-forward | master diverged (e.g. previous release merged differently) | `git pull origin master --no-rebase --no-edit` then push again |
-| `codeterm update --apply` → "invalid gzip header" | `latest.json` URLs point at raw `.dmg`/`.exe` instead of `.app.tar.gz`/`.nsis.zip` | rebuild manifest with wrapper URLs — see Step 7b. Wrappers are the ONLY format tauri-plugin-updater accepts |
+| `codeterm update install --auto` → "invalid gzip header" | `latest.json` URLs point at raw `.dmg`/`.exe` instead of `.app.tar.gz`/`.nsis.zip` | rebuild manifest with wrapper URLs — see Step 7b. Wrappers are the ONLY format tauri-plugin-updater accepts |
 | tauri-plugin-updater unpack on Windows → "Compression method not supported" | `.nsis.zip` built with 7z default (Deflate64); zip-rs only supports Deflate/Store | regenerate with `7z a -tzip -mm=Copy` (Store compression) |
 | tauri-plugin-updater unpack on macOS → "failed to unpack ._CodeTerm.app" | macOS `tar` includes AppleDouble metadata files (`._*`) by default | `COPYFILE_DISABLE=1 tar -czf ...` |
 | BLACKSTAR build: `UNKNOWN error opening node_modules/sigma/package.json` | Windows filesystem race on freshly added dep | `rm -rf node_modules && pnpm install` on BLACKSTAR |
@@ -455,7 +458,7 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 | Windows: `sqlite-sys` cc-rs → "malloc.h not found" | `build.sh`'s `SDK_VER` (10.0.22621.0) ≠ installed Windows Kit | check `ls "/c/Program Files (x86)/Windows Kits/10/Include"` then `export SDK_VER=<found-version>` (e.g. 10.0.26100.0 on ROG) |
 | `gh release upload ...` → "no matches found" on Windows | MSYS git-bash + stale cd + relative paths | `cd` back to repo root before upload, or use absolute paths |
 | `git rev-parse v$VER` returns a SHA that doesn't appear in `git log` | annotated tag (`-a`) creates a tag object that points to the commit (one level of indirection) | use `git rev-parse v$VER^{commit}` for the commit SHA, or `gh release view v$VER --json targetCommitish` |
-| `codeterm mesh send` → "prompt never became ready after 10s" | target pane is busy (claude TUI thinking); mesh send waits for shell-prompt-ready | use `codeterm send-text --mesh PEER --pane ID "..."` — send-text is fire-and-forget by design, no readiness check |
+| `codeterm send-text --mesh PEER --pane ID "..."` does not get a reply | target pane is busy or the receiving agent has not processed the input yet | send-text is fire-and-forget by design; check output later with `codeterm get-output --mesh PEER --pane ID` |
 | SSH to BLACKSTAR: `cd /c/…` fails | `bash -lc` runs a login shell that re-homes | use `bash -c` (non-login) |
 | `scp User@blackstar:/c/…` fails | remote shell is cmd.exe, doesn't grok the path | stage the file to `C:\Users\dev\` on BLACKSTAR first, then `scp User@blackstar:filename` |
 | Public `curl` of release asset → 404 | repo private, CDN rejects unauthenticated | use `gh release download`, or make repo public |

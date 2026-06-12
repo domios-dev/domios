@@ -49,7 +49,12 @@ impl WorkerKind {
     }
 
     pub fn all() -> [WorkerKind; 4] {
-        [Self::DreamingLight, Self::DreamingDeep, Self::DreamingNormalize, Self::LibrarianOnce]
+        [
+            Self::DreamingLight,
+            Self::DreamingDeep,
+            Self::DreamingNormalize,
+            Self::LibrarianOnce,
+        ]
     }
 }
 
@@ -98,7 +103,10 @@ impl Supervisor {
     /// "circuit open" until [`reset`] is called.
     pub async fn run(&self, kind: WorkerKind) -> Result<serde_json::Value, String> {
         if self.is_disabled(kind) {
-            return Err(format!("circuit open: {:?} disabled after repeated failures", kind));
+            return Err(format!(
+                "circuit open: {:?} disabled after repeated failures",
+                kind
+            ));
         }
 
         let outcome = self.spawn_and_wait(kind).await;
@@ -147,7 +155,9 @@ impl Supervisor {
             entry.disabled = true;
             log::error!(
                 "[mem.supervisor] circuit open for {:?} ({} failures within {}s)",
-                kind, entry.recent_failures.len(), FAILURE_WINDOW.as_secs(),
+                kind,
+                entry.recent_failures.len(),
+                FAILURE_WINDOW.as_secs(),
             );
         }
     }
@@ -167,11 +177,13 @@ impl Supervisor {
         let output = match tokio::time::timeout(WORKER_TIMEOUT, cmd.output()).await {
             Ok(Ok(out)) => out,
             Ok(Err(e)) => return Err(format!("spawn {}: {}", self.cli_path.display(), e)),
-            Err(_) => return Err(format!(
-                "timeout after {}s (cli={})",
-                WORKER_TIMEOUT.as_secs(),
-                self.cli_path.display(),
-            )),
+            Err(_) => {
+                return Err(format!(
+                    "timeout after {}s (cli={})",
+                    WORKER_TIMEOUT.as_secs(),
+                    self.cli_path.display(),
+                ))
+            }
         };
 
         if !output.status.success() {
@@ -190,10 +202,16 @@ impl Supervisor {
         let parsed: serde_json::Value = serde_json::from_str(stdout.trim())
             .map_err(|e| format!("parse stdout: {} (raw={:?})", e, stdout.trim()))?;
         if !parsed.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-            let err = parsed.get("error").and_then(|v| v.as_str()).unwrap_or("(no error message)");
+            let err = parsed
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("(no error message)");
             return Err(format!("worker reported failure: {}", err));
         }
-        Ok(parsed.get("report").cloned().unwrap_or(serde_json::Value::Null))
+        Ok(parsed
+            .get("report")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null))
     }
 }
 
@@ -276,7 +294,11 @@ mod tests {
     fn fake_cli(dir: &tempfile::TempDir, stdout: &str, exit_code: i32) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
         let script = dir.path().join("fake-cli");
-        let body = format!("#!/bin/sh\necho '{}'\nexit {}\n", stdout.replace('\'', "'\\''"), exit_code);
+        let body = format!(
+            "#!/bin/sh\necho '{}'\nexit {}\n",
+            stdout.replace('\'', "'\\''"),
+            exit_code
+        );
         std::fs::write(&script, body).unwrap();
         let mut perms = std::fs::metadata(&script).unwrap().permissions();
         perms.set_mode(0o755);
@@ -295,7 +317,11 @@ mod tests {
     #[tokio::test]
     async fn run_returns_report_on_success() {
         let dir = tempfile::tempdir().unwrap();
-        let cli = fake_cli(&dir, r#"{"ok":true,"report":{"phase":"light","considered":3,"promoted":1,"dropped":0}}"#, 0);
+        let cli = fake_cli(
+            &dir,
+            r#"{"ok":true,"report":{"phase":"light","considered":3,"promoted":1,"dropped":0}}"#,
+            0,
+        );
         let sup = make_supervisor(cli);
         let report = sup.run(WorkerKind::DreamingLight).await.unwrap();
         assert_eq!(report.get("phase").and_then(|v| v.as_str()), Some("light"));
@@ -308,7 +334,11 @@ mod tests {
         let cli = fake_cli(&dir, r#"{"ok":false,"error":"db locked"}"#, 1);
         let sup = make_supervisor(cli);
         let err = sup.run(WorkerKind::DreamingLight).await.unwrap_err();
-        assert!(err.contains("exit 1") || err.contains("db locked"), "got: {}", err);
+        assert!(
+            err.contains("exit 1") || err.contains("db locked"),
+            "got: {}",
+            err
+        );
     }
 
     #[tokio::test]
@@ -320,22 +350,36 @@ mod tests {
             let _ = sup.run(WorkerKind::DreamingDeep).await;
         }
         let err = sup.run(WorkerKind::DreamingDeep).await.unwrap_err();
-        assert!(err.contains("circuit open"), "expected circuit open, got: {}", err);
+        assert!(
+            err.contains("circuit open"),
+            "expected circuit open, got: {}",
+            err
+        );
 
         sup.reset(WorkerKind::DreamingDeep);
         let err2 = sup.run(WorkerKind::DreamingDeep).await.unwrap_err();
-        assert!(!err2.contains("circuit open"), "circuit should re-open after reset, got: {}", err2);
+        assert!(
+            !err2.contains("circuit open"),
+            "circuit should re-open after reset, got: {}",
+            err2
+        );
     }
 
     #[tokio::test]
     async fn nonexistent_cli_path_fails_cleanly() {
-        let sup = make_supervisor(PathBuf::from("/definitely/not/a/real/path/codeterm-mem-worker-nope"));
+        let sup = make_supervisor(PathBuf::from(
+            "/definitely/not/a/real/path/codeterm-mem-worker-nope",
+        ));
         let err = sup.run(WorkerKind::LibrarianOnce).await.unwrap_err();
         assert!(err.contains("spawn"), "expected spawn error, got: {}", err);
     }
 
     fn cli_filename() -> &'static str {
-        if cfg!(windows) { "codeterm.exe" } else { "codeterm" }
+        if cfg!(windows) {
+            "codeterm.exe"
+        } else {
+            "codeterm"
+        }
     }
 
     fn touch(path: &std::path::Path) {
@@ -356,13 +400,11 @@ mod tests {
         let override_path = dir.path().join("custom").join(cli_filename());
         touch(&override_path);
 
-        let resolved = resolve_cli_path_inner(
-            &data_dir,
-            Some(override_path.clone()),
-            None,
-            None,
+        let resolved = resolve_cli_path_inner(&data_dir, Some(override_path.clone()), None, None);
+        assert_eq!(
+            resolved, override_path,
+            "env override must win over installed"
         );
-        assert_eq!(resolved, override_path, "env override must win over installed");
     }
 
     #[test]
@@ -375,7 +417,10 @@ mod tests {
 
         let bogus = dir.path().join("does-not-exist").join(cli_filename());
         let resolved = resolve_cli_path_inner(&data_dir, Some(bogus), None, None);
-        assert_eq!(resolved, installed, "missing override should fall through to installed");
+        assert_eq!(
+            resolved, installed,
+            "missing override should fall through to installed"
+        );
     }
 
     #[test]
@@ -458,7 +503,10 @@ mod tests {
 
         assert_eq!(WorkerKind::DreamingLight.as_arg(), KIND_DREAMING_LIGHT);
         assert_eq!(WorkerKind::DreamingDeep.as_arg(), KIND_DREAMING_DEEP);
-        assert_eq!(WorkerKind::DreamingNormalize.as_arg(), KIND_DREAMING_NORMALIZE);
+        assert_eq!(
+            WorkerKind::DreamingNormalize.as_arg(),
+            KIND_DREAMING_NORMALIZE
+        );
         assert_eq!(WorkerKind::LibrarianOnce.as_arg(), KIND_LIBRARIAN_ONCE);
     }
 
@@ -470,8 +518,7 @@ mod tests {
     /// needing the CLI binary to be built first.
     #[test]
     fn cli_source_still_declares_run_worker() {
-        // Clap derives live in cli/src/args/mem.rs (extracted in PR 99f4948 / a624ae7);
-        // dispatch logic + kind strings still live in cli/src/main.rs.
+        // Clap derives live in cli/src/args/mem.rs (extracted in PR 99f4948 / a624ae7); dispatch logic + kind strings still live in cli/src/main.rs.
         let args_src = include_str!("../../../cli/src/args/mem.rs");
         assert!(
             args_src.contains(r#"#[clap(name = "run-worker")]"#),

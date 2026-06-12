@@ -43,9 +43,15 @@ def long_running_command() -> str:
 
 def spawn_long_running_panes(api: CodeTermAPI, base_pane: str, count: int) -> list[str]:
     pane_ids = [base_pane]
+    base = next((p for p in api.list_panes() if p["id"] == base_pane), None)
+    if base is None:
+        raise AssertionError(f"base pane {base_pane} missing from snapshot")
+    workspace_id = base.get("workspace_id")
+    if not workspace_id:
+        raise AssertionError(f"base pane {base_pane} missing workspace_id")
     for _ in range(count - 1):
-        result = api.split_pane(base_pane, direction="right")
-        new_id = result["new_pane_id"]
+        result = api.create_tab(workspace_id, eager=True)
+        new_id = result["pane_id"]
         api.wait_for_pty(new_id, timeout=15)
         pane_ids.append(new_id)
 
@@ -83,10 +89,10 @@ def snapshot_panes(api: CodeTermAPI, pane_ids: list[str]) -> dict[str, dict]:
 # Scenarios that run on every pytest invocation
 # ---------------------------------------------------------------------------
 
-def test_update_check_endpoint_exists(api: CodeTermAPI):
+def test_update_check_endpoint_exists(api_only: CodeTermAPI):
     """`/api/update/check` returns a JSON envelope (200 or structured error)."""
     try:
-        result = api.get("/api/update/check")
+        result = api_only.get("/api/update/check")
     except Exception as exc:
         pytest.skip(f"update endpoint not yet wired: {exc}")
     assert isinstance(result, dict), "expected dict envelope"

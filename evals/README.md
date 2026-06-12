@@ -9,11 +9,38 @@ portable across mac, linux, and Windows-bash.
 
 | Folder | What it tests | Runner |
 |--------|---------------|--------|
-| `general-agent/` | General Agent system prompt — Telegram routing, mesh spawn, recon-before-action (21 cases) | `prompt-evaluator` skill (`runner.py`) |
+| `cli-agent/` | real-daemon LLM benchmark: drives claude/codex/opencode in the dev console through every CLI command; model-judged (see its `SKILL.md`). Replaces the old headless `-p` general-agent / mem-protocol prompt evals. | `bash cli-agent/run-suite.sh` + model judge |
 | `mem-recall/` | mem search engine quality (Recall@K / MRR / latency) | `cargo run --bin mem-bench` |
-| `mem-protocol/` | slim `bridge_mem.md` rule fires the right protocol calls (8 cases) | `prompt-evaluator` skill |
 | `dreaming/` | REM-phase prompt — Stage A.1 hub decomposition (RED ZONE rule), Stage A.2 island bridging (5 cases) | `prompt-evaluator` skill |
 | `session-restore/` | kill+restart preserves workspaces / panes / agent_type / titles | `bash session-restore/run.sh` |
+
+### mem-recall baseline protocol
+
+`evals/mem-recall/` keeps a committed `baseline.json` (headline metrics only).
+
+- Normal update: `./evals/mem-recall/run.sh` → update `baseline.json` from the latest
+  run output if the change in recall / latency is intentional.
+- Regression check: `./evals/mem-recall/run.sh --check` compares latest metrics against
+  `evals/mem-recall/baseline.json` and fails non-zero on drift beyond tolerance.
+- Tolerance policy in `evals/mem-recall/run.sh` is documented in its `--help` output.
+
+Reviewer expectation for behavioral changes: include the updated baseline file in the same change that alters
+mem-recall behavior, and keep both diff and intent explicit in the PR.
+
+### session-restore baseline protocol
+
+`evals/session-restore/` keeps a committed `baseline.json` for the six `WS-*`
+restore scenarios. Dynamic pane ids and agent session ids are excluded.
+
+- Normal update: `bash evals/session-restore/run.sh` → inspect
+  `target-check/evals/session-restore-latest-summary.json` and update
+  `evals/session-restore/baseline.json` only when the restore scenario shape
+  intentionally changes.
+- Regression check: `bash evals/session-restore/run.sh --check` runs the full
+  dev kill/restart drill and compares the latest summary against the baseline.
+- Tolerance policy in `evals/session-restore/run.sh --help`: `WS-*` scenario
+  metadata is exact; the protected `General` workspace tab/pane counts may vary
+  by ±1 around restart.
 
 ## Live dashboard
 

@@ -12,26 +12,35 @@
 //! - `orchestrator` — agent spawn, batch commands
 //! - `notification` — create notification with OS toast
 
-mod workspace;
-mod pane;
-pub mod pty_io;
-mod hierarchy;
-pub mod inject_verify;
-mod orchestrator;
-pub mod spawn;
-pub mod notification;
-mod output;
-pub mod cron;
-pub mod pty_lifecycle;
-pub mod general_agent;
-pub mod sync_watcher;
+pub mod activity;
 pub mod agent_restart;
+pub mod cron;
+pub mod general_agent;
+pub mod health;
+mod hierarchy;
+mod inject_safety;
+pub mod inject_verify;
 pub mod input_parser;
+pub mod msg_prefix;
+pub mod notification;
+mod orchestrator;
+mod output;
+mod pane;
+pub mod pane_chat;
+pub mod pty_io;
+pub mod pty_lifecycle;
+pub mod push;
+pub mod smart_add;
+pub mod spawn;
+pub mod store;
+pub mod sync_watcher;
 #[cfg(test)]
 mod tests;
+pub mod tokens;
+mod workspace;
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::Emitter;
@@ -40,13 +49,16 @@ use crate::agent::registry::AgentRegistry;
 use crate::api::events::EventBroadcaster;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::AgentRole;
-use crate::{AgentTrackerState, NotifState, OutputBufferState, PromptDetectorState, PtyState, ReportStoreState, ScreenStateHandle};
+use crate::{
+    AgentTrackerState, NotifState, OutputBufferState, PromptDetectorState, PtyState,
+    ReportStoreState, ScreenStateHandle,
+};
 
 // Re-export public types used by callers.
 pub use hierarchy::PaneStatusInfo;
 pub use inject_verify::{
-    InjectionError, InjectionResult, VerifyOpts, screen_contains_echo, snapshot_prompt_line,
-    wait_for_echo, wait_for_submit_shell, wait_for_submit_tui_drained,
+    screen_contains_echo, snapshot_prompt_line, wait_for_echo, wait_for_submit_shell,
+    wait_for_submit_tui_drained, InjectionError, InjectionResult, VerifyOpts,
 };
 pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
 
@@ -70,27 +82,31 @@ pub struct ServiceContext {
     pub workers: Arc<crate::mem::workers::GraphWorkerRegistry>,
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
-    // Stable pane→pty map for hidden agent runs; survives close_pane so the
-    // unified AgentRun log endpoints can read closed-worker output.
+    // Stable pane→pty map for hidden agent runs; survives close_pane so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
-    // Auto-completes hidden agent runs from claude stream-json result events,
-    // idle silence, or hard timeout — replaces relying on claude calling
+    // Auto-completes hidden agent runs from claude stream-json result events, idle silence, or hard timeout — replaces relying on claude calling
     // codeterm cron complete / mem worker report itself.
     pub run_watcher: Arc<crate::agent::run_watcher::RunWatcherRegistry>,
     /// Channel for outbound Telegram messages (CLI bridge.send command).
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
     /// Receiver half — taken when bridge starts. Replaced on restart with a new channel.
-    pub bridge_outbound_rx: Arc<parking_lot::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<crate::bridge::manager::OutboundMessage>>>>,
+    pub bridge_outbound_rx: Arc<
+        parking_lot::Mutex<
+            Option<tokio::sync::mpsc::UnboundedReceiver<crate::bridge::manager::OutboundMessage>>,
+        >,
+    >,
     /// Supervisor for the messaging bridge — owns task handle, cancel signal, runtime state.
     pub bridge_supervisor: Arc<crate::bridge::supervisor::BridgeSupervisor>,
     /// Per-pane last-restart timestamp for `agent_restart` rate limiting.
     pub restart_tracker: agent_restart::RestartTracker,
+    /// Per-pane JSONL chat tailers — populated when a pane enters UI mode.
+    pub chat_registry: Arc<crate::service::pane_chat::ChatRegistry>,
     /// Active secret-store backend (mock in Phase 1; bitwarden lands in Phase 2).
     pub secrets: crate::secrets::SecretStoreState,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
-    pub services_store: Arc<crate::services::store::ServicesStore>,
-    pub tokens: Arc<crate::services::tokens::TokenStore>,
+    pub services_store: Arc<crate::service::store::ServicesStore>,
+    pub tokens: Arc<crate::service::tokens::TokenStore>,
     /// Ephemeral cross-mesh pastebin. In-memory only; daemon restart wipes
     /// all pastes. 20-entry cap, oldest-first eviction, TTL≤24h. (#98)
     pub pasteboard: crate::pasteboard::PasteboardState,
@@ -108,7 +124,8 @@ impl ServiceContext {
     // ── Event helpers (used by all sub-modules) ─────────────────────
 
     pub(crate) fn emit_state_changed(&self) {
-        self.events.publish(crate::api::events::SystemEvent::MuxStateChanged);
+        self.events
+            .publish(crate::api::events::SystemEvent::MuxStateChanged);
         // Coalesce frontend emits to ≤1/50ms — output.rs fires this 4× per PTY chunk.
         if self.mux_emit_pending.swap(true, Ordering::AcqRel) {
             return;
@@ -123,10 +140,11 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_pane_title_pinned(&self, pane_id: &str, title: &str) {
-        self.events.publish(crate::api::events::SystemEvent::PaneTitlePinned {
-            pane_id: pane_id.to_string(),
-            title: title.to_string(),
-        });
+        self.events
+            .publish(crate::api::events::SystemEvent::PaneTitlePinned {
+                pane_id: pane_id.to_string(),
+                title: title.to_string(),
+            });
         let handle = self.app_handle.clone();
         let payload = serde_json::json!({"pane_id": pane_id, "title": title});
         std::thread::spawn(move || {
@@ -140,9 +158,10 @@ impl ServiceContext {
     /// focus to (potentially newly created) panes. Frontend listener also has a
     /// short retry as defense-in-depth.
     pub(crate) fn emit_pane_focus_changed(&self, pane_id: &str) {
-        self.events.publish(crate::api::events::SystemEvent::PaneFocused {
-            pane_id: pane_id.to_string(),
-        });
+        self.events
+            .publish(crate::api::events::SystemEvent::PaneFocused {
+                pane_id: pane_id.to_string(),
+            });
         let handle = self.app_handle.clone();
         let payload = serde_json::json!({"pane_id": pane_id});
         std::thread::spawn(move || {
@@ -171,9 +190,11 @@ impl ServiceContext {
     pub(crate) fn parse_role(role_str: &str) -> Result<AgentRole, String> {
         match role_str {
             "Orchestrator" | "Conductor" => Ok(AgentRole::Orchestrator),
-            "Lead" => Ok(AgentRole::Lead),
-            "Worker" | "SubWorker" => Ok(AgentRole::Worker),
-            _ => Err(format!("Invalid role: {}. Use: Orchestrator, Lead, Worker", role_str)),
+            "Worker" => Ok(AgentRole::Worker),
+            _ => Err(format!(
+                "Invalid role: {}. Use: Orchestrator, Worker",
+                role_str
+            )),
         }
     }
 }
