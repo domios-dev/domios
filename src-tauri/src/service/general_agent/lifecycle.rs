@@ -112,7 +112,7 @@ pub fn start_general_agent(
     }
 
     // Find General pane (already created by ensure_general_workspace in init_states)
-    let (pane_id, session_id) = {
+    let (pane_id, snapshot_session_id) = {
         let m = mux.lock();
         let pane = m.resolve_pane_id(GENERAL_ALIAS).or_else(|| {
             m.list_workspaces()
@@ -122,36 +122,7 @@ pub fn start_general_agent(
         });
         match pane {
             Some(pid) => {
-                let mut sid = m.get_pane(&pid).and_then(|p| p.agent_session_id.clone());
-                if sid.is_none() {
-                    sid = state::load_session_id(&svc.agent_registry, provider_name, &general_cwd);
-                    if let Some(ref stored) = sid {
-                        svc.set_agent_session_id(&pid, Some(stored.clone()));
-                        log::info!("[general-agent] Loaded durable session id: {}", stored);
-                    }
-                }
-                // If no session_id from snapshot or durable GA state, try detecting a GA-marked session from filesystem (covers first launch, new
-                // machine, or wiped session store). This is intentionally stricter than generic provider detection so worker JSONLs in the GA cwd
-                // cannot win by recency.
-                if sid.is_none() {
-                    let exclude: Vec<String> = m.other_session_ids(&pid);
-                    drop(m); // release lock before filesystem scan
-                    sid = state::detect_owned_session_id(
-                        &svc.agent_registry,
-                        provider_name,
-                        &general_cwd,
-                        &exclude,
-                        Some(std::time::Duration::from_secs(86400 * 7)), // 7 days max age
-                    );
-                    if let Some(ref detected) = sid {
-                        svc.set_agent_session_id(&pid, Some(detected.clone()));
-                        state::persist_session_id(provider_name, detected);
-                        log::info!(
-                            "[general-agent] Detected GA-owned session from filesystem: {}",
-                            detected
-                        );
-                    }
-                }
+                let sid = m.get_pane(&pid).and_then(|p| p.agent_session_id.clone());
                 (pid, sid)
             }
             None => {
@@ -161,6 +132,36 @@ pub fn start_general_agent(
                 return;
             }
         }
+    };
+    let session_id = if snapshot_session_id.is_some() {
+        snapshot_session_id
+    } else if let Some(stored) =
+        state::load_session_id(&svc.agent_registry, provider_name, &general_cwd)
+    {
+        svc.set_agent_session_id(&pane_id, Some(stored.clone()));
+        log::info!("[general-agent] Loaded durable session id: {}", stored);
+        Some(stored)
+    } else {
+        // If no session_id from snapshot or durable GA state, try detecting a GA-marked session from filesystem (covers first launch, new
+        // machine, or wiped session store). This is intentionally stricter than generic provider detection so worker JSONLs in the GA cwd
+        // cannot win by recency.
+        let exclude = mux.lock().other_session_ids(&pane_id);
+        let detected = state::detect_owned_session_id(
+            &svc.agent_registry,
+            provider_name,
+            &general_cwd,
+            &exclude,
+            Some(std::time::Duration::from_secs(86400 * 7)), // 7 days max age
+        );
+        if let Some(ref sid) = detected {
+            svc.set_agent_session_id(&pane_id, Some(sid.clone()));
+            state::persist_session_id(provider_name, sid);
+            log::info!(
+                "[general-agent] Detected GA-owned session from filesystem: {}",
+                sid
+            );
+        }
+        detected
     };
 
     // Validate session_id: if provider can't resolve it to a file, it's stale/wrong-provider
