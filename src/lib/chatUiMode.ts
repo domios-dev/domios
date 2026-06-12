@@ -1,4 +1,6 @@
 import { getAgentDescriptor } from "./agentDescriptorCache";
+import { invoke } from "./bridge";
+import type { AppConfig } from "./types";
 
 export const CHAT_UI_DEFAULT_KEY = "codeterm-chat-ui-default-enabled";
 export const CHAT_UI_DEFAULT_PROMPTED_KEY = "codeterm-chat-ui-default-prompted";
@@ -14,31 +16,93 @@ export function isChatUiSupported(agentType?: string | null): boolean {
 
 export function shouldDefaultNewAgentPaneToChat(agentType?: string | null): boolean {
   if (!isChatUiSupported(agentType)) return false;
+  return cachedDefaultNewAgentPaneChat;
+}
+
+let cachedDefaultNewAgentPaneChat = false;
+let configLoad: Promise<boolean> | null = null;
+
+function readLegacyDefault(): boolean | null {
   try {
-    return localStorage.getItem(CHAT_UI_DEFAULT_KEY) === "true";
+    const value = localStorage.getItem(CHAT_UI_DEFAULT_KEY);
+    return value === null ? null : value === "true";
   } catch {
-    return false;
+    return null;
   }
 }
 
-export function setDefaultNewAgentPaneToChat(enabled: boolean): void {
+function markPrompted(): void {
   try {
-    localStorage.setItem(CHAT_UI_DEFAULT_KEY, String(enabled));
     localStorage.setItem(CHAT_UI_DEFAULT_PROMPTED_KEY, "true");
   } catch {
     // localStorage can be unavailable in tests or hardened webviews.
   }
 }
 
-export function maybeAskDefaultNewAgentPaneToChat(): void {
+function clearLegacyDefault(): void {
+  try {
+    localStorage.removeItem(CHAT_UI_DEFAULT_KEY);
+  } catch {
+    // localStorage can be unavailable in tests or hardened webviews.
+  }
+}
+
+async function writeDefaultToConfig(enabled: boolean): Promise<void> {
+  const config = await invoke<AppConfig>("get_config");
+  await invoke("update_config", {
+    config: {
+      ...config,
+      ui: {
+        ...config.ui,
+        default_new_agent_pane_chat: enabled,
+      },
+    },
+  });
+}
+
+export function loadDefaultNewAgentPaneChat(): Promise<boolean> {
+  if (configLoad) return configLoad;
+  configLoad = (async () => {
+    const config = await invoke<AppConfig>("get_config");
+    const legacy = readLegacyDefault();
+    if (legacy !== null) {
+      cachedDefaultNewAgentPaneChat = legacy;
+      await invoke("update_config", {
+        config: {
+          ...config,
+          ui: {
+            ...config.ui,
+            default_new_agent_pane_chat: legacy,
+          },
+        },
+      });
+      clearLegacyDefault();
+      return legacy;
+    }
+    cachedDefaultNewAgentPaneChat = config.ui?.default_new_agent_pane_chat === true;
+    return cachedDefaultNewAgentPaneChat;
+  })().catch((err) => {
+    configLoad = null;
+    throw err;
+  });
+  return configLoad;
+}
+
+export async function setDefaultNewAgentPaneToChat(enabled: boolean): Promise<void> {
+  cachedDefaultNewAgentPaneChat = enabled;
+  markPrompted();
+  await writeDefaultToConfig(enabled);
+}
+
+export async function maybeAskDefaultNewAgentPaneToChat(): Promise<void> {
   try {
     if (localStorage.getItem(CHAT_UI_DEFAULT_PROMPTED_KEY) === "true") return;
-    localStorage.setItem(CHAT_UI_DEFAULT_PROMPTED_KEY, "true");
-    if (window.confirm("Use Chat UI by default for new supported agent panes?")) {
-      localStorage.setItem(CHAT_UI_DEFAULT_KEY, "true");
-    }
   } catch {
-    // Ignore prompt/default persistence failures.
+    return;
+  }
+  markPrompted();
+  if (window.confirm("Use Chat UI by default for new supported agent panes?")) {
+    await setDefaultNewAgentPaneToChat(true);
   }
 }
 

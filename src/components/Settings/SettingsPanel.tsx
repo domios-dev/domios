@@ -26,7 +26,7 @@ import {
 import logoUrl from "../../assets/logo.png";
 import { Toggle, InfoRow, AboutLink, SettingsPage, SettingsCard } from "./shared";
 import { KeybindGroup } from "./KeybindGroup";
-import { CHAT_UI_DEFAULT_KEY, setDefaultNewAgentPaneToChat } from "../../lib/chatUiMode";
+import { setDefaultNewAgentPaneToChat } from "../../lib/chatUiMode";
 import { UpdateSection } from "./UpdateSection";
 import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
@@ -121,13 +121,7 @@ export function SettingsPanel({
   const [configPath, setConfigPath] = useState<string>("");
   const [themesDir, setThemesDir] = useState<string>("");
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
-  const [chatUiDefault, setChatUiDefault] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(CHAT_UI_DEFAULT_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
+  const chatUiDefault = localConfig.ui?.default_new_agent_pane_chat ?? false;
 
   const builtinThemes = ["github-dark", "dracula", "catppuccin-mocha", "one-dark", "nord", "github-light", "solarized-light", "pip-boy"];
 
@@ -393,9 +387,9 @@ export function SettingsPanel({
                   <Toggle
                     label="Open agents in Chat UI by default"
                     checked={chatUiDefault}
-                    onChange={(v) => {
-                      setChatUiDefault(v);
-                      setDefaultNewAgentPaneToChat(v);
+                    onChange={async (v) => {
+                      update("ui", { ...localConfig.ui, default_new_agent_pane_chat: v });
+                      await setDefaultNewAgentPaneToChat(v);
                     }}
                   />
                 </SettingsCard>

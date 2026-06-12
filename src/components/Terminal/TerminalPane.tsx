@@ -30,7 +30,6 @@ import { SearchBar } from "./SearchBar";
 import { PaneSessionChat } from "./PaneSessionChat";
 import {
   isPaneUiModeEvent,
-  shouldDefaultNewAgentPaneToChat,
   type PaneUiMode,
 } from "../../lib/chatUiMode";
 import { useAgentDescriptor } from "../../lib/agentDescriptorCache";
@@ -86,7 +85,7 @@ export function TerminalPane({
     return () => query.removeEventListener("change", update);
   }, []);
   const shouldDefaultToChat =
-    shouldDefaultNewAgentPaneToChat(agentType) ||
+    pane?.chat_view === true ||
     (mobileWebDefaultChat && chatSupported);
 
   // --- Terminal lifecycle ---
