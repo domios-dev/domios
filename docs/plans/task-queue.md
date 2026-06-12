@@ -192,34 +192,29 @@ the rendering layer.
    record at create time (the file is a convenience input, not a live reference) —
    otherwise branch switches/edits silently change a delivered task's contract.
    `task show` always renders the snapshot.
-2. **Human-created tasks.** The user is a first-class requester: a "New task"
-   action on the board (and `task create` from any non-Worker pane / the UI) —
-   you drop work onto a lane without an orchestrator agent in the loop. Reports
-   for user-created tasks surface as notifications + unread board badge (the
-   user's "pane" has no chat to nag).
-3. **Telegram escalation.** The existing bridge becomes an optional escalation
+2. **Telegram escalation.** The existing bridge becomes an optional escalation
    transport: Dead/Blocked/stalled-orchestrator events and the daily digest can
    mirror to the paired Telegram user (`[tasks] notify_telegram = true`).
    Managing the swarm from the phone was already proven by bridge usage; this
    closes the loop for away-from-keyboard supervision.
-4. **Per-lane serial queue + reassignment.** One ACTIVE task per pane; further
+3. **Per-lane serial queue + reassignment.** One ACTIVE task per pane; further
    tasks assigned to the same pane queue FIFO and auto-deliver on close (the
    proven Haiku pattern). `task reassign ID --assignee P` re-delivers a Dead/
    Blocked task's snapshot to another lane, preserving history (re-dispatch was
    manual copy-paste today).
-5. **Transition audit log + retention.** Every state change/nudge appends to a
+4. **Transition audit log + retention.** Every state change/nudge appends to a
    per-task timeline (who/what/when) — post-mortems read the timeline, not pane
    scrollback. Done/Dead tasks auto-archive off the default board after
    `archive_after_days` (default 7), queryable via `task list --archived`.
-6. **Nudge economy.** Nudges into LLM panes consume the worker's context and the
+5. **Nudge economy.** Nudges into LLM panes consume the worker's context and the
    user's tokens: coalesce multiple pending nudges into one message, and respect
    `[tasks] quiet_hours` (e.g. 01:00-08:00 — no nudge delivery, watchdog clocks
    pause; dreamer hours stay silent).
-7. **UI modes.** Desktop: full board tab + pane badges + chat cards. Web mirror:
+6. **UI modes.** Desktop: full board tab + pane badges + chat cards. Web mirror:
    same board, read-only actions in v1.5.0. Mobile web: board collapses to a
    status-chip list (state + age), cards in chat render normally; no create/
-   reassign on mobile in v1. Empty board state shows the create affordance, not
-   a blank pane.
+   reassign on mobile in v1. Requesters are always agent panes — the user supervises
+   via board/notifications/Telegram, never creates tasks directly (cut by user).
 
 ## Phase 2 — limit-aware auto-routing (`--assignee auto`)
 
@@ -280,4 +275,4 @@ here: merge-conflict UX beyond "report conflict, leave worktree for a human".
 4. Later: mesh-distributed boards, cron deep-integration, G4-blocker auto-unblock
    hooks.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

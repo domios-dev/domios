@@ -48,7 +48,7 @@ Claude lanes stay parked.
 |---|---|---|---|
 | TQ-30 | Marker kinds in `message_markers.rs` + chat-ui `recognize` (the cross-pane marker pattern + its tests as template); raw markers hidden | codex | M |
 | TQ-31 | Cards: TaskCard / ReportCard / BoardCard / nudge row in packages/chat-ui (CodetermCard family); component tests per card on the happy-dom harness, copy-button interactions asserted | codex | M |
-| TQ-33 | Board create-task form + reassign action; mobile chip-list collapse; web read-only mode | codex | M |
+| TQ-33 | Board reassign action; mobile chip-list collapse; web read-only mode (no user-create — requesters are agents) | codex | S |
 | TQ-32 | Tasks board tab (Sidebar, MeshPanel as the structural template): board table, unread badges, pane chips; component-level tests for board rendering from fixture states | codex | M |
 
 ## Wave 4 — system proof + docs
@@ -81,4 +81,4 @@ TQ-50 auto-routing (usage-probe quotas + busyness + cooldowns); TQ-51 board acti
 waves 2–4 parallelize across lanes. With the current pipeline cadence this is
 single-digit days of arbiter sessions, not weeks.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
