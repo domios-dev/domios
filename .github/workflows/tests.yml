@@ -116,6 +116,9 @@ jobs:
       - name: Build frontend dist
         run: pnpm build
 
+      - name: Prepare embed sidecar stub
+        run: node scripts/prepare-embed-stub.js
+
       - name: Check Rust formatting
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
@@ -185,6 +188,9 @@ jobs:
 
       - name: Build frontend dist
         run: pnpm build
+
+      - name: Prepare embed sidecar stub
+        run: node scripts/prepare-embed-stub.js
 
       - name: Run Rust unit tests
         working-directory: src-tauri
