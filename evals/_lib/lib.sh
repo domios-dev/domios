@@ -147,7 +147,7 @@ dev_wait_ready() {
 
 # Start dev in the background. Caller is responsible for waiting.
 dev_start_bg() {
-  ( cd "$EVAL_LIB_REPO_ROOT" && ./build.sh dev > /dev/null 2>&1 & )
+  ( cd "$EVAL_LIB_REPO_ROOT" && "${BASH:-bash}" build.sh dev > /dev/null 2>&1 & )
 }
 
 # --- Snapshots -------------------------------------------------------

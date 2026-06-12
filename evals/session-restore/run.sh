@@ -89,10 +89,19 @@ def slim_pane(pane):
         "title_level": pane.get("title_level"),
     }
 
+def read_optional(path, name):
+    full = os.path.join(path, name)
+    if not os.path.exists(full):
+        return {}
+    with open(full, "r", encoding="utf-8") as f:
+        return json.load(f)
+
 pre_ws = read(pre, "ws.json")
 post_ws = read(post, "ws.json")
 pre_panes = read(pre, "panes.json")
 post_panes = read(post, "panes.json")
+pre_ga_session = read_optional(pre, "ga-session.json")
+post_ga_session = read_optional(post, "ga-session.json")
 pre_ws_by_name = index_ws(pre_ws)
 post_ws_by_name = index_ws(post_ws)
 pre_panes_by_ws = panes_by_workspace(pre_panes)
@@ -131,11 +140,16 @@ for name in scenario_names:
 general_pre = pre_ws_by_name.get("General")
 general_post = post_ws_by_name.get("General")
 if general_pre and general_post:
+    pre_sid = pre_ga_session.get("session_id")
+    post_sid = post_ga_session.get("session_id")
     summary["general"] = {
         "pre_tab_count": general_pre.get("tab_count"),
         "post_tab_count": general_post.get("tab_count"),
         "pre_pane_count": len(pre_panes_by_ws.get("General", [])),
         "post_pane_count": len(post_panes_by_ws.get("General", [])),
+        "session_id_present_pre": bool(pre_sid),
+        "session_id_matches_after_sid_wipe": bool(pre_sid) and post_sid == pre_sid,
+        "decoy_worker_session_seeded": bool(pre_ga_session.get("decoy_session_id")),
     }
 
 with open(out_path, "w", encoding="utf-8") as f:
@@ -202,6 +216,12 @@ for key in ("pre_pane_count", "post_pane_count"):
     if got is None or abs(got - want) > general_pane_tol:
         failures.append(f"General.{key}: {got} outside {want} ±{general_pane_tol}")
 
+for key in ("session_id_present_pre", "session_id_matches_after_sid_wipe", "decoy_worker_session_seeded"):
+    got = summary["general"].get(key)
+    want = expected["general"].get(key)
+    if got != want:
+        failures.append(f"General.{key}: {got!r} != {want!r}")
+
 print(f"baseline: {baseline_path}")
 print(
     "tolerance: WS-* exact; "
@@ -215,6 +235,119 @@ if failures:
     sys.exit(1)
 
 print("PASS: session-restore baseline check within tolerance")
+PY
+}
+
+capture_general_session() {
+  local out_path="${1:?usage: capture_general_session <out_json>}"
+  dev_get /api/panes | PYTHONIOENCODING=utf-8 python - "$out_path" <<'PY'
+import json
+import sys
+
+out_path = sys.argv[1]
+panes = json.load(sys.stdin)
+pane = next(
+    (
+        p for p in panes
+        if p.get("workspace_name") == "General"
+        and (p.get("title") == "Main" or p.get("tab_title") == "Main")
+    ),
+    None,
+)
+payload = {
+    "pane_id": pane.get("id") if pane else None,
+    "cwd": pane.get("cwd") if pane else None,
+    "session_id": pane.get("agent_session_id") if pane else None,
+}
+with open(out_path, "w", encoding="utf-8") as f:
+    json.dump(payload, f, indent=2, sort_keys=True)
+    f.write("\n")
+if not payload["session_id"]:
+    print("ERROR: General pane has no agent_session_id", file=sys.stderr)
+    sys.exit(1)
+print(payload["session_id"])
+PY
+}
+
+seed_general_decoy_worker_session() {
+  local ga_json="${1:?usage: seed_general_decoy_worker_session <ga_json> <out_json>}"
+  local out_json="${2:?usage: seed_general_decoy_worker_session <ga_json> <out_json>}"
+  PYTHONIOENCODING=utf-8 python - "$ga_json" "$out_json" <<'PY'
+import json
+import os
+import pathlib
+import sys
+import time
+import uuid
+
+ga_json, out_json = sys.argv[1:3]
+with open(ga_json, "r", encoding="utf-8") as f:
+    ga = json.load(f)
+cwd = ga["cwd"]
+canon = str(pathlib.Path(cwd).resolve()) if os.path.exists(cwd) else cwd
+encoded = "".join(ch if ch.isalnum() else "-" for ch in canon)
+projects = pathlib.Path.home() / ".claude" / "projects" / encoded
+projects.mkdir(parents=True, exist_ok=True)
+sid = str(uuid.uuid4())
+path = projects / f"{sid}.jsonl"
+line = {
+    "type": "user",
+    "cwd": cwd,
+    "message": {
+        "content": "codeterm agent report haiku facts done\nGPU facts\nworker transcript decoy"
+    },
+}
+path.write_text(json.dumps(line) + "\n", encoding="utf-8")
+future = time.time() + 5
+os.utime(path, (future, future))
+ga["decoy_session_id"] = sid
+ga["decoy_session_path"] = str(path)
+with open(out_json, "w", encoding="utf-8") as f:
+    json.dump(ga, f, indent=2, sort_keys=True)
+    f.write("\n")
+print(f"{sid} {path}")
+PY
+}
+
+strip_general_sid_from_last_json() {
+  PYTHONIOENCODING=utf-8 python <<'PY'
+import json
+import os
+import sys
+
+path = os.path.join(os.path.expanduser("~"), ".codeterm-dev", "sessions", "last.json")
+with open(path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+removed = []
+
+def strip_leaf(node):
+    if not isinstance(node, dict):
+        return
+    if node.get("title") == "Main" and node.get("agent_type") == "claude":
+        for key in ("agent_session_id", "claude_session_id"):
+            if node.pop(key, None):
+                removed.append(key)
+    if node.get("type") in ("Split", "Leaf"):
+        strip_leaf(node.get("first"))
+        strip_leaf(node.get("second"))
+
+for ws in data.get("workspaces", []):
+    if ws.get("name") != "General":
+        continue
+    for tab in ws.get("tabs", []):
+        strip_leaf(tab.get("split_tree"))
+
+if not removed:
+    print("ERROR: no General session id found in last.json to strip", file=sys.stderr)
+    sys.exit(1)
+
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+os.replace(tmp, path)
+print("  stripped General session id from last.json: " + ",".join(sorted(set(removed))))
 PY
 }
 
@@ -273,10 +406,16 @@ echo "== wait extra 10s for autosave"
 sleep 10
 PRE=$(snapshot session-restore-pre)
 echo "  pre snapshot: $PRE"
+echo "== seed newer worker decoy in General Agent cwd"
+GA_PRE_TMP="$EVAL_LIB_OUT_BASE/session-restore-ga-pre.tmp.json"
+GA_PRE_SID=$(capture_general_session "$GA_PRE_TMP") || exit 1
+seed_general_decoy_worker_session "$GA_PRE_TMP" "$PRE/ga-session.json" || exit 1
+echo "  General session before restart: $GA_PRE_SID"
 
 echo "== HARD KILL (taskkill /F or kill -9 — Windows shutdown simulator)"
 dev_kill_hard
 assert_atomic_save_clean || exit 1
+strip_general_sid_from_last_json || exit 1
 
 echo "== restart dev"
 dev_start_bg
@@ -284,6 +423,13 @@ dev_wait_ready 180 || exit 1
 sleep 5
 POST=$(snapshot session-restore-post)
 echo "  post snapshot: $POST"
+GA_POST_SID=$(capture_general_session "$POST/ga-session.json") || exit 1
+if [ "$GA_POST_SID" = "$GA_PRE_SID" ]; then
+  echo "  OK General Agent resumed its own session after sid wipe + newer decoy"
+else
+  echo "  FAIL General Agent session drifted: pre=$GA_PRE_SID post=$GA_POST_SID"
+  exit 1
+fi
 
 echo
 echo "== METADATA DIFF"
