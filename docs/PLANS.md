@@ -3,6 +3,7 @@ nPlans live here and only here — no plan files at repo root.
 
 ## Index
 
+- [Task Queue — native agent orchestration](plans/task-queue.md) — codeterm task: daemon-enforced ack/heartbeat/report state machine, limit-aware routing, worktree isolation (spec from the 2026-06 arbiter session)
 - [Plugin Architecture](plans/plugin-architecture.md) — core + plugins, MCP agent interface, unified dispatch, 6-phase roadmap
 - [Plugin Authoring Guide](PLUGINS.md) — how to author a plugin given what exists in code today (manifest, `Plugin` trait, lifecycle, events)
 - [Browser Improvements](plans/browser_improvements.md) — WebView2/WKWebView, CDP control, agent screenshots
