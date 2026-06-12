@@ -168,6 +168,31 @@ drifts; nothing in the system re-anchors the role. Fixes, all daemon-driven:
    message shape, marker-tagged, so ChatUI renders them as part of the task card
    thread, not as loose text.
 
+## Just-in-time requester onboarding — nobody learns the queue from the main prompt
+
+Not every orchestrator runs a multi-task program; the main prompts stay clean.
+The approach is taught lazily, three layers from cheapest to deepest:
+
+1. **`codeterm task guide`** — a built-in CLI manual page (the canonical teacher):
+   the workflow (brief -> create -> watch digests -> verify report -> close),
+   brief-writing rules distilled from the proven protocol, command crib sheet.
+   Zero prompt cost; always one command away; printed by `task --help` footer.
+2. **One-time orchestration-intent hint.** The daemon detects an orchestration
+   burst with zero queue usage — heuristic: the same pane performs its 2nd
+   `agent spawn` or 2nd `send-text` to an agent pane within a session while
+   having 0 created tasks — and injects ONCE per session:
+   `You appear to be orchestrating by hand. The task queue gives you ack
+   tracking, watchdogs and reports: run codeterm task guide.`
+   Never repeats; suppressed entirely once the pane has ever created a task.
+3. **Deep methodology in mem** (the existing dogfooding pattern): a role skill
+   `skill_task_queue_orchestration` — wave planning, brief templates, dispatch
+   discipline — fetched fragmentally only when an agent actually runs a big
+   program. `orchestrator_suffix.md` gains exactly ONE line pointing at layer 1
+   (`multi-task work? codeterm task guide`), nothing more.
+
+Workers need none of this: the envelope is their entire education (self-teaching
+messages above).
+
 ## Self-teaching messages — every queue message re-teaches the codeterm way
 
 Drift risk (live-observed class): agents have INTERNAL work-tracking tools
@@ -298,4 +323,4 @@ here: merge-conflict UX beyond "report conflict, leave worktree for a human".
 4. Later: mesh-distributed boards, cron deep-integration, G4-blocker auto-unblock
    hooks.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
