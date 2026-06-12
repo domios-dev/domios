@@ -26,7 +26,7 @@ ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 
 Skills are markdown files that Claude Code loads automatically when relevant. When Claude detects it's running in CodeTerm (via `$CODETERM=1` env var and `$CODETERM_PANE_ID` for self-identification), it can use the `codeterm` CLI to:
 
-1. **Send commands**: `codeterm send-text "npm test"` (sends to current pane, newline appended automatically)
+1. **Send commands**: `codeterm send-text "npm test"` (sends to current pane, newline appended automatically). For quote-heavy or multiline text, use `codeterm send --stdin --pane ID` and pipe/heredoc the payload.
 2. **Send notifications**: `codeterm notify "Done" --level info`
 3. **Create workspaces**: `codeterm workspace create "Feature X"`
 4. **Read output**: `codeterm get-output` (reads from current pane)
@@ -246,4 +246,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the pane in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->
