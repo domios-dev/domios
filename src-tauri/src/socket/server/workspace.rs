@@ -64,12 +64,12 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("eager"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            let (tab_id, pane_id) = svc
-                .create_tab_with_activate(&workspace_id, false)
-                .map_err(|e| JsonRpcError {
-                    code: -32602,
-                    message: e,
-                })?;
+            let (tab_id, pane_id) =
+                svc.create_tab_with_activate(&workspace_id, false)
+                    .map_err(|e| JsonRpcError {
+                        code: -32602,
+                        message: e,
+                    })?;
             let _ = svc.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
             let pty_id = if eager {
                 svc.ensure_pane_pty_for_send(&pane_id)
@@ -77,7 +77,10 @@ pub(super) fn dispatch(
                         code: -32603,
                         message: e,
                     })?;
-                svc.mux.lock().get_pane(&pane_id).and_then(|p| p.pty_id.clone())
+                svc.mux
+                    .lock()
+                    .get_pane(&pane_id)
+                    .and_then(|p| p.pty_id.clone())
             } else {
                 None
             };

@@ -2,13 +2,10 @@ use std::collections::HashMap;
 
 use mdns_sd::ServiceDaemon;
 
-use super::{
-    crown, discovered, identity, peer_services, peers, transport,
-};
 use super::types::{
-    self, DiscoveredPeer, MeshPeersResponse, MeshStatus, PairedPeer, PairingRequest,
-    RevocationList,
+    self, DiscoveredPeer, MeshPeersResponse, MeshStatus, PairedPeer, PairingRequest, RevocationList,
 };
+use super::{crown, discovered, identity, peer_services, peers, transport};
 
 /// Central mesh state — composes identity with peer/discovery state.
 /// Single Mutex — no lock ordering concerns.

@@ -11,12 +11,20 @@ pub(super) fn install_command(
         let install_id = id_override
             .or(id)
             .or_else(|| manifest_id(&source).ok())
-            .unwrap_or_else(|| source.file_name().and_then(|s| s.to_str()).unwrap_or("plugin").to_string());
+            .unwrap_or_else(|| {
+                source
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("plugin")
+                    .to_string()
+            });
         let version = manifest_version(&source).ok().flatten();
         let record = InstallRecord {
             id: install_id.clone(),
             version: version.clone(),
-            source: InstallSource::Dir { path: source.to_string_lossy().to_string() },
+            source: InstallSource::Dir {
+                path: source.to_string_lossy().to_string(),
+            },
             installed_at: now_rfc3339(),
             last_change: Some(last_change_for_install(version, None)),
         };
@@ -80,7 +88,9 @@ pub(super) fn install_command(
 }
 pub(super) fn remove_installed(id: &str, force: bool) -> Result<serde_json::Value, String> {
     if is_reserved_system_id(id) && !force {
-        return Err(format!("'{id}' is a system plugin id; pass --force to remove its user-installed folder"));
+        return Err(format!(
+            "'{id}' is a system plugin id; pass --force to remove its user-installed folder"
+        ));
     }
     let dir = plugin_dir(id);
     if !dir.exists() {
@@ -95,7 +105,11 @@ pub(super) fn remove_installed(id: &str, force: bool) -> Result<serde_json::Valu
         "message": format!("Removed plugin '{}'", id),
     }))
 }
-pub(super) fn install_from_dir(source: &Path, id: &str, record: Option<&InstallRecord>) -> Result<(), String> {
+pub(super) fn install_from_dir(
+    source: &Path,
+    id: &str,
+    record: Option<&InstallRecord>,
+) -> Result<(), String> {
     if !source.join("plugin.json").exists() {
         return Err(format!("{} has no plugin.json", source.display()));
     }
@@ -142,7 +156,8 @@ pub(super) fn copy_dir_inner(source: &Path, dest: &Path, root: &Path) -> Result<
             copy_dir_inner(&path, dest, root)?;
         } else if ft.is_file() {
             if let Some(parent) = out.parent() {
-                fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+                fs::create_dir_all(parent)
+                    .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
             }
             fs::copy(&path, &out).map_err(|e| format!("copy {}: {e}", path.display()))?;
         }
@@ -182,4 +197,3 @@ pub(super) fn manifest_hash(dir: &Path) -> Result<String, String> {
     let bytes = fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     Ok(format!("{:x}", Sha256::digest(&bytes)))
 }
-

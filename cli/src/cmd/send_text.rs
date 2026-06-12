@@ -51,7 +51,10 @@ pub enum SendTextOutcome {
 
 pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome {
     if let Some(err) = value.get("error").and_then(|v| v.as_str()) {
-        return SendTextOutcome::Error { msg: err.to_string(), exit_code: 2 };
+        return SendTextOutcome::Error {
+            msg: err.to_string(),
+            exit_code: 2,
+        };
     }
     if value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
         return SendTextOutcome::Success("OK (sent)".to_string());
@@ -119,7 +122,9 @@ pub fn handle_send_text(
     }
     if let Err(msg) = guard_against_shell_mangle(&resolved_text) {
         eprintln!("Error: {}", msg);
-        eprintln!("hint: your shell expanded a command-substitution before codeterm-CLI received it.");
+        eprintln!(
+            "hint: your shell expanded a command-substitution before codeterm-CLI received it."
+        );
         eprintln!("      Use --from-file <path> or --from-stdin <<'EOF' ... EOF for content with backticks/$/code.");
         std::process::exit(2);
     }

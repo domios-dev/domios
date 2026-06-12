@@ -22,10 +22,8 @@ pub fn louvain(n: usize, edges: &[LouvainEdge]) -> Vec<u32> {
     // node → community at the finest level, refined through aggregation levels.
     let mut membership: Vec<usize> = (0..n).collect();
     let mut level_nodes = n;
-    let mut level_edges: Vec<(usize, usize, f64)> = edges
-        .iter()
-        .map(|e| (e.a, e.b, e.weight as f64))
-        .collect();
+    let mut level_edges: Vec<(usize, usize, f64)> =
+        edges.iter().map(|e| (e.a, e.b, e.weight as f64)).collect();
 
     for _ in 0..MAX_LEVELS {
         let (assign, moved) = one_level(level_nodes, &level_edges);
@@ -96,8 +94,8 @@ fn one_level(n: usize, edges: &[(usize, usize, f64)]) -> (Vec<usize>, bool) {
 
             let mut best = cur;
             let mut best_gain = 0.0f64;
-            let base = links.get(&cur).copied().unwrap_or(0.0)
-                - comm_total[cur] * degree[i] / two_m;
+            let base =
+                links.get(&cur).copied().unwrap_or(0.0) - comm_total[cur] * degree[i] / two_m;
             for (&c, &k_in) in &links {
                 if c == cur {
                     continue;
@@ -209,7 +207,11 @@ mod tests {
     fn two_cliques_with_bridge_split() {
         let mut edges = clique_edges(&[0, 1, 2, 3, 4]);
         edges.extend(clique_edges(&[5, 6, 7, 8, 9]));
-        edges.push(LouvainEdge { a: 4, b: 5, weight: 1.0 });
+        edges.push(LouvainEdge {
+            a: 4,
+            b: 5,
+            weight: 1.0,
+        });
         let labels = louvain(10, &edges);
         let a: std::collections::HashSet<u32> = labels[..5].iter().copied().collect();
         let b: std::collections::HashSet<u32> = labels[5..].iter().copied().collect();
@@ -223,8 +225,16 @@ mod tests {
         let mut edges = clique_edges(&[0, 1, 2, 3]);
         edges.extend(clique_edges(&[4, 5, 6, 7]));
         edges.extend(clique_edges(&[8, 9, 10, 11]));
-        edges.push(LouvainEdge { a: 3, b: 4, weight: 0.2 });
-        edges.push(LouvainEdge { a: 7, b: 8, weight: 0.2 });
+        edges.push(LouvainEdge {
+            a: 3,
+            b: 4,
+            weight: 0.2,
+        });
+        edges.push(LouvainEdge {
+            a: 7,
+            b: 8,
+            weight: 0.2,
+        });
         let labels = louvain(12, &edges);
         let distinct: std::collections::HashSet<u32> = labels.iter().copied().collect();
         assert_eq!(distinct.len(), 3, "{labels:?}");
@@ -237,7 +247,10 @@ mod tests {
         assert_eq!(labels[0], labels[1]);
         assert_eq!(labels[1], labels[2]);
         assert_ne!(labels[3], labels[0]);
-        assert_ne!(labels[4], labels[3], "isolated nodes must not share: {labels:?}");
+        assert_ne!(
+            labels[4], labels[3],
+            "isolated nodes must not share: {labels:?}"
+        );
     }
 
     #[test]
@@ -257,11 +270,31 @@ mod tests {
     fn weights_drive_membership() {
         // Node 2 weakly tied to clique {0,1}, strongly to clique {3,4}.
         let edges = vec![
-            LouvainEdge { a: 0, b: 1, weight: 1.0 },
-            LouvainEdge { a: 0, b: 2, weight: 0.1 },
-            LouvainEdge { a: 3, b: 4, weight: 1.0 },
-            LouvainEdge { a: 2, b: 3, weight: 1.0 },
-            LouvainEdge { a: 2, b: 4, weight: 1.0 },
+            LouvainEdge {
+                a: 0,
+                b: 1,
+                weight: 1.0,
+            },
+            LouvainEdge {
+                a: 0,
+                b: 2,
+                weight: 0.1,
+            },
+            LouvainEdge {
+                a: 3,
+                b: 4,
+                weight: 1.0,
+            },
+            LouvainEdge {
+                a: 2,
+                b: 3,
+                weight: 1.0,
+            },
+            LouvainEdge {
+                a: 2,
+                b: 4,
+                weight: 1.0,
+            },
         ];
         let labels = louvain(5, &edges);
         assert_eq!(labels[2], labels[3], "{labels:?}");

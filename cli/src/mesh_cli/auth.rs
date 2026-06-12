@@ -7,13 +7,17 @@ pub fn sign_request(private_key_b64: &str, instance_id: &str) -> Result<String, 
     let b64 = base64::engine::general_purpose::STANDARD;
 
     let key_bytes = b64.decode(private_key_b64).map_err(|e| e.to_string())?;
-    if key_bytes.len() != 32 { return Err("Invalid key length".to_string()); }
+    if key_bytes.len() != 32 {
+        return Err("Invalid key length".to_string());
+    }
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&key_bytes);
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&arr);
 
     let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let payload = serde_json::json!({
         "from_instance_id": instance_id,
         "timestamp": now,

@@ -102,7 +102,10 @@ mod tests {
             .model(Some("opus".into()))
             .mesh(Some("Mac-Air".into()))
             .build();
-        assert_eq!(p, "-=-codeterm:pane label=Edison pane=e8a0ac20 model=opus mesh=Mac-Air-=-");
+        assert_eq!(
+            p,
+            "-=-codeterm:pane label=Edison pane=e8a0ac20 model=opus mesh=Mac-Air-=-"
+        );
     }
 
     #[test]
@@ -110,7 +113,10 @@ mod tests {
         let p = CtxPrefix::report("Worker", "abc12345")
             .model(Some("sonnet".into()))
             .build();
-        assert_eq!(p, "-=-codeterm:report from=Worker pane=abc12345 model=sonnet-=-");
+        assert_eq!(
+            p,
+            "-=-codeterm:report from=Worker pane=abc12345 model=sonnet-=-"
+        );
     }
 
     #[test]
@@ -131,6 +137,9 @@ mod tests {
     #[test]
     fn wrap_appends_body() {
         let p = CtxPrefix::message("Edison", "e8a0ac20");
-        assert_eq!(p.wrap("hello"), "-=-codeterm:pane label=Edison pane=e8a0ac20-=-hello");
+        assert_eq!(
+            p.wrap("hello"),
+            "-=-codeterm:pane label=Edison pane=e8a0ac20-=-hello"
+        );
     }
 }

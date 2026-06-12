@@ -42,7 +42,12 @@ pub struct RichMessage {
     pub uuid: Option<String>,
     /// Claude `isMeta` rows (skill context, command meta) render as system
     /// messages rather than user turns.
-    #[serde(rename = "isMeta", alias = "is_meta", skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        rename = "isMeta",
+        alias = "is_meta",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
     pub is_meta: Option<bool>,
     /// Raw ISO timestamp string passed straight through to the frontend.
     #[serde(skip_serializing_if = "Option::is_none", default)]

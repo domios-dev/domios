@@ -265,8 +265,7 @@ fn legacy_schedule_migration_recomputes_next_run() {
         "migration must recompute next_run, not leave it anchored to the old schedule",
     );
     // And the new value must fit the new "0 6 * * *" cadence: minute-of-hour=0 plus 0..30min jitter window relative to UTC.
-    let new_dt =
-        chrono::DateTime::<chrono::Utc>::from_timestamp_millis(new_next as i64).unwrap();
+    let new_dt = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(new_next as i64).unwrap();
     let minute = new_dt.minute();
     assert!(
         minute <= 30,
@@ -627,10 +626,15 @@ async fn normalize_flags_borderline_pair_without_merging() {
     }
 
     normalize_phase(&mem).await.unwrap();
-    let aliases: i64 = mem.conn().lock().query_row(
-        "SELECT COUNT(*) FROM entity_aliases WHERE alias_id IN ('person_anya','person_anna')",
-        [], |r| r.get(0),
-    ).unwrap();
+    let aliases: i64 = mem
+        .conn()
+        .lock()
+        .query_row(
+            "SELECT COUNT(*) FROM entity_aliases WHERE alias_id IN ('person_anya','person_anna')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(
         aliases, 0,
         "borderline pair (ratio < 0.92) must not be auto-merged"

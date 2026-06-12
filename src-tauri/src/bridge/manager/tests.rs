@@ -498,9 +498,7 @@ async fn spawn_fake_telegram_with_methods(
         let captured = captured.clone();
         async move {
             let path = req.uri().path().to_string();
-            let bytes = body::to_bytes(req.into_body(), 1024 * 1024)
-                .await
-                .unwrap();
+            let bytes = body::to_bytes(req.into_body(), 1024 * 1024).await.unwrap();
             let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             captured.lock().push((path, body));
             Json(serde_json::json!({"ok": true, "result": {"message_id": 42}}))
@@ -548,12 +546,24 @@ async fn outbound_text_routes_to_chat_and_append_edits_previous_message() {
     let recorded = captured.lock();
     assert_eq!(recorded.len(), 2, "requests: {:?}", *recorded);
     assert!(recorded[0].0.ends_with("/sendMessage"));
-    assert_eq!(recorded[0].1.get("chat_id").and_then(|v| v.as_i64()), Some(100000001));
-    assert_eq!(recorded[0].1.get("text").and_then(|v| v.as_str()), Some("first"));
+    assert_eq!(
+        recorded[0].1.get("chat_id").and_then(|v| v.as_i64()),
+        Some(100000001)
+    );
+    assert_eq!(
+        recorded[0].1.get("text").and_then(|v| v.as_str()),
+        Some("first")
+    );
 
     assert!(recorded[1].0.ends_with("/editMessageText"));
-    assert_eq!(recorded[1].1.get("chat_id").and_then(|v| v.as_i64()), Some(100000001));
-    assert_eq!(recorded[1].1.get("message_id").and_then(|v| v.as_i64()), Some(42));
+    assert_eq!(
+        recorded[1].1.get("chat_id").and_then(|v| v.as_i64()),
+        Some(100000001)
+    );
+    assert_eq!(
+        recorded[1].1.get("message_id").and_then(|v| v.as_i64()),
+        Some(42)
+    );
     assert_eq!(
         recorded[1].1.get("text").and_then(|v| v.as_str()),
         Some("first\n\nsecond")

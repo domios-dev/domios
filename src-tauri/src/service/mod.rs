@@ -12,8 +12,8 @@
 //! - `orchestrator` — agent spawn, batch commands
 //! - `notification` — create notification with OS toast
 
-pub mod agent_restart;
 pub mod activity;
+pub mod agent_restart;
 pub mod cron;
 pub mod general_agent;
 pub mod health;

@@ -26,7 +26,10 @@ impl ServiceContext {
                     ws.id,
                     cwd_str
                 );
-                return WorkspaceInfo { existing: Some(true), ..ws };
+                return WorkspaceInfo {
+                    existing: Some(true),
+                    ..ws
+                };
             }
         }
 

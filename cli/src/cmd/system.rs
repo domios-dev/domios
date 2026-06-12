@@ -59,7 +59,10 @@ fn default_app_binary() -> Result<std::path::PathBuf, String> {
             return Ok(c.clone());
         }
     }
-    Err("CodeTerm.app not found in /Applications or ~/Applications — pass --binary to override".into())
+    Err(
+        "CodeTerm.app not found in /Applications or ~/Applications — pass --binary to override"
+            .into(),
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -101,16 +104,34 @@ fn enable_autostart(binary_override: Option<&str>) -> Result<serde_json::Value, 
 
     let _ = run_schtasks(&["/Delete", "/TN", WIN_TASK_NAME, "/F"]);
     run_schtasks(&[
-        "/Create", "/TN", WIN_TASK_NAME, "/TR", &tr,
-        "/SC", "MINUTE", "/MO", "5", "/F", "/RL", "LIMITED",
+        "/Create",
+        "/TN",
+        WIN_TASK_NAME,
+        "/TR",
+        &tr,
+        "/SC",
+        "MINUTE",
+        "/MO",
+        "5",
+        "/F",
+        "/RL",
+        "LIMITED",
     ])?;
 
     // schtasks accepts one trigger per /Create; second task gives instant logon launch while the 5-minute task covers post-logon crashes.
     let logon_name = format!("{}-Logon", WIN_TASK_NAME);
     let _ = run_schtasks(&["/Delete", "/TN", &logon_name, "/F"]);
     let _ = run_schtasks(&[
-        "/Create", "/TN", &logon_name, "/TR", &tr,
-        "/SC", "ONLOGON", "/F", "/RL", "LIMITED",
+        "/Create",
+        "/TN",
+        &logon_name,
+        "/TR",
+        &tr,
+        "/SC",
+        "ONLOGON",
+        "/F",
+        "/RL",
+        "LIMITED",
     ]);
 
     Ok(serde_json::json!({
@@ -180,7 +201,8 @@ fn enable_autostart(binary_override: Option<&str>) -> Result<serde_json::Value, 
     let body = build_macos_plist(MAC_LABEL, &bin.to_string_lossy());
 
     if let Some(parent) = plist_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {}", parent.display(), e))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("mkdir {}: {}", parent.display(), e))?;
     }
     std::fs::write(&plist_path, &body)
         .map_err(|e| format!("write {}: {}", plist_path.display(), e))?;
@@ -287,7 +309,8 @@ fn enable_autostart(binary_override: Option<&str>) -> Result<serde_json::Value, 
     let body = build_linux_unit(&bin.to_string_lossy());
 
     if let Some(parent) = unit_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {}", parent.display(), e))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("mkdir {}: {}", parent.display(), e))?;
     }
     std::fs::write(&unit_path, &body)
         .map_err(|e| format!("write {}: {}", unit_path.display(), e))?;
@@ -384,7 +407,10 @@ mod tests {
 
     #[test]
     fn macos_plist_contains_label_and_binary_and_keepalive_and_runatload() {
-        let plist = build_macos_plist("com.codeterm.app", "/Applications/CodeTerm.app/Contents/MacOS/CodeTerm");
+        let plist = build_macos_plist(
+            "com.codeterm.app",
+            "/Applications/CodeTerm.app/Contents/MacOS/CodeTerm",
+        );
         assert!(plist.contains("<string>com.codeterm.app</string>"));
         assert!(plist.contains("/Applications/CodeTerm.app/Contents/MacOS/CodeTerm"));
         assert!(plist.contains("<key>KeepAlive</key>\n    <true/>"));
@@ -412,7 +438,12 @@ mod tests {
     fn macos_plist_escapes_path_with_spaces_inside_xml_string() {
         // We don't escape — XML <string> happily contains spaces. This pins the assumption so a future "helpful" change doesn't add shell-style
         // quoting that would break the plist parser.
-        let plist = build_macos_plist("com.codeterm.app", "/Applications/Code Term.app/Contents/MacOS/CodeTerm");
-        assert!(plist.contains("<string>/Applications/Code Term.app/Contents/MacOS/CodeTerm</string>"));
+        let plist = build_macos_plist(
+            "com.codeterm.app",
+            "/Applications/Code Term.app/Contents/MacOS/CodeTerm",
+        );
+        assert!(
+            plist.contains("<string>/Applications/Code Term.app/Contents/MacOS/CodeTerm</string>")
+        );
     }
 }

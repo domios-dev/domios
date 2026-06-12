@@ -67,14 +67,20 @@ fn build_fixture() -> tempfile::TempDir {
     run(p, &["add", "-A"]);
     run(p, &["commit", "-q", "-m", "rename a.txt"]);
 
-    run(p, &["merge", "-q", "--no-ff", "-m", "merge feature", "feature"]);
+    run(
+        p,
+        &["merge", "-q", "--no-ff", "-m", "merge feature", "feature"],
+    );
     tmp
 }
 
 #[test]
 fn classify_refs_by_prefix() {
     assert_eq!(classify_ref("refs/heads/main").unwrap().kind, "branch");
-    assert_eq!(classify_ref("refs/remotes/origin/main").unwrap().kind, "remote");
+    assert_eq!(
+        classify_ref("refs/remotes/origin/main").unwrap().kind,
+        "remote"
+    );
     assert_eq!(classify_ref("refs/tags/v1").unwrap().kind, "tag");
     let head = classify_ref("HEAD -> refs/heads/main").unwrap();
     assert_eq!(head.kind, "head");
@@ -182,10 +188,18 @@ async fn graph_against_fixture() {
     assert!(log.status_ok);
     let commits = parse_graph(&log.stdout);
     // root, add line, feature work, rename, merge = 5
-    assert_eq!(commits.len(), 5, "expected 5 commits, got {}", commits.len());
+    assert_eq!(
+        commits.len(),
+        5,
+        "expected 5 commits, got {}",
+        commits.len()
+    );
 
     // Merge commit is first (topo-order) and has two parents.
-    let merge = commits.iter().find(|c| c.subject == "merge feature").unwrap();
+    let merge = commits
+        .iter()
+        .find(|c| c.subject == "merge feature")
+        .unwrap();
     assert_eq!(merge.parents.len(), 2);
 
     // Root commit has no parents.
@@ -246,11 +260,10 @@ async fn merge_diff_uses_first_parent() {
     let tmp = build_fixture();
     let cwd = tmp.path().to_str().unwrap();
 
-    let merge_sha = String::from_utf8_lossy(
-        &run_git(cwd, &["rev-parse", "HEAD"]).await.unwrap().stdout,
-    )
-    .trim()
-    .to_string();
+    let merge_sha =
+        String::from_utf8_lossy(&run_git(cwd, &["rev-parse", "HEAD"]).await.unwrap().stdout)
+            .trim()
+            .to_string();
 
     assert!(is_merge(cwd, &merge_sha).await, "HEAD should be a merge");
 
@@ -258,13 +271,25 @@ async fn merge_diff_uses_first_parent() {
     let parent_spec = format!("{}^1", merge_sha);
     let out = run_git(
         cwd,
-        &["diff", "-M", "-C", "--no-color", &parent_spec, &merge_sha, "--", "b.txt"],
+        &[
+            "diff",
+            "-M",
+            "-C",
+            "--no-color",
+            &parent_spec,
+            &merge_sha,
+            "--",
+            "b.txt",
+        ],
     )
     .await
     .unwrap();
     assert!(out.status_ok);
     let text = String::from_utf8_lossy(&out.stdout);
-    assert!(text.contains("b.txt"), "merge first-parent diff missing b.txt");
+    assert!(
+        text.contains("b.txt"),
+        "merge first-parent diff missing b.txt"
+    );
 
     // A regular (non-merge) commit is not a merge.
     let root_sha = String::from_utf8_lossy(
@@ -341,14 +366,23 @@ async fn workdir_files_against_fixture() {
 
     let status = run_git(
         cwd,
-        &["-c", "core.quotePath=false", "status", "--porcelain=v1", "-z"],
+        &[
+            "-c",
+            "core.quotePath=false",
+            "status",
+            "--porcelain=v1",
+            "-z",
+        ],
     )
     .await
     .unwrap();
-    let numstat = run_git(cwd, &["-c", "core.quotePath=false", "diff", "--numstat", "HEAD"])
-        .await
-        .map(|o| parse_numstat_counts(&o.stdout))
-        .unwrap();
+    let numstat = run_git(
+        cwd,
+        &["-c", "core.quotePath=false", "diff", "--numstat", "HEAD"],
+    )
+    .await
+    .map(|o| parse_numstat_counts(&o.stdout))
+    .unwrap();
     let files = merge_workdir_files(parse_status_porcelain(&status.stdout), &numstat);
 
     let modified = files.iter().find(|f| f.path == "renamed.txt").unwrap();
@@ -371,12 +405,23 @@ async fn revert_restores_tracked_file() {
 
     let original = std::fs::read_to_string(p.join("renamed.txt")).unwrap();
     write(p, "renamed.txt", "garbage edit\n");
-    assert_ne!(std::fs::read_to_string(p.join("renamed.txt")).unwrap(), original);
+    assert_ne!(
+        std::fs::read_to_string(p.join("renamed.txt")).unwrap(),
+        original
+    );
 
     // Status of the file must not classify as untracked/conflicted.
     let status = run_git(
         cwd,
-        &["-c", "core.quotePath=false", "status", "--porcelain=v1", "-z", "--", "renamed.txt"],
+        &[
+            "-c",
+            "core.quotePath=false",
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--",
+            "renamed.txt",
+        ],
     )
     .await
     .unwrap();
@@ -390,7 +435,10 @@ async fn revert_restores_tracked_file() {
         .await
         .unwrap();
     assert!(out.status_ok, "checkout failed: {}", out.stderr);
-    assert_eq!(std::fs::read_to_string(p.join("renamed.txt")).unwrap(), original);
+    assert_eq!(
+        std::fs::read_to_string(p.join("renamed.txt")).unwrap(),
+        original
+    );
 }
 
 #[tokio::test]
@@ -405,7 +453,15 @@ async fn revert_untracked_is_refused() {
 
     let status = run_git(
         cwd,
-        &["-c", "core.quotePath=false", "status", "--porcelain=v1", "-z", "--", "fresh.txt"],
+        &[
+            "-c",
+            "core.quotePath=false",
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--",
+            "fresh.txt",
+        ],
     )
     .await
     .unwrap();
@@ -438,7 +494,10 @@ async fn worktrees_are_first_class_repos() {
     let p = fixture.path();
     run(p, &["branch", "wt-branch"]);
     let wt = p.join("the-worktree");
-    run(p, &["worktree", "add", "-q", wt.to_str().unwrap(), "wt-branch"]);
+    run(
+        p,
+        &["worktree", "add", "-q", wt.to_str().unwrap(), "wt-branch"],
+    );
 
     // A worktree's `.git` is a file, not a dir — ensure_repo must accept it.
     assert!(wt.join(".git").is_file());
@@ -447,7 +506,12 @@ async fn worktrees_are_first_class_repos() {
     // The log format works from inside the worktree.
     let out = run_git(
         wt.to_str().unwrap(),
-        &["log", "-n", "1", "--pretty=format:%x1f%H%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e"],
+        &[
+            "log",
+            "-n",
+            "1",
+            "--pretty=format:%x1f%H%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e",
+        ],
     )
     .await
     .unwrap();

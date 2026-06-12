@@ -10,13 +10,15 @@ pub(super) fn list_installed() -> Result<serde_json::Value, String> {
             continue;
         }
         let path = entry.path();
-        let folder_id = path.file_name().and_then(|s| s.to_str()).unwrap_or("?").to_string();
+        let folder_id = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("?")
+            .to_string();
         if folder_id.ends_with(".tmp-install") {
             continue;
         }
-        let id = manifest_id(&path).unwrap_or_else(|_| {
-            folder_id.clone()
-        });
+        let id = manifest_id(&path).unwrap_or_else(|_| folder_id.clone());
         let manifest = read_plugin_manifest(&path).ok();
         let record = read_install_record(&folder_id)
             .or_else(|_| read_install_record(&id))
@@ -48,14 +50,17 @@ pub(super) fn list_installed() -> Result<serde_json::Value, String> {
 // System provider plugins are intrinsic: always present and non-removable, even
 // when not extracted to disk (dev, or a fresh prod before bootstrap).
 pub(super) fn merge_system_rows(rows: &mut Vec<InstalledPluginRow>) {
-    let present: std::collections::BTreeSet<String> =
-        rows.iter().map(|r| r.id.clone()).collect();
+    let present: std::collections::BTreeSet<String> = rows.iter().map(|r| r.id.clone()).collect();
     for id in SYSTEM_PLUGIN_IDS {
         if !present.contains(id) {
             rows.push(virtual_system_row(id));
         }
     }
-    rows.sort_by(|a, b| system_rank(&a.id).cmp(&system_rank(&b.id)).then_with(|| a.id.cmp(&b.id)));
+    rows.sort_by(|a, b| {
+        system_rank(&a.id)
+            .cmp(&system_rank(&b.id))
+            .then_with(|| a.id.cmp(&b.id))
+    });
 }
 
 pub(super) fn system_rank(id: &str) -> (u8, usize) {

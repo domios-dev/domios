@@ -202,7 +202,10 @@ pub fn pane(label: &str, pane: &str, body: &str) -> String {
 }
 
 pub fn report(from: &str, body: &str) -> String {
-    Marker::new("report").attr("from", from).payload(body).build()
+    Marker::new("report")
+        .attr("from", from)
+        .payload(body)
+        .build()
 }
 
 pub fn hook(json: &str) -> String {

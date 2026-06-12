@@ -109,7 +109,12 @@ impl PsuedoCon {
         // One-line diag so the daemon log shows whether VT passthrough is in effect for ratatui TUIs.
         eprintln!(
             "[conpty] CreatePseudoConsole flags=0x{:x} HRESULT=0x{:08x}",
-            base_flags | if passthrough_engaged { PSEUDOCONSOLE_PASSTHROUGH_MODE } else { 0 },
+            base_flags
+                | if passthrough_engaged {
+                    PSEUDOCONSOLE_PASSTHROUGH_MODE
+                } else {
+                    0
+                },
             result as u32,
         );
         ensure!(

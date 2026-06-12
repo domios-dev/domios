@@ -147,8 +147,7 @@ pub fn handle(write: bool) {
 mod tests {
     use super::*;
 
-    const MANIFEST_PATH: &str =
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/cli-manifest.json");
+    const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/cli-manifest.json");
 
     #[test]
     fn cli_manifest_is_fresh() {
@@ -176,8 +175,10 @@ mod tests {
         );
     }
 
-    const PROMPT_PATH: &str =
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../src-tauri/prompts/codeterm_cli.md");
+    const PROMPT_PATH: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../src-tauri/prompts/codeterm_cli.md"
+    );
 
     fn resolve<'a>(root: &'a ManifestCommand, path: &[&str]) -> Option<&'a ManifestCommand> {
         let mut cur = root;
@@ -214,9 +215,7 @@ mod tests {
                 if tok.starts_with('-') || tok.starts_with('"') || tok.contains('=') {
                     break;
                 }
-                if tok.starts_with('<')
-                    || tok.chars().all(|c| c.is_ascii_uppercase() || c == '_')
-                {
+                if tok.starts_with('<') || tok.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
                     break; // argument placeholder (UPPERCASE / <...>)
                 }
                 path.push(tok);

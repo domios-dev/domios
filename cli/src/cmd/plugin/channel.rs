@@ -13,14 +13,20 @@ pub(super) fn channel_command(action: PluginChannelAction) -> Result<serde_json:
     }
 }
 
-pub(super) fn add_channel(url: &str, name_override: Option<String>) -> Result<serde_json::Value, String> {
+pub(super) fn add_channel(
+    url: &str,
+    name_override: Option<String>,
+) -> Result<serde_json::Value, String> {
     fs::create_dir_all(channels_root()).map_err(|e| e.to_string())?;
     let source = parse_channel_source(url);
     let is_local = looks_like_local_path(&source.base);
-    let temp_name = name_override.clone().unwrap_or_else(|| safe_channel_name(url));
+    let temp_name = name_override
+        .clone()
+        .unwrap_or_else(|| safe_channel_name(url));
     let cache_path = channels_root().join(&temp_name);
     if cache_path.exists() {
-        fs::remove_dir_all(&cache_path).map_err(|e| format!("clear {}: {e}", cache_path.display()))?;
+        fs::remove_dir_all(&cache_path)
+            .map_err(|e| format!("clear {}: {e}", cache_path.display()))?;
     }
     if is_local {
         copy_dir_filtered(&source.source_dir(), &cache_path)?;
@@ -32,17 +38,25 @@ pub(super) fn add_channel(url: &str, name_override: Option<String>) -> Result<se
     let final_path = channels_root().join(&name);
     if final_path != cache_path {
         if final_path.exists() {
-            fs::remove_dir_all(&final_path).map_err(|e| format!("clear {}: {e}", final_path.display()))?;
+            fs::remove_dir_all(&final_path)
+                .map_err(|e| format!("clear {}: {e}", final_path.display()))?;
         }
         fs::rename(&cache_path, &final_path).map_err(|e| format!("rename channel cache: {e}"))?;
     }
     let mut reg = read_channel_registry().unwrap_or_default();
-    reg.channels.insert(name.clone(), ChannelRecord {
-        name: name.clone(),
-        url: url.to_string(),
-        path: final_path.display().to_string(),
-        kind: if is_local { ChannelKind::Local } else { ChannelKind::Git },
-    });
+    reg.channels.insert(
+        name.clone(),
+        ChannelRecord {
+            name: name.clone(),
+            url: url.to_string(),
+            path: final_path.display().to_string(),
+            kind: if is_local {
+                ChannelKind::Local
+            } else {
+                ChannelKind::Git
+            },
+        },
+    );
     let result = write_channel_registry(&reg);
     audit_channel_result("channel_add", Some(&name), &result);
     result?;
@@ -73,7 +87,9 @@ pub(super) fn list_channels() -> Result<serde_json::Value, String> {
         rows.push(virtual_system_channel());
     }
     rows.sort_by(|a, b| {
-        u8::from(b.system).cmp(&u8::from(a.system)).then_with(|| a.name.cmp(&b.name))
+        u8::from(b.system)
+            .cmp(&u8::from(a.system))
+            .then_with(|| a.name.cmp(&b.name))
     });
     Ok(serde_json::json!({ "channels": rows }))
 }
@@ -117,7 +133,9 @@ pub(super) fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, Stri
             let remote_dir = channel_path.join(&remote_path);
             let local_dir = plugin_dir(&plugin.id);
             let local_version = manifest_version(&local_dir).ok().flatten();
-            let remote_version = plugin.version.clone()
+            let remote_version = plugin
+                .version
+                .clone()
                 .or_else(|| manifest_version(&remote_dir).ok().flatten());
             let local_manifest_hash = manifest_hash(&local_dir).ok();
             let remote_manifest_hash = manifest_hash(&remote_dir).ok();
@@ -166,7 +184,10 @@ pub(super) fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, Stri
     Ok(serde_json::json!({ "diff": rows }))
 }
 
-pub(super) fn materialize_channel_for_diff(ch: &ChannelRecord, temp: &Path) -> Result<PathBuf, String> {
+pub(super) fn materialize_channel_for_diff(
+    ch: &ChannelRecord,
+    temp: &Path,
+) -> Result<PathBuf, String> {
     match ch.kind {
         ChannelKind::Local => Ok(parse_channel_source(&ch.url).source_dir()),
         ChannelKind::Git => {
@@ -203,7 +224,10 @@ pub(super) fn remove_channel(name: &str, force: bool) -> Result<serde_json::Valu
         ));
     }
     let mut reg = read_channel_registry().unwrap_or_default();
-    let ch = reg.channels.remove(name).ok_or_else(|| format!("channel '{name}' not registered"))?;
+    let ch = reg
+        .channels
+        .remove(name)
+        .ok_or_else(|| format!("channel '{name}' not registered"))?;
     let path = PathBuf::from(&ch.path);
     if path.exists() {
         fs::remove_dir_all(&path).map_err(|e| format!("remove {}: {e}", path.display()))?;
@@ -241,7 +265,9 @@ pub(super) fn refresh_channel_record(ch: &ChannelRecord) -> Result<(), String> {
     let path = PathBuf::from(&ch.path);
     let tmp = path.with_file_name(format!(
         ".{}-refresh-{}",
-        path.file_name().and_then(|s| s.to_str()).unwrap_or("channel"),
+        path.file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("channel"),
         uuid::Uuid::new_v4()
     ));
     if tmp.exists() {
@@ -261,7 +287,10 @@ pub(super) fn refresh_channel_record(ch: &ChannelRecord) -> Result<(), String> {
     fs::rename(&tmp, &path).map_err(|e| format!("replace channel cache: {e}"))
 }
 
-pub(super) fn materialize_registered_channel(ch: &ChannelRecord, dest: &Path) -> Result<(), String> {
+pub(super) fn materialize_registered_channel(
+    ch: &ChannelRecord,
+    dest: &Path,
+) -> Result<(), String> {
     let source = parse_channel_source(&ch.url);
     match ch.kind {
         ChannelKind::Local => copy_dir_filtered(&source.source_dir(), dest),
@@ -276,7 +305,10 @@ pub(super) struct ChannelCandidate {
     pub(super) version: Option<String>,
 }
 
-pub(super) fn find_channel_plugin(id: &str, channel_filter: Option<&str>) -> Result<ChannelCandidate, String> {
+pub(super) fn find_channel_plugin(
+    id: &str,
+    channel_filter: Option<&str>,
+) -> Result<ChannelCandidate, String> {
     let reg = read_channel_registry().unwrap_or_default();
     let mut matches = Vec::new();
     for ch in reg.channels.values() {
@@ -303,7 +335,9 @@ pub(super) fn find_channel_plugin(id: &str, channel_filter: Option<&str>) -> Res
     match matches.len() {
         0 => Err(format!("plugin '{id}' not found in registered channels")),
         1 => Ok(matches.remove(0)),
-        _ => Err(format!("plugin '{id}' exists in multiple channels; pass --channel <name>")),
+        _ => Err(format!(
+            "plugin '{id}' exists in multiple channels; pass --channel <name>"
+        )),
     }
 }
 
@@ -318,6 +352,8 @@ pub(super) fn plugin_path(plugin: &ChannelPlugin) -> Result<String, String> {
             return Ok(path.to_string());
         }
     }
-    Err(format!("channel plugin '{}' has no path/source string", plugin.id))
+    Err(format!(
+        "channel plugin '{}' has no path/source string",
+        plugin.id
+    ))
 }
-

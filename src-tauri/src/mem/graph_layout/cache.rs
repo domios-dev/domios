@@ -49,7 +49,9 @@ impl LayoutCache {
             Ok(Some(i)) => i,
             Ok(None) => Inner::default(),
             Err(e) => {
-                log::warn!("[graph_layout] cache load failed ({e}) — starting empty, rebuild needed");
+                log::warn!(
+                    "[graph_layout] cache load failed ({e}) — starting empty, rebuild needed"
+                );
                 Inner::default()
             }
         };
@@ -116,7 +118,10 @@ impl LayoutCache {
     }
 
     /// Snapshot all positions filtered to `keep` (live item/entity ids).
-    pub fn positions_filtered(&self, keep: &std::collections::HashSet<String>) -> Vec<(String, Position)> {
+    pub fn positions_filtered(
+        &self,
+        keep: &std::collections::HashSet<String>,
+    ) -> Vec<(String, Position)> {
         self.inner
             .read()
             .positions
@@ -240,7 +245,14 @@ mod tests {
         let path = tmp_path();
         let cache = LayoutCache::load(path.clone());
         let mut map = HashMap::new();
-        map.insert("a".into(), Position { x: 1.0, y: 2.0, cluster_id: 3 });
+        map.insert(
+            "a".into(),
+            Position {
+                x: 1.0,
+                y: 2.0,
+                cluster_id: 3,
+            },
+        );
         let v = cache.replace_all(map, "now".into());
         assert_eq!(v, 1);
         assert!(cache.flush_now());
@@ -249,7 +261,11 @@ mod tests {
         assert_eq!(reloaded.layout_version(), 1);
         assert_eq!(
             reloaded.get("a"),
-            Some(Position { x: 1.0, y: 2.0, cluster_id: 3 })
+            Some(Position {
+                x: 1.0,
+                y: 2.0,
+                cluster_id: 3
+            })
         );
         std::fs::remove_file(&path).ok();
     }
@@ -287,7 +303,14 @@ mod tests {
         std::fs::write(&tmp, b"garbage partial write").unwrap();
         let cache = LayoutCache::load(path.clone());
         let mut map = HashMap::new();
-        map.insert("x".into(), Position { x: 5.0, y: 6.0, cluster_id: 0 });
+        map.insert(
+            "x".into(),
+            Position {
+                x: 5.0,
+                y: 6.0,
+                cluster_id: 0,
+            },
+        );
         cache.replace_all(map, "now".into());
         assert!(cache.flush_now());
         let reloaded = LayoutCache::load(path.clone());
@@ -300,9 +323,23 @@ mod tests {
     fn upsert_bumps_seq_and_positions_since_filters() {
         let path = tmp_path();
         let cache = LayoutCache::load(path.clone());
-        cache.upsert("a".into(), Position { x: 0.0, y: 0.0, cluster_id: 0 });
+        cache.upsert(
+            "a".into(),
+            Position {
+                x: 0.0,
+                y: 0.0,
+                cluster_id: 0,
+            },
+        );
         let seq_after_a = cache.current_seq();
-        cache.upsert("b".into(), Position { x: 1.0, y: 1.0, cluster_id: 0 });
+        cache.upsert(
+            "b".into(),
+            Position {
+                x: 1.0,
+                y: 1.0,
+                cluster_id: 0,
+            },
+        );
 
         let keep: std::collections::HashSet<String> =
             ["a".to_string(), "b".to_string()].into_iter().collect();
@@ -316,8 +353,22 @@ mod tests {
     fn positions_filtered_drops_stale_ids() {
         let path = tmp_path();
         let cache = LayoutCache::load(path.clone());
-        cache.upsert("live".into(), Position { x: 0.0, y: 0.0, cluster_id: 0 });
-        cache.upsert("dead".into(), Position { x: 1.0, y: 1.0, cluster_id: 0 });
+        cache.upsert(
+            "live".into(),
+            Position {
+                x: 0.0,
+                y: 0.0,
+                cluster_id: 0,
+            },
+        );
+        cache.upsert(
+            "dead".into(),
+            Position {
+                x: 1.0,
+                y: 1.0,
+                cluster_id: 0,
+            },
+        );
         let keep: std::collections::HashSet<String> = ["live".to_string()].into_iter().collect();
         let out = cache.positions_filtered(&keep);
         assert_eq!(out.len(), 1);

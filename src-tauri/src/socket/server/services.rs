@@ -3,9 +3,9 @@
 use serde_json::Value;
 use tauri::AppHandle;
 
-use crate::service::ServiceState;
 use crate::service::activity::{ActivitySource, ActivityWriter};
 use crate::service::store::{ServiceCreate, ServiceKind, ServiceUpdate};
+use crate::service::ServiceState;
 
 use super::{get_string_param, JsonRpcError};
 

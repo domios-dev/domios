@@ -130,10 +130,16 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
     // Mesh management commands are local-only — cannot be relayed.
     if let super::Commands::Mesh { action } = &cli.command {
         match action {
-            MeshAction::Connect { .. } | MeshAction::Approve { .. } |
-            MeshAction::Reject { .. } | MeshAction::Disconnect { .. } |
-            MeshAction::Discover | MeshAction::Broadcast | MeshAction::StopBroadcast |
-            MeshAction::Peer { .. } | MeshAction::Offline | MeshAction::Online => {
+            MeshAction::Connect { .. }
+            | MeshAction::Approve { .. }
+            | MeshAction::Reject { .. }
+            | MeshAction::Disconnect { .. }
+            | MeshAction::Discover
+            | MeshAction::Broadcast
+            | MeshAction::StopBroadcast
+            | MeshAction::Peer { .. }
+            | MeshAction::Offline
+            | MeshAction::Online => {
                 eprintln!("Error: mesh management commands are local-only and cannot be relayed via --mesh");
                 std::process::exit(1);
             }
@@ -151,18 +157,53 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
     };
 
     // `update --apply` is a two-step flow: force-check then install.
-    if let Commands::Update { action, check, apply, channel, manifest_url, after_update } = &cli.command {
-        let resolved = update::resolve_update_action(action.as_ref(), *check, *apply, channel.clone(), manifest_url.clone(), after_update.clone());
-        if let UpdateAction::Install { auto: true, manifest_url, from_file: _, continue_prompt: _, continue_pane: _, after_update } = &resolved {
-            update::run_update_apply_via_mesh(&http, &base, &token, target, manifest_url.as_deref(), after_update.as_deref(), cli.json);
+    if let Commands::Update {
+        action,
+        check,
+        apply,
+        channel,
+        manifest_url,
+        after_update,
+    } = &cli.command
+    {
+        let resolved = update::resolve_update_action(
+            action.as_ref(),
+            *check,
+            *apply,
+            channel.clone(),
+            manifest_url.clone(),
+            after_update.clone(),
+        );
+        if let UpdateAction::Install {
+            auto: true,
+            manifest_url,
+            from_file: _,
+            continue_prompt: _,
+            continue_pane: _,
+            after_update,
+        } = &resolved
+        {
+            update::run_update_apply_via_mesh(
+                &http,
+                &base,
+                &token,
+                target,
+                manifest_url.as_deref(),
+                after_update.as_deref(),
+                cli.json,
+            );
             return;
         }
     }
 
     // pane search needs local fuzzy ranking; relay-only output has no relevance ordering.
     // Fetch raw list then rank locally for predictable results.
-    if let Commands::Pane { action: super::PaneAction::Search { pattern } } = &cli.command {
-        let panes = relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", "/api/panes", None);
+    if let Commands::Pane {
+        action: super::PaneAction::Search { pattern },
+    } = &cli.command
+    {
+        let panes =
+            relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", "/api/panes", None);
         let arr = panes.as_array().cloned().unwrap_or_default();
         crate::cmd::pane::print_pane_find_results(cli.json, pattern, &arr);
         return;
@@ -170,12 +211,25 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
 
     // `pane list` reuses local formatter: relay raw list, then format locally.
     if !cli.json {
-        if let Commands::Pane { action: super::PaneAction::List { agents } } = &cli.command {
-            let panes = relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", "/api/panes", None);
+        if let Commands::Pane {
+            action: super::PaneAction::List { agents },
+        } = &cli.command
+        {
+            let panes = relay::mesh_relay_fetch_json(
+                &http,
+                &base,
+                &token,
+                target,
+                "GET",
+                "/api/panes",
+                None,
+            );
             let mut arr = panes.as_array().cloned().unwrap_or_default();
             if *agents {
                 arr.retain(|p| {
-                    p.get("agent_type").and_then(|v| v.as_str()).map_or(false, |s| !s.is_empty())
+                    p.get("agent_type")
+                        .and_then(|v| v.as_str())
+                        .map_or(false, |s| !s.is_empty())
                 });
             }
             if arr.is_empty() {
@@ -192,5 +246,14 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         eprintln!("Error: {}", path);
         std::process::exit(2);
     }
-    relay::mesh_relay_generic(&http, &base, &token, target, &method, &path, body.as_deref(), cli.json);
+    relay::mesh_relay_generic(
+        &http,
+        &base,
+        &token,
+        target,
+        &method,
+        &path,
+        body.as_deref(),
+        cli.json,
+    );
 }
