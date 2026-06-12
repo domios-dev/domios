@@ -94,34 +94,34 @@ def _assert_not_spa(response: requests.Response, expected_token: str) -> None:
 
 
 @pytest.mark.parametrize("route", PROTECTED_WEB_ROUTES, ids=lambda r: f"{r.method} {r.path}")
-def test_web_gate_rejects_missing_token_without_serving_spa(api, route: RouteCase):
-    expected_token = _token_from_api_fixture(api)
+def test_web_gate_rejects_missing_token_without_serving_spa(api_only, route: RouteCase):
+    expected_token = _token_from_api_fixture(api_only)
 
-    response = _request(api.base, route)
+    response = _request(api_only.base, route)
 
     _assert_not_spa(response, expected_token)
 
 
 @pytest.mark.parametrize("route", PROTECTED_WEB_ROUTES, ids=lambda r: f"{r.method} {r.path}")
-def test_web_gate_rejects_bad_token_without_serving_spa(api, route: RouteCase):
-    expected_token = _token_from_api_fixture(api)
+def test_web_gate_rejects_bad_token_without_serving_spa(api_only, route: RouteCase):
+    expected_token = _token_from_api_fixture(api_only)
 
-    response = _request(api.base, route, token="garbage-expired-token")
+    response = _request(api_only.base, route, token="garbage-expired-token")
 
     _assert_not_spa(response, expected_token)
 
 
-def test_web_gate_valid_codeterm_web_link_token_serves_spa_and_api(api):
-    token = _token_from_api_fixture(api)
+def test_web_gate_valid_codeterm_web_link_token_serves_spa_and_api(api_only):
+    token = _token_from_api_fixture(api_only)
 
-    spa = requests.get(f"{api.base}/web/#token={token}", timeout=10)
+    spa = requests.get(f"{api_only.base}/web/#token={token}", timeout=10)
     assert spa.status_code == 200
     assert len(spa.text) > 1000
     for marker in SPA_MARKERS:
         assert marker in spa.text
 
     manifest = requests.get(
-        f"{api.base}/web/manifest.webmanifest",
+        f"{api_only.base}/web/manifest.webmanifest",
         params={"token": token},
         timeout=10,
     )
@@ -130,7 +130,7 @@ def test_web_gate_valid_codeterm_web_link_token_serves_spa_and_api(api):
     assert manifest.json()["start_url"] == f"/web/#token={token}"
 
     state = requests.get(
-        f"{api.base}/api/mux/state",
+        f"{api_only.base}/api/mux/state",
         headers={"Authorization": f"Bearer {token}"},
         timeout=10,
     )
@@ -147,8 +147,8 @@ def test_web_gate_valid_codeterm_web_link_token_serves_spa_and_api(api):
 
 
 @pytest.mark.parametrize("path", ALLOWED_ANONYMOUS_WEB_ROUTES)
-def test_allowed_anonymous_web_surface_is_explicit(api, path: str):
-    response = requests.get(f"{api.base}{path}", timeout=10)
+def test_allowed_anonymous_web_surface_is_explicit(api_only, path: str):
+    response = requests.get(f"{api_only.base}{path}", timeout=10)
 
     assert response.status_code == 200
     if path.endswith(".webmanifest"):
@@ -164,24 +164,24 @@ def test_allowed_anonymous_web_surface_is_explicit(api, path: str):
             assert marker in response.text
 
 
-def test_allowed_anonymous_static_asset_is_explicit(api):
-    index = requests.get(f"{api.base}/web/", timeout=10)
+def test_allowed_anonymous_static_asset_is_explicit(api_only):
+    index = requests.get(f"{api_only.base}/web/", timeout=10)
     assert index.status_code == 200
     match = re.search(r'src="\./(assets/index-[^"]+\.js)"', index.text)
     assert match, index.text[:500]
 
-    asset = requests.get(f"{api.base}/web/{match.group(1)}", timeout=10)
+    asset = requests.get(f"{api_only.base}/web/{match.group(1)}", timeout=10)
 
     assert asset.status_code == 200
     assert asset.headers["content-type"].startswith("text/javascript")
     assert len(asset.text) > 100_000
 
 
-def test_manifest_bad_token_falls_back_without_leaking_expected_token(api):
-    expected_token = _token_from_api_fixture(api)
+def test_manifest_bad_token_falls_back_without_leaking_expected_token(api_only):
+    expected_token = _token_from_api_fixture(api_only)
 
     response = requests.get(
-        f"{api.base}/web/manifest.webmanifest",
+        f"{api_only.base}/web/manifest.webmanifest",
         params={"token": "garbage-expired-token"},
         timeout=10,
     )
