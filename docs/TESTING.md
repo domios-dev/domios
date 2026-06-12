@@ -86,6 +86,7 @@ npx tsx src/lib/colors.test.ts
 ## E2E tests
 
 Test full stack via REST API against a running dev instance. Create panes, send text, check output, verify prompt lifecycle.
+`./build.sh e2e` skips `llm` tests by default; run `./build.sh e2e:llm` deliberately because that tier starts real model agents and spends provider tokens.
 
 **macOS/Linux:**
 ```bash
@@ -328,4 +329,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

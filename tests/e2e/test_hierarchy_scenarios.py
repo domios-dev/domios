@@ -9,6 +9,8 @@ import time
 import pytest
 from helpers import CodeTermAPI, IS_WINDOWS, tmp_path, unique_name
 
+pytestmark = pytest.mark.llm
+
 
 TOKEN_TIMEOUT = 120  # max seconds to wait for agent work
 
@@ -134,8 +136,14 @@ def test_scenario_pipeline(api: CodeTermAPI):
                 f'Then count the lines in the file and report how many lines it has.'
             ),
         })
-        found = _wait_for_report(api, orch, "2", timeout=90)
-        assert found, "Pipeline worker did not report line count"
+        proof = f"{marker}_COUNT_2"
+        api.post("/api/agents/spawn", json={
+            "agent": "claude", "title": "Pipeline Verifier", "role": "Worker",
+            "parent_pane_id": orch,
+            "task": f'Read {fpath}. If it has exactly 2 lines, report "{proof}". Otherwise report "{marker}_COUNT_FAIL".',
+        })
+        found = _wait_for_report(api, orch, proof, timeout=90)
+        assert found, f"Pipeline worker did not report marker-qualified line count {proof}"
     finally:
         _cleanup_ws(api, ws_id)
 
@@ -254,7 +262,7 @@ def test_scenario_batch_spawn(api: CodeTermAPI):
                     "title": "Batch Boss", "role": "Orchestrator",
                     "agent": "claude", "can_spawn": True,
                     "workspace_id": ws_id,
-                    "task": f"Wait for reports from your workers. After all report, print {marker}_DONE.",
+                    "task": f"Wait for reports containing {marker}_1 and {marker}_2 from your workers. Then report exactly {marker}_ALL_DONE.",
                 }},
                 {"method": "spawn", "params": {
                     "title": "BW-1", "role": "Worker",
@@ -273,8 +281,8 @@ def test_scenario_batch_spawn(api: CodeTermAPI):
         boss_pane = result[0].get("pane_id")
         assert boss_pane
 
-        found = _wait_for_report(api, boss_pane, marker, timeout=TOKEN_TIMEOUT)
-        assert found, f"Batch workers did not report to boss"
+        found = _wait_for_report(api, boss_pane, f"{marker}_ALL_DONE", timeout=TOKEN_TIMEOUT)
+        assert found, f"Batch boss did not aggregate both worker markers for {marker}"
     finally:
         _cleanup_ws(api, ws_id)
 
@@ -349,7 +357,7 @@ def test_scenario_self_rename(api: CodeTermAPI):
         # Check rename stuck
         panes = api.list_panes()
         worker_pane = next((p for p in panes if p["id"] == worker_id), None)
-        if worker_pane:
-            assert marker in worker_pane.get("title", ""), f"Tab not renamed: {worker_pane.get('title')}"
+        assert worker_pane is not None, f"Renamer worker pane {worker_id} missing before title verification"
+        assert marker in worker_pane.get("title", ""), f"Tab not renamed: {worker_pane.get('title')}"
     finally:
         _cleanup_ws(api, ws_id)

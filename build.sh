@@ -11,7 +11,8 @@
 #   ./build.sh clean     — clean build cache
 #   ./build.sh kill      — kill dev instance (safe, won't touch prod)
 #   ./build.sh webdriver — dev with WebDriver for UI tests
-#   ./build.sh e2e       — run E2E tests against dev (port 7686)
+#   ./build.sh e2e       — run non-LLM E2E tests against dev (port 7686)
+#   ./build.sh e2e:llm   — run LLM E2E tests against dev (real provider tokens)
 #   source build.sh env  — load MSVC env vars into current shell (Windows only)
 
 set -e
@@ -262,7 +263,13 @@ case "$CMD" in
     export CODETERM_API_URL="http://127.0.0.1:7686"
     cd tests/e2e
     pip install -q -r requirements.txt 2>/dev/null
-    python -m pytest -v --tb=short "${@:2}"
+    python -m pytest -m "not llm" -v --tb=short "${@:2}"
+    ;;
+  e2e:llm)
+    export CODETERM_API_URL="http://127.0.0.1:7686"
+    cd tests/e2e
+    pip install -q -r requirements.txt 2>/dev/null
+    python -m pytest -m llm -v --tb=short "${@:2}"
     ;;
   test:all)
     # Aggregate runner for every NON-LLM test layer. Unit layers always run;
@@ -284,7 +291,7 @@ case "$CMD" in
 
     DEV_STATUS=$(dev_health_status | python -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
     if [ "$DEV_STATUS" = "ok" ]; then
-      ta_run "e2e-pytest" bash -c 'cd tests/e2e && pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:7686 python -m pytest -q'
+      ta_run "e2e-pytest" bash -c 'cd tests/e2e && pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:7686 python -m pytest -m "not llm" -q'
       ta_run "playwright-smoke" pnpm -s test:pw:smoke
     else
       echo
