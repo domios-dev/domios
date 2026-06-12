@@ -400,6 +400,11 @@ impl ServiceContext {
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
+        if let Some(model) = params.model.as_ref().filter(|m| !m.trim().is_empty()) {
+            if let Some(pane) = self.mux.lock().get_pane_mut(&pane_id) {
+                pane.agent_session_model = Some(model.trim().to_string());
+            }
+        }
 
         // 5. Launch agent in background thread
         let bg_task = params.task.as_ref().map(|t| match params.role.as_deref() {
