@@ -6,6 +6,7 @@
 - [ ] Verification section contains real command output (not just claims)
 - [ ] New/changed tests use fail-first method: bug fixes show red→green, sabotage tests fail without fix, refactors show all-green three times
 - [ ] Test layer justified (unit / integration / E2E) per `docs/TESTING.md` decision tree
+- [ ] Test shape follows `docs/contributing/writing-tests.md` honesty and harness rules
 - [ ] Test fixtures used, not raw setup; no hardcoded paths or magic numbers
 
 ## Documentation
@@ -21,3 +22,5 @@
 ## Integration
 - [ ] Changes respect cross-platform constraints (Windows paths, ConPTY, etc.)
 - [ ] No breaking changes to public APIs without documented migration path
+
+<!-- revision: 1 -->

@@ -6,6 +6,8 @@ This section is the single source of truth for CodeTerm test layers. Other test
 docs may describe how to run a suite, but they should link here instead of
 redefining the layer model.
 
+For assertion discipline and layer-specific recipes, see `docs/contributing/writing-tests.md`.
+
 | Layer | Lives in | Runner | Real LLM? | Needs dev daemon? | CI | Budget/test |
 |---|---|---|---|---|---|---|
 | Rust unit | `src-tauri/src/**/tests.rs` | `cargo test --lib` | no | no | yes (D7) | <1s |
@@ -329,4 +331,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
