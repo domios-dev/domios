@@ -94,6 +94,7 @@ recall quality, agent routing) are verified with bench scripts under
 - `evals/mem-recall/` — mem search engine quality (Recall@K / MRR / latency)
 - `evals/dreaming/` — REM-phase prompt (Stage A.1 hub decomposition, Stage A.2 island bridging)
 - `evals/session-restore/` — kill+restart preserves workspace/pane/agent_type metadata; UI-mount step manual
+- `evals/restore-matrix/` — one-workspace provider restore matrix: N panes per provider (claude/codex/opencode), pre-kill marker materialization gate in the provider store, hard restart, API sid identity + Playwright UI-visible marker oracle (`RM_PROVIDERS`/`RM_PER_PROVIDER`/`RM_MATERIALIZE_TIMEOUT` tunable)
 
 Also present, experimental/historical: `evals/dreamer-repair/` (mem graph repair smoke test), `evals/seeds/`, `evals/v1_1_23_e2e/`.
 
