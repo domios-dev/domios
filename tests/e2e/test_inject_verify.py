@@ -54,9 +54,10 @@ def _split_marker(prefix: str) -> tuple[str, str, str]:
 
 def _assign_and_echo_marker(payload: str, marker_prefix: str) -> tuple[str, str]:
     marker, left, right = _split_marker(marker_prefix)
-    unix = f"x='{payload}'; echo '{left}''{right}'"
-    win = f"$x = '{payload}'; Write-Output ('{left}' + '{right}')"
-    return shell_cmd(unix, win), marker
+    proof = f"{marker}_{len(payload)}"
+    unix = f"x='{payload}'; echo '{left}''{right}'_${{#x}}"
+    win = f"$x = '{payload}'; Write-Output ('{left}' + '{right}' + '_' + $x.Length)"
+    return shell_cmd(unix, win), proof
 
 
 def _short_text() -> tuple[str, str]:
@@ -101,13 +102,17 @@ def test_inject_verify_contract(api: CodeTermAPI, fresh_pane: str, label, builde
 
     # 2. The Enter byte actually landed in the PTY. The marker is split in the
     #    typed command and exists only in real command output.
-    deadline = time.monotonic() + 6.0
+    deadline = time.monotonic() + 10.0
     output = ""
+    prompt_after_marker = False
     while time.monotonic() < deadline:
         data = api.get_output(fresh_pane, strip_ansi_flag=True)
         output = data.get("output", "")
         if marker in output:
-            break
+            tail = output.rsplit(marker, 1)[-1]
+            prompt_after_marker = any(s in tail for s in ("$", ">", "#", "%"))
+            if prompt_after_marker:
+                break
         time.sleep(0.3)
 
     assert marker in output, (
@@ -115,7 +120,7 @@ def test_inject_verify_contract(api: CodeTermAPI, fresh_pane: str, label, builde
         f"tail={output[-400:]!r}"
     )
     tail = output.rsplit(marker, 1)[-1]
-    assert any(s in tail for s in ("$", ">", "#", "%")), (
+    assert prompt_after_marker, (
         f"{label}: no fresh prompt after marker — Enter byte may not have submitted; "
         f"tail={tail[-200:]!r}"
     )
@@ -149,7 +154,10 @@ def test_send_without_enter_still_ok(api: CodeTermAPI, fresh_pane: str) -> None:
         )
         time.sleep(0.2)
 
-    submit_resp = api.send_text(fresh_pane, text="", enter=True)
+    submit_resp = api.post(
+        f"/api/panes/{fresh_pane}/send",
+        json={"text": "", "enter": True, "raw": True},
+    )
     assert submit_resp == {"ok": True}, submit_resp
     output = api.wait_for_output(fresh_pane, pattern=marker, timeout=6)
     assert marker in output
