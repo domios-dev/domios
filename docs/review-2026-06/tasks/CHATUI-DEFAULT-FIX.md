@@ -1,6 +1,6 @@
 # CHATUI-DEFAULT-FIX — chat-UI default must apply to daemon/CLI-spawned agents
 
-**Executor:** Gpt5.5-new (d935d19f) · **Branch:** stabilization · **Effort:** M
+**Executor:** Gpt5.5 chatui (54499ecb) · **Branch:** stabilization · **Effort:** M
 **Backlog ref:** CHATUI-DEFAULT in ../stabilization-backlog.md
 
 ## Goal
