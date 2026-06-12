@@ -75,10 +75,15 @@ test("@golden PTY echo round-trip: send a command, read it back from output", as
   test.setTimeout(120_000);
   const created = (await api.createPane()) as { id: string };
   const marker = `pw-api-${Date.now()}`;
+  const left = marker.slice(0, Math.floor(marker.length / 2));
+  const right = marker.slice(Math.floor(marker.length / 2));
   try {
     // Give the shell a moment to be ready, then echo a unique marker.
     await new Promise((r) => setTimeout(r, 3_000));
-    await api.post(`/panes/${created.id}/send`, { text: `echo ${marker}`, enter: true });
+    await api.post(`/panes/${created.id}/send`, {
+      text: `node -e "console.log('${left}' + '${right}')"`,
+      enter: true,
+    });
 
     let seen = false;
     for (let i = 0; i < 30 && !seen; i++) {
@@ -170,7 +175,7 @@ test("@golden pasteboard put → get → pop → gone", async () => {
 
 // ── read-only feeds: activity, themes, sessions search ──────────────
 
-test("@golden activity feed returns a bounded array and accepts source filter", async () => {
+test("@smoke activity feed returns a bounded array and accepts source filter", async () => {
   const all = await api.get<unknown[]>("/activity");
   expect(Array.isArray(all)).toBe(true);
   expect(all.length).toBeLessThanOrEqual(10_000);
@@ -178,7 +183,7 @@ test("@golden activity feed returns a bounded array and accepts source filter", 
   expect(Array.isArray(filtered)).toBe(true);
 });
 
-test("@golden themes list is a non-empty name array", async () => {
+test("@smoke themes list is a non-empty name array", async () => {
   const res = await api.get<{ themes: string[] }>("/themes");
   expect(Array.isArray(res.themes)).toBe(true);
   expect(res.themes.length).toBeGreaterThan(0);
@@ -272,7 +277,7 @@ test("@golden fs list-dir + mkdir: browse, create, conflict, validation", async 
   expect(unauth.status).toBe(401);
 });
 
-test("@golden sessions search answers with a hits array for any query", async () => {
+test("@smoke sessions search answers with a hits array for any query", async () => {
   const res = await api.get<{ hits: unknown[] }>(
     "/sessions/search?q=pw-definitely-unmatched-term",
   );
