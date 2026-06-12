@@ -74,22 +74,23 @@ def test_send_with_enter_true(api: CodeTermAPI, fresh_pane: str):
 
 def test_send_with_enter_false(api: CodeTermAPI, fresh_pane: str):
     """enter=false: text appears in terminal but does not execute."""
-    marker = "NOPE_NO_EXEC"
-    api.send_text(fresh_pane, text=f"echo {marker}", enter=False)
-    # Give a moment for the text to arrive
-    time.sleep(1)
+    marker = f"NOEXEC_{int(time.time() * 1000)}"
+    left, right = marker[: len(marker) // 2], marker[len(marker) // 2 :]
+    cmd = shell_cmd(f"echo '{left}''{right}'", f"Write-Output ('{left}' + '{right}')")
+    api.send_text(fresh_pane, text=cmd, enter=False)
 
-    # The marker should be visible in the output buffer (typed into prompt)
-    # but should NOT produce command output (no newline was sent)
-    output = api.get_output(fresh_pane, strip_ansi_flag=True)
-    text = output["output"]
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        output = api.get_output(fresh_pane, strip_ansi_flag=True)
+        assert marker not in output["output"], (
+            f"enter=false unexpectedly executed command; marker={marker!r} "
+            f"tail={output['output'][-300:]!r}"
+        )
+        time.sleep(0.2)
 
-    # The text "echo NOPE_NO_EXEC" should appear (it was typed)
-    assert marker in text
-
-    # Clean up: send Ctrl+C to cancel the partial input, then Enter
-    api.send_text(fresh_pane, text="\x03", enter=False)
-    time.sleep(0.3)
+    api.post(f"/api/panes/{fresh_pane}/send", json={"text": "", "enter": True, "raw": True})
+    output = api.wait_for_output(fresh_pane, pattern=marker, timeout=10)
+    assert marker in output
 
 
 def test_send_empty_with_enter(api: CodeTermAPI, fresh_pane: str):
