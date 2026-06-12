@@ -168,6 +168,29 @@ drifts; nothing in the system re-anchors the role. Fixes, all daemon-driven:
    message shape, marker-tagged, so ChatUI renders them as part of the task card
    thread, not as loose text.
 
+## Self-teaching messages — every queue message re-teaches the codeterm way
+
+Drift risk (live-observed class): agents have INTERNAL work-tracking tools
+(Claude's TodoWrite/Task tool, codex planners) and will silently route work
+through them — invisible to the board, the state machine, and the user. Prompt
+rules against this fade with context; therefore **every queue-generated message
+embeds its own one-line counter-drift hint + the exact next command**:
+
+- Envelope footer: `Track THIS task only via codeterm: accept -> codeterm task
+  accept <id>; close -> codeterm task report <id> ... Internal todo/task tools
+  do not count as done.`
+- Worker nudge: `Reply via codeterm task report <id> — work tracked anywhere
+  else is invisible and will be marked Dead.`
+- Orchestrator digest/action-nudge footer: `Dispatch and close ONLY via
+  codeterm task create / task show — subagents or internal todos bypass the
+  board and lose watchdog protection.`
+- Re-anchors include the full command pair verbatim.
+
+Implementation detail: all message templates live as prompt files in
+`src-tauri/prompts/task_*.md` (envelope, nudge_worker, nudge_requester, digest,
+reanchor) — automatically covered by the prompts 3-way source-of-truth CI gate,
+and A/B-testable via the prompt-evaluator skill like any other prompt.
+
 ## ChatUI integration — tasks are cards, not text
 
 Reuse the proven marker→card pipeline (`-=-codeterm:*` markers are already parsed
@@ -275,4 +298,4 @@ here: merge-conflict UX beyond "report conflict, leave worktree for a human".
 4. Later: mesh-distributed boards, cron deep-integration, G4-blocker auto-unblock
    hooks.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
