@@ -1,7 +1,10 @@
-# Playwright e2e — live dev console
+# Playwright — live dev console
 
 Drives the **real** CodeTerm dev console (Tauri, port 7686), not a browser
 mock of it.
+
+For the canonical layer taxonomy and the "which layer do I write?" decision tree,
+see [`docs/TESTING.md`](../../docs/TESTING.md).
 
 ## Tooling decision (spike result, 2026-06-06)
 
@@ -24,8 +27,10 @@ mock of it.
 ## Run
 
 ```bash
-pnpm test:pw                 # whole suite
-pnpm test:pw --grep @smoke   # smoke only
+pnpm test:pw:lint    # fail if any Playwright test has no tier tag
+pnpm test:pw:smoke   # @smoke project
+pnpm test:pw:golden  # @golden project, one retry and 5min timeout
+pnpm test:pw:full    # all non-quarantined tests
 ```
 
 **There is no CI for this suite — by decision, not omission** (hosted
@@ -33,14 +38,15 @@ runners lack the claude CLI auth and a verified WebView2 desktop; a
 self-hosted runner was considered and rejected). The contract:
 
 > **Run the suite locally before opening a PR.** `@smoke` minimum for
-> any change; the full suite (`pnpm test:pw`, ~3 min, a handful of
+> any change; the full suite (`pnpm test:pw:full`, ~3 min, a handful of
 > trivial sonnet calls) for changes touching the daemon API,
 > multiplexer, mesh, mem, agents, or the frontend shell.
 
 Windows is required for the UI-driving tests (CDP/WebView2 — see the
 tooling section); on macOS/Linux run what applies and say so in the PR.
 
-`pnpm test:pw` resolves to `playwright test -c tests/playwright`. If your
+`pnpm test:pw` resolves to `playwright test -c tests/playwright`; the tiered
+scripts select the `smoke`, `golden`, or `full` projects from the config. If your
 shell wraps test runners and compresses output (rtk does), get raw
 per-test output with:
 
@@ -104,11 +110,17 @@ and asserts the full liveness cycle including the 2-miss hysteresis.
 
 ## Tags
 
-`@smoke` every commit (fast; light real-LLM allowed if a test reliably
-stays under ~10s — Andrey's Q3: no CI runtime cap, exercise the real
-thing, stay parsimonious per test) · `@golden` PRs, no upper bound ·
-`@edge` / `@failure` nightly ·
-`@regression` locks a specific fix (named issue in the test title).
+Every Playwright test title must include one tier tag; `pnpm test:pw:lint`
+checks this before a test can land unnoticed.
+
+- `@smoke`: every commit; fast and deterministic.
+- `@golden`: PR gate for real-agent paths; real LLM allowed, parsimonious per
+  test, run with `pnpm test:pw:golden`.
+- `@quarantine`: excluded from `pnpm test:pw:full`; document entries in
+  [`QUARANTINE.md`](QUARANTINE.md).
+
+Non-tier tags such as `@edge`, `@failure`, or `@regression` may still describe
+coverage, but they do not satisfy the lint by themselves.
 
 ## Web mirror (12-web)
 
@@ -147,3 +159,5 @@ server-spawned panes do). Each throws a clear
   state racy otherwise.
 - Suites assert **UI DOM state**, not just API JSON, wherever the action
   has a user-visible effect.
+
+<!-- revision: 1 -->

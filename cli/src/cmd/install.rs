@@ -27,18 +27,14 @@ pub fn run_install_from_file(
     let log_path = std::path::PathBuf::from(&local_app_data)
         .join("codeterm")
         .join("self-install.log");
-    let bat_path = std::env::temp_dir().join(format!(
-        "codeterm-self-install-{}.bat",
-        std::process::id()
-    ));
+    let bat_path =
+        std::env::temp_dir().join(format!("codeterm-self-install-{}.bat", std::process::id()));
 
-// Use a temp file for continuation text to avoid cmd.exe quoting issues.
-// Resume from it with `--continue-from-file` after restart.
+    // Use a temp file for continuation text to avoid cmd.exe quoting issues.
+    // Resume from it with `--continue-from-file` after restart.
     let continue_file = continue_prompt.map(|text| {
-        let p = std::env::temp_dir().join(format!(
-            "codeterm-continuation-{}.txt",
-            std::process::id()
-        ));
+        let p =
+            std::env::temp_dir().join(format!("codeterm-continuation-{}.txt", std::process::id()));
         let _ = std::fs::write(&p, text);
         p
     });
@@ -103,7 +99,10 @@ pub fn run_install_from_file(
     eprintln!("[install --from-file] Target:    {}", target_exe.display());
     eprintln!("[install --from-file] Log:       {}", log_path.display());
     if continue_prompt.is_some() && continue_pane.is_some() {
-        eprintln!("[install --from-file] Continue: will deliver prompt to pane {} after restart", continue_pane.unwrap_or("?"));
+        eprintln!(
+            "[install --from-file] Continue: will deliver prompt to pane {} after restart",
+            continue_pane.unwrap_or("?")
+        );
     } else if continue_prompt.is_some() {
         eprintln!("[install --from-file] WARN: --continue-prompt set but no --continue-pane / $CODETERM_PANE_ID — prompt will be DROPPED");
     }

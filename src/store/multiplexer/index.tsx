@@ -10,8 +10,10 @@ import { listen } from "../../lib/bridge";
 import { IS_WEB, webJson } from "../../lib/webApi";
 import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
-import { shouldDefaultNewAgentPaneToChat } from "../../lib/chatUiMode";
-import { setClientPaneUiMode } from "../../lib/clientPaneUiMode";
+import {
+  loadDefaultNewAgentPaneChat,
+  shouldDefaultNewAgentPaneToChat,
+} from "../../lib/chatUiMode";
 import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
@@ -73,6 +75,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    loadDefaultNewAgentPaneChat().catch(() => {});
     const unlisteners: (() => void)[] = [];
 
     listen<{
@@ -305,9 +308,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           skip_permissions: skipPermissions,
           activate: true,
         });
-        if (shouldDefaultNewAgentPaneToChat(agentId)) {
-          setClientPaneUiMode(spawned.pane_id, "chat");
-        }
         refreshFromBackend();
         return;
       }
@@ -321,7 +321,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       // Set `agent_type` early so detect_from_output can save session IDs.
       invoke("mux_set_pane_agent_type", { paneId: tabInfo.pane_id, agentType: agentId }).catch(() => {});
       if (shouldDefaultNewAgentPaneToChat(agentId)) {
-        setClientPaneUiMode(tabInfo.pane_id, "chat");
+        invoke("mux_set_chat_view", { paneId: tabInfo.pane_id, enabled: true }).catch(() => {});
       }
       const cmd = await invoke<string>("build_agent_launch_command", { agentId, skipPermissions });
       setPendingCommand(tabInfo.pane_id, cmd);

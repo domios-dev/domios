@@ -18,11 +18,17 @@ impl MultiplexerState {
                 if parent_pane_id.is_some() {
                     return Err("Orchestrator cannot have a parent".to_string());
                 }
-                let existing = self.panes.get(pane_id).unwrap();
+                let existing = self
+                    .panes
+                    .get(pane_id)
+                    .ok_or_else(|| format!("Pane {} not found", pane_id))?;
                 if existing.parent_pane_id.is_some() {
                     return Err("Cannot become Orchestrator — already in a hierarchy".to_string());
                 }
-                let pane = self.panes.get_mut(pane_id).unwrap();
+                let pane = self
+                    .panes
+                    .get_mut(pane_id)
+                    .ok_or_else(|| format!("Pane {} not found", pane_id))?;
                 pane.role = Some(AgentRole::Orchestrator);
                 pane.parent_pane_id = None;
                 pane.can_spawn = true;
@@ -41,7 +47,10 @@ impl MultiplexerState {
                     return Err("Parent does not allow spawning".to_string());
                 }
                 let parent_depth = parent.depth;
-                let pane = self.panes.get_mut(pane_id).unwrap();
+                let pane = self
+                    .panes
+                    .get_mut(pane_id)
+                    .ok_or_else(|| format!("Pane {} not found", pane_id))?;
                 pane.role = Some(AgentRole::Worker);
                 pane.parent_pane_id = Some(parent_id.to_string());
                 pane.can_spawn = false;

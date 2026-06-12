@@ -11,8 +11,10 @@
 //! `service::general_agent::ensure_directories`, `start_general_agent`,
 //! `GENERAL_ALIAS`, etc., unchanged.
 
+pub mod blocker;
 mod instructions;
 mod lifecycle;
+mod state;
 mod watchdog;
 mod workspace;
 

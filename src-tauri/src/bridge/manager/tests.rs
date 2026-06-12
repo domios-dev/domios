@@ -311,7 +311,11 @@ async fn body_falls_back_to_raw_when_daemon_down() {
 
     let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
     // Daemon down → untranscribed voice marker; the readable note is the payload.
-    assert!(body.starts_with("-=-codeterm:voice file=/tmp/voice.oga status=untranscribed-=-"), "body: {}", body);
+    assert!(
+        body.starts_with("-=-codeterm:voice file=/tmp/voice.oga status=untranscribed-=-"),
+        "body: {}",
+        body
+    );
     assert!(body.contains("transcription unavailable"), "body: {}", body);
     assert!(body.contains("codeterm docs TRANSCRIBE"), "body: {}", body);
 }
@@ -324,8 +328,16 @@ async fn disabled_cfg_notes_missing_transcriber() {
 
     let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
     // Transcription off → untranscribed marker + readable note (with doc pointer).
-    assert!(body.starts_with("-=-codeterm:voice file=/tmp/voice.oga status=untranscribed-=-"), "body: {}", body);
-    assert!(body.contains("no transcriber daemon configured"), "body: {}", body);
+    assert!(
+        body.starts_with("-=-codeterm:voice file=/tmp/voice.oga status=untranscribed-=-"),
+        "body: {}",
+        body
+    );
+    assert!(
+        body.contains("no transcriber daemon configured"),
+        "body: {}",
+        body
+    );
     assert!(body.contains("codeterm docs TRANSCRIBE"), "body: {}", body);
 }
 
@@ -364,7 +376,12 @@ async fn multiple_voice_attachments_each_transcribed() {
 
     let body = build_message_body(&msg, &cfg).await;
     // Two voice markers, each with "ok" as its transcript payload.
-    assert_eq!(body.matches("-=-codeterm:voice").count(), 2, "body: {}", body);
+    assert_eq!(
+        body.matches("-=-codeterm:voice").count(),
+        2,
+        "body: {}",
+        body
+    );
     assert_eq!(body.matches("-=-ok").count(), 2, "body: {}", body);
     assert!(body.contains("file=/tmp/a.oga"));
     assert!(body.contains("file=/tmp/b.oga"));
@@ -419,6 +436,26 @@ fn test_reply_markup_serialization() {
 use parking_lot::Mutex as PLMutex;
 use std::sync::Arc;
 
+#[test]
+fn telegram_marker_carries_reply_route() {
+    let marked = crate::message_markers::telegram("100000001", Some("12345"), "hello");
+    let parsed = crate::message_markers::parse(&marked).expect("telegram marker parses");
+
+    assert_eq!(parsed.kind, "telegram");
+    assert_eq!(parsed.attr("user"), Some("100000001"));
+    assert_eq!(parsed.attr("msg"), Some("12345"));
+    assert_eq!(parsed.payload, "hello");
+}
+
+#[test]
+fn unsupported_bridge_service_is_rejected() {
+    assert_eq!(ensure_supported_service("telegram"), Ok(()));
+    assert_eq!(
+        ensure_supported_service("discord"),
+        Err("service unsupported")
+    );
+}
+
 async fn spawn_fake_telegram(captured: Arc<PLMutex<Vec<serde_json::Value>>>) -> String {
     use axum::{routing::post, Json, Router};
 
@@ -450,6 +487,87 @@ async fn spawn_fake_telegram(captured: Arc<PLMutex<Vec<serde_json::Value>>>) -> 
         let _ = axum::serve(listener, app).await;
     });
     format!("http://{}", addr)
+}
+
+async fn spawn_fake_telegram_with_methods(
+    captured: Arc<PLMutex<Vec<(String, serde_json::Value)>>>,
+) -> String {
+    use axum::{body, http::Request, Json, Router};
+
+    let app = Router::new().fallback(move |req: Request<body::Body>| {
+        let captured = captured.clone();
+        async move {
+            let path = req.uri().path().to_string();
+            let bytes = body::to_bytes(req.into_body(), 1024 * 1024).await.unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            captured.lock().push((path, body));
+            Json(serde_json::json!({"ok": true, "result": {"message_id": 42}}))
+        }
+    });
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    format!("http://{}", addr)
+}
+
+#[tokio::test]
+async fn outbound_text_routes_to_chat_and_append_edits_previous_message() {
+    let captured = Arc::new(PLMutex::new(Vec::new()));
+    let base = spawn_fake_telegram_with_methods(captured.clone()).await;
+    let client = reqwest::Client::new();
+    let mut chat_states = HashMap::new();
+
+    route_text_outbound(
+        &client,
+        &base,
+        "FAKETOKEN",
+        100000001,
+        "first",
+        false,
+        None,
+        &mut chat_states,
+    )
+    .await;
+    route_text_outbound(
+        &client,
+        &base,
+        "FAKETOKEN",
+        100000001,
+        "second",
+        true,
+        None,
+        &mut chat_states,
+    )
+    .await;
+
+    let recorded = captured.lock();
+    assert_eq!(recorded.len(), 2, "requests: {:?}", *recorded);
+    assert!(recorded[0].0.ends_with("/sendMessage"));
+    assert_eq!(
+        recorded[0].1.get("chat_id").and_then(|v| v.as_i64()),
+        Some(100000001)
+    );
+    assert_eq!(
+        recorded[0].1.get("text").and_then(|v| v.as_str()),
+        Some("first")
+    );
+
+    assert!(recorded[1].0.ends_with("/editMessageText"));
+    assert_eq!(
+        recorded[1].1.get("chat_id").and_then(|v| v.as_i64()),
+        Some(100000001)
+    );
+    assert_eq!(
+        recorded[1].1.get("message_id").and_then(|v| v.as_i64()),
+        Some(42)
+    );
+    assert_eq!(
+        recorded[1].1.get("text").and_then(|v| v.as_str()),
+        Some("first\n\nsecond")
+    );
 }
 
 #[tokio::test]

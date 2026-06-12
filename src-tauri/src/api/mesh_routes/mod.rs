@@ -1,12 +1,12 @@
 //! Mesh networking API routes — discovery, pairing, relay, sync.
 
+use crate::api::routes::{check_auth, AppState};
+use crate::mesh::types::address_tier;
 use axum::{
     extract::{Path, State as AxumState},
     http::{HeaderMap, StatusCode},
     Json,
 };
-use crate::api::routes::{check_auth, AppState};
-use crate::mesh::types::address_tier;
 
 pub mod announce;
 pub mod connection;
@@ -233,8 +233,17 @@ pub async fn mesh_web_token(
         use rand::RngCore;
         let mut bytes = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut bytes);
-        let token = bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>();
-        let mut cache = state.web_tokens.lock().unwrap();
+        let token = bytes
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>();
+        let mut cache = state.web_tokens.lock().map_err(|e| {
+            log::error!("[mesh] web token cache lock poisoned: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Web token cache unavailable",
+            )
+        })?;
         // Opportunistic cleanup: drop expired tokens to bound memory.
         cache.retain(|_, created| created.elapsed() < crate::api::routes::WEB_TOKEN_TTL);
         cache.insert(token.clone(), std::time::Instant::now());

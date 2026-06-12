@@ -42,7 +42,8 @@ pub(crate) fn init_v1_22_schema(conn: &Connection) {
             accessed_at TEXT, access_count INTEGER NOT NULL DEFAULT 0,
             recurrence_count INTEGER NOT NULL DEFAULT 0
         );",
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 #[test]
@@ -50,11 +51,18 @@ fn migration_adds_reason_column() {
     let conn = Connection::open_in_memory().unwrap();
     init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
-    let cols: Vec<String> = conn.prepare("PRAGMA table_info(relations)").unwrap()
-        .query_map([], |r| r.get::<_, String>(1)).unwrap()
-        .filter_map(Result::ok).collect();
-    assert!(cols.contains(&"reason".to_string()),
-            "expected `reason` column; got {:?}", cols);
+    let cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(relations)")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(1))
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+    assert!(
+        cols.contains(&"reason".to_string()),
+        "expected `reason` column; got {:?}",
+        cols
+    );
 }
 
 #[test]
@@ -62,10 +70,13 @@ fn migration_creates_graph_purge_log() {
     let conn = Connection::open_in_memory().unwrap();
     init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='graph_purge_log'",
-        [], |r| r.get(0),
-    ).unwrap();
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='graph_purge_log'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(count, 1);
 }
 
@@ -93,22 +104,36 @@ fn migration_dedups_active_relations_and_adds_partial_unique_index() {
                    ('a','r','b','global','2025-07-01',           '2025-12-01',1.0,'{}','2025-07-01');"
     ).unwrap();
 
-    let before_active: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
-        [], |r| r.get(0)).unwrap();
+    let before_active: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(before_active, 3, "fixture pre-condition: 3 active dup rows");
 
     crate::migrations::run(&conn).unwrap();
 
-    let after_active: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
-        [], |r| r.get(0)).unwrap();
-    assert_eq!(after_active, 1, "migration keeps exactly one active row per (from,rel,to,scope)");
+    let after_active: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        after_active, 1,
+        "migration keeps exactly one active row per (from,rel,to,scope)"
+    );
 
     let history: i64 = conn.query_row(
         "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NOT NULL",
         [], |r| r.get(0)).unwrap();
-    assert_eq!(history, 2, "historical (invalidated) rows are preserved as edge history");
+    assert_eq!(
+        history, 2,
+        "historical (invalidated) rows are preserved as edge history"
+    );
 
     let now = chrono::Utc::now().to_rfc3339();
     let inserted = conn.execute(
@@ -116,10 +141,17 @@ fn migration_dedups_active_relations_and_adds_partial_unique_index() {
          VALUES ('a','r','b','global',?1,NULL,1.0,'{}',?1)",
         rusqlite::params![now],
     ).unwrap();
-    assert_eq!(inserted, 0, "INSERT OR IGNORE must no-op when an active row for the same key already exists");
-    let still_one_active: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
-        [], |r| r.get(0)).unwrap();
+    assert_eq!(
+        inserted, 0,
+        "INSERT OR IGNORE must no-op when an active row for the same key already exists"
+    );
+    let still_one_active: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(still_one_active, 1);
 }
 
@@ -137,9 +169,12 @@ fn introduce_topic_repeated_call_does_not_duplicate_edges() {
     ).unwrap();
 
     let opts = || crate::graph::IntroduceTopicOptions {
-        topic_id: "topic_x".into(), entity_type: "Topic".into(),
-        sources: vec!["s1".into()], anchor: "anchor".into(),
-        rel_source: "about".into(), rel_anchor: "about".into(),
+        topic_id: "topic_x".into(),
+        entity_type: "Topic".into(),
+        sources: vec!["s1".into()],
+        anchor: "anchor".into(),
+        rel_source: "about".into(),
+        rel_anchor: "about".into(),
         reason: Some("dreamer-recluster".into()),
     };
     crate::graph::introduce_topic(&conn, opts()).unwrap();
@@ -149,12 +184,18 @@ fn introduce_topic_repeated_call_does_not_duplicate_edges() {
     let s1_to_topic_active: i64 = conn.query_row(
         "SELECT COUNT(*) FROM relations WHERE from_id='s1' AND relation_type='about' AND to_id='topic_x' AND valid_to IS NULL",
         [], |r| r.get(0)).unwrap();
-    assert_eq!(s1_to_topic_active, 1, "repeated reclusters must not stack dup s1->topic edges");
+    assert_eq!(
+        s1_to_topic_active, 1,
+        "repeated reclusters must not stack dup s1->topic edges"
+    );
 
     let topic_to_anchor_active: i64 = conn.query_row(
         "SELECT COUNT(*) FROM relations WHERE from_id='topic_x' AND relation_type='about' AND to_id='anchor' AND valid_to IS NULL",
         [], |r| r.get(0)).unwrap();
-    assert_eq!(topic_to_anchor_active, 1, "repeated reclusters must not stack dup topic->anchor edges");
+    assert_eq!(
+        topic_to_anchor_active, 1,
+        "repeated reclusters must not stack dup topic->anchor edges"
+    );
 }
 
 fn seed_two_invalidated_one_active(conn: &Connection) {
@@ -176,13 +217,24 @@ fn purge_invalidated_dry_run_reports_count_without_deleting() {
     crate::migrations::run(&conn).unwrap();
     seed_two_invalidated_one_active(&conn);
 
-    let report = crate::graph::purge_invalidated(&conn, crate::graph::PurgeOptions {
-        before: None, reason_filter: None, dry_run: true, actor: "test".into(),
-    }).unwrap();
+    let report = crate::graph::purge_invalidated(
+        &conn,
+        crate::graph::PurgeOptions {
+            before: None,
+            reason_filter: None,
+            dry_run: true,
+            actor: "test".into(),
+        },
+    )
+    .unwrap();
     assert_eq!(report.count, 2);
-    let total: i64 = conn.query_row("SELECT COUNT(*) FROM relations", [], |r| r.get(0)).unwrap();
+    let total: i64 = conn
+        .query_row("SELECT COUNT(*) FROM relations", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(total, 3, "dry-run must NOT delete");
-    let log_rows: i64 = conn.query_row("SELECT COUNT(*) FROM graph_purge_log", [], |r| r.get(0)).unwrap();
+    let log_rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM graph_purge_log", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(log_rows, 0, "dry-run must NOT write audit row");
 }
 
@@ -193,14 +245,25 @@ fn purge_invalidated_actually_deletes_and_audits() {
     crate::migrations::run(&conn).unwrap();
     seed_two_invalidated_one_active(&conn);
 
-    let report = crate::graph::purge_invalidated(&conn, crate::graph::PurgeOptions {
-        before: None, reason_filter: None, dry_run: false, actor: "test".into(),
-    }).unwrap();
+    let report = crate::graph::purge_invalidated(
+        &conn,
+        crate::graph::PurgeOptions {
+            before: None,
+            reason_filter: None,
+            dry_run: false,
+            actor: "test".into(),
+        },
+    )
+    .unwrap();
     assert_eq!(report.count, 2);
 
-    let total: i64 = conn.query_row("SELECT COUNT(*) FROM relations", [], |r| r.get(0)).unwrap();
+    let total: i64 = conn
+        .query_row("SELECT COUNT(*) FROM relations", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(total, 1, "active row only");
-    let log_count: i64 = conn.query_row("SELECT count FROM graph_purge_log", [], |r| r.get(0)).unwrap();
+    let log_count: i64 = conn
+        .query_row("SELECT count FROM graph_purge_log", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(log_count, 2);
 }
 
@@ -218,17 +281,24 @@ fn purge_invalidated_filters_by_reason_substring() {
                    ('a','r2','b','global','2025-01-01','2025-06-01',1.0,'{}','2025-01-01','manual-merge');"
     ).unwrap();
 
-    let report = crate::graph::purge_invalidated(&conn, crate::graph::PurgeOptions {
-        before: None,
-        reason_filter: Some("broken".into()),
-        dry_run: false,
-        actor: "test".into(),
-    }).unwrap();
+    let report = crate::graph::purge_invalidated(
+        &conn,
+        crate::graph::PurgeOptions {
+            before: None,
+            reason_filter: Some("broken".into()),
+            dry_run: false,
+            actor: "test".into(),
+        },
+    )
+    .unwrap();
     assert_eq!(report.count, 1);
-    let remaining: i64 = conn.query_row("SELECT COUNT(*) FROM relations", [], |r| r.get(0)).unwrap();
+    let remaining: i64 = conn
+        .query_row("SELECT COUNT(*) FROM relations", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(remaining, 1);
-    let kept_reason: String = conn.query_row(
-        "SELECT reason FROM relations LIMIT 1", [], |r| r.get(0)).unwrap();
+    let kept_reason: String = conn
+        .query_row("SELECT reason FROM relations LIMIT 1", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(kept_reason, "manual-merge");
 }
 
@@ -246,17 +316,28 @@ fn route_invalidates_direct_creates_two_segments() {
             VALUES ('a','about','b','global','2026-01-01',NULL,1.0,'{}','2026-01-01');"
     ).unwrap();
 
-    let report = crate::graph::route(&conn, crate::graph::RouteOptions {
-        from: "a".into(), to: "b".into(), via: "c".into(),
-        rel_in: None, rel_out: None, reason: Some("topic-introduce".into()),
-    }).unwrap();
+    let report = crate::graph::route(
+        &conn,
+        crate::graph::RouteOptions {
+            from: "a".into(),
+            to: "b".into(),
+            via: "c".into(),
+            rel_in: None,
+            rel_out: None,
+            reason: Some("topic-introduce".into()),
+        },
+    )
+    .unwrap();
     assert_eq!(report.direct_invalidated, 1);
     assert_eq!(report.edges_created, 2);
 
-    let direct_active: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
-        [], |r| r.get(0),
-    ).unwrap();
+    let direct_active: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(direct_active, 0);
     let segments_active: i64 = conn.query_row(
         "SELECT COUNT(*) FROM relations WHERE valid_to IS NULL AND ((from_id='a' AND to_id='c') OR (from_id='c' AND to_id='b'))",
@@ -264,10 +345,13 @@ fn route_invalidates_direct_creates_two_segments() {
     ).unwrap();
     assert_eq!(segments_active, 2);
 
-    let invalidated_reason: String = conn.query_row(
-        "SELECT reason FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NOT NULL",
-        [], |r| r.get(0),
-    ).unwrap();
+    let invalidated_reason: String = conn
+        .query_row(
+            "SELECT reason FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(invalidated_reason, "topic-introduce");
 }
 
@@ -280,13 +364,22 @@ fn route_returns_not_found_when_no_active_direct_edge() {
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
             VALUES ('a','X','global','{}','2026-01-01','2026-01-01'),
                    ('b','X','global','{}','2026-01-01','2026-01-01'),
-                   ('c','Topic','global','{}','2026-01-01','2026-01-01');"
-    ).unwrap();
+                   ('c','Topic','global','{}','2026-01-01','2026-01-01');",
+    )
+    .unwrap();
 
-    let err = crate::graph::route(&conn, crate::graph::RouteOptions {
-        from: "a".into(), to: "b".into(), via: "c".into(),
-        rel_in: None, rel_out: None, reason: None,
-    }).unwrap_err();
+    let err = crate::graph::route(
+        &conn,
+        crate::graph::RouteOptions {
+            from: "a".into(),
+            to: "b".into(),
+            via: "c".into(),
+            rel_in: None,
+            rel_out: None,
+            reason: None,
+        },
+    )
+    .unwrap_err();
     assert!(matches!(err, crate::error::MemStoreError::NotFound(_)));
 }
 
@@ -304,22 +397,43 @@ fn revive_broken_restores_relations_with_existing_endpoints() {
                    ('a','keep_dead','ghost','global','2026-01-01','2026-02-01',1.0,'{}','2026-01-01');"
     ).unwrap();
 
-    let report = crate::graph::revive_broken(&conn, crate::graph::ReviveBrokenOptions {
-        since: None, dry_run: false,
-    }).unwrap();
+    let report = crate::graph::revive_broken(
+        &conn,
+        crate::graph::ReviveBrokenOptions {
+            since: None,
+            dry_run: false,
+        },
+    )
+    .unwrap();
     assert_eq!(report.revived, 1);
 
-    let revived: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations WHERE relation_type='revive_me' AND valid_to IS NULL",
-        [], |r| r.get(0)).unwrap();
+    let revived: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE relation_type='revive_me' AND valid_to IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(revived, 1);
-    let still_dead: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations WHERE relation_type='keep_dead' AND valid_to IS NULL",
-        [], |r| r.get(0)).unwrap();
-    assert_eq!(still_dead, 0, "ghost endpoint must keep relation invalidated");
+    let still_dead: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE relation_type='keep_dead' AND valid_to IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        still_dead, 0,
+        "ghost endpoint must keep relation invalidated"
+    );
 
-    let reason: String = conn.query_row(
-        "SELECT reason FROM relations WHERE relation_type='revive_me'", [], |r| r.get(0)).unwrap();
+    let reason: String = conn
+        .query_row(
+            "SELECT reason FROM relations WHERE relation_type='revive_me'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(reason, "revive-broken");
 }
 
@@ -336,14 +450,74 @@ fn revive_broken_is_idempotent() {
             VALUES ('a','r','b','global','2026-01-01','2026-02-01',1.0,'{}','2026-01-01');"
     ).unwrap();
 
-    let r1 = crate::graph::revive_broken(&conn, crate::graph::ReviveBrokenOptions {
-        since: None, dry_run: false,
-    }).unwrap();
+    let r1 = crate::graph::revive_broken(
+        &conn,
+        crate::graph::ReviveBrokenOptions {
+            since: None,
+            dry_run: false,
+        },
+    )
+    .unwrap();
     assert_eq!(r1.revived, 1);
-    let r2 = crate::graph::revive_broken(&conn, crate::graph::ReviveBrokenOptions {
-        since: None, dry_run: false,
-    }).unwrap();
+    let r2 = crate::graph::revive_broken(
+        &conn,
+        crate::graph::ReviveBrokenOptions {
+            since: None,
+            dry_run: false,
+        },
+    )
+    .unwrap();
     assert_eq!(r2.revived, 0, "already-active rows must not match");
+}
+
+#[test]
+fn revive_broken_reopens_one_row_from_closed_duplicate_cluster() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
+            VALUES ('agent_claude','agent','global','{}','2026-01-01','2026-01-01'),
+                   ('topic_codeterm_agent_system','topic','global','{}','2026-01-01','2026-01-01');
+         INSERT INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
+            VALUES ('agent_claude','applies_to','topic_codeterm_agent_system','global','2026-06-01','2026-06-08T05:00:00Z',1.0,'{}','2026-06-01'),
+                   ('agent_claude','applies_to','topic_codeterm_agent_system','global','2026-06-02','2026-06-09T05:00:00Z',1.0,'{}','2026-06-02'),
+                   ('agent_claude','applies_to','topic_codeterm_agent_system','global','2026-06-03','2026-06-10T05:00:00Z',1.0,'{}','2026-06-03');"
+    ).unwrap();
+
+    let report = crate::graph::revive_broken(
+        &conn,
+        crate::graph::ReviveBrokenOptions {
+            since: None,
+            dry_run: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(report.revived, 1);
+
+    let active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='agent_claude' AND relation_type='applies_to' AND to_id='topic_codeterm_agent_system' AND scope='global' AND valid_to IS NULL",
+        [],
+        |r| r.get(0),
+    ).unwrap();
+    assert_eq!(active, 1, "exactly one duplicate may be reopened");
+
+    let closed: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='agent_claude' AND relation_type='applies_to' AND to_id='topic_codeterm_agent_system' AND scope='global' AND valid_to IS NOT NULL",
+        [],
+        |r| r.get(0),
+    ).unwrap();
+    assert_eq!(closed, 2, "the remaining duplicate history stays closed");
+
+    let second = crate::graph::revive_broken(
+        &conn,
+        crate::graph::ReviveBrokenOptions {
+            since: None,
+            dry_run: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(second.revived, 0, "second run must be idempotent");
 }
 
 #[test]
@@ -365,15 +539,27 @@ fn revive_broken_skips_closed_dup_when_active_twin_exists() {
     ).unwrap();
 
     // Must not error on the active-unique index.
-    let report = crate::graph::revive_broken(&conn, crate::graph::ReviveBrokenOptions {
-        since: None, dry_run: false,
-    }).unwrap();
-    assert_eq!(report.revived, 0, "closed dup with an active twin must not be revived");
+    let report = crate::graph::revive_broken(
+        &conn,
+        crate::graph::ReviveBrokenOptions {
+            since: None,
+            dry_run: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        report.revived, 0,
+        "closed dup with an active twin must not be revived"
+    );
 
-    let active: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations \
+    let active: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations \
          WHERE from_id='a' AND relation_type='knows' AND to_id='b' AND valid_to IS NULL",
-        [], |r| r.get(0)).unwrap();
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(active, 1, "the active twin must stay single");
 }
 
@@ -392,18 +578,30 @@ fn introduce_topic_creates_topic_routes_sources_invalidates_direct() {
                    ('s2','about','anchor','global','2026-01-01',NULL,1.0,'{}','2026-01-01');"
     ).unwrap();
 
-    let report = crate::graph::introduce_topic(&conn, crate::graph::IntroduceTopicOptions {
-        topic_id: "topic_test".into(), entity_type: "Topic".into(),
-        sources: vec!["s1".into(), "s2".into()], anchor: "anchor".into(),
-        rel_source: "about".into(), rel_anchor: "about".into(),
-        reason: Some("e2e".into()),
-    }).unwrap();
+    let report = crate::graph::introduce_topic(
+        &conn,
+        crate::graph::IntroduceTopicOptions {
+            topic_id: "topic_test".into(),
+            entity_type: "Topic".into(),
+            sources: vec!["s1".into(), "s2".into()],
+            anchor: "anchor".into(),
+            rel_source: "about".into(),
+            rel_anchor: "about".into(),
+            reason: Some("e2e".into()),
+        },
+    )
+    .unwrap();
     assert!(report.topic_created);
     assert_eq!(report.edges_created, 3);
     assert_eq!(report.edges_invalidated, 2);
 
-    let topic_exists: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM entities WHERE id='topic_test'", [], |r| r.get(0)).unwrap();
+    let topic_exists: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM entities WHERE id='topic_test'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(topic_exists, 1);
 
     let s1_anchor_active: i64 = conn.query_row(
@@ -425,17 +623,22 @@ fn introduce_topic_conflicts_when_existing_entity_has_different_type() {
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
             VALUES ('topic_existing','Document','global','{}','2026-01-01','2026-01-01'),
                    ('anchor','Hub','global','{}','2026-01-01','2026-01-01'),
-                   ('s1','Source','global','{}','2026-01-01','2026-01-01');"
-    ).unwrap();
-    let err = crate::graph::introduce_topic(&conn, crate::graph::IntroduceTopicOptions {
-        topic_id: "topic_existing".into(),
-        entity_type: "Topic".into(),
-        sources: vec!["s1".into()],
-        anchor: "anchor".into(),
-        rel_source: "about".into(),
-        rel_anchor: "about".into(),
-        reason: None,
-    }).expect_err("must conflict");
+                   ('s1','Source','global','{}','2026-01-01','2026-01-01');",
+    )
+    .unwrap();
+    let err = crate::graph::introduce_topic(
+        &conn,
+        crate::graph::IntroduceTopicOptions {
+            topic_id: "topic_existing".into(),
+            entity_type: "Topic".into(),
+            sources: vec!["s1".into()],
+            anchor: "anchor".into(),
+            rel_source: "about".into(),
+            rel_anchor: "about".into(),
+            reason: None,
+        },
+    )
+    .expect_err("must conflict");
     let msg = format!("{}", err);
     assert!(msg.contains("topic_existing"), "msg: {}", msg);
     assert!(msg.contains("Document"), "msg: {}", msg);
@@ -456,13 +659,23 @@ fn introduce_topic_handles_existing_entity_idempotently() {
             VALUES ('s1','about','anchor','global','2026-01-01',NULL,1.0,'{}','2026-01-01');"
     ).unwrap();
 
-    let report = crate::graph::introduce_topic(&conn, crate::graph::IntroduceTopicOptions {
-        topic_id: "topic_existing".into(), entity_type: "Topic".into(),
-        sources: vec!["s1".into()], anchor: "anchor".into(),
-        rel_source: "about".into(), rel_anchor: "about".into(),
-        reason: None,
-    }).unwrap();
-    assert!(!report.topic_created, "existing entity must NOT be re-created");
+    let report = crate::graph::introduce_topic(
+        &conn,
+        crate::graph::IntroduceTopicOptions {
+            topic_id: "topic_existing".into(),
+            entity_type: "Topic".into(),
+            sources: vec!["s1".into()],
+            anchor: "anchor".into(),
+            rel_source: "about".into(),
+            rel_anchor: "about".into(),
+            reason: None,
+        },
+    )
+    .unwrap();
+    assert!(
+        !report.topic_created,
+        "existing entity must NOT be re-created"
+    );
     assert_eq!(report.edges_invalidated, 1);
     assert_eq!(report.edges_created, 2);
 }
@@ -483,23 +696,30 @@ fn canonicalize_relation_types_renames_and_drops_duplicates() {
                    ('a','references','c','global','2026-01-01',NULL,1.0,'{}','2026-01-01');"
     ).unwrap();
 
-    let n = crate::graph::canonicalize_relation_types(
-        &conn,
-        &[("references", "mentions")],
-    ).unwrap();
+    let n =
+        crate::graph::canonicalize_relation_types(&conn, &[("references", "mentions")]).unwrap();
     assert!(n >= 2, "must report renames + drops, got {}", n);
 
-    let still_references: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations WHERE relation_type='references' AND valid_to IS NULL",
-        [], |r| r.get(0),
-    ).unwrap();
-    assert_eq!(still_references, 0, "no leftover 'references' rows after canonicalize");
+    let still_references: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE relation_type='references' AND valid_to IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        still_references, 0,
+        "no leftover 'references' rows after canonicalize"
+    );
 
     let mentions_a_b: i64 = conn.query_row(
         "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND relation_type='mentions' AND valid_to IS NULL",
         [], |r| r.get(0),
     ).unwrap();
-    assert_eq!(mentions_a_b, 1, "the (a,b) pair survives once after dup-drop");
+    assert_eq!(
+        mentions_a_b, 1,
+        "the (a,b) pair survives once after dup-drop"
+    );
 
     let mentions_a_c: i64 = conn.query_row(
         "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='c' AND relation_type='mentions' AND valid_to IS NULL",
@@ -531,8 +751,11 @@ fn list_entities_with_degree_counts_active_relations_only() {
         entities.iter().map(|e| (e.id.clone(), e)).collect();
 
     assert_eq!(entities.len(), 4);
-    assert_eq!(by_id.get("hub").unwrap().degree, 2,
-        "invalidated edge must NOT count");
+    assert_eq!(
+        by_id.get("hub").unwrap().degree,
+        2,
+        "invalidated edge must NOT count"
+    );
     assert_eq!(by_id.get("a").unwrap().degree, 1);
     assert_eq!(by_id.get("b").unwrap().degree, 1);
     assert_eq!(by_id.get("lonely").unwrap().degree, 0);
@@ -554,7 +777,8 @@ fn cleanup_orphan_entities_skips_protected_types_and_recent_entities() {
                    ('connected_old','person','global','{}',?1,?1),
                    ('peer','person','global','{}',?1,?1);",
         rusqlite::params![&old, &recent],
-    ).unwrap();
+    )
+    .unwrap();
     conn.execute(
         "INSERT INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
             VALUES ('connected_old','knows','peer','global',?1,NULL,1.0,'{}',?1);",
@@ -566,13 +790,18 @@ fn cleanup_orphan_entities_skips_protected_types_and_recent_entities() {
         &conn,
         &["kind", "area", "agent", "workspace"],
         &cutoff,
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(n, 1, "only 'orphan_old' should be deleted");
 
     let exists = |id: &str| -> bool {
-        let c: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM entities WHERE id=?1", rusqlite::params![id], |r| r.get(0),
-        ).unwrap();
+        let c: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM entities WHERE id=?1",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
+            .unwrap();
         c > 0
     };
     assert!(!exists("orphan_old"), "old orphan deleted");
@@ -599,8 +828,13 @@ fn invalidate_broken_relations_targets_only_truly_broken() {
     let now = chrono::Utc::now().to_rfc3339();
     let n = crate::graph::invalidate_broken_relations(&conn, &now).unwrap();
     assert_eq!(n, 2);
-    let active: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations WHERE valid_to IS NULL", [], |r| r.get(0)).unwrap();
+    let active: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE valid_to IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(active, 1, "only the (a,m1) row stays active");
 }
 
@@ -623,8 +857,11 @@ fn add_alias_with_rewire_merges_relations_and_deletes_alias() {
 
     crate::graph::add_alias_with_rewire(&conn, "alias", "canonical").unwrap();
 
-    let alias_entity: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM entities WHERE id='alias'", [], |r| r.get(0)).unwrap();
+    let alias_entity: i64 = conn
+        .query_row("SELECT COUNT(*) FROM entities WHERE id='alias'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
     assert_eq!(alias_entity, 0, "alias entity deleted");
 
     let alias_row: i64 = conn.query_row(
@@ -632,20 +869,38 @@ fn add_alias_with_rewire_merges_relations_and_deletes_alias() {
         [], |r| r.get(0)).unwrap();
     assert_eq!(alias_row, 1, "alias mapping recorded");
 
-    let leftover: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations WHERE from_id='alias' OR to_id='alias'",
-        [], |r| r.get(0)).unwrap();
+    let leftover: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE from_id='alias' OR to_id='alias'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(leftover, 0, "no relations reference alias_id after rewire");
 
-    let peer2_to_canonical: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations WHERE from_id='peer2' AND to_id='canonical'",
-        [], |r| r.get(0)).unwrap();
-    assert_eq!(peer2_to_canonical, 1, "peer2->alias rewired to peer2->canonical");
+    let peer2_to_canonical: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE from_id='peer2' AND to_id='canonical'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        peer2_to_canonical, 1,
+        "peer2->alias rewired to peer2->canonical"
+    );
 
-    let canonical_to_peer1: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations WHERE from_id='canonical' AND to_id='peer1'",
-        [], |r| r.get(0)).unwrap();
-    assert_eq!(canonical_to_peer1, 1, "duplicate alias->peer1 dropped, canonical->peer1 survives once");
+    let canonical_to_peer1: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE from_id='canonical' AND to_id='peer1'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        canonical_to_peer1, 1,
+        "duplicate alias->peer1 dropped, canonical->peer1 survives once"
+    );
 }
 
 #[test]
@@ -654,7 +909,10 @@ fn add_alias_with_rewire_rejects_self_alias() {
     init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     let err = crate::graph::add_alias_with_rewire(&conn, "x", "x").unwrap_err();
-    assert!(matches!(err, crate::error::MemStoreError::InvalidArgument(_)));
+    assert!(matches!(
+        err,
+        crate::error::MemStoreError::InvalidArgument(_)
+    ));
 }
 
 #[test]
@@ -662,22 +920,37 @@ fn migration_adds_evolution_columns() {
     let conn = Connection::open_in_memory().unwrap();
     init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
-    let cols: Vec<String> = conn.prepare("PRAGMA table_info(mem_items)").unwrap()
-        .query_map([], |r| r.get::<_, String>(1)).unwrap()
-        .filter_map(Result::ok).collect();
-    assert!(cols.contains(&"evidence_count".to_string()),
-            "expected `evidence_count` column; got {:?}", cols);
-    assert!(cols.contains(&"false_fire_count".to_string()),
-            "expected `false_fire_count` column; got {:?}", cols);
+    let cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(mem_items)")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(1))
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+    assert!(
+        cols.contains(&"evidence_count".to_string()),
+        "expected `evidence_count` column; got {:?}",
+        cols
+    );
+    assert!(
+        cols.contains(&"false_fire_count".to_string()),
+        "expected `false_fire_count` column; got {:?}",
+        cols
+    );
 
     conn.execute(
         "INSERT INTO mem_items (id, uid, kind, scope, title, tags_json, created_at, updated_at)
          VALUES ('m_test','m_test','note','global','t','[]','2026-01-01','2026-01-01')",
         [],
-    ).unwrap();
-    let (ec, ff): (i64, i64) = conn.query_row(
-        "SELECT evidence_count, false_fire_count FROM mem_items WHERE id = 'm_test'",
-        [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    )
+    .unwrap();
+    let (ec, ff): (i64, i64) = conn
+        .query_row(
+            "SELECT evidence_count, false_fire_count FROM mem_items WHERE id = 'm_test'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
     assert_eq!(ec, 1, "evidence_count default must be 1");
     assert_eq!(ff, 0, "false_fire_count default must be 0");
 }
@@ -691,13 +964,21 @@ fn bump_evidence_count_increments_and_idempotent_on_missing() {
         "INSERT INTO mem_items (id, uid, kind, scope, title, tags_json, created_at, updated_at)
          VALUES ('m_a','m_a','note','global','t','[]','2026-01-01','2026-01-01')",
         [],
-    ).unwrap();
+    )
+    .unwrap();
     assert!(crate::graph::bump_evidence_count(&conn, "m_a").unwrap());
-    let ec: i64 = conn.query_row(
-        "SELECT evidence_count FROM mem_items WHERE id = 'm_a'", [], |r| r.get(0)).unwrap();
+    let ec: i64 = conn
+        .query_row(
+            "SELECT evidence_count FROM mem_items WHERE id = 'm_a'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(ec, 2, "starts at 1, one bump → 2");
-    assert!(!crate::graph::bump_evidence_count(&conn, "m_missing").unwrap(),
-            "missing row must return Ok(false), not error");
+    assert!(
+        !crate::graph::bump_evidence_count(&conn, "m_missing").unwrap(),
+        "missing row must return Ok(false), not error"
+    );
 }
 
 #[test]
@@ -709,13 +990,21 @@ fn bump_false_fire_count_increments_and_idempotent_on_missing() {
         "INSERT INTO mem_items (id, uid, kind, scope, title, tags_json, created_at, updated_at)
          VALUES ('m_b','m_b','note','global','t','[]','2026-01-01','2026-01-01')",
         [],
-    ).unwrap();
+    )
+    .unwrap();
     assert!(crate::graph::bump_false_fire_count(&conn, "m_b").unwrap());
-    let ff: i64 = conn.query_row(
-        "SELECT false_fire_count FROM mem_items WHERE id = 'm_b'", [], |r| r.get(0)).unwrap();
+    let ff: i64 = conn
+        .query_row(
+            "SELECT false_fire_count FROM mem_items WHERE id = 'm_b'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(ff, 1, "starts at 0, one bump → 1");
-    assert!(!crate::graph::bump_false_fire_count(&conn, "m_missing").unwrap(),
-            "missing row must return Ok(false), not error");
+    assert!(
+        !crate::graph::bump_false_fire_count(&conn, "m_missing").unwrap(),
+        "missing row must return Ok(false), not error"
+    );
 }
 
 #[test]
@@ -724,11 +1013,17 @@ fn pin_column_added_by_migration() {
     init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     let cols: Vec<String> = conn
-        .prepare("PRAGMA table_info(mem_items)").unwrap()
-        .query_map([], |r| r.get::<_, String>(1)).unwrap()
-        .filter_map(Result::ok).collect();
-    assert!(cols.contains(&"is_pinned_wakeup".to_string()),
-        "is_pinned_wakeup must be added by migration; got: {:?}", cols);
+        .prepare("PRAGMA table_info(mem_items)")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(1))
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+    assert!(
+        cols.contains(&"is_pinned_wakeup".to_string()),
+        "is_pinned_wakeup must be added by migration; got: {:?}",
+        cols
+    );
 }
 
 #[test]
@@ -737,10 +1032,17 @@ fn pin_migration_is_idempotent() {
     init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     crate::migrations::run(&conn).unwrap();
-    let pinned_cols: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('mem_items') WHERE name='is_pinned_wakeup'",
-        [], |r| r.get(0)).unwrap();
-    assert_eq!(pinned_cols, 1, "running migrations twice must not duplicate the column");
+    let pinned_cols: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('mem_items') WHERE name='is_pinned_wakeup'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        pinned_cols, 1,
+        "running migrations twice must not duplicate the column"
+    );
 }
 
 #[test]
@@ -748,17 +1050,23 @@ fn pin_migration_creates_partial_index() {
     let conn = Connection::open_in_memory().unwrap();
     init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
-    let n: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_mem_pinned'",
-        [], |r| r.get(0)).unwrap();
+    let n: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_mem_pinned'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(n, 1, "partial index idx_mem_pinned must exist");
-    let sql: String = conn.query_row(
-        "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_mem_pinned'",
-        [], |r| r.get(0)
-    ).unwrap();
+    let sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_mem_pinned'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert!(
         sql.to_lowercase().contains("where is_pinned_wakeup"),
         "expected partial index, got: {sql}"
     );
 }
-

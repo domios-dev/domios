@@ -159,6 +159,8 @@ class TestFullPromptApprovalFlow:
         assert prompt["question"] == "Do you want to proceed?"
 
         # 4. Respond (simulates clicking "Yes" in chat UI)
+        before = api.get_output(fresh_pane, strip_ansi_flag=True)
+        offset_before = before.get("offset", 0)
         api.post(f"/api/panes/{fresh_pane}/prompt/respond", json={"value": "1"})
         time.sleep(1)
 
@@ -166,12 +168,16 @@ class TestFullPromptApprovalFlow:
         pane = next(p for p in api.list_panes() if p["id"] == fresh_pane)
         assert pane.get("pending_prompt") is None, "Prompt should be cleared after respond"
 
-        # 6. Verify "1" was sent to PTY (appears in output)
-        output = api.get_output(fresh_pane, strip_ansi_flag=True)
-        output_text = output.get("output", "")
-        # The "1\r" should have been sent, appearing as "1" in output after the prompt
-        # After printf and then "1\r", the shell will try to execute "1" as a command
-        assert "1" in output_text, f"'1' should appear in PTY output after respond, got: {output_text[-200:]}"
+        # 6. Verify respond caused new terminal activity after the captured offset.
+        deadline = time.monotonic() + 6
+        output_text = ""
+        while time.monotonic() < deadline:
+            output = api.get_output(fresh_pane, offset=offset_before, strip_ansi_flag=True)
+            output_text = output.get("output", "")
+            if output_text.strip():
+                break
+            time.sleep(0.3)
+        assert output_text.strip(), "respond produced no new PTY output after captured offset"
 
     def test_two_pane_independent_approval(self, api):
         """Two panes with independent prompts -- approve one, other unaffected."""

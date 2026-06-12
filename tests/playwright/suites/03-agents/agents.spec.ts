@@ -138,7 +138,10 @@ test("@golden real agent spawn → works → reports back (structural asserts)",
 
     // Session detection is async but should have landed by report time.
     const status = await api.get<Record<string, unknown>>(`/panes/${agentPaneId}/status`);
-    expect(JSON.stringify(status).length).toBeGreaterThan(2);
+    expect(status.role).toBe("Worker");
+    expect(status.parent_pane_id).toBe(inbox.id);
+    expect(status.agent_type).toBe("claude");
+    expect(status.agent_session_id ?? "").not.toBe("");
   } finally {
     if (agentPaneId) await api.closePane(agentPaneId).catch(() => {});
     await api.closePane(inbox.id).catch(() => {});
@@ -184,6 +187,8 @@ test("@golden multi-turn + tool round-trip observed in the live terminal DOM", a
   const ui = await connectUi();
   const inbox = (await api.createPane({ title: "pw-mt-inbox" })) as { id: string };
   const toolMarker = `PW-TOOL-${Date.now()}`;
+  const toolLeft = toolMarker.slice(0, Math.floor(toolMarker.length / 2));
+  const toolRight = toolMarker.slice(Math.floor(toolMarker.length / 2));
   const turn2Marker = `PW-TURN2-${Date.now()}`;
   let agentPaneId: string | undefined;
 
@@ -191,7 +196,7 @@ test("@golden multi-turn + tool round-trip observed in the live terminal DOM", a
     await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
     agentPaneId = await spawnWorker(
       inbox.id,
-      `Run exactly this command and nothing else, then stop: echo ${toolMarker}`,
+      `Run exactly this command and nothing else, then stop: node -e "console.log('${toolLeft}' + '${toolRight}')"`,
     );
     await waitForMarkerInDom(ui, toolMarker);
 

@@ -28,9 +28,7 @@ pub enum MemAction {
         id: String,
     },
     /// Delete an item by id
-    Delete {
-        id: String,
-    },
+    Delete { id: String },
     /// Batch-delete every item in an area (use sparingly).
     Forget {
         /// Area name (e.g. auth, deploy, billing).
@@ -86,9 +84,7 @@ pub enum MemAction {
         id: String,
     },
     /// Unpin a previously pinned item.
-    Unpin {
-        id: String,
-    },
+    Unpin { id: String },
     /// List all currently pinned items, ordered by importance/evidence/recency.
     Pinned {
         /// Max results (default 100, max 500)
@@ -193,9 +189,7 @@ pub enum MemAction {
     /// List pending learnings (kind=learning items)
     LearnList,
     /// Promote a learning to a fact (raises importance)
-    LearnPromote {
-        id: String,
-    },
+    LearnPromote { id: String },
     /// Flush a pane's PTY scrollback as a kind=conversation mem_item
     /// (called by PreCompact hook before context summarization).
     Flush {

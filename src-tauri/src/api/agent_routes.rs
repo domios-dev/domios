@@ -40,6 +40,10 @@ pub async fn spawn_agent(
     Json(body): Json<SpawnAgentBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    if let Some(ref role) = body.role {
+        crate::service::ServiceContext::parse_role(role)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    }
     let params = crate::service::SpawnAgentParams {
         agent: body.agent,
         agent_name: body.agent_name,

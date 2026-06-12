@@ -7,7 +7,9 @@ use super::placement;
 
 /// Load primary-chunk vectors (skip `*_chunk_N`). Returns (id, vec) pairs.
 #[cfg(feature = "embeddings")]
-pub fn load_primary_vectors(conn: &rusqlite::Connection) -> Result<Vec<(String, Vec<f32>)>, String> {
+pub fn load_primary_vectors(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<(String, Vec<f32>)>, String> {
     let mut stmt = conn
         .prepare("SELECT mem_id, embedding FROM mem_vectors")
         .map_err(|e| format!("prepare vectors: {e}"))?;
@@ -73,7 +75,10 @@ fn project_2d(vectors: &[Vec<f32>]) -> Result<(Vec<(f32, f32)>, Vec<Vec<usize>>)
     // Tiny inputs can't form a meaningful neighborhood graph — fall back to a
     // deterministic line so the cache still gets positions.
     if n < 16 {
-        return Ok(((0..n).map(|i| (i as f32, 0.0)).collect(), vec![Vec::new(); n]));
+        return Ok((
+            (0..n).map(|i| (i as f32, 0.0)).collect(),
+            vec![Vec::new(); n],
+        ));
     }
 
     let max_nb_conn = 16usize;
@@ -83,8 +88,8 @@ fn project_2d(vectors: &[Vec<f32>]) -> Result<(Vec<(f32, f32)>, Vec<Vec<usize>>)
     let data: Vec<(&Vec<f32>, usize)> = vectors.iter().enumerate().map(|(i, v)| (v, i)).collect();
     hnsw.parallel_insert(&data);
 
-    let kgraph =
-        kgraph_from_hnsw_all::<f32, DistCosine, f64>(&hnsw, 15).map_err(|e| format!("kgraph: {e}"))?;
+    let kgraph = kgraph_from_hnsw_all::<f32, DistCosine, f64>(&hnsw, 15)
+        .map_err(|e| format!("kgraph: {e}"))?;
 
     // Mutual-kNN adjacency in original data-id space: keep an edge only when
     // both endpoints list each other. Sparser than raw kNN → label propagation
@@ -175,7 +180,11 @@ pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64,
     let relation_edges: Vec<super::louvain::LouvainEdge> = edges
         .iter()
         .filter(|e| e.weight > 0.5)
-        .map(|e| super::louvain::LouvainEdge { a: e.a, b: e.b, weight: e.weight })
+        .map(|e| super::louvain::LouvainEdge {
+            a: e.a,
+            b: e.b,
+            weight: e.weight,
+        })
         .collect();
     let mut clusters = if relation_edges.is_empty() {
         super::cluster::label_propagation(&knn)
@@ -192,8 +201,7 @@ pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64,
     super::cluster::split_oversized(&mut clusters, &normalized);
     super::cluster::merge_small(&mut clusters, &normalized);
     super::cluster::centroid_pull(&mut normalized, &clusters);
-    let relation_pairs: Vec<(usize, usize)> =
-        relation_edges.iter().map(|e| (e.a, e.b)).collect();
+    let relation_pairs: Vec<(usize, usize)> = relation_edges.iter().map(|e| (e.a, e.b)).collect();
     super::cluster::snap_leaves(&mut normalized, &relation_pairs);
     let normalized = placement::normalize(&normalized);
 

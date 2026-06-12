@@ -41,7 +41,10 @@ fn resolve_service_id(client: &mut SocketClient, input: &str) -> String {
     let val = match client.call("services.list", Some(serde_json::json!({}))) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Error: services.list failed while resolving '{}': {}", input, e);
+            eprintln!(
+                "Error: services.list failed while resolving '{}': {}",
+                input, e
+            );
             std::process::exit(1);
         }
     };
@@ -54,7 +57,8 @@ fn resolve_service_id(client: &mut SocketClient, input: &str) -> String {
         ResolveOutcome::Ambiguous(ids) => {
             eprintln!(
                 "Error: {} services match name '{}'. Use the full svc_* id:",
-                ids.len(), input
+                ids.len(),
+                input
             );
             for id in &ids {
                 eprintln!("  {}", id);
@@ -117,29 +121,55 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
     match action {
         ServiceAction::List { kind, enabled } => {
             let mut params = serde_json::json!({});
-            if let Some(k) = kind { params["kind"] = serde_json::json!(k); }
-            if let Some(e) = enabled { params["enabled"] = serde_json::json!(e); }
+            if let Some(k) = kind {
+                params["kind"] = serde_json::json!(k);
+            }
+            if let Some(e) = enabled {
+                params["enabled"] = serde_json::json!(e);
+            }
             match client.call("services.list", Some(params)) {
                 Ok(val) => {
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else if let Some(arr) = val.as_array() {
-                        if arr.is_empty() { println!("No services registered."); }
+                        if arr.is_empty() {
+                            println!("No services registered.");
+                        }
                         for s in arr {
                             let id = s.get("id").and_then(|v| v.as_str()).unwrap_or("?");
                             let name = s.get("name").and_then(|v| v.as_str()).unwrap_or("?");
                             let kind = s.get("kind").and_then(|v| v.as_str()).unwrap_or("?");
-                            let enabled = s.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                            let enabled =
+                                s.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
                             let url = s.get("url").and_then(|v| v.as_str()).unwrap_or("-");
                             let status = if enabled { "enabled" } else { "disabled" };
                             println!("{} {} [{}] kind={} url={}", id, name, status, kind, url);
                         }
                     }
                 }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
-        ServiceAction::Add { name, kind, health_mode, url, host, port, process_label, script_path, health_path, health_json_field, health_ok_values, health_degraded_values, health_interval, description, push } => {
+        ServiceAction::Add {
+            name,
+            kind,
+            health_mode,
+            url,
+            host,
+            port,
+            process_label,
+            script_path,
+            health_path,
+            health_json_field,
+            health_ok_values,
+            health_degraded_values,
+            health_interval,
+            description,
+            push,
+        } => {
             let mut params = serde_json::json!({
                 "name": name,
                 "kind": kind,
@@ -147,16 +177,36 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                 "health_interval": health_interval,
                 "push_enabled": push,
             });
-            if let Some(v) = url { params["url"] = serde_json::json!(v); }
-            if let Some(v) = host { params["host"] = serde_json::json!(v); }
-            if let Some(v) = port { params["port"] = serde_json::json!(v); }
-            if let Some(v) = process_label { params["process_label"] = serde_json::json!(v); }
-            if let Some(v) = script_path { params["script_path"] = serde_json::json!(v); }
-            if let Some(v) = health_path { params["health_path"] = serde_json::json!(v); }
-            if let Some(v) = health_json_field { params["health_json_field"] = serde_json::json!(v); }
-            if let Some(v) = health_ok_values { params["health_ok_values"] = serde_json::json!(v); }
-            if let Some(v) = health_degraded_values { params["health_degraded_values"] = serde_json::json!(v); }
-            if let Some(v) = description { params["description"] = serde_json::json!(v); }
+            if let Some(v) = url {
+                params["url"] = serde_json::json!(v);
+            }
+            if let Some(v) = host {
+                params["host"] = serde_json::json!(v);
+            }
+            if let Some(v) = port {
+                params["port"] = serde_json::json!(v);
+            }
+            if let Some(v) = process_label {
+                params["process_label"] = serde_json::json!(v);
+            }
+            if let Some(v) = script_path {
+                params["script_path"] = serde_json::json!(v);
+            }
+            if let Some(v) = health_path {
+                params["health_path"] = serde_json::json!(v);
+            }
+            if let Some(v) = health_json_field {
+                params["health_json_field"] = serde_json::json!(v);
+            }
+            if let Some(v) = health_ok_values {
+                params["health_ok_values"] = serde_json::json!(v);
+            }
+            if let Some(v) = health_degraded_values {
+                params["health_degraded_values"] = serde_json::json!(v);
+            }
+            if let Some(v) = description {
+                params["description"] = serde_json::json!(v);
+            }
             match client.call("services.create", Some(params)) {
                 Ok(val) => {
                     if json {
@@ -176,7 +226,10 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                         }
                     }
                 }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
         ServiceAction::Show { id } => {
@@ -192,19 +245,45 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                         print!("{}", render_service_terse(&val));
                     }
                 }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
-        ServiceAction::Edit { id, name, url, health_path, health_json_field, health_ok_values, health_degraded_values, enabled } => {
+        ServiceAction::Edit {
+            id,
+            name,
+            url,
+            health_path,
+            health_json_field,
+            health_ok_values,
+            health_degraded_values,
+            enabled,
+        } => {
             let id = resolve_service_id(client, &id);
             let mut params = serde_json::json!({"id": id});
-            if let Some(v) = name { params["name"] = serde_json::json!(v); }
-            if let Some(v) = url { params["url"] = serde_json::json!(v); }
-            if let Some(v) = health_path { params["health_path"] = serde_json::json!(v); }
-            if let Some(v) = health_json_field { params["health_json_field"] = serde_json::json!(v); }
-            if let Some(v) = health_ok_values { params["health_ok_values"] = serde_json::json!(v); }
-            if let Some(v) = health_degraded_values { params["health_degraded_values"] = serde_json::json!(v); }
-            if let Some(v) = enabled { params["enabled"] = serde_json::json!(v); }
+            if let Some(v) = name {
+                params["name"] = serde_json::json!(v);
+            }
+            if let Some(v) = url {
+                params["url"] = serde_json::json!(v);
+            }
+            if let Some(v) = health_path {
+                params["health_path"] = serde_json::json!(v);
+            }
+            if let Some(v) = health_json_field {
+                params["health_json_field"] = serde_json::json!(v);
+            }
+            if let Some(v) = health_ok_values {
+                params["health_ok_values"] = serde_json::json!(v);
+            }
+            if let Some(v) = health_degraded_values {
+                params["health_degraded_values"] = serde_json::json!(v);
+            }
+            if let Some(v) = enabled {
+                params["enabled"] = serde_json::json!(v);
+            }
             match client.call("services.update", Some(params)) {
                 Ok(val) => {
                     if json {
@@ -214,20 +293,29 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                         println!("Updated: {}", n);
                     }
                 }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
         ServiceAction::Delete { id } => {
             let id = resolve_service_id(client, &id);
             match client.call("services.delete", Some(serde_json::json!({"id": id}))) {
                 Ok(_) => println!("Deleted: {}", id),
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
         ServiceAction::Token { id, rotate } => {
             let id = resolve_service_id(client, &id);
             if rotate {
-                match client.call("services.regenerate_token", Some(serde_json::json!({"id": id}))) {
+                match client.call(
+                    "services.regenerate_token",
+                    Some(serde_json::json!({"id": id})),
+                ) {
                     Ok(val) => {
                         if json {
                             println!("{}", serde_json::to_string_pretty(&val).unwrap());
@@ -237,7 +325,10 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                             println!("  {}", token);
                         }
                     }
-                    Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
                 }
             } else {
                 eprintln!("Tokens are only retrievable at create time or via --rotate (which generates a new one and invalidates the old).");
@@ -258,7 +349,11 @@ fn render_service_terse(val: &serde_json::Value) -> String {
     let id = s("id").unwrap_or("?");
     let name = s("name").unwrap_or("?");
     let kind = s("kind").unwrap_or("?");
-    let status = if val.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+    let status = if val
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         "enabled"
     } else {
         "disabled"
@@ -279,16 +374,32 @@ fn render_service_terse(val: &serde_json::Value) -> String {
     };
     if let Some(ep) = endpoint {
         match s("health_path") {
-            Some(hp) => { let _ = writeln!(out, "  endpoint: {} (health {})", ep, hp); }
-            None => { let _ = writeln!(out, "  endpoint: {}", ep); }
+            Some(hp) => {
+                let _ = writeln!(out, "  endpoint: {} (health {})", ep, hp);
+            }
+            None => {
+                let _ = writeln!(out, "  endpoint: {}", ep);
+            }
         }
     }
 
-    if let Some(hstatus) = val.get("health").and_then(|h| h.get("status")).and_then(|v| v.as_str()) {
+    if let Some(hstatus) = val
+        .get("health")
+        .and_then(|h| h.get("status"))
+        .and_then(|v| v.as_str())
+    {
         let mode = s("health_mode").unwrap_or("?");
-        match val.get("health").and_then(|h| h.get("latency_ms")).and_then(|v| v.as_u64()) {
-            Some(lat) => { let _ = writeln!(out, "  health: {} (mode={}, {}ms)", hstatus, mode, lat); }
-            None => { let _ = writeln!(out, "  health: {} (mode={})", hstatus, mode); }
+        match val
+            .get("health")
+            .and_then(|h| h.get("latency_ms"))
+            .and_then(|v| v.as_u64())
+        {
+            Some(lat) => {
+                let _ = writeln!(out, "  health: {} (mode={}, {}ms)", hstatus, mode, lat);
+            }
+            None => {
+                let _ = writeln!(out, "  health: {} (mode={})", hstatus, mode);
+            }
         }
     }
 
@@ -296,13 +407,21 @@ fn render_service_terse(val: &serde_json::Value) -> String {
         if let Some(sch) = s("schedule") {
             let last = s("last_run_status").unwrap_or("-");
             match val.get("next_run").and_then(|v| v.as_i64()) {
-                Some(n) => { let _ = writeln!(out, "  schedule: {}  next={}  last={}", sch, n, last); }
-                None => { let _ = writeln!(out, "  schedule: {}  last={}", sch, last); }
+                Some(n) => {
+                    let _ = writeln!(out, "  schedule: {}  next={}  last={}", sch, n, last);
+                }
+                None => {
+                    let _ = writeln!(out, "  schedule: {}  last={}", sch, last);
+                }
             }
         }
     }
 
-    if val.get("push_enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if val
+        .get("push_enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         let _ = writeln!(out, "  push: enabled");
     }
     out
@@ -323,7 +442,10 @@ mod terse_tests {
             "registered_at": 1700000000, "updated_at": 1700000001, "health_ttl": 30
         });
         let out = render_service_terse(&val);
-        assert!(out.starts_with("svc_abc API [enabled] kind=daemon\n"), "got: {out}");
+        assert!(
+            out.starts_with("svc_abc API [enabled] kind=daemon\n"),
+            "got: {out}"
+        );
         assert!(out.contains("endpoint: http://localhost:8080 (health /health)"));
         assert!(out.contains("health: healthy (mode=http, 42ms)"));
         assert!(out.contains("push: enabled"));
@@ -342,7 +464,10 @@ mod terse_tests {
             "schedule": "0 3 * * *", "last_run_status": "ok",
         });
         let out = render_service_terse(&val);
-        assert!(out.starts_with("cron_x Nightly [disabled] kind=cron\n"), "got: {out}");
+        assert!(
+            out.starts_with("cron_x Nightly [disabled] kind=cron\n"),
+            "got: {out}"
+        );
         assert!(out.contains("schedule: 0 3 * * *  last=ok"));
     }
 }

@@ -1,4 +1,19 @@
 use super::*;
+use crate::service::ServiceContext;
+
+#[test]
+fn invalid_role_lead_is_rejected() {
+    let err = ServiceContext::parse_role("Lead").unwrap_err();
+    assert!(
+        err.contains("Orchestrator") && err.contains("Worker"),
+        "error must name valid roles: {err}"
+    );
+}
+
+#[test]
+fn valid_role_worker_is_accepted() {
+    assert!(ServiceContext::parse_role("Worker").is_ok());
+}
 
 fn agent_spec(provider: &str) -> SpawnPaneSpec {
     SpawnPaneSpec {
@@ -318,4 +333,40 @@ fn spawn_with_no_role_and_no_activate_does_not_steal_focus() {
         ..Default::default()
     };
     assert!(!would_activate(&spec));
+}
+
+#[test]
+fn chat_default_on_capable_visible_agent_sets_chat_view() {
+    assert!(should_default_agent_pane_to_chat(
+        true,
+        PaneVisibility::Visible,
+        true,
+    ));
+}
+
+#[test]
+fn chat_default_on_non_capable_visible_agent_stays_terminal() {
+    assert!(!should_default_agent_pane_to_chat(
+        true,
+        PaneVisibility::Visible,
+        false,
+    ));
+}
+
+#[test]
+fn chat_default_off_capable_visible_agent_stays_terminal() {
+    assert!(!should_default_agent_pane_to_chat(
+        false,
+        PaneVisibility::Visible,
+        true,
+    ));
+}
+
+#[test]
+fn chat_default_on_hidden_agent_stays_terminal() {
+    assert!(!should_default_agent_pane_to_chat(
+        true,
+        PaneVisibility::Hidden,
+        true,
+    ));
 }

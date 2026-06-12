@@ -53,11 +53,19 @@ pub(super) struct PluginSandbox {
 impl PluginSandbox {
     /// Full host access — bundled/workspace plugins and tests.
     pub(super) fn unrestricted() -> Self {
-        Self { unrestricted: true, read_roots: Vec::new(), write_roots: Vec::new() }
+        Self {
+            unrestricted: true,
+            read_roots: Vec::new(),
+            write_roots: Vec::new(),
+        }
     }
 
     pub(super) fn restricted(read_roots: Vec<PathBuf>, write_roots: Vec<PathBuf>) -> Self {
-        Self { unrestricted: false, read_roots, write_roots }
+        Self {
+            unrestricted: false,
+            read_roots,
+            write_roots,
+        }
     }
 
     fn path_under(roots: &[PathBuf], path: &str) -> bool {
@@ -94,9 +102,18 @@ impl PluginSandbox {
             return true;
         }
         let n = name.to_ascii_uppercase();
-        !["TOKEN", "KEY", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH", "SESSION"]
-            .iter()
-            .any(|needle| n.contains(needle))
+        ![
+            "TOKEN",
+            "KEY",
+            "SECRET",
+            "PASSWORD",
+            "PASSWD",
+            "CREDENTIAL",
+            "AUTH",
+            "SESSION",
+        ]
+        .iter()
+        .any(|needle| n.contains(needle))
     }
 }
 
@@ -195,7 +212,9 @@ pub(super) fn install(
         read_dir_json(&path)
     });
     let sb = sandbox.clone();
-    bind!("walkDirJson", move |path: String, max_depth: i32| -> Option<String> {
+    bind!("walkDirJson", move |path: String,
+                               max_depth: i32|
+          -> Option<String> {
         if !sb.can_read(&path) {
             return None;
         }
@@ -236,9 +255,9 @@ pub(super) fn install(
     // ── Sqlite (read-only, db path gated for confined plugins) ──────
     let sb = sandbox.clone();
     bind!("sqliteQueryAllJson", move |db: String,
-                                 sql: String,
-                                 params_json: Option<String>|
-     -> Option<String> {
+                                      sql: String,
+                                      params_json: Option<String>|
+          -> Option<String> {
         if !sb.can_read(&db) {
             log::warn!("[plugin] denied sqliteQuery outside sandbox: {db}");
             return None;
@@ -487,9 +506,7 @@ mod tests {
 
         // Outside → denied (incl. traversal attempts).
         assert!(!sb.can_read("/etc/passwd"));
-        assert!(!sb.can_read(
-            allowed.join("../../../../etc/passwd").to_str().unwrap()
-        ));
+        assert!(!sb.can_read(allowed.join("../../../../etc/passwd").to_str().unwrap()));
         assert!(!sb.can_write("/tmp/evil"));
 
         // envGet: path-ish vars allowed, secret-named blocked.

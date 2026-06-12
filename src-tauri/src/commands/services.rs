@@ -1,5 +1,5 @@
-use crate::services::activity::{ActivityEvent, ActivitySource, ActivityWriter};
-use crate::services::store::{self, Service, ServiceCreate, ServiceKind, ServiceUpdate};
+use crate::service::activity::{ActivityEvent, ActivitySource, ActivityWriter};
+use crate::service::store::{self, Service, ServiceCreate, ServiceKind, ServiceUpdate};
 
 #[tauri::command]
 pub fn services_list(
@@ -118,6 +118,6 @@ fn parse_activity_source(s: &str) -> Option<ActivitySource> {
 #[tauri::command]
 pub async fn services_smart_add_inspect(
     url: String,
-) -> Result<crate::services::smart_add::SmartAddResult, String> {
-    crate::services::smart_add::inspect(&url).await
+) -> Result<crate::service::smart_add::SmartAddResult, String> {
+    crate::service::smart_add::inspect(&url).await
 }

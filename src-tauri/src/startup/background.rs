@@ -291,7 +291,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
         });
     }
 
-                // Keep address cache fresh: startup burst, then announce loop.
+    // Keep address cache fresh: startup burst, then announce loop.
     {
         let mesh = states.mesh.clone();
         let cfg = states.config.clone();

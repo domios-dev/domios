@@ -58,7 +58,10 @@ impl SocketClient {
                 return Ok(client);
             }
         }
-        Err(format!("Failed to connect to '{}' (tried with/without .sock)", socket_path))
+        Err(format!(
+            "Failed to connect to '{}' (tried with/without .sock)",
+            socket_path
+        ))
     }
 
     fn try_connect(socket_path: &str) -> Result<Self, String> {
@@ -89,8 +92,7 @@ impl SocketClient {
         };
         self.next_id += 1;
 
-        let payload =
-            serde_json::to_string(&req).map_err(|e| format!("Serialize error: {}", e))?;
+        let payload = serde_json::to_string(&req).map_err(|e| format!("Serialize error: {}", e))?;
 
         // Write request line
         let writer = self.reader.get_mut();
@@ -237,9 +239,7 @@ fn prefers_dev_socket() -> bool {
 /// loose `contains("dev")` so a custom instance whose pid path happens to
 /// have "dev" in it doesn't get misclassified.
 fn is_dev_socket(name: &str) -> bool {
-    name == "codeterm-dev"
-        || name.starts_with("codeterm-dev.")
-        || name.starts_with("codeterm-dev-")
+    name == "codeterm-dev" || name.starts_with("codeterm-dev.") || name.starts_with("codeterm-dev-")
 }
 
 /// True when the socket name matches the requested port preference.
@@ -310,17 +310,20 @@ fn discover_unix_socket() -> Result<String, String> {
     }
 
     // Fallback: find running CodeTerm process and try connecting by PID
-    if let Ok(output) = std::process::Command::new("pgrep").arg("-f").arg("codeterm").output() {
+    if let Ok(output) = std::process::Command::new("pgrep")
+        .arg("-f")
+        .arg("codeterm")
+        .output()
+    {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
             if let Ok(pid) = line.trim().parse::<u32>() {
                 let sock_name = format!("codeterm-{}.sock", pid);
-                let test = sock_name.clone()
+                let test = sock_name
+                    .clone()
                     .to_ns_name::<GenericNamespaced>()
                     .ok()
-                    .and_then(|name| {
-                        interprocess::local_socket::Stream::connect(name).ok()
-                    });
+                    .and_then(|name| interprocess::local_socket::Stream::connect(name).ok());
                 if test.is_some() {
                     return Ok(sock_name);
                 }
@@ -337,10 +340,7 @@ mod tests {
 
     #[test]
     fn picks_dev_when_dev_preferred() {
-        let candidates = vec![
-            "codeterm-1234".to_string(),
-            "codeterm-dev.sock".to_string(),
-        ];
+        let candidates = vec!["codeterm-1234".to_string(), "codeterm-dev.sock".to_string()];
         assert_eq!(
             pick_preferred_socket(&candidates, true),
             Some("codeterm-dev.sock".to_string())
@@ -349,10 +349,7 @@ mod tests {
 
     #[test]
     fn picks_prod_when_dev_not_preferred() {
-        let candidates = vec![
-            "codeterm-1234".to_string(),
-            "codeterm-dev.sock".to_string(),
-        ];
+        let candidates = vec!["codeterm-1234".to_string(), "codeterm-dev.sock".to_string()];
         assert_eq!(
             pick_preferred_socket(&candidates, false),
             Some("codeterm-1234".to_string())

@@ -153,19 +153,30 @@ fn get_cookie<'a>(headers: &'a axum::http::HeaderMap, name: &str) -> Option<&'a 
 }
 
 /// Validate a token against the configured API token or the web token cache.
-fn validate_manifest_token(state: &AppState, candidate: &str) -> bool {
+fn validate_manifest_token(
+    state: &AppState,
+    candidate: &str,
+) -> Result<bool, (StatusCode, &'static str)> {
     if candidate.is_empty() {
-        return false;
+        return Ok(false);
     }
     if let Some(ref api_token) = state.config.lock().api.token {
-        if !api_token.is_empty() && api_token == candidate {
-            return true;
+        if !api_token.is_empty()
+            && crate::service::tokens::constant_time_eq(api_token.as_bytes(), candidate.as_bytes())
+        {
+            return Ok(true);
         }
     }
-    let cache = state.web_tokens.lock().unwrap();
-    cache
-        .get(candidate)
-        .map_or(false, |created| created.elapsed() < std::time::Duration::from_secs(3600))
+    let cache = state.web_tokens.lock().map_err(|e| {
+        log::error!("[web] web token cache lock poisoned: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Web token cache unavailable",
+        )
+    })?;
+    Ok(cache.get(candidate).map_or(false, |created| {
+        created.elapsed() < crate::api::routes::WEB_TOKEN_TTL
+    }))
 }
 
 /// Bootstrap endpoint: validates the bearer token and sets an HttpOnly cookie
@@ -186,17 +197,24 @@ pub async fn web_manifest_bootstrap(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let token = auth.strip_prefix("Bearer ").unwrap_or("");
-    if token.is_empty() || !validate_manifest_token(&state, token) {
+    if token.is_empty() || !validate_manifest_token(&state, token)? {
         return Err((StatusCode::UNAUTHORIZED, "Invalid or missing token"));
     }
     let cookie = format!(
-        "codeterm-web-token={}; HttpOnly; SameSite=Lax; Path=/web; Max-Age=3600",
-        token
+        "codeterm-web-token={}; HttpOnly; SameSite=Lax; Path=/web; Max-Age={}",
+        token,
+        crate::api::routes::WEB_TOKEN_TTL.as_secs()
     );
     Ok((
         [(
             axum::http::header::SET_COOKIE,
-            axum::http::HeaderValue::from_str(&cookie).unwrap(),
+            axum::http::HeaderValue::from_str(&cookie).map_err(|e| {
+                log::error!("[web] failed to build manifest bootstrap cookie: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to build cookie header",
+                )
+            })?,
         )],
         Json(serde_json::json!({"ok": true})),
     ))
@@ -215,13 +233,15 @@ pub async fn web_manifest(
     Query(query): Query<ManifestQuery>,
 ) -> impl axum::response::IntoResponse {
     // Determine the token: query param (legacy) or cookie (preferred).
-    let token: Option<String> = query.token.clone().or_else(|| {
-        get_cookie(&headers, "codeterm-web-token").map(|s| s.to_string())
-    });
+    let token: Option<String> = query
+        .token
+        .clone()
+        .or_else(|| get_cookie(&headers, "codeterm-web-token").map(|s| s.to_string()));
 
     let token_ok = token
         .as_ref()
-        .is_some_and(|t| validate_manifest_token(&state, t));
+        .map(|t| validate_manifest_token(&state, t).unwrap_or(false))
+        .unwrap_or(false);
     let start_url = if token_ok {
         let t = token.as_deref().unwrap_or_default();
         let encoded: String = url::form_urlencoded::byte_serialize(t.as_bytes()).collect();
@@ -326,7 +346,12 @@ pub async fn pty_write(
             svc.send_text_to_pty_smart(&pty_id, text_stripped, enter)
         })
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("send task failed: {e}")))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("send task failed: {e}"),
+            )
+        })?
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     }
     Ok(Json(serde_json::json!({"ok": true})))
@@ -501,6 +526,39 @@ pub async fn upload(
         })));
     }
     Err((StatusCode::BAD_REQUEST, "missing 'file' field".to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::api::routes::WEB_TOKEN_TTL;
+
+    #[test]
+    fn cookie_max_age_uses_web_token_ttl() {
+        let ttl = WEB_TOKEN_TTL.as_secs();
+        let cookie = format!(
+            "codeterm-web-token={}; HttpOnly; SameSite=Lax; Path=/web; Max-Age={}",
+            "tok", ttl
+        );
+        assert!(
+            cookie.contains(&format!("Max-Age={ttl}")),
+            "Set-Cookie must embed WEB_TOKEN_TTL, got: {cookie}"
+        );
+    }
+
+    #[test]
+    fn constant_time_eq_rejects_last_byte_diff() {
+        let token = b"supersecrettoken1234";
+        let mut bad = token.to_vec();
+        *bad.last_mut().unwrap() ^= 1;
+        assert!(
+            !crate::service::tokens::constant_time_eq(token, &bad),
+            "token differing in last byte must be rejected"
+        );
+        assert!(
+            crate::service::tokens::constant_time_eq(token, token),
+            "identical tokens must match"
+        );
+    }
 }
 
 // ── chat-raw — the chat view's JSONL window + tailer, web edition ──

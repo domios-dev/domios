@@ -304,7 +304,13 @@ mod tests {
 
     #[test]
     fn merge_small_absorbs_tiny_cluster() {
-        let points = vec![(0.0, 0.0), (1.0, 1.0), (2.0, 0.0), (3.0, 1.0), (500.0, 500.0)];
+        let points = vec![
+            (0.0, 0.0),
+            (1.0, 1.0),
+            (2.0, 0.0),
+            (3.0, 1.0),
+            (500.0, 500.0),
+        ];
         let mut labels = vec![0, 0, 0, 0, 7];
         merge_small(&mut labels, &points);
         assert!(labels.iter().all(|&l| l == labels[0]), "{labels:?}");
@@ -312,12 +318,8 @@ mod tests {
 
     #[test]
     fn centroid_pull_tightens_clusters() {
-        let mut points: Vec<(f32, f32)> = vec![
-            (-100.0, 0.0),
-            (-60.0, 10.0),
-            (100.0, 0.0),
-            (60.0, -10.0),
-        ];
+        let mut points: Vec<(f32, f32)> =
+            vec![(-100.0, 0.0), (-60.0, 10.0), (100.0, 0.0), (60.0, -10.0)];
         let labels = vec![0, 0, 1, 1];
         let spread_before = (points[0].0 - points[1].0).abs();
         centroid_pull(&mut points, &labels);
@@ -327,7 +329,8 @@ mod tests {
             "intra-cluster spread must shrink: {spread_before} -> {spread_after}"
         );
         let inter_before = 160.0f32; // centroid gap before: -80 vs 80
-        let inter_after = ((points[0].0 + points[1].0) / 2.0 - (points[2].0 + points[3].0) / 2.0).abs();
+        let inter_after =
+            ((points[0].0 + points[1].0) / 2.0 - (points[2].0 + points[3].0) / 2.0).abs();
         assert!(
             inter_after > inter_before,
             "centroid gap must widen: {inter_before} -> {inter_after}"
@@ -342,7 +345,11 @@ mod tests {
         let knn = vec![vec![], vec![], vec![], vec![0, 1, 2]];
         attach_by_neighbors(&mut labels, &has_edge, &knn);
         assert_eq!(labels[3], 0, "{labels:?}");
-        assert_eq!(&labels[..3], &[0, 0, 1], "edge-backed labels must not change");
+        assert_eq!(
+            &labels[..3],
+            &[0, 0, 1],
+            "edge-backed labels must not change"
+        );
     }
 
     #[test]
@@ -359,7 +366,11 @@ mod tests {
         let mut labels = vec![0u32; 200];
         split_oversized(&mut labels, &points);
         let distinct: std::collections::HashSet<u32> = labels.iter().copied().collect();
-        assert!(distinct.len() >= 4, "giant must split, got {}", distinct.len());
+        assert!(
+            distinct.len() >= 4,
+            "giant must split, got {}",
+            distinct.len()
+        );
         let max_size = ((200f64).sqrt() * 4.0).ceil() as usize;
         let mut counts: HashMap<u32, usize> = HashMap::new();
         for &l in &labels {

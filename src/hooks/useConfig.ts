@@ -117,6 +117,11 @@ const DEFAULT_CONFIG: AppConfig = {
     instance_name: "",
     broadcast_duration_secs: 180,
   },
+  ui: {
+    memory_tab_enabled: true,
+    mesh_tab_enabled: true,
+    default_new_agent_pane_chat: false,
+  },
 };
 
 export function useConfig() {

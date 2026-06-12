@@ -2,9 +2,8 @@
  * Claude Code provider plugin — entry point.
  *
  * Exports a single `ProviderPlugin` default that the host registers at
- * startup. Also re-exports parser primitives so legacy consumers in
- * `src/components/ChatView/parser.ts` keep working unchanged through a
- * thin re-export shim.
+ * startup. This plugin intentionally avoids session-line parsing here; host-side
+ * chat parsing remains authoritative.
  */
 
 import type {

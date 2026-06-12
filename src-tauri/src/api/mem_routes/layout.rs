@@ -99,7 +99,10 @@ pub async fn mem_graph_layout_rebuild(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if state.svc.mem.layout_is_rebuilding() {
-        return Err((StatusCode::CONFLICT, "layout rebuild already running".into()));
+        return Err((
+            StatusCode::CONFLICT,
+            "layout rebuild already running".into(),
+        ));
     }
     let mem = state.svc.mem.clone();
     tauri::async_runtime::spawn_blocking(move || match mem.run_full_layout() {
@@ -121,7 +124,10 @@ mod tests {
 
     #[test]
     fn parse_ids_caps_at_max() {
-        let raw = (0..600).map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+        let raw = (0..600)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
         let ids = parse_ids(&raw);
         assert_eq!(ids.len(), super::MAX_IDS);
     }

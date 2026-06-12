@@ -18,7 +18,10 @@ pub fn handle_mem_secret(
                 let body: serde_json::Value = r.json().unwrap_or(serde_json::Value::Null);
                 (status, body)
             }
-            Err(e) => (0, serde_json::json!({"error": {"kind": "backend", "message": e.to_string()}})),
+            Err(e) => (
+                0,
+                serde_json::json!({"error": {"kind": "backend", "message": e.to_string()}}),
+            ),
         }
     };
 
@@ -37,17 +40,24 @@ pub fn handle_mem_secret(
     let print_or_exit = |status: u16, body: serde_json::Value| -> ! {
         if let Some(code) = exit_for_status(status) {
             if json_mode {
-                eprintln!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+                eprintln!(
+                    "{}",
+                    serde_json::to_string_pretty(&body).unwrap_or_default()
+                );
             } else if let Some(err) = body.get("error") {
                 let kind = err.get("kind").and_then(|k| k.as_str()).unwrap_or("error");
                 let msg = err
                     .get("message")
                     .and_then(|m| m.as_str())
                     .unwrap_or(match kind {
-                        "logged_out" => "secret store: logged out — run `codeterm mem secret unlock`",
+                        "logged_out" => {
+                            "secret store: logged out — run `codeterm mem secret unlock`"
+                        }
                         "locked" => "secret store: vault locked — run `codeterm mem secret unlock`",
                         "not_found" => "secret store: not found",
-                        "already_exists" => "secret store: already exists (use --overwrite to replace)",
+                        "already_exists" => {
+                            "secret store: already exists (use --overwrite to replace)"
+                        }
                         _ => "secret store: error",
                     });
                 eprintln!("Error: {}", msg);
@@ -57,7 +67,10 @@ pub fn handle_mem_secret(
             std::process::exit(code);
         }
         if json_mode {
-            println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&body).unwrap_or_default()
+            );
         } else {
             print_human(&body);
         }
@@ -119,7 +132,10 @@ pub fn handle_mem_secret(
                 print_or_exit(status, body);
             }
             if json || json_mode {
-                println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&body).unwrap_or_default()
+                );
             } else {
                 let value = body
                     .get("value")
@@ -129,7 +145,11 @@ pub fn handle_mem_secret(
             }
         }
         MemSecretAction::Search { query } => {
-            let url = format!("{}/api/secrets/items?q={}", base, urlencoding::encode(&query));
+            let url = format!(
+                "{}/api/secrets/items?q={}",
+                base,
+                urlencoding::encode(&query)
+            );
             let (status, body) = send_request(http.get(url));
             print_or_exit(status, body);
         }
@@ -194,7 +214,8 @@ pub fn handle_mem_secret(
                     "email": email,
                 });
                 let (status, body) = send_request(
-                    http.post(format!("{}/api/secrets/unlock", base)).json(&payload),
+                    http.post(format!("{}/api/secrets/unlock", base))
+                        .json(&payload),
                 );
                 print_or_exit(status, body);
             } else {
@@ -203,9 +224,7 @@ pub fn handle_mem_secret(
                     http.post(format!("{}/api/secrets/auto-unlock", base))
                         .json(&serde_json::json!({})),
                 );
-                if status == 200
-                    && body.get("ok").and_then(|v| v.as_bool()) == Some(true)
-                {
+                if status == 200 && body.get("ok").and_then(|v| v.as_bool()) == Some(true) {
                     print_or_exit(status, body);
                 } else if status == 200 {
                     eprintln!(
@@ -218,8 +237,10 @@ pub fn handle_mem_secret(
             }
         }
         MemSecretAction::Lock => {
-            let (status, body) =
-                send_request(http.post(format!("{}/api/secrets/lock", base)).json(&serde_json::json!({})));
+            let (status, body) = send_request(
+                http.post(format!("{}/api/secrets/lock", base))
+                    .json(&serde_json::json!({})),
+            );
             print_or_exit(status, body);
         }
         MemSecretAction::Logout => {
@@ -240,7 +261,10 @@ pub fn handle_mem_secret(
             }
             let dir = match dirs::home_dir() {
                 Some(h) => h.join(".codeterm").join("secrets"),
-                None => { eprintln!("Error: HOME not set"); std::process::exit(1); }
+                None => {
+                    eprintln!("Error: HOME not set");
+                    std::process::exit(1);
+                }
             };
             if let Err(e) = std::fs::create_dir_all(&dir) {
                 eprintln!("Error: create {}: {}", dir.display(), e);

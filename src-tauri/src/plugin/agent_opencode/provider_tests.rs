@@ -396,8 +396,18 @@ fn fixture_db() -> (tempfile::TempDir, std::path::PathBuf) {
     msg("m1", "user");
     msg("m2", "assistant");
     part("prt_1", "m1", 100, r#"{"type":"text","text":"hello"}"#);
-    part("prt_2", "m2", 200, r#"{"type":"reasoning","text":"let me think"}"#);
-    part("prt_3", "m2", 210, r#"{"type":"tool","tool":"edit","state":{"status":"completed","input":{"filePath":"/x","oldString":"a","newString":"b"},"output":"ok"}}"#);
+    part(
+        "prt_2",
+        "m2",
+        200,
+        r#"{"type":"reasoning","text":"let me think"}"#,
+    );
+    part(
+        "prt_3",
+        "m2",
+        210,
+        r#"{"type":"tool","tool":"edit","state":{"status":"completed","input":{"filePath":"/x","oldString":"a","newString":"b"},"output":"ok"}}"#,
+    );
     part("prt_4", "m2", 220, r#"{"type":"step-finish"}"#);
     part("prt_5", "m2", 230, r#"{"type":"text","text":"done"}"#);
     (dir, path)
@@ -420,7 +430,11 @@ fn structured_chat_maps_parts_and_skips_noise() {
     assert_eq!(out.messages[2].tool_name.as_deref(), Some("edit"));
     // Tool input/output flow through so the chat can render a diff.
     assert_eq!(
-        out.messages[2].tool_input.as_ref().and_then(|v| v.get("oldString")).and_then(|v| v.as_str()),
+        out.messages[2]
+            .tool_input
+            .as_ref()
+            .and_then(|v| v.get("oldString"))
+            .and_then(|v| v.as_str()),
         Some("a")
     );
     assert_eq!(out.messages[2].tool_result.as_deref(), Some("ok"));

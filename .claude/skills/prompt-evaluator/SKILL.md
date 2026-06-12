@@ -1,6 +1,6 @@
 ---
 name: prompt-evaluator
-description: Evaluate, A/B compare, or check for regression in any CodeTerm prompt file (general_agent.md, worker_suffix.md, lead_suffix.md, codeterm_rule.md, agent definitions in .claude/agents/, bridge rules, etc). Triggers when the user asks to "test the prompt", "run evals", "check for regression", "did my prompt change break anything", or "compare prompt before and after". Runs `runner.py` against the matching eval set in `evals/<name>/`.
+description: Evaluate, A/B compare, or check for regression in any CodeTerm prompt file (general_agent.md, worker_suffix.md, codeterm_rule.md, agent role definitions in codeterm mem, bridge rules, etc). Triggers when the user asks to "test the prompt", "run evals", "check for regression", "did my prompt change break anything", or "compare prompt before and after". Runs `runner.py` against the matching eval set in `evals/<name>/`.
 version: 0.1.0
 ---
 
@@ -13,8 +13,8 @@ CodeTerm has multiple system prompts and instruction files that drive agent beha
 - Changed `src-tauri/prompts/general_agent.md` and want to verify the General Agent still routes Telegram, spawns the right roles, never echoes after `bridge send`, etc.
 - Compressed a prompt to save tokens — run A/B against the previous git revision to confirm no regression.
 - Adding a new behavioral rule to a prompt — write an eval first, run it against the unchanged prompt to confirm it currently FAILS, then add the rule, run again to confirm it now PASSES.
-- Reviewing a PR that touches any file in `src-tauri/prompts/` or `.claude/agents/`.
-- Sanity-checking that a refactor of `worker_suffix.md` / `lead_suffix.md` / `codeterm_rule.md` didn't strip a load-bearing instruction.
+- Reviewing a PR that touches any file in `src-tauri/prompts/`.
+- Sanity-checking that a refactor of `worker_suffix.md` / `codeterm_rule.md` didn't strip a load-bearing instruction.
 
 ## How it works
 
@@ -163,11 +163,14 @@ Tips for writing good evals:
 
 ## Existing eval sets
 
-- `evals/general-agent/evals.json` — 21 evals covering message routing (Telegram/mesh prefix), role selection, mesh delegation, recon-before-action, persistent memory protocol, mono-repo workspace handling, photo replies via Telegram bridge, identity wake-up.
-- `evals/mem-protocol/evals.json` — 8 evals for the slim `bridge_mem.md` rule shipped to non-GA agents (remember-now, search-before-answering, identity-via-wake-up, no-id-guessing, English-in-mem, sessions-vs-mem-routing, no side-store writes).
-- `evals/dreaming/evals.json` — 5 evals for the REM (dreaming) prompt — Stage A.1 hub decomposition with RED ZONE rule + Stage A.2 island bridging.
+- `evals/cli-agent/` — real-daemon LLM benchmark: drives Claude/Codex/Opencode through every CLI command; model-judged (replaces old general-agent and mem-protocol evals).
+- `evals/mem-recall/` — mem search engine quality (Recall@K / MRR / latency).
+- `evals/dreaming/` — REM-phase prompt — Stage A.1 hub decomposition with RED ZONE rule + Stage A.2 island bridging.
+- `evals/session-restore/` — kill+restart preserves workspace/pane/agent_type/titles.
 
-When you write a new eval set, drop a one-line entry in this list.
+Experimental/historical: `evals/dreamer-repair/`, `evals/seeds/`, `evals/v1_1_23_e2e/`.
+
+When you write a new eval set, drop a one-line entry in the live list above.
 
 ## Limitations
 

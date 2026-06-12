@@ -82,10 +82,7 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
     }
 }
 
-pub fn make_flatten_sink(
-    app: AppHandle,
-    base_start: usize,
-) -> Arc<dyn super::tailer::DeltaSink> {
+pub fn make_flatten_sink(app: AppHandle, base_start: usize) -> Arc<dyn super::tailer::DeltaSink> {
     Arc::new(FlattenDeltaSink {
         app,
         base: std::sync::atomic::AtomicUsize::new(base_start),

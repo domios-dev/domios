@@ -10,7 +10,14 @@ fn update_cmd(
     channel: Option<String>,
     manifest_url: Option<String>,
 ) -> Commands {
-    Commands::Update { action, check, apply, channel, manifest_url, after_update: None }
+    Commands::Update {
+        action,
+        check,
+        apply,
+        channel,
+        manifest_url,
+        after_update: None,
+    }
 }
 
 #[test]
@@ -25,7 +32,10 @@ fn check_maps_to_get_check() {
 fn check_force_maps_to_query_param() {
     let (m, p, _) = cli_command_to_api(&update_cmd(
         Some(UpdateAction::Check { force: true }),
-        false, false, None, None,
+        false,
+        false,
+        None,
+        None,
     ));
     assert_eq!(m, "GET");
     assert_eq!(p, "/api/update/check?force=true");
@@ -42,7 +52,10 @@ fn apply_maps_to_install_auto() {
 #[test]
 fn apply_with_manifest_url_appends_query() {
     let (m, p, _) = cli_command_to_api(&update_cmd(
-        None, false, true, None,
+        None,
+        false,
+        true,
+        None,
         Some("http://localhost:9999/latest.json".to_string()),
     ));
     assert_eq!(m, "POST");
@@ -52,9 +65,7 @@ fn apply_with_manifest_url_appends_query() {
 
 #[test]
 fn channel_get_maps_to_get_channel() {
-    let (m, p, b) = cli_command_to_api(&update_cmd(
-        None, false, false, Some(String::new()), None,
-    ));
+    let (m, p, b) = cli_command_to_api(&update_cmd(None, false, false, Some(String::new()), None));
     assert_eq!(m, "GET");
     assert_eq!(p, "/api/update/channel");
     assert!(b.is_none());
@@ -63,7 +74,11 @@ fn channel_get_maps_to_get_channel() {
 #[test]
 fn channel_set_maps_to_post_channel_with_body() {
     let (m, p, b) = cli_command_to_api(&update_cmd(
-        None, false, false, Some("rc".to_string()), None,
+        None,
+        false,
+        false,
+        Some("rc".to_string()),
+        None,
     ));
     assert_eq!(m, "POST");
     assert_eq!(p, "/api/update/channel");
@@ -74,7 +89,9 @@ fn channel_set_maps_to_post_channel_with_body() {
 
 #[test]
 fn mesh_refresh_maps_to_post_refresh() {
-    let (m, p, b) = cli_command_to_api(&Commands::Mesh { action: MeshAction::Refresh });
+    let (m, p, b) = cli_command_to_api(&Commands::Mesh {
+        action: MeshAction::Refresh,
+    });
     assert_eq!(m, "POST");
     assert_eq!(p, "/api/mesh/refresh");
     assert!(b.is_none());
@@ -93,7 +110,9 @@ fn mesh_announce_no_target_maps_to_announce_all() {
 #[test]
 fn mesh_announce_to_target_appends_query_param() {
     let (m, p, _) = cli_command_to_api(&Commands::Mesh {
-        action: MeshAction::Announce { to: Some("BLACKSTAR".into()) },
+        action: MeshAction::Announce {
+            to: Some("BLACKSTAR".into()),
+        },
     });
     assert_eq!(m, "POST");
     assert_eq!(p, "/api/mesh/announce/all?to=BLACKSTAR");
@@ -101,12 +120,18 @@ fn mesh_announce_to_target_appends_query_param() {
 
 #[test]
 fn parse_ip_port_plain_ipv4() {
-    assert_eq!(parse_ip_port("192.168.1.1"), ("192.168.1.1".to_string(), None));
+    assert_eq!(
+        parse_ip_port("192.168.1.1"),
+        ("192.168.1.1".to_string(), None)
+    );
 }
 
 #[test]
 fn parse_ip_port_ipv4_with_port() {
-    assert_eq!(parse_ip_port("100.84.1.2:7685"), ("100.84.1.2".to_string(), Some(7685)));
+    assert_eq!(
+        parse_ip_port("100.84.1.2:7685"),
+        ("100.84.1.2".to_string(), Some(7685))
+    );
 }
 
 #[test]
@@ -172,7 +197,11 @@ fn mem_search_relays_to_search_endpoint_with_query() {
     let (m, p, b) = cli_command_to_api(&cmd);
     assert_eq!(m, "GET");
     assert!(p.starts_with("/api/mem/search?"), "got: {}", p);
-    assert!(p.contains("q=windows%20release%20build"), "query missing/unencoded: {}", p);
+    assert!(
+        p.contains("q=windows%20release%20build"),
+        "query missing/unencoded: {}",
+        p
+    );
     assert!(p.contains("kind=fact"), "kind missing: {}", p);
     assert!(p.contains("limit=5"), "limit missing: {}", p);
     assert!(b.is_none());
@@ -227,18 +256,24 @@ fn mem_graph_create_relays_with_server_key_names() {
     assert_eq!(p, "/api/mem/graph/entities");
     let body: serde_json::Value = serde_json::from_str(&b.unwrap()).unwrap();
     assert_eq!(body["id"], "person_kai");
-        // Use server JSON keys (`type`, `properties`) here.
-        // Reject local aliases like `entity_type`/`props`.
+    // Use server JSON keys (`type`, `properties`) here.
+    // Reject local aliases like `entity_type`/`props`.
     assert_eq!(body["type"], "Person");
     assert_eq!(body["properties"]["name"], "Kai");
-    assert!(body.get("entity_type").is_none(), "stale key leaked: {}", body);
+    assert!(
+        body.get("entity_type").is_none(),
+        "stale key leaked: {}",
+        body
+    );
     assert!(body.get("props").is_none(), "stale key leaked: {}", body);
 }
 
 #[test]
 fn agent_providers_relays_to_providers_endpoint() {
     use crate::AgentAction;
-    let (m, p, b) = cli_command_to_api(&Commands::Agent { action: AgentAction::Providers });
+    let (m, p, b) = cli_command_to_api(&Commands::Agent {
+        action: AgentAction::Providers,
+    });
     assert_eq!(m, "GET");
     assert_eq!(p, "/api/agents/providers");
     assert!(b.is_none());
@@ -247,7 +282,11 @@ fn agent_providers_relays_to_providers_endpoint() {
 #[test]
 fn agent_models_relays_to_providers_endpoint() {
     use crate::AgentAction;
-    let cmd = Commands::Agent { action: AgentAction::Models { provider: "claude".into() } };
+    let cmd = Commands::Agent {
+        action: AgentAction::Models {
+            provider: "claude".into(),
+        },
+    };
     let (m, p, _) = cli_command_to_api(&cmd);
     assert_eq!(m, "GET");
     assert_eq!(p, "/api/agents/providers");
@@ -256,7 +295,7 @@ fn agent_models_relays_to_providers_endpoint() {
 #[test]
 fn mesh_cron_create_forwards_all_advanced_fields() {
     use crate::CronAction;
-        // Keep advanced cron flags on both mesh and local paths.
+    // Keep advanced cron flags on both mesh and local paths.
     let cmd = Commands::Cron {
         action: CronAction::Create {
             name: "Nightly".into(),
@@ -291,18 +330,28 @@ fn mesh_local_only_mem_subcommands_are_rejected_not_misrouted() {
     use crate::MemAction;
     // Mesh must return errors for local-only mem commands, not fake /api/mem/stats.
     let cmd = Commands::Mem {
-        action: MemAction::RunWorker { kind: "dreaming-light".into(), db_path: None },
+        action: MemAction::RunWorker {
+            kind: "dreaming-light".into(),
+            db_path: None,
+        },
     };
     let (m, reason, b) = cli_command_to_api(&cmd);
     assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
-    assert!(reason.contains("local-only"), "reason should explain why: {reason}");
+    assert!(
+        reason.contains("local-only"),
+        "reason should explain why: {reason}"
+    );
     assert!(b.is_none());
 }
 
 #[test]
 fn mem_get_relays_to_items_id() {
     use crate::MemAction;
-    let cmd = Commands::Mem { action: MemAction::Get { id: "fact_x".into() } };
+    let cmd = Commands::Mem {
+        action: MemAction::Get {
+            id: "fact_x".into(),
+        },
+    };
     let (m, p, _) = cli_command_to_api(&cmd);
     assert_eq!(m, "GET");
     assert_eq!(p, "/api/mem/items/fact_x");
@@ -311,7 +360,9 @@ fn mem_get_relays_to_items_id() {
 #[test]
 fn mem_stats_still_routes_to_stats() {
     use crate::MemAction;
-    let cmd = Commands::Mem { action: MemAction::Stats };
+    let cmd = Commands::Mem {
+        action: MemAction::Stats,
+    };
     let (m, p, _) = cli_command_to_api(&cmd);
     assert_eq!(m, "GET");
     assert_eq!(p, "/api/mem/stats");

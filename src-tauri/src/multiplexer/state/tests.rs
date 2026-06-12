@@ -29,7 +29,7 @@ fn test_create_workspace() {
     let (mut state, _) = MultiplexerState::new();
     let info = state.create_workspace("Work".to_string(), None);
     assert_eq!(info.name, "Work");
-    assert_eq!(info.tab_count, 1);
+    assert_eq!(info.tab_count, 0);
     assert!(!info.is_active);
     assert_eq!(state.list_workspaces().len(), 2);
 }

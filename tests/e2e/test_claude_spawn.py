@@ -12,6 +12,8 @@ import time
 import pytest
 from helpers import CodeTermAPI, unique_name
 
+pytestmark = pytest.mark.llm
+
 
 # Marker we can search for in output to confirm Claude is alive
 CLAUDE_READY_MARKERS = ["shift+tab", "esc to interrupt", "hold Space", "ctrl+g"]

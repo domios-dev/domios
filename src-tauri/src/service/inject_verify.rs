@@ -50,6 +50,10 @@ pub enum InjectionError {
         waited: Duration,
         screen_tail: String,
     },
+    UnsafePromptVisible {
+        reason: String,
+        screen_tail: String,
+    },
     PtyClosed {
         pty_id: String,
     },
@@ -79,6 +83,16 @@ impl std::fmt::Display for InjectionError {
                     f,
                     "submit not confirmed after {:?}; screen_tail={:?}",
                     waited, screen_tail
+                )
+            }
+            Self::UnsafePromptVisible {
+                reason,
+                screen_tail,
+            } => {
+                write!(
+                    f,
+                    "refusing to inject input while unsafe prompt is visible; reason={:?}; screen_tail={:?}",
+                    reason, screen_tail
                 )
             }
             Self::PtyClosed { pty_id } => write!(f, "pty {} is closed", pty_id),
@@ -350,7 +364,10 @@ mod tests {
     fn long_paste_with_scrolled_out_prefix_matches_via_suffix() {
         // 5000-char paste: only the trailing portion fits into the 8-row tail window. Echo verify must still confirm via suffix match.
         let body: String = "A".repeat(4900);
-        let expected = format!("-=-codeterm:mesh peer=peer-a pane=abc12345-=-{} TAIL_TOKEN_END", body);
+        let expected = format!(
+            "-=-codeterm:mesh peer=peer-a pane=abc12345-=-{} TAIL_TOKEN_END",
+            body
+        );
         // Tail captured by screen_state contains only the last ~640 chars of the paste.
         let visible_tail: String = expected
             .chars()
@@ -380,7 +397,10 @@ mod tests {
     #[test]
     fn bracketed_paste_placeholder_counts_as_echo_for_long_input() {
         let screen = "> [Pasted text #7 +1 line]\n  Press Enter to send";
-        let expected = format!("-=-codeterm:mesh peer=PEER pane=abc12345-=-{}", "x".repeat(500));
+        let expected = format!(
+            "-=-codeterm:mesh peer=PEER pane=abc12345-=-{}",
+            "x".repeat(500)
+        );
         assert!(
             screen_contains_echo(screen, &expected),
             "long single-line paste replaced by placeholder must count as echo"
@@ -392,7 +412,10 @@ mod tests {
         // Real Claude Code render for a long single-line paste with no newlines is `[Pasted text #N]` WITHOUT the `+N lines` suffix. v1.1.18 regex
         // required the suffix and missed this case entirely, which is why the v1.1.18 smoke test failed for ~4.7KB single-line mesh messages.
         let screen = "> [Pasted text #1]";
-        let expected = format!("-=-codeterm:mesh peer=PEER pane=abc12345-=-{}", "x".repeat(4500));
+        let expected = format!(
+            "-=-codeterm:mesh peer=PEER pane=abc12345-=-{}",
+            "x".repeat(4500)
+        );
         assert!(
             screen_contains_echo(screen, &expected),
             "single-line paste without `+N lines` suffix must still count as echo"

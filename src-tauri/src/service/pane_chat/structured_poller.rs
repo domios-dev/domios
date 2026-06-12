@@ -35,7 +35,10 @@ pub fn spawn_structured_poller(
     let join = thread::spawn(move || {
         log::info!(
             "[structured-poller] started pane={} provider={} sid={} cursor={:?}",
-            cfg.pane_id, cfg.provider_id, cfg.session_id, cfg.start_cursor
+            cfg.pane_id,
+            cfg.provider_id,
+            cfg.session_id,
+            cfg.start_cursor
         );
         let mut cursor = cfg.start_cursor.clone();
         let mut last_emit_cursor: Option<String> = None;
@@ -50,7 +53,9 @@ pub fn spawn_structured_poller(
             if !delta.messages.is_empty() && delta.cursor != last_emit_cursor {
                 log::debug!(
                     "[structured-poller] pane={} emit {} msg(s) cursor={:?}",
-                    cfg.pane_id, delta.messages.len(), delta.cursor
+                    cfg.pane_id,
+                    delta.messages.len(),
+                    delta.cursor
                 );
                 last_emit_cursor = delta.cursor.clone();
                 sink.emit(&cfg.pane_id, delta.messages, delta.cursor.clone());

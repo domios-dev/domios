@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1046,6 +1046,7 @@ Plain shell pane. For an AI pane use `codeterm agent spawn` instead
 
 - `--cmd` — Command to run on pane start (e.g. `"poetry run backend"`). Sent into the PTY after the shell is ready
 - `--cwd` — Working directory for the new pane
+- `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
 - `--title` — Tab title
 - `--workspace` — Target workspace id (default: current focused)
 

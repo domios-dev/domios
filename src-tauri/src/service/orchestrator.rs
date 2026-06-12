@@ -2,6 +2,7 @@
 
 use super::{json_str, resolve_refs, ServiceContext};
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 
 // ── Batch ───────────────────────────────────────────────────────────
 
@@ -322,6 +323,20 @@ impl ServiceContext {
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
         params.cwd = resolved_cwd;
 
+        let default_chat_enabled = self
+            .app_handle
+            .state::<crate::config::ConfigState>()
+            .lock()
+            .ui
+            .default_new_agent_pane_chat;
+        let default_chat_view = crate::service::spawn::should_default_agent_pane_to_chat(
+            default_chat_enabled,
+            crate::service::spawn::PaneVisibility::Visible,
+            self.agent_registry
+                .with_provider(agent_cmd, |p| p.supports_chat_ui())
+                .unwrap_or(false),
+        );
+
         // 2. Create new tab in the workspace (each agent gets its own tab)
         let (tab_id, pane_id) = {
             let mut mux = self.mux.lock();
@@ -339,6 +354,11 @@ impl ServiceContext {
             }
             if params.activate.unwrap_or(false) {
                 let _ = mux.set_active_tab(&ws_id, &result.0);
+            }
+            if default_chat_view {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.chat_view = true;
+                }
             }
             // Set report target for cron agents
             if let Some(ref rtid) = params.report_target_pane_id {
@@ -385,12 +405,9 @@ impl ServiceContext {
 
         // 4c. Pin agent_session_id for resume up-front: we know the id from the user's request, so don't wait for detect_session_id polling.
         let launch_session_id = if params.resume_session_id.is_none() {
-            self
-                .agent_registry
+            self.agent_registry
                 .with_provider(agent_cmd, |p| p.session_id_injection())
-                .filter(|mode| {
-                    !matches!(mode, crate::agent::provider::SessionIdInjection::None)
-                })
+                .filter(|mode| !matches!(mode, crate::agent::provider::SessionIdInjection::None))
                 .map(|_| uuid::Uuid::new_v4().to_string())
         } else {
             None
@@ -400,6 +417,11 @@ impl ServiceContext {
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
+        if let Some(model) = params.model.as_ref().filter(|m| !m.trim().is_empty()) {
+            if let Some(pane) = self.mux.lock().get_pane_mut(&pane_id) {
+                pane.agent_session_model = Some(model.trim().to_string());
+            }
+        }
 
         // 5. Launch agent in background thread
         let bg_task = params.task.as_ref().map(|t| match params.role.as_deref() {
@@ -407,14 +429,13 @@ impl ServiceContext {
             Some("Orchestrator") => format!("{}{}", t, crate::prompts::ORCHESTRATOR_SUFFIX),
             _ => t.clone(),
         });
-        let launch_cmd =
-            build_agent_command(
-                agent_cmd,
-                &params,
-                bg_task.as_deref(),
-                launch_session_id.as_deref(),
-                &self.agent_registry,
-            );
+        let launch_cmd = build_agent_command(
+            agent_cmd,
+            &params,
+            bg_task.as_deref(),
+            launch_session_id.as_deref(),
+            &self.agent_registry,
+        );
         launch_agent_in_background(
             self.clone(),
             pane_id.clone(),

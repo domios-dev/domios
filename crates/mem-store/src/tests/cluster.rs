@@ -28,13 +28,20 @@ fn plan_format_round_trip() {
     assert!(md.contains("topic_id: topic_test"));
     assert!(md.contains("- s1"));
     let parsed = crate::plan_format::read(&md).unwrap();
-    assert_eq!(parsed.warnings.len(), 0, "clean plan must produce zero warnings");
+    assert_eq!(
+        parsed.warnings.len(),
+        0,
+        "clean plan must produce zero warnings"
+    );
     assert_eq!(parsed.plan.clusters.len(), 1);
     assert_eq!(parsed.plan.clusters[0].topic_id, "topic_test");
     assert_eq!(parsed.plan.clusters[0].entity_type, "Topic");
     assert_eq!(parsed.plan.clusters[0].anchor, "anchor_a");
     assert_eq!(parsed.plan.clusters[0].sources, vec!["s1", "s2", "s3"]);
-    assert_eq!(parsed.plan.clusters[0].reason.as_deref(), Some("heuristic-recluster-2026-05-08"));
+    assert_eq!(
+        parsed.plan.clusters[0].reason.as_deref(),
+        Some("heuristic-recluster-2026-05-08")
+    );
     assert_eq!(parsed.plan.generated_at, "2026-05-08T10:30:00Z");
 }
 
@@ -79,10 +86,21 @@ fn plan_format_handles_malformed_fence_gracefully() {
                 - s3\n\
               ```\n";
     let report = crate::plan_format::read(md).unwrap();
-    assert_eq!(report.plan.clusters.len(), 2, "good clusters must survive a bad neighbour");
-    assert!(!report.warnings.is_empty(), "bad fence must produce a warning");
-    let topic_ids: Vec<&str> = report.plan.clusters.iter()
-        .map(|c| c.topic_id.as_str()).collect();
+    assert_eq!(
+        report.plan.clusters.len(),
+        2,
+        "good clusters must survive a bad neighbour"
+    );
+    assert!(
+        !report.warnings.is_empty(),
+        "bad fence must produce a warning"
+    );
+    let topic_ids: Vec<&str> = report
+        .plan
+        .clusters
+        .iter()
+        .map(|c| c.topic_id.as_str())
+        .collect();
     assert!(topic_ids.contains(&"topic_good"));
     assert!(topic_ids.contains(&"topic_other_good"));
 }
@@ -119,24 +137,43 @@ fn apply_runs_each_cluster_action() {
     assert_eq!(report.clusters_applied, 1);
     assert_eq!(report.clusters_failed, 0);
 
-    let topic_exists: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM entities WHERE id='topic_apply_test'", [], |r| r.get(0)).unwrap();
+    let topic_exists: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM entities WHERE id='topic_apply_test'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(topic_exists, 1);
 
-    let direct_active: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations \
+    let direct_active: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations \
          WHERE from_id IN ('s1','s2') AND to_id='anchor' AND valid_to IS NULL",
-        [], |r| r.get(0)).unwrap();
-    assert_eq!(direct_active, 0, "direct source->anchor edges must be invalidated");
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        direct_active, 0,
+        "direct source->anchor edges must be invalidated"
+    );
 
     let topic_anchor_active: i64 = conn.query_row(
         "SELECT COUNT(*) FROM relations WHERE from_id='topic_apply_test' AND to_id='anchor' AND valid_to IS NULL",
         [], |r| r.get(0)).unwrap();
     assert_eq!(topic_anchor_active, 1, "topic -> anchor edge must exist");
 
-    let sources_via_topic: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM relations \
+    let sources_via_topic: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations \
          WHERE from_id IN ('s1','s2') AND to_id='topic_apply_test' AND valid_to IS NULL",
-        [], |r| r.get(0)).unwrap();
-    assert_eq!(sources_via_topic, 2, "both sources must route through topic");
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        sources_via_topic, 2,
+        "both sources must route through topic"
+    );
 }
