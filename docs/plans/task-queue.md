@@ -102,6 +102,75 @@ send path; state lives on the REQUESTER's daemon (single source of truth).
 - **Cron**: cron-spawned agents get their task created automatically, so
   scheduled work appears on the same board.
 
+## Attachment & visibility model
+
+**The board is workspace-scoped; tasks are owned by their requester pane.**
+A task = (workspace, requester pane, assignee pane). Rationale: workspaces are
+already the project boundary (cwd, agent roster); "the swarm working on project X"
+is exactly one workspace today. The Tasks tab shows the ACTIVE workspace's board.
+
+Role-based visibility (daemon-filtered, not UI-filtered):
+- **Orchestrator pane** (requester): sees every task it created — full board,
+  all states, all reports. `task list` from an orchestrator pane defaults to
+  `--requester self`.
+- **Worker pane** (satellite): sees ONLY tasks assigned to it — `task list` from
+  a Worker pane is forcibly scoped to `--assignee self`. A worker cannot read
+  another worker's brief or report (keeps briefs self-contained by construction).
+- User in the UI: sees everything (it's their machine).
+
+## Orchestrator ergonomics — the system reminds the orchestrator it orchestrates
+
+Live finding: over a 30h session the orchestrator's own context compacts and
+drifts; nothing in the system re-anchors the role. Fixes, all daemon-driven:
+
+1. **Digest injection.** On events (report arrived, lane Dead, task Blocked) and
+   on a quiet-period timer (default 20 min with non-terminal tasks outstanding),
+   the daemon injects into the orchestrator's pane a one-liner digest message
+   carrying a `-=-codeterm:task-digest` marker:
+   `[Tasks] 2 working · 1 REPORT UNREAD (F7) · 1 lane silent 9m (Spark/E4) — task list`
+   This is the anti-amnesia device: the role reminder arrives as workflow, not as
+   prompt text the agent must remember to obey. Survives compaction by definition
+   (it keeps arriving).
+2. **Session re-anchor.** When an orchestrator pane's agent session restarts or
+   compacts (`SessionStart` hook already exists), the daemon re-injects a board
+   snapshot: "You are the requester of N open tasks: ...".
+3. **Unread-report discipline.** Reports land as messages AND set an unread flag;
+   the digest nags until `task show ID` (or UI open) clears it. No more reports
+   scrolling away between user messages.
+
+## Worker ergonomics
+
+1. **Envelope** (delivery message) carries the brief + the two commands the worker
+   must run (`task accept`, `task report ...`) — self-contained, works for agents
+   with zero CodeTerm knowledge.
+2. **Pinned current task.** Pane status bar shows a task chip (id + state + age);
+   `$CODETERM_TASK_ID` env is set on the pane while a task is Accepted/Working.
+3. **Restart/compaction re-anchor.** On worker session restart with a held task,
+   the daemon re-injects: "You hold task X (state Working, heartbeat overdue
+   3m). Brief: <path>. Continue or report blocked." — kills the
+   finished-but-never-reported and restarted-and-forgot classes.
+4. **Status-check pings** are the nudge machinery from the state machine — same
+   message shape, marker-tagged, so ChatUI renders them as part of the task card
+   thread, not as loose text.
+
+## ChatUI integration — tasks are cards, not text
+
+Reuse the proven marker→card pipeline (`-=-codeterm:*` markers are already parsed
+by packages/chat-ui recognize/CodetermCard and hidden-raw — the cross-pane chat
+tests cover the pattern). New marker kinds, all hidden-raw in transcripts:
+
+| Marker | Rendered card | Where it appears |
+|---|---|---|
+| `-=-codeterm:task` (envelope) | TaskCard: id chip, brief summary (first line), state badge, accept-command copy button | worker pane chat |
+| `-=-codeterm:task-progress` | thin progress row appended to the same TaskCard thread | both panes |
+| `-=-codeterm:task-report` | ReportCard: status pill (done/blocked), changed-paths list, verified lines, proposed-commit block with copy | orchestrator pane chat |
+| `-=-codeterm:task-digest` | BoardCard: counts row + per-task chips, each chip click = `task show` | orchestrator pane chat |
+| `-=-codeterm:task-nudge` | amber reminder row in the TaskCard thread | worker pane chat |
+
+Component-test surface is the same harness as MessageBubble.providers.test.tsx —
+fixtures per marker kind, structure/interaction asserts, no Playwright needed for
+the rendering layer.
+
 ## Phase 2 — limit-aware auto-routing (`--assignee auto`)
 
 Router inputs, all existing: registered providers + models (`agent models`),
@@ -133,6 +202,16 @@ here: merge-conflict UX beyond "report conflict, leave worktree for a human".
 - Component: Tasks board rendering from fixture states (happy-dom pattern).
 - Vacuity rules apply: nudge tests assert the nudge text arrived in the pane
   (split marker in template), not that a counter incremented.
+- ChatUI cards: component tests per marker kind (TaskCard/ReportCard/BoardCard/
+  nudge row) on the happy-dom harness — fixture markers in, DOM structure +
+  copy-button interactions asserted; raw marker MUST be hidden (the cross-pane
+  test pattern). One Playwright smoke: envelope→accept→report round-trip renders
+  both cards in both panes' ChatUI.
+- Ergonomics e2e (debug clock): quiet-period digest fires only when non-terminal
+  tasks exist; unread-report nag repeats until shown; worker restart re-anchor
+  message arrives after a simulated session restart (session-restore harness).
+- Visibility e2e: `task list` from a Worker-role pane never returns a foreign
+  task (negative assert, not presence-only).
 
 ## Out of scope (explicitly)
 
@@ -151,4 +230,4 @@ here: merge-conflict UX beyond "report conflict, leave worktree for a human".
 4. Later: mesh-distributed boards, cron deep-integration, G4-blocker auto-unblock
    hooks.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
