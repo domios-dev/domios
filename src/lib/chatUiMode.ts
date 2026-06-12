@@ -4,8 +4,14 @@ import type { AppConfig } from "./types";
 
 export const CHAT_UI_DEFAULT_KEY = "codeterm-chat-ui-default-enabled";
 export const CHAT_UI_DEFAULT_PROMPTED_KEY = "codeterm-chat-ui-default-prompted";
+export const CHAT_UI_DEFAULT_PROMPT_EVENT = "codeterm-chat-ui-default-prompt";
 
 export type PaneUiMode = "terminal" | "chat";
+export type ChatUiDefaultPromptChoice = "yes" | "no";
+export type ChatUiDefaultPromptDetail = {
+  handled: boolean;
+  choose: (choice: ChatUiDefaultPromptChoice) => void;
+};
 
 // Capability-driven: a provider supports chat when its descriptor says so
 // (JSONL sessions or structured/DB-backed chat). No hardcoded provider list.
@@ -21,6 +27,7 @@ export function shouldDefaultNewAgentPaneToChat(agentType?: string | null): bool
 
 let cachedDefaultNewAgentPaneChat = false;
 let configLoad: Promise<boolean> | null = null;
+let configWriterForTest: ((enabled: boolean) => Promise<void>) | null = null;
 
 function readLegacyDefault(): boolean | null {
   try {
@@ -48,6 +55,10 @@ function clearLegacyDefault(): void {
 }
 
 async function writeDefaultToConfig(enabled: boolean): Promise<void> {
+  if (configWriterForTest) {
+    await configWriterForTest(enabled);
+    return;
+  }
   const config = await invoke<AppConfig>("get_config");
   await invoke("update_config", {
     config: {
@@ -94,16 +105,37 @@ export async function setDefaultNewAgentPaneToChat(enabled: boolean): Promise<vo
   await writeDefaultToConfig(enabled);
 }
 
+function askDefaultNewAgentPaneToChat(): Promise<ChatUiDefaultPromptChoice> {
+  return new Promise((resolve) => {
+    const detail: ChatUiDefaultPromptDetail = {
+      handled: false,
+      choose: resolve,
+    };
+    window.dispatchEvent(new CustomEvent(CHAT_UI_DEFAULT_PROMPT_EVENT, { detail }));
+    if (!detail.handled) {
+      resolve("no");
+    }
+  });
+}
+
 export async function maybeAskDefaultNewAgentPaneToChat(): Promise<void> {
   try {
     if (localStorage.getItem(CHAT_UI_DEFAULT_PROMPTED_KEY) === "true") return;
   } catch {
     return;
   }
-  markPrompted();
-  if (window.confirm("Use Chat UI by default for new supported agent panes?")) {
+  const choice = await askDefaultNewAgentPaneToChat();
+  if (choice === "yes") {
     await setDefaultNewAgentPaneToChat(true);
+  } else {
+    markPrompted();
   }
+}
+
+export function __setChatUiDefaultConfigWriterForTest(
+  writer: ((enabled: boolean) => Promise<void>) | null,
+): void {
+  configWriterForTest = writer;
 }
 
 export function emitPaneUiMode(paneId: string, mode: PaneUiMode): void {
