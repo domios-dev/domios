@@ -46,7 +46,7 @@ Then: `Authorization: Bearer your-secret-token`
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/workspaces` | — | List all workspaces |
-| POST | `/api/workspaces` | `{name}` | Create workspace |
+| POST | `/api/workspaces` | `{name, cwd?}` | Create workspace. When `cwd` matches an existing workspace, the existing workspace is returned with `existing: true`; no new workspace is created and the requested name is ignored. |
 | POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
 | POST | `/api/workspaces/{id}/close` | — | Delete workspace |
@@ -1143,4 +1143,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 56 -->
+<!-- revision: 57 -->

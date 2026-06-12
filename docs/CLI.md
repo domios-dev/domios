@@ -1172,9 +1172,9 @@ Send text to a pane (default: current pane)
 Aliases: send-text
 
 - `--from_file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
-- `--from_stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --from-stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
 - `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-- `<text>` — Text to send (positional, or omit and use --from-file/--from-stdin)
+- `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
+- `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 
 #### `codeterm service`
 
@@ -1398,7 +1398,7 @@ Close/delete a workspace
 
 #### `codeterm workspace create`
 
-Create a new workspace
+Create a new workspace. With --cwd, reuses an existing workspace at that cwd
 
 - `--cwd` — Working directory — agents spawned with --workspace inherit this as their CWD
 - `<name>` — Workspace name

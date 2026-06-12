@@ -4060,14 +4060,6 @@
           "aliases": []
         },
         {
-          "name": "from_stdin",
-          "positional": false,
-          "value_name": "FROM_STDIN",
-          "default": null,
-          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --from-stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
-          "aliases": []
-        },
-        {
           "name": "pane",
           "positional": false,
           "value_name": "PANE",
@@ -4076,11 +4068,21 @@
           "aliases": []
         },
         {
+          "name": "stdin",
+          "positional": false,
+          "value_name": "STDIN",
+          "default": null,
+          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
+          "aliases": [
+            "from-stdin"
+          ]
+        },
+        {
           "name": "text",
           "positional": true,
           "value_name": "TEXT",
-          "default": "",
-          "help": "Text to send (positional, or omit and use --from-file/--from-stdin)",
+          "default": null,
+          "help": "Text to send (positional, or omit and use --from-file/--stdin)",
           "aliases": []
         }
       ],
@@ -4875,7 +4877,7 @@
         },
         {
           "name": "create",
-          "about": "Create a new workspace",
+          "about": "Create a new workspace. With --cwd, reuses an existing workspace at that cwd",
           "aliases": [],
           "args": [
             {
