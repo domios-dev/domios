@@ -21,7 +21,7 @@ fi
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
-"$GEN" --stdout >"$tmp"
+bash "$(dirname "$0")/gen-agents-md.sh" --stdout >"$tmp"
 
 if ! diff -u "$OUT" "$tmp"; then
     echo >&2
