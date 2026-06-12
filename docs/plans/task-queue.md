@@ -137,6 +137,21 @@ drifts; nothing in the system re-anchors the role. Fixes, all daemon-driven:
 3. **Unread-report discipline.** Reports land as messages AND set an unread flag;
    the digest nags until `task show ID` (or UI open) clears it. No more reports
    scrolling away between user messages.
+4. **Orchestrator action-nudges (symmetric watchdogs).** The queue must drain;
+   stagnation that only the requester can resolve gets escalating, action-phrased
+   nudges into the orchestrator's pane (not mere info):
+   - report unread > `T_review` (default 10 min) → "verify and close F7 — its
+     lane is idle waiting on you";
+   - task Blocked > `T_decide` → "decision needed on E4: unblock, reassign or
+     cancel";
+   - task Dead → immediate "re-dispatch or cancel X";
+   - queued unassigned tasks while lanes sit idle → "2 queued, 3 idle lanes —
+     dispatch".
+   Escalation chain mirrors the worker side: nudge ×2 → if the orchestrator pane
+   itself stays unresponsive, a warning NOTIFICATION to the human user
+   ("your orchestrator is stalled: 3 undispatched tasks, 1 unread report").
+   The human is the final watchdog; the system never silently waits on a
+   forgotten orchestrator.
 
 ## Worker ergonomics
 
@@ -230,4 +245,4 @@ here: merge-conflict UX beyond "report conflict, leave worktree for a human".
 4. Later: mesh-distributed boards, cron deep-integration, G4-blocker auto-unblock
    hooks.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
