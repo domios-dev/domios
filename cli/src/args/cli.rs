@@ -91,9 +91,8 @@ pub enum Commands {
     /// Send text to a pane (default: current pane)
     #[command(name = "send", visible_alias = "send-text")]
     SendText {
-        /// Text to send (positional, or omit and use --from-file/--from-stdin)
-        #[arg(default_value = "")]
-        text: String,
+        /// Text to send (positional, or omit and use --from-file/--stdin)
+        text: Option<String>,
 
         /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
         #[arg(long, alias = "id")]
@@ -106,7 +105,7 @@ pub enum Commands {
 
         /// Read text from stdin. Pair with a single-quoted heredoc to bypass
         /// the shell entirely:
-        ///   codeterm send --pane X --from-stdin <<'EOF'
+        ///   codeterm send --pane X --stdin <<'EOF'
         ///   any `backticks`, $vars, etc — zero interpolation
         ///   EOF
         ///
@@ -114,8 +113,8 @@ pub enum Commands {
         /// have been written to the PTY. For "wait for the agent to process
         /// my message", a future `codeterm agent send` primitive will hook
         /// into the provider's request/response cycle.
-        #[arg(long)]
-        from_stdin: bool,
+        #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
+        stdin: bool,
     },
 
     /// Web mirror helpers (share links, etc.)
