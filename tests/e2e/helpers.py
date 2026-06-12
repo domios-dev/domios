@@ -37,7 +37,7 @@ IS_WINDOWS = sys.platform == "win32"
 def echo_env(var_name: str) -> str:
     """Return platform-appropriate command to echo an env var."""
     if IS_WINDOWS:
-        return f"echo %{var_name}%"
+        return f"Write-Output $env:{var_name}"
     return f"echo ${var_name}"
 
 

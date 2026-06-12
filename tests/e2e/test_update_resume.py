@@ -43,9 +43,15 @@ def long_running_command() -> str:
 
 def spawn_long_running_panes(api: CodeTermAPI, base_pane: str, count: int) -> list[str]:
     pane_ids = [base_pane]
+    base = next((p for p in api.list_panes() if p["id"] == base_pane), None)
+    if base is None:
+        raise AssertionError(f"base pane {base_pane} missing from snapshot")
+    workspace_id = base.get("workspace_id")
+    if not workspace_id:
+        raise AssertionError(f"base pane {base_pane} missing workspace_id")
     for _ in range(count - 1):
-        result = api.split_pane(base_pane, direction="right")
-        new_id = result["new_pane_id"]
+        result = api.create_tab(workspace_id, eager=True)
+        new_id = result["pane_id"]
         api.wait_for_pty(new_id, timeout=15)
         pane_ids.append(new_id)
 
