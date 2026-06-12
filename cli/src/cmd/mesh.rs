@@ -155,9 +155,6 @@ pub fn handle_mesh(json: bool, action: MeshAction) {
         } => {
             mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "exec", &command, &pane, json);
         }
-        MeshAction::Send { target, text, pane } => {
-            mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "send", &text, &pane, json);
-        }
         MeshAction::Output { target, pane } => {
             mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "output", "", &pane, json);
         }

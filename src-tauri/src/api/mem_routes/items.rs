@@ -15,7 +15,9 @@ use crate::mem::{
     store::{MemKind, MemScope, MemUpdate, NewMemItem},
 };
 
-use super::{changed_by_from_headers, emit_activity, validate_item_fields, WORKER_ID_HEADER};
+use super::{
+    changed_by_from_headers, emit_activity, sanitize_actor, validate_item_fields, WORKER_ID_HEADER,
+};
 
 #[derive(Deserialize)]
 pub struct ActivityRecentParams {
@@ -474,6 +476,8 @@ pub struct UpdateBody {
     pub importance: Option<f64>,
     #[serde(default)]
     pub pinned: Option<bool>,
+    #[serde(default)]
+    pub changed_by: Option<String>,
 }
 
 pub async fn mem_update(
@@ -532,7 +536,13 @@ pub async fn mem_update(
         bump_recurrence: None,
         pinned: body.pinned,
     };
-    let changed_by = changed_by_from_headers(&headers);
+    let changed_by = body
+        .changed_by
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(sanitize_actor)
+        .unwrap_or_else(|| changed_by_from_headers(&headers));
     let updated =
         crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.update(&id, patch))
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;

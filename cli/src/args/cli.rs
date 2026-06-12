@@ -188,16 +188,7 @@ pub enum Commands {
     Update {
         #[command(subcommand)]
         action: Option<UpdateAction>,
-        /// Shortcut for `update check`
-        #[arg(long, conflicts_with_all = ["apply", "channel"])]
-        check: bool,
-        /// Shortcut for `update install --auto`
-        #[arg(long, conflicts_with_all = ["check", "channel"])]
-        apply: bool,
-        /// Shortcut for `update channel [name]`. Pass without value to print current channel.
-        #[arg(long, num_args = 0..=1, default_missing_value = "", conflicts_with_all = ["check", "apply"])]
-        channel: Option<String>,
-        /// Override manifest URL when paired with --apply (or `install --auto`).
+        /// Override manifest URL when paired with `install --auto`.
         /// Backend must be built with `dev-updater-allowlocal` for non-https URLs.
         #[arg(long)]
         manifest_url: Option<String>,

@@ -14,30 +14,29 @@ use super::{parse_ip_port, MeshAction, MeshPeerAction};
 /// agree on one token.
 pub const UNSUPPORTED_OVER_MESH: &str = "UNSUPPORTED";
 
+fn unsupported(reason: &str) -> (String, String, Option<String>) {
+    (UNSUPPORTED_OVER_MESH.into(), reason.into(), None)
+}
+
 /// Map a CLI command to its corresponding API call.
 pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
     match cmd {
         // `web link` is local-only: token must be generated on the same machine.
-        Commands::Web { .. } => (
-            UNSUPPORTED_OVER_MESH.into(),
-            "web link is local-only — each peer's link needs that peer's own token; run it there"
-                .into(),
-            None,
+        Commands::Web { .. } => unsupported(
+            "web link is local-only — each peer's link needs that peer's own token; run it there",
         ),
         // `plugin` manages local on-disk plugin folders — no remote form.
-        Commands::Plugin { .. } => (
-            UNSUPPORTED_OVER_MESH.into(),
-            "plugin management is local-only — run it on the target machine".into(),
-            None,
-        ),
+        Commands::Plugin { .. } => {
+            unsupported("plugin management is local-only — run it on the target machine")
+        }
         // `cli-manifest` introspects the local clap binary — no remote form.
-        Commands::CliManifest { .. } => (
-            UNSUPPORTED_OVER_MESH.into(),
-            "cli-manifest is local-only — it dumps this binary's own command tree".into(),
-            None,
-        ),
+        Commands::CliManifest { .. } => {
+            unsupported("cli-manifest is local-only — it dumps this binary's own command tree")
+        }
         Commands::Identify => ("GET".into(), "/api/identify".into(), None),
-        Commands::Capabilities => ("GET".into(), "/api/identify".into(), None),
+        Commands::Capabilities => {
+            unsupported("capabilities is socket-only; run it on the target machine")
+        }
         Commands::GetOutput { pane, lines } => {
             let p = pane.as_deref().unwrap_or("general");
             (
@@ -115,7 +114,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 workspace,
                 cwd,
                 title,
-                cmd: _,
+                cmd,
                 eager,
             } => {
                 let mut body = serde_json::json!({});
@@ -127,6 +126,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(t) = title {
                     body["title"] = serde_json::Value::String(t.clone());
+                }
+                if let Some(c) = cmd {
+                    body["cmd"] = serde_json::Value::String(c.clone());
                 }
                 if *eager {
                     body["eager"] = serde_json::Value::Bool(true);
@@ -256,11 +258,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 let q = if *pop { "?pop=true" } else { "" };
                 ("GET".into(), format!("/api/pasteboard/{}{}", id, q), None)
             }
-            crate::PasteAction::Pop { id } => (
-                "GET".into(),
-                format!("/api/pasteboard/{}?pop=true", id),
-                None,
-            ),
             crate::PasteAction::List => ("GET".into(), "/api/pasteboard".into(), None),
             crate::PasteAction::Rm { id } => {
                 ("DELETE".into(), format!("/api/pasteboard/{}", id), None)
@@ -393,20 +390,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         },
         Commands::Update {
             action,
-            check,
-            apply,
-            channel,
             manifest_url,
             after_update,
         } => {
-            let resolved = resolve_update_action(
-                action.as_ref(),
-                *check,
-                *apply,
-                channel.clone(),
-                manifest_url.clone(),
-                after_update.clone(),
-            );
+            let resolved =
+                resolve_update_action(action.as_ref(), manifest_url.clone(), after_update.clone());
             match resolved {
                 UpdateAction::Check { force } => {
                     let path = if force {
@@ -419,11 +407,14 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 UpdateAction::Install {
                     auto,
                     manifest_url,
-                    from_file: _,
-                    continue_prompt: _,
-                    continue_pane: _,
+                    from_file,
+                    continue_prompt,
+                    continue_pane,
                     after_update,
                 } => {
+                    if from_file.is_some() || continue_prompt.is_some() || continue_pane.is_some() {
+                        return unsupported("update install --from-file/--continue-prompt/--continue-pane are local-only; run on the target machine");
+                    }
                     let mut qs = String::new();
                     if auto {
                         qs.push_str("?method=auto");
@@ -838,8 +829,7 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
         MemAction::Tail { limit, .. } => {
             ("GET".into(), format!("/api/mem/tail?limit={}", limit), None)
         }
-        // --changed-by is local-only; mesh relay strips per-call headers
-        MemAction::Update { id, title, summary, area, tags, body, importance, changed_by: _ } => {
+        MemAction::Update { id, title, summary, area, tags, body, importance, changed_by } => {
             let mut payload = serde_json::Map::new();
             if let Some(v) = title { payload.insert("title".into(), json!(v)); }
             if let Some(v) = summary { payload.insert("summary".into(), json!(v)); }
@@ -847,6 +837,14 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             if let Some(v) = tags { payload.insert("tags".into(), json!(v)); }
             if let Some(v) = body { payload.insert("body".into(), json!(v)); }
             if let Some(v) = importance { payload.insert("importance".into(), json!(v)); }
+            if let Some(v) = changed_by {
+                let trimmed = v.trim();
+                if trimmed.is_empty() {
+                    eprintln!("Error: --changed-by requires a non-empty actor label");
+                    std::process::exit(1);
+                }
+                payload.insert("changed_by".into(), json!(trimmed));
+            }
             ("PATCH".into(), format!("/api/mem/items/{}", enc(id)),
                 Some(serde_json::Value::Object(payload).to_string()))
         }
@@ -924,9 +922,8 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                     format!("/api/mem/dream?phase={}", enc(phase)),
                     None,
                 ),
-                // apply/diary are local-only DB paths; fallback to /stats for JSON shape.
                 MemDreamAction::Apply { .. } | MemDreamAction::Diary { .. } => {
-                    ("GET".into(), "/api/mem/stats".into(), None)
+                    unsupported("mem dream apply/diary are local-only and cannot run over --mesh")
                 }
             }
         }
@@ -1033,7 +1030,6 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 let payload = json!({"id": id, "force": force, "purge_history": purge_history, "actor": actor});
                 ("POST".into(), "/api/mem/graph/repair/delete-entity".into(), Some(payload.to_string()))
             }
-            // Graph mutations are local-only; unknown relay use falls back to /stats.
             MemGraphAction::Route { .. }
             | MemGraphAction::PurgeInvalidated { .. }
             | MemGraphAction::ReviveBroken { .. }
@@ -1042,7 +1038,7 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             | MemGraphAction::Islands { .. }
             | MemGraphAction::Orphans { .. }
             | MemGraphAction::Get { .. } => {
-                ("GET".into(), "/api/mem/stats".into(), None)
+                unsupported("this mem graph subcommand is local-only and cannot run over --mesh")
             }
         },
         // Local-only subcommands (PTY/subprocess/folders/keychain) never relay.
@@ -1051,10 +1047,8 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
         | MemAction::RunWorker { .. }
         | MemAction::Skill { .. }
         | MemAction::Worker { .. }
-        | MemAction::Secret { .. } => (
-            UNSUPPORTED_OVER_MESH.into(),
-            "this mem subcommand is local-only (flush / run-worker / skill / worker / secret) and cannot run over --mesh".into(),
-            None,
+        | MemAction::Secret { .. } => unsupported(
+            "this mem subcommand is local-only (flush / run-worker / skill / worker / secret) and cannot run over --mesh",
         ),
         MemAction::Reembed { scope } => (
             "POST".into(),
