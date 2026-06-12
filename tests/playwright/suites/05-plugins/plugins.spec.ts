@@ -19,9 +19,12 @@ const PLUGIN_ID = "echo";
 const CHANNEL_ROOT = path.join(os.tmpdir(), "codeterm-pw-plugin-channel");
 const WORKTREE = path.join(CHANNEL_ROOT, "work");
 const BARE = path.join(CHANNEL_ROOT, "channel.git");
+const BASH = process.platform === "win32" && existsSync("C:\\Program Files\\Git\\bin\\bash.exe")
+  ? "C:\\Program Files\\Git\\bin\\bash.exe"
+  : "bash";
 
 function bash(script: string): string {
-  return execFileSync("bash", ["-lc", script], {
+  return execFileSync(BASH, ["-lc", script], {
     cwd: REPO_ROOT,
     encoding: "utf8",
     env: { ...process.env, CODETERM_DATA_DIR: devDataDir() },
@@ -224,17 +227,22 @@ test("@golden Scenario C: system channel update renders bundled plugins from dev
 });
 
 test("@smoke @failure Scenario D: plugin failures are rendered in Settings DOM", async () => {
+  const brokenChannel = `broken-${Date.now()}`;
   const ui = await openPlugins();
   try {
     await ui.page.locator('[data-testid="plugin-channel-url-input"]').fill(`${fileUrl(CHANNEL_ROOT)}/missing#main:plugins`);
-    await ui.page.locator('[data-testid="plugin-channel-name-input"]').fill("broken");
+    await ui.page.locator('[data-testid="plugin-channel-name-input"]').fill(brokenChannel);
     await ui.page.locator('[data-testid="plugin-add-channel"]').click();
     await expect(ui.page.locator('[data-testid="plugin-manager-error"]')).toBeVisible({
       timeout: 30_000,
     });
-    await expect(ui.page.locator('[data-testid="plugin-error-toast"]')).toBeVisible({
+    const ownErrorToast = ui.page
+      .locator('[data-testid="plugin-error-toast"]')
+      .filter({ hasText: brokenChannel });
+    await expect(ownErrorToast).toHaveCount(1, {
       timeout: 30_000,
     });
+    await expect(ownErrorToast).toBeVisible();
   } finally {
     await ui.browser.close().catch(() => {});
   }
