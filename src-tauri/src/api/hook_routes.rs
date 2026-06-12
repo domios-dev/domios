@@ -169,9 +169,19 @@ pub async fn hook_permission(
                 at
             );
 
-            let mut detector = state.svc.prompt_detector.lock();
-            let decision = detector
-                .hook_detected_parse(&pane_id, &clean, |text| registry.parse_prompt(&at, text));
+            let parsed =
+                crate::agent::prompt::parse_prompt_safely(|| registry.parse_prompt(&at, &clean));
+            let tail = if parsed.is_none() && clean.len() > 100 {
+                Some(crate::agent::prompt::utf8_tail(&clean, 300).to_string())
+            } else {
+                None
+            };
+            let decision = state.svc.prompt_detector.lock().hook_detected_parsed(
+                &pane_id,
+                clean.len(),
+                tail.as_deref(),
+                parsed,
+            );
 
             if !matches!(decision, crate::agent::prompt::PromptDecision::None) {
                 decision
@@ -194,9 +204,15 @@ pub async fn hook_permission(
                         raw.len(),
                         tail.len()
                     );
-                    detector.hook_detected_parse(&pane_id, tail, |text| {
-                        registry.parse_prompt(&at, text)
-                    })
+                    let parsed = crate::agent::prompt::parse_prompt_safely(|| {
+                        registry.parse_prompt(&at, tail)
+                    });
+                    state.svc.prompt_detector.lock().hook_detected_parsed(
+                        &pane_id,
+                        tail.len(),
+                        Some(crate::agent::prompt::utf8_tail(tail, 300)),
+                        parsed,
+                    )
                 }
             }
         } else {
