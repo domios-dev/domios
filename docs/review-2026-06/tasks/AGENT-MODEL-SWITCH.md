@@ -26,6 +26,7 @@
 
 ## Notes
 - `agent restart` semantics already handle graceful exit + auto-resume; reuse, don't fork.
+- DETECT-MODEL-FIX removed the codex/opencode `detect_active_session` roll-forward (it caused cross-pane contamination). Known limitation until this task lands: a manual in-TUI `/model` or `/new` in codex/opencode creates a session the pane no longer follows. The daemon-driven switch here is the structural replacement — it knows the new session deterministically.
 - Docs: API.md, CLI.md (regen), SKILLS.md + skill folder, CONFIG.md if any default appears.
 
 <!-- revision: 1 -->
