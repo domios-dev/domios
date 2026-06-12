@@ -5,6 +5,9 @@ use std::collections::HashMap;
 use super::ServiceContext;
 use serde::Deserialize;
 
+const SHELL_BACKEND_COLS: u16 = 120;
+const SEND_AGENT_BACKEND_COLS: u16 = 240;
+
 /// Build the byte sequence written to a freshly-attached pty to launch a
 /// shell-level command (agent spawn, mem worker spawn, anything that goes
 /// through bash/cmd to start a process). On Unix we write the launch_cmd
@@ -366,7 +369,11 @@ impl ServiceContext {
         }
 
         let env_vars = self.pane_env(&resolved);
-        let cols = if agent_type.is_some() { 9999 } else { 120 };
+        let cols = if agent_type.is_some() {
+            SEND_AGENT_BACKEND_COLS
+        } else {
+            SHELL_BACKEND_COLS
+        };
         let t0 = std::time::Instant::now();
         let built = crate::pty::manager::build_session(None, cwd.clone(), cols, 40, env_vars)?;
         let (pty_id, _) = self.pty.lock().register_session(None, built);
@@ -920,7 +927,6 @@ pub struct SendBatchItem {
 mod tests {
     use super::*;
 
-    // ── Helper: captures the enter-append logic from send_text / send_text_batch ── This mirrors the exact logic in ServiceContext::send_text
     fn apply_enter(text: &str, enter: bool) -> String {
         if enter && !text.ends_with('\r') && !text.ends_with('\n') {
             format!("{}\r", text)
@@ -929,7 +935,11 @@ mod tests {
         }
     }
 
-    // ── 1. send_text enter logic ──
+    #[test]
+    fn send_created_agent_pty_uses_bounded_width() {
+        assert_eq!(SEND_AGENT_BACKEND_COLS, 240);
+        assert_eq!(SHELL_BACKEND_COLS, 120);
+    }
 
     #[test]
     fn enter_true_appends_cr_when_missing() {
@@ -938,7 +948,6 @@ mod tests {
 
     #[test]
     fn enter_true_no_double_cr() {
-        // Text already ends with \r — should NOT append another
         assert_eq!(apply_enter("ls -la\r", true), "ls -la\r");
     }
 
@@ -964,7 +973,6 @@ mod tests {
 
     #[test]
     fn enter_true_text_ending_newline() {
-        // Text ending with \n already has a line terminator — no \r appended.
         assert_eq!(apply_enter("echo hello\n", true), "echo hello\n");
     }
 
@@ -978,28 +986,19 @@ mod tests {
         assert_eq!(apply_enter("line1\nline2", true), "line1\nline2\r");
     }
 
-    // ── Windows spawn-dispatch: sacrificial leading space ──
-
     #[cfg(windows)]
     #[test]
     fn windows_spawn_dispatch_prepends_sacrificial_space() {
         let bytes = build_spawn_dispatch("Remove-Item Env:CLAUDECODE; claude").unwrap();
         let s = String::from_utf8(bytes).unwrap();
-        // Opener, then a space the PSReadLine first-byte race can eat without
-        // corrupting the command, then the command intact, then closer + CR.
         assert_eq!(s, "\x1b[200~ Remove-Item Env:CLAUDECODE; claude\x1b[201~\r");
-        // If the first content byte is dropped, what survives still starts with
-        // the real command — never `emove-Item`.
         let after_opener = &s["\x1b[200~".len()..];
         assert!(after_opener.starts_with(' '));
         assert!(after_opener[1..].starts_with("Remove-Item"));
     }
 
-    // ── SendBatchItem deserialization ──
-
     #[test]
     fn batch_item_enter_defaults_false() {
-        // SendBatchItem uses #[serde(default)] which defaults bool to false
         let json = r#"{"text": "hello"}"#;
         let item: SendBatchItem = serde_json::from_str(json).unwrap();
         assert_eq!(item.text, "hello");
@@ -1024,8 +1023,6 @@ mod tests {
         let item: SendBatchItem = serde_json::from_str(json).unwrap();
         assert!(!item.enter);
     }
-
-    // ── screen_has_shell_prompt ──
 
     use crate::pty::screen_state::screen_has_shell_prompt;
 

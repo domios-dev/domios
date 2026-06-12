@@ -3,18 +3,9 @@ use super::parse_ip_port;
 use super::{MeshAction, MeshPeerAction};
 use crate::{Commands, UpdateAction};
 
-fn update_cmd(
-    action: Option<UpdateAction>,
-    check: bool,
-    apply: bool,
-    channel: Option<String>,
-    manifest_url: Option<String>,
-) -> Commands {
+fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Commands {
     Commands::Update {
         action,
-        check,
-        apply,
-        channel,
         manifest_url,
         after_update: None,
     }
@@ -22,7 +13,7 @@ fn update_cmd(
 
 #[test]
 fn check_maps_to_get_check() {
-    let (m, p, b) = cli_command_to_api(&update_cmd(None, true, false, None, None));
+    let (m, p, b) = cli_command_to_api(&update_cmd(None, None));
     assert_eq!(m, "GET");
     assert_eq!(p, "/api/update/check");
     assert!(b.is_none());
@@ -30,20 +21,25 @@ fn check_maps_to_get_check() {
 
 #[test]
 fn check_force_maps_to_query_param() {
-    let (m, p, _) = cli_command_to_api(&update_cmd(
-        Some(UpdateAction::Check { force: true }),
-        false,
-        false,
-        None,
-        None,
-    ));
+    let (m, p, _) =
+        cli_command_to_api(&update_cmd(Some(UpdateAction::Check { force: true }), None));
     assert_eq!(m, "GET");
     assert_eq!(p, "/api/update/check?force=true");
 }
 
 #[test]
 fn apply_maps_to_install_auto() {
-    let (m, p, b) = cli_command_to_api(&update_cmd(None, false, true, None, None));
+    let (m, p, b) = cli_command_to_api(&update_cmd(
+        Some(UpdateAction::Install {
+            auto: true,
+            manifest_url: None,
+            from_file: None,
+            continue_prompt: None,
+            continue_pane: None,
+            after_update: None,
+        }),
+        None,
+    ));
     assert_eq!(m, "POST");
     assert_eq!(p, "/api/update/install?method=auto");
     assert!(b.is_none());
@@ -52,10 +48,14 @@ fn apply_maps_to_install_auto() {
 #[test]
 fn apply_with_manifest_url_appends_query() {
     let (m, p, _) = cli_command_to_api(&update_cmd(
-        None,
-        false,
-        true,
-        None,
+        Some(UpdateAction::Install {
+            auto: true,
+            manifest_url: None,
+            from_file: None,
+            continue_prompt: None,
+            continue_pane: None,
+            after_update: None,
+        }),
         Some("http://localhost:9999/latest.json".to_string()),
     ));
     assert_eq!(m, "POST");
@@ -65,7 +65,10 @@ fn apply_with_manifest_url_appends_query() {
 
 #[test]
 fn channel_get_maps_to_get_channel() {
-    let (m, p, b) = cli_command_to_api(&update_cmd(None, false, false, Some(String::new()), None));
+    let (m, p, b) = cli_command_to_api(&update_cmd(
+        Some(UpdateAction::Channel { channel: None }),
+        None,
+    ));
     assert_eq!(m, "GET");
     assert_eq!(p, "/api/update/channel");
     assert!(b.is_none());
@@ -74,10 +77,9 @@ fn channel_get_maps_to_get_channel() {
 #[test]
 fn channel_set_maps_to_post_channel_with_body() {
     let (m, p, b) = cli_command_to_api(&update_cmd(
-        None,
-        false,
-        false,
-        Some("rc".to_string()),
+        Some(UpdateAction::Channel {
+            channel: Some("rc".to_string()),
+        }),
         None,
     ));
     assert_eq!(m, "POST");
@@ -85,6 +87,32 @@ fn channel_set_maps_to_post_channel_with_body() {
     let body = b.expect("body");
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["channel"], "rc");
+}
+
+#[test]
+fn update_install_local_only_options_are_rejected_over_mesh() {
+    let (m, reason, b) = cli_command_to_api(&update_cmd(
+        Some(UpdateAction::Install {
+            auto: true,
+            manifest_url: None,
+            from_file: Some("C:/tmp/CodeTerm.exe".into()),
+            continue_prompt: Some("verify".into()),
+            continue_pane: Some("pane_1".into()),
+            after_update: None,
+        }),
+        None,
+    ));
+    assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
+    assert!(reason.contains("local-only"), "reason: {reason}");
+    assert!(b.is_none());
+}
+
+#[test]
+fn capabilities_is_not_misrouted_to_identify() {
+    let (m, reason, b) = cli_command_to_api(&Commands::Capabilities);
+    assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
+    assert!(reason.contains("socket-only"), "reason: {reason}");
+    assert!(b.is_none());
 }
 
 #[test]
@@ -326,6 +354,29 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
 }
 
 #[test]
+fn pane_new_relays_cmd_field() {
+    use crate::PaneAction;
+    let cmd = Commands::Pane {
+        action: PaneAction::New {
+            workspace: Some("ws_1".into()),
+            cwd: Some("C:/Developer/codeterm".into()),
+            title: Some("runner".into()),
+            cmd: Some("pnpm test".into()),
+            eager: true,
+        },
+    };
+    let (m, p, b) = cli_command_to_api(&cmd);
+    assert_eq!(m, "POST");
+    assert_eq!(p, "/api/panes");
+    let body: serde_json::Value = serde_json::from_str(&b.unwrap()).unwrap();
+    assert_eq!(body["workspace_id"], "ws_1");
+    assert_eq!(body["cwd"], "C:/Developer/codeterm");
+    assert_eq!(body["title"], "runner");
+    assert_eq!(body["cmd"], "pnpm test");
+    assert_eq!(body["eager"], true);
+}
+
+#[test]
 fn mesh_local_only_mem_subcommands_are_rejected_not_misrouted() {
     use crate::MemAction;
     // Mesh must return errors for local-only mem commands, not fake /api/mem/stats.
@@ -342,6 +393,63 @@ fn mesh_local_only_mem_subcommands_are_rejected_not_misrouted() {
         "reason should explain why: {reason}"
     );
     assert!(b.is_none());
+}
+
+#[test]
+fn mem_dream_apply_is_rejected_not_misrouted_to_stats() {
+    use crate::{MemAction, MemDreamAction};
+    let cmd = Commands::Mem {
+        action: MemAction::Dream {
+            action: MemDreamAction::Apply {
+                plan_file: "plan.md".into(),
+                db_path: None,
+            },
+        },
+    };
+    let (m, reason, b) = cli_command_to_api(&cmd);
+    assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
+    assert!(reason.contains("local-only"), "reason: {reason}");
+    assert!(b.is_none());
+}
+
+#[test]
+fn mem_graph_local_only_reads_are_rejected_not_misrouted_to_stats() {
+    use crate::{MemAction, MemGraphAction};
+    let cmd = Commands::Mem {
+        action: MemAction::Graph {
+            action: MemGraphAction::Hubs {
+                threshold: 20,
+                sample: 30,
+            },
+        },
+    };
+    let (m, reason, b) = cli_command_to_api(&cmd);
+    assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
+    assert!(reason.contains("local-only"), "reason: {reason}");
+    assert!(b.is_none());
+}
+
+#[test]
+fn mem_update_relays_changed_by() {
+    use crate::MemAction;
+    let cmd = Commands::Mem {
+        action: MemAction::Update {
+            id: "fact_x".into(),
+            title: Some("New title".into()),
+            summary: None,
+            area: None,
+            tags: None,
+            body: None,
+            importance: None,
+            changed_by: Some("cli:test".into()),
+        },
+    };
+    let (m, p, b) = cli_command_to_api(&cmd);
+    assert_eq!(m, "PATCH");
+    assert_eq!(p, "/api/mem/items/fact_x");
+    let body: serde_json::Value = serde_json::from_str(&b.unwrap()).unwrap();
+    assert_eq!(body["title"], "New title");
+    assert_eq!(body["changed_by"], "cli:test");
 }
 
 #[test]
@@ -371,10 +479,10 @@ fn mem_stats_still_routes_to_stats() {
 #[test]
 fn send_text_is_fire_and_forget_on_mesh() {
     let cmd = Commands::SendText {
-        text: "ping".into(),
+        text: Some("ping".into()),
         pane: Some("abc123".into()),
         from_file: None,
-        from_stdin: false,
+        stdin: false,
     };
     let (m, p, b) = cli_command_to_api(&cmd);
     assert_eq!(m, "POST");
@@ -385,6 +493,18 @@ fn send_text_is_fire_and_forget_on_mesh() {
         body.get("verify").is_none(),
         "send-text must never carry verify — the flag has been removed (#101)"
     );
+}
+
+#[test]
+fn send_text_stdin_mesh_body_preserves_exact_text() {
+    let text = "it's got 'quotes' and \"doubles\"\nsecond line\n";
+    let mut stdin = text.as_bytes();
+    let (m, p, b) =
+        super::api_map::send_text_to_api(&None, &Some("abc123".into()), &None, true, &mut stdin);
+    assert_eq!(m, "POST");
+    assert_eq!(p, "/api/panes/abc123/send");
+    let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
+    assert_eq!(body["text"], text);
 }
 
 /// `web link` embeds the LOCAL token — relaying would mint a link with

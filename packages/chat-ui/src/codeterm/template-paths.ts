@@ -12,7 +12,6 @@ export const TEMPLATE_PATHS: string[][] = [
   ["mem", "get"],
   ["workspace", "create"],
   ["pane", "focus"],
-  ["mesh", "send"],
   ["cron", "create"],
   ["keepawake", "start"],
 ];

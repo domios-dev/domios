@@ -26,13 +26,13 @@ ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 
 Skills are markdown files that Claude Code loads automatically when relevant. When Claude detects it's running in CodeTerm (via `$CODETERM=1` env var and `$CODETERM_PANE_ID` for self-identification), it can use the `codeterm` CLI to:
 
-1. **Send commands**: `codeterm send-text "npm test"` (sends to current pane, newline appended automatically)
+1. **Send commands**: `codeterm send-text "npm test"` (sends to current pane, newline appended automatically). For quote-heavy or multiline text, use `codeterm send --stdin --pane ID` and pipe/heredoc the payload.
 2. **Send notifications**: `codeterm notify "Done" --level info`
 3. **Create workspaces**: `codeterm workspace create "Feature X"`
 4. **Read output**: `codeterm get-output` (reads from current pane)
 5. **Rename tab**: `codeterm pane rename "my task"` or `codeterm pane rename "my task" --pane ID`
 6. **Create theme**: `codeterm theme save my-theme /tmp/theme.toml --apply`
-7. **Agent hierarchy**: `codeterm agent set-orchestrator` (mark self as orchestrator; alias: `set-conductor`)
+7. **Agent hierarchy**: `codeterm agent set-orchestrator` (mark self as orchestrator)
 8. **Compact context**: `codeterm agent compact [--pane ID]` (sends /compact to Claude)
 9. **Switch model**: `codeterm agent model <sonnet|haiku|opus> [--pane ID]` (switches Claude model)
 9. **Send report**: `codeterm agent report "task done"` (report to direct parent, auto-injected into parent's PTY)
@@ -168,7 +168,7 @@ curl -X POST http://localhost:7685/api/notifications \
 
 ## Agent Hierarchy
 
-CodeTerm has a 2-level agent hierarchy: Orchestrator (depth 1) -> Worker (depth 2). Each agent gets its own tab; the hierarchy is a logical chain, not visual splits. IDs are 8-char hex (e.g. `a3f1b2c7`).
+CodeTerm has a 2-level role hierarchy: Orchestrator (depth 1) -> Worker (depth 2). Each agent gets its own tab; the hierarchy is a logical chain, not visual splits. IDs are 8-char hex (e.g. `a3f1b2c7`).
 
 **Roles:**
 - **Orchestrator** (was Conductor) -- top-level, spawns Workers.
@@ -246,4 +246,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the pane in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 26 -->
+<!-- revision: 28 -->

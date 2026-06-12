@@ -14,6 +14,7 @@ import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { CrashReportToast } from "./components/CrashReportToast";
+import { ChatUiDefaultPrompt } from "./components/ChatUiDefaultPrompt";
 import { HamburgerIcon } from "./components/Icons";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useConfig } from "./hooks/useConfig";
@@ -757,6 +758,8 @@ function AppInner() {
       <CommandPalette commands={paletteCommands} />
 
       <CrashReportToast />
+
+      <ChatUiDefaultPrompt />
 
       <NavigationBackBar onBack={handleBackToMemory} />
     </div>

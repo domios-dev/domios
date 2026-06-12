@@ -31,8 +31,8 @@ def run_socket_cli(args: list[str], env: dict[str, str], timeout: float) -> subp
     )
 
 
-def test_socket_eager_create_then_immediate_list_returns(api, tmp_path):
-    env = socket_env(api)
+def test_socket_eager_create_then_immediate_list_returns(api_only, tmp_path):
+    env = socket_env(api_only)
     ws_id = None
     name = unique_name("e2e-ws-socket")
     cwd = str(tmp_path)
@@ -69,4 +69,4 @@ def test_socket_eager_create_then_immediate_list_returns(api, tmp_path):
         assert any(w["id"] == ws_id for w in json.loads(listed.stdout))
     finally:
         if ws_id:
-            api.close_workspace(ws_id)
+            api_only.close_workspace(ws_id)

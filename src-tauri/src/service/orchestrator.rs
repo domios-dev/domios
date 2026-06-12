@@ -297,6 +297,11 @@ impl ServiceContext {
                 agent_cmd, available
             ));
         }
+        crate::service::spawn::validate_agent_model(
+            &self.agent_registry,
+            agent_cmd,
+            params.model.as_deref(),
+        )?;
         let title = params
             .title
             .as_deref()

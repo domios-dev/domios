@@ -5,6 +5,7 @@ use tauri::Manager;
 
 use super::orchestrator::{build_agent_command, launch_agent_in_background, SpawnAgentParams};
 use super::ServiceContext;
+use crate::agent::registry::AgentRegistry;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnPaneSpec {
@@ -184,6 +185,43 @@ impl ServiceContext {
     }
 }
 
+pub(crate) fn validate_agent_model(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    model: Option<&str>,
+) -> Result<(), String> {
+    let Some(model) = model.map(str::trim).filter(|m| !m.is_empty()) else {
+        return Ok(());
+    };
+    let models = registry
+        .with_provider(provider_id, |p| p.available_models())
+        .unwrap_or_default();
+    if models.is_empty() {
+        return Ok(());
+    }
+    if models.iter().any(|m| m.id == model) {
+        return Ok(());
+    }
+
+    let suffix_matches: Vec<&str> = models
+        .iter()
+        .filter_map(|m| {
+            m.id.rsplit_once('/')
+                .map(|(_, suffix)| (m.id.as_str(), suffix))
+        })
+        .filter_map(|(id, suffix)| (suffix == model).then_some(id))
+        .collect();
+    let suggestion = if suffix_matches.len() == 1 {
+        format!(" Did you mean '{}'?", suffix_matches[0])
+    } else {
+        String::new()
+    };
+    Err(format!(
+        "Invalid model '{}' for provider '{}'.{} Run `codeterm agent models {}` to see available models.",
+        model, provider_id, suggestion, provider_id
+    ))
+}
+
 impl ServiceContext {
     pub(crate) fn spawn_visible_agent_impl(
         &self,
@@ -217,6 +255,7 @@ impl ServiceContext {
                 agent_cmd, available
             ));
         }
+        validate_agent_model(&self.agent_registry, &agent_cmd, agent.model.as_deref())?;
 
         let title = spec
             .title
@@ -565,6 +604,11 @@ impl ServiceContext {
                 agent.provider, available
             ));
         }
+        validate_agent_model(
+            &self.agent_registry,
+            &agent.provider,
+            agent.model.as_deref(),
+        )?;
 
         let ws_id = {
             let mux = self.mux.lock();

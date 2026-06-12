@@ -14,7 +14,7 @@ never from `develop`, never from an untagged tree.
 | Repo | Role |
 |---|---|
 | `rollacode/codeterm` | private source. Releases here are archival only — the GUI updater can't read private-repo assets anonymously. |
-| `rollacode/codeterm-releases` | public mirror: artifacts + signed `latest.json`. `tauri.conf.json`'s updater endpoint points here. **Without the mirror, in-app `update --apply` 404s.** |
+| `rollacode/codeterm-releases` | public mirror: artifacts + signed `latest.json`. `tauri.conf.json`'s updater endpoint points here. **Without the mirror, in-app `update install --auto` 404s.** |
 
 ## The flow
 
@@ -71,4 +71,4 @@ notary credentials are backed up in mem — the skill lists the exact ids and
 restore paths. A builder without the minisign key produces artifacts the updater
 can't verify.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

@@ -6,7 +6,7 @@ pub enum WorkspaceAction {
     List,
     /// Print the current (focused) workspace ID
     Current,
-    /// Create a new workspace
+    /// Create a new workspace. With --cwd, reuses an existing workspace at that cwd.
     Create {
         /// Workspace name
         name: String,
@@ -45,7 +45,7 @@ pub enum WorkspaceAction {
 #[derive(Subcommand)]
 pub enum PaneAction {
     /// List all panes as a workspace-grouped tree. `--agents` filters to
-    /// agent panes only (replaces the old `agent list`).
+    /// agent panes only.
     List {
         /// Show only panes running an agent (have an agent_type).
         #[arg(long)]
@@ -154,7 +154,7 @@ pub enum PaneAction {
 /// Cross-mesh ephemeral pastebin (#98). In-memory; daemon restart wipes
 /// every paste. 20-entry cap, oldest-first eviction. Use for handing
 /// payloads between machines: stash a blob with `paste put --mesh PEER`,
-/// reference the slug in the next CLI call, let the peer `paste pop` it.
+/// reference the slug in the next CLI call, let the peer `paste get --pop` it.
 #[derive(Subcommand)]
 pub enum PasteAction {
     /// Stash a payload. Body from positional / --from-file / stdin.
@@ -186,11 +186,6 @@ pub enum PasteAction {
         /// Delete after fetching (one-shot read).
         #[arg(long)]
         pop: bool,
-    },
-    /// Get + delete in one call. Sugar for `paste get <id> --pop`.
-    Pop {
-        /// Paste id.
-        id: String,
     },
     /// List local (or --mesh <peer>) pastes — id, size, ttl_remaining.
     List,
