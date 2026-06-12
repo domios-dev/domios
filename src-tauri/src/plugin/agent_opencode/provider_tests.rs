@@ -1,5 +1,7 @@
 use super::*;
 
+static OPENCODE_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn opencode_provider_id() {
     let p = OpenCodeProvider::new();
@@ -411,6 +413,120 @@ fn fixture_db() -> (tempfile::TempDir, std::path::PathBuf) {
     part("prt_4", "m2", 220, r#"{"type":"step-finish"}"#);
     part("prt_5", "m2", 230, r#"{"type":"text","text":"done"}"#);
     (dir, path)
+}
+
+fn fixture_data_home_db() -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let opencode_dir = dir.path().join("opencode");
+    std::fs::create_dir_all(&opencode_dir).unwrap();
+    let path = opencode_dir.join("opencode.db");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, time_created INTEGER, time_archived INTEGER);
+         CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);",
+    )
+    .unwrap();
+    (dir, path)
+}
+
+fn insert_opencode_session(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    cwd: &str,
+    created: i64,
+    message_time: i64,
+    model: Option<&str>,
+) {
+    conn.execute(
+        "INSERT INTO session (id, directory, time_created, time_archived) VALUES (?1, ?2, ?3, NULL)",
+        rusqlite::params![session_id, cwd, created],
+    )
+    .unwrap();
+    let data = match model {
+        Some(model) => format!(r#"{{"role":"assistant","modelID":"{model}"}}"#),
+        None => r#"{"role":"user"}"#.to_string(),
+    };
+    conn.execute(
+        "INSERT INTO message (id, session_id, time_created, data) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![format!("msg_{session_id}"), session_id, message_time, data],
+    )
+    .unwrap();
+}
+
+#[test]
+fn opencode_detect_session_model_reads_the_claimed_session_only() {
+    let _guard = OPENCODE_ENV_LOCK.lock().unwrap();
+    let (dir, path) = fixture_data_home_db();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let cwd = "/tmp/model-fidelity";
+    insert_opencode_session(
+        &conn,
+        "ses_deepseek",
+        cwd,
+        1,
+        100,
+        Some("opencode/deepseek-v4-flash"),
+    );
+    insert_opencode_session(
+        &conn,
+        "ses_bigpickle",
+        cwd,
+        2,
+        200,
+        Some("opencode/big-pickle"),
+    );
+
+    let prev = std::env::var("XDG_DATA_HOME").ok();
+    unsafe {
+        std::env::set_var("XDG_DATA_HOME", dir.path());
+    }
+    let p = OpenCodeProvider::new();
+    assert_eq!(
+        p.detect_session_model(cwd, "ses_deepseek").as_deref(),
+        Some("Deepseek")
+    );
+    assert_eq!(
+        p.detect_session_model(cwd, "ses_bigpickle").as_deref(),
+        Some("big-pickle")
+    );
+    assert_eq!(p.detect_session_model(cwd, "ses_missing"), None);
+    unsafe {
+        match prev {
+            Some(value) => std::env::set_var("XDG_DATA_HOME", value),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+    }
+}
+
+#[test]
+fn opencode_detect_session_model_never_falls_back_to_global_latest() {
+    let _guard = OPENCODE_ENV_LOCK.lock().unwrap();
+    let (dir, path) = fixture_data_home_db();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let cwd = "/tmp/model-fidelity";
+    insert_opencode_session(&conn, "ses_empty", cwd, 1, 100, None);
+    insert_opencode_session(
+        &conn,
+        "ses_global_latest",
+        cwd,
+        2,
+        200,
+        Some("opencode/big-pickle"),
+    );
+
+    let prev = std::env::var("XDG_DATA_HOME").ok();
+    unsafe {
+        std::env::set_var("XDG_DATA_HOME", dir.path());
+    }
+    let p = OpenCodeProvider::new();
+    assert_eq!(p.detect_session_model(cwd, "ses_empty"), None);
+    assert_eq!(p.detect_active_session(cwd, "ses_empty"), None);
+    unsafe {
+        match prev {
+            Some(value) => std::env::set_var("XDG_DATA_HOME", value),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+    }
 }
 
 #[test]
