@@ -10,6 +10,15 @@ export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223"
 export VITE_CODETERM_TEST=1
 export CODETERM_TEST_CLOCK=1
 
+# Tunables (env-overridable so the matrix can be debugged one provider/pane at a
+# time and capped in wall-time). Defaults favor a practical run over exhaustive
+# coverage: 2 panes/provider proves same-provider multi-pane isolation, and the
+# materialization gate fails fast instead of hanging minutes on a non-persisting
+# pane (claude's first-turn JSONL flush is not reliably prompt — see README).
+RM_PROVIDERS="${RM_PROVIDERS:-claude codex opencode}"
+RM_PER_PROVIDER="${RM_PER_PROVIDER:-2}"
+RM_MATERIALIZE_TIMEOUT="${RM_MATERIALIZE_TIMEOUT:-60}"
+
 RUN_ID="$(python - <<'PY'
 import uuid
 print(uuid.uuid4().hex[:10])
@@ -348,7 +357,7 @@ PY
       echo "SKIP provider=$provider slot=$idx pane=$pane_id reason=send failed HTTP $status: $body"
       return 1
     fi
-    deadline=$((SECONDS + 240))
+    deadline=$((SECONDS + RM_MATERIALIZE_TIMEOUT))
     while [ $SECONDS -lt $deadline ]; do
       refresh_slot_pre "$provider" "$idx" 1 || true
       evidence=$(marker_materialized_in_store "$provider" "$idx" 2>/dev/null || true)
@@ -437,16 +446,17 @@ PY
     return 0
   fi
 
-  for idx in 2 3 4 5; do
+  local extra
+  for extra in $(seq 2 "$RM_PER_PROVIDER"); do
     marker="RESTORE-MARKER-$(python - <<'PY'
 import uuid
 print(uuid.uuid4())
 PY
 )"
-    append_slot "$provider" "$idx" "$model" "$marker"
-    spawn_slot "$provider" "$idx" "$model" "$marker" || exit 1
-    pane_id=$(awk -F '\t' -v p="$provider" -v i="$idx" '$1==p && $2==i {print $4}' "$SLOTS_TSV")
-    send_marker_and_wait "$provider" "$idx" "$pane_id" "$marker" || exit 1
+    append_slot "$provider" "$extra" "$model" "$marker"
+    spawn_slot "$provider" "$extra" "$model" "$marker" || exit 1
+    pane_id=$(awk -F '\t' -v p="$provider" -v i="$extra" '$1==p && $2==i {print $4}' "$SLOTS_TSV")
+    send_marker_and_wait "$provider" "$extra" "$pane_id" "$marker" || exit 1
   done
 }
 
@@ -524,7 +534,7 @@ echo "== create matrix workspace $WORKSPACE_NAME"
 WORKSPACE_ID=$(new_workspace "$WORKSPACE_NAME" "$WORKSPACE_CWD")
 [ -n "$WORKSPACE_ID" ] || { echo "FAIL could not create workspace"; exit 1; }
 
-for provider in claude codex opencode; do
+for provider in $RM_PROVIDERS; do
   echo "== provider probe/group $provider"
   spawn_provider_group "$provider"
 done
