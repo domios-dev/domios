@@ -1248,6 +1248,23 @@ claude sessions. Mitigations to research: stagger spawns, watchdog that validate
 the file and auto-salvages (the raw_decode-truncate recipe works), or upstream
 issue. Until then: the salvage recipe is in the session log.
 
+## Post-merge backlog (after PR #143 lands on develop)
+
+Tracked here so nothing silently drops; dispatch after the merge, briefs on demand.
+
+| ID | Scope | Notes |
+|----|-------|-------|
+| WEB-COV | Web gate functional coverage (user-requested 2026-06-12): the token-link browser UI incl. phone/mesh usage. Fast tier: non-llm e2e on `web_routes.rs` auth boundaries (no/bad token → 401, good token → SPA + API access). Slow tier: Playwright parametrized to the web entry (same React bundle over HTTP + token) — core cross-pane chat smoke in a mobile viewport, mesh send from the web client, PwaSetup flow. F1 covered token *security*; this covers *functionality*. | new |
+| CLI-AUDIT | Read-only inventory of the `codeterm` CLI surface: duplicate/overlapping commands, dead legacy, flag inconsistencies, undocumented or untested commands; kill-list proposal (no external users — delete aggressively). Brief: tasks/CLI-AUDIT.md. | dispatched (research may run pre-merge, read-only) |
+| MODELS-PROBE | Nightly llm-tier probe: every provider × advertised model boots, answers one prompt, sid persists. | held |
+| MESH-COV / MEM-COV | Deepen mesh + mem e2e beyond the current core smokes (relay edges, graph-repair surfaces). | held |
+| TTL-CLOCK | TTL watchdog xfail → real test on injectable debug clock. | held |
+| D11 | Vitest migration of remaining legacy TS tests. | held |
+| CI-ON-EIGHT | Mesh-CI: macOS native + Linux Docker on Eight (M5), Windows on BLACKSTAR, triggered via codeterm, posting gh commit statuses — restores the rust/lint coverage removed from hosted CI. | program |
+| LLM-RERUN | Re-run the LLM e2e tranche when provider limits reset. | held |
+| SUITE-SPLIT | Split the hierarchy mega-suite; biome/clippy ratchet drains; file-size allowlist drain to zero. | held |
+| R1 | (see WS-G above) claude.json concurrent-corruption research. | held |
+
 ## Dispatch order (arbiter cheat-sheet)
 
 Live roster (workspace `codeterm`, verified): **Lamarr** `5c64a651` = arbiter
@@ -1272,4 +1289,4 @@ Sonnet ×27 · Opus ×10 · GPT-5.5 ×3 · Codex/Spark ×5 · Haiku — cheap ve
 S-effort doc tasks throughout. GPT-5.5 tasks remain gated on G1 (AGENTS.md) so Codex
 workers get the hard rules. See [agent-team.md](agent-team.md) for the rubric.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
