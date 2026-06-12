@@ -35,8 +35,7 @@ pub fn install_bridge_rules_for_all(registry: &AgentRegistry) {
                 );
             }
             None => {
-                // Provider disappeared between provider_ids() and with_provider() —
-                // benign race with concurrent deactivation.
+                // Provider disappeared between provider_ids() and with_provider() — benign race with concurrent deactivation.
             }
         }
     }

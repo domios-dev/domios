@@ -23,8 +23,7 @@ function dreamDate(iso: string): { day: string; month: string; year: string } {
 
 export function DreamCard({ entry, onOpen }: { entry: DreamDiaryEntry; onOpen: () => void }) {
   const parsed = parseDream(entry.body);
-  // Dreamer-picked icon / mood take priority over derived ones — the LLM
-  // gets to label its own dream. Falls back to keyword heuristics when no
+  // Dreamer-picked icon / mood take priority over derived ones — the LLM gets to label its own dream. Falls back to keyword heuristics when no
   // explicit `<icon>` / `<mood>` block is present.
   const Icon =
     iconBySlug(parsed.icon) ??
@@ -37,8 +36,7 @@ export function DreamCard({ entry, onOpen }: { entry: DreamDiaryEntry; onOpen: (
   const palette = paletteFor(`${entry.area ?? ""}:${entry.title}`);
   const mood = parsed.mood ?? moodLabel({ area: entry.area, tags: entry.tags, body: entry.body });
   const date = dreamDate(entry.created_at);
-  // Card surfaces the dream's voice (insight). The technical log lives in
-  // the modal — never on the card.
+  // Card surfaces the dream's voice (insight). The technical log lives in the modal — never on the card.
   const insight = parsed.insight || entry.body;
   const snippet = insight.length > 200 ? `${insight.slice(0, 200)}…` : insight;
   const visibleTags = (entry.tags ?? []).filter((t) => t !== "dream-diary").slice(0, 3);

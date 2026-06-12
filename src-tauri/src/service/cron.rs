@@ -1,7 +1,7 @@
+use super::ServiceContext;
 use crate::cron::store::{CronCreateParams, CronJob, CronRunInfo, CronRunStatus, CronUpdateParams};
 use crate::CronState;
 use crate::CronWake;
-use super::ServiceContext;
 
 impl ServiceContext {
     pub fn cron_create(
@@ -44,21 +44,16 @@ impl ServiceContext {
         Ok(job)
     }
 
-    pub fn cron_delete(
-        &self,
-        cron: &CronState,
-        wake: &CronWake,
-        id: &str,
-    ) -> Result<(), String> {
+    pub fn cron_delete(&self, cron: &CronState, wake: &CronWake, id: &str) -> Result<(), String> {
         let mut store = cron.lock();
         let owned_panes: Vec<String> = store.pane_owners_for_job(id);
-        let history_panes: Vec<String> = store.get_history(id)
+        let history_panes: Vec<String> = store
+            .get_history(id)
             .iter()
             .filter_map(|r| r.pane_id.clone())
             .collect();
-        let all_panes: std::collections::HashSet<String> = owned_panes.into_iter()
-            .chain(history_panes)
-            .collect();
+        let all_panes: std::collections::HashSet<String> =
+            owned_panes.into_iter().chain(history_panes).collect();
         for pane_id in &all_panes {
             store.unregister_pane(pane_id);
             let _ = self.close_pane(pane_id);
@@ -74,41 +69,41 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub fn cron_cancel_running(
-        &self,
-        cron: &CronState,
-        id: &str,
-    ) -> Result<usize, String> {
+    pub fn cron_cancel_running(&self, cron: &CronState, id: &str) -> Result<usize, String> {
         // drop cron lock before close_pane — different lock order
-        let to_close: Vec<String> = {
-            let mut store = cron.lock();
-            if store.get(id).is_none() {
-                return Err(format!("Cron job not found: {}", id));
-            }
-            let panes = store.pane_owners_for_job(id);
-            for pane_id in &panes {
-                store.unregister_pane(pane_id);
-            }
-            if let Some(history) = store.get_history_mut(id) {
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                for run in history.iter_mut() {
-                    if matches!(run.status, super::super::cron::store::CronRunStatus::Running) {
-                        run.status = super::super::cron::store::CronRunStatus::Cancelled;
-                        run.finished_at = Some(now_ms);
-                        // Observability parity with update_run_status — see crud::update_run_status.
-                        log::info!(
+        let to_close: Vec<String> =
+            {
+                let mut store = cron.lock();
+                if store.get(id).is_none() {
+                    return Err(format!("Cron job not found: {}", id));
+                }
+                let panes = store.pane_owners_for_job(id);
+                for pane_id in &panes {
+                    store.unregister_pane(pane_id);
+                }
+                if let Some(history) = store.get_history_mut(id) {
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    for run in history.iter_mut() {
+                        if matches!(
+                            run.status,
+                            super::super::cron::store::CronRunStatus::Running
+                        ) {
+                            run.status = super::super::cron::store::CronRunStatus::Cancelled;
+                            run.finished_at = Some(now_ms);
+                            // Observability parity with update_run_status — see crud::update_run_status.
+                            log::info!(
                             "Cron run completed: job={}, run={}, status=Cancelled, elapsed_ms={}",
                             id, run.run_id, now_ms.saturating_sub(run.started_at)
                         );
+                        }
                     }
                 }
-            }
-            let _ = store.save();
-            panes
-        };
+                let _ = store.save();
+                panes
+            };
 
         let count = to_close.len();
         for pane_id in &to_close {
@@ -131,18 +126,14 @@ impl ServiceContext {
         Ok(job)
     }
 
-    pub fn cron_trigger(
-        &self,
-        cron: &CronState,
-        id: &str,
-    ) -> Result<CronRunInfo, String> {
-        use crate::service::spawn::{
-            AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec,
-        };
+    pub fn cron_trigger(&self, cron: &CronState, id: &str) -> Result<CronRunInfo, String> {
+        use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
 
         let (agent, model, task, cwd, role, workspace_id, creator_pane_id, job_name, job_timeout) = {
             let store = cron.lock();
-            let job = store.get(id).ok_or_else(|| format!("Cron job not found: {}", id))?;
+            let job = store
+                .get(id)
+                .ok_or_else(|| format!("Cron job not found: {}", id))?;
             if store.is_job_running(id) {
                 return Err(format!("Cron job '{}' is already running", job.name));
             }
@@ -181,16 +172,18 @@ impl ServiceContext {
         }
         task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
 
-        let model = model.or_else(|| {
-            let mem_cfg = crate::config::memory_config();
-            if !mem_cfg.dreaming_model.is_empty() {
-                Some(mem_cfg.dreaming_model.clone())
-            } else if !mem_cfg.worker_model.is_empty() {
-                Some(mem_cfg.worker_model.clone())
-            } else {
-                None
-            }
-        }).map(|s| crate::agent::models::canonicalize_short(&s).to_string());
+        let model = model
+            .or_else(|| {
+                let mem_cfg = crate::config::memory_config();
+                if !mem_cfg.dreaming_model.is_empty() {
+                    Some(mem_cfg.dreaming_model.clone())
+                } else if !mem_cfg.worker_model.is_empty() {
+                    Some(mem_cfg.worker_model.clone())
+                } else {
+                    None
+                }
+            })
+            .map(|s| crate::agent::models::canonicalize_short(&s).to_string());
 
         let spec = SpawnPaneSpec {
             workspace_id: if workspace_id.is_empty() {
@@ -202,6 +195,7 @@ impl ServiceContext {
             cwd,
             title: Some(format!("cron:{}", job_name)),
             visibility: PaneVisibility::Hidden,
+            eager: false,
             command: PaneCommand::Agent(AgentSpawnSpec {
                 provider: agent,
                 model,
@@ -220,18 +214,15 @@ impl ServiceContext {
                 run_info.tab_id = Some(handle.tab_id.clone());
                 cron.lock().register_pane(&handle.pane_id, id, &run_id);
                 // Register with the auto-complete watcher (cron flavor).
-                if let Some(pty_id) = self
-                    .agent_run_pty_map
-                    .lock()
-                    .get(&handle.pane_id)
-                    .cloned()
-                {
+                if let Some(pty_id) = self.agent_run_pty_map.lock().get(&handle.pane_id).cloned() {
                     let global_timeout = crate::config::memory_config().worker_timeout_seconds;
                     let timeout = job_timeout.unwrap_or(global_timeout);
                     if job_timeout.is_some() {
                         log::info!(
                             "[cron] manual trigger {} run={} timeout={}s (per-job override)",
-                            id, run_id, timeout
+                            id,
+                            run_id,
+                            timeout
                         );
                     }
                     self.run_watcher.register(
@@ -269,7 +260,9 @@ impl ServiceContext {
         summary: Option<&str>,
     ) -> Result<(), String> {
         let mut store = cron.lock();
-        let owner = store.get_pane_owner_by_run(run_id).map(|(j, p)| (j.to_string(), p.to_string()));
+        let owner = store
+            .get_pane_owner_by_run(run_id)
+            .map(|(j, p)| (j.to_string(), p.to_string()));
         if let Some((job_id, pane_id)) = owner {
             let pty_id = {
                 let mux = self.mux.lock();
@@ -295,12 +288,16 @@ impl ServiceContext {
             let _ = store.update_run_status(&job_id, run_id, CronRunStatus::Success);
             let is_oneshot = store.get(&job_id).map(|j| j.oneshot).unwrap_or(false);
             store.unregister_pane(&pane_id);
-            log::info!("Cron run completed: job={}, run={}, oneshot={}, summary_len={}", job_id, run_id, is_oneshot, log_text.len());
+            log::info!(
+                "Cron run completed: job={}, run={}, oneshot={}, summary_len={}",
+                job_id,
+                run_id,
+                is_oneshot,
+                log_text.len()
+            );
             drop(store);
 
-            // Tell the run-watcher this pane is already done so the idle /
-            // hard timeout watchdog does NOT fire later and overwrite our
-            // Success status with Failed.
+            // Tell the run-watcher this pane is already done so the idle / hard timeout watchdog does NOT fire later and overwrite our Success status with Failed.
             if let Some(ref pid) = pty_id {
                 self.run_watcher.mark_completed_externally(pid);
             }

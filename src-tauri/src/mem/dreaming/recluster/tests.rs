@@ -76,15 +76,25 @@ async fn recluster_prompt_includes_existing_anchors() {
         seed_basic_graph(&c);
     }
     let dir = tempfile::tempdir().unwrap();
-    let cap = CapturePromptCaller { captured: std::sync::Mutex::new(String::new()) };
+    let cap = CapturePromptCaller {
+        captured: std::sync::Mutex::new(String::new()),
+    };
 
     {
         let c = mem.conn().lock();
-        run_recluster_phase(&c, "haiku", dir.path(), &cap).await.unwrap();
+        run_recluster_phase(&c, "haiku", dir.path(), &cap)
+            .await
+            .unwrap();
     }
     let prompt = cap.captured.lock().unwrap().clone();
-    assert!(prompt.contains("topic_codeterm_mesh_topology"), "anchor missing from prompt");
-    assert!(prompt.contains("role_release_host_windows"), "role anchor missing");
+    assert!(
+        prompt.contains("topic_codeterm_mesh_topology"),
+        "anchor missing from prompt"
+    );
+    assert!(
+        prompt.contains("role_release_host_windows"),
+        "role anchor missing"
+    );
     assert!(prompt.contains("hub_andrey"), "hub missing from prompt");
 }
 
@@ -104,14 +114,20 @@ async fn recluster_validates_anchor_exists() {
             "sources": ["thing_a"],
             "rationale": "test"
         }]
-    }).to_string();
+    })
+    .to_string();
     let stub = StubCaller { response: resp };
 
     let report = {
         let c = mem.conn().lock();
-        run_recluster_phase(&c, "haiku", dir.path(), &stub).await.unwrap()
+        run_recluster_phase(&c, "haiku", dir.path(), &stub)
+            .await
+            .unwrap()
     };
-    assert_eq!(report.clusters_proposed, 0, "missing-anchor cluster must be skipped");
+    assert_eq!(
+        report.clusters_proposed, 0,
+        "missing-anchor cluster must be skipped"
+    );
     assert!(report.message.contains("ghost_does_not_exist"));
 }
 
@@ -131,14 +147,20 @@ async fn recluster_validates_source_exists() {
             "sources": ["thing_a", "totally_missing_id"],
             "rationale": "test"
         }]
-    }).to_string();
+    })
+    .to_string();
     let stub = StubCaller { response: resp };
 
     let report = {
         let c = mem.conn().lock();
-        run_recluster_phase(&c, "haiku", dir.path(), &stub).await.unwrap()
+        run_recluster_phase(&c, "haiku", dir.path(), &stub)
+            .await
+            .unwrap()
     };
-    assert_eq!(report.clusters_proposed, 0, "missing-source cluster must be skipped");
+    assert_eq!(
+        report.clusters_proposed, 0,
+        "missing-source cluster must be skipped"
+    );
     assert!(report.message.contains("totally_missing_id"));
 }
 
@@ -158,12 +180,15 @@ async fn recluster_validates_topic_id_slug() {
             "sources": ["thing_a"],
             "rationale": "test"
         }]
-    }).to_string();
+    })
+    .to_string();
     let stub = StubCaller { response: resp };
 
     let report = {
         let c = mem.conn().lock();
-        run_recluster_phase(&c, "haiku", dir.path(), &stub).await.unwrap()
+        run_recluster_phase(&c, "haiku", dir.path(), &stub)
+            .await
+            .unwrap()
     };
     assert_eq!(report.clusters_proposed, 0, "invalid slug must be skipped");
     assert!(report.message.to_lowercase().contains("invalid topic_id"));
@@ -185,14 +210,20 @@ async fn recluster_skips_self_referential_sources() {
             "sources": ["hub_andrey", "thing_a"],
             "rationale": "test"
         }]
-    }).to_string();
+    })
+    .to_string();
     let stub = StubCaller { response: resp };
 
     let report = {
         let c = mem.conn().lock();
-        run_recluster_phase(&c, "haiku", dir.path(), &stub).await.unwrap()
+        run_recluster_phase(&c, "haiku", dir.path(), &stub)
+            .await
+            .unwrap()
     };
-    assert_eq!(report.clusters_proposed, 0, "self-referential cluster must be skipped");
+    assert_eq!(
+        report.clusters_proposed, 0,
+        "self-referential cluster must be skipped"
+    );
     assert!(report.message.contains("source equal to anchor"));
 }
 
@@ -203,19 +234,21 @@ async fn recluster_writes_plan_file_to_disk() {
         let c = mem.conn().lock();
         seed_basic_graph(&c);
     }
-    let id = mem.save(NewMemItem {
-        kind: MemKind::Fact,
-        scope: MemScope::Global,
-        title: "fact about thing_a".into(),
-        summary: None,
-        area: None,
-        tags: vec![],
-        body: "x".into(),
-        source: None,
-        importance: 3.0,
-        source_path: None,
-        pinned: false,
-    }).unwrap();
+    let id = mem
+        .save(NewMemItem {
+            kind: MemKind::Fact,
+            scope: MemScope::Global,
+            title: "fact about thing_a".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "x".into(),
+            source: None,
+            importance: 3.0,
+            source_path: None,
+            pinned: false,
+        })
+        .unwrap();
     let dir = tempfile::tempdir().unwrap();
 
     let resp = serde_json::json!({
@@ -226,12 +259,15 @@ async fn recluster_writes_plan_file_to_disk() {
             "sources": ["thing_a", "thing_b", &id],
             "rationale": "all three describe the same hub aspect"
         }]
-    }).to_string();
+    })
+    .to_string();
     let stub = StubCaller { response: resp };
 
     let report = {
         let c = mem.conn().lock();
-        run_recluster_phase(&c, "haiku", dir.path(), &stub).await.unwrap()
+        run_recluster_phase(&c, "haiku", dir.path(), &stub)
+            .await
+            .unwrap()
     };
     assert_eq!(report.clusters_proposed, 1, "valid cluster must land");
     let plan_path_str = report.plan_path.expect("plan_path missing");
@@ -246,5 +282,9 @@ async fn recluster_writes_plan_file_to_disk() {
     assert_eq!(parsed.plan.clusters[0].sources.len(), 3);
     assert_eq!(parsed.plan.clusters[0].rel_source, "about");
     assert_eq!(parsed.plan.clusters[0].rel_anchor, "about");
-    assert!(parsed.plan.clusters[0].reason.as_deref().unwrap().starts_with("dreamer-recluster-"));
+    assert!(parsed.plan.clusters[0]
+        .reason
+        .as_deref()
+        .unwrap()
+        .starts_with("dreamer-recluster-"));
 }

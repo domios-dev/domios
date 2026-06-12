@@ -1,34 +1,36 @@
 pub mod agent;
 mod api;
-mod crash;
 pub mod attachments;
 mod autostart;
 pub mod bridge;
 mod clipboard_files;
 mod commands;
-pub mod dispatch;
 mod commands_mesh;
-mod keepawake;
 mod config;
+mod crash;
 pub mod cron;
+pub mod dispatch;
+mod keepawake;
+mod liveness;
+pub mod logs;
 pub mod mem;
 pub mod mesh;
+pub mod message_markers;
 pub mod multiplexer;
 mod notification;
 pub mod pasteboard;
 pub mod paths;
 pub mod plugin;
-pub mod prompts;
 pub mod process_util;
+pub mod prompts;
 pub mod pty;
+pub mod resize_owner;
 pub mod secrets;
 pub mod service;
-pub mod services;
-pub mod shell;
 pub mod session;
+pub mod shell;
 mod socket;
 mod startup;
-pub mod logs;
 pub mod update;
 pub mod usage;
 
@@ -54,18 +56,17 @@ pub use cron::scheduler::{CronState, CronWake};
 pub type UpdateStateHandle = Arc<Mutex<update::UpdateState>>;
 pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
+pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
 
 pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Forward CLI-shaped argv to the bundled CLI before Tauri/logging init,
-    // otherwise GUI single-instance silently swallows the args (issue #51).
+    // Forward CLI-shaped argv to the bundled CLI before Tauri/logging init, otherwise GUI single-instance silently swallows the args (issue #51).
     startup::forward_to_cli_if_invoked();
 
-    // Install panic + native crash handlers BEFORE any thread spawn or logging
-    // init. Reports land in ~/.codeterm/crashes/ regardless of where the crash
-    // originates (tokio worker, Tauri main, FFI thread, signal handler).
+    // Install panic + native crash handlers BEFORE any thread spawn or logging init. Reports land in ~/.codeterm/crashes/ regardless of where the
+    // crash originates (tokio worker, Tauri main, FFI thread, signal handler).
     crash::install();
 
     startup::setup_logging();
@@ -131,6 +132,7 @@ pub fn run() {
         .manage(states.update.clone())
         .manage(states.mesh.clone())
         .manage(states.keepawake.clone())
+        .manage(states.resize_owner.clone())
         // ServiceState is added in .setup() after AppHandle is available
         .invoke_handler(tauri::generate_handler![
             // PTY commands
@@ -147,6 +149,7 @@ pub fn run() {
             commands::wait_shell_ready,
             commands::read_session_jsonl,
             commands::resize_pty,
+            commands::claim_resize_owner,
             commands::kill_pty,
             commands::get_pane_git_info,
             commands::suggest_install_pwsh,
@@ -155,14 +158,13 @@ pub fn run() {
             commands::restart_general_agent,
             commands::get_network_info,
             commands::generate_api_token,
+            commands::report_webgl_status,
             commands::save_clipboard_image,
             commands::save_clipboard_file,
             clipboard_files::read_clipboard_files,
             clipboard_files::read_clipboard_text,
             commands::save_temp_file,
             commands::copy_image_to_clipboard,
-            commands::install_project_rules,
-            commands::check_rule_installed,
             commands::check_for_update,
             commands::install_app_update,
             commands::open_folder,
@@ -192,8 +194,15 @@ pub fn run() {
             multiplexer::commands::detect_claude_session_id,
             multiplexer::commands::detect_pane_session_id,
             multiplexer::commands::mux_set_claude_session_id,
+            commands::chat_start,
+            commands::chat_stop,
+            commands::chat_backfill,
+            commands::chat_send_text,
+            commands::transcribe_voice_attachment,
             commands::check_cli_installed,
             commands::install_provider_in_pane,
+            commands::plugin_manager_snapshot,
+            commands::plugin_manager_action,
             multiplexer::commands::build_agent_launch_command,
             multiplexer::commands::mux_set_pane_role,
             multiplexer::commands::mux_clear_pane_role,
@@ -216,11 +225,12 @@ pub fn run() {
             config::get_themes_dir,
             // Directory completion
             commands::list_dir_completions,
-            // Claude hooks commands
-            commands::check_claude_hooks,
-            commands::install_claude_hooks,
-            commands::uninstall_claude_hooks,
-            commands::check_pty_status_available,
+            // Provider integration (hooks/callbacks) — generic dispatchers
+            commands::check_provider_integration,
+            commands::install_provider_integration,
+            commands::uninstall_provider_integration,
+            commands::check_provider_rule,
+            commands::install_provider_rule,
             // Session commands
             session::save_session,
             session::save_session_named,
@@ -280,9 +290,9 @@ pub fn run() {
             // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
 
-            // Resume any keep-awake session that was active when CodeTerm last
-            // shut down. Indefinite → resume; timed + remaining → resume with
-            // the remainder; timed + already expired → drop the snapshot.
+            // Resume any keep-awake session that was active when CodeTerm last shut down. Indefinite → resume; timed + remaining → resume with the
+            // remainder; timed + already expired → drop the snapshot.
+            keepawake::reap_orphaned_children_on_startup();
             keepawake::resume_from_disk(&states.keepawake, &app_handle);
 
             // Bootstrap plugin system — agent-claude is a bundled native plugin
@@ -345,9 +355,113 @@ pub fn run() {
             }
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
 
-            // All providers have called `model_catalog::register(...)` in their
-            // constructors by now — refresh the `<provider>.example.toml`
-            // files so users always see the current build's defaults.
+            // Extract embedded providers on first run for offline/dev-limited setups.
+            // Skip in CODETERM_DEV=1 so workspace sources stay authoritative.
+            if std::env::var("CODETERM_DEV").as_deref() != Ok("1") {
+                let user_plugins = crate::paths::data_dir().join("plugins");
+                match plugin::embedded::bootstrap_into(&user_plugins) {
+                    Ok(written) if !written.is_empty() => {
+                        log::info!(
+                            "[plugin/bootstrap] extracted embedded plugins {written:?} → {}",
+                            user_plugins.display()
+                        );
+                    }
+                    Ok(_) => {
+                        log::debug!(
+                            "[plugin/bootstrap] {} already has all system plugins",
+                            user_plugins.display()
+                        );
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "[plugin/bootstrap] failed to extract embedded plugins to {}: {e}",
+                            user_plugins.display()
+                        );
+                    }
+                }
+            } else {
+                log::info!("[plugin/bootstrap] CODETERM_DEV=1 — skipping embedded extract, workspace plugins are authoritative");
+            }
+
+            // Register JS plugins from workspace and user drop-in dirs.
+            // JS provider defaults to authoritative on collision; set CODETERM_NATIVE_PROVIDERS to pin native.
+            {
+                use crate::agent::provider::AgentProvider;
+                use std::collections::HashSet;
+                use std::path::PathBuf;
+                let workspace_root: Option<PathBuf> = Some(PathBuf::from(
+                    concat!(env!("CARGO_MANIFEST_DIR"), "/..")
+                ));
+                let roots = plugin::js_runtime::default_roots(workspace_root.as_deref());
+                let (providers, report) = plugin::js_runtime::scan_roots(&roots);
+                for outcome in &report {
+                    match outcome {
+                        plugin::js_runtime::LoadOutcome::Loaded { plugin_id, manifest_path } => {
+                            log::info!(
+                                "[js-plugin] loaded {plugin_id} from {}",
+                                manifest_path.display()
+                            );
+                        }
+                        plugin::js_runtime::LoadOutcome::Skipped { path, reason } => {
+                            log::warn!(
+                                "[js-plugin] skipped {}: {reason}",
+                                path.display()
+                            );
+                        }
+                    }
+                }
+                let keep_native: HashSet<String> = std::env::var("CODETERM_NATIVE_PROVIDERS")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim().to_lowercase())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                let keep_all_native = keep_native.contains("all");
+                for mut p in providers {
+                    let id = p.id().to_string();
+                    let version = p.manifest().version.clone();
+                    let trust = p.trust();
+                    log::info!("[js-plugin] {id} trust={:?}", trust);
+                    if keep_all_native || keep_native.contains(&id) {
+                        if !agent_registry.register_provider_if_absent(Box::new(p)) {
+                            log::info!(
+                                "[js-plugin] {id} held back — \
+                                CODETERM_NATIVE_PROVIDERS pins the native impl"
+                            );
+                        } else {
+                            plugin::audit::append_daemon_reloaded(&id, &version);
+                        }
+                    } else {
+                        // JS takes authority; register_provider preserves the
+                        // displaced native impl as a capability fallback the JS
+                        // provider delegates to for methods it doesn't export.
+                        p.set_registry(agent_registry.clone());
+                        log::info!(
+                            "[js-plugin] {id} registered as authoritative \
+                            (set CODETERM_NATIVE_PROVIDERS={id} to rollback)"
+                        );
+                        agent_registry.register_provider(Box::new(p));
+                        plugin::audit::append_daemon_reloaded(&id, &version);
+                    }
+                }
+
+                // Hot-reload watcher: polls the same roots every 2s and (a) discovers new plugin folders dropped into ~/.codeterm/plugins/, (b) reloads
+                // Hot-reload keeps plugin VMs in sync: reload existing plugins and drop vanished plugin dirs.
+                let watcher = plugin::js_runtime::HotReloadRegistry::new(
+                    roots.clone(),
+                    agent_registry.clone(),
+                );
+                // Seed tracked-state for already-registered plugins so the first tick doesn't re-register them.
+                watcher.tick();
+                watcher.start();
+                log::info!(
+                    "[js-plugin] hot-reload watcher started on {} roots",
+                    roots.len()
+                );
+            }
+
+            // All providers have called `model_catalog::register(...)` in their constructors by now — refresh the `<provider>.example.toml` files so users
+            // always see the current build's defaults.
             agent::model_catalog::refresh_example_files();
 
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
@@ -367,10 +481,9 @@ pub fn run() {
             // Re-index any items missing vectors (catches failed bg indexing)
             mem.reindex_missing();
 
-            // Auto-install Claude hooks (Notification, Stop, PreCompact).
-            // PreCompact is critical for mem — it flushes pane scrollback
-            // before Claude summarizes the context window.
-            commands::ensure_claude_hooks_installed();
+            // Auto-install each provider's CodeTerm integration (hooks / callbacks). Providers without an integration no-op via the AgentProvider trait
+            // default. For Claude this installs the Notification / Stop / PreCompact / SessionStart hooks that POST events back into our HTTP API.
+            commands::ensure_integrations_for_all(&agent_registry);
 
             let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
                 crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),
@@ -407,6 +520,7 @@ pub fn run() {
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_supervisor: Arc::new(bridge::supervisor::BridgeSupervisor::new()),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
+                chat_registry: crate::service::pane_chat::ChatRegistry::new(),
                 secrets: {
                     let cfg_guard = states.config.lock();
                     let cfg = cfg_guard.integrations.secrets.clone();
@@ -415,12 +529,12 @@ pub fn run() {
                 },
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(
-                    crate::services::store::ServicesStore::open(
+                    crate::service::store::ServicesStore::open(
                         &crate::paths::data_dir().join("services.db"),
                     )
                     .expect("services.db init"),
                 ),
-                tokens: Arc::new(crate::services::tokens::TokenStore::new()),
+                tokens: Arc::new(crate::service::tokens::TokenStore::new()),
                 pasteboard: crate::pasteboard::PasteboardState::new(),
                 input_parser,
                 usage_store: crate::usage::UsageStore::open(&crate::paths::data_dir())
@@ -431,26 +545,19 @@ pub fn run() {
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
 
-            // Re-kick session-name + model pollers for panes restored from
-            // snapshot: set_pane_agent_type fires on transitions, but a
-            // restore brings agent_type back already-set so no transition
-            // ever happens. Walk the restored panes once at boot.
+            // Re-kick session-name + model pollers for panes restored from snapshot: set_pane_agent_type fires on transitions, but a restore brings
+            // agent_type back already-set so no transition ever happens. Walk the restored panes once at boot.
             service_state.kick_off_pollers_for_existing_agents();
 
             {
                 let store = service_state.services_store.clone();
-                let activity = crate::services::activity::ActivityWriter::new(store.conn());
-                crate::services::health::scheduler::start(store, activity, app.handle().clone());
+                let activity = crate::service::activity::ActivityWriter::new(store.conn());
+                crate::service::health::scheduler::start(store, activity, app.handle().clone());
             }
-            crate::mesh::ping_scheduler::start(states.mesh.clone(), states.config.clone(), app.handle().clone());
 
-            // SecretStore::init() runs inside start_servers BEFORE the
-            // API listener binds — see start_servers below. That's the
-            // single race-free seam for "wait until secrets are ready".
+            // Secrets init happens before API listener binds to avoid auth calls hitting uninitialized state.
 
-            // Librarian: hourly file-sync + skill-folder scan, run as a
-            // subprocess via the supervisor so a panic / OOM cannot take
-            // the daemon down. First fire after a 30s warm-up.
+            // Librarian: hourly file-sync + skill-folder scan, run as a subprocess via the supervisor so a panic / OOM cannot take the daemon down. First fire after a 30s warm-up.
             {
                 let supervisor = service_state.mem_supervisor.clone();
                 tauri::async_runtime::spawn(async move {
@@ -465,8 +572,31 @@ pub fn run() {
                 });
             }
 
-            // Resume extraction for items that were saved but never finished
-            // (previous run crashed mid-extraction, LLM API errored, bulk import).
+            // Graph layout: build the projection once at startup if needed, then
+            // tick a debounced cache flush. The heavy projection runs on a
+            // blocking thread so it never stalls the async runtime.
+            {
+                let mem = service_state.mem.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(45)).await;
+                    let mem_for_build = mem.clone();
+                    let _ = tauri::async_runtime::spawn_blocking(move || {
+                        if mem_for_build.layout_needs_rebuild() {
+                            match mem_for_build.run_full_layout() {
+                                Ok(v) => log::info!("[graph_layout] startup build v{v}"),
+                                Err(e) => log::warn!("[graph_layout] startup build: {e}"),
+                            }
+                        }
+                    })
+                    .await;
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        mem.layout_flush_if_due();
+                    }
+                });
+            }
+
+            // Resume extraction for items that were saved but never finished (previous run crashed mid-extraction, LLM API errored, bulk import).
             // run_extract_pending returns fast after spawning its tokio task.
             {
                 let svc_for_extract = service_state.clone();
@@ -502,11 +632,17 @@ pub fn run() {
 
             startup::install_bundled_cli(app);
             startup::start_servers(app, &states, &service_state);
+            if states.config.lock().api.enabled {
+                crate::liveness::start_api_liveness_watchdog(
+                    app_handle.clone(),
+                    states.mesh.clone(),
+                    states.config.lock().api.port,
+                );
+            }
             startup::build_system_tray(app)?;
 
-            // After webview is ready, check for crash reports from a previous
-            // session and emit an event the frontend can show as a toast.
-            // Delay a tick so the React side has time to attach the listener.
+            // After webview is ready, check for crash reports from a previous session and emit an event the frontend can show as a toast. Delay a tick so
+            // the React side has time to attach the listener.
             {
                 use tauri::Emitter;
                 let app_handle = app.handle().clone();
@@ -581,12 +717,10 @@ pub fn run() {
                 }
             }
 
-            // On any clean process exit (tray-Quit, Cmd+Q after window close,
-            // SIGTERM caught by Tauri), checkpoint+truncate the mem WAL so a
-            // stale ~4MB log doesn't survive into the next run. The updater's
-            // graceful_shutdown already does this on the in-place upgrade
-            // path; this catches every other shutdown route.
+            // On any clean process exit (tray-Quit, Cmd+Q after window close, SIGTERM caught by Tauri), checkpoint+truncate the mem WAL so a stale ~4MB
+            // log doesn't survive into the next run. The updater's graceful_shutdown already does this on the in-place upgrade path; this catches every other shutdown route.
             if let tauri::RunEvent::Exit = _event {
+                keepawake::cleanup_active_children_for_exit();
                 if let Some(svc) = _app.try_state::<service::ServiceState>() {
                     match svc.mem.checkpoint_and_close() {
                         Ok((busy, log_frames, checkpointed)) => log::info!(

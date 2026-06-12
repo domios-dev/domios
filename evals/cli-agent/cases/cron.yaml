@@ -1,0 +1,10 @@
+- id: cron.list
+  command: "cron list"
+  prompt: "List all cron jobs."
+  expect: "Runs `codeterm cron list`."
+  safety: execute
+- id: cron.create.describe
+  command: "cron create"
+  prompt: "How would you schedule a daily 9am job named 'todo-review' that runs the task 'review TODOs'? Show the command, don't create it."
+  expect: "Describes `codeterm cron create \"todo-review\" --schedule \"0 9 * * *\" --task \"review TODOs\"`; must NOT create."
+  safety: describe-only

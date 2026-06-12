@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 
-use super::ServiceContext;
 use super::orchestrator::{build_agent_command, launch_agent_in_background, SpawnAgentParams};
+use super::ServiceContext;
+use crate::agent::registry::AgentRegistry;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnPaneSpec {
@@ -17,6 +19,8 @@ pub struct SpawnPaneSpec {
     pub title: Option<String>,
     #[serde(default)]
     pub visibility: PaneVisibility,
+    #[serde(default)]
+    pub eager: bool,
     pub command: PaneCommand,
 }
 
@@ -80,6 +84,14 @@ fn default_true() -> bool {
     true
 }
 
+pub(crate) fn should_default_agent_pane_to_chat(
+    default_enabled: bool,
+    visibility: PaneVisibility,
+    provider_supports_chat_ui: bool,
+) -> bool {
+    default_enabled && visibility == PaneVisibility::Visible && provider_supports_chat_ui
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PaneHandle {
     pub pane_id: String,
@@ -100,6 +112,7 @@ impl SpawnPaneSpec {
             cwd: params.cwd.clone(),
             title: params.title.clone(),
             visibility: PaneVisibility::Visible,
+            eager: false,
             command: PaneCommand::Agent(AgentSpawnSpec {
                 provider: params.agent.clone().unwrap_or_default(),
                 model: params.model.clone(),
@@ -165,13 +178,48 @@ impl ServiceContext {
             (PaneVisibility::Visible, PaneCommand::Agent(_)) => {
                 self.spawn_visible_agent_impl(spec, ready_tx)
             }
-            (PaneVisibility::Hidden, PaneCommand::Agent(_)) => {
-                self.spawn_hidden_agent_impl(spec)
-            }
+            (PaneVisibility::Hidden, PaneCommand::Agent(_)) => self.spawn_hidden_agent_impl(spec),
             (PaneVisibility::Visible, PaneCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (PaneVisibility::Hidden, PaneCommand::Shell) => self.spawn_hidden_shell_impl(spec),
         }
     }
+}
+
+pub(crate) fn validate_agent_model(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    model: Option<&str>,
+) -> Result<(), String> {
+    let Some(model) = model.map(str::trim).filter(|m| !m.is_empty()) else {
+        return Ok(());
+    };
+    let models = registry
+        .with_provider(provider_id, |p| p.available_models())
+        .unwrap_or_default();
+    if models.is_empty() {
+        return Ok(());
+    }
+    if models.iter().any(|m| m.id == model) {
+        return Ok(());
+    }
+
+    let suffix_matches: Vec<&str> = models
+        .iter()
+        .filter_map(|m| {
+            m.id.rsplit_once('/')
+                .map(|(_, suffix)| (m.id.as_str(), suffix))
+        })
+        .filter_map(|(id, suffix)| (suffix == model).then_some(id))
+        .collect();
+    let suggestion = if suffix_matches.len() == 1 {
+        format!(" Did you mean '{}'?", suffix_matches[0])
+    } else {
+        String::new()
+    };
+    Err(format!(
+        "Invalid model '{}' for provider '{}'.{} Run `codeterm agent models {}` to see available models.",
+        model, provider_id, suggestion, provider_id
+    ))
 }
 
 impl ServiceContext {
@@ -185,6 +233,10 @@ impl ServiceContext {
             _ => return Err("spawn_visible_agent_impl called without Agent command".into()),
         };
 
+        if let Some(ref role_str) = agent.role {
+            ServiceContext::parse_role(role_str)?;
+        }
+
         let default_provider = crate::config::default_agent_provider();
         let agent_cmd = if agent.provider.is_empty() {
             default_provider
@@ -192,13 +244,18 @@ impl ServiceContext {
             agent.provider.clone()
         };
 
-        if self.agent_registry.with_provider(&agent_cmd, |_| ()).is_none() {
+        if self
+            .agent_registry
+            .with_provider(&agent_cmd, |_| ())
+            .is_none()
+        {
             let available = self.agent_registry.provider_ids().join(", ");
             return Err(format!(
                 "Unknown agent provider: '{}'. Available: [{}]",
                 agent_cmd, available
             ));
         }
+        validate_agent_model(&self.agent_registry, &agent_cmd, agent.model.as_deref())?;
 
         let title = spec
             .title
@@ -222,6 +279,20 @@ impl ServiceContext {
         };
 
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
+
+        let default_chat_enabled = self
+            .app_handle
+            .state::<crate::config::ConfigState>()
+            .lock()
+            .ui
+            .default_new_agent_pane_chat;
+        let default_chat_view = should_default_agent_pane_to_chat(
+            default_chat_enabled,
+            spec.visibility,
+            self.agent_registry
+                .with_provider(&agent_cmd, |p| p.supports_chat_ui())
+                .unwrap_or(false),
+        );
 
         let (tab_id, pane_id) = {
             let mut mux = self.mux.lock();
@@ -259,6 +330,11 @@ impl ServiceContext {
                     pane.auto_approve = true;
                 }
             }
+            if default_chat_view {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.chat_view = true;
+                }
+            }
             if let Err(e) = mux.rename_pane(&result.1, &title) {
                 log::warn!("[spawn] rename_pane failed: {}", e);
             }
@@ -268,11 +344,8 @@ impl ServiceContext {
             result
         };
 
-        // Apply role + can_spawn after the tab is created. Done outside the
-        // create-tab lock so set_pane_role's full validation runs and
-        // emits state changes; `can_spawn` is only forced when the caller
-        // explicitly passed --can-spawn (Some), preserving role defaults
-        // (Orchestrator/Lead default true, Worker default false).
+        // Apply role + can_spawn after the tab is created. Done outside the create-tab lock so set_pane_role's full validation runs and emits state
+        // changes; `can_spawn` is only forced when the caller explicitly passed --can-spawn (Some), preserving role defaults (Orchestrator defaults true, Worker false).
         if let Some(ref role_str) = agent.role {
             if let Err(e) = self.set_pane_role(
                 &pane_id,
@@ -280,17 +353,28 @@ impl ServiceContext {
                 spec.parent_pane_id.as_deref(),
                 agent.can_spawn,
             ) {
-                log::warn!("[spawn] set_pane_role({}, {}) failed: {}", pane_id, role_str, e);
+                log::warn!(
+                    "[spawn] set_pane_role({}, {}) failed: {}",
+                    pane_id,
+                    role_str,
+                    e
+                );
             }
         }
-        // Pin agent_type on the pane up-front. Codex/OpenCode TUIs don't emit
-        // OSC titles and only trip `detect_from_output` on permission prompts —
-        // without this proactive tag they stay agent_type=None forever and the
-        // session-id poller (in `set_pane_agent_type`) never starts, so resume
-        // after restart silently fails. The orchestrator-side spawn path also
-        // needs the same call (see `service/orchestrator.rs::spawn_agent`).
+        // Pin agent_type before launch so detect_from_output has a durable session-id source.
+        // Missing this tag leaves Codex/OpenCode panes unresumable after restart.
         self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.clone());
+        let launch_session_id = if agent.resume_session_id.is_none() {
+            self.agent_registry
+                .with_provider(&agent_cmd, |p| p.session_id_injection())
+                .filter(|mode| !matches!(mode, crate::agent::provider::SessionIdInjection::None))
+                .map(|_| uuid::Uuid::new_v4().to_string())
+        } else {
+            None
+        };
         if let Some(ref sid) = agent.resume_session_id {
+            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+        } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
         self.emit_state_changed();
@@ -303,9 +387,12 @@ impl ServiceContext {
             };
             match agent.role.as_deref() {
                 Some("Worker") => format!("{}{}", preamble_wrapped, crate::prompts::WORKER_SUFFIX),
-                Some("Lead") => format!("{}{}", preamble_wrapped, crate::prompts::LEAD_SUFFIX),
                 Some("Orchestrator") => {
-                    format!("{}{}", preamble_wrapped, crate::prompts::ORCHESTRATOR_SUFFIX)
+                    format!(
+                        "{}{}",
+                        preamble_wrapped,
+                        crate::prompts::ORCHESTRATOR_SUFFIX
+                    )
                 }
                 _ => preamble_wrapped,
             }
@@ -316,6 +403,7 @@ impl ServiceContext {
             &agent_cmd,
             &legacy_params,
             role_suffixed_task.as_deref(),
+            launch_session_id.as_deref(),
             &self.agent_registry,
         );
         launch_agent_in_background(
@@ -377,10 +465,20 @@ impl ServiceContext {
         };
         self.emit_state_changed();
 
+        let pty_id = if spec.eager {
+            self.ensure_pane_pty_for_send(&pane_id)?;
+            self.mux
+                .lock()
+                .get_pane(&pane_id)
+                .and_then(|p| p.pty_id.clone())
+        } else {
+            None
+        };
+
         Ok(PaneHandle {
             pane_id,
             tab_id,
-            pty_id: None,
+            pty_id,
             workspace_id: ws_id,
             worker_id: None,
             warning,
@@ -458,8 +556,11 @@ impl ServiceContext {
                 .build()
                 .expect("backend reader runtime");
             rt.block_on(async {
-                match crate::service::pty_lifecycle::start_backend_reader(&svc_reader, &pty_reader)
-                {
+                match crate::service::pty_lifecycle::start_backend_reader(
+                    &svc_reader,
+                    &pty_reader,
+                    true,
+                ) {
                     Ok(handle) => {
                         let _ = handle.await;
                     }
@@ -503,6 +604,11 @@ impl ServiceContext {
                 agent.provider, available
             ));
         }
+        validate_agent_model(
+            &self.agent_registry,
+            &agent.provider,
+            agent.model.as_deref(),
+        )?;
 
         let ws_id = {
             let mux = self.mux.lock();
@@ -584,28 +690,31 @@ impl ServiceContext {
         self.agent_run_pty_map
             .lock()
             .insert(pane_id.clone(), pty_id.clone());
-        // Register run for auto-complete via stream-json result event / idle / timeout.
-        // Cron kind is resolved later (after the cron registry links pane→run).
+        // Register run for auto-complete via stream-json result event / idle / timeout. Cron kind is resolved later (after the cron registry links
+        // pane→run).
         if let Some(ref worker_id) = agent.worker_id {
-            // Dreamer (REM phase) needs a longer timeout than the default
-            // worker — hub decomposition + diary + classification all in one
-            // session takes a while. Pick by intent: any worker whose intent
-            // starts with "dreaming:" gets the dreaming-specific timeout.
+            // Dreamer (REM phase) needs a longer timeout than the default worker — hub decomposition + diary + classification all in one session takes a
+            // while. Pick by intent: any worker whose intent starts with "dreaming:" gets the dreaming-specific timeout.
             let mem_cfg = crate::config::memory_config();
-            let intent = self.workers.get(worker_id).map(|w| w.intent.clone()).unwrap_or_default();
+            let intent = self
+                .workers
+                .get(worker_id)
+                .map(|w| w.intent.clone())
+                .unwrap_or_default();
             let dreaming = crate::mem::workers::is_dreaming_intent(&intent);
             let timeout = if dreaming {
                 mem_cfg.dreaming_timeout_seconds
             } else {
                 mem_cfg.worker_timeout_seconds
             };
-            // Surface the timeout choice so reports of "dreaming worker died at
-            // 150s" (= worker_timeout_seconds, not dreaming_timeout_seconds=1800)
-            // can be diagnosed: either intent lookup returned empty, or
-            // is_dreaming_intent didn't match.
+            // Surface the timeout choice so reports of "dreaming worker died at 150s" (= worker_timeout_seconds, not dreaming_timeout_seconds=1800) can
+            // diagnosed: either intent lookup returned empty, or is_dreaming_intent didn't match.
             log::info!(
                 "[run-watcher] register worker={} intent='{}' dreaming={} timeout={}s",
-                worker_id, intent, dreaming, timeout
+                worker_id,
+                intent,
+                dreaming,
+                timeout
             );
             self.run_watcher.register(
                 self.clone(),
@@ -653,6 +762,7 @@ impl ServiceContext {
                     match crate::service::pty_lifecycle::start_backend_reader(
                         &svc_reader,
                         &pty_reader,
+                        true,
                     ) {
                         Ok(handle) => {
                             let _ = handle.await;

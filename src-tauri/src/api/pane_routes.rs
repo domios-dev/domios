@@ -22,6 +22,9 @@ pub struct CreateShellPaneBody {
     pub workspace_id: Option<String>,
     pub cwd: Option<String>,
     pub title: Option<String>,
+    pub cmd: Option<String>,
+    #[serde(default)]
+    pub eager: bool,
 }
 
 pub async fn create_shell_pane(
@@ -31,26 +34,48 @@ pub async fn create_shell_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
-    let handle = state.svc.spawn_pane(SpawnPaneSpec {
-        workspace_id: body.workspace_id,
-        cwd: body.cwd,
-        title: body.title,
-        visibility: PaneVisibility::Visible,
-        command: PaneCommand::Shell,
-        ..Default::default()
-    }).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    // Mirror `pane_id` as `id` so the conventional CRUD idiom (`jq '.id'`,
-    // resp.get("id")) reaches the new pane without anyone having to learn
-    // our per-resource naming. Both fields hold the same value.
+    let handle = state
+        .svc
+        .spawn_pane(SpawnPaneSpec {
+            workspace_id: body.workspace_id,
+            cwd: body.cwd,
+            title: body.title,
+            visibility: PaneVisibility::Visible,
+            eager: body.eager,
+            command: PaneCommand::Shell,
+            ..Default::default()
+        })
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if let Some(cmd) = body.cmd {
+        // send_text ensures the PTY itself (ensure_pane_pty_for_send), which a
+        // lazy pane needs — a pre-existence poll would never see one appear.
+        state
+            .svc
+            .send_text(&handle.pane_id, &cmd, true)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!(
+                        "pane created (id={}) but --cmd failed: {}",
+                        handle.pane_id, e
+                    ),
+                )
+            })?;
+    }
+    // Mirror `pane_id` as `id` so the conventional CRUD idiom (`jq '.id'`, resp.get("id")) reaches the new pane without anyone having to learn our
+    // per-resource naming. Both fields hold the same value.
     Ok(Json(serde_json::json!({
         "id": handle.pane_id,
         "pane_id": handle.pane_id,
         "workspace_id": handle.workspace_id,
         "tab_id": handle.tab_id,
+        "pty_id": handle.pty_id,
     })))
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Deserialize)]
 pub(crate) struct SendTextBody {
@@ -64,9 +89,8 @@ pub(crate) struct SendTextBody {
     #[serde(default)]
     raw: bool,
     /// Sender's pane id when CLI is invoked from inside CodeTerm. Daemon
-    /// prepends `[from <title> pane=<id>] ` so the recipient knows the
-    /// return-address. Mirrors `[Mesh: PEER pane=ID]` for mesh hops and
-    /// `[Report from PANE_ID]` for hierarchy reports.
+    /// prepends a CodeTerm marker so the recipient knows the return-address.
+    /// Mesh hops and hierarchy reports use the same marker family.
     #[serde(default)]
     source_pane: Option<String>,
 }
@@ -95,9 +119,11 @@ async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
 fn record_push_activity(state: &AppState, svc_id: &Option<String>, pane_id: &str, text: &str) {
     use tauri::Emitter;
     let Some(svc_id) = svc_id else { return };
-    let writer = crate::services::activity::ActivityWriter::new(state.svc.services_store.conn());
+    let writer = crate::service::activity::ActivityWriter::new(state.svc.services_store.conn());
     let preview = text.chars().take(200).collect::<String>();
-    let _ = writer.record(crate::services::activity::ActivityEvent::push(svc_id, pane_id, &preview));
+    let _ = writer.record(crate::service::activity::ActivityEvent::push(
+        svc_id, pane_id, &preview,
+    ));
     let _ = state.svc.app_handle.emit(
         "service-pushed",
         serde_json::json!({"source_id": svc_id, "target": pane_id}),
@@ -114,7 +140,7 @@ pub async fn send_text(
         .get("Authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| {
-            crate::services::push::validate_push(v, &state.svc.tokens, &state.svc.services_store)
+            crate::service::push::validate_push(v, &state.svc.tokens, &state.svc.services_store)
                 .ok()
                 .flatten()
         });
@@ -124,21 +150,38 @@ pub async fn send_text(
     }
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
+    state
+        .svc
+        .ensure_pane_pty_for_send(&pane_id)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+
     if !await_pty_link(&state, &pane_id).await {
-        return Err((StatusCode::NOT_FOUND, "Pane not found or PTY did not start within 3s"));
+        return Err((
+            StatusCode::NOT_FOUND,
+            "Pane not found or PTY did not start within 3s",
+        ));
     }
 
-    // Source-prefix only for agent recipients; shells just execute the bytes.
-    let target_has_agent = state.svc.mux.lock().get_pane(&pane_id)
-        .map(|p| p.agent_type.is_some())
-        .unwrap_or(false);
-    let source_prefix: Option<String> = body.source_pane.as_deref()
+    // Prefix only for agent recipients; shells run the bytes verbatim.
+    let source_prefix: Option<String> = body
+        .source_pane
+        .as_deref()
         .filter(|s| !s.is_empty() && *s != pane_id)
-        .filter(|_| target_has_agent)
-        .map(|src| {
-            let label = state.svc.mux.lock().display_label_for_pane(src);
-            let short: String = src.chars().take(8).collect();
-            format!("[from {} pane={}] ", label, short)
+        .and_then(|src| {
+            let mux = state.svc.mux.lock();
+            if mux
+                .get_pane(&pane_id)
+                .and_then(|p| p.agent_type.as_ref())
+                .is_none()
+            {
+                return None; // shell recipient — no prefix
+            }
+            let from_label = mux.display_label_for_pane(src);
+            let model = mux
+                .get_pane(src)
+                .and_then(|p| p.agent_session_model.clone());
+            let pfx = crate::service::msg_prefix::CtxPrefix::message(from_label, src).model(model);
+            Some(pfx.build())
         });
     let prepend = |s: &str| -> String {
         match &source_prefix {
@@ -148,33 +191,85 @@ pub async fn send_text(
     };
 
     if let Some(batch) = body.batch {
-        let preview = batch.iter().map(|c| c.text.as_str()).collect::<Vec<_>>().join(" ; ");
-        let items: Vec<crate::service::pty_io::SendBatchItem> = batch.into_iter().map(|c| {
-            crate::service::pty_io::SendBatchItem { text: prepend(&c.text), enter: c.enter, delay_ms: c.delay_ms }
-        }).collect();
-        state.svc.send_text_batch(&pane_id, items)
+        let preview = batch
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ; ");
+        let items: Vec<crate::service::pty_io::SendBatchItem> = batch
+            .into_iter()
+            .map(|c| crate::service::pty_io::SendBatchItem {
+                text: prepend(&c.text),
+                enter: c.enter,
+                delay_ms: c.delay_ms,
+            })
+            .collect();
+        state
+            .svc
+            .send_text_batch(&pane_id, items)
             .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
         record_push_activity(&state, &svc_token_match, &pane_id, &preview);
         return Ok(Json(serde_json::json!({"ok": true, "batch": true})));
     }
 
     if body.raw {
-        // raw mode bypasses bracket paste — sender prefix is intentionally
-        // skipped here too (raw = byte-for-byte keystrokes for TUIs)
+        // raw mode bypasses bracket paste — sender prefix is intentionally skipped here too (raw = byte-for-byte keystrokes for TUIs)
         let raw_text = body.text.clone().unwrap_or_default();
         let mut buf = raw_text.clone();
-        if body.enter && !buf.ends_with('\r') { buf.push('\r'); }
-        state.svc.write_raw(&pane_id, buf.as_bytes())
+        if body.enter && !buf.ends_with('\r') {
+            buf.push('\r');
+        }
+        state
+            .svc
+            .write_raw(&pane_id, buf.as_bytes())
             .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
         record_push_activity(&state, &svc_token_match, &pane_id, &raw_text);
         return Ok(Json(serde_json::json!({"ok": true})));
     }
 
     let text = prepend(&body.text.unwrap_or_default());
-    state.svc.send_text(&pane_id, &text, body.enter)
+    state
+        .svc
+        .send_text_when_ready(&pane_id, &text, body.enter)
+        .await
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     record_push_activity(&state, &svc_token_match, &pane_id, &text);
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Interrupt the agent's current operation (NOT a clean exit).
+/// Reads `provider.stop_keystroke()` for the pane's agent_type and
+/// writes those raw bytes to the PTY. 200 + `{stopped:false}` when
+/// the provider has no stop keystroke declared; 404 when the pane
+/// or PTY is gone. Used by the per-pane Stop button.
+pub async fn stop_pane(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
+    let agent_id = state
+        .svc
+        .mux
+        .lock()
+        .get_pane(&pane_id)
+        .and_then(|p| p.agent_type.clone());
+    let bytes: Option<String> = agent_id.and_then(|aid| {
+        state
+            .svc
+            .agent_registry
+            .with_provider(&aid, |p| p.stop_keystroke().map(|s| s.to_string()))
+            .flatten()
+    });
+    let Some(bytes) = bytes else {
+        return Ok(Json(serde_json::json!({"ok": true, "stopped": false})));
+    };
+    state
+        .svc
+        .write_raw(&pane_id, bytes.as_bytes())
+        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    Ok(Json(serde_json::json!({"ok": true, "stopped": true})))
 }
 
 pub async fn focus_pane(
@@ -184,11 +279,9 @@ pub async fn focus_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let result = crate::dispatch::dispatch(
-        &crate::dispatch::Command::PaneFocus { pane_id },
-        &state.svc,
-    )
-    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    let result =
+        crate::dispatch::dispatch(&crate::dispatch::Command::PaneFocus { pane_id }, &state.svc)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(result.into_json()))
 }
 
@@ -238,15 +331,27 @@ pub async fn exec_in_pane(
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
     if !await_pty_link(&state, &pane_id).await {
-        return Err((StatusCode::NOT_FOUND, "Pane not found or PTY did not start within 3s"));
+        return Err((
+            StatusCode::NOT_FOUND,
+            "Pane not found or PTY did not start within 3s",
+        ));
     }
-    let pty_id = state.svc.resolve_pty_id(&pane_id)
+    let pty_id = state
+        .svc
+        .resolve_pty_id(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
 
-    let start_offset = state.svc.output_buf.lock()
-        .get_text(&pty_id).map(|t| t.len()).unwrap_or(0);
+    let start_offset = state
+        .svc
+        .output_buf
+        .lock()
+        .get_text(&pty_id)
+        .map(|t| t.len())
+        .unwrap_or(0);
 
-    state.svc.send_text(&pane_id, &body.command, true)
+    state
+        .svc
+        .send_text(&pane_id, &body.command, true)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY"))?;
 
     let timeout_ms = body.timeout_ms.unwrap_or(10000);
@@ -257,23 +362,41 @@ pub async fn exec_in_pane(
         let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-            let len1 = buf_clone.lock().get_text(&pty_clone).map(|t| t.len()).unwrap_or(0);
+            let len1 = buf_clone
+                .lock()
+                .get_text(&pty_clone)
+                .map(|t| t.len())
+                .unwrap_or(0);
             if len1 > start_offset {
                 tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
-                let len2 = buf_clone.lock().get_text(&pty_clone).map(|t| t.len()).unwrap_or(0);
+                let len2 = buf_clone
+                    .lock()
+                    .get_text(&pty_clone)
+                    .map(|t| t.len())
+                    .unwrap_or(0);
                 if len2 == len1 || tokio::time::Instant::now() >= deadline {
                     let text = buf_clone.lock().get_text(&pty_clone).unwrap_or_default();
-                    let new = if start_offset < text.len() { text[start_offset..].to_string() } else { String::new() };
+                    let new = if start_offset < text.len() {
+                        text[start_offset..].to_string()
+                    } else {
+                        String::new()
+                    };
                     return (new, text.len(), false);
                 }
             }
             if tokio::time::Instant::now() >= deadline {
                 let text = buf_clone.lock().get_text(&pty_clone).unwrap_or_default();
-                let new = if start_offset < text.len() { text[start_offset..].to_string() } else { String::new() };
+                let new = if start_offset < text.len() {
+                    text[start_offset..].to_string()
+                } else {
+                    String::new()
+                };
                 return (new, text.len(), true);
             }
         }
-    }).await.map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Exec task failed"))?;
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Exec task failed"))?;
 
     let (raw_output, offset, timed_out) = result;
     let output = if body.strip_ansi.unwrap_or(false) {
@@ -282,7 +405,9 @@ pub async fn exec_in_pane(
         raw_output
     };
     let mut resp = serde_json::json!({"output": output, "offset": offset});
-    if timed_out { resp["timeout"] = serde_json::json!(true); }
+    if timed_out {
+        resp["timeout"] = serde_json::json!(true);
+    }
     Ok(Json(resp))
 }
 
@@ -293,11 +418,9 @@ pub async fn close_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let result = crate::dispatch::dispatch(
-        &crate::dispatch::Command::PaneClose { pane_id },
-        &state.svc,
-    )
-    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    let result =
+        crate::dispatch::dispatch(&crate::dispatch::Command::PaneClose { pane_id }, &state.svc)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(result.into_json()))
 }
 
@@ -315,7 +438,10 @@ pub async fn rename_pane(
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
     let result = crate::dispatch::dispatch(
-        &crate::dispatch::Command::PaneRename { pane_id, title: body.title },
+        &crate::dispatch::Command::PaneRename {
+            pane_id,
+            title: body.title,
+        },
         &state.svc,
     )
     .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
@@ -337,7 +463,11 @@ pub async fn resize_pane(
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
     let result = crate::dispatch::dispatch(
-        &crate::dispatch::Command::PtyResize { pane_id, cols: body.cols, rows: body.rows },
+        &crate::dispatch::Command::PtyResize {
+            pane_id,
+            cols: body.cols,
+            rows: body.rows,
+        },
         &state.svc,
     )
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to resize PTY"))?;
@@ -356,7 +486,12 @@ pub async fn stream_pane_output(
     headers: HeaderMap,
     Path(raw_pane_id): Path<String>,
     Query(query): Query<StreamQuery>,
-) -> Result<axum::response::Sse<impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, (StatusCode, &'static str)> {
+) -> Result<
+    axum::response::Sse<
+        impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
+    >,
+    (StatusCode, &'static str),
+> {
     check_auth(&state, &headers)?;
     let pty_id = resolve_pty_id_with_fallback(&state, &raw_pane_id)?;
 
@@ -381,23 +516,37 @@ pub async fn stream_pane_output(
         }
     };
 
-    Ok(axum::response::Sse::new(stream)
-        .keep_alive(axum::response::sse::KeepAlive::default()))
+    Ok(axum::response::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
 }
 
 pub async fn agent_run_log(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(raw_pane_id): Path<String>,
-) -> Result<(StatusCode, [(axum::http::header::HeaderName, &'static str); 1], String), (StatusCode, &'static str)> {
+) -> Result<
+    (
+        StatusCode,
+        [(axum::http::header::HeaderName, &'static str); 1],
+        String,
+    ),
+    (StatusCode, &'static str),
+> {
     check_auth(&state, &headers)?;
 
     if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_pane_id) {
-        let text = state.svc.output_buf.lock().get_full_text(&pty_id).unwrap_or_default();
+        let text = state
+            .svc
+            .output_buf
+            .lock()
+            .get_full_text(&pty_id)
+            .unwrap_or_default();
         if !text.is_empty() {
             return Ok((
                 StatusCode::OK,
-                [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+                [(
+                    axum::http::header::CONTENT_TYPE,
+                    "text/plain; charset=utf-8",
+                )],
                 text,
             ));
         }
@@ -406,7 +555,10 @@ pub async fn agent_run_log(
     if let Some(text) = read_log_from_disk_by_pane(&state, &raw_pane_id) {
         return Ok((
             StatusCode::OK,
-            [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            [(
+                axum::http::header::CONTENT_TYPE,
+                "text/plain; charset=utf-8",
+            )],
             text,
         ));
     }
@@ -439,8 +591,8 @@ fn read_log_from_disk_by_pane(state: &AppState, raw_pane_id: &str) -> Option<Str
     None
 }
 
-// Mux drops pane→pty on close_pane, but output_buf[pty_id] survives — fall
-// back to the stable spawn-time map so closed worker/cron logs stay readable.
+// close_pane can remove pane→pty, but output_buf[pty_id] may remain.
+// Fall back to spawn-time map so worker/cron logs from closed panes stay readable.
 fn resolve_pty_id_with_fallback(
     state: &AppState,
     raw_pane_id: &str,
@@ -475,7 +627,8 @@ pub async fn get_pane_usage(
 
     let (agent_type, session_id, cwd) = {
         let mux = state.svc.mux.lock();
-        let pane = mux.get_pane(&pane_id)
+        let pane = mux
+            .get_pane(&pane_id)
             .ok_or((StatusCode::NOT_FOUND, "Pane not found"))?;
         (
             pane.agent_type.clone(),
@@ -485,7 +638,9 @@ pub async fn get_pane_usage(
     };
 
     let (Some(agent_type), Some(session_id), Some(cwd)) = (agent_type, session_id, cwd) else {
-        return Ok(Json(serde_json::json!({ "usage": serde_json::Value::Null })));
+        return Ok(Json(
+            serde_json::json!({ "usage": serde_json::Value::Null }),
+        ));
     };
 
     let usage = state
@@ -505,7 +660,10 @@ pub async fn get_pane_text(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let cmd = crate::dispatch::Command::GetText { pane_id: pane_id.clone(), formatted: query.formatted };
+    let cmd = crate::dispatch::Command::GetText {
+        pane_id: pane_id.clone(),
+        formatted: query.formatted,
+    };
     match crate::dispatch::dispatch(&cmd, &state.svc) {
         Ok(r) => {
             let mut v = r.into_json();
@@ -527,7 +685,10 @@ mod tests_send_text_body {
         let json = r#"{"text": "ls"}"#;
         let body: SendTextBody = serde_json::from_str(json).unwrap();
         assert_eq!(body.text, Some("ls".to_string()));
-        assert!(body.enter, "enter should default to true via default_true()");
+        assert!(
+            body.enter,
+            "enter should default to true via default_true()"
+        );
         assert!(body.batch.is_none());
     }
 
@@ -591,7 +752,10 @@ mod tests_send_text_body {
     fn batch_command_enter_defaults_true() {
         let json = r#"{"text": "echo hi"}"#;
         let cmd: BatchCommand = serde_json::from_str(json).unwrap();
-        assert!(cmd.enter, "BatchCommand.enter defaults to true via default_true()");
+        assert!(
+            cmd.enter,
+            "BatchCommand.enter defaults to true via default_true()"
+        );
     }
 
     #[test]

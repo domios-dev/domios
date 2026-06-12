@@ -33,11 +33,7 @@ impl MultiplexerState {
     }
 
     /// Close a tab and return PTY IDs that need to be killed.
-    pub fn close_tab(
-        &mut self,
-        workspace_id: &str,
-        tab_id: &str,
-    ) -> Result<Vec<String>, String> {
+    pub fn close_tab(&mut self, workspace_id: &str, tab_id: &str) -> Result<Vec<String>, String> {
         let workspace = self
             .workspaces
             .iter_mut()

@@ -1,0 +1,25 @@
+- id: keepawake.cycle
+  command: "keepawake start"
+  prompt: "Keep this machine awake for 2 minutes, then tell me the keep-awake status."
+  expect: "Runs `codeterm keepawake start --duration-secs 120` then `codeterm keepawake status`."
+  safety: execute
+- id: theme.list
+  command: "theme list"
+  prompt: "What themes are available?"
+  expect: "Runs `codeterm theme list`."
+  safety: execute
+- id: config.get
+  command: "config get"
+  prompt: "Read the config value for integrations.telegram_enabled."
+  expect: "Runs `codeterm config get integrations.telegram_enabled`."
+  safety: execute
+- id: config.set.describe
+  command: "config set"
+  prompt: "How would you enable the Telegram integration via config? Show the command, don't run it."
+  expect: "Describes `codeterm config set integrations.telegram_enabled true`; must NOT run."
+  safety: describe-only
+- id: sessions.search
+  command: "sessions search"
+  prompt: "Search my past agent sessions for anything about the mesh networking work."
+  expect: "Runs `codeterm sessions search \"mesh networking\"`."
+  safety: execute

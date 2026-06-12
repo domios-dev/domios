@@ -65,47 +65,63 @@ pub fn print_history_timeline(rows: &[serde_json::Value]) {
         return;
     }
     for row in rows {
-        let changed_at = row.get("changed_at").and_then(|v| v.as_str()).unwrap_or("?");
+        let changed_at = row
+            .get("changed_at")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
         // Drop sub-second precision + tz for compact display.
         let ts = changed_at
             .split('.')
             .next()
             .unwrap_or(changed_at)
             .replace('T', " ");
-        let changed_by = row.get("changed_by").and_then(|v| v.as_str()).unwrap_or("?");
+        let changed_by = row
+            .get("changed_by")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
         let change_type = row
             .get("change_type")
             .and_then(|v| v.as_str())
             .unwrap_or("?");
         println!("* {}  {:<15} {}", ts, changed_by, change_type);
-        let diff_line = |label: &str, old: Option<&serde_json::Value>, new: Option<&serde_json::Value>| {
-            let has_old = old.map(|v| !v.is_null()).unwrap_or(false);
-            let has_new = new.map(|v| !v.is_null()).unwrap_or(false);
-            if !has_old && !has_new {
-                return None;
-            }
-            let fmt = |v: Option<&serde_json::Value>| -> String {
-                match v {
-                    None | Some(serde_json::Value::Null) => "-".into(),
-                    Some(serde_json::Value::String(s)) => {
-                        let truncated: String = s.chars().take(60).collect();
-                        if s.chars().count() > 60 {
-                            format!("{}…", truncated)
-                        } else {
-                            truncated
+        let diff_line =
+            |label: &str, old: Option<&serde_json::Value>, new: Option<&serde_json::Value>| {
+                let has_old = old.map(|v| !v.is_null()).unwrap_or(false);
+                let has_new = new.map(|v| !v.is_null()).unwrap_or(false);
+                if !has_old && !has_new {
+                    return None;
+                }
+                let fmt = |v: Option<&serde_json::Value>| -> String {
+                    match v {
+                        None | Some(serde_json::Value::Null) => "-".into(),
+                        Some(serde_json::Value::String(s)) => {
+                            let truncated: String = s.chars().take(60).collect();
+                            if s.chars().count() > 60 {
+                                format!("{}…", truncated)
+                            } else {
+                                truncated
+                            }
                         }
+                        Some(other) => other.to_string(),
                     }
-                    Some(other) => other.to_string(),
+                };
+                if has_old && has_new {
+                    Some(format!(
+                        "    {:<11} {} -> {}",
+                        format!("{}:", label),
+                        fmt(old),
+                        fmt(new)
+                    ))
+                } else if has_new {
+                    Some(format!("    {:<11} {}", format!("{}:", label), fmt(new)))
+                } else {
+                    Some(format!(
+                        "    {:<11} (deleted: {})",
+                        format!("{}:", label),
+                        fmt(old)
+                    ))
                 }
             };
-            if has_old && has_new {
-                Some(format!("    {:<11} {} -> {}", format!("{}:", label), fmt(old), fmt(new)))
-            } else if has_new {
-                Some(format!("    {:<11} {}", format!("{}:", label), fmt(new)))
-            } else {
-                Some(format!("    {:<11} (deleted: {})", format!("{}:", label), fmt(old)))
-            }
-        };
         for (label, old_k, new_k) in [
             ("title", "old_title", "new_title"),
             ("kind", "old_kind", "new_kind"),

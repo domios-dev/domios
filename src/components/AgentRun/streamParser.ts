@@ -61,10 +61,8 @@ export interface ParseResult {
   rawLines: RawLine[];
 }
 
-// Strip CSI, OSC, and most control bytes that PowerShell + ConPTY interleave
-// with the stream-json stdout. Critical: ConPTY wraps long lines at column 120
-// with cursor-positioning escapes that fall MID-JSON, so we cannot rely on
-// newline splitting — we must do brace-balanced JSON extraction instead.
+// Strip CSI/OSC/control bytes from ConPTY output.
+// ConPTY can wrap long JSON in the middle of braces, so parse by brace balance, not newline.
 const ANSI_PATTERN =
   /\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|[\x00-\x08\x0b-\x1f\x7f]/g;
 
@@ -211,8 +209,7 @@ function mapEvent(obj: unknown): ClaudeStreamEvent | null {
     return { type: "rate_limit", raw: obj };
   }
 
-  // Drop SDK-internal partial-message deltas — the high-level assistant/user
-  // events already carry the full accumulated content.
+  // Drop SDK-internal partial-message deltas — the high-level assistant/user events already carry the full accumulated content.
   if (t === "stream_event" || t === "message" || t === "direct") {
     return null;
   }
@@ -230,8 +227,7 @@ function extractContent(input: unknown): ClaudeContentBlock[] {
       return { type: "text", text: i.text };
     }
     if (k === "thinking" && typeof i.thinking === "string") {
-      // Drop signature — opaque base64 (~700-1500 chars per block) only used
-      // for chaining multi-turn API requests; one-shot workers don't need it.
+      // Drop signature — opaque base64 (~700-1500 chars per block) only used for chaining multi-turn API requests; one-shot workers don't need it.
       return { type: "thinking", thinking: i.thinking };
     }
     if (k === "redacted_thinking") {
@@ -263,8 +259,8 @@ function extractUsage(
   return undefined;
 }
 
-// claude emits the same assistant message id multiple times (thinking, text,
-// tool_use as separate stream events) — merge by id so the popup shows one row.
+// Claude can emit one assistant message id across multiple stream chunks.
+// Merge by id to show one combined popup row.
 export function mergeAssistantMessages(
   events: ClaudeStreamEvent[],
 ): ClaudeStreamEvent[] {
@@ -277,8 +273,7 @@ export function mergeAssistantMessages(
       if (existing !== undefined) {
         const prev = merged[existing];
         if (prev.type === "assistant") {
-          // Append new content blocks that aren't already present (dedup by
-          // serialized JSON to avoid double-rendering on stream replay).
+          // Append new content blocks that aren't already present (dedup by serialized JSON to avoid double-rendering on stream replay).
           const seen = new Set(prev.content.map((b) => JSON.stringify(b)));
           for (const block of ev.content) {
             const key = JSON.stringify(block);

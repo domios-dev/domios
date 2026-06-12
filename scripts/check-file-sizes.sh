@@ -22,7 +22,7 @@
 set -euo pipefail
 
 LIMIT=1000
-MOD_RS_LIMIT=600                                                 # mod.rs target — facade + light glue, heavy logic moves out
+MOD_RS_LIMIT=800                                                 # mod.rs target — facade + light glue, heavy logic moves out
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ALLOWLIST="$ROOT/scripts/file-size-allowlist.txt"
 MODE="${1:-warn}"

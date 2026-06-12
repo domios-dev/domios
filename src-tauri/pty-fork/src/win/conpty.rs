@@ -11,8 +11,8 @@ use winapi::um::wincon::COORD;
 /// instead of buffering. Default CreatePipe buffer causes ConPTY to hold data.
 fn create_small_buffer_pipe() -> anyhow::Result<Pipe> {
     use std::ptr;
-    use winapi::um::namedpipeapi::CreatePipe;
     use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
+    use winapi::um::namedpipeapi::CreatePipe;
     use winapi::um::winnt::HANDLE;
 
     let mut sa = SECURITY_ATTRIBUTES {
@@ -123,10 +123,8 @@ impl MasterPty for ConPtyMasterPty {
     }
 
     fn try_clone_reader(&self) -> anyhow::Result<Box<dyn std::io::Read + Send>> {
-        // WORKAROUND: On Windows 11 Insider builds (26200+), DuplicateHandle
-        // on ConPTY pipe handles creates non-functional read handles.
-        // Solution: return the ORIGINAL handle and put the clone in inner
-        // (inner doesn't read, so broken clone is fine there).
+        // WORKAROUND: On Windows 11 Insider builds (26200+), DuplicateHandle on ConPTY pipe handles creates non-functional read handles. Solution:
+        // return the ORIGINAL handle and put the clone in inner (inner doesn't read, so broken clone is fine there).
         let mut inner = self.inner.lock().unwrap();
         let cloned = inner.readable.try_clone()?;
         let original = std::mem::replace(&mut inner.readable, cloned);
@@ -152,4 +150,3 @@ impl SlavePty for ConPtySlavePty {
         Ok(Box::new(child))
     }
 }
-

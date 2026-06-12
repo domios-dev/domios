@@ -240,8 +240,8 @@ function introFor(m: GaugeMarker): string {
   return `projected ${Math.round(m.valuePct)}% ${shortDesc(m.title)}`;
 }
 
-// Hide a marker's % label if it would visually collide with an earlier marker.
-// "Earlier" = lower posPct (rendered to the left). Threshold ≈ 9% of bar width.
+// Hide labels that would collide with earlier markers.
+// Earlier means lower posPct (more left); threshold is ~9% of bar width.
 function labelVisibility(markers: GaugeMarker[]): boolean[] {
   const MIN_SPACING_PCT = 9;
   const result: boolean[] = markers.map(() => true);

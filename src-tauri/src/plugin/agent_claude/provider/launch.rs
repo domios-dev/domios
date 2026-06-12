@@ -18,12 +18,8 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         if params.skip_permissions {
             parts.push("--dangerously-skip-permissions".to_string());
         }
-        // -p reads stdin; stream-json+verbose+partial-messages emits NDJSON
-        // continuously (text deltas as generated) so the watcher's idle
-        // counter never trips during normal claude generation.
-        // --allowedTools Bash is REQUIRED for -p mode to allow tool use;
-        // without it the worker can't call the codeterm CLI and the whole
-        // extraction pipeline silently does nothing.
+        // Keep Claude in streaming mode (-p) and allow Bash tools so extraction can call the CLI.
+        // Without stream output + allowedTools, the extraction pipeline can stall.
         parts.push("-p".to_string());
         parts.push("--output-format".to_string());
         parts.push("stream-json".to_string());
@@ -46,8 +42,7 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         parts.push(ShellSyntax::quote(name));
     }
 
-    // Pre-generated session id (only honored for fresh sessions —
-    // `--session-id` is silently ignored by claude when also resuming).
+    // Pre-generated session id (only honored for fresh sessions — `--session-id` is silently ignored by claude when also resuming).
     if !use_stdin_pipe {
         if let Some(ref sid) = params.session_id {
             parts.push("--session-id".to_string());
@@ -147,18 +142,42 @@ mod tests {
         };
         let cmd = build_launch_command(&params);
         if cfg!(target_os = "windows") {
-            assert!(cmd.contains("Get-Content "), "headless must use Get-Content pipe: {}", cmd);
-            assert!(cmd.contains("-Raw -Encoding UTF8 |"), "missing pipe: {}", cmd);
+            assert!(
+                cmd.contains("Get-Content "),
+                "headless must use Get-Content pipe: {}",
+                cmd
+            );
+            assert!(
+                cmd.contains("-Raw -Encoding UTF8 |"),
+                "missing pipe: {}",
+                cmd
+            );
         } else {
             assert!(cmd.contains("cat "), "headless must use cat pipe: {}", cmd);
             assert!(cmd.contains(" |"), "missing pipe: {}", cmd);
         }
-        assert!(cmd.contains(".ct-task-"), "task file path expected: {}", cmd);
+        assert!(
+            cmd.contains(".ct-task-"),
+            "task file path expected: {}",
+            cmd
+        );
         assert!(cmd.contains("claude"), "claude bin: {}", cmd);
         assert!(cmd.contains(" -p"), "headless must add -p: {}", cmd);
-        assert!(cmd.contains("--output-format stream-json"), "headless must request stream-json: {}", cmd);
-        assert!(cmd.contains("--verbose"), "stream-json with -p requires --verbose: {}", cmd);
-        assert!(cmd.contains("--allowedTools Bash"), "headless must allow Bash tool for multi-turn: {}", cmd);
+        assert!(
+            cmd.contains("--output-format stream-json"),
+            "headless must request stream-json: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains("--verbose"),
+            "stream-json with -p requires --verbose: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains("--allowedTools Bash"),
+            "headless must allow Bash tool for multi-turn: {}",
+            cmd
+        );
         assert!(cmd.contains("--dangerously-skip-permissions"));
         assert!(
             !cmd.contains("(Get-Content"),
@@ -185,7 +204,11 @@ mod tests {
         };
         let cmd = build_launch_command(&params);
         assert!(!cmd.contains(" -p"), "no -p without task: {}", cmd);
-        assert!(!cmd.contains("--output-format"), "no stream-json without task: {}", cmd);
+        assert!(
+            !cmd.contains("--output-format"),
+            "no stream-json without task: {}",
+            cmd
+        );
         assert!(!cmd.contains("Get-Content"));
         assert!(!cmd.contains("cat "));
         assert!(cmd.contains("claude"));
@@ -244,14 +267,21 @@ mod tests {
             session_id: Some("my-pre-generated-uuid".to_string()),
         };
         let cmd = build_launch_command(&params);
-        assert!(cmd.contains("--session-id"), "must pass --session-id flag, got: {}", cmd);
-        assert!(cmd.contains("my-pre-generated-uuid"), "must include the chosen uuid, got: {}", cmd);
+        assert!(
+            cmd.contains("--session-id"),
+            "must pass --session-id flag, got: {}",
+            cmd
+        );
+        assert!(
+            cmd.contains("my-pre-generated-uuid"),
+            "must include the chosen uuid, got: {}",
+            cmd
+        );
     }
 
     #[test]
     fn test_headless_does_not_inject_session_id() {
-        // Headless (-p) Claude launches don't take --session-id; we must
-        // skip injection rather than emit a flag claude will reject.
+        // Headless (-p) Claude launches don't take --session-id; we must skip injection rather than emit a flag claude will reject.
         let params = AgentLaunchParams {
             agent_name: None,
             task: Some("hello".to_string()),
@@ -261,7 +291,11 @@ mod tests {
             session_id: Some("should-not-appear".to_string()),
         };
         let cmd = build_launch_command(&params);
-        assert!(!cmd.contains("--session-id"), "headless launch must not pass --session-id, got: {}", cmd);
+        assert!(
+            !cmd.contains("--session-id"),
+            "headless launch must not pass --session-id, got: {}",
+            cmd
+        );
         assert!(!cmd.contains("should-not-appear"));
     }
 

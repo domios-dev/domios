@@ -1,20 +1,18 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./bridge";
 
 export type ClipboardPayload =
   | { kind: "image"; bytes: Blob; mime: string }
   | { kind: "plain"; text: string }
   | { kind: "html"; html: string };
 
-// Minimal subset of ClipboardItem used by the classifier — keeps the helper
-// testable without a real browser ClipboardItem.
+// Minimal ClipboardItem subset used by the classifier for testability.
 export interface ClipboardItemLike {
   types: ReadonlyArray<string>;
   getType(type: string): Promise<Blob>;
 }
 
-// Why text/plain MUST win over text/html:
-// Browsers and rich-text apps put both on the clipboard. Saving text/html
-// to a temp file would shadow the plain text the user actually copied.
+// Prefer text/plain over text/html.
+// Rich editors often include both, and using html can overwrite real pasted text.
 export async function classifyClipboardPayload(
   item: ClipboardItemLike,
 ): Promise<ClipboardPayload | null> {
@@ -70,9 +68,8 @@ export function fileUriToPath(uri: string): string | null {
   }
 }
 
-// Extracts real file paths the OS attached to the clipboard alongside a
-// possibly-bogus image preview. Without this, macOS Cmd+C of a Finder file
-// followed by Cmd+V gives a 1024x1024 placeholder PNG via getAsFile().
+// Prefer OS file paths over image placeholders.
+// Finder copies may present `getAsFile()` only as a temporary icon image.
 export function extractFilePathsFromClipboard(cd: DataTransfer): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -136,8 +133,7 @@ export async function routeClipboardToTerm(term: TermLike): Promise<boolean> {
     return true;
   }
 
-  // 3. Web Clipboard API fallback for platforms without native readers
-  //    (Linux) or edge cases where pasteboard didn't surface the text.
+  // 3. Web Clipboard API fallback for platforms without native readers (Linux) or edge cases where pasteboard didn't surface the text.
   const plain = await readPlainTextSafely();
   if (plain) {
     term.paste(plain);
@@ -211,9 +207,7 @@ async function readWebClipboard(): Promise<WebClipboardResult> {
         continue;
       }
 
-      // payload.kind === "html" — only reached when text/plain wasn't on the
-      // clipboard; keeps the "save HTML to file, paste path" fallback for
-      // sources that provide HTML alone.
+      // payload.kind === "html" — only reached when text/plain wasn't on the clipboard; keeps the "save HTML to file, paste path" fallback for sources that provide HTML alone.
       const path = await saveHtmlPayload(payload.html);
       if (path) paths.push(path);
     }

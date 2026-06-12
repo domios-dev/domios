@@ -12,10 +12,7 @@ pub async fn save_clipboard_image(bytes: Vec<u8>, ext: String) -> Result<String,
 }
 
 #[tauri::command]
-pub async fn save_clipboard_file(
-    bytes: Vec<u8>,
-    filename: String,
-) -> Result<String, String> {
+pub async fn save_clipboard_file(bytes: Vec<u8>, filename: String) -> Result<String, String> {
     let path = crate::attachments::save_with_prefixed_name(
         "files",
         &filename,
@@ -26,7 +23,11 @@ pub async fn save_clipboard_file(
 }
 
 #[tauri::command]
-pub fn save_temp_file(data: String, extension: String, name: Option<String>) -> Result<String, String> {
+pub fn save_temp_file(
+    data: String,
+    extension: String,
+    name: Option<String>,
+) -> Result<String, String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&data)
         .map_err(|e| format!("Base64 decode failed: {}", e))?;
@@ -105,7 +106,14 @@ pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         let output = std::process::Command::new("xclip")
-            .args(["-selection", "clipboard", "-target", "image/png", "-i", &path])
+            .args([
+                "-selection",
+                "clipboard",
+                "-target",
+                "image/png",
+                "-i",
+                &path,
+            ])
             .output()
             .map_err(|e| e.to_string())?;
         if !output.status.success() {

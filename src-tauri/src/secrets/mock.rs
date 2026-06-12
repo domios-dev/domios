@@ -492,7 +492,10 @@ mod tests {
         store.save(req("k", "v")).await.unwrap();
         store.logout().await.unwrap();
         assert!(matches!(store.get("k").await, Err(SecretError::LoggedOut)));
-        assert!(matches!(store.status().await, StoreStatus::LoggedOut { .. }));
+        assert!(matches!(
+            store.status().await,
+            StoreStatus::LoggedOut { .. }
+        ));
     }
 
     #[tokio::test]

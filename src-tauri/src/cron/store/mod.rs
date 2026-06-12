@@ -22,10 +22,13 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 pub use schedule::{
-    compute_backoff, compute_next_run, compute_next_run_in, compute_next_run_jittered,
-    compute_next_run_jittered_in, parse_oneshot_schedule, parse_tz, to_6field, validate_schedule,
+    compute_backoff, compute_next_run, compute_next_run_at, compute_next_run_in,
+    compute_next_run_jittered, compute_next_run_jittered_at, compute_next_run_jittered_in,
+    parse_oneshot_schedule, parse_oneshot_schedule_at, parse_tz, to_6field, validate_schedule,
     validate_tz, MAX_CONSECUTIVE_FAILURES,
 };
+
+use crate::cron::clock::{system_clock, SharedClock};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum CronRunStatus {
@@ -90,7 +93,9 @@ pub struct CronJob {
     pub protected: bool,
 }
 
-fn is_zero_u32(v: &u32) -> bool { *v == 0 }
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
+}
 
 fn default_max_history() -> usize {
     100
@@ -121,12 +126,32 @@ pub struct CronStore {
     file: CronFile,
     file_path: PathBuf,
     pane_owners: HashMap<String, (String, String)>,
+    clock: SharedClock,
 }
 
 impl CronStore {
     pub fn new() -> Self {
+        Self::new_with_clock(system_clock())
+    }
+
+    /// Production path + an injected clock — the daemon uses this with a
+    /// MockClock when CODETERM_TEST_CLOCK=1 (e2e time travel).
+    pub fn new_with_clock(clock: SharedClock) -> Self {
         let dir = crate::paths::data_dir();
-        let file_path = dir.join("crons.json");
+        Self::load(dir.join("crons.json"), clock)
+    }
+
+    #[cfg(test)]
+    pub fn new_with_path(path: PathBuf) -> Self {
+        Self::load(path, system_clock())
+    }
+
+    #[cfg(test)]
+    pub fn new_with_path_and_clock(path: PathBuf, clock: SharedClock) -> Self {
+        Self::load(path, clock)
+    }
+
+    fn load(file_path: PathBuf, clock: SharedClock) -> Self {
         let file = if file_path.exists() {
             match fs::read_to_string(&file_path) {
                 Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
@@ -135,20 +160,18 @@ impl CronStore {
         } else {
             CronFile::default()
         };
-        Self { file, file_path, pane_owners: HashMap::new() }
+        Self {
+            file,
+            file_path,
+            pane_owners: HashMap::new(),
+            clock,
+        }
     }
 
-    #[cfg(test)]
-    pub fn new_with_path(path: PathBuf) -> Self {
-        let file = if path.exists() {
-            match fs::read_to_string(&path) {
-                Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
-                Err(_) => CronFile::default(),
-            }
-        } else {
-            CronFile::default()
-        };
-        Self { file, file_path: path, pane_owners: HashMap::new() }
+    /// Current time from the store's clock — the single time source for
+    /// everything cron (scheduler ticks, run records, next-run math).
+    pub fn now_ms(&self) -> u64 {
+        self.clock.now_ms()
     }
 
     pub fn save(&self) -> Result<(), String> {

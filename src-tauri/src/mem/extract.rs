@@ -162,11 +162,11 @@ pub fn extract_all(text: &str) -> Vec<Extraction> {
                 .filter(|s| !s.is_empty())
                 .collect::<Vec<_>>()
                 .join(" / ");
-            // For milestone/emotional patterns the capture group may be empty
-            // (e.g. "Got it working!" — the match itself is the content).
-            // Fall back to the full match text.
+            // For milestone/emotional patterns the capture group may be empty (e.g. "Got it working!" — the match itself is the content). Fall back to the full match text.
             let text = if captured.is_empty() {
-                cap.get(0).map(|m| m.as_str().trim().to_string()).unwrap_or_default()
+                cap.get(0)
+                    .map(|m| m.as_str().trim().to_string())
+                    .unwrap_or_default()
             } else {
                 captured
             };
@@ -182,7 +182,10 @@ pub fn extract_all(text: &str) -> Vec<Extraction> {
     }
     // Dedupe by (kind, captured)
     out.sort_by(|a, b| {
-        a.kind.as_str().cmp(b.kind.as_str()).then(a.captured.cmp(&b.captured))
+        a.kind
+            .as_str()
+            .cmp(b.kind.as_str())
+            .then(a.captured.cmp(&b.captured))
     });
     out.dedup_by(|a, b| a.kind == b.kind && a.captured == b.captured);
     out
@@ -211,14 +214,15 @@ mod tests {
     #[test]
     fn extracts_multiple_in_one_text() {
         let r = extract_preferences(
-            "I usually use vim for editing. I prefer Linux on servers. I hate JavaScript."
+            "I usually use vim for editing. I prefer Linux on servers. I hate JavaScript.",
         );
         assert!(r.len() >= 2, "expected ≥2 matches, got {:?}", r);
     }
 
     #[test]
     fn extracts_nothing_from_neutral_text() {
-        let r = extract_preferences("The build script ran for 30 seconds and produced 42 warnings.");
+        let r =
+            extract_preferences("The build script ran for 30 seconds and produced 42 warnings.");
         assert!(r.is_empty(), "expected no extraction, got {:?}", r);
     }
 
@@ -233,25 +237,41 @@ mod tests {
     #[test]
     fn extracts_decisions() {
         let r = extract_all("Let's use Redis for caching because it's fast.");
-        assert!(r.iter().any(|e| e.kind == ExtractKind::Decision), "expected decision, got {:?}", r);
+        assert!(
+            r.iter().any(|e| e.kind == ExtractKind::Decision),
+            "expected decision, got {:?}",
+            r
+        );
     }
 
     #[test]
     fn extracts_milestones() {
         let r = extract_all("Finally got the auth flow working!");
-        assert!(r.iter().any(|e| e.kind == ExtractKind::Milestone), "expected milestone, got {:?}", r);
+        assert!(
+            r.iter().any(|e| e.kind == ExtractKind::Milestone),
+            "expected milestone, got {:?}",
+            r
+        );
     }
 
     #[test]
     fn extracts_problems() {
         let r = extract_all("The problem was the JWT token expiring too early.");
-        assert!(r.iter().any(|e| e.kind == ExtractKind::Problem), "expected problem, got {:?}", r);
+        assert!(
+            r.iter().any(|e| e.kind == ExtractKind::Problem),
+            "expected problem, got {:?}",
+            r
+        );
     }
 
     #[test]
     fn extracts_emotional() {
         let r = extract_all("I feel like this project is going really well.");
-        assert!(r.iter().any(|e| e.kind == ExtractKind::Emotional), "expected emotional, got {:?}", r);
+        assert!(
+            r.iter().any(|e| e.kind == ExtractKind::Emotional),
+            "expected emotional, got {:?}",
+            r
+        );
     }
 
     #[test]
@@ -259,9 +279,21 @@ mod tests {
         let text = "I prefer Postgres. We decided to use Docker. Got it working! The bug was in the auth middleware.";
         let r = extract_all(text);
         let kinds: Vec<&str> = r.iter().map(|e| e.kind.as_str()).collect();
-        assert!(kinds.contains(&"preference"), "missing preference in {:?}", kinds);
-        assert!(kinds.contains(&"decision"), "missing decision in {:?}", kinds);
-        assert!(kinds.contains(&"milestone"), "missing milestone in {:?}", kinds);
+        assert!(
+            kinds.contains(&"preference"),
+            "missing preference in {:?}",
+            kinds
+        );
+        assert!(
+            kinds.contains(&"decision"),
+            "missing decision in {:?}",
+            kinds
+        );
+        assert!(
+            kinds.contains(&"milestone"),
+            "missing milestone in {:?}",
+            kinds
+        );
     }
 
     // ── Comprehensive pattern coverage ──
@@ -269,55 +301,76 @@ mod tests {
     #[test]
     fn decision_we_should() {
         let r = extract_all("We should migrate to Kubernetes.");
-        assert!(r.iter().any(|e| e.kind == ExtractKind::Decision && e.label == "we_should"));
+        assert!(r
+            .iter()
+            .any(|e| e.kind == ExtractKind::Decision && e.label == "we_should"));
     }
 
     #[test]
     fn decision_instead_of() {
         let r = extract_all("Instead of MySQL we went with Postgres.");
-        assert!(r.iter().any(|e| e.kind == ExtractKind::Decision && e.label == "instead_of"));
+        assert!(r
+            .iter()
+            .any(|e| e.kind == ExtractKind::Decision && e.label == "instead_of"));
     }
 
     #[test]
     fn milestone_shipped() {
         let r = extract_all("Shipped the new onboarding flow to production.");
-        assert!(r.iter().any(|e| e.kind == ExtractKind::Milestone && e.label == "shipped"));
+        assert!(r
+            .iter()
+            .any(|e| e.kind == ExtractKind::Milestone && e.label == "shipped"));
     }
 
     #[test]
     fn milestone_metric() {
         let r = extract_all("We achieved 3x compression improvement.");
-        assert!(r.iter().any(|e| e.kind == ExtractKind::Milestone && e.label == "metric_Nx"), "got {:?}", r);
+        assert!(
+            r.iter()
+                .any(|e| e.kind == ExtractKind::Milestone && e.label == "metric_Nx"),
+            "got {:?}",
+            r
+        );
     }
 
     #[test]
     fn problem_root_cause() {
         let r = extract_all("Root cause was a race condition in the mutex.");
-        assert!(r.iter().any(|e| e.kind == ExtractKind::Problem && e.label == "root_cause"));
+        assert!(r
+            .iter()
+            .any(|e| e.kind == ExtractKind::Problem && e.label == "root_cause"));
     }
 
     #[test]
     fn problem_workaround() {
         let r = extract_all("Workaround is to restart the service every 4 hours.");
-        assert!(r.iter().any(|e| e.kind == ExtractKind::Problem && e.label == "workaround"));
+        assert!(r
+            .iter()
+            .any(|e| e.kind == ExtractKind::Problem && e.label == "workaround"));
     }
 
     #[test]
     fn emotional_i_feel() {
         let r = extract_all("I feel overwhelmed by the amount of technical debt.");
-        assert!(r.iter().any(|e| e.kind == ExtractKind::Emotional && e.label == "i_feel"));
+        assert!(r
+            .iter()
+            .any(|e| e.kind == ExtractKind::Emotional && e.label == "i_feel"));
     }
 
     #[test]
     fn preference_please_rule() {
         let r = extract_all("Please always run tests before pushing.");
-        assert!(r.iter().any(|e| e.kind == ExtractKind::Preference && e.label == "please_rule"));
+        assert!(r
+            .iter()
+            .any(|e| e.kind == ExtractKind::Preference && e.label == "please_rule"));
     }
 
     #[test]
     fn preference_use_instead_of() {
         let r = extract_all("Use FastAPI instead of Django for real-time endpoints.");
-        assert!(r.iter().any(|e| e.kind == ExtractKind::Preference && e.label == "use_instead_of"));
+        assert!(r
+            .iter()
+            .any(|e| e.kind == ExtractKind::Preference && e.label == "use_instead_of"));
     }
 
     // ── False positive resistance ──

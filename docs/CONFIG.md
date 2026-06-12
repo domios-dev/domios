@@ -392,11 +392,13 @@ Controls which sidebar buttons are visible. Set in `[ui]` in `config.toml`.
 |-----|------|---------|-------------|
 | `ui.memory_tab_enabled` | `bool` | `true` | Show/hide the Memory sidebar button |
 | `ui.mesh_tab_enabled` | `bool` | `true` | Show/hide the Mesh sidebar button |
+| `ui.default_new_agent_pane_chat` | `bool` | `false` | Open new visible agent panes, including General/Main, in Chat UI when the provider supports it |
 
 ```toml
 [ui]
 memory_tab_enabled = true
 mesh_tab_enabled = true
+default_new_agent_pane_chat = false
 ```
 
 ## Memory
@@ -433,7 +435,7 @@ l1_budget_tokens = 300
 
 ### Dreamer schedule
 
-The bundled `mem-dreaming-auto` cron runs the dreamer at `0 6 * * *` (6 AM local time) with a `±30 min` jitter window — so it fires anywhere in 5:30–6:30 AM. Schedule and jitter are managed by `ensure_dreaming_cron` (`src-tauri/src/mem/dreaming.rs`) and not exposed as config keys. Legacy installs that still hold the v1.1 `0 3 * * *` schedule with `±90 min` jitter are auto-migrated to the new values on the next daemon startup. Custom schedules a user has set explicitly are left alone. The dreamer additionally runs **STAGE D — Memory calibration** on Sundays only (server-gated via `strftime('%w','now') == '0'`); see `POST /api/mem/calibration/sweep` and `GET /api/mem/calibration/log` in `docs/API.md`.
+The bundled `mem-dreaming-auto` cron runs the dreamer at `0 6 * * *` (6 AM local time) with a 0..30 min delay-only jitter window — so it fires between 6:00 and 6:30 AM. Schedule and jitter are managed by `ensure_dreaming_cron` (`src-tauri/src/mem/dreaming.rs`) and not exposed as config keys. Legacy installs that still hold the v1.1 `0 3 * * *` schedule with 0..90 min delay-only jitter are auto-migrated to the new values on the next daemon startup. Custom schedules a user has set explicitly are left alone. The dreamer additionally runs **STAGE D — Memory calibration** on Sundays only (server-gated via `strftime('%w','now') == '0'`); see `POST /api/mem/calibration/sweep` and `GET /api/mem/calibration/log` in `docs/API.md`.
 
 ### Librarian
 
@@ -473,4 +475,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 19 -->
+<!-- revision: 21 -->

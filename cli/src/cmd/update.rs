@@ -37,7 +37,11 @@ fn poll_update_status(http: &reqwest::blocking::Client, base_url: &str) {
                     "error" => {
                         eprintln!(
                             "Update failed: {}",
-                            if last_err.is_empty() { "(no detail)" } else { &last_err }
+                            if last_err.is_empty() {
+                                "(no detail)"
+                            } else {
+                                &last_err
+                            }
                         );
                         std::process::exit(1);
                     }
@@ -51,7 +55,9 @@ fn poll_update_status(http: &reqwest::blocking::Client, base_url: &str) {
             Ok(_) | Err(_) => {
                 connect_failures += 1;
                 if connect_failures >= 6 && last_phase == "applying" {
-                    println!("Daemon stopped responding while applying — assumed restart in progress.");
+                    println!(
+                        "Daemon stopped responding while applying — assumed restart in progress."
+                    );
                     return;
                 }
                 continue;
@@ -63,9 +69,6 @@ fn poll_update_status(http: &reqwest::blocking::Client, base_url: &str) {
 pub fn handle_update(
     json: bool,
     action: Option<UpdateAction>,
-    check: bool,
-    apply: bool,
-    channel: Option<String>,
     manifest_url: Option<String>,
     after_update: Option<String>,
 ) {
@@ -78,24 +81,24 @@ pub fn handle_update(
         }
     };
 
-    let resolved = if let Some(ch) = channel {
-        Some(UpdateAction::Channel {
-            channel: if ch.is_empty() { None } else { Some(ch) },
-        })
-    } else if apply {
-        Some(UpdateAction::Install {
-            auto: true,
-            manifest_url: manifest_url.clone(),
-            from_file: None,
-            continue_prompt: None,
-            continue_pane: None,
-            after_update: after_update.clone(),
-        })
-    } else if check {
-        Some(UpdateAction::Check { force: false })
-    } else {
-        action
-    };
+    let resolved = action.map(|action| match action {
+        UpdateAction::Install {
+            auto,
+            manifest_url: action_manifest_url,
+            from_file,
+            continue_prompt,
+            continue_pane,
+            after_update: action_after_update,
+        } => UpdateAction::Install {
+            auto,
+            manifest_url: action_manifest_url.or(manifest_url),
+            from_file,
+            continue_prompt,
+            continue_pane,
+            after_update: action_after_update.or(after_update),
+        },
+        other => other,
+    });
 
     match resolved.unwrap_or(UpdateAction::Check { force: false }) {
         UpdateAction::Check { force } => {
@@ -108,14 +111,20 @@ pub fn handle_update(
                 Ok(resp) if resp.status().is_success() => {
                     let body: serde_json::Value = resp.json().unwrap_or_default();
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&body).unwrap_or_default()
+                        );
                     } else {
                         let current = body["current_version"].as_str().unwrap_or("?");
                         let latest = body["latest_version"].as_str().unwrap_or("?");
                         let method = body["install_method"].as_str().unwrap_or("unknown");
                         let available = body["update_available"].as_bool().unwrap_or(false);
 
-                        println!("Current: v{}  Latest: v{}  Install: {}", current, latest, method);
+                        println!(
+                            "Current: v{}  Latest: v{}  Install: {}",
+                            current, latest, method
+                        );
                         if available {
                             println!("Update available!");
                             if let Some(cmd) = body["update_command"].as_str() {
@@ -138,11 +147,22 @@ pub fn handle_update(
                 }
             }
         }
-        UpdateAction::Install { auto, manifest_url, from_file, continue_prompt, continue_pane, after_update } => {
+        UpdateAction::Install {
+            auto,
+            manifest_url,
+            from_file,
+            continue_prompt,
+            continue_pane,
+            after_update,
+        } => {
             if let Some(path) = from_file {
-                let pane = continue_pane
-                    .or_else(|| std::env::var("CODETERM_PANE_ID").ok());
-                crate::cmd::install::run_install_from_file(&path, json, continue_prompt.as_deref(), pane.as_deref());
+                let pane = continue_pane.or_else(|| std::env::var("CODETERM_PANE_ID").ok());
+                crate::cmd::install::run_install_from_file(
+                    &path,
+                    json,
+                    continue_prompt.as_deref(),
+                    pane.as_deref(),
+                );
                 return;
             }
             let mut params: Vec<(&str, String)> = Vec::new();
@@ -169,7 +189,10 @@ pub fn handle_update(
                 Ok(resp) if resp.status().is_success() => {
                     let body: serde_json::Value = resp.json().unwrap_or_default();
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&body).unwrap_or_default()
+                        );
                         return;
                     }
                     let status = body["status"].as_str().unwrap_or("unknown");
@@ -215,7 +238,10 @@ pub fn handle_update(
                 Ok(resp) if resp.status().is_success() => {
                     let body: serde_json::Value = resp.json().unwrap_or_default();
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&body).unwrap_or_default()
+                        );
                     } else if let Some(c) = body["channel"].as_str() {
                         println!("Channel: {}", c);
                     } else {
@@ -234,4 +260,3 @@ pub fn handle_update(
         }
     }
 }
-

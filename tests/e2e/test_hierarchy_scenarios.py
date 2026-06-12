@@ -9,6 +9,8 @@ import time
 import pytest
 from helpers import CodeTermAPI, IS_WINDOWS, tmp_path, unique_name
 
+pytestmark = pytest.mark.llm
+
 
 TOKEN_TIMEOUT = 120  # max seconds to wait for agent work
 
@@ -22,38 +24,6 @@ def _create_workspace(api: CodeTermAPI, name: str) -> tuple[str, str]:
     api.post(f"/api/panes/{orch}/role", json={"role": "Orchestrator"})
     api.wait_for_pty(orch, timeout=15)
     return ws_id, orch
-
-
-def _spawn_and_wait(api, ws_id, orch, task, title="Boss", timeout=TOKEN_TIMEOUT):
-    """Spawn orchestrator Claude, wait for it to finish (detect idle on screen)."""
-    result = api.post("/api/agents/spawn", json={
-        "title": title,
-        "role": "Orchestrator",
-        "workspace_id": ws_id,
-        "can_spawn": True,
-        "task": task,
-    })
-    pane_id = result["pane_id"]
-    api.wait_for_pty(pane_id, timeout=20)
-    return pane_id
-
-
-def _wait_for_marker(api, pane_id, marker, timeout=TOKEN_TIMEOUT):
-    """Poll screen for a marker string."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            screen = api.get_screen(pane_id)
-            if marker in screen:
-                return True, screen
-        except Exception:
-            pass
-        time.sleep(3)
-    try:
-        screen = api.get_screen(pane_id)
-    except Exception:
-        screen = "(could not read screen)"
-    return False, screen
 
 
 def _wait_for_report(api, parent_pane, marker, timeout=TOKEN_TIMEOUT):
@@ -129,23 +99,6 @@ def test_scenario_two_independent_workers(api: CodeTermAPI):
         _cleanup_ws(api, ws_id)
 
 
-# ── Scenario 3: Lead spawns workers, collects, reports up ─────────────
-
-def test_scenario_lead_with_workers(api: CodeTermAPI):
-    """Orchestrator spawns Lead, Lead spawns 2 workers, cascading reports."""
-    ws_id, orch = _create_workspace(api, "lead-workers")
-    try:
-        marker = unique_name("LW")
-        boss = _spawn_and_wait(api, ws_id, orch,
-            title="Boss",
-            task=f'Spawn a Lead agent:\ncodeterm agent spawn claude --title "Team Lead" --role Lead --parent $CODETERM_PANE_ID --task "Spawn 2 workers. Worker-1: run echo {marker}_A and report. Worker-2: run echo {marker}_B and report. After both report, summarize and report to your parent with the marker {marker}_LEAD_DONE."\n\nWait for the Lead to report back with {marker}_LEAD_DONE.',
-        )
-        found = _wait_for_report(api, orch, f"{marker}_LEAD_DONE", timeout=TOKEN_TIMEOUT)
-        assert found, f"Lead summary report ({marker}_LEAD_DONE) not received by Boss"
-    finally:
-        _cleanup_ws(api, ws_id)
-
-
 # ── Scenario 4: Worker does file operations ───────────────────────────
 
 def test_scenario_worker_file_ops(api: CodeTermAPI):
@@ -183,8 +136,14 @@ def test_scenario_pipeline(api: CodeTermAPI):
                 f'Then count the lines in the file and report how many lines it has.'
             ),
         })
-        found = _wait_for_report(api, orch, "2", timeout=90)
-        assert found, "Pipeline worker did not report line count"
+        proof = f"{marker}_COUNT_2"
+        api.post("/api/agents/spawn", json={
+            "agent": "claude", "title": "Pipeline Verifier", "role": "Worker",
+            "parent_pane_id": orch,
+            "task": f'Read {fpath}. If it has exactly 2 lines, report "{proof}". Otherwise report "{marker}_COUNT_FAIL".',
+        })
+        found = _wait_for_report(api, orch, proof, timeout=90)
+        assert found, f"Pipeline worker did not report marker-qualified line count {proof}"
     finally:
         _cleanup_ws(api, ws_id)
 
@@ -272,54 +231,6 @@ def test_scenario_custom_cwd(api: CodeTermAPI):
         _cleanup_ws(api, ws_id)
 
 
-# ── Scenario 9: Multiple leads competing ──────────────────────────────
-
-def test_scenario_competing_leads(api: CodeTermAPI):
-    """Two leads under one orchestrator, each with a worker."""
-    ws_id, orch = _create_workspace(api, "competing")
-    try:
-        m1 = unique_name("L1")
-        m2 = unique_name("L2")
-
-        # Spawn 2 leads directly
-        lead1 = api.post("/api/agents/spawn", json={
-            "agent": "claude", "title": "Lead-Alpha", "role": "Lead",
-            "parent_pane_id": orch,
-            "task": f'Spawn 1 worker: codeterm agent spawn claude --title "Alpha-W" --role Worker --parent $CODETERM_PANE_ID --task "echo {m1} and report". After worker reports, report to your parent including {m1}.',
-        })
-        lead2 = api.post("/api/agents/spawn", json={
-            "agent": "claude", "title": "Lead-Beta", "role": "Lead",
-            "parent_pane_id": orch,
-            "task": f'Spawn 1 worker: codeterm agent spawn claude --title "Beta-W" --role Worker --parent $CODETERM_PANE_ID --task "echo {m2} and report". After worker reports, report to your parent including {m2}.',
-        })
-
-        f1 = _wait_for_report(api, orch, m1, timeout=TOKEN_TIMEOUT)
-        f2 = _wait_for_report(api, orch, m2, timeout=TOKEN_TIMEOUT)
-        assert f1, f"Lead-Alpha report ({m1}) not received"
-        assert f2, f"Lead-Beta report ({m2}) not received"
-    finally:
-        _cleanup_ws(api, ws_id)
-
-
-# ── Scenario 10: Deep hierarchy 4 levels ──────────────────────────────
-
-def test_scenario_deep_hierarchy(api: CodeTermAPI):
-    """Orch → Lead → Worker chain, report cascades up."""
-    ws_id, orch = _create_workspace(api, "deep")
-    try:
-        marker = unique_name("DEEP")
-        # Spawn lead who spawns worker
-        api.post("/api/agents/spawn", json={
-            "agent": "claude", "title": "Lead", "role": "Lead",
-            "parent_pane_id": orch,
-            "task": f'Spawn a worker: codeterm agent spawn claude --title "Deep-Worker" --role Worker --parent $CODETERM_PANE_ID --task "echo {marker}_BOTTOM and report". After the worker reports, include {marker}_CASCADE in your own report to your parent.',
-        })
-        found = _wait_for_report(api, orch, f"{marker}_CASCADE", timeout=TOKEN_TIMEOUT)
-        assert found, f"Cascade report ({marker}_CASCADE) not received at orchestrator"
-    finally:
-        _cleanup_ws(api, ws_id)
-
-
 # ── Scenario 11: Worker error handling ────────────────────────────────
 
 def test_scenario_worker_error(api: CodeTermAPI):
@@ -351,7 +262,7 @@ def test_scenario_batch_spawn(api: CodeTermAPI):
                     "title": "Batch Boss", "role": "Orchestrator",
                     "agent": "claude", "can_spawn": True,
                     "workspace_id": ws_id,
-                    "task": f"Wait for reports from your workers. After all report, print {marker}_DONE.",
+                    "task": f"Wait for reports containing {marker}_1 and {marker}_2 from your workers. Then report exactly {marker}_ALL_DONE.",
                 }},
                 {"method": "spawn", "params": {
                     "title": "BW-1", "role": "Worker",
@@ -370,8 +281,8 @@ def test_scenario_batch_spawn(api: CodeTermAPI):
         boss_pane = result[0].get("pane_id")
         assert boss_pane
 
-        found = _wait_for_report(api, boss_pane, marker, timeout=TOKEN_TIMEOUT)
-        assert found, f"Batch workers did not report to boss"
+        found = _wait_for_report(api, boss_pane, f"{marker}_ALL_DONE", timeout=TOKEN_TIMEOUT)
+        assert found, f"Batch boss did not aggregate both worker markers for {marker}"
     finally:
         _cleanup_ws(api, ws_id)
 
@@ -446,7 +357,7 @@ def test_scenario_self_rename(api: CodeTermAPI):
         # Check rename stuck
         panes = api.list_panes()
         worker_pane = next((p for p in panes if p["id"] == worker_id), None)
-        if worker_pane:
-            assert marker in worker_pane.get("title", ""), f"Tab not renamed: {worker_pane.get('title')}"
+        assert worker_pane is not None, f"Renamer worker pane {worker_id} missing before title verification"
+        assert marker in worker_pane.get("title", ""), f"Tab not renamed: {worker_pane.get('title')}"
     finally:
         _cleanup_ws(api, ws_id)

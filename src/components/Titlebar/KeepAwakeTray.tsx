@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "../../lib/bridge";
+import { listen } from "../../lib/bridge";
 import { Power } from "lucide-react";
 import { createPortal } from "react-dom";
 
@@ -59,10 +59,8 @@ export function KeepAwakeTray() {
     if (s.active) setDisplaySleep(s.display);
   }, []);
 
-  // Mount: subscribe first, THEN fetch current status — this order guarantees
-  // no backend state change slips through the gap between snapshot and
-  // subscription. Guarded with `cancelled` so StrictMode double-mount and
-  // async-race teardowns both unlisten cleanly.
+  // Mount: subscribe first, THEN fetch current status — this order guarantees no backend state change slips through the gap between snapshot and
+  // subscription. Guarded with `cancelled` so StrictMode double-mount and async-race teardowns both unlisten cleanly.
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
@@ -89,10 +87,8 @@ export function KeepAwakeTray() {
     return () => clearInterval(id);
   }, [status.active, status.expires_at]);
 
-  // Start/stop/toggle do NOT mutate local state optimistically. The backend
-  // emits "keepawake-changed" on every transition and our listener applies
-  // the authoritative payload — a single source of truth avoids flicker and
-  // out-of-sync races.
+  // Start/stop/toggle do NOT mutate local state optimistically. The backend emits "keepawake-changed" on every transition and our listener
+  // applies the authoritative payload — a single source of truth avoids flicker and out-of-sync races.
   const start = useCallback(async (secs: number | null) => {
     try {
       await invoke<KeepAwakeStatus>("keepawake_start", {
@@ -113,11 +109,8 @@ export function KeepAwakeTray() {
     setDisplaySleep(next);
     saveDisplay(next);
     if (!status.active) return;
-    // Preserve the remaining duration when flipping the flag on an active
-    // timed session. Math.ceil keeps sub-second remainders on the positive
-    // side; clamp to ≥ 1s so a near-expiry toggle doesn't collapse into
-    // `Duration::from_secs(0)` which the backend would treat as instant
-    // expiry. Indefinite sessions stay indefinite.
+    // Preserve the remaining duration when flipping the flag on an active timed session. Math.ceil keeps sub-second remainders on the positive
+    // side; clamp to ≥ 1s so a near-expiry toggle doesn't collapse into `Duration::from_secs(0)` which the backend would treat as instant expiry. Indefinite sessions stay indefinite.
     let durSecs: number | undefined;
     if (status.expires_at !== null) {
       const remaining = Math.ceil((status.expires_at - Date.now()) / 1000);
@@ -166,6 +159,7 @@ export function KeepAwakeTray() {
     <>
       <button
         ref={triggerRef}
+        data-testid="keepawake-tray"
         onClick={() => setOpen((v) => !v)}
         title={titleText}
         className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${

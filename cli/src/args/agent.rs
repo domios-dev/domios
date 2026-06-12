@@ -1,21 +1,34 @@
 use clap::Subcommand;
 
+#[derive(clap::ValueEnum, Clone, Debug)]
+pub enum SpawnRole {
+    #[value(name = "Orchestrator")]
+    Orchestrator,
+    #[value(name = "Worker")]
+    Worker,
+}
+
+impl SpawnRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SpawnRole::Orchestrator => "Orchestrator",
+            SpawnRole::Worker => "Worker",
+        }
+    }
+}
+
 #[derive(Subcommand)]
 pub enum AgentAction {
-    /// List all agent panes (with roles)
-    List,
-    /// Show full hierarchy tree
-    Hierarchy,
-    /// Mark a pane as orchestrator (top-level, can spawn leads/workers)
-    #[command(alias = "set-orchestrator")]
-    SetConductor {
+    /// Mark a pane as orchestrator (top-level, can spawn workers)
+    SetOrchestrator {
         /// Pane ID (default: current focused pane)
         #[arg(long)]
         pane: Option<String>,
     },
+
     /// Link a pane as worker under a parent
     Link {
-        /// Parent pane ID (orchestrator or lead)
+        /// Parent pane ID (orchestrator)
         #[arg(long)]
         parent: String,
         /// Pane ID to link (default: current focused pane)
@@ -24,12 +37,6 @@ pub enum AgentAction {
     },
     /// Remove a pane's role (also orphans children)
     Unlink {
-        /// Pane ID (default: current focused pane)
-        #[arg(long)]
-        pane: Option<String>,
-    },
-    /// List children of a pane
-    Children {
         /// Pane ID (default: current focused pane)
         #[arg(long)]
         pane: Option<String>,
@@ -62,12 +69,6 @@ pub enum AgentAction {
         /// Show only the N most recent reports (default: all)
         #[arg(long)]
         limit: Option<usize>,
-    },
-    /// Get detailed status of a pane
-    Status {
-        /// Pane ID (default: current focused pane)
-        #[arg(long)]
-        pane: Option<String>,
     },
     /// Compact agent context (sends /compact to Claude)
     Compact {
@@ -114,10 +115,10 @@ pub enum AgentAction {
         /// Working directory
         #[arg(long)]
         cwd: Option<String>,
-        /// Role: Orchestrator, Lead, Worker
+        /// Role: Orchestrator, Worker
         #[arg(long)]
-        role: Option<String>,
-        /// Parent pane ID (for Worker/SubWorker)
+        role: Option<SpawnRole>,
+        /// Parent pane ID (for Workers)
         #[arg(long)]
         parent: Option<String>,
         /// Allow spawning children
@@ -139,4 +140,23 @@ pub enum AgentAction {
         #[arg(long)]
         model: Option<String>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Cli;
+    use clap::CommandFactory;
+
+    #[test]
+    fn set_orchestrator_help_mentions_workers_not_leads() {
+        let help = Cli::command()
+            .find_subcommand_mut("agent")
+            .unwrap()
+            .find_subcommand_mut("set-orchestrator")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        assert!(help.contains("workers"), "{help}");
+        assert!(!help.to_ascii_lowercase().contains("lead"), "{help}");
+    }
 }

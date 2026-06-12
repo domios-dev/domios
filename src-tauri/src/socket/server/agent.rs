@@ -19,14 +19,25 @@ pub(super) fn dispatch(
                 code: -32602,
                 message: "params required".to_string(),
             })?;
-            let spawn_params = crate::service::SpawnAgentParams::from_json(p)
-                .map_err(|e| JsonRpcError { code: -32602, message: e })?;
+            let spawn_params =
+                crate::service::SpawnAgentParams::from_json(p).map_err(|e| JsonRpcError {
+                    code: -32602,
+                    message: e,
+                })?;
 
             let svc_ref = &**svc;
             let result = svc_ref
                 .spawn_agent_sync(spawn_params)
-                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
-            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
+                .map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: e,
+                })?;
+            {
+                let h = app.clone();
+                std::thread::spawn(move || {
+                    let _ = h.emit("mux-state-changed", ());
+                });
+            }
 
             let mut resp = serde_json::json!({
                 "pane_id": result.pane_id,
@@ -45,8 +56,12 @@ pub(super) fn dispatch(
             let pane_id = get_string_param(params, "pane_id")?;
             let message = get_string_param(params, "message")?;
             let svc_ref = &**svc;
-            let result = svc_ref.submit_report(&pane_id, &message)
-                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            let result = svc_ref
+                .submit_report(&pane_id, &message)
+                .map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: e,
+                })?;
             Ok(serde_json::json!({
                 "ok": true,
                 "report_id": result.report_id,
@@ -55,7 +70,8 @@ pub(super) fn dispatch(
 
         "agent.reports" => {
             let pane_id = get_string_param(params, "pane_id")?;
-            let clear = params.as_ref()
+            let clear = params
+                .as_ref()
                 .and_then(|p| p.get("clear"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);

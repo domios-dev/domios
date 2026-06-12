@@ -1,9 +1,9 @@
 """Shared fixtures for CodeTerm E2E tests.
 
 Instance management:
-  - If CODETERM_API_URL is set, use it directly (instance already running).
-  - Otherwise, start `bash build.sh dev` from the project root and poll the
-    health endpoint until it responds (up to 120 s for compilation).
+  - Always target the dev daemon on 127.0.0.1:7686.
+  - If it is not running, start it through Git Bash and poll the health
+    endpoint until it responds (up to 120 s for compilation).
 
 Token:
   - Read from ~/.codeterm-dev/config.toml after the instance is ready.
@@ -31,6 +31,7 @@ DEV_PORT = 7686
 DEV_URL = f"http://127.0.0.1:{DEV_PORT}"
 HEALTH_ENDPOINT = f"{DEV_URL}/api/health"
 DEV_CONFIG_PATH = Path.home() / ".codeterm-dev" / "config.toml"
+GIT_BASH = Path("C:/Program Files/Git/bin/bash.exe")
 STARTUP_TIMEOUT = 120  # seconds — includes cargo build time
 
 
@@ -59,6 +60,17 @@ def _read_token() -> str | None:
     return None
 
 
+def _resolve_token() -> str | None:
+    dev_token = _read_token()
+    os.environ["CODETERM_API_TOKEN"] = dev_token or ""
+    return dev_token
+
+
+def _force_dev_env() -> None:
+    os.environ["CODETERM_API_URL"] = DEV_URL
+    os.environ["CODETERM_API_PORT"] = str(DEV_PORT)
+
+
 def _wait_for_health(url: str, timeout: float) -> None:
     """Poll health endpoint until it responds with 200."""
     deadline = time.monotonic() + timeout
@@ -83,19 +95,17 @@ def codeterm_instance():
 
     Yields the base URL (e.g. http://127.0.0.1:7686).
     """
-    external_url = os.environ.get("CODETERM_API_URL")
-    if external_url:
-        # Normalize: strip trailing /api if present so base is just host:port
-        base = external_url.rstrip("/")
-        if base.endswith("/api"):
-            base = base[:-4]
-        _wait_for_health(f"{base}/api/health", timeout=10)
-        yield base
+    _force_dev_env()
+    try:
+        _wait_for_health(HEALTH_ENDPOINT, timeout=10)
+        yield DEV_URL
         return
+    except TimeoutError:
+        pass
 
     # Start dev instance
     proc = subprocess.Popen(
-        ["bash", "build.sh", "dev"],
+        [str(GIT_BASH), "build.sh", "dev"],
         cwd=str(PROJECT_ROOT),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -117,11 +127,24 @@ def codeterm_instance():
 @pytest.fixture(scope="session")
 def api(codeterm_instance):
     """Session-scoped CodeTermAPI client. Cleans up leftover e2e workspaces on start/end."""
-    token = os.environ.get("CODETERM_API_TOKEN") or _read_token()
+    _force_dev_env()
+    token = _resolve_token()
     client = CodeTermAPI(codeterm_instance, token=token)
     _cleanup_e2e_workspaces(client)
     yield client
     _cleanup_e2e_workspaces(client)
+
+
+@pytest.fixture(scope="session")
+def api_only(api: CodeTermAPI):
+    """REST-only client for tests that do not need a terminal pane."""
+    return api
+
+
+@pytest.fixture(scope="session", autouse=True)
+def sweep_e2e_workspaces(api):
+    """Pre-run sweep for workspaces leaked by interrupted or failed tests."""
+    _cleanup_e2e_workspaces(api)
 
 
 def _cleanup_e2e_workspaces(api: CodeTermAPI):
@@ -130,7 +153,12 @@ def _cleanup_e2e_workspaces(api: CodeTermAPI):
     """
     try:
         workspaces = api.get("/api/workspaces")
-        e2e_ws = [ws for ws in workspaces if ws.get("name", "").startswith("e2e-ws")]
+        prefixes = ("e2e-ws-", "e2e-ws-eager-")
+        e2e_ws = [
+            ws
+            for ws in workspaces
+            if ws.get("name", "").startswith(prefixes)
+        ]
         non_e2e_count = len(workspaces) - len(e2e_ws)
         for ws in e2e_ws:
             # Don't close if it would leave zero workspaces
@@ -146,46 +174,80 @@ def _cleanup_e2e_workspaces(api: CodeTermAPI):
 
 
 @pytest.fixture()
+def api_pane(api_only: CodeTermAPI):
+    """Create a lazy pane for API metadata tests; no PTY is requested."""
+    ws_id = None
+    try:
+        ws = api_only.create_workspace(unique_name("e2e-ws-api"))
+        ws_id = ws["id"]
+        tab = api_only.create_tab(ws_id, eager=False)
+        yield tab["pane_id"]
+    finally:
+        if ws_id is not None:
+            try:
+                workspaces = api_only.list_workspaces()
+                if len(workspaces) > 1:
+                    api_only.close_workspace(ws_id)
+            except Exception:
+                pass
+
+
+@pytest.fixture(scope="module")
+def shared_eager_pane(api: CodeTermAPI):
+    """Module-scoped PTY pane for read-only shell probes with unique markers."""
+    ws_id = None
+    try:
+        ws = api.create_workspace(unique_name("e2e-ws-shared"))
+        ws_id = ws["id"]
+        tab = api.create_tab(ws_id, eager=True)
+        pane_id = tab["pane_id"]
+        api.wait_for_pty(pane_id, timeout=15)
+        try:
+            api.wait_for_output(pane_id, pattern=r"[\$#%>]", timeout=8)
+        except (TimeoutError, Exception):
+            time.sleep(2)
+        yield pane_id
+    finally:
+        if ws_id is not None:
+            try:
+                workspaces = api.list_workspaces()
+                if len(workspaces) > 1:
+                    api.close_workspace(ws_id)
+            except Exception:
+                pass
+
+
+@pytest.fixture()
 def fresh_pane(api: CodeTermAPI):
     """Create a disposable workspace + pane, yield pane_id, clean up after.
 
     The initial pane from workspace creation is an Orchestrator by default.
     """
-    ws_name = unique_name("e2e-ws")
-    ws = api.create_workspace(ws_name)
-    ws_id = ws["id"]
-
-    # The workspace comes with an initial tab/pane.  Grab the first pane.
-    panes_before = {p["id"] for p in api.list_panes()}
-
-    # Create a new tab to get a guaranteed fresh pane
-    tab = api.create_tab(ws_id)
-    pane_id = tab["pane_id"]
-
-    # Wait for PTY to be linked (frontend creates PTY after mux-state-changed)
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline:
-        panes = api.list_panes()
-        pane = next((p for p in panes if p["id"] == pane_id), None)
-        if pane and pane.get("pty_id"):
-            break
-        time.sleep(0.5)
-
-    # Wait for shell prompt (look for $ or > or % in output)
+    ws_id = None
     try:
-        api.wait_for_output(pane_id, pattern=r"[\$#%>]", timeout=15)
-    except (TimeoutError, Exception):
-        # Shell might not emit a standard prompt or output not yet available
-        time.sleep(2)
+        ws_name = unique_name("e2e-ws")
+        ws = api.create_workspace(ws_name)
+        ws_id = ws["id"]
 
-    yield pane_id
+        # Create a new tab to get a guaranteed fresh pane
+        tab = api.create_tab(ws_id, eager=True)
+        pane_id = tab["pane_id"]
 
-    # Teardown: close workspace but never the last one (would kill the app)
-    try:
-        workspaces = api.list_workspaces()
-        if len(workspaces) <= 1:
-            pass  # Don't close the last workspace
-        else:
-            api.close_workspace(ws_id)
-    except Exception:
-        pass  # best effort
+        api.wait_for_pty(pane_id, timeout=15)
+
+        # Wait for shell prompt (look for $ or > or % in output)
+        try:
+            api.wait_for_output(pane_id, pattern=r"[\$#%>]", timeout=8)
+        except (TimeoutError, Exception):
+            # Shell might not emit a standard prompt or output not yet available
+            time.sleep(2)
+
+        yield pane_id
+    finally:
+        if ws_id is not None:
+            try:
+                workspaces = api.list_workspaces()
+                if len(workspaces) > 1:
+                    api.close_workspace(ws_id)
+            except Exception:
+                pass  # best effort

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { RefreshCw, X, LineChart, Table as TableIcon } from "lucide-react";
 import { classify, type UsageSnapshot } from "../../types/usage";
 import { useUsageHistory, useUsageProjection } from "../../hooks/useUsageSnapshot";
@@ -13,6 +13,7 @@ import {
   buildWeekBuckets,
   buildYearBuckets,
 } from "./cycle";
+import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
 
 interface UsageHistoryModalProps {
   provider: string;
@@ -106,7 +107,7 @@ export function UsageHistoryModal({ provider, accountId, onClose }: UsageHistory
     <div className="ct-usage ct-usage-modal-overlay" onClick={onClose}>
       <div className="ct-usage-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h1>{provider === "codex" ? "Codex" : "Claude"} usage</h1>
+          <h1>{getAgentDescriptor(provider)?.display_name ?? provider} usage</h1>
           <button type="button" className="close-btn" onClick={onClose} aria-label="Close">
             <X size={16} />
           </button>

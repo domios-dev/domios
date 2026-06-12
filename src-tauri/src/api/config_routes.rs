@@ -20,12 +20,15 @@ pub async fn get_config_api(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let cfg = state.config.lock().clone();
-    let full = serde_json::to_value(&cfg)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Config serialization failed"))?;
+    let full = serde_json::to_value(&cfg).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Config serialization failed",
+        )
+    })?;
     match q.key {
         Some(key) => {
-            let val = dot_get(&full, &key)
-                .ok_or((StatusCode::NOT_FOUND, "Key not found"))?;
+            let val = dot_get(&full, &key).ok_or((StatusCode::NOT_FOUND, "Key not found"))?;
             Ok(Json(serde_json::json!({ "key": key, "value": val })))
         }
         None => Ok(Json(full)),
@@ -56,19 +59,36 @@ pub async fn patch_config_api(
     } else if !body.partial.is_empty() {
         if let serde_json::Value::Object(ref mut map) = cfg_json {
             for (k, v) in &body.partial {
-                if k == "key" || k == "value" { continue; }
+                if k == "key" || k == "value" {
+                    continue;
+                }
                 map.insert(k.clone(), v.clone());
             }
         }
     } else {
-        return Err((StatusCode::BAD_REQUEST, "Provide key+value or partial config"));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Provide key+value or partial config",
+        ));
     }
 
-    let new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
+    let mut new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid config value"))?;
 
-    // Detect rename so we can sync mesh state + push the new name to peers.
-    // Mirror of the same logic in the Tauri update_config command.
+    // Mirror of the Tauri update_config theme handling: a name switch loads the
+    // builtin fresh (clients send the old colors along with the new name).
+    let current_theme_name = state.config.lock().theme.name.clone();
+    if new_cfg.theme.name != current_theme_name {
+        let requested = new_cfg.theme.name.clone();
+        if let Some(mut builtin) = crate::config::schema::get_any_theme(&requested) {
+            builtin.name = requested;
+            new_cfg.theme = builtin;
+        }
+    } else {
+        crate::config::resolve_theme(&mut new_cfg);
+    }
+
+    // Detect rename so can sync mesh state + push the new name to peers. Mirror of the same logic in the Tauri update_config command.
     let prev_name = state.config.lock().mesh.instance_name.clone();
     let prev_mesh_enabled = state.config.lock().mesh.enabled;
     let new_name = new_cfg.mesh.instance_name.clone();
@@ -81,6 +101,14 @@ pub async fn patch_config_api(
         log::error!("Config save failed: {}", e);
     }
 
+    // Live reload for every client: Tauri webview + web mirror SSE. Without
+    // this, browser clients save the config but never see it applied.
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "config-changed",
+        serde_json::to_value(&new_cfg).unwrap_or_default(),
+    );
+
     if mesh_disabled {
         log::info!("[mesh] disabled mid-session — stopping broadcast + marking peers offline");
         crate::mesh::discovery::stop_broadcast(&state.mesh);
@@ -91,7 +119,11 @@ pub async fn patch_config_api(
             }
             m.discovered_peers.clear();
         }
-        let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+        crate::api::events::emit_everywhere(
+            &state.svc.app_handle,
+            "mesh-state-changed",
+            serde_json::Value::Null,
+        );
     }
 
     if renamed {
@@ -102,13 +134,17 @@ pub async fn patch_config_api(
         }
         log::info!(
             "[mesh] instance renamed: {:?} -> {}, broadcasting announce",
-            prev_name, new_name
+            prev_name,
+            new_name
         );
         tokio::spawn(async move {
             let report = crate::mesh::broadcast_announce(&mesh, None).await;
             log::info!(
                 "[mesh] post-rename announce sent={} ok={} stale={} errors={}",
-                report.sent, report.ok, report.stale_peers.len(), report.errors.len()
+                report.sent,
+                report.ok,
+                report.stale_peers.len(),
+                report.errors.len()
             );
         });
     }
@@ -118,19 +154,27 @@ pub async fn patch_config_api(
 
 fn dot_get(val: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
     let mut current = val;
-    for key in path.split('.') { current = current.get(key)?; }
+    for key in path.split('.') {
+        current = current.get(key)?;
+    }
     Some(current.clone())
 }
 
 fn dot_set(val: &mut serde_json::Value, path: &str, new_val: serde_json::Value) -> Result<(), ()> {
     let parts: Vec<&str> = path.split('.').collect();
-    if parts.is_empty() { return Err(()); }
+    if parts.is_empty() {
+        return Err(());
+    }
     let mut current = val;
-    for &key in &parts[..parts.len() - 1] { current = current.get_mut(key).ok_or(())?; }
+    for &key in &parts[..parts.len() - 1] {
+        current = current.get_mut(key).ok_or(())?;
+    }
     if let serde_json::Value::Object(ref mut map) = current {
         map.insert(parts.last().unwrap().to_string(), new_val);
         Ok(())
-    } else { Err(()) }
+    } else {
+        Err(())
+    }
 }
 
 pub async fn bridge_send_api(
@@ -139,21 +183,32 @@ pub async fn bridge_send_api(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let text = body.get("text").and_then(|v| v.as_str())
+    let text = body
+        .get("text")
+        .and_then(|v| v.as_str())
         .ok_or((StatusCode::BAD_REQUEST, "text required"))?;
     let chat_id = body.get("chat_id").and_then(|v| v.as_i64());
 
     let tx = state.svc.bridge_outbound.lock();
-    let tx = tx.as_ref().ok_or((StatusCode::SERVICE_UNAVAILABLE, "Bridge not active"))?;
-    let append = body.get("append").and_then(|v| v.as_bool()).unwrap_or(false);
-    let buttons: Option<crate::bridge::traits::InlineKeyboard> = body.get("buttons")
+    let tx = tx
+        .as_ref()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "Bridge not active"))?;
+    let append = body
+        .get("append")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let buttons: Option<crate::bridge::traits::InlineKeyboard> = body
+        .get("buttons")
         .and_then(|v| serde_json::from_value(v.clone()).ok());
     tx.send(crate::bridge::manager::OutboundMessage {
         user_id: chat_id,
-        content: crate::bridge::traits::OutboundContent::Text { text: text.to_string() },
+        content: crate::bridge::traits::OutboundContent::Text {
+            text: text.to_string(),
+        },
         append,
         buttons,
-    }).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Send failed"))?;
+    })
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Send failed"))?;
 
     Ok(Json(serde_json::json!({"ok": true})))
 }

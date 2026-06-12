@@ -2,9 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::agent::provider::VerifySubmitStrategy;
 use crate::service::inject_verify::VerifyOpts;
-use crate::service::spawn::{
-    AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec,
-};
+use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
 use crate::service::ServiceContext;
 
 #[derive(Debug, Clone)]
@@ -71,6 +69,7 @@ impl UsageProbe {
                 cwd: None,
                 title: Some(format!("[usage-probe] {}", provider_for_spawn)),
                 visibility: PaneVisibility::Hidden,
+                eager: false,
                 command: PaneCommand::Agent(AgentSpawnSpec {
                     provider: provider_for_spawn,
                     auto_approve: true,
@@ -91,7 +90,9 @@ impl UsageProbe {
             }
         };
 
-        let outcome = self.probe_inner(&pane_id, &pty_id, &provider_owned, started).await;
+        let outcome = self
+            .probe_inner(&pane_id, &pty_id, &provider_owned, started)
+            .await;
 
         let svc_for_close = svc.clone();
         let pane_for_close = pane_id.clone();
@@ -113,7 +114,9 @@ impl UsageProbe {
         let svc = self.svc.clone();
         let (warmup, submit_strategy) = svc
             .agent_registry
-            .with_provider(provider, |p| (p.task_input_warmup(), p.verify_submit_strategy()))
+            .with_provider(provider, |p| {
+                (p.task_input_warmup(), p.verify_submit_strategy())
+            })
             .unwrap_or((Duration::ZERO, VerifySubmitStrategy::None));
 
         wait_for_tui(&svc, pty_id, Duration::from_secs(60))
@@ -209,11 +212,7 @@ impl UsageProbe {
     }
 }
 
-async fn wait_for_tui(
-    svc: &ServiceContext,
-    pty_id: &str,
-    timeout: Duration,
-) -> Result<(), String> {
+async fn wait_for_tui(svc: &ServiceContext, pty_id: &str, timeout: Duration) -> Result<(), String> {
     let started = Instant::now();
     let poll = Duration::from_millis(250);
     let content_fallback_after = Duration::from_secs(25);
@@ -235,7 +234,10 @@ async fn wait_for_tui(
         }
         tokio::time::sleep(poll).await;
     }
-    Err(format!("TUI input box not detected after {}ms", timeout.as_millis()))
+    Err(format!(
+        "TUI input box not detected after {}ms",
+        timeout.as_millis()
+    ))
 }
 
 fn screen_has_tui_input(text: &str) -> bool {
@@ -290,7 +292,9 @@ async fn wait_for_output(
     } else if has_parseable_markers(&last_text, provider) {
         Ok(last_text)
     } else {
-        Err(ProbeError::NotReady("output never reached parseable state".into()))
+        Err(ProbeError::NotReady(
+            "output never reached parseable state".into(),
+        ))
     }
 }
 
@@ -304,7 +308,9 @@ fn has_parseable_markers(text: &str, provider: &str) -> bool {
 
 fn only_loading_state(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
-    lower.contains("loading usage data") || lower.contains("loading…") || lower.contains("loading...")
+    lower.contains("loading usage data")
+        || lower.contains("loading…")
+        || lower.contains("loading...")
 }
 
 fn render_tall(bytes: &[u8], rows: u16, cols: u16) -> String {

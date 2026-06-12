@@ -14,7 +14,7 @@
 
 **Hard limit: 1000 lines per source file** (`.rs`, `.ts`, `.tsx`, `.py`, `.swift`). When a file approaches this, split by responsibility. If a single concern legitimately needs more than 1000 lines, your concern is two concerns wearing a trenchcoat.
 
-- `mod.rs` files target <600 lines — facade + light glue. Heavy logic belongs in concrete files inside the module.
+- `mod.rs` files target <800 lines — facade + light glue. Heavy logic belongs in concrete files inside the module.
 - Excluded: `target/`, `node_modules/`, `dist/`, `gen/`, `references/`, `vendor/`, `src-tauri/pty-fork/`, data formats.
 - Enforcement: `scripts/check-file-sizes.sh` (CI-wired). `scripts/file-size-allowlist.txt` lists pre-existing oversized files (baseline-locked, must shrink, never grow).
 
@@ -49,6 +49,11 @@ If `build` (git commit hash) differs from `git rev-parse HEAD`, the old build is
 Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-dev/logs/codeterm.log`.
 
 Full testing guide (3 layers, remote E2E, fixtures): `docs/TESTING.md`.
+
+**Cargo tests on Windows — never lose 10 min to a hang:**
+- Run via **PowerShell foreground**, NOT Bash. Bash auto-backgrounds long commands; shell wrapper exits, cargo runs orphan and holds `target/debug/.cargo-lock`, every next `cargo test` then waits forever on that lock. PowerShell tool keeps cargo in the foreground so the timeout actually fires.
+- Always narrow first (`cargo test plugin::js_runtime::hot_reload`, not the whole `--lib`) and cap timeout at **90s**. If it hangs past 60s, that's almost always a deadlock in **your own code** (parking_lot is non-reentrant — never call `.lock()` on a Mutex while a previous guard on it is still alive on this thread), not a "linker is slow" infra problem. Incremental cargo on a warm cache compiles and links in seconds.
+- Stuck cargo? `Get-Process cargo,rustc,link | Stop-Process -Force` + delete `target/debug/.cargo-lock` + re-run. Always.
 
 ## Bench safety: NEVER call raw `codeterm` against dev — use the lib
 
@@ -85,10 +90,13 @@ Behavioural changes (system prompts, session restore semantics, mem
 recall quality, agent routing) are verified with bench scripts under
 `evals/<name>/`. Existing sets:
 
-- `evals/general-agent/` — General Agent prompt behaviour (21 cases, A/B via `prompt-evaluator` skill)
-- `evals/mem-recall/` — mem search engine quality (Recall@K / MRR)
-- `evals/mem-protocol/` — slim `bridge_mem.md` rule fires the right protocol calls
+- `evals/cli-agent/` — real-daemon LLM benchmark: drives Claude/Codex/Opencode through every CLI command (model-judged, replaces old headless general-agent/mem-protocol evals)
+- `evals/mem-recall/` — mem search engine quality (Recall@K / MRR / latency)
+- `evals/dreaming/` — REM-phase prompt (Stage A.1 hub decomposition, Stage A.2 island bridging)
 - `evals/session-restore/` — kill+restart preserves workspace/pane/agent_type metadata; UI-mount step manual
+- `evals/restore-matrix/` — one-workspace provider restore matrix: N panes per provider (claude/codex/opencode), pre-kill marker materialization gate in the provider store, hard restart, API sid identity + Playwright UI-visible marker oracle (`RM_PROVIDERS`/`RM_PER_PROVIDER`/`RM_MATERIALIZE_TIMEOUT` tunable)
+
+Also present, experimental/historical: `evals/dreamer-repair/` (mem graph repair smoke test), `evals/seeds/`, `evals/v1_1_23_e2e/`.
 
 **Before changing behaviour, find the matching eval set and run it
 first to capture the baseline. Extend the eval set if a new scenario
@@ -131,11 +139,10 @@ Verify on macOS, Windows, Linux. Never add platform-specific code without handli
 
 ## Agent roles (top of mind)
 
-CodeTerm has a 4-level hierarchy: **Orchestrator → Lead → Worker → SubWorker**. Your role comes from `$CODETERM_ROLE` or the spawn task prompt. **No role = Orchestrator.**
+CodeTerm has a 2-level hierarchy: **Orchestrator → Worker**. Your role comes from `$CODETERM_ROLE` or the spawn task prompt. **No role = Orchestrator.**
 
-- **Orchestrator** — top of the chain. Delegates by spawning generic claude agents with explicit role prompts (see below).
-- **Lead** — has a bounded sub-task, may decompose and spawn Workers.
-- **Worker / SubWorker** — does ONE concrete task, runs `codeterm agent report`, exits. **NEVER spawns other agents.** If decomposition needed → report blocked.
+- **Orchestrator** — top of the chain, no parent. Delegates by spawning generic claude agents with explicit role prompts (see below).
+- **Worker** — does ONE concrete task, runs `codeterm agent report`, exits. **NEVER spawns other agents.** If decomposition is needed → report blocked, and the Orchestrator splits it further or spins up a separate Orchestrator in its own workspace.
 
 ### We dogfood our own `codeterm mem` instead of `.claude/agents/`
 
@@ -163,11 +170,11 @@ Role skills currently in mem (search by role name or fetch by id):
 
 ### Where the codeterm-specific skill folders live
 
-CodeTerm-project skills (release pipeline, prod build, Windows self-install) live in **`<repo>/.codeterm/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs. Currently:
+CodeTerm-project skills (release pipeline) live in **`<repo>/.codeterm/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs. Currently:
 
 - `.codeterm/skills/github-release/` — release pipeline procedure
-- `.codeterm/skills/prod-build/` — local prod build
-- `.codeterm/skills/self-install-local/` — Windows local NSIS install
+
+Prod build lives in `./build.sh build`; Windows local NSIS self-install in `scripts/self-install-local.ps1`.
 
 On a fresh clone, register them with mem so the Librarian indexes them:
 
@@ -188,6 +195,17 @@ SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structu
 ## Architecture (agent providers, detection)
 
 Agent integration is abstracted via providers (`src-tauri/src/agent/`, `src/components/ChatView/parser.ts`). Currently: Claude. Architecture-ready: Codex, Aider, Goose. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`docs/contributing/architecture.md`**.
+
+### Plugin & capability discipline (enforce on every provider change)
+
+The provider/plugin boundary is the project's load-bearing seam. It stays clean only if every change crossing it pays the same tax. Non-negotiable when you add or extend a provider capability (a new `AgentProvider` trait method, a new host-API function, a new detection source):
+
+1. **Core asks capabilities, never identities.** Branch on `supports_chat_ui()` / `available_models()` / a new capability fn — never on a hardcoded provider-id list or display string. If you're matching `"codex"` / `"opencode"` in core code, you've leaked the boundary.
+2. **Native + JS parity in lockstep.** Any trait method a JS drop-in can implement MUST gain a case in `parity_test.rs` proving the native and JS paths agree on shared fixtures. A capability without a parity test will silently drift on drop-ins.
+3. **Detection keys off the pane's OWN session.** Provider detection (model, session, status) reads only the record belonging to this pane's claimed session id — never "latest global" / "newest for cwd". Unknown → return null (honest) over a guess (contaminating). This is a real bug class we've shipped.
+4. **Audit the host-API surface when it grows.** Every new host function a drop-in can call is a new confinement hole — justify it against the FS/sqlite/env sandbox, and remember QuickJS lacks bindings the native runtime has (a missing `console` once aborted parsing silently).
+
+Full rationale + the boundary map: **`docs/contributing/architecture.md`**.
 
 ## Mem self-repair primitives (Dreamer interface)
 

@@ -1,119 +1,63 @@
-import type { ChatMessage } from "../components/ChatView/parser";
-import { parseJsonlSession, parseTerminalOutput } from "../components/ChatView/parser";
-
-/** How a provider handles image file sending */
-export interface ImageSendStrategy {
-  /** Method: 'clipboard-paste' = copy to clipboard + send Ctrl+V, 'path' = send file path as text */
-  method: 'clipboard-paste' | 'path';
-  /** For clipboard-paste: the keystroke to send after copying to clipboard */
-  pasteKeystroke?: string;
-}
-
 /**
- * Frontend-only per-provider config: things that can't be expressed
- * declaratively in a backend descriptor (title-detection regex, parser
- * functions, TUI noise filters, image-send strategy).
+ * Frontend provider adapter — backed entirely by the plugin registry.
  *
- * Brand visuals (icon SVG, color, hint glyph, displayName) come from the
- * backend `ProviderDescriptor` and are read via `useAgentDescriptor` /
- * `getAgentDescriptor`. New plugins are zero-touch on this file unless
- * they need a custom title regex or chat parser.
+ * This file used to host a parallel hardcoded registry that each
+ * plugin populated by calling `registerAgentProvider({...})`. That
+ * was duplication: every plugin already registers itself via
+ * `src/lib/plugins/registry.ts`, so this adapter just translates the
+ * `ProviderPlugin` shape into the legacy `AgentProviderConfig` shape
+ * that Sidebar / TabItem / ChatView / WorkspaceItem still consume.
+ *
+ * New code should import from `src/lib/plugins/registry.ts` directly
+ * and treat `ProviderPlugin` as the source of truth. Once the last
+ * consumer migrates we can delete this file.
  */
+import { getAllPlugins, getPlugin } from "./plugins/registry";
+import type { ImageSendStrategy } from "./plugins/types";
+
+export type { ImageSendStrategy };
+
+/** Legacy view of a provider — kept stable so existing components
+ *  don't need refactoring in this pass. Each field is derived from
+ *  the plugin's own metadata. */
 export interface AgentProviderConfig {
   id: string;
   displayName: string;
   titlePattern: RegExp;
-  supportsChatView: boolean;
-  supportsResume: boolean;
-  parseSessionData?: (data: string) => ChatMessage[];
-  parseTerminalOutput?: (text: string) => ChatMessage[];
-  /** TUI noise — text matching any pattern is dropped from chat view */
-  noisePatterns?: RegExp[];
-  /** How to send images to this agent. Default: path-based. */
   imageSend?: ImageSendStrategy;
+  noisePatterns?: RegExp[];
 }
 
-/** Check if text is TUI noise for a given provider */
-export function isProviderNoise(providerId: string | null | undefined, text: string): boolean {
-  const provider = getAgentProvider(providerId);
-  if (!provider?.noisePatterns) return false;
-  const t = text.trim();
-  if (!t) return true;
-  return provider.noisePatterns.some(p => p.test(t));
-}
-
-const providers = new Map<string, AgentProviderConfig>();
-
-export function registerAgentProvider(config: AgentProviderConfig) {
-  providers.set(config.id, config);
+function toLegacyConfig(id: string): AgentProviderConfig | undefined {
+  const p = getPlugin(id);
+  if (!p) return undefined;
+  return {
+    id: p.meta.id,
+    displayName: p.meta.displayName,
+    // Fallback regex matches nothing — plugins without a titlePattern (rare) rely on PTY-byte detection only, which the host runs through `detectProvider()` in the plugin registry.
+    titlePattern: p.titlePattern ?? /^_____never_match_____$/,
+    imageSend: p.imageSend,
+    noisePatterns: p.noisePatterns,
+  };
 }
 
 export function getAgentProvider(id: string | null | undefined): AgentProviderConfig | undefined {
   if (!id) return undefined;
-  return providers.get(id);
+  return toLegacyConfig(id);
+}
+
+export function getAllProviders(): AgentProviderConfig[] {
+  return getAllPlugins()
+    .map(p => toLegacyConfig(p.meta.id))
+    .filter((c): c is AgentProviderConfig => c !== undefined);
 }
 
 export function detectAgentFromTitle(title: string): string | undefined {
-  for (const [id, config] of providers) {
-    if (config.titlePattern.test(title)) return id;
+  for (const p of getAllPlugins()) {
+    if (p.titlePattern?.test(title)) return p.meta.id;
   }
   return undefined;
 }
 
-export function getAllProviders(): AgentProviderConfig[] {
-  return Array.from(providers.values());
-}
-
-// Register Claude provider
-registerAgentProvider({
-  id: "claude",
-  displayName: "Claude Code",
-  // Claude Code title patterns:
-  //   "claude" (startup), "✳ Claude Code" (splash), "⠐ Task name" (working spinner)
-  // The spinner uses Braille dots (⠐⠂⠈⠄⠁⠠⠰⠘) as activity indicator prefix.
-  titlePattern: /claude|^[⠁⠂⠄⠈⠐⠠⠰⠘⠃⠅⠑⠒⠔⠕⠡⠢⠤⠥⠨⠱⠲⠴⠸✳✻] /i,
-  supportsChatView: true,
-  supportsResume: true,
-  parseSessionData: parseJsonlSession,
-  parseTerminalOutput: parseTerminalOutput,
-  noisePatterns: [
-    /bypass permissions on/i,
-    /shift\+tab to cycle/i,
-    /Update available!.*brew upgrade/i,
-    /esc to interrupt/i,
-    /\? for shortcuts/i,
-    /ctrl\+g to edit/i,
-    /Monthly spend limit/i,
-    /hold Space/i,
-    /^[\s─━═]+$/,
-    /^👍$/,                    // Claude emoji reaction
-    /[✱✳⏳]\s*\w+[…\.]{0,3}$/,         // Claude thinking status (✱ Nebulizing…, ✳ Thinking…, etc.)
-    /Esc to cancel.*Tab to amend/s,    // Prompt footer (rendered via prompt card instead)
-    /Enter to confirm.*Esc to cancel/s, // Prompt footer variant
-  ],
-  imageSend: {
-    method: 'clipboard-paste',
-    pasteKeystroke: '\x16',  // Ctrl+V — Claude Code reads clipboard on this signal
-  },});
-
-// Register Codex provider
-registerAgentProvider({
-  id: "codex",
-  displayName: "Codex",
-  titlePattern: /codex/i,
-  supportsChatView: false,
-  supportsResume: true,
-  noisePatterns: [
-    /^[\s─━═]+$/,
-  ],});
-
-// Register OpenCode provider (sst/opencode)
-registerAgentProvider({
-  id: "opencode",
-  displayName: "OpenCode",
-  titlePattern: /opencode/i,
-  supportsChatView: false,
-  supportsResume: true,
-  noisePatterns: [
-    /^[\s─━═█▀▄▌▐]+$/,
-  ],});
+/** Re-export from the plugin registry so existing callers keep working. */
+export { isProviderNoise } from "./plugins/registry";

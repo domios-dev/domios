@@ -64,6 +64,15 @@ pub enum SplitNodeSnapshot {
         /// Hierarchy depth (0=none, 1=orchestrator, 2=lead/worker, 3=worker).
         #[serde(default)]
         depth: u8,
+        /// Whether this pane should restore in Chat UI mode. `None` means
+        /// legacy snapshot from before this field existed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chat_view: Option<bool>,
+        /// Whether the agent runs in auto-approve / bypass-permissions mode.
+        /// Persisted so a restored agent keeps `--dangerously-skip-permissions`
+        /// behaviour instead of silently dropping back to prompting.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        auto_approve: bool,
     },
     Split {
         orientation: String,
@@ -92,13 +101,10 @@ impl SessionStore {
             let _ = self.rotate_backup(&path);
         }
         let json = serde_json::to_string_pretty(snapshot).map_err(|e| e.to_string())?;
-        // Atomic write: tmp file then rename. fs::write directly into last.json
-        // is NOT crash-safe — a kill mid-write (Windows reboot, OOM, BSOD)
+        // Atomic write: tmp file then rename. fs::write directly into last.json is NOT crash-safe — a kill mid-write (Windows reboot, OOM, BSOD)
         // truncates the live file and the next boot loses every workspace.
-        fs::write(&tmp, json.as_bytes())
-            .map_err(|e| format!("write {}: {}", tmp.display(), e))?;
-        fs::rename(&tmp, &path)
-            .map_err(|e| format!("rename → {}: {}", path.display(), e))
+        fs::write(&tmp, json.as_bytes()).map_err(|e| format!("write {}: {}", tmp.display(), e))?;
+        fs::rename(&tmp, &path).map_err(|e| format!("rename → {}: {}", path.display(), e))
     }
 
     fn rotate_backup(&self, last_json: &std::path::Path) -> Result<(), String> {
@@ -121,11 +127,7 @@ impl SessionStore {
             .into_iter()
             .flatten()
             .flatten()
-            .filter(|e| {
-                e.file_name()
-                    .to_string_lossy()
-                    .ends_with(".json")
-            })
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
             .collect();
 
         if entries.len() <= MAX_BACKUPS {
@@ -182,8 +184,12 @@ impl SessionStore {
         entries.sort_by_key(|e| e.file_name());
         for entry in entries.into_iter().rev() {
             let path = entry.path();
-            let Ok(content) = fs::read_to_string(&path) else { continue };
-            let Ok(snap) = serde_json::from_str::<SessionSnapshot>(&content) else { continue };
+            let Ok(content) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(snap) = serde_json::from_str::<SessionSnapshot>(&content) else {
+                continue;
+            };
             log::warn!(
                 "[session] recovered from backup {} ({} workspaces)",
                 path.display(),
@@ -191,9 +197,7 @@ impl SessionStore {
             );
             return Ok(Some(snap));
         }
-        log::error!(
-            "[session] every file in backups/ failed to parse; starting empty"
-        );
+        log::error!("[session] every file in backups/ failed to parse; starting empty");
         Ok(None)
     }
 
@@ -248,7 +252,9 @@ mod tests {
 
     fn fresh_store() -> (SessionStore, TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let store = SessionStore { session_dir: dir.path().to_path_buf() };
+        let store = SessionStore {
+            session_dir: dir.path().to_path_buf(),
+        };
         (store, dir)
     }
 
@@ -301,7 +307,10 @@ mod tests {
         store.save(&snap(3)).unwrap();
         fs::remove_file(store.session_dir.join("last.json")).unwrap();
 
-        let recovered = store.load_last().unwrap().expect("must recover from backup");
+        let recovered = store
+            .load_last()
+            .unwrap()
+            .expect("must recover from backup");
         assert!(!recovered.workspaces.is_empty());
     }
 

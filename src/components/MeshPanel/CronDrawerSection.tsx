@@ -1,9 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { useEffect, useState } from "react";
 import type { CronRunInfo } from "../../lib/types";
 import { serviceIdToCronId } from "./types";
 import { describeSchedule, formatFuture, formatTime } from "../../lib/formatters";
 import type { Service } from "./types";
+import { UI_BUTTON, UI_INPUT, UI_PANEL } from "../shared/design";
 
 interface Props {
   service: Service;
@@ -16,13 +17,21 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
   const [runs, setRuns] = useState<CronRunInfo[]>([]);
   const [busy, setBusy] = useState(false);
   const cronId = serviceIdToCronId(service.id);
+  const scheduleInputClass = `${UI_INPUT.full} flex-1 font-mono outline-none border border-[var(--ct-accent)] text-[10px]`;
+  const scheduleBtnClass = `${UI_BUTTON.compact} ${UI_BUTTON.base} border-[var(--ct-border)] text-[var(--ct-muted)]`;
+  const sectionMetaClass = "text-[10px] text-[var(--ct-fg)] flex flex-col gap-0.5";
+  const runsMetaClass = "text-[var(--ct-muted-fg)] font-mono";
 
   useEffect(() => {
     let cancelled = false;
     invoke<CronRunInfo[]>("cron_history", { id: cronId })
-      .then((r) => { if (!cancelled) setRuns(Array.isArray(r) ? r.slice(-5).reverse() : []); })
+      .then((r) => {
+        if (!cancelled) setRuns(Array.isArray(r) ? r.slice(-5).reverse() : []);
+      })
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [cronId]);
 
   const handleTrigger = async () => {
@@ -71,19 +80,19 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
             <input
               value={scheduleInput}
               onChange={(e) => setScheduleInput(e.target.value)}
-              className="flex-1 px-2 py-1 text-[10px] font-mono bg-[var(--ct-bg)] border border-[var(--ct-accent)] rounded text-[var(--ct-fg)] outline-none"
+              className={scheduleInputClass}
               placeholder="*/30 * * * *"
             />
             <button
               onClick={handleSaveSchedule}
               disabled={busy}
-              className="px-2 py-1 text-[10px] bg-[var(--ct-accent)] text-[var(--ct-bg)] rounded disabled:opacity-50 cursor-pointer"
+              className={`${UI_BUTTON.primary} ${UI_BUTTON.compact} disabled:opacity-50`}
             >
               Save
             </button>
             <button
               onClick={() => { setEditingSchedule(false); setScheduleInput(service.schedule ?? ""); }}
-              className="px-2 py-1 text-[10px] bg-[var(--ct-bg)] border border-[var(--ct-border)] text-[var(--ct-muted)] rounded cursor-pointer"
+              className={scheduleBtnClass}
             >
               ×
             </button>
@@ -98,7 +107,7 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
             </span>
             <button
               onClick={() => setEditingSchedule(true)}
-              className="text-[9px] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] bg-transparent border-none cursor-pointer"
+              className={`${UI_BUTTON.base} ${UI_BUTTON.compact} text-[var(--ct-muted)] border-none`}
             >
               Edit
             </button>
@@ -111,14 +120,14 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
           <button
             onClick={handleTrigger}
             disabled={busy}
-            className="flex-1 py-1 text-[10px] bg-[var(--ct-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)] rounded cursor-pointer disabled:opacity-50 hover:bg-[var(--ct-hover)]"
+            className={`${UI_BUTTON.ghost} ${UI_BUTTON.compact} flex-1 disabled:opacity-50`}
           >
             ▶ Trigger now
           </button>
           <button
             onClick={handleToggle}
             disabled={busy}
-            className="flex-1 py-1 text-[10px] bg-[var(--ct-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)] rounded cursor-pointer disabled:opacity-50 hover:bg-[var(--ct-hover)]"
+            className={`${UI_BUTTON.ghost} ${UI_BUTTON.compact} flex-1 disabled:opacity-50`}
           >
             {service.enabled ? "⏸ Pause" : "▶ Resume"}
           </button>
@@ -126,7 +135,7 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
       </Section>
 
       <Section label="Next / Last run">
-        <div className="text-[10px] text-[var(--ct-fg)] flex flex-col gap-0.5">
+        <div className={sectionMetaClass}>
           <div>
             next:{" "}
             <span className="font-mono">
@@ -150,7 +159,7 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
                   {formatTime(run.started_at)}
                 </span>
                 {run.finished_at && (
-                  <span className="text-[var(--ct-muted-fg)] font-mono">
+                  <span className={runsMetaClass}>
                     {Math.round((run.finished_at - run.started_at) / 1000)}s
                   </span>
                 )}
@@ -165,8 +174,8 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="text-[10px] flex flex-col gap-1">
-      <div className="text-[var(--ct-muted)] uppercase tracking-wide text-[9px]">{label}</div>
+    <div className={UI_PANEL.section}>
+      <div className={UI_PANEL.sectionLabel}>{label}</div>
       {children}
     </div>
   );

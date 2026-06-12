@@ -28,9 +28,7 @@ pub enum MemAction {
         id: String,
     },
     /// Delete an item by id
-    Delete {
-        id: String,
-    },
+    Delete { id: String },
     /// Batch-delete every item in an area (use sparingly).
     Forget {
         /// Area name (e.g. auth, deploy, billing).
@@ -86,9 +84,7 @@ pub enum MemAction {
         id: String,
     },
     /// Unpin a previously pinned item.
-    Unpin {
-        id: String,
-    },
+    Unpin { id: String },
     /// List all currently pinned items, ordered by importance/evidence/recency.
     Pinned {
         /// Max results (default 100, max 500)
@@ -193,9 +189,7 @@ pub enum MemAction {
     /// List pending learnings (kind=learning items)
     LearnList,
     /// Promote a learning to a fact (raises importance)
-    LearnPromote {
-        id: String,
-    },
+    LearnPromote { id: String },
     /// Flush a pane's PTY scrollback as a kind=conversation mem_item
     /// (called by PreCompact hook before context summarization).
     Flush {
@@ -251,12 +245,6 @@ pub enum MemAction {
     Secret {
         #[command(subcommand)]
         action: MemSecretAction,
-    },
-    /// Targeted data-repair operations against the mem store. Opens the DB
-    /// directly (no daemon dependency) and runs narrow, idempotent SQL.
-    Repair {
-        #[command(subcommand)]
-        action: MemRepairAction,
     },
     /// Dreamer review/apply: run a daemon-routed dream phase, or apply a
     /// reviewed re-cluster plan against the local mem DB.
@@ -323,26 +311,6 @@ pub enum MemDreamAction {
         /// How many entries to return (most-recent first).
         #[arg(long, default_value_t = 1)]
         limit: usize,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum MemRepairAction {
-    /// Restore `valid_to = NULL` for relations whose endpoints both still
-    /// exist in `entities` or `mem_items`. Use after a normalize pass that
-    /// over-invalidated mem_item-anchored relations. Use --dry-run first.
-    #[clap(name = "revive-broken-relations")]
-    ReviveBrokenRelations {
-        /// Only revive relations invalidated at or after this RFC 3339
-        /// timestamp (e.g. `2026-05-01T00:00:00Z`). Default = no filter.
-        #[arg(long)]
-        since: Option<String>,
-        /// Print count without modifying any rows.
-        #[arg(long)]
-        dry_run: bool,
-        /// Override the path to knowledge.db.
-        #[arg(long)]
-        db_path: Option<String>,
     },
 }
 

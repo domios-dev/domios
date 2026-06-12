@@ -1,10 +1,5 @@
-// Install codeterm from a local NSIS installer file (Windows).
-// Spawns a detached helper that survives the death of the calling daemon
-// (the CLI is usually invoked from a codeterm-managed PTY — killing the
-// daemon would otherwise take the CLI with it before install completes).
-// If `continue_prompt` is set, the helper polls `/api/health` until the
-// new daemon is up, then sends the prompt to `continue_pane` so the agent
-// resumes work with that text as the next user message.
+// Detached NSIS install helper keeps running after CLI exits.
+// If continuation is set, wait for API readiness and forward text to `continue_pane`.
 #[cfg(target_os = "windows")]
 pub fn run_install_from_file(
     installer_path: &str,
@@ -32,18 +27,14 @@ pub fn run_install_from_file(
     let log_path = std::path::PathBuf::from(&local_app_data)
         .join("codeterm")
         .join("self-install.log");
-    let bat_path = std::env::temp_dir().join(format!(
-        "codeterm-self-install-{}.bat",
-        std::process::id()
-    ));
+    let bat_path =
+        std::env::temp_dir().join(format!("codeterm-self-install-{}.bat", std::process::id()));
 
-    // Continuation prompt is delivered via a temp file to avoid quoting hell
-    // through cmd.exe — read it back with `--continue-from-file` after restart.
+    // Use a temp file for continuation text to avoid cmd.exe quoting issues.
+    // Resume from it with `--continue-from-file` after restart.
     let continue_file = continue_prompt.map(|text| {
-        let p = std::env::temp_dir().join(format!(
-            "codeterm-continuation-{}.txt",
-            std::process::id()
-        ));
+        let p =
+            std::env::temp_dir().join(format!("codeterm-continuation-{}.txt", std::process::id()));
         let _ = std::fs::write(&p, text);
         p
     });
@@ -108,7 +99,10 @@ pub fn run_install_from_file(
     eprintln!("[install --from-file] Target:    {}", target_exe.display());
     eprintln!("[install --from-file] Log:       {}", log_path.display());
     if continue_prompt.is_some() && continue_pane.is_some() {
-        eprintln!("[install --from-file] Continue: will deliver prompt to pane {} after restart", continue_pane.unwrap_or("?"));
+        eprintln!(
+            "[install --from-file] Continue: will deliver prompt to pane {} after restart",
+            continue_pane.unwrap_or("?")
+        );
     } else if continue_prompt.is_some() {
         eprintln!("[install --from-file] WARN: --continue-prompt set but no --continue-pane / $CODETERM_PANE_ID — prompt will be DROPPED");
     }

@@ -26,17 +26,17 @@ ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 
 Skills are markdown files that Claude Code loads automatically when relevant. When Claude detects it's running in CodeTerm (via `$CODETERM=1` env var and `$CODETERM_PANE_ID` for self-identification), it can use the `codeterm` CLI to:
 
-1. **Send commands**: `codeterm send-text "npm test"` (sends to current pane, newline appended automatically)
+1. **Send commands**: `codeterm send-text "npm test"` (sends to current pane, newline appended automatically). For quote-heavy or multiline text, use `codeterm send --stdin --pane ID` and pipe/heredoc the payload.
 2. **Send notifications**: `codeterm notify "Done" --level info`
 3. **Create workspaces**: `codeterm workspace create "Feature X"`
 4. **Read output**: `codeterm get-output` (reads from current pane)
 5. **Rename tab**: `codeterm pane rename "my task"` or `codeterm pane rename "my task" --pane ID`
 6. **Create theme**: `codeterm theme save my-theme /tmp/theme.toml --apply`
-7. **Agent hierarchy**: `codeterm agent set-conductor` (mark self as orchestrator; alias: `set-orchestrator`)
+7. **Agent hierarchy**: `codeterm agent set-orchestrator` (mark self as orchestrator)
 8. **Compact context**: `codeterm agent compact [--pane ID]` (sends /compact to Claude)
 9. **Switch model**: `codeterm agent model <sonnet|haiku|opus> [--pane ID]` (switches Claude model)
 9. **Send report**: `codeterm agent report "task done"` (report to direct parent, auto-injected into parent's PTY)
-10. **List hierarchy**: `codeterm agent hierarchy` (show full agent tree)
+10. **List panes / hierarchy**: `codeterm pane list` (workspace tree, sub-agents nested; `--agents` filters to agent panes)
 11. **Spawn agent**: `codeterm agent spawn claude --title "Worker" --role Worker --parent ID --task "do work"` (creates new tab, non-blocking, does NOT switch active tab, task uses `-p` flag for instant start)
 12. **Spawn with agent definition**: via REST API `POST /api/agents/spawn` with `agent_name` field (loads `.claude/agents/<name>.md`; not available in CLI)
 13. **Cross-workspace spawn**: `codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent ID --task "work"`
@@ -168,31 +168,27 @@ curl -X POST http://localhost:7685/api/notifications \
 
 ## Agent Hierarchy
 
-CodeTerm supports a 3-level agent hierarchy: Orchestrator (depth 1) -> Lead (depth 2) -> Worker (depth 2-3). Each agent gets its own tab; the hierarchy is a logical chain, not visual splits. IDs are 8-char hex (e.g. `a3f1b2c7`).
+CodeTerm has a 2-level role hierarchy: Orchestrator (depth 1) -> Worker (depth 2). Each agent gets its own tab; the hierarchy is a logical chain, not visual splits. IDs are 8-char hex (e.g. `a3f1b2c7`).
 
 **Roles:**
-- **Orchestrator** (was Conductor) -- top-level, can spawn Leads and Workers.
-- **Lead** -- spawned by Orchestrator, can spawn Workers.
-- **Worker** -- executes tasks, reports back. Cannot spawn. Cannot call `set-conductor`, `unlink`, or `agent spawn`.
+- **Orchestrator** (was Conductor) -- top-level, spawns Workers.
+- **Worker** -- executes one task, reports back. Cannot spawn. Cannot call `set-orchestrator`, `unlink`, or `agent spawn`.
 
-Backward-compat aliases: `Conductor` -> `Orchestrator`, `SubWorker` -> `Worker`.
+Backward-compat alias: `Conductor` -> `Orchestrator`.
 
-**Push-based reports:** Reports go to direct parent (not orchestrator), enabling cascade: Worker -> Lead -> Orchestrator. Reports are auto-injected into the parent's PTY as `[Report from Name] message\r`, so Claude sees them as user input -- no polling needed.
+**Push-based reports:** Reports go to the spawning Orchestrator, auto-injected into its PTY as `[Report from Name] message\r`, so Claude sees them as user input -- no polling needed.
 
 ```bash
 # Mark current pane as orchestrator
-codeterm agent set-conductor --pane $CODETERM_PANE_ID
+codeterm agent set-orchestrator --pane $CODETERM_PANE_ID
 
-# View full hierarchy tree
-codeterm agent hierarchy
+# View panes as a workspace tree (sub-agents nested); --agents = agent panes only
+codeterm pane list
 
-# List all agent panes
-codeterm agent list
+# Get one pane's agent state (type, session, prompt)
+codeterm pane status --pane $WORKER
 
-# Get detailed status for a pane
-codeterm agent status --pane $WORKER
-
-# Remove role (Orchestrator only -- Workers/Leads with parents CANNOT unlink)
+# Clear role: detach a Worker from its Orchestrator (or orphan an Orchestrator's Workers)
 codeterm agent unlink --pane $CODETERM_PANE_ID
 ```
 
@@ -203,10 +199,7 @@ The `agent.report` webhook event fires when any agent sends a report, enabling a
 The `task` field is baked into the launch command via the `-p` flag, so the agent starts working immediately with no delay. Spawn returns immediately (non-blocking) -- PTY readiness and agent launch happen in a background thread. Each spawned agent gets its own tab (does NOT auto-switch active tab). Uses socket API for reliability.
 
 ```bash
-# Spawn a Lead under Orchestrator
-codeterm agent spawn claude --title "Team-A" --role Lead --parent $CODETERM_PANE_ID --cwd /project --task "coordinate team"
-
-# Spawn a Worker
+# Spawn a Worker under the Orchestrator
 codeterm agent spawn claude --title "Worker-1" --role Worker --parent $CODETERM_PANE_ID --task "run tests"
 
 # Spawn defaults to claude if no agent specified
@@ -222,7 +215,7 @@ The `--agent-name` option (for loading `.claude/agents/<name>.md`) is only avail
 
 ### Batch API (REST and Tauri IPC)
 
-Spawn an entire agent hierarchy in one call. The batch API is available via both `POST /api/batch` (REST) and the `mux_batch` Tauri IPC command, with identical semantics and $ref resolution. Both delegate to the unified ServiceContext.
+Spawn an Orchestrator and its Workers in one call. The batch API is available via both `POST /api/batch` (REST) and the `mux_batch` Tauri IPC command, with identical semantics and $ref resolution. Both delegate to the unified ServiceContext.
 
 ```bash
 curl -X POST http://localhost:7685/api/batch \
@@ -230,8 +223,7 @@ curl -X POST http://localhost:7685/api/batch \
   -d '{
     "commands": [
       {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Orchestrator", "can_spawn": true}},
-      {"method": "spawn", "id": "lead", "params": {"title": "Lead-A", "role": "Lead", "parent_pane_id": "$boss", "task": "coordinate team"}},
-      {"method": "spawn", "params": {"title": "W1", "role": "Worker", "parent_pane_id": "$lead", "task": "analyze code", "agent_name": "reviewer"}},
+      {"method": "spawn", "params": {"title": "W1", "role": "Worker", "parent_pane_id": "$boss", "task": "analyze code", "agent_name": "reviewer"}},
       {"method": "spawn", "params": {"title": "W2", "role": "Worker", "parent_pane_id": "$boss", "task": "run tests"}}
     ]
   }'
@@ -254,4 +246,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the pane in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 23 -->
+<!-- revision: 28 -->

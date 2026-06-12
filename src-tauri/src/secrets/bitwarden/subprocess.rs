@@ -77,8 +77,7 @@ pub(super) fn fallback_bw_paths() -> Vec<std::path::PathBuf> {
         }
         if let Ok(up) = std::env::var("USERPROFILE") {
             paths.push(
-                std::path::PathBuf::from(up)
-                    .join("scoop\\apps\\bitwarden-cli\\current\\bw.exe"),
+                std::path::PathBuf::from(up).join("scoop\\apps\\bitwarden-cli\\current\\bw.exe"),
             );
         }
         let _ = home;
@@ -139,10 +138,8 @@ impl BwExec for SubprocessBwExec {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-        // With --response, bw prints the wrapper JSON to stdout for both
-        // success and failure. If parsing fails, fall through to a raw
-        // Backend error so the caller sees something useful instead of
-        // silently treating it as success.
+        // With --response, bw prints the wrapper JSON to stdout for both success and failure. If parsing fails, fall through to a raw Backend error so
+        // the caller sees something useful instead of silently treating it as success.
         if let Ok(resp) = serde_json::from_str::<BwResponse>(stdout.trim()) {
             if !resp.success {
                 log::warn!(

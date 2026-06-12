@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
 import { TitleLevel } from "../../lib/types";
 import { consumePendingCommand } from "../../lib/pendingCommands";
@@ -61,7 +61,7 @@ export function useShellIntegration({
       if (!cmd) return true;
       pendingCommandFired.current = true;
       console.log(`[spawn] Firing pending command in pane ${paneId}: ${cmd}`);
-      invoke("write_pty_string", { ptyId: ptyIdNow, data: cmd + "\r" });
+      invoke("write_pty_string", { ptyId: ptyIdNow, data: cmd + "\r", raw: false });
       return true;
     };
 

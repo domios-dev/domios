@@ -23,10 +23,7 @@ pub enum TryNext<T> {
 /// to the next, while authoritative responses short-circuit. When every
 /// address fails the joined error trail is returned so the caller can log
 /// what happened on each route.
-pub async fn try_peer<T, F, Fut>(
-    addresses: &[PeerAddress],
-    op: F,
-) -> Result<T, String>
+pub async fn try_peer<T, F, Fut>(addresses: &[PeerAddress], op: F) -> Result<T, String>
 where
     F: Fn(&PeerAddress) -> Fut,
     Fut: std::future::Future<Output = TryNext<T>>,
@@ -90,9 +87,9 @@ impl PeerClient {
     }
 
     fn auth_header(&self) -> Option<(String, String)> {
-        self.signed_token.as_ref().map(|t| {
-            ("Authorization".to_string(), format!("Bearer {}", t))
-        })
+        self.signed_token
+            .as_ref()
+            .map(|t| ("Authorization".to_string(), format!("Bearer {}", t)))
     }
 
     /// Ping a peer — returns true if reachable.
@@ -102,10 +99,16 @@ impl PeerClient {
     }
 
     /// Authenticated POST, returns parsed JSON.
-    pub async fn auth_post_json(&self, path: &str, body: &impl serde::Serialize) -> Result<serde_json::Value, String> {
+    pub async fn auth_post_json(
+        &self,
+        path: &str,
+        body: &impl serde::Serialize,
+    ) -> Result<serde_json::Value, String> {
         let resp = self.auth_post(path, body).await?;
         if resp.status().is_success() {
-            resp.json().await.map_err(|e| format!("Bad response: {}", e))
+            resp.json()
+                .await
+                .map_err(|e| format!("Bad response: {}", e))
         } else {
             let body = resp.text().await.unwrap_or_default();
             Err(format!("HTTP error: {}", body))
@@ -113,13 +116,20 @@ impl PeerClient {
     }
 
     /// Authenticated POST helper.
-    async fn auth_post(&self, path: &str, body: &impl serde::Serialize) -> Result<reqwest::Response, String> {
+    async fn auth_post(
+        &self,
+        path: &str,
+        body: &impl serde::Serialize,
+    ) -> Result<reqwest::Response, String> {
         let url = format!("{}{}", self.base_url, path);
         let mut req = self.client.post(&url);
         if let Some((k, v)) = self.auth_header() {
             req = req.header(&k, &v);
         }
-        req.json(body).send().await.map_err(|e| format!("Network error: {}", e))
+        req.json(body)
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))
     }
 
     /// Send mesh sync payload and receive theirs.
@@ -129,7 +139,9 @@ impl PeerClient {
     ) -> Result<super::types::MeshSyncPayload, String> {
         let resp = self.auth_post("/api/mesh/sync", payload).await?;
         if resp.status().is_success() {
-            resp.json().await.map_err(|e| format!("Bad sync response: {}", e))
+            resp.json()
+                .await
+                .map_err(|e| format!("Bad sync response: {}", e))
         } else {
             Err("Sync failed".to_string())
         }
@@ -142,7 +154,9 @@ impl PeerClient {
     ) -> Result<super::types::RelayResponse, String> {
         let resp = self.auth_post("/api/mesh/relay", cmd).await?;
         if resp.status().is_success() {
-            resp.json().await.map_err(|e| format!("Bad relay response: {}", e))
+            resp.json()
+                .await
+                .map_err(|e| format!("Bad relay response: {}", e))
         } else {
             let body = resp.text().await.unwrap_or_default();
             Err(format!("Relay failed: {}", body))
@@ -156,7 +170,14 @@ impl PeerClient {
         if let Some((k, v)) = self.auth_header() {
             req = req.header(&k, &v);
         }
-        let resp = req.send().await.map_err(|e| format!("Network error: {}", e))?;
-        if resp.status().is_success() { Ok(()) } else { Err("Unpair failed".to_string()) }
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err("Unpair failed".to_string())
+        }
     }
 }

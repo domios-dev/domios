@@ -2,11 +2,12 @@ import { useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon } from "../Icons";
 import { isMac } from "../../lib/keybindings";
 import type { LucideIcon } from "lucide-react";
+import { UI_PANEL } from "../shared/design";
 
 export function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)] mb-2.5">{title}</h3>
+      <h3 className="text-[var(--ct-muted-fg)] text-sm font-medium mb-2">{title}</h3>
       <div className="space-y-2.5">{children}</div>
     </div>
   );
@@ -23,12 +24,11 @@ export function SettingsPage({
 }) {
   return (
     <div className="max-w-[720px] mx-auto flex flex-col gap-5">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-medium text-[var(--ct-fg)]">{title}</h1>
-        {subtitle && (
-          <p className="text-sm text-[var(--ct-muted-fg)]">{subtitle}</p>
-        )}
-      </header>
+      {/* Title already shown in the nav header — keep it for screen readers only, no visual duplicate. */}
+      <h1 className="sr-only">{title}</h1>
+      {subtitle && (
+        <p className="text-sm text-[var(--ct-muted-fg)] -mt-1">{subtitle}</p>
+      )}
       {children}
     </div>
   );
@@ -82,9 +82,7 @@ export function SettingsPill({
   tone?: keyof typeof PILL_TONES;
 }) {
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-medium ${PILL_TONES[tone]}`}>
-      {children}
-    </span>
+    <span className={`${UI_PANEL.smallPill} ${PILL_TONES[tone]}`}>{children}</span>
   );
 }
 
@@ -105,7 +103,7 @@ export function SettingsRow({
 export function Label({ text, children }: { text: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">{text}</span>
+      <span className="block text-sm text-[var(--ct-muted-fg)] mb-1">{text}</span>
       {children}
     </label>
   );
@@ -241,7 +239,7 @@ export function renderKbd(binding: string) {
         return (
           <kbd
             key={i}
-            className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1 rounded bg-[var(--ct-bg)] border border-[var(--ct-border)] text-[10px] font-mono text-[var(--ct-muted-fg)] shadow-[0_1px_0_var(--ct-border)]"
+            className={UI_PANEL.kbd}
           >
             {display}
           </kbd>

@@ -1,8 +1,8 @@
 //! Per-pane FIFO buffer of inbound messages held during the agent_type=None gap.
 
+use parking_lot::Mutex;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::OnceLock;
-use parking_lot::Mutex;
 
 const MAX_QUEUED_PER_PANE: usize = 100;
 

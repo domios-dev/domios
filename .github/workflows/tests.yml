@@ -1,0 +1,36 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [develop, master]
+
+jobs:
+  ts:
+    name: ts unit + plugins
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run TS unit tests
+        run: pnpm test:unit
+
+      - name: Run plugin tests
+        run: pnpm test:plugins
+
+      - name: Biome (TS lint)
+        run: pnpm lint

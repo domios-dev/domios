@@ -1,8 +1,8 @@
 //! Identity management — signing, authentication, keypair operations.
 
-use std::collections::HashMap;
-use super::types::{MeshIdentity, PairedPeer};
 use super::crown;
+use super::types::{MeshIdentity, PairedPeer};
+use std::collections::HashMap;
 
 /// Manages this instance's identity and request signing/verification.
 pub struct IdentityManager {
@@ -12,19 +12,29 @@ pub struct IdentityManager {
 
 impl IdentityManager {
     pub fn new(identity: MeshIdentity, instance_name: String) -> Self {
-        Self { identity, instance_name }
+        Self {
+            identity,
+            instance_name,
+        }
     }
 
     /// Sign a mesh request with this instance's Ed25519 private key.
     pub fn sign_request(&self) -> Result<String, String> {
-        let priv_key = self.identity.private_key.as_ref()
+        let priv_key = self
+            .identity
+            .private_key
+            .as_ref()
             .ok_or("No private key in identity")?;
         crown::sign_request(priv_key, &self.identity.instance_id)
     }
 
     /// Build map of instance_id → public_key for all paired peers.
-    pub fn known_public_keys(&self, paired_peers: &HashMap<String, PairedPeer>) -> HashMap<String, String> {
-        paired_peers.iter()
+    pub fn known_public_keys(
+        &self,
+        paired_peers: &HashMap<String, PairedPeer>,
+    ) -> HashMap<String, String> {
+        paired_peers
+            .iter()
             .map(|(id, peer)| (id.clone(), peer.public_key.clone()))
             .collect()
     }

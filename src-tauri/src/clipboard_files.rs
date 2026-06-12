@@ -13,13 +13,9 @@
 //! Linux: text/uri-list (TODO)
 
 #[tauri::command]
-pub async fn read_clipboard_files(
-    app: tauri::AppHandle,
-) -> Result<Vec<String>, String> {
-    // app is only consumed by the macOS NSPasteboard main-thread hop;
-    // suppress the unused-warning on other platforms instead of cfg-gating
-    // the parameter itself — Tauri's generate_handler! expands to a fixed
-    // arity and rejects a parameter that disappears under #[cfg].
+pub async fn read_clipboard_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    // app is only consumed by the macOS NSPasteboard main-thread hop; suppress the unused-warning on other platforms instead of cfg-gating the
+    // parameter itself — Tauri's generate_handler! expands to a fixed arity and rejects a parameter that disappears under #[cfg].
     let _ = &app;
 
     #[cfg(target_os = "windows")]
@@ -37,9 +33,7 @@ pub async fn read_clipboard_files(
 /// paths). Used as the primary text source on macOS where WebKit blocks
 /// `navigator.clipboard.readText()` outside paste-event handlers.
 #[tauri::command]
-pub async fn read_clipboard_text(
-    app: tauri::AppHandle,
-) -> Result<Option<String>, String> {
+pub async fn read_clipboard_text(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let _ = &app;
 
     #[cfg(target_os = "windows")]
@@ -114,7 +108,11 @@ fn read_windows() -> Vec<String> {
 
     match get_clipboard::<Vec<String>, _>(FileList) {
         Ok(files) => {
-            log::info!("[clipboard] files (win) → {} items: {:?}", files.len(), files);
+            log::info!(
+                "[clipboard] files (win) → {} items: {:?}",
+                files.len(),
+                files
+            );
             files
         }
         Err(e) => {
@@ -145,7 +143,11 @@ fn read_macos() -> Vec<String> {
             log::warn!("[clipboard] dropped unparseable file url: {:?}", raw);
         }
     }
-    log::info!("[clipboard] files (mac) → {} items: {:?}", paths.len(), paths);
+    log::info!(
+        "[clipboard] files (mac) → {} items: {:?}",
+        paths.len(),
+        paths
+    );
     paths
 }
 
@@ -186,9 +188,6 @@ mod tests {
     #[test]
     fn file_url_handles_cyrillic() {
         let url = "file:///Users/me/%D0%A1%D0%BD%D0%B8%D0%BC%D0%BE%D0%BA.png";
-        assert_eq!(
-            file_url_to_path(url),
-            Some("/Users/me/Снимок.png".into())
-        );
+        assert_eq!(file_url_to_path(url), Some("/Users/me/Снимок.png".into()));
     }
 }

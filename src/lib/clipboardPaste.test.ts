@@ -255,8 +255,7 @@ async function runClassifier(label: string, item: ClipboardItemLike, expectKind:
     fakeItem({ "text/plain": "hello world" }),
     "plain", "hello world");
 
-  // Regression for issue #57: Windows browser copy puts both on the clipboard
-  // and the old code shadowed text/plain with text/html.
+  // Regression for issue #57: Windows browser copy puts both on the clipboard and the old code shadowed text/plain with text/html.
   await runClassifier("text/plain wins over text/html",
     fakeItem({ "text/plain": "hello world", "text/html": "<p>hello world</p>" }),
     "plain", "hello world");

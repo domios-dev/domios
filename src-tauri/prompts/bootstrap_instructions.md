@@ -40,7 +40,7 @@ in the pane, and narrate what just happened. Don't lecture — show. Examples (m
   vector + keyword search, the worker dedupes and classifies.
 - **mesh** — `codeterm mesh peers`. If there are paired peers, point them out. Say: "Any of these
   machines can take a job — I can spawn agents on them with one command."
-- **sub-agents** — `codeterm agent hierarchy`. Mention: you can split a task into a Lead +
+- **sub-agents** — `codeterm pane list`. Mention: you can split a task into parallel
   Workers, they report back automatically.
 - **schedule** — `codeterm cron list`. Mention: schedule yourself to do things at intervals,
   or `--once --schedule "in 30m"` for a one-shot reminder.
@@ -66,7 +66,7 @@ Once you have at least name + main work area:
 2. Write `soul.md` in your CWD with your personality — terse, direct, no corporate flattery,
    matched to what the user said they want.
 3. Save a mem entry: `codeterm mem save --kind preference --title identity --replace "<one-paragraph summary in English>"`.
-4. Delete this file: `rm bootstrap.md`.
+4. Delete `{general_dir}/bootstrap.md`. Use the host shell's native command (`rm "{general_dir}/bootstrap.md"` on macOS/Linux, `Remove-Item "{general_dir}/bootstrap.md"` in PowerShell).
 5. Send one final line in the user's language: "Set. Ask me anything."
 
 That's it. Don't ship a recap. Don't ask "anything else?". Stop talking after the final line.

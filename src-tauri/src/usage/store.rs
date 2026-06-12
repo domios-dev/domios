@@ -22,8 +22,8 @@ pub struct UsageSnapshotRow {
     pub weekly_resets_at: Option<i64>,
 }
 
-// Keep enough history for the projection baseline (90-day lookback × ~30
-// samples per active day). Storage cost is trivial (~80B per row).
+// Keep up to a 90-day baseline (~30 samples/day) per provider.
+// Storage is small (~80B per row).
 const MAX_ROWS_PER_PROVIDER: i64 = 10_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +49,8 @@ impl UsageStore {
         let conn = Connection::open(&db_path).map_err(|e| format!("open usage.db: {}", e))?;
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| format!("set busy_timeout: {}", e))?;
-        conn.execute_batch(SCHEMA).map_err(|e| format!("init usage schema: {}", e))?;
+        conn.execute_batch(SCHEMA)
+            .map_err(|e| format!("init usage schema: {}", e))?;
         drop_legacy_columns(&conn)?;
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
@@ -60,7 +61,8 @@ impl UsageStore {
     #[cfg(test)]
     pub fn open_in_memory() -> Result<UsageStoreHandle, String> {
         let conn = Connection::open_in_memory().map_err(|e| format!("open :memory:: {}", e))?;
-        conn.execute_batch(SCHEMA).map_err(|e| format!("init usage schema: {}", e))?;
+        conn.execute_batch(SCHEMA)
+            .map_err(|e| format!("init usage schema: {}", e))?;
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             db_path: PathBuf::from(":memory:"),
@@ -118,7 +120,9 @@ impl UsageStore {
             "{} WHERE provider = ?1 AND (?2 IS NULL OR account_id = ?2) AND parsed_ok = 1 ORDER BY captured_at DESC LIMIT 1",
             SELECT_HEADER
         );
-        let mut stmt = conn.prepare(&sql).map_err(|e| format!("prepare get_latest: {}", e))?;
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| format!("prepare get_latest: {}", e))?;
         let row = stmt
             .query_row(params![provider, account_id], row_to_header)
             .ok();
@@ -137,9 +141,14 @@ impl UsageStore {
             "{} WHERE provider = ?1 AND captured_at >= ?2 AND (?3 IS NULL OR account_id = ?3) ORDER BY captured_at DESC LIMIT ?4",
             SELECT_HEADER
         );
-        let mut stmt = conn.prepare(&sql).map_err(|e| format!("prepare get_history: {}", e))?;
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| format!("prepare get_history: {}", e))?;
         let rows: Vec<UsageSnapshotRow> = stmt
-            .query_map(params![provider, since_ms, account_id, limit], row_to_header)
+            .query_map(
+                params![provider, since_ms, account_id, limit],
+                row_to_header,
+            )
             .map_err(|e| format!("query history: {}", e))?
             .filter_map(Result::ok)
             .collect();
@@ -276,7 +285,8 @@ fn drop_legacy_columns(conn: &Connection) -> Result<(), String> {
     for col in LEGACY_COLUMNS {
         if existing.contains(*col) {
             let sql = format!("ALTER TABLE usage_snapshots DROP COLUMN {}", col);
-            conn.execute(&sql, []).map_err(|e| format!("drop {}: {}", col, e))?;
+            conn.execute(&sql, [])
+                .map_err(|e| format!("drop {}: {}", col, e))?;
         }
     }
     Ok(())
@@ -378,11 +388,17 @@ mod tests {
     fn trim_to_cap_keeps_only_last_n() {
         let store = UsageStore::open_in_memory().unwrap();
         for i in 0..(MAX_ROWS_PER_PROVIDER + 25) {
-            store.insert_snapshot(&make_snapshot(1_000_000_000_000 + i * 1000)).unwrap();
+            store
+                .insert_snapshot(&make_snapshot(1_000_000_000_000 + i * 1000))
+                .unwrap();
         }
         let count: i64 = store.with_conn(|c| {
-            c.query_row("SELECT COUNT(*) FROM usage_snapshots WHERE provider='claude'", [], |r| r.get(0))
-                .unwrap()
+            c.query_row(
+                "SELECT COUNT(*) FROM usage_snapshots WHERE provider='claude'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
         });
         assert_eq!(count, MAX_ROWS_PER_PROVIDER, "rows beyond cap are pruned");
         let latest = store.get_latest("claude", None).unwrap().unwrap();

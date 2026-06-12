@@ -1,7 +1,12 @@
 //! PTY I/O helpers: send text, batch send, resize, wait-for-pty.
 
-use serde::Deserialize;
+use std::collections::HashMap;
+
 use super::ServiceContext;
+use serde::Deserialize;
+
+const SHELL_BACKEND_COLS: u16 = 120;
+const SEND_AGENT_BACKEND_COLS: u16 = 240;
 
 /// Build the byte sequence written to a freshly-attached pty to launch a
 /// shell-level command (agent spawn, mem worker spawn, anything that goes
@@ -35,9 +40,39 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
 
 /// Windows pty + cmd.exe handle bracketed-paste markers correctly and there
 /// is no /bin/bash to script-exec with, so we keep the original behavior.
+///
+/// A sacrificial leading space absorbs PSReadLine's first-byte race: the very
+/// first content byte after the `ESC[200~` opener is dropped when the paste
+/// arrives before the bracketed-paste handler is fully armed (the
+/// `emove-Item` / `nset CLAUDECODE` launch glitch). PowerShell ignores leading
+/// whitespace, so the space is harmless whether or not it gets eaten.
 #[cfg(windows)]
 pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
-    Ok(format!("\x1b[200~{}\x1b[201~\r", cmd).into_bytes())
+    Ok(format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes())
+}
+
+/// Cap a provider's submit-verify timeout. Interactive sends keep verification
+/// (codex/opencode need the escalating-Enter retry to actually submit) but must
+/// not inherit the provider's full 15s timeout, which compounds across retries
+/// into a minute-long stall on a busy TUI.
+fn cap_submit_timeout(
+    strategy: crate::agent::provider::VerifySubmitStrategy,
+    max: std::time::Duration,
+) -> crate::agent::provider::VerifySubmitStrategy {
+    use crate::agent::provider::VerifySubmitStrategy as S;
+    match strategy {
+        S::ShellPrompt { timeout } => S::ShellPrompt {
+            timeout: timeout.min(max),
+        },
+        S::TuiInputDrained {
+            timeout,
+            idle_after_drain,
+        } => S::TuiInputDrained {
+            timeout: timeout.min(max),
+            idle_after_drain,
+        },
+        S::None => S::None,
+    }
 }
 
 impl ServiceContext {
@@ -49,8 +84,362 @@ impl ServiceContext {
     /// link the PTY). resolve_pty_id is wrapped in a 15s retry so scripts
     /// can chain `spawn → send-text` without hitting "no PTY".
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
+        self.ensure_pane_pty_for_send(pane_id)?;
+        self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
         let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
-        self.send_text_to_pty(&pty_id, text, enter)
+
+        self.send_text_to_pty_smart(&pty_id, text, enter)
+    }
+
+    /// Verified injection for agent panes, naive paste for shells. A
+    /// freshly-booted TUI can swallow the naive path's single fire-and-forget
+    /// `\r`, leaving the message typed-but-never-submitted (the chat composer
+    /// "no reply" bug); the verified path re-sends Enter until the TUI input
+    /// drains. Blocking — call from sync context or spawn_blocking.
+    pub fn send_text_to_pty_smart(
+        &self,
+        pty_id: &str,
+        text: &str,
+        enter: bool,
+    ) -> Result<(), String> {
+        let (pane_id, agent_type) = {
+            let mux = self.mux.lock();
+            match mux.pane_id_for_pty(pty_id) {
+                Some(pid) => {
+                    let at = mux.get_pane(&pid).and_then(|p| p.agent_type.clone());
+                    (Some(pid), at)
+                }
+                None => (None, None),
+            }
+        };
+        // A booting TUI silently swallows bracket-paste — wait it out, else the
+        // chat composer's message vanishes with no error (web "no reply" bug).
+        let was_booting = pane_id
+            .as_ref()
+            .map(|pid| {
+                self.mux
+                    .lock()
+                    .get_pane(pid)
+                    .map(|p| p.agent_booting)
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        if let Some(ref pid) = pane_id {
+            self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
+        }
+        // ONLY for a just-booted agent: the boot flag can clear before the TUI
+        // finishes rendering its input (no-task spawns clear it right after the
+        // launch command), so wait for the provider's TUI fingerprint. An
+        // already-running provider is ready — skip this so a plain send isn't
+        // delayed by a fingerprint that doesn't happen to match the idle screen.
+        if was_booting {
+            if let Some(ref agent_id) = agent_type {
+                self.await_agent_tui_on_screen(
+                    pty_id,
+                    agent_id,
+                    std::time::Duration::from_secs(10),
+                );
+            }
+        }
+        if let Some(ref agent_id) = agent_type {
+            // Cap the verify-submit timeout for interactive sends. We DO need
+            // verification — codex/opencode swallow a single `\r` while still
+            // ingesting the bracket paste, so without the drain check + escalating
+            // Enter the message sits typed-but-unsent. But the provider's own
+            // timeout (codex 15s) × retries stalled every send for a minute, so
+            // cap it short: the drain normally confirms in <1s; the cap only
+            // bounds the busy-TUI worst case.
+            let strategy = cap_submit_timeout(
+                self.agent_registry
+                    .with_provider(agent_id, |p| p.verify_submit_strategy())
+                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None),
+                std::time::Duration::from_secs(3),
+            );
+            let opts = crate::service::inject_verify::VerifyOpts {
+                // Don't gate on poll_shell_prompt: a live TUI's last screen line
+                // is its footer (claude's "⏵⏵ bypass permissions…"), not the ❯
+                // input cursor, so the prompt poll would time out on a perfectly
+                // ready agent. The boot-wait above handles the not-yet-ready race.
+                require_prompt_first: false,
+                verify_echo: false,
+                verify_submit: true,
+                ..Default::default()
+            };
+            return self
+                .send_text_verified(pty_id, text, enter, strategy, opts)
+                .map(|_| ())
+                .map_err(|e| e.to_string());
+        }
+        self.send_text_to_pty(pty_id, text, enter)
+    }
+
+    /// Poll the pty's screen until the provider's TUI fingerprint shows (or the
+    /// universal agent-TUI glyph check), bounded by `timeout`. Best-effort: a
+    /// timeout just proceeds — the verified injection still runs.
+    fn await_agent_tui_on_screen(
+        &self,
+        pty_id: &str,
+        agent_id: &str,
+        timeout: std::time::Duration,
+    ) {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let screen = self.screen_state.lock().get_screen_text(pty_id);
+            if let Some(text) = screen {
+                let ready = crate::pty::screen_state::screen_has_agent_tui(&text)
+                    || self
+                        .agent_registry
+                        .with_provider(agent_id, |p| p.screen_has_tui(&text))
+                        .unwrap_or(false);
+                if ready {
+                    return;
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    }
+
+    /// `send_text` that first waits out an in-flight agent boot. A booting
+    /// TUI silently swallows bracket-paste, so input sent in that window
+    /// vanished without an error — the chat composer's "message lost" bug.
+    pub async fn send_text_when_ready(
+        &self,
+        pane_id: &str,
+        text: &str,
+        enter: bool,
+    ) -> Result<(), String> {
+        self.ensure_pane_pty_for_send(pane_id)?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
+        loop {
+            let booting = self
+                .mux
+                .lock()
+                .get_pane(pane_id)
+                .map(|p| p.agent_booting)
+                .unwrap_or(false);
+            if !booting {
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(format!(
+                    "Agent in pane {} is still booting — input would be lost",
+                    pane_id
+                ));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+        self.send_text(pane_id, text, enter)
+    }
+
+    fn await_agent_boot_blocking(
+        &self,
+        pane_id: &str,
+        timeout: std::time::Duration,
+    ) -> Result<(), String> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let booting = self
+                .mux
+                .lock()
+                .get_pane(pane_id)
+                .map(|p| p.agent_booting)
+                .unwrap_or(false);
+            if !booting {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(format!(
+                    "Agent in pane {} is still booting — input would be lost",
+                    pane_id
+                ));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+    }
+
+    fn pane_env(&self, pane_id: &str) -> HashMap<String, String> {
+        let mut env_vars = HashMap::new();
+        env_vars.insert("CODETERM_PANE_ID".into(), pane_id.to_string());
+        env_vars.insert(
+            "CODETERM_SOCKET_PATH".into(),
+            crate::socket::server::socket_display_path(),
+        );
+        let api_cfg = crate::config::load_config().api;
+        let host = if api_cfg.host == "0.0.0.0" {
+            "127.0.0.1".to_string()
+        } else {
+            api_cfg.host.clone()
+        };
+        env_vars.insert(
+            "CODETERM_API_URL".into(),
+            format!("http://{}:{}", host, api_cfg.port),
+        );
+        env_vars.insert("CODETERM_API_PORT".into(), api_cfg.port.to_string());
+        if let Some(ref tok) = api_cfg.token {
+            env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
+        }
+
+        let mux = self.mux.lock();
+        if let Some(pane) = mux.get_pane(pane_id) {
+            if let Some(ref role) = pane.role {
+                env_vars.insert("CODETERM_ROLE".into(), format!("{:?}", role));
+            }
+            if let Some(ref parent) = pane.parent_pane_id {
+                env_vars.insert("CODETERM_PARENT_PANE_ID".into(), parent.clone());
+            }
+            if let Some(ref worker_id) = pane.worker_id {
+                env_vars.insert("CODETERM_WORKER_ID".into(), worker_id.clone());
+            }
+        }
+        env_vars
+    }
+
+    fn start_backend_reader_for(&self, pty_id: String) {
+        let svc_reader = std::sync::Arc::new(self.clone());
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("backend reader runtime");
+            rt.block_on(async {
+                match crate::service::pty_lifecycle::start_backend_reader(
+                    &svc_reader,
+                    &pty_id,
+                    true,
+                ) {
+                    Ok(handle) => {
+                        let _ = handle.await;
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "[ensure-pty] backend reader failed for {}: {}",
+                            &pty_id[..pty_id.len().min(8)],
+                            e
+                        );
+                    }
+                }
+            });
+        });
+    }
+
+    fn restored_tab_context(&self, pane_id: &str) -> Option<(String, String)> {
+        let mux = self.mux.lock();
+        for ws in &mux.snapshot().workspaces {
+            for tab in &ws.tabs {
+                if tab.pane_id == pane_id {
+                    return Some((ws.id.clone(), tab.id.clone()));
+                }
+            }
+        }
+        None
+    }
+
+    pub(crate) fn ensure_pane_pty_for_send(&self, pane_id: &str) -> Result<(), String> {
+        let resolved = self
+            .mux
+            .lock()
+            .resolve_pane_id(pane_id)
+            .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
+        if self.resolve_pty_id(&resolved).is_ok() {
+            return Ok(());
+        }
+
+        let (cwd, protected, restored, agent_type, session_id, auto_approve) = {
+            let mux = self.mux.lock();
+            let pane = mux
+                .get_pane(&resolved)
+                .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
+            (
+                pane.cwd.clone(),
+                pane.protected,
+                pane.restored_from_snapshot,
+                pane.agent_type.clone(),
+                pane.agent_session_id.clone(),
+                pane.auto_approve,
+            )
+        };
+        if protected {
+            return Err(format!(
+                "Pane {} is protected and its backend PTY is not live yet",
+                pane_id
+            ));
+        }
+
+        let env_vars = self.pane_env(&resolved);
+        let cols = if agent_type.is_some() {
+            SEND_AGENT_BACKEND_COLS
+        } else {
+            SHELL_BACKEND_COLS
+        };
+        let t0 = std::time::Instant::now();
+        let built = crate::pty::manager::build_session(None, cwd.clone(), cols, 40, env_vars)?;
+        let (pty_id, _) = self.pty.lock().register_session(None, built);
+        log::info!(
+            "[ensure-pty] pane {} activated backend pty {} (build={}ms)",
+            resolved,
+            &pty_id[..pty_id.len().min(8)],
+            t0.elapsed().as_millis()
+        );
+        self.link_pty(&resolved, pty_id.clone());
+        self.start_backend_reader_for(pty_id);
+
+        if restored {
+            if let (Some(provider_id), Some(session_id), Some((ws_id, tab_id))) =
+                (agent_type, session_id, self.restored_tab_context(&resolved))
+            {
+                let session_valid = cwd
+                    .as_deref()
+                    .map(|dir| {
+                        self.agent_registry
+                            .with_provider(&provider_id, |p| p.session_exists(dir, &session_id))
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+                if session_valid {
+                    let params = crate::service::SpawnAgentParams {
+                        agent: Some(provider_id.clone()),
+                        agent_name: None,
+                        args: None,
+                        cwd,
+                        title: None,
+                        role: None,
+                        parent_pane_id: None,
+                        can_spawn: None,
+                        task: None,
+                        workspace_id: None,
+                        force_tab: None,
+                        report_target_pane_id: None,
+                        skip_permissions: Some(auto_approve),
+                        spawned_by_pane_id: None,
+                        model: None,
+                        resume_session_id: Some(session_id),
+                        activate: None,
+                    };
+                    let launch_cmd = crate::service::orchestrator::build_agent_command(
+                        &provider_id,
+                        &params,
+                        None,
+                        None,
+                        &self.agent_registry,
+                    );
+                    crate::service::orchestrator::launch_agent_in_background(
+                        self.clone(),
+                        resolved.clone(),
+                        tab_id,
+                        ws_id,
+                        launch_cmd,
+                        provider_id,
+                        None,
+                        None,
+                    );
+                    self.clear_pane_restored_flag(&resolved);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Launch a shell-level command in an attached pty (agent spawn, mem worker
@@ -61,7 +450,10 @@ impl ServiceContext {
     /// paste because Claude / Codex TUIs require it.
     pub fn send_shell_spawn(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
         let bytes = build_spawn_dispatch(cmd).map_err(|e| e.to_string())?;
-        self.pty.lock().write(pty_id, &bytes).map_err(|e| e.to_string())?;
+        self.pty
+            .lock()
+            .write(pty_id, &bytes)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -76,7 +468,10 @@ impl ServiceContext {
                 return Ok(pty_id);
             }
             if std::time::Instant::now() >= deadline {
-                return Err(format!("Pane {} not found or PTY did not start within {:?}", pane_id, timeout));
+                return Err(format!(
+                    "Pane {} not found or PTY did not start within {:?}",
+                    pane_id, timeout
+                ));
             }
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
@@ -87,20 +482,19 @@ impl ServiceContext {
     /// and must not race against `link_pty` overwrites swapping `pane.pty_id`
     /// out from under the send.
     pub fn send_text_to_pty(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        // Feed the input parser the logical payload BEFORE the bracket-paste
-        // bytes hit the PTY. Bracketed paste wraps `text` with ESC sequences
-        // that would confuse the parser if it tried to recover the typed line
-        // from the raw write. The parser already sees Tauri's `write_pty` for
-        // direct keystrokes; this covers the API/CLI `send-text` path so a
-        // user-typed launch command works whether typed in the UI or scripted.
+        // Feed parsed text before bracket-paste ESCs so parser state stays stable.
+        // This keeps API/CLI launched commands reliable when a launch is typed manually.
         self.feed_input_parser(pty_id, text, enter);
-        let paste = format!("\x1b[200~{}\x1b[201~", text);
+        let paste = if cfg!(windows) {
+            format!("\x1b[200~ {}\x1b[201~", text)
+        } else {
+            format!("\x1b[200~{}\x1b[201~", text)
+        };
         self.pty.lock().write(pty_id, paste.as_bytes())?;
 
         if enter {
-            // Send \r as a separate raw write after a short delay.
-            // TUI apps (Claude Code/ink) process bracket paste asynchronously —
-            // \r concatenated with paste end or sent immediately is swallowed.
+            // Send \r as a separate raw write after a short delay. TUI apps (Claude Code/ink) process bracket paste asynchronously — \r concatenated with
+            // paste end or sent immediately is swallowed.
             let pty = self.pty.clone();
             let pty_id = pty_id.to_string();
             if tokio::runtime::Handle::try_current().is_ok() {
@@ -138,20 +532,25 @@ impl ServiceContext {
         enter: bool,
         submit_strategy: crate::agent::provider::VerifySubmitStrategy,
         opts: crate::service::inject_verify::VerifyOpts,
-    ) -> Result<crate::service::inject_verify::InjectionResult, crate::service::inject_verify::InjectionError> {
+    ) -> Result<
+        crate::service::inject_verify::InjectionResult,
+        crate::service::inject_verify::InjectionError,
+    > {
         use crate::agent::provider::VerifySubmitStrategy;
         use crate::service::inject_verify::{
-            HelperErr, InjectionError, InjectionResult, snapshot_screen_hash, wait_for_echo,
-            wait_for_submit_shell, wait_for_submit_tui_drained,
+            snapshot_screen_hash, wait_for_echo, wait_for_submit_shell,
+            wait_for_submit_tui_drained, HelperErr, InjectionError, InjectionResult,
         };
-
         let started = std::time::Instant::now();
         let tail_rows: usize = 8;
+        super::inject_safety::refuse_if_unsafe_prompt(&self.screen_state, pty_id)?;
 
         if opts.require_prompt_first {
             let ready = poll_shell_prompt(&self.screen_state, pty_id, opts.prompt_timeout);
             if !ready {
-                return Err(InjectionError::PromptNeverReady { waited: started.elapsed() });
+                return Err(InjectionError::PromptNeverReady {
+                    waited: started.elapsed(),
+                });
             }
         }
 
@@ -159,18 +558,28 @@ impl ServiceContext {
 
         self.feed_input_parser(pty_id, text, enter);
 
-        let paste = format!("\x1b[200~{}\x1b[201~", text);
+        let paste = if cfg!(windows) {
+            format!("\x1b[200~ {}\x1b[201~", text)
+        } else {
+            format!("\x1b[200~{}\x1b[201~", text)
+        };
         self.pty
             .lock()
             .write(pty_id, paste.as_bytes())
-            .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
+            .map_err(|_| InjectionError::PtyClosed {
+                pty_id: pty_id.to_string(),
+            })?;
         let bytes_written = paste.len();
 
-        // Echo verify: informational only. Timeout means we couldn't confirm,
-        // not that the paste failed. PtyUnknown is the only real failure here
-        // and surfaces as PtyClosed.
+        // Echo verify: informational only. Timeout means we couldn't confirm, not that the paste failed. PtyUnknown is the only real failure here and surfaces as PtyClosed.
         let echo_observed = if opts.verify_echo {
-            match wait_for_echo(&self.screen_state, pty_id, text, opts.echo_timeout, tail_rows) {
+            match wait_for_echo(
+                &self.screen_state,
+                pty_id,
+                text,
+                opts.echo_timeout,
+                tail_rows,
+            ) {
                 Ok(_) => true,
                 Err(HelperErr::PtyUnknown(id)) => {
                     return Err(InjectionError::PtyClosed { pty_id: id });
@@ -188,56 +597,66 @@ impl ServiceContext {
             false
         };
 
-        // Enter ALWAYS fires when the caller asked for it. This is the
-        // load-bearing line — no early-return above this point can skip it
-        // unless the PTY is already gone.
+        // Enter ALWAYS fires when the caller asked for it. This is the load-bearing line — no early-return above this point can skip it unless the PTY is already gone.
         let submit_observed = if enter {
-            // Brief settle: TUIs (claude/codex/opencode) buffer bracket paste async;
-            // a same-instant \r can be eaten.
-            std::thread::sleep(std::time::Duration::from_millis(120));
-            self.pty
-                .lock()
-                .write(pty_id, b"\r")
-                .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
-
-            // Submit verify: also informational. Timeout no longer aborts.
-            if opts.verify_submit {
-                let res = match submit_strategy {
+            // Escalating Enter attempts: a `\r` is swallowed by a TUI still
+            // ingesting the bracket paste (opencode). On a verify timeout we
+            // re-send \r with a longer settle so the message actually submits.
+            // Capped at 2 — more attempts multiply the per-attempt verify
+            // timeout (codex's 15s drain check) into a minute-long stall.
+            const SETTLE_MS: [u64; 2] = [120, 800];
+            let mut observed = false;
+            for attempt in 0..SETTLE_MS.len() {
+                std::thread::sleep(std::time::Duration::from_millis(SETTLE_MS[attempt]));
+                self.pty
+                    .lock()
+                    .write(pty_id, b"\r")
+                    .map_err(|_| InjectionError::PtyClosed {
+                        pty_id: pty_id.to_string(),
+                    })?;
+                if !opts.verify_submit {
+                    break;
+                }
+                let res = match &submit_strategy {
                     VerifySubmitStrategy::ShellPrompt { timeout } => wait_for_submit_shell(
                         &self.screen_state,
                         pty_id,
-                        hash_before,
-                        timeout,
+                        hash_before.clone(),
+                        *timeout,
                         tail_rows,
                     ),
-                    VerifySubmitStrategy::TuiInputDrained { timeout, idle_after_drain } => {
-                        wait_for_submit_tui_drained(
-                            &self.screen_state,
-                            pty_id,
-                            text,
-                            timeout,
-                            idle_after_drain,
-                            tail_rows,
-                        )
-                    }
+                    VerifySubmitStrategy::TuiInputDrained {
+                        timeout,
+                        idle_after_drain,
+                    } => wait_for_submit_tui_drained(
+                        &self.screen_state,
+                        pty_id,
+                        text,
+                        *timeout,
+                        *idle_after_drain,
+                        tail_rows,
+                    ),
                     VerifySubmitStrategy::None => Ok(String::new()),
                 };
                 match res {
-                    Ok(_) => true,
+                    Ok(_) => {
+                        observed = true;
+                        break;
+                    }
                     Err(HelperErr::PtyUnknown(id)) => {
                         return Err(InjectionError::PtyClosed { pty_id: id });
                     }
                     Err(HelperErr::Timeout(_)) => {
-                        log::debug!(
-                            "submit verify timed out for pty {}; Enter was sent, recipient may still be processing",
-                            pty_id
+                        log::info!(
+                            "[inject] submit verify timed out for pty {} (attempt {}/{}); re-sending Enter",
+                            &pty_id[..pty_id.len().min(8)],
+                            attempt + 1,
+                            SETTLE_MS.len(),
                         );
-                        false
                     }
                 }
-            } else {
-                false
             }
+            observed
         } else {
             false
         };
@@ -264,11 +683,13 @@ impl ServiceContext {
         cmd: &str,
         submit_strategy: crate::agent::provider::VerifySubmitStrategy,
         opts: crate::service::inject_verify::VerifyOpts,
-    ) -> Result<crate::service::inject_verify::InjectionResult, crate::service::inject_verify::InjectionError> {
+    ) -> Result<
+        crate::service::inject_verify::InjectionResult,
+        crate::service::inject_verify::InjectionError,
+    > {
         use crate::agent::provider::VerifySubmitStrategy;
         use crate::service::inject_verify::{
-            HelperErr, InjectionError, InjectionResult, snapshot_screen_hash,
-            wait_for_submit_shell,
+            snapshot_screen_hash, wait_for_submit_shell, HelperErr, InjectionError, InjectionResult,
         };
 
         let started = std::time::Instant::now();
@@ -280,12 +701,15 @@ impl ServiceContext {
         // Arm the agent signal BEFORE the write so we cannot miss an instant startup.
         let agent_signal = self.screen_state.lock().arm_agent_signal(pty_id);
 
-        let bytes = build_spawn_dispatch(cmd)
-            .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
+        let bytes = build_spawn_dispatch(cmd).map_err(|_| InjectionError::PtyClosed {
+            pty_id: pty_id.to_string(),
+        })?;
         self.pty
             .lock()
             .write(pty_id, &bytes)
-            .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
+            .map_err(|_| InjectionError::PtyClosed {
+                pty_id: pty_id.to_string(),
+            })?;
         let bytes_written = bytes.len();
 
         let submit_observed = if opts.verify_submit {
@@ -330,7 +754,10 @@ impl ServiceContext {
     /// Use for keystrokes that need TUI interpretation (vim j/k, arrow keys, etc).
     pub fn write_raw(&self, pane_id: &str, data: &[u8]) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(pane_id)?;
-        self.pty.lock().write(&pty_id, data).map_err(|e| e.to_string())
+        self.pty
+            .lock()
+            .write(&pty_id, data)
+            .map_err(|e| e.to_string())
     }
 
     /// Feed `send_text`-style payloads to the typed-launch input parser so the
@@ -340,7 +767,8 @@ impl ServiceContext {
         let (pane_id, locked) = {
             let m = self.mux.lock();
             let pid = m.pane_id_for_pty(pty_id);
-            let locked = pid.as_ref()
+            let locked = pid
+                .as_ref()
                 .and_then(|id| m.get_pane(id))
                 .map(|p| p.agent_type_locked)
                 .unwrap_or(false);
@@ -358,7 +786,8 @@ impl ServiceContext {
         if let Some(provider_id) = self.input_parser.process(&pane_id, &payload) {
             log::info!(
                 "[input-parser] detected '{}' send-text in pane {} — locking agent_type",
-                provider_id, pane_id,
+                provider_id,
+                pane_id,
             );
             self.set_and_lock_pane_agent_type(&pane_id, provider_id);
             self.emit_state_changed();
@@ -403,11 +832,18 @@ impl ServiceContext {
     /// Resolve pane_id (or alias) → pty_id.
     pub fn resolve_pty_id(&self, pane_id: &str) -> Result<String, String> {
         let mux = self.mux.lock();
-        let resolved = mux.resolve_pane_id(pane_id)
+        let resolved = mux
+            .resolve_pane_id(pane_id)
             .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
-        mux.get_pane(&resolved)
+        let pty_id = mux
+            .get_pane(&resolved)
             .and_then(|p| p.pty_id.clone())
-            .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))
+            .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
+        drop(mux);
+        if self.pty.lock().get_session(&pty_id).is_none() {
+            return Err(format!("Pane {} PTY is not live: {}", pane_id, pty_id));
+        }
+        Ok(pty_id)
     }
 
     /// Wait for a pane to get a PTY assigned by the frontend. Polls with timeout.
@@ -432,30 +868,21 @@ impl ServiceContext {
     }
 
     /// Wait for output buffer to grow by at least `min_bytes`.
-    pub async fn wait_for_output_growth(
-        &self,
-        pty_id: &str,
-        min_bytes: usize,
-        timeout_secs: u64,
-    ) {
+    pub async fn wait_for_output_growth(&self, pty_id: &str, min_bytes: usize, timeout_secs: u64) {
         let ob = self.output_buf.clone();
         let pid = pty_id.to_string();
-        let _ = tokio::time::timeout(
-            tokio::time::Duration::from_secs(timeout_secs),
-            async move {
-                let start_len = ob.lock().get(&pid).map(|b| b.len()).unwrap_or(0);
-                loop {
-                    let cur_len = ob.lock().get(&pid).map(|b| b.len()).unwrap_or(0);
-                    if cur_len > start_len + min_bytes {
-                        return;
-                    }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let _ = tokio::time::timeout(tokio::time::Duration::from_secs(timeout_secs), async move {
+            let start_len = ob.lock().get(&pid).map(|b| b.len()).unwrap_or(0);
+            loop {
+                let cur_len = ob.lock().get(&pid).map(|b| b.len()).unwrap_or(0);
+                if cur_len > start_len + min_bytes {
+                    return;
                 }
-            },
-        )
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+        })
         .await;
     }
-
 }
 
 /// Wait (event-driven) for a shell prompt to appear on a PTY.
@@ -500,8 +927,6 @@ pub struct SendBatchItem {
 mod tests {
     use super::*;
 
-    // ── Helper: captures the enter-append logic from send_text / send_text_batch ──
-    // This mirrors the exact logic in ServiceContext::send_text
     fn apply_enter(text: &str, enter: bool) -> String {
         if enter && !text.ends_with('\r') && !text.ends_with('\n') {
             format!("{}\r", text)
@@ -510,7 +935,11 @@ mod tests {
         }
     }
 
-    // ── 1. send_text enter logic ──
+    #[test]
+    fn send_created_agent_pty_uses_bounded_width() {
+        assert_eq!(SEND_AGENT_BACKEND_COLS, 240);
+        assert_eq!(SHELL_BACKEND_COLS, 120);
+    }
 
     #[test]
     fn enter_true_appends_cr_when_missing() {
@@ -519,7 +948,6 @@ mod tests {
 
     #[test]
     fn enter_true_no_double_cr() {
-        // Text already ends with \r — should NOT append another
         assert_eq!(apply_enter("ls -la\r", true), "ls -la\r");
     }
 
@@ -545,7 +973,6 @@ mod tests {
 
     #[test]
     fn enter_true_text_ending_newline() {
-        // Text ending with \n already has a line terminator — no \r appended.
         assert_eq!(apply_enter("echo hello\n", true), "echo hello\n");
     }
 
@@ -559,15 +986,26 @@ mod tests {
         assert_eq!(apply_enter("line1\nline2", true), "line1\nline2\r");
     }
 
-    // ── SendBatchItem deserialization ──
+    #[cfg(windows)]
+    #[test]
+    fn windows_spawn_dispatch_prepends_sacrificial_space() {
+        let bytes = build_spawn_dispatch("Remove-Item Env:CLAUDECODE; claude").unwrap();
+        let s = String::from_utf8(bytes).unwrap();
+        assert_eq!(s, "\x1b[200~ Remove-Item Env:CLAUDECODE; claude\x1b[201~\r");
+        let after_opener = &s["\x1b[200~".len()..];
+        assert!(after_opener.starts_with(' '));
+        assert!(after_opener[1..].starts_with("Remove-Item"));
+    }
 
     #[test]
     fn batch_item_enter_defaults_false() {
-        // SendBatchItem uses #[serde(default)] which defaults bool to false
         let json = r#"{"text": "hello"}"#;
         let item: SendBatchItem = serde_json::from_str(json).unwrap();
         assert_eq!(item.text, "hello");
-        assert_eq!(item.enter, false, "SendBatchItem.enter defaults to false (serde default)");
+        assert_eq!(
+            item.enter, false,
+            "SendBatchItem.enter defaults to false (serde default)"
+        );
         assert!(item.delay_ms.is_none());
     }
 
@@ -585,8 +1023,6 @@ mod tests {
         let item: SendBatchItem = serde_json::from_str(json).unwrap();
         assert!(!item.enter);
     }
-
-    // ── screen_has_shell_prompt ──
 
     use crate::pty::screen_state::screen_has_shell_prompt;
 

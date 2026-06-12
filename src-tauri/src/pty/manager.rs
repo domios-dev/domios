@@ -21,7 +21,10 @@ fn spawn_times() -> &'static PlMutex<HashMap<String, SpawnMark>> {
 pub fn record_spawn_time(pty_id: &str, shell: &str) {
     spawn_times().lock().insert(
         pty_id.to_string(),
-        SpawnMark { when: Instant::now(), shell: shell.to_string() },
+        SpawnMark {
+            when: Instant::now(),
+            shell: shell.to_string(),
+        },
     );
 }
 
@@ -104,12 +107,14 @@ impl OutputBuffer {
     }
 
     pub fn get_text(&self, pty_id: &str) -> Option<String> {
-        self.get(pty_id).map(|b| String::from_utf8_lossy(b).to_string())
+        self.get(pty_id)
+            .map(|b| String::from_utf8_lossy(b).to_string())
     }
 
     /// Get full untruncated output as text.
     pub fn get_full_text(&self, pty_id: &str) -> Option<String> {
-        self.get_full(pty_id).map(|b| String::from_utf8_lossy(b).to_string())
+        self.get_full(pty_id)
+            .map(|b| String::from_utf8_lossy(b).to_string())
     }
 
     /// Total bytes ever written to this pty (monotonic).
@@ -204,7 +209,12 @@ pub fn build_session(
     env_vars: HashMap<String, String>,
 ) -> Result<BuiltSession, String> {
     let pty_system = native_pty_system();
-    let size = PtySize { rows, cols, pixel_width: 0, pixel_height: 0 };
+    let size = PtySize {
+        rows,
+        cols,
+        pixel_width: 0,
+        pixel_height: 0,
+    };
 
     let pair = pty_system
         .openpty(size)
@@ -235,6 +245,7 @@ pub fn build_session(
     cmd.env("CODETERM", "1");
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    cmd.env("CLICOLOR", "1");
     cmd.env("TERM_PROGRAM", "CodeTerm");
     cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
 
@@ -253,6 +264,7 @@ pub fn build_session(
     }
 
     cmd.env_remove("CLAUDECODE");
+    cmd.env_remove("NO_COLOR");
 
     let child = pair
         .slave
@@ -280,7 +292,9 @@ pub struct PtyManager {
 
 impl PtyManager {
     pub fn new() -> Self {
-        Self { sessions: HashMap::new() }
+        Self {
+            sessions: HashMap::new(),
+        }
     }
 
     pub fn spawn(
@@ -329,22 +343,28 @@ impl PtyManager {
 
     /// Write to PTY via the serialized write queue.
     pub fn write(&self, pty_id: &str, data: &[u8]) -> Result<(), String> {
-        let session = self.sessions.get(pty_id)
+        let session = self
+            .sessions
+            .get(pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
         session.write_queue.send(data.to_vec())
     }
 
     /// Resize PTY
     pub fn resize(&mut self, pty_id: &str, cols: u16, rows: u16) -> Result<(), String> {
-        let session = self.sessions.get(pty_id)
+        let session = self
+            .sessions
+            .get(pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
         let pair = session.pair.lock().map_err(|e| e.to_string())?;
-        pair.master.resize(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        }).map_err(|e| format!("Resize failed: {}", e))?;
+        pair.master
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| format!("Resize failed: {}", e))?;
         Ok(())
     }
 
@@ -355,22 +375,28 @@ impl PtyManager {
             .remove(pty_id)
             .ok_or_else(|| format!("PTY {} not found", pty_id))?;
         match session.child.lock() {
-            Ok(mut child) => { let _ = child.kill(); }
+            Ok(mut child) => {
+                let _ = child.kill();
+            }
             Err(e) => log::warn!("PTY {} child mutex poisoned during kill: {}", pty_id, e),
         }
-        // Reap in background — wait() can block indefinitely if descendants
-        // ignore SIGKILL or zombie isn't reaped promptly. Move session
-        // ownership to background thread so PTY lock is released immediately.
+        // Reap in background — wait() can block indefinitely if descendants ignore SIGKILL or zombie isn't reaped promptly. Move session ownership to
+        // background thread so PTY lock is released immediately.
         let id = pty_id.to_string();
         std::thread::spawn(move || {
             match session.child.lock() {
-                Ok(mut c) => { let _ = c.wait(); }
+                Ok(mut c) => {
+                    let _ = c.wait();
+                }
                 Err(_) => {}
             }
             drop(session);
             log::info!("PTY {} child reaped", id);
         });
-        log::info!("Killed PTY {} (SIGKILL sent, reaping in background)", pty_id);
+        log::info!(
+            "Killed PTY {} (SIGKILL sent, reaping in background)",
+            pty_id
+        );
         Ok(())
     }
 
@@ -386,20 +412,32 @@ impl PtyManager {
     /// Set up the backend reader channel for a PTY.
     /// Returns the sender for the backend reader to use.
     /// After this call, read_pty will read from the channel instead of the raw PTY.
-    pub fn setup_backend_channel(&self, pty_id: &str) -> Option<tokio::sync::mpsc::Sender<Vec<u8>>> {
+    pub fn setup_backend_channel(
+        &self,
+        pty_id: &str,
+    ) -> Option<tokio::sync::mpsc::Sender<Vec<u8>>> {
         let session = self.sessions.get(pty_id)?;
+        if let Some(existing) = session.backend_reader_tx.lock().unwrap().clone() {
+            return Some(existing);
+        }
         let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(Self::BACKEND_CHANNEL_CAPACITY);
         *session.backend_reader_tx.lock().unwrap() = Some(tx.clone());
         *session.backend_reader_rx.lock().unwrap() = Some(rx);
         Some(tx)
+    }
+
+    pub fn has_backend_reader(&self, pty_id: &str) -> bool {
+        self.sessions
+            .get(pty_id)
+            .and_then(|session| session.backend_reader_tx.lock().unwrap().clone())
+            .is_some()
     }
 }
 
 fn detect_default_shell() -> String {
     #[cfg(target_os = "windows")]
     {
-        // Avoid the WindowsApps stub for pwsh.exe — Store loader serialises
-        // ConPTY spawns for 10–30s. Prefer real installs.
+        // Avoid the WindowsApps stub for pwsh.exe — Store loader serialises ConPTY spawns for 10–30s. Prefer real installs.
         let candidates = [
             r"C:\Program Files\PowerShell\7\pwsh.exe",
             r"C:\Program Files (x86)\PowerShell\7\pwsh.exe",
@@ -428,7 +466,9 @@ fn detect_default_shell() -> String {
 fn which_exe(name: &str) -> Option<String> {
     let path = std::env::var("PATH").ok()?;
     for dir in path.split(';') {
-        if dir.is_empty() { continue; }
+        if dir.is_empty() {
+            continue;
+        }
         // Skip WindowsApps App Execution Alias dir — see detect_default_shell.
         if dir.to_ascii_lowercase().contains(r"\microsoft\windowsapps") {
             continue;
@@ -452,11 +492,7 @@ mod tests {
             .spawn(None, None, 80, 24, HashMap::new())
             .expect("spawn default shell");
 
-        let pid = session
-            .child
-            .lock()
-            .expect("child mutex")
-            .process_id();
+        let pid = session.child.lock().expect("child mutex").process_id();
         assert!(pid.is_some(), "spawned child should expose a pid");
 
         manager.kill(&pty_id).expect("kill should succeed");

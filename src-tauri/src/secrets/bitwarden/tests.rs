@@ -6,8 +6,7 @@ use serde_json::json;
 
 use crate::secrets::keychain::{Keychain, KeychainError};
 use crate::secrets::{
-    ListFilter, SaveRequest, SecretError, SecretStore, SecretString, StoreStatus,
-    UnlockCredentials,
+    ListFilter, SaveRequest, SecretError, SecretStore, SecretString, StoreStatus, UnlockCredentials,
 };
 
 use super::exec::{BwExec, BwResponse, BwRunCtx, NoopBwExec};
@@ -105,7 +104,10 @@ fn map_bw_message_classifies_known_strings() {
         map_bw_message("You are not logged in."),
         SecretError::LoggedOut
     ));
-    assert!(matches!(map_bw_message("Not found."), SecretError::NotFound));
+    assert!(matches!(
+        map_bw_message("Not found."),
+        SecretError::NotFound
+    ));
     assert!(matches!(
         map_bw_message("More than one result was found."),
         SecretError::Ambiguous { .. }
@@ -223,7 +225,7 @@ async fn save_creates_when_no_existing_match() {
         ok_data(json!([])), // find_by_name → empty
         // No folder requested → no list folders call.
         ok_data(cipher_json("new-id", "openai", "sk-foo")), // create
-        ok_data(serde_json::Value::Null), // sync
+        ok_data(serde_json::Value::Null),                   // sync
     ]);
     // Pre-set session so we don't need to unlock.
     *store.session.write().await = Some(SecretString::from("test-session"));
@@ -246,16 +248,19 @@ async fn save_creates_when_no_existing_match() {
     let calls = exec.call_args();
     assert_eq!(calls[1][0], "create");
     assert_eq!(calls[1][1], "item");
-    // Value must travel as base64-encoded JSON in argv (Bitwarden's
-    // documented input shape) — but the raw plaintext must NOT appear.
-    assert!(calls.iter().all(|c| !c.iter().any(|a| a.contains("sk-foo"))));
+    // Value must travel as base64-encoded JSON in argv (Bitwarden's documented input shape) — but the raw plaintext must NOT appear.
+    assert!(calls
+        .iter()
+        .all(|c| !c.iter().any(|a| a.contains("sk-foo"))));
 }
 
 #[tokio::test]
 async fn save_without_overwrite_errors_when_exists() {
-    let (store, _exec) = build_store(vec![ok_data(json!([
-        cipher_json("existing-id", "openai", "old"),
-    ]))]);
+    let (store, _exec) = build_store(vec![ok_data(json!([cipher_json(
+        "existing-id",
+        "openai",
+        "old"
+    ),]))]);
     *store.session.write().await = Some(SecretString::from("test-session"));
 
     let err = store
@@ -303,11 +308,7 @@ async fn save_with_overwrite_calls_edit() {
 
 #[tokio::test]
 async fn get_returns_password_from_login_field() {
-    let (store, _) = build_store(vec![ok_data(cipher_json(
-        "abc",
-        "openai",
-        "sk-prod",
-    ))]);
+    let (store, _) = build_store(vec![ok_data(cipher_json("abc", "openai", "sk-prod"))]);
     *store.session.write().await = Some(SecretString::from("test-session"));
 
     let v = store.get("openai").await.unwrap();
@@ -461,7 +462,12 @@ async fn unlock_extracts_token_from_modern_wrapper() {
         .await
         .unwrap();
     assert_eq!(
-        store.session.read().await.as_ref().map(|s| s.expose_secret().to_string()),
+        store
+            .session
+            .read()
+            .await
+            .as_ref()
+            .map(|s| s.expose_secret().to_string()),
         Some("session-from-wrapper".into())
     );
 }
@@ -479,15 +485,19 @@ async fn unlock_extracts_token_from_template_wrapper() {
         .await
         .unwrap();
     assert_eq!(
-        store.session.read().await.as_ref().map(|s| s.expose_secret().to_string()),
+        store
+            .session
+            .read()
+            .await
+            .as_ref()
+            .map(|s| s.expose_secret().to_string()),
         Some("session-from-template".into())
     );
 }
 
 #[tokio::test]
 async fn login_already_logged_in_is_treated_as_success() {
-    // Status reports unauthenticated → triggers login → bw returns
-    // "already logged in" → we should soft-succeed and proceed to unlock.
+    // Status reports unauthenticated → triggers login → bw returns "already logged in" → we should soft-succeed and proceed to unlock.
     let (store, _) = build_store(vec![
         ok_data(json!({ "status": "unauthenticated" })),
         ok_data(json!({ "object": "message" })),
@@ -576,10 +586,10 @@ async fn bw_status_falls_back_to_legacy_flat_shape() {
 
 #[tokio::test]
 async fn status_includes_server_endpoint() {
-    let (store, _exec) = build_store(vec![
-        ok_data(json!({ "status": "locked", "userEmail": "u@x.com",
-                        "serverUrl": "https://self.host" })),
-    ]);
+    let (store, _exec) = build_store(vec![ok_data(
+        json!({ "status": "locked", "userEmail": "u@x.com",
+                        "serverUrl": "https://self.host" }),
+    )]);
     store.set_server_url("https://self.host".into());
     match store.status().await {
         StoreStatus::Locked { endpoint } => {
@@ -637,10 +647,7 @@ async fn logout_clears_session_and_keyring() {
     let (store, _) = build_store(vec![ok_data(json!({ "ok": true }))]);
     *store.session.write().await = Some(SecretString::from("token"));
     store.keychain.set(BW_KEYRING_SESSION, "token").unwrap();
-    store
-        .keychain
-        .set(BW_KEYRING_API_CLIENT_ID, "id")
-        .unwrap();
+    store.keychain.set(BW_KEYRING_API_CLIENT_ID, "id").unwrap();
 
     store.logout().await.unwrap();
     assert!(store.session.read().await.is_none());

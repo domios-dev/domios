@@ -1,9 +1,5 @@
-// Keybinding matcher — language-independent via e.code for letters/digits.
-//
-// Format: "Mod+Shift+T", "Alt+ArrowLeft", "Ctrl+="
-// "Mod" = Cmd on mac, Ctrl on win/linux (resolved at match time).
-// Letters/digits use e.code (KeyT, Digit1) so layout doesn't matter.
-// Special keys (Tab, ArrowLeft, =, -, etc.) use e.key.
+// Keybinding matcher uses code for letters/digits (layout-safe), key for symbols.
+// `Mod` resolves to Cmd on mac, Ctrl on win/linux.
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -45,8 +41,7 @@ function parseBinding(binding: string): ParsedBinding {
     }
   }
 
-  // "Ctrl+X" → treat Ctrl as Mod (Cmd on mac, Ctrl on win)
-  // Exception: "Ctrl+Tab" stays literal Ctrl (Cmd+Tab is system shortcut on mac)
+  // "Ctrl+X" → treat Ctrl as Mod (Cmd on mac, Ctrl on win) Exception: "Ctrl+Tab" stays literal Ctrl (Cmd+Tab is system shortcut on mac)
   const isTabBinding = result.key?.toLowerCase() === "tab";
   if (result.ctrl && !result.mod && !isTabBinding) {
     result.mod = true;
@@ -77,9 +72,8 @@ export function matchesBinding(e: KeyboardEvent, binding: string): boolean {
   if (p.shift !== e.shiftKey) return false;
   if (p.alt !== e.altKey) return false;
 
-  // On mac, if binding uses Mod (→metaKey), we don't care about ctrlKey state
-  // On win, if binding uses Mod (→ctrlKey), we don't care about metaKey state
-  // But explicit ctrl in binding means ctrlKey must be true even on mac
+// Platform nuance: Mod-binding ignores opposite modifier state.
+// Explicit `Ctrl` always requires `ctrlKey`, including on mac.
   if (p.ctrl && !e.ctrlKey) return false;
 
   // Check key

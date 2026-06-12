@@ -1,19 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "../../lib/bridge";
+import { listen } from "../../lib/bridge";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { useTauriFileDrop } from "../../hooks/terminal";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { extractFilePathsFromClipboard } from "../../lib/clipboardPaste";
-import { MessageBubble } from "./MessageBubble";
-import type { ChatMessage } from "./parser";
+import { usePersistentDraft } from "../../lib/usePersistentDraft";
+import { MessageBubble } from "@codeterm/chat-ui";
+import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { AlertTriangle, File } from "lucide-react";
 import { SendIcon, ChevronUpIcon } from "../Icons";
 
-// TODO(api-chat): ChatView is reserved for future direct-API chat mode
-// (pick a model, talk to LLMs via HTTP — no PTY in the middle).
-// Terminal/JSONL parsing was removed — the view currently only renders
-// user-sent optimistic messages + pending prompts. Wire the API path here
-// when the feature lands; keep the input/attachments/prompt UI as the shell.
+// ChatView is a placeholder for future direct API chat mode (pick model, call /chat directly).
+// Current UI shows only local optimistic input while PTY path remains unchanged.
 
 interface ChatViewProps {
   paneId: string;
@@ -36,6 +35,8 @@ interface PromptPayload {
   question: string;
   options: { label: string; value: string }[];
 }
+
+type ChatMessage = NormalizedChatMessage;
 
 interface PaneSnapshot {
   id: string;
@@ -65,8 +66,9 @@ function mimeFromPath(p: string): string {
 
 export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: ChatViewProps) {
   const provider = getAgentProvider(agentType);
+  const touchMode = useTouchOptimizedUi();
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
+  const [input, setInput] = usePersistentDraft(`chat-view:${paneId}`);
   const [isLoading, _setIsLoading] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
   const [waitingForReply, setWaitingForReply] = useState(false);
@@ -78,6 +80,13 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  const refocusComposer = useCallback(() => {
+    const focus = () => textareaRef.current?.focus({ preventScroll: true });
+    focus();
+    requestAnimationFrame(focus);
+    window.setTimeout(focus, 0);
+  }, []);
 
   useTauriFileDrop({
     containerRef: rootRef,
@@ -92,7 +101,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         })),
       ]);
       setDragOver(false);
-      textareaRef.current?.focus();
+      refocusComposer();
     },
   });
 
@@ -116,8 +125,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
 
-  // Prompt subscription — event-driven, no polling. Kept so permission
-  // prompts still surface in the chat view (approve/deny dialogs).
+  // Prompt subscription — event-driven, no polling. Kept so permission prompts still surface in the chat view (approve/deny dialogs).
   useEffect(() => {
     let active = true;
 
@@ -174,6 +182,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     setInputExpanded(false);
     setInputAtMax(false);
     if (textareaRef.current) textareaRef.current.style.height = "20px";
+    refocusComposer();
 
     // Optimistic: single user message with text + attachment indicators
     const attLabels = currentAttachments.map(a => `[${a.name}]`);
@@ -247,24 +256,24 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       if (text) parts.push(text);
 
       if (parts.length > 0) {
-        await invoke("write_pty_string", { ptyId: pid, data: parts.join(" ") + "\r" });
+        await invoke("write_pty_string", { ptyId: pid, data: parts.join(" ") + "\r", raw: false });
       } else if (currentAttachments.length > 0) {
         // All were clipboard-pasted images, just send Enter
         await invoke("write_pty_string", { ptyId: pid, data: "\r" });
       }
     } catch {
       // PTY might be dead
+    } finally {
+      refocusComposer();
     }
-  }, [input, attachments, ptyId, paneId]);
+  }, [input, attachments, ptyId, paneId, refocusComposer]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = Array.from(e.clipboardData.items);
     const fileItems = items.filter(item => item.kind === "file");
 
-    // Real filesystem paths from the clipboard ALWAYS win over getAsFile() blobs.
-    // macOS Cmd+C of a Finder file puts a file URL on the pasteboard but
-    // getAsFile() yields a generic 1024x1024 PNG icon, not the file's bytes.
-    // The same is true for some Windows Explorer file copies.
+    // Clipboard filesystem paths always win over `getAsFile()` blobs.
+    // Finder/Explorer copies often provide icon placeholders instead of real file bytes.
     const pathsFromClipboard = extractFilePathsFromClipboard(e.clipboardData);
 
     if (pathsFromClipboard.length > 0) {
@@ -280,8 +289,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     }
 
     if (fileItems.length > 0) {
-      // No path on the clipboard — these are real in-memory bytes
-      // (e.g. Shift+Cmd+Ctrl+4 screenshot, or a "copy image" from a webpage).
+      // No path on the clipboard — these are real in-memory bytes (e.g. Shift+Cmd+Ctrl+4 screenshot, or a "copy image" from a webpage).
       e.preventDefault();
       for (const item of fileItems) {
         const blob = item.getAsFile();
@@ -348,9 +356,19 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     });
   }, []);
 
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el || inputExpanded) return;
+    el.style.height = "0";
+    const newH = Math.min(el.scrollHeight, 120);
+    el.style.height = newH + "px";
+    setInputAtMax(newH >= 120);
+  }, [input, inputExpanded]);
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
+        if (touchMode) return;
         e.preventDefault();
         sendMessage();
       }
@@ -360,7 +378,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         toggleExpand();
       }
     },
-    [sendMessage],
+    [sendMessage, touchMode],
   );
 
   return (
@@ -567,10 +585,18 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             onPaste={handlePaste}
             placeholder="Send a message..."
             rows={1}
-            className="flex-1 bg-transparent border-none outline-none resize-none text-sm leading-5 placeholder:text-[var(--ct-muted)]"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="sentences"
+            spellCheck={false}
+            enterKeyHint={touchMode ? "enter" : "send"}
+            inputMode="text"
+            className="block flex-1 self-center bg-transparent border-none outline-none resize-none text-sm leading-5 placeholder:text-[var(--ct-muted)]"
             style={{
               color: "var(--ct-fg, #c9d1d9)",
               fontFamily: "inherit",
+              lineHeight: "20px",
+              margin: 0,
               maxHeight: inputExpanded ? "none" : "120px",
               minHeight: "20px",
               height: inputExpanded ? "100%" : undefined,
@@ -578,6 +604,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             }}
           />
           <button
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               sendMessage();
               setInputExpanded(false);
@@ -585,6 +612,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
               if (textareaRef.current) {
                 textareaRef.current.style.height = "20px";
               }
+              refocusComposer();
             }}
             disabled={!input.trim() && attachments.length === 0}
             className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors duration-150 flex-shrink-0 disabled:opacity-30 ${inputExpanded ? "self-end" : ""}`}

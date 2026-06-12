@@ -6,7 +6,7 @@ pub enum WorkspaceAction {
     List,
     /// Print the current (focused) workspace ID
     Current,
-    /// Create a new workspace
+    /// Create a new workspace. With --cwd, reuses an existing workspace at that cwd.
     Create {
         /// Workspace name
         name: String,
@@ -44,8 +44,13 @@ pub enum WorkspaceAction {
 
 #[derive(Subcommand)]
 pub enum PaneAction {
-    /// List all panes
-    List,
+    /// List all panes as a workspace-grouped tree. `--agents` filters to
+    /// agent panes only.
+    List {
+        /// Show only panes running an agent (have an agent_type).
+        #[arg(long)]
+        agents: bool,
+    },
     /// Plain shell pane. For an AI pane use `codeterm agent spawn` instead.
     New {
         /// Target workspace id (default: current focused)
@@ -61,6 +66,9 @@ pub enum PaneAction {
         /// Sent into the PTY after the shell is ready.
         #[arg(long)]
         cmd: Option<String>,
+        /// Spawn the shell PTY immediately on the daemon for headless/API use.
+        #[arg(long)]
+        eager: bool,
     },
     /// Print the current (focused) pane ID — no JSON parsing needed
     Current {
@@ -121,12 +129,32 @@ pub enum PaneAction {
         /// Substring or short pattern to match
         pattern: String,
     },
+    /// Interrupt the agent's current generation (NOT a clean exit). Sends the
+    /// provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode,
+    /// Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key).
+    /// Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge
+    /// and have it map straight here.
+    Stop {
+        /// Pane ID (default: current focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
+    },
+
+    /// Read a pane's parsed chat transcript (text/thinking/tool calls/results)
+    Chat {
+        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
+        /// Only return messages from this index onward
+        #[arg(long, default_value = "0")]
+        since: usize,
+    },
 }
 
 /// Cross-mesh ephemeral pastebin (#98). In-memory; daemon restart wipes
 /// every paste. 20-entry cap, oldest-first eviction. Use for handing
 /// payloads between machines: stash a blob with `paste put --mesh PEER`,
-/// reference the slug in the next CLI call, let the peer `paste pop` it.
+/// reference the slug in the next CLI call, let the peer `paste get --pop` it.
 #[derive(Subcommand)]
 pub enum PasteAction {
     /// Stash a payload. Body from positional / --from-file / stdin.
@@ -158,11 +186,6 @@ pub enum PasteAction {
         /// Delete after fetching (one-shot read).
         #[arg(long)]
         pop: bool,
-    },
-    /// Get + delete in one call. Sugar for `paste get <id> --pop`.
-    Pop {
-        /// Paste id.
-        id: String,
     },
     /// List local (or --mesh <peer>) pastes — id, size, ttl_remaining.
     List,
@@ -300,4 +323,22 @@ pub enum ConfigAction {
     Get { key: String },
     /// Set a config value (JSON-compatible: true, false, 42, "string")
     Set { key: String, value: String },
+}
+
+#[derive(clap::Subcommand)]
+pub enum WebAction {
+    /// Print a ready-to-open /web URL for THIS machine with the API token
+    /// embedded in the URL fragment (use --query for ?token= instead).
+    Link {
+        /// Host override (default: Tailscale IP > LAN IP > 127.0.0.1).
+        #[arg(long)]
+        host: Option<String>,
+        /// Port override (default: this daemon's API port).
+        #[arg(long)]
+        port: Option<u16>,
+        /// Emit ?token= instead of #token= — easier to type, but query
+        /// strings reach server/proxy logs; the fragment never does.
+        #[arg(long)]
+        query: bool,
+    },
 }

@@ -20,7 +20,9 @@ The always-on protocol that fires regardless of which skill is loaded lives in `
 | `codeterm mem pin <id>` | Set `is_pinned_wakeup=1` so the item always loads in L1 wake-up (subject to budget). |
 | `codeterm mem unpin <id>` | Clear `is_pinned_wakeup`. |
 | `codeterm mem pinned [--limit N]` | List pinned items, ordered by importance / evidence / recency. Default 100, max 500. |
-| `codeterm mem learn "<text>" [--kind insight\|error\|feature]` | Quick capture of an insight. |
+| `codeterm mem learn "<text>" [--kind insight\|error\|feature] [--tags a,b]` | Quick capture of an insight. `--error <text>` / `--feature <text>` are shortcuts that set the kind. Stored as `kind=learning`. |
+| `codeterm mem learn-list` | List pending learnings (the `kind=learning` items). |
+| `codeterm mem learn-promote <id>` | Promote a learning to a fact (raises its importance). |
 | `codeterm mem sync [--path P]` | Trigger Librarian re-index for source-tracked items. |
 | `codeterm mem extract-pending [--limit N]` | Re-queue extraction workers (after API quota or interrupted runs). |
 | `codeterm mem calibration log [--since ISO] [--limit N] [--count]` | Audit trail of the dreamer's Sunday calibration sweep (rows in `mem_item_history` with `changed_by LIKE 'dreamer-calibration%'`). |

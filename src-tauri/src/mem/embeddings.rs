@@ -43,10 +43,8 @@ pub mod inner {
 
     static EXT_REGISTERED: Once = Once::new();
 
-    // How many inferences to run in one child before recycling it. Bounds
-    // the fastembed/ort memory leak on Windows (~100 MB per call) to a
-    // predictable ceiling (~CHILD_MAX_CALLS × 100 MB), then kills and
-    // respawns the child to drop all leaked pages.
+    // How many inferences to run in one child before recycling it. Bounds the fastembed/ort memory leak on Windows (~100 MB per call) to a
+    // predictable ceiling (~CHILD_MAX_CALLS × 100 MB), then kills and respawns the child to drop all leaked pages.
     const CHILD_MAX_CALLS: u64 = 200;
 
     #[derive(Serialize)]
@@ -84,7 +82,12 @@ pub mod inner {
             let stdin = child.stdin.take().ok_or("no stdin")?;
             let stdout = BufReader::new(child.stdout.take().ok_or("no stdout")?);
             log::info!("[embed] spawned child pid={}", child.id());
-            Ok(Self { child, stdin, stdout, calls: 0 })
+            Ok(Self {
+                child,
+                stdin,
+                stdout,
+                calls: 0,
+            })
         }
 
         fn request(&mut self, id: &str, text: &str) -> Result<Vec<f32>, String> {
@@ -94,7 +97,9 @@ pub mod inner {
             self.stdin.flush().map_err(|e| format!("flush: {}", e))?;
 
             let mut resp_line = String::new();
-            self.stdout.read_line(&mut resp_line).map_err(|e| format!("read: {}", e))?;
+            self.stdout
+                .read_line(&mut resp_line)
+                .map_err(|e| format!("read: {}", e))?;
             if resp_line.is_empty() {
                 return Err("child closed stdout".into());
             }
@@ -116,12 +121,13 @@ pub mod inner {
     }
 
     fn codeterm_embed_path() -> Result<std::path::PathBuf, String> {
-        // Try the Tauri externalBin location first (sidecar next to main
-        // exe), then fall back to a sibling binary in the cargo target dir
-        // for `cargo run` / dev scenarios.
-        let exe_name = if cfg!(windows) { "codeterm-embed.exe" } else { "codeterm-embed" };
-        let current = std::env::current_exe()
-            .map_err(|e| format!("current_exe: {}", e))?;
+        // Try the Tauri externalBin location first (sidecar next to main exe), then fall back to a sibling binary in the cargo target dir for `cargo run` / dev scenarios.
+        let exe_name = if cfg!(windows) {
+            "codeterm-embed.exe"
+        } else {
+            "codeterm-embed"
+        };
+        let current = std::env::current_exe().map_err(|e| format!("current_exe: {}", e))?;
         let dir = current.parent().ok_or("no parent dir")?;
 
         let candidates = [
@@ -134,10 +140,7 @@ pub mod inner {
                 return Ok(path.clone());
             }
         }
-        Err(format!(
-            "codeterm-embed not found near {}",
-            dir.display()
-        ))
+        Err(format!("codeterm-embed not found near {}", dir.display()))
     }
 
     fn child_handle() -> &'static Mutex<Option<EmbedChild>> {
@@ -150,12 +153,10 @@ pub mod inner {
     /// will have the `vec0` virtual table module available. Must be called
     /// before the first `Connection::open`. Idempotent via `Once`.
     fn register_auto_extension() {
-        EXT_REGISTERED.call_once(|| {
-            unsafe {
-                sqlite3_auto_extension(Some(std::mem::transmute(
-                    sqlite_vec::sqlite3_vec_init as *const (),
-                )));
-            }
+        EXT_REGISTERED.call_once(|| unsafe {
+            sqlite3_auto_extension(Some(std::mem::transmute(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )));
         });
     }
 
@@ -172,7 +173,8 @@ pub mod inner {
                 embedding FLOAT[384]
             );
             "#,
-        ).map_err(|e| format!("create mem_vectors: {}", e))?;
+        )
+        .map_err(|e| format!("create mem_vectors: {}", e))?;
         Ok(())
     }
 
@@ -187,10 +189,7 @@ pub mod inner {
     /// common abbreviations. Ensures query and indexed text are in the same form.
     fn preprocess(text: &str) -> String {
         let lower = text.to_lowercase();
-        let collapsed: String = lower
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
+        let collapsed: String = lower.split_whitespace().collect::<Vec<_>>().join(" ");
         // Expand common abbreviations for better embedding alignment
         expand_abbreviations(&collapsed)
     }
@@ -200,18 +199,20 @@ pub mod inner {
     fn expand_abbreviations(text: &str) -> String {
         use std::sync::OnceLock;
         static ABBRS: OnceLock<Vec<(&'static str, &'static str)>> = OnceLock::new();
-        let abbrs = ABBRS.get_or_init(|| vec![
-            (" pg ", " postgresql "),
-            (" js ", " javascript "),
-            (" ts ", " typescript "),
-            (" py ", " python "),
-            (" rb ", " ruby "),
-            (" ha ", " home assistant "),
-            (" k8s ", " kubernetes "),
-            (" tf ", " terraform "),
-            (" gh ", " github "),
-            (" ci/cd ", " continuous integration continuous deployment "),
-        ]);
+        let abbrs = ABBRS.get_or_init(|| {
+            vec![
+                (" pg ", " postgresql "),
+                (" js ", " javascript "),
+                (" ts ", " typescript "),
+                (" py ", " python "),
+                (" rb ", " ruby "),
+                (" ha ", " home assistant "),
+                (" k8s ", " kubernetes "),
+                (" tf ", " terraform "),
+                (" gh ", " github "),
+                (" ci/cd ", " continuous integration continuous deployment "),
+            ]
+        });
         let mut result = format!(" {} ", text); // pad for word boundary matching
         for (abbr, expanded) in abbrs {
             result = result.replace(abbr, expanded);
@@ -274,8 +275,7 @@ pub mod inner {
             return paragraphs.into_iter().map(String::from).collect();
         }
 
-        // Otherwise: sliding window with smart boundary detection.
-        // Works on char indices (not bytes) to safely handle multi-byte UTF-8.
+        // Otherwise: sliding window with smart boundary detection. Works on char indices (not bytes) to safely handle multi-byte UTF-8.
         let chars: Vec<char> = preprocessed.chars().collect();
         let total_chars = chars.len();
         let chunk_chars = CHUNK_SIZE; // chars, not bytes
@@ -370,7 +370,12 @@ pub mod inner {
         for (i, chunk) in chunks.iter().enumerate() {
             let t0 = std::time::Instant::now();
             let vec = embed(chunk)?;
-            log::info!("[mem.index] {} chunk {} embed={}ms", mem_id, i, t0.elapsed().as_millis());
+            log::info!(
+                "[mem.index] {} chunk {} embed={}ms",
+                mem_id,
+                i,
+                t0.elapsed().as_millis()
+            );
             let bytes: Vec<u8> = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
             let chunk_id = if i == 0 {
                 mem_id.to_string()
@@ -381,8 +386,14 @@ pub mod inner {
             conn.execute(
                 "INSERT INTO mem_vectors (mem_id, embedding) VALUES (?1, ?2)",
                 params![chunk_id, bytes],
-            ).map_err(|e| format!("insert vector chunk {}: {}", i, e))?;
-            log::info!("[mem.index] {} chunk {} insert={}ms", mem_id, i, t1.elapsed().as_millis());
+            )
+            .map_err(|e| format!("insert vector chunk {}: {}", i, e))?;
+            log::info!(
+                "[mem.index] {} chunk {} insert={}ms",
+                mem_id,
+                i,
+                t1.elapsed().as_millis()
+            );
         }
         Ok(())
     }
@@ -404,15 +415,19 @@ pub mod inner {
         let bytes: Vec<u8> = qvec.iter().flat_map(|f| f.to_le_bytes()).collect();
         // Overfetch to account for chunk deduplication
         let overfetch = k * 3;
-        let mut stmt = conn.prepare(
-            r#"SELECT mem_id, distance
+        let mut stmt = conn
+            .prepare(
+                r#"SELECT mem_id, distance
                FROM mem_vectors
                WHERE embedding MATCH ?1 AND k = ?2
                ORDER BY distance"#,
-        ).map_err(|e| format!("prepare: {}", e))?;
-        let rows = stmt.query_map(params![bytes, overfetch as i64], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
-        }).map_err(|e| format!("query: {}", e))?;
+            )
+            .map_err(|e| format!("prepare: {}", e))?;
+        let rows = stmt
+            .query_map(params![bytes, overfetch as i64], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+            })
+            .map_err(|e| format!("query: {}", e))?;
 
         // Deduplicate chunks → parent mem_item, keep best distance
         let mut best: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
@@ -436,13 +451,21 @@ pub mod inner {
 pub mod inner {
     use rusqlite::Connection;
 
-    pub fn init_extension(_conn: &Connection) -> Result<(), String> { Ok(()) }
+    pub fn init_extension(_conn: &Connection) -> Result<(), String> {
+        Ok(())
+    }
     pub fn ensure_extension_registered() {}
     pub fn embed(_text: &str) -> Result<Vec<f32>, String> {
         Err("embeddings feature not enabled — rebuild with --features embeddings".into())
     }
-    pub fn index(_conn: &Connection, _mem_id: &str, _body: &str) -> Result<(), String> { Ok(()) }
-    pub fn recall(_conn: &Connection, _query: &str, _k: usize) -> Result<Vec<(String, f64)>, String> {
+    pub fn index(_conn: &Connection, _mem_id: &str, _body: &str) -> Result<(), String> {
+        Ok(())
+    }
+    pub fn recall(
+        _conn: &Connection,
+        _query: &str,
+        _k: usize,
+    ) -> Result<Vec<(String, f64)>, String> {
         Err("embeddings feature not enabled".into())
     }
     pub fn embeddable_text_for_entity(id: &str, entity_type: &str, _props: &str) -> String {

@@ -32,8 +32,7 @@ pub fn data_dir() -> PathBuf {
 
 /// Get the config file path.
 pub fn config_path() -> Result<PathBuf, String> {
-    let dir = dirs::home_dir()
-        .ok_or_else(|| "Could not determine home directory".to_string())?;
+    let dir = dirs::home_dir().ok_or_else(|| "Could not determine home directory".to_string())?;
     Ok(dir.join(DIR_NAME).join("config.toml"))
 }
 
@@ -49,21 +48,77 @@ pub fn config_path() -> Result<PathBuf, String> {
 /// - Lowercases the whole string on Windows — NTFS is case-insensitive by
 ///   default and `C:\Users\X` == `c:\users\x`.
 pub fn normalize_cwd(raw: &str) -> String {
+    let base = canonical_cwd(raw);
+    if cfg!(windows) {
+        base.to_lowercase()
+    } else {
+        base
+    }
+}
+
+/// Canonicalize a cwd preserving case, with the Windows `\\?\` verbatim prefix
+/// stripped. Use this (NOT `normalize_cwd`, which lowercases) when the result
+/// feeds a path-encoding scheme where case matters — e.g. claude's
+/// `~/.claude/projects/<encoded-cwd>` dir names keep the original case, so a
+/// lowercased or verbatim-prefixed input encodes to a dir that doesn't exist.
+pub fn canonical_cwd(raw: &str) -> String {
     let canonical = std::fs::canonicalize(raw)
         .ok()
         .and_then(|p| p.to_str().map(|s| s.to_string()));
 
-    let base = canonical.unwrap_or_else(|| {
-        raw.trim_end_matches(|c: char| c == '/' || c == '\\')
-            .to_string()
-    });
+    match canonical {
+        Some(p) => strip_verbatim_prefix(&p),
+        None => raw
+            .trim_end_matches(|c: char| c == '/' || c == '\\')
+            .to_string(),
+    }
+}
 
-    if cfg!(windows) {
-        // Strip the Windows verbatim prefix that canonicalize adds on Windows
-        // (`\\?\C:\foo`) so user-supplied and canonicalized paths still match.
-        let stripped = base.strip_prefix(r"\\?\").unwrap_or(&base);
-        stripped.to_lowercase()
+/// `std::fs::canonicalize` on Windows returns an extended-length path with a
+/// `\\?\` (or `\\?\UNC\`) verbatim prefix. Agent CLIs encode the plain cwd, so
+/// the prefix's extra leading slashes would corrupt any dir-name encoding.
+/// No-op on Unix paths.
+pub fn strip_verbatim_prefix(p: &str) -> String {
+    if let Some(rest) = p.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{}", rest)
+    } else if let Some(rest) = p.strip_prefix(r"\\?\") {
+        rest.to_string()
     } else {
-        base
+        p.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_verbatim_prefix_forms() {
+        assert_eq!(
+            strip_verbatim_prefix(r"\\?\C:\Users\User\.codeterm-dev\general"),
+            r"C:\Users\User\.codeterm-dev\general"
+        );
+        assert_eq!(
+            strip_verbatim_prefix(r"\\?\UNC\server\share\proj"),
+            r"\\server\share\proj"
+        );
+        assert_eq!(strip_verbatim_prefix("/home/user/p"), "/home/user/p");
+        assert_eq!(strip_verbatim_prefix(r"C:\plain\path"), r"C:\plain\path");
+    }
+
+    #[test]
+    fn canonical_cwd_preserves_case_and_strips_verbatim() {
+        // Existing dir → canonicalize fires; result must carry no verbatim
+        // prefix and keep the original case (claude project dirs are
+        // case-sensitive encodings).
+        let tmp = std::env::temp_dir().to_string_lossy().to_string();
+        let out = canonical_cwd(&tmp);
+        assert!(!out.starts_with(r"\\?\"), "verbatim prefix leaked: {out}");
+
+        // Missing path → trimmed raw, untouched case.
+        assert_eq!(
+            canonical_cwd(r"C:\Definitely\Missing\Path\"),
+            r"C:\Definitely\Missing\Path"
+        );
     }
 }

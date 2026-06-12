@@ -9,9 +9,7 @@ pub struct ShellSyntax;
 impl ShellSyntax {
     pub const IS_WINDOWS: bool = cfg!(target_os = "windows");
 
-    // Windows: unset CLAUDECODE, force UTF-8, pin Standard argv-passing
-    // (default on pwsh 7.3+; explicit so older pwsh / 5.1 also pass a
-    // `"$(…)"` result as a single argv element).
+    // Windows: unset CLAUDECODE, force UTF-8, pin Standard argv-passing (default on pwsh 7.3+; explicit so older pwsh / 5.1 also pass a `"$(…)"` result as a single argv element).
     pub const UNSET_CLAUDECODE: &str = if Self::IS_WINDOWS {
         "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';"
     } else {
@@ -105,7 +103,9 @@ mod tests {
 
     #[test]
     fn task_file_expr_windows_wraps_in_double_quotes_for_argv_safety() {
-        if !ShellSyntax::IS_WINDOWS { return; }
+        if !ShellSyntax::IS_WINDOWS {
+            return;
+        }
         let body = "do something --yes --extra-flag\nmultiline";
         let expr = ShellSyntax::task_file_expr(body);
         assert!(expr.starts_with('"') && expr.ends_with('"'),
@@ -114,10 +114,11 @@ mod tests {
 
     #[test]
     fn unset_claudecode_pins_standard_argv_passing_on_windows() {
-        if !ShellSyntax::IS_WINDOWS { return; }
-        // Defense-in-depth: explicit `Standard` argv-passing means a `-f`/
-        // `--flag` token inside the task body never re-parses as a claude
-        // CLI option, even on older pwsh versions whose default is Legacy.
+        if !ShellSyntax::IS_WINDOWS {
+            return;
+        }
+        // Defense-in-depth: explicit `Standard` argv-passing means a `-f`/ `--flag` token inside the task body never re-parses as a claude CLI option,
+        // even on older pwsh versions whose default is Legacy.
         assert!(
             ShellSyntax::UNSET_CLAUDECODE.contains("$PSNativeCommandArgumentPassing = 'Standard'"),
             "preamble must pin Standard argv passing: {}",
@@ -127,9 +128,7 @@ mod tests {
 
     #[test]
     fn task_file_persists_problematic_body_unchanged() {
-        // Body containing patterns that historically broke argv passing or
-        // got re-interpolated by the launching shell: `-f` flag, $vars,
-        // backticks, embedded quotes, multiline, unicode.
+        // Body containing patterns that historically broke argv passing or got re-interpolated by the launching shell: `-f` flag, $vars, backticks, embedded quotes, multiline, unicode.
         let body = "step --foo bar\n`whoami`\n$HOME contains 'quotes' and \"more\"\nemoji 🦀 ok";
         let (prefix, path) = ShellSyntax::task_file_stdin_pipe(body);
         assert!(prefix.ends_with('|'));
@@ -148,7 +147,11 @@ mod tests {
     fn task_file_stdin_pipe_returns_pipe_prefix_and_writes_content() {
         let task = "codeterm mem save --kind fact --area codeterm \"body with --flag tokens\"";
         let (prefix, path) = ShellSyntax::task_file_stdin_pipe(task);
-        assert!(prefix.ends_with('|'), "prefix must end with pipe char: {:?}", prefix);
+        assert!(
+            prefix.ends_with('|'),
+            "prefix must end with pipe char: {:?}",
+            prefix
+        );
         if ShellSyntax::IS_WINDOWS {
             assert!(prefix.starts_with("Get-Content '"));
             assert!(prefix.contains(" -Raw -Encoding UTF8 |"));
@@ -162,7 +165,10 @@ mod tests {
         let bytes = std::fs::read(&path).expect("temp task file written");
         let body = if ShellSyntax::IS_WINDOWS {
             // strip BOM
-            assert!(bytes.starts_with(&[0xEF, 0xBB, 0xBF]), "expected UTF-8 BOM on Windows");
+            assert!(
+                bytes.starts_with(&[0xEF, 0xBB, 0xBF]),
+                "expected UTF-8 BOM on Windows"
+            );
             String::from_utf8(bytes[3..].to_vec()).expect("utf8")
         } else {
             String::from_utf8(bytes).expect("utf8")
@@ -192,6 +198,10 @@ mod tests {
         let (prefix, _) = ShellSyntax::task_file_stdin_pipe("x");
         // Path is wrapped in single quotes for both shells.
         let single_quotes = prefix.matches('\'').count();
-        assert!(single_quotes >= 2, "path should be single-quoted: {:?}", prefix);
+        assert!(
+            single_quotes >= 2,
+            "path should be single-quoted: {:?}",
+            prefix
+        );
     }
 }

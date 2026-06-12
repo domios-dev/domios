@@ -101,11 +101,14 @@ fn send_exit_to_agents(svc: &ServiceState, agents: &[AgentPaneInfo]) {
         match pty.write(&agent.pty_id, payload.as_bytes()) {
             Ok(()) => log::info!(
                 "[updater] sent {:?} to pane {} (provider={})",
-                cmd, agent.pane_id, agent.provider_id
+                cmd,
+                agent.pane_id,
+                agent.provider_id
             ),
             Err(e) => log::warn!(
                 "[updater] failed to send exit to pane {}: {}",
-                agent.pane_id, e
+                agent.pane_id,
+                e
             ),
         }
     }
@@ -127,7 +130,8 @@ async fn wait_or_kill_one(pty: crate::PtyState, agent: AgentPaneInfo) {
     if poll_until_exit(&pty, &agent.pty_id, PER_PANE_GRACE).await {
         log::info!(
             "[updater] pane {} exited gracefully (provider={})",
-            agent.pane_id, agent.provider_id
+            agent.pane_id,
+            agent.provider_id
         );
         let _ = pty.lock().kill(&agent.pty_id);
         return;
@@ -135,20 +139,19 @@ async fn wait_or_kill_one(pty: crate::PtyState, agent: AgentPaneInfo) {
 
     log::warn!(
         "[updater] pane {} did not exit within {:?}; sending SIGTERM via Child::kill()",
-        agent.pane_id, PER_PANE_GRACE
+        agent.pane_id,
+        PER_PANE_GRACE
     );
     if let Err(e) = soft_kill(&pty, &agent.pty_id) {
         log::warn!(
             "[updater] soft_kill failed for pane {}: {}",
-            agent.pane_id, e
+            agent.pane_id,
+            e
         );
     }
 
     if poll_until_exit(&pty, &agent.pty_id, SIGTERM_GRACE).await {
-        log::info!(
-            "[updater] pane {} exited after SIGTERM",
-            agent.pane_id
-        );
+        log::info!("[updater] pane {} exited after SIGTERM", agent.pane_id);
         let _ = pty.lock().kill(&agent.pty_id);
         return;
     }
@@ -198,7 +201,7 @@ fn soft_kill(pty: &crate::PtyState, pty_id: &str) -> Result<(), String> {
     child.kill().map_err(|e| format!("Child::kill: {}", e))
 }
 
-fn persist_session(app: &tauri::AppHandle, svc: &ServiceState) -> Result<(), String> {
+pub(crate) fn persist_session(app: &tauri::AppHandle, svc: &ServiceState) -> Result<(), String> {
     let session = app
         .try_state::<SessionState>()
         .ok_or_else(|| "SessionState not registered".to_string())?
@@ -235,13 +238,11 @@ mod tests {
 
     #[test]
     fn registered_providers_match_fallback_mapping() {
-        // Sanity: the trait-level exit_command for the providers we ship
-        // must agree with our compile-time fallback. If a provider rewords
-        // /exit to something else, both this test and the fallback must
-        // change together.
+        // Sanity: the trait-level exit_command for the providers we ship must agree with our compile-time fallback. If a provider rewords /exit to
+        // something else, both this test and the fallback must change together.
+        use crate::agent::provider::AgentProvider;
         use crate::plugin::agent_claude::ClaudeProvider;
         use crate::plugin::agent_codex::CodexProvider;
-        use crate::agent::provider::AgentProvider;
 
         let claude = ClaudeProvider::new();
         assert_eq!(claude.exit_command(), Some("/exit"));
@@ -258,9 +259,8 @@ mod tests {
         let (busy, log_frames, checkpointed) = mem
             .checkpoint_and_close()
             .expect("checkpoint should succeed on a fresh in-memory db");
-        // In-memory dbs don't use WAL, so log_frames/checkpointed are -1
-        // per SQLite docs ("PRAGMA wal_checkpoint returns -1 columns when
-        // not in WAL mode"). We only assert the call path is wired.
+        // In-memory dbs don't use WAL, so log_frames/checkpointed are -1 per SQLite docs ("PRAGMA wal_checkpoint returns -1 columns when not in WAL
+        // mode"). We only assert the call path is wired.
         assert!(busy >= -1);
         assert!(log_frames >= -1);
         assert!(checkpointed >= -1);

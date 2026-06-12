@@ -28,8 +28,7 @@ const KNOWN_SUBCOMMANDS: &[&str] = &[
     "-h",
     "--version",
     "-V",
-    // Global flags from cli/src/args/cli.rs that may precede a subcommand.
-    // Without these, `codeterm --json mem search foo` would be silently
+    // Global flags from cli/src/args/cli.rs that may precede a subcommand. Without these, `codeterm --json mem search foo` would be silently
     // swallowed by the GUI binary on macOS (regression of #51).
     "--json",
     "--mesh",
@@ -69,7 +68,11 @@ fn is_cli_invocation(arg: &str) -> bool {
 }
 
 fn locate_cli_binary() -> Option<PathBuf> {
-    let bin_name = if cfg!(windows) { "codeterm.exe" } else { "codeterm" };
+    let bin_name = if cfg!(windows) {
+        "codeterm.exe"
+    } else {
+        "codeterm"
+    };
     let home = dirs::home_dir()?;
 
     let candidates = [
@@ -145,38 +148,73 @@ mod tests {
             "--version",
             "-V",
         ] {
-            assert!(is_cli_invocation(name), "expected '{}' to be a CLI invocation", name);
+            assert!(
+                is_cli_invocation(name),
+                "expected '{}' to be a CLI invocation",
+                name
+            );
         }
     }
 
     #[test]
     fn ignores_non_subcommand_args() {
-        for name in ["", "-psn_0_12345", "--gui-only-flag", "random", "/path/to/file"] {
-            assert!(!is_cli_invocation(name), "expected '{}' to NOT be a CLI invocation", name);
+        for name in [
+            "",
+            "-psn_0_12345",
+            "--gui-only-flag",
+            "random",
+            "/path/to/file",
+        ] {
+            assert!(
+                !is_cli_invocation(name),
+                "expected '{}' to NOT be a CLI invocation",
+                name
+            );
         }
     }
 
     #[test]
     fn detects_all_clap_top_level_subcommands() {
-        // Mirror Commands enum in cli/src/args/cli.rs. Adding a new top-level
-        // subcommand without updating KNOWN_SUBCOMMANDS regresses #51.
+        // Mirror Commands enum in cli/src/args/cli.rs. Adding a new top-level subcommand without updating KNOWN_SUBCOMMANDS regresses #51.
         for name in [
-            "identify", "capabilities", "workspace", "pane", "get-output",
-            "send-text", "browser", "notify", "notifications", "keepawake",
-            "theme", "agent", "cron", "update", "config",
-            "bridge", "mesh", "mem", "sessions",
+            "identify",
+            "capabilities",
+            "workspace",
+            "pane",
+            "get-output",
+            "send-text",
+            "browser",
+            "notify",
+            "notifications",
+            "keepawake",
+            "theme",
+            "agent",
+            "cron",
+            "update",
+            "config",
+            "bridge",
+            "mesh",
+            "mem",
+            "sessions",
         ] {
-            assert!(is_cli_invocation(name), "expected top-level '{}' to be a CLI invocation", name);
+            assert!(
+                is_cli_invocation(name),
+                "expected top-level '{}' to be a CLI invocation",
+                name
+            );
         }
     }
 
     #[test]
     fn detects_global_flags_before_subcommand() {
-        // `codeterm --json mem search foo` and `codeterm --mesh peer mem ls`:
-        // the first arg is a global flag, not a subcommand. Without these
-        // entries the GUI binary silently swallows the launch.
+        // `codeterm --json mem search foo` and `codeterm --mesh peer mem ls`: the first arg is a global flag, not a subcommand. Without these entries
+        // the GUI binary silently swallows the launch.
         for name in ["--json", "--mesh"] {
-            assert!(is_cli_invocation(name), "expected global flag '{}' to forward as CLI", name);
+            assert!(
+                is_cli_invocation(name),
+                "expected global flag '{}' to forward as CLI",
+                name
+            );
         }
     }
 

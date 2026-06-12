@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
 import { useSwarmCanvas } from "./useSwarmCanvas";
 import { computeTreeLayout } from "./layout";
@@ -12,12 +12,8 @@ let particleCounter = 0;
 function mapRoleToSwarm(role: Pane["role"]): SwarmNode["role"] {
   switch (role) {
     case "Orchestrator":
-    case "Conductor":
       return "Orchestrator";
-    case "Lead":
-      return "Lead";
     case "Worker":
-    case "SubWorker":
       return "Worker";
     default:
       return null;

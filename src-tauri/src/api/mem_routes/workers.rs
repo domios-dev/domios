@@ -56,7 +56,10 @@ pub async fn workers_spawn(
             mem_cfg.extraction_agent.clone()
         }
     });
-    let parent = b.parent.clone().unwrap_or_else(|| "user:memory-panel".to_string());
+    let parent = b
+        .parent
+        .clone()
+        .unwrap_or_else(|| "user:memory-panel".to_string());
 
     let raw_model = if mem_cfg.extraction_model.is_empty() {
         mem_cfg.worker_model.clone()
@@ -129,23 +132,34 @@ pub async fn workers_report(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let worker_pane_id = state.svc.workers.get(&id).map(|w| w.pane_id.clone());
     let pty_id = worker_pane_id.as_ref().and_then(|pid| {
-        state.svc.mux.lock().get_pane(pid).and_then(|p| p.pty_id.clone())
+        state
+            .svc
+            .mux
+            .lock()
+            .get_pane(pid)
+            .and_then(|p| p.pty_id.clone())
     });
 
     if let Some(ref pty_id) = pty_id {
-        let output = state.svc.output_buf.lock().get_full_text(pty_id).unwrap_or_default();
+        let output = state
+            .svc
+            .output_buf
+            .lock()
+            .get_full_text(pty_id)
+            .unwrap_or_default();
         if !output.is_empty() {
             match workers::save_worker_log(&id, &output) {
                 Ok(path) => {
-                    state.svc.workers.set_log_path(&id, path.display().to_string());
+                    state
+                        .svc
+                        .workers
+                        .set_log_path(&id, path.display().to_string());
                 }
                 Err(e) => log::warn!("[graph-workers] save log: {}", e),
             }
         }
-        // Disarm the run-watcher so the post-report 30s of PTY silence
-        // (claude can take that long to clean up after the report tool
-        // returned, especially on haiku) does not trip the idle reaper
-        // and overwrite the just-set "done" status with a Failed.
+        // Disarm the run-watcher so the post-report 30s of PTY silence (claude can take that long to clean up after the report tool returned,
+        // especially on haiku) does not trip the idle reaper and overwrite the just-set "done" status with a Failed.
         state.svc.run_watcher.mark_completed_externally(pty_id);
     }
 
@@ -190,29 +204,63 @@ pub async fn workers_log(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<(StatusCode, [(axum::http::header::HeaderName, &'static str); 1], String), (StatusCode, String)> {
+) -> Result<
+    (
+        StatusCode,
+        [(axum::http::header::HeaderName, &'static str); 1],
+        String,
+    ),
+    (StatusCode, String),
+> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
 
-    let worker = state.svc.workers.get(&id)
+    let worker = state
+        .svc
+        .workers
+        .get(&id)
         .ok_or_else(|| (StatusCode::NOT_FOUND, format!("worker not found: {}", id)))?;
 
     if !worker.status.is_terminal() {
-        let pty_id = state.svc.mux.lock()
+        let pty_id = state
+            .svc
+            .mux
+            .lock()
             .get_pane(&worker.pane_id)
             .and_then(|p| p.pty_id.clone());
         if let Some(pty_id) = pty_id {
-            let output = state.svc.output_buf.lock()
+            let output = state
+                .svc
+                .output_buf
+                .lock()
                 .get_full_text(&pty_id)
                 .unwrap_or_default();
             let clean = crate::pty::ansi::clean_terminal_output_sized(&output, 500, 120);
-            return Ok((StatusCode::OK, [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")], clean));
+            return Ok((
+                StatusCode::OK,
+                [(
+                    axum::http::header::CONTENT_TYPE,
+                    "text/plain; charset=utf-8",
+                )],
+                clean,
+            ));
         }
     }
 
     if let Some(ref path) = worker.log_path {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("read log: {}", e)))?;
-        return Ok((StatusCode::OK, [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")], content));
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("read log: {}", e),
+            )
+        })?;
+        return Ok((
+            StatusCode::OK,
+            [(
+                axum::http::header::CONTENT_TYPE,
+                "text/plain; charset=utf-8",
+            )],
+            content,
+        ));
     }
 
     Err((StatusCode::NOT_FOUND, "no log available".into()))

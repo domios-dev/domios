@@ -73,7 +73,13 @@ fn cached_health(url: &str, ttl: Duration) -> Option<bool> {
 
 fn store_health(url: &str, healthy: bool) {
     let mut map = health_cache().lock();
-    map.insert(url.to_string(), HealthEntry { healthy, checked_at: Instant::now() });
+    map.insert(
+        url.to_string(),
+        HealthEntry {
+            healthy,
+            checked_at: Instant::now(),
+        },
+    );
 }
 
 /// Reset the health cache. Test-only escape hatch — production code
@@ -99,7 +105,10 @@ async fn check_health(client: &reqwest::Client, daemon_url: &str) -> Result<(), 
         .await
         .map_err(|e| TranscribeError::HealthFailed(e.to_string()))?;
     if !resp.status().is_success() {
-        return Err(TranscribeError::HealthFailed(format!("HTTP {}", resp.status().as_u16())));
+        return Err(TranscribeError::HealthFailed(format!(
+            "HTTP {}",
+            resp.status().as_u16()
+        )));
     }
     Ok(())
 }
@@ -165,6 +174,48 @@ pub async fn transcribe(
     Ok(Transcript { text })
 }
 
+/// Build the agent-facing attachment line for a file, transcribing voice when
+/// enabled. Shared by the Telegram bridge and the chat composer so both emit
+/// the same `-=-codeterm:<kind> ...-=-` marker shape.
+pub async fn format_attachment_line(
+    path: &str,
+    kind: &str,
+    filename: Option<&str>,
+    cfg: &VoiceTranscribeConfig,
+) -> String {
+    use crate::message_markers as mk;
+    if kind == "voice" && !path.is_empty() {
+        if !cfg.enabled {
+            // Tell the agent (and the user reading the chat) that a transcriber
+            // daemon is needed and where to find it — instead of a silent path.
+            return mk::voice(
+                path,
+                None,
+                Some("no transcriber daemon configured; run `codeterm docs TRANSCRIBE` for setup"),
+            );
+        }
+        match transcribe(Path::new(path), cfg).await {
+            Ok(t) => return mk::voice(path, Some(&t.text), None),
+            Err(e) => {
+                log::warn!("[voice] transcribe failed for {}: {}", path, e);
+                return mk::voice(
+                    path,
+                    None,
+                    Some(&format!(
+                        "transcription unavailable: {} — run `codeterm docs TRANSCRIBE` to set up a daemon",
+                        e
+                    )),
+                );
+            }
+        }
+    }
+    // Non-voice attachment (photo/document/video/…): keep the real kind.
+    mk::Marker::new(kind)
+        .attr("file", path)
+        .attr_opt("name", filename)
+        .build()
+}
+
 fn path_to_string(path: &Path) -> String {
     let buf = PathBuf::from(path);
     buf.to_string_lossy().to_string()
@@ -177,11 +228,7 @@ fn is_valid_http_url(url: &str) -> bool {
         .or_else(|| lower.strip_prefix("https://"));
     match rest {
         Some(host_and_more) => {
-            let host = host_and_more
-                .split('/')
-                .next()
-                .unwrap_or("")
-                .trim();
+            let host = host_and_more.split('/').next().unwrap_or("").trim();
             !host.is_empty() && !host.contains(' ')
         }
         None => false,
@@ -191,7 +238,10 @@ fn is_valid_http_url(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{routing::{get, post}, Json, Router};
+    use axum::{
+        routing::{get, post},
+        Json, Router,
+    };
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
@@ -205,9 +255,13 @@ mod tests {
     }
 
     impl FakeServer {
-        fn url(&self) -> String { format!("http://{}", self.addr) }
+        fn url(&self) -> String {
+            format!("http://{}", self.addr)
+        }
         async fn stop(mut self) {
-            if let Some(tx) = self.shutdown.take() { let _ = tx.send(()); }
+            if let Some(tx) = self.shutdown.take() {
+                let _ = tx.send(());
+            }
             let _ = self.handle.await;
         }
     }
@@ -218,10 +272,16 @@ mod tests {
         let (tx, rx) = oneshot::channel::<()>();
         let handle = tokio::spawn(async move {
             let _ = axum::serve(listener, router)
-                .with_graceful_shutdown(async move { let _ = rx.await; })
+                .with_graceful_shutdown(async move {
+                    let _ = rx.await;
+                })
                 .await;
         });
-        FakeServer { addr, shutdown: Some(tx), handle }
+        FakeServer {
+            addr,
+            shutdown: Some(tx),
+            handle,
+        }
     }
 
     fn cfg_for(url: &str) -> VoiceTranscribeConfig {
@@ -240,14 +300,19 @@ mod tests {
         reset_health_cache();
         let router = Router::new()
             .route("/healthz", get(|| async { "ok" }))
-            .route("/transcribe", post(|| async {
-                Json(serde_json::json!({ "text": "hello world" }))
-            }));
+            .route(
+                "/transcribe",
+                post(|| async { Json(serde_json::json!({ "text": "hello world" })) }),
+            );
         let server = spawn_server(router).await;
         let cfg = cfg_for(&server.url());
 
         let result = transcribe(Path::new("/fake/audio.oga"), &cfg).await;
-        assert!(matches!(&result, Ok(t) if t.text == "hello world"), "got {:?}", result);
+        assert!(
+            matches!(&result, Ok(t) if t.text == "hello world"),
+            "got {:?}",
+            result
+        );
         server.stop().await;
     }
 
@@ -256,9 +321,10 @@ mod tests {
         reset_health_cache();
         let router = Router::new()
             .route("/healthz", get(|| async { "ok" }))
-            .route("/transcribe", post(|| async {
-                (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "boom")
-            }));
+            .route(
+                "/transcribe",
+                post(|| async { (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "boom") }),
+            );
         let server = spawn_server(router).await;
         let cfg = cfg_for(&server.url());
 
@@ -272,14 +338,19 @@ mod tests {
         reset_health_cache();
         let router = Router::new()
             .route("/healthz", get(|| async { "ok" }))
-            .route("/transcribe", post(|| async {
-                Json(serde_json::json!({ "text": "   " }))
-            }));
+            .route(
+                "/transcribe",
+                post(|| async { Json(serde_json::json!({ "text": "   " })) }),
+            );
         let server = spawn_server(router).await;
         let cfg = cfg_for(&server.url());
 
         let result = transcribe(Path::new("/fake/audio.oga"), &cfg).await;
-        assert!(matches!(result, Err(TranscribeError::Empty)), "got {:?}", result);
+        assert!(
+            matches!(result, Err(TranscribeError::Empty)),
+            "got {:?}",
+            result
+        );
         server.stop().await;
     }
 
@@ -293,7 +364,11 @@ mod tests {
         let cfg = cfg_for(&format!("http://{}", addr));
 
         let result = transcribe(Path::new("/fake/audio.oga"), &cfg).await;
-        assert!(matches!(result, Err(TranscribeError::HealthFailed(_))), "got {:?}", result);
+        assert!(
+            matches!(result, Err(TranscribeError::HealthFailed(_))),
+            "got {:?}",
+            result
+        );
     }
 
     #[tokio::test]
@@ -343,15 +418,18 @@ mod tests {
         let saw_lang_clone = saw_lang.clone();
         let router = Router::new()
             .route("/healthz", get(|| async { "ok" }))
-            .route("/transcribe", post(move |Json(body): Json<serde_json::Value>| {
-                let saw = saw_lang_clone.clone();
-                async move {
-                    if body.get("language").and_then(|v| v.as_str()) == Some("ru") {
-                        saw.store(true, Ordering::SeqCst);
+            .route(
+                "/transcribe",
+                post(move |Json(body): Json<serde_json::Value>| {
+                    let saw = saw_lang_clone.clone();
+                    async move {
+                        if body.get("language").and_then(|v| v.as_str()) == Some("ru") {
+                            saw.store(true, Ordering::SeqCst);
+                        }
+                        Json(serde_json::json!({ "text": "ok" }))
                     }
-                    Json(serde_json::json!({ "text": "ok" }))
-                }
-            }));
+                }),
+            );
         let server = spawn_server(router).await;
         let mut cfg = cfg_for(&server.url());
         cfg.language = "ru".into();

@@ -1,4 +1,4 @@
-//! Two-step `update --apply` over mesh: force-check (populates the peer's
+//! Two-step `update install --auto` over mesh: force-check (populates the peer's
 //! `last_check` cache), then install if an update is available. The install
 //! endpoint requires a prior check call.
 
@@ -7,45 +7,33 @@ use crate::UpdateAction;
 
 use super::relay::{relay_call, resolve_peer_url};
 
-/// Resolve update flag shortcuts (--check, --apply, --channel) to a concrete UpdateAction.
-/// Same logic as the local CLI dispatch in main.rs.
+/// Resolve update subcommands and top-level update options to a concrete UpdateAction.
 pub(crate) fn resolve_update_action(
     action: Option<&UpdateAction>,
-    check: bool,
-    apply: bool,
-    channel: Option<String>,
     manifest_url: Option<String>,
     after_update: Option<String>,
 ) -> UpdateAction {
-    if let Some(ch) = channel {
-        UpdateAction::Channel {
-            channel: if ch.is_empty() { None } else { Some(ch) },
-        }
-    } else if apply {
-        UpdateAction::Install {
-            auto: true,
-            manifest_url,
-            from_file: None,
-            continue_prompt: None,
-            continue_pane: None,
-            after_update,
-        }
-    } else if check {
-        UpdateAction::Check { force: false }
-    } else {
-        match action {
-            Some(UpdateAction::Check { force }) => UpdateAction::Check { force: *force },
-            Some(UpdateAction::Install { auto, manifest_url, from_file, continue_prompt, continue_pane, after_update }) => UpdateAction::Install {
-                auto: *auto,
-                manifest_url: manifest_url.clone(),
-                from_file: from_file.clone(),
-                continue_prompt: continue_prompt.clone(),
-                continue_pane: continue_pane.clone(),
-                after_update: after_update.clone(),
-            },
-            Some(UpdateAction::Channel { channel }) => UpdateAction::Channel { channel: channel.clone() },
-            None => UpdateAction::Check { force: false },
-        }
+    match action {
+        Some(UpdateAction::Check { force }) => UpdateAction::Check { force: *force },
+        Some(UpdateAction::Install {
+            auto,
+            manifest_url: action_manifest_url,
+            from_file,
+            continue_prompt,
+            continue_pane,
+            after_update: action_after_update,
+        }) => UpdateAction::Install {
+            auto: *auto,
+            manifest_url: action_manifest_url.clone().or(manifest_url),
+            from_file: from_file.clone(),
+            continue_prompt: continue_prompt.clone(),
+            continue_pane: continue_pane.clone(),
+            after_update: action_after_update.clone().or(after_update),
+        },
+        Some(UpdateAction::Channel { channel }) => UpdateAction::Channel {
+            channel: channel.clone(),
+        },
+        None => UpdateAction::Check { force: false },
     }
 }
 
@@ -68,14 +56,24 @@ pub(crate) fn run_update_apply_via_mesh(
         None => {
             eprintln!(
                 "Error: cannot sign mesh request — no identity at {:?}.",
-                dirs::home_dir().unwrap_or_default().join(data_dir_name()).join("mesh/identity.json")
+                dirs::home_dir()
+                    .unwrap_or_default()
+                    .join(data_dir_name())
+                    .join("mesh/identity.json")
             );
             std::process::exit(1);
         }
     };
 
     // Step 1: force-check on peer.
-    let check_resp = relay_call(http, &peer_url, &signed, "GET", "/api/update/check?force=true", None);
+    let check_resp = relay_call(
+        http,
+        &peer_url,
+        &signed,
+        "GET",
+        "/api/update/check?force=true",
+        None,
+    );
     let check_data = match check_resp {
         Ok(v) => v,
         Err(e) => {
@@ -83,7 +81,10 @@ pub(crate) fn run_update_apply_via_mesh(
             std::process::exit(1);
         }
     };
-    let status = check_data.get("status").and_then(|v| v.as_u64()).unwrap_or(0);
+    let status = check_data
+        .get("status")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     if status == 404 {
         eprintln!(
             "Peer '{}' is running an older CodeTerm without remote-update support.\n\
@@ -92,27 +93,56 @@ pub(crate) fn run_update_apply_via_mesh(
         );
         std::process::exit(2);
     }
-    if !check_data.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-        let err = check_data.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+    if !check_data
+        .get("ok")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        let err = check_data
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         eprintln!("[{}] check failed: {} (HTTP {})", target, err, status);
         std::process::exit(1);
     }
-    let info = check_data.get("data").cloned().unwrap_or(serde_json::Value::Null);
-    let current = info.get("current_version").and_then(|v| v.as_str()).unwrap_or("?");
-    let latest = info.get("latest_version").and_then(|v| v.as_str()).unwrap_or("?");
-    let available = info.get("update_available").and_then(|v| v.as_bool()).unwrap_or(false);
+    let info = check_data
+        .get("data")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let current = info
+        .get("current_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+    let latest = info
+        .get("latest_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+    let available = info
+        .get("update_available")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     if json_mode {
-        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-            "step": "check",
-            "peer": target,
-            "data": info,
-        })).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "step": "check",
+                "peer": target,
+                "data": info,
+            }))
+            .unwrap_or_default()
+        );
     } else {
         println!(
             "[{}] checking…  current v{}, latest v{} — {}",
-            target, current, latest,
-            if available { "update available" } else { "up to date" }
+            target,
+            current,
+            latest,
+            if available {
+                "update available"
+            } else {
+                "up to date"
+            }
         );
     }
 
@@ -136,9 +166,15 @@ pub(crate) fn run_update_apply_via_mesh(
             std::process::exit(1);
         }
     };
-    let status = install_data.get("status").and_then(|v| v.as_u64()).unwrap_or(0);
+    let status = install_data
+        .get("status")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     if status == 403 {
-        let err = install_data.get("data").and_then(|d| d.get("error")).and_then(|v| v.as_str())
+        let err = install_data
+            .get("data")
+            .and_then(|d| d.get("error"))
+            .and_then(|v| v.as_str())
             .or_else(|| install_data.get("error").and_then(|v| v.as_str()))
             .unwrap_or("forbidden");
         eprintln!("[{}] install rejected: {}", target, err);
@@ -152,18 +188,32 @@ pub(crate) fn run_update_apply_via_mesh(
         );
         std::process::exit(2);
     }
-    if !install_data.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-        let err = install_data.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+    if !install_data
+        .get("ok")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        let err = install_data
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         eprintln!("[{}] install failed: {} (HTTP {})", target, err, status);
         std::process::exit(1);
     }
-    let inner = install_data.get("data").cloned().unwrap_or(serde_json::Value::Null);
+    let inner = install_data
+        .get("data")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
     if json_mode {
-        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-            "step": "install",
-            "peer": target,
-            "data": inner,
-        })).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "step": "install",
+                "peer": target,
+                "data": inner,
+            }))
+            .unwrap_or_default()
+        );
     } else {
         let s = inner.get("status").and_then(|v| v.as_str()).unwrap_or("?");
         let msg = inner.get("message").and_then(|v| v.as_str()).unwrap_or("");

@@ -3,8 +3,8 @@ use std::io::Read;
 use tauri::{AppHandle, Emitter};
 
 use crate::multiplexer::commands::MuxState;
-use crate::service::ServiceState;
 use crate::service::pty_io::build_spawn_dispatch;
+use crate::service::ServiceState;
 use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
 
 #[tauri::command]
@@ -22,17 +22,7 @@ pub async fn spawn_pty(
     predicted_id: Option<String>,
     pane_id: Option<String>,
 ) -> Result<String, String> {
-    // Protected panes (General Agent) own their lifecycle from the backend —
-    // `service::general_agent::lifecycle` spawns its OWN PTY, links it, and
-    // reads from it. If the frontend also fires spawn_pty during rehydrate,
-    // we get TWO PTYs racing for the same pane: link_pty then orphan-kills
-    // the backend one, the GA reader is left holding a dead PTY, and GA
-    // hangs 60s on `poll_shell_prompt` before the watchdog gives up.
-    //
-    // Resolution: when a protected pane already has a backend-spawned PTY,
-    // return that pty_id instead of spawning a second one. When the backend
-    // hasn't gotten there yet, briefly wait — GA's lifecycle starts within
-    // a couple seconds of daemon boot.
+    // Protected panes reuse their backend PTY; wait briefly to avoid duplicate launch.
     if let Some(ref pid) = pane_id {
         let (is_protected, existing) = {
             let m = mux_state.lock();
@@ -42,18 +32,14 @@ pub async fn spawn_pty(
                 p.and_then(|p| p.pty_id.clone()),
             )
         };
-        // If the pane already has a live PTY, reuse it instead of spawning a
-        // second one. Without this, frontend re-mounts of the terminal
-        // component (tab clicks, navigation) tear down the running agent
-        // and trigger an unwanted resume from the auto-detected session id.
-        // Protected panes additionally get a brief wait so the backend GA
-        // lifecycle has a chance to spawn the PTY first.
+        // Reuse a live PTY when possible; remounts should not re-trigger agent resume.
         if let Some(existing) = existing {
             let alive = state.lock().get_session(&existing).is_some();
             if alive {
                 log::info!(
                     "[spawn_pty] pane {} already has live pty {} — reusing",
-                    pid, existing,
+                    pid,
+                    existing,
                 );
                 return Ok(existing);
             }
@@ -61,12 +47,25 @@ pub async fn spawn_pty(
         if is_protected {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             loop {
-                if let Some(existing) = mux_state.lock().get_pane(pid).and_then(|p| p.pty_id.clone()) {
-                    log::info!(
-                        "[spawn_pty] protected pane {} already has backend pty {} — reusing",
-                        pid, existing,
+                if let Some(existing) = mux_state
+                    .lock()
+                    .get_pane(pid)
+                    .and_then(|p| p.pty_id.clone())
+                {
+                    let alive = state.lock().get_session(&existing).is_some();
+                    if alive {
+                        log::info!(
+                            "[spawn_pty] protected pane {} already has live backend pty {} — reusing",
+                            pid,
+                            existing,
+                        );
+                        return Ok(existing);
+                    }
+                    log::warn!(
+                        "[spawn_pty] protected pane {} has stale backend pty {} — waiting for relink",
+                        pid,
+                        existing,
                     );
-                    return Ok(existing);
                 }
                 if std::time::Instant::now() > deadline {
                     log::warn!(
@@ -102,9 +101,11 @@ pub async fn spawn_pty(
         "CODETERM_SOCKET_PATH".to_string(),
         crate::socket::server::socket_display_path(),
     );
-    // Hook callbacks (Notification/Stop/PreCompact/SessionStart) POST to our
-    // REST API with an Authorization header read from this env var. Without
-    // it, the hook curl hits auth_middleware and 401s silently.
+    env_vars.insert(
+        "CODETERM_VERSION".to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+    );
+    // Pass token/port to REST callbacks to avoid silent 401s.
     let api_cfg = config_state.lock().api.clone();
     if let Ok(port) = std::env::var("CODETERM_API_PORT") {
         env_vars.insert("CODETERM_API_PORT".into(), port);
@@ -131,10 +132,15 @@ pub async fn spawn_pty(
     if let Some(ref pid) = pane_id {
         svc.link_pty(pid, pty_id.clone());
     }
+    if let Err(e) = crate::service::pty_lifecycle::start_backend_reader(&svc, &pty_id, false) {
+        log::warn!(
+            "[spawn_pty] failed to start backend reader for {}: {}",
+            &pty_id[..pty_id.len().min(8)],
+            e
+        );
+    }
 
-    // Auto-resume: if this pane has a saved session_id, resume it after shell is ready.
-    // This runs in backend so it works even for non-visible tabs.
-    // Skip protected panes (General Agent) — backend manages their lifecycle.
+    // Auto-resume pane session after shell is ready.
     if let Some(ref pid) = pane_id {
         let (session_id, is_protected, pane_cwd, restored_from_snapshot, agent_type) = {
             let m = mux_state.lock();
@@ -147,35 +153,26 @@ pub async fn spawn_pty(
                 pane.and_then(|p| p.agent_type.clone()),
             )
         };
-        let mut should_fresh_launch = restored_from_snapshot
-            && !is_protected
-            && agent_type.is_some();
+        let mut should_fresh_launch =
+            restored_from_snapshot && !is_protected && agent_type.is_some();
         let agent_type_for_fresh = agent_type.clone();
 
-        // Auto-resume in spawn_pty must ONLY fire when the pane was restored
-        // from a daemon snapshot (kill → restart → frontend mounts panes).
-        // For a fresh `sessions resume` / `agent spawn --resume`, the backend
-        // already drives the launch via `launch_agent_in_background`. Without
-        // this gate, both paths race: each polls shell-prompt + sends the
-        // resume command, the second send lands in the TUI's input box →
-        // garbled launch + stuck "Resume session" picker (see the prod bug
-        // screenshot where the launch command appeared on screen twice).
+        // Resume only restored snapshots; direct spawn uses backend start.
         if let Some(session_id) = session_id
             .filter(|_| !is_protected)
             .filter(|_| restored_from_snapshot)
         {
             let provider_id = agent_type.unwrap_or_else(crate::config::default_agent_provider);
 
-            // Validate the session file still exists. If it's gone (cleared cache,
-            // different machine, /new inside the TUI last run), resuming produces
-            // spam like "No conversation found with session ID: ..." which the
-            // watchdog then retries forever. Clear and fall through so the
-            // restored-from-snapshot branch can spawn a fresh agent if needed.
-            let session_valid = pane_cwd.as_deref().map(|cwd| {
-                svc.agent_registry.with_provider(&provider_id, |p| {
-                    p.session_exists(cwd, &session_id)
-                }).unwrap_or(false)
-            }).unwrap_or(false);
+            // Clear stale id if session is gone to avoid resume loop.
+            let session_valid = pane_cwd
+                .as_deref()
+                .map(|cwd| {
+                    svc.agent_registry
+                        .with_provider(&provider_id, |p| p.session_exists(cwd, &session_id))
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
 
             if !session_valid {
                 log::info!(
@@ -188,17 +185,17 @@ pub async fn spawn_pty(
                 svc.set_and_lock_pane_agent_type(pid, provider_id.clone());
                 svc.emit_state_changed();
 
-                // Build resume command via provider registry (provider-agnostic).
-                // Per-provider config: each plugin has its own resume_sessions /
-                // resume_skip_permissions in `[agents.<id>]` (back-compat fallback
-                // to global `[agent]` is handled by `provider_config()`).
+                // Build resume command from provider and global fallback config.
                 let pc = crate::config::provider_config(&provider_id);
                 let _ = config_state; // global lock no longer needed for these fields
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
                 let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
-                let resume_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
-                    p.build_resume_command(&session_id, skip_perms)
-                }).flatten();
+                let resume_cmd = svc
+                    .agent_registry
+                    .with_provider(&provider_id, |p| {
+                        p.build_resume_command(&session_id, skip_perms)
+                    })
+                    .flatten();
 
                 if let Some(cmd) = resume_cmd {
                     let pty_clone = state.inner().clone();
@@ -206,21 +203,26 @@ pub async fn spawn_pty(
                     let pty_id_for_write = pty_id.clone();
                     let screen_state_clone = screen_state.inner().clone();
                     tokio::spawn(async move {
-                        if !resume_enabled { return; }
+                        if !resume_enabled {
+                            return;
+                        }
 
-                        // 60s is generous but matters under contention: at app
-                        // restart dozens of panes spawn in parallel and shell
-                        // initialization can stall well past the old 15s budget
-                        // (observed 14-20s for Nth-pane zsh under load on macOS).
+                        // Wait up to 60s for shell readiness before writing resume command.
                         let ready = tokio::task::spawn_blocking(move || {
                             crate::service::pty_io::poll_shell_prompt(
-                                &screen_state_clone, &pty_id_for_poll,
+                                &screen_state_clone,
+                                &pty_id_for_poll,
                                 std::time::Duration::from_secs(60),
                             )
-                        }).await.unwrap_or(false);
+                        })
+                        .await
+                        .unwrap_or(false);
 
                         if !ready {
-                            log::warn!("[resume] shell not ready for session {}, skipping", session_id);
+                            log::warn!(
+                                "[resume] shell not ready for session {}, skipping",
+                                session_id
+                            );
                             return;
                         }
 
@@ -230,7 +232,10 @@ pub async fn spawn_pty(
                                 let _ = pty_clone.lock().write(&pty_id_for_write, &bytes);
                             }
                             Err(e) => {
-                                log::error!("[resume] spawn dispatch build failed: {} — skipping launch", e);
+                                log::error!(
+                                    "[resume] spawn dispatch build failed: {} — skipping launch",
+                                    e
+                                );
                             }
                         }
                     });
@@ -241,15 +246,7 @@ pub async fn spawn_pty(
 
         if should_fresh_launch {
             let provider_id = agent_type_for_fresh.expect("checked above");
-            // Pane was tagged with an agent but had no session to resume —
-            // typically a "silent" claude pane the user spawned and never
-            // talked to before a kill. Without this branch the pane comes
-            // back as a bare powershell, which is exactly the previously
-            // reported bug. Launch the agent fresh so the pane matches what
-            // the snapshot promised. Gated on restored_from_snapshot so
-            // it does NOT race the orchestrator's own launch on a fresh
-            // `agent spawn` (would otherwise paste the launch twice).
-            // Flag cleared after first spawn so a re-mount stays quiet.
+            // Restored pane without session falls back to fresh launch.
             svc.clear_pane_restored_flag(pid);
             let pc = crate::config::provider_config(&provider_id);
             let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
@@ -268,10 +265,13 @@ pub async fn spawn_pty(
                 tokio::spawn(async move {
                     let ready = tokio::task::spawn_blocking(move || {
                         crate::service::pty_io::poll_shell_prompt(
-                            &screen_state_clone, &pty_id_for_poll,
+                            &screen_state_clone,
+                            &pty_id_for_poll,
                             std::time::Duration::from_secs(60),
                         )
-                    }).await.unwrap_or(false);
+                    })
+                    .await
+                    .unwrap_or(false);
                     if !ready {
                         log::warn!(
                             "[restore-fresh] shell not ready for {} pane, skipping launch",
@@ -279,13 +279,20 @@ pub async fn spawn_pty(
                         );
                         return;
                     }
-                    log::info!("[restore-fresh] launching {} (no session): {}", provider_label, cmd);
+                    log::info!(
+                        "[restore-fresh] launching {} (no session): {}",
+                        provider_label,
+                        cmd
+                    );
                     match build_spawn_dispatch(&cmd) {
                         Ok(bytes) => {
                             let _ = pty_clone.lock().write(&pty_id_for_write, &bytes);
                         }
                         Err(e) => {
-                            log::error!("[restore-fresh] spawn dispatch build failed: {} — skipping launch", e);
+                            log::error!(
+                                "[restore-fresh] spawn dispatch build failed: {} — skipping launch",
+                                e
+                            );
                         }
                     }
                 });
@@ -307,15 +314,28 @@ pub async fn read_pty(
     app: AppHandle,
     pty_id: String,
 ) -> Result<Vec<u8>, String> {
+    let _ = (&state, &output_buf, &screen_state, &mux, &tracker, &app);
+    read_pty_core(&svc, pty_id).await
+}
+
+/// Long-poll one chunk of PTY output. Shared by the Tauri command and the
+/// web mirror's GET /api/pty/{id}/read — every state it needs lives on
+/// ServiceContext.
+pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>, String> {
+    let state = &svc.pty;
+    let output_buf = &svc.output_buf;
+    let screen_state = &svc.screen_state;
+    let mux = &svc.mux;
+    let tracker = &svc.agent_tracker;
+    let app = &svc.app_handle;
     let session = {
         let manager = state.lock();
-        manager.get_session(&pty_id)
+        manager
+            .get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
 
-    // If a backend reader is active, it forwards output via channel to avoid competing reads.
-    // Read from channel instead of raw PTY. Processing (OutputBuffer, ScreenState, process_pty_output)
-    // is already done by the backend reader — don't duplicate it here.
+    // Prefer backend-reader output when available; it handles decoding/state transitions.
     {
         let rx_opt = session.backend_reader_rx.lock().unwrap().take();
         if let Some(mut rx) = rx_opt {
@@ -345,9 +365,7 @@ pub async fn read_pty(
     let ss = (*screen_state).clone();
     let pid = pty_id.clone();
 
-    // Take reader from session — only one readLoop can own it at a time.
-    // If reader was already taken (by a previous readLoop that's blocking in read()),
-    // create a new one via try_clone_reader.
+    // One read loop owns the reader; clone fresh via try_clone_reader if taken.
     let mut reader_to_use = {
         let mut reader_slot = session.reader.lock().unwrap();
         match reader_slot.take() {
@@ -399,10 +417,14 @@ pub async fn read_pty(
             if now != prev {
                 let pane_id = mux.lock().pane_id_for_pty(&pty_id);
                 if let Some(ref pid) = pane_id {
-                    let _ = app.emit("pane-status-changed", serde_json::json!({
-                        "pane_id": pid,
-                        "status": format!("{:?}", now),
-                    }));
+                    crate::api::events::emit_everywhere(
+                        &app,
+                        "pane-status-changed",
+                        serde_json::json!({
+                            "pane_id": pid,
+                            "status": format!("{:?}", now),
+                        }),
+                    );
                 }
             }
 
@@ -413,12 +435,16 @@ pub async fn read_pty(
             tracker.lock().set_dead(&pty_id);
             let pane_id = mux.lock().pane_id_for_pty(&pty_id);
             if let Some(ref pid) = pane_id {
-                let _ = app.emit("pane-status-changed", serde_json::json!({
-                    "pane_id": pid,
-                    "status": "Dead",
-                }));
+                crate::api::events::emit_everywhere(
+                    &app,
+                    "pane-status-changed",
+                    serde_json::json!({
+                        "pane_id": pid,
+                        "status": "Dead",
+                    }),
+                );
 
-                // Cron fallback: if agent died without calling cron complete, mark as failed
+                // Cron fallback marks failed if agent dies without cron completion.
                 use tauri::Manager;
                 if let Some(cron_state) = app.try_state::<crate::CronState>() {
                     let owner = cron_state.lock().get_pane_owner(pid).cloned();
@@ -429,7 +455,11 @@ pub async fn read_pty(
                             let text = output_buf.lock().get_text(&pty_id).unwrap_or_default();
                             let clean = crate::pty::ansi::clean_terminal_output(&text);
                             let _ = store.save_log(&job_id, &run_id, &clean);
-                            let _ = store.update_run_status(&job_id, &run_id, crate::cron::store::CronRunStatus::Failed);
+                            let _ = store.update_run_status(
+                                &job_id,
+                                &run_id,
+                                crate::cron::store::CronRunStatus::Failed,
+                            );
                         }
                         store.unregister_pane(pid);
                         log::info!("Cron pane exited: job={}, run={}", job_id, run_id);
@@ -438,7 +468,7 @@ pub async fn read_pty(
                 }
             }
             Err(e)
-        },
+        }
     }
 }
 
@@ -449,15 +479,42 @@ pub async fn write_pty_string(
     svc: tauri::State<'_, ServiceState>,
     pty_id: String,
     data: String,
+    raw: Option<bool>,
+) -> Result<(), String> {
+    let _ = (&state, &mux_state);
+    if raw.unwrap_or(true) {
+        write_pty_string_core(&svc, pty_id, data)
+    } else {
+        // Bracketed paste with sacrificial space on Windows — see build_spawn_dispatch.
+        // Trailing \r is stripped and submitted as Enter; agent panes go through
+        // the verified injector (drain-checked Enter retry), which blocks — keep
+        // it off the async runtime.
+        let svc = svc.inner().clone();
+        tokio::task::spawn_blocking(move || {
+            let text_stripped = data.trim_end_matches('\r');
+            let enter = text_stripped.len() != data.len();
+            svc.send_text_to_pty_smart(&pty_id, text_stripped, enter)
+        })
+        .await
+        .map_err(|e| format!("send task failed: {e}"))?
+    }
+}
+
+/// Shared by the Tauri command and the web mirror's POST /api/pty/{id}/write.
+pub fn write_pty_string_core(
+    svc: &ServiceState,
+    pty_id: String,
+    data: String,
 ) -> Result<(), String> {
     let session = {
-        let manager = state.lock();
-        manager.get_session(&pty_id)
+        let manager = svc.pty.lock();
+        manager
+            .get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
     let bytes = data.into_bytes();
-    parse_pty_input(&svc, &mux_state, &pty_id, &bytes);
-    mark_user_activity(&svc, &mux_state, &pty_id);
+    parse_pty_input(svc, &svc.mux, &pty_id, &bytes);
+    mark_user_activity(svc, &svc.mux, &pty_id);
     session.write_queue.send(bytes)
 }
 
@@ -471,7 +528,8 @@ pub async fn write_pty(
 ) -> Result<(), String> {
     let session = {
         let manager = state.lock();
-        manager.get_session(&pty_id)
+        manager
+            .get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
     parse_pty_input(&svc, &mux_state, &pty_id, &data);
@@ -502,7 +560,8 @@ fn parse_pty_input(
     let (pane_id, locked) = {
         let m = mux.lock();
         let pid = m.pane_id_for_pty(pty_id);
-        let locked = pid.as_ref()
+        let locked = pid
+            .as_ref()
             .and_then(|id| m.get_pane(id))
             .map(|p| p.agent_type_locked)
             .unwrap_or(false);
@@ -516,7 +575,8 @@ fn parse_pty_input(
     if let Some(provider_id) = svc.input_parser.process(&pane_id, bytes) {
         log::info!(
             "[input-parser] detected '{}' launch in pane {} — locking agent_type",
-            provider_id, pane_id,
+            provider_id,
+            pane_id,
         );
         svc.set_and_lock_pane_agent_type(&pane_id, provider_id);
         svc.emit_state_changed();
@@ -526,20 +586,63 @@ fn parse_pty_input(
 #[tauri::command]
 pub async fn resize_pty(
     state: tauri::State<'_, PtyState>,
+    resize_owner: tauri::State<'_, crate::ResizeOwnerState>,
+    pty_id: String,
+    cols: u16,
+    rows: u16,
+    client_id: Option<String>,
+) -> Result<(), String> {
+    if let Some(client_id) = client_id.as_deref() {
+        if !resize_owner.lock().is_owner(&pty_id, client_id) {
+            return Ok(());
+        }
+    }
+    resize_pty_core(&state, pty_id, cols, rows)
+}
+
+#[tauri::command]
+pub async fn claim_resize_owner(
+    resize_owner: tauri::State<'_, crate::ResizeOwnerState>,
+    events: tauri::State<'_, crate::api::events::EventBroadcasterState>,
+    pane_id: String,
+    pty_id: String,
+    client_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<crate::resize_owner::ResizeOwner, String> {
+    let owner = resize_owner
+        .lock()
+        .claim(pane_id, pty_id, client_id, cols, rows);
+    events.publish(crate::api::events::SystemEvent::Generic {
+        event_type: "pty-resize-owner-changed".to_string(),
+        data: serde_json::to_value(&owner).unwrap_or_default(),
+    });
+    Ok(owner)
+}
+
+/// Shared by the Tauri command and the web mirror's POST /api/pty/{id}/resize.
+pub fn resize_pty_core(
+    state: &PtyState,
     pty_id: String,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
     let session = {
         let manager = state.lock();
-        manager.get_session(&pty_id)
+        manager
+            .get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
 
     let pair = session.pair.lock().unwrap();
-    pair.master.resize(portable_pty::PtySize {
-        rows, cols, pixel_width: 0, pixel_height: 0,
-    }).map_err(|e| format!("Resize failed: {}", e))?;
+    pair.master
+        .resize(portable_pty::PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("Resize failed: {}", e))?;
     Ok(())
 }
 
@@ -549,10 +652,8 @@ pub async fn kill_pty(
     mux_state: tauri::State<'_, crate::multiplexer::commands::MuxState>,
     pty_id: String,
 ) -> Result<(), String> {
-    // Protected panes (General Agent) own their PTY from the backend. The
-    // frontend pty-connection effect calls kill_pty if the React component
-    // dispose-races a `spawn_pty` that returned the backend's existing PTY,
-    // which would tear down GA mid-launch. Refuse to kill those.
+    // Protected panes (General Agent) own backend PTYs. Ignore kill_pty
+    // if it targets an already-owned PTY to avoid tearing GA down mid-launch.
     let owned_by_protected = {
         let mux = mux_state.lock();
         mux.pane_id_for_pty(&pty_id)

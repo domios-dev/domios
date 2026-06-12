@@ -6,6 +6,7 @@
 //! trait impl, which delegates each method to the right child.
 
 mod detection;
+mod integration;
 mod launch;
 mod schemas;
 mod sessions;
@@ -43,6 +44,10 @@ impl ClaudeProvider {
 impl AgentProvider for ClaudeProvider {
     fn id(&self) -> &str {
         "claude"
+    }
+
+    fn supports_chat_ui(&self) -> bool {
+        true
     }
 
     fn display_name(&self) -> &str {
@@ -104,6 +109,12 @@ impl AgentProvider for ClaudeProvider {
             || lower.contains("for shortcuts")
             || lower.contains("ctrl+l")
             || lower.contains("esc to interrupt")
+            // v2.1+ idle footer ("⏵⏵ bypass permissions on (shift+tab to cycle)")
+            || lower.contains("bypass permissions")
+            || lower.contains("shift+tab to cycle")
+            // Banner logo quadrant blocks — never in plain shell output.
+            || screen_text.contains('▛')
+            || screen_text.contains('▜')
     }
 
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
@@ -117,6 +128,38 @@ impl AgentProvider for ClaudeProvider {
         max_age: Option<Duration>,
     ) -> Option<String> {
         sessions::detect_session_id(cwd, exclude, max_age)
+    }
+
+    fn detect_launched_session_id(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+    ) -> Option<String> {
+        if let Some(session_id) = injected_session_id {
+            if self.session_exists(cwd, session_id) {
+                return Some(session_id.to_string());
+            }
+        }
+        sessions::detect_session_id(cwd, exclude, max_age)
+    }
+
+    fn detect_started_session(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+        screen_text: Option<&str>,
+    ) -> Option<String> {
+        self.detect_started_session_with_markers(
+            cwd,
+            exclude,
+            max_age,
+            injected_session_id,
+            screen_text,
+        )
     }
 
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
@@ -181,8 +224,8 @@ impl AgentProvider for ClaudeProvider {
         Some("/compact")
     }
 
-    fn model_switch_command(&self, model: &str) -> Option<String> {
-        Some(format!("/model {}", model))
+    fn model_switch_format(&self) -> Option<&str> {
+        Some("/model {model}")
     }
 
     fn exit_command(&self) -> Option<&str> {
@@ -211,13 +254,12 @@ impl AgentProvider for ClaudeProvider {
 
     fn install_command(&self, platform: &str) -> Option<String> {
         match platform {
-            // Anthropic's native installer is the recommended path — auto-updates
-            // in the background, no Node.js dependency. npm is now an "advanced"
+            // Anthropic's native installer is the recommended path — auto-updates in the background, no Node.js dependency. npm is now an "advanced"
             // option per https://code.claude.com/docs/en/setup.
             "macos" | "linux" => Some("curl -fsSL https://claude.ai/install.sh | bash".into()),
-            "windows" => Some(
-                "powershell -Command \"irm https://claude.ai/install.ps1 | iex\"".into(),
-            ),
+            "windows" => {
+                Some("powershell -Command \"irm https://claude.ai/install.ps1 | iex\"".into())
+            }
             _ => None,
         }
     }
@@ -250,6 +292,30 @@ impl AgentProvider for ClaudeProvider {
     fn uninstall_bridge_rule(&self) -> Result<(), String> {
         schemas::uninstall_bridge_rule()
     }
+
+    fn check_integration(&self) -> serde_json::Value {
+        integration::check_integration()
+    }
+
+    fn install_integration(&self, api_port: u16) -> Result<(), String> {
+        integration::install_integration(api_port)
+    }
+
+    fn uninstall_integration(&self) -> Result<(), String> {
+        integration::uninstall_integration()
+    }
+
+    fn ensure_integration_on_startup(&self, api_port: u16) {
+        integration::ensure_integration_on_startup(api_port);
+    }
+
+    fn check_rule_status(&self) -> serde_json::Value {
+        integration::check_rule_status()
+    }
+
+    fn install_rule(&self) -> Result<(), String> {
+        integration::install_rule()
+    }
 }
 
 #[cfg(test)]
@@ -267,7 +333,10 @@ mod tests {
     #[test]
     fn claude_auto_approve_flags_has_dangerously_skip() {
         let p = ClaudeProvider::new();
-        assert_eq!(p.auto_approve_flags(), vec!["--dangerously-skip-permissions"]);
+        assert_eq!(
+            p.auto_approve_flags(),
+            vec!["--dangerously-skip-permissions"]
+        );
     }
 
     #[test]
@@ -279,7 +348,10 @@ mod tests {
     #[test]
     fn claude_model_switch_command_formats_slash_model() {
         let p = ClaudeProvider::new();
-        assert_eq!(p.model_switch_command("sonnet").as_deref(), Some("/model sonnet"));
+        assert_eq!(
+            p.model_switch_command("sonnet").as_deref(),
+            Some("/model sonnet")
+        );
     }
 
     #[test]
@@ -290,7 +362,10 @@ mod tests {
             f,
             crate::agent::provider::SettingField::Section { title, .. } if title.starts_with("Usage Tracking")
         ));
-        assert!(has, "Claude has usage_parser — describe() must auto-inject the Usage Tracking toggle");
+        assert!(
+            has,
+            "Claude has usage_parser — describe() must auto-inject the Usage Tracking toggle"
+        );
     }
 
     #[test]
@@ -308,8 +383,7 @@ mod tests {
     #[test]
     fn claude_install_skills_default_noop_is_ok() {
         let p = ClaudeProvider::new();
-        // Default implementation is a no-op that returns Ok(()) — ClaudeProvider
-        // doesn't override it yet (real skill delivery comes with Phase 2).
+        // Default implementation is a no-op that returns Ok(()) — ClaudeProvider doesn't override it yet (real skill delivery comes with Phase 2).
         assert!(p.install_skills(&[]).is_ok());
         assert!(p.uninstall_skills(&[]).is_ok());
     }
@@ -338,8 +412,14 @@ mod tests {
     fn claude_uses_tui_input_drained_for_submit_verification() {
         let p = ClaudeProvider::new();
         match p.verify_submit_strategy() {
-            VerifySubmitStrategy::TuiInputDrained { timeout, idle_after_drain } => {
-                assert!(timeout >= Duration::from_secs(10), "claude timeout too short");
+            VerifySubmitStrategy::TuiInputDrained {
+                timeout,
+                idle_after_drain,
+            } => {
+                assert!(
+                    timeout >= Duration::from_secs(10),
+                    "claude timeout too short"
+                );
                 assert!(
                     idle_after_drain >= Duration::from_millis(500),
                     "idle window too short"

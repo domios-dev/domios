@@ -1,12 +1,12 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui-dart/tauri/HEAD/core/tauri-config-schema/schema.json",
   "productName": "CodeTerm",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "identifier": "com.codeterm.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "bash scripts/dev-prep.sh",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeDevCommand": "node scripts/dev-prep.mjs",
     "beforeBuildCommand": "pnpm build && node scripts/touch-cli-main.js && cargo build --release --manifest-path cli/Cargo.toml && node scripts/bundle-cli.js && node scripts/prepare-embed-stub.js && cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed && node scripts/bundle-embed.js"
   },
   "app": {
@@ -29,6 +29,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis", "dmg", "app", "deb", "appimage", "rpm"],
     "icon": [
       "icons/32x32.png",
@@ -43,6 +44,7 @@
       "bundled-embed/codeterm-embed"
     ],
     "macOS": {
+      "infoPlist": "Info.plist",
       "minimumSystemVersion": "10.15"
     },
     "windows": {

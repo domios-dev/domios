@@ -14,15 +14,27 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
     let dir = general_dir();
 
     let files: &[(&str, &str, &str, &[&str])] = &[
-        ("identity.md", "identity", "User identity — name, role, location, communication style", &["identity"]),
-        ("soul.md", "soul", "Agent personality — character, tone, behavior rules", &["soul"]),
+        (
+            "identity.md",
+            "identity",
+            "User identity — name, role, location, communication style",
+            &["identity"],
+        ),
+        (
+            "soul.md",
+            "soul",
+            "Agent personality — character, tone, behavior rules",
+            &["soul"],
+        ),
     ];
 
     for (filename, title, summary, tags) in files {
         let path = dir.join(filename);
         if let Ok(content) = std::fs::read_to_string(&path) {
             let trimmed = content.trim();
-            if trimmed.is_empty() { continue; }
+            if trimmed.is_empty() {
+                continue;
+            }
             let short: String = trimmed.chars().take(200).collect();
             let file_path = path.to_string_lossy().to_string();
             let source = format!("file:{}", &file_path);
@@ -48,9 +60,13 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
 /// {wake_up} substitution without hitting real disk paths.
 pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> String {
     let version = env!("CARGO_PKG_VERSION");
-    let platform = if cfg!(target_os = "windows") { "Windows" }
-        else if cfg!(target_os = "macos") { "macOS" }
-        else { "Linux" };
+    let platform = if cfg!(target_os = "windows") {
+        "Windows"
+    } else if cfg!(target_os = "macos") {
+        "macOS"
+    } else {
+        "Linux"
+    };
     let hostname = hostname::get()
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
@@ -79,7 +95,10 @@ pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> Str
         .replace("{provider_name}", provider_name)
         .replace("{general_dir}", &dir.to_string_lossy())
         .replace("{secrets_dir}", &secrets_dir().to_string_lossy())
-        .replace("{skills_dir}", &crate::paths::data_dir().join("skills").to_string_lossy())
+        .replace(
+            "{skills_dir}",
+            &crate::paths::data_dir().join("skills").to_string_lossy(),
+        )
         .replace("{identity}", &identity_section)
         .replace("{soul}", &soul_section)
         .replace("{wake_up}", wake_up_section)
@@ -89,15 +108,25 @@ pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> Str
 /// Render the L0+L1 wake-up payload as a markdown section, or empty when
 /// mem is unavailable / failed. On error we log and substitute empty so GA
 /// bootstrap never fails because of memory.
-pub(super) fn render_wake_up_section(mem: Option<&std::sync::Arc<crate::mem::MemManager>>) -> String {
+pub(super) fn render_wake_up_section(
+    mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
+) -> String {
     let Some(m) = mem else { return String::new() };
     match m.wake_up(&crate::mem::WakeUpOptions::default()) {
         Ok(text) => format!("\n## Live mem snapshot\n\n{}\n", text.trim()),
         Err(e) => {
-            log::warn!("[general-agent] wake-up render failed: {} — injecting empty section", e);
+            log::warn!(
+                "[general-agent] wake-up render failed: {} — injecting empty section",
+                e
+            );
             String::new()
         }
     }
+}
+
+pub(super) fn render_bootstrap_instructions() -> String {
+    crate::prompts::BOOTSTRAP_INSTRUCTIONS_TEMPLATE
+        .replace("{general_dir}", &general_dir().to_string_lossy())
 }
 
 pub fn generate_instructions(
@@ -131,7 +160,7 @@ pub fn generate_instructions(
 
     let bootstrap = dir.join("bootstrap.md");
     if !bootstrap.exists() {
-        let _ = std::fs::write(&bootstrap, crate::prompts::BOOTSTRAP_INSTRUCTIONS_TEMPLATE);
+        let _ = std::fs::write(&bootstrap, render_bootstrap_instructions());
     }
 }
 
@@ -165,7 +194,28 @@ mod tests {
     #[test]
     fn test_template_has_wake_up_placeholder() {
         let template = crate::prompts::GENERAL_AGENT_TEMPLATE;
-        assert!(template.contains("{wake_up}"), "general_agent.md template must declare {{wake_up}} placeholder");
+        assert!(
+            template.contains("{wake_up}"),
+            "general_agent.md template must declare {{wake_up}} placeholder"
+        );
+    }
+
+    #[test]
+    fn test_bootstrap_template_renders_general_dir() {
+        let rendered = render_bootstrap_instructions();
+
+        assert!(
+            !rendered.contains("{general_dir}"),
+            "bootstrap instructions must not leak the literal placeholder"
+        );
+        assert!(
+            rendered.contains("bootstrap.md"),
+            "bootstrap instructions should still tell the GA which file to delete"
+        );
+        assert!(
+            rendered.contains("Remove-Item") && rendered.contains("rm "),
+            "bootstrap cleanup must remain cross-platform"
+        );
     }
 
     #[test]
@@ -196,8 +246,7 @@ mod tests {
         std::env::set_var("HOME", &dir);
         std::env::set_var("USERPROFILE", &dir);
 
-        // Hold the mem connection lock for the duration of the test —
-        // simulates a long-running embed/extract worker stalled on it.
+        // Hold the mem connection lock for the duration of the test — simulates a long-running embed/extract worker stalled on it.
         let _conn_guard = mem.conn().lock();
 
         let started = Arc::new(AtomicBool::new(false));
@@ -209,8 +258,7 @@ mod tests {
             // This call WILL block on conn.lock(); the parent must not.
             generate_instructions("claude", Some(&mem_clone));
         });
-        // `spawn` returns immediately; the parent is not blocked even
-        // though the spawned closure is parked on the conn lock.
+        // `spawn` returns immediately; the parent is not blocked even though the spawned closure is parked on the conn lock.
         let elapsed = t0.elapsed();
         assert!(
             elapsed < Duration::from_millis(500),
@@ -220,9 +268,7 @@ mod tests {
         // Give the new thread a moment to enter run state and confirm it did.
         std::thread::sleep(Duration::from_millis(50));
         assert!(started.load(Ordering::SeqCst), "spawned thread must run");
-        // We deliberately leak the join handle — releasing _conn_guard
-        // when the test exits unblocks the spawned thread, but waiting
-        // on it would couple the test to wake_up's runtime cost.
+        // We deliberately leak the join handle — releasing _conn_guard when the test exits unblocks the spawned thread, but waiting on it would couple the test to wake_up's runtime cost.
         std::mem::drop(handle);
     }
 
@@ -241,7 +287,8 @@ mod tests {
             importance: 5.0,
             source_path: None,
             pinned: false,
-        }).unwrap();
+        })
+        .unwrap();
         mem.save(crate::mem::NewMemItem {
             kind: crate::mem::MemKind::Rule,
             scope: crate::mem::MemScope::Global,
@@ -254,11 +301,20 @@ mod tests {
             importance: 5.0,
             source_path: None,
             pinned: false,
-        }).unwrap();
+        })
+        .unwrap();
 
         let section = render_wake_up_section(Some(&mem));
-        assert!(section.contains("## Live mem snapshot"), "section must have header: {}", section);
-        assert!(section.contains("Alice"), "section must contain identity body: {}", section);
+        assert!(
+            section.contains("## Live mem snapshot"),
+            "section must have header: {}",
+            section
+        );
+        assert!(
+            section.contains("Alice"),
+            "section must contain identity body: {}",
+            section
+        );
 
         let rendered = render_agent_md("claude", &section);
         assert!(rendered.contains("## Live mem snapshot"));

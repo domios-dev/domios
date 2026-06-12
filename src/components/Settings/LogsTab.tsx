@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "../../lib/bridge";
 import { RefreshCw, Trash2, ScrollText } from "lucide-react";
 import type { AppConfig } from "../../lib/types";
 import { SettingsCard } from "./shared";

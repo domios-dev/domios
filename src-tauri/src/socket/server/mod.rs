@@ -18,10 +18,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
-use interprocess::local_socket::{
-    prelude::*,
-    GenericNamespaced, ListenerOptions,
-};
+use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
 
 use crate::multiplexer::commands::MuxState;
 use crate::notification::NotifState;
@@ -82,9 +79,8 @@ impl JsonRpcResponse {
 /// `GenericNamespaced` on Unix prepends `/tmp/` automatically,
 /// so we only provide the bare name here.
 pub fn socket_path() -> String {
-    // Dev builds use a stable socket name (no PID) so CLI tools in existing
-    // PTY sessions survive dev server restarts. Only one dev instance at a time.
-    // Prod builds include PID to allow multiple instances.
+    // Dev builds use a stable socket name (no PID) so CLI tools in existing PTY sessions survive dev server restarts. Only one dev instance at a
+    // time. Prod builds include PID to allow multiple instances.
     #[cfg(debug_assertions)]
     {
         format!("{}.sock", crate::paths::SOCKET_PREFIX)
@@ -130,7 +126,10 @@ impl SocketServer {
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                         let sock_prefix = format!("{}-", crate::paths::SOCKET_PREFIX);
                         if name.starts_with(&sock_prefix) && name.ends_with(".sock") {
-                            if let Some(pid_str) = name.strip_prefix(&sock_prefix).and_then(|s| s.strip_suffix(".sock")) {
+                            if let Some(pid_str) = name
+                                .strip_prefix(&sock_prefix)
+                                .and_then(|s| s.strip_suffix(".sock"))
+                            {
                                 if let Ok(pid) = pid_str.parse::<u32>() {
                                     let alive = std::process::Command::new("kill")
                                         .args(["-0", &pid.to_string()])
@@ -186,10 +185,7 @@ impl SocketServer {
             .create_sync()
             .map_err(|e| format!("Failed to create socket listener: {}", e))?;
 
-        log::info!(
-            "Socket server listening at {}",
-            socket_display_path()
-        );
+        log::info!("Socket server listening at {}", socket_display_path());
 
         std::thread::spawn(move || {
             for conn in listener.incoming() {
@@ -203,7 +199,15 @@ impl SocketServer {
                         let svc = svc_state.clone();
 
                         std::thread::spawn(move || {
-                            handle_connection(stream, &mux, &pty, &notif, &app_handle, &out_buf, &svc);
+                            handle_connection(
+                                stream,
+                                &mux,
+                                &pty,
+                                &notif,
+                                &app_handle,
+                                &out_buf,
+                                &svc,
+                            );
                         });
                     }
                     Err(e) => {
@@ -245,12 +249,21 @@ fn handle_connection(
                         let id = req.id.clone();
                         let id_for_panic = id.clone();
                         let method = req.method.clone();
-                        // catch_unwind so a panic inside any dispatch handler does not
-                        // silently drop the socket and leave the CLI with an "EOF while
-                        // parsing" mystery. We surface a real JSON-RPC error instead.
-                        let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            dispatch(&req.method, req.params, mux, pty, notif, app, output_buf, svc)
-                        }));
+                        // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
+                        // We surface a real JSON-RPC error instead.
+                        let dispatched =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                dispatch(
+                                    &req.method,
+                                    req.params,
+                                    mux,
+                                    pty,
+                                    notif,
+                                    app,
+                                    output_buf,
+                                    svc,
+                                )
+                            }));
                         match dispatched {
                             Ok(Ok(result)) => JsonRpcResponse::success(id, result),
                             Ok(Err(err)) => JsonRpcResponse::error(id, err.code, err.message),
@@ -275,11 +288,7 @@ fn handle_connection(
                             }
                         }
                     }
-                    Err(e) => JsonRpcResponse::error(
-                        None,
-                        -32700,
-                        format!("Parse error: {}", e),
-                    ),
+                    Err(e) => JsonRpcResponse::error(None, -32700, format!("Parse error: {}", e)),
                 };
 
                 if let Ok(json) = serde_json::to_string(&response) {
@@ -355,8 +364,8 @@ fn dispatch(
         _ => {}
     }
 
-    // Domain prefix → submodule. Each submodule owns its own per-method match
-    // (and returns Method-not-found for anything within its prefix it doesn't know).
+    // Domain prefix → submodule. Each submodule owns its own per-method match (and returns Method-not-found for anything within its prefix it
+    // doesn't know).
     let prefix = method.split('.').next().unwrap_or("");
     match prefix {
         "workspace" => workspace::dispatch(method, &params, mux, app, svc),

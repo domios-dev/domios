@@ -41,8 +41,7 @@ pub async fn mem_dream(
 
     let phase = p.phase.as_deref().unwrap_or("all").to_lowercase();
 
-    // recluster is opt-in only: never part of "all", never cron-driven.
-    // Runs in-process so the LLM call has direct access to the mem manager.
+    // recluster is opt-in only: never part of "all", never cron-driven. Runs in-process so the LLM call has direct access to the mem manager.
     if phase == "recluster" {
         return run_recluster_inline(&state).await;
     }
@@ -61,16 +60,17 @@ pub async fn mem_dream(
 
     let mut reports = Vec::new();
     for kind in &phases {
-        let report = state.svc.mem_supervisor.run(*kind).await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", kind.as_arg(), e)))?;
+        let report = state.svc.mem_supervisor.run(*kind).await.map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}: {}", kind.as_arg(), e),
+            )
+        })?;
         reports.push(report);
     }
 
-    // Calibration sweep is now a server-side phase, not an LLM-driven stage.
-    // The dreamer used to be instructed to invoke it from STAGE D, but the
-    // model routinely skipped the Bash call and fabricated the result; running
-    // it here makes the sweep authoritative and lands real history rows the
-    // LLM can read for the diary's CALIBRATION line.
+    // Calibration sweep is now a server-side phase, not an LLM-driven stage. The dreamer used to be instructed to invoke it from STAGE D, but the
+    // Run calibration directly in daemon to ensure results are real and history rows are durable.
     if phase == "all" {
         let svc = state.svc.clone();
         let calib = tokio::task::spawn_blocking(move || {
@@ -79,11 +79,24 @@ pub async fn mem_dream(
             })
         })
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("calibration join: {}", e)))?
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("calibration: {}", e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("calibration join: {}", e),
+            )
+        })?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("calibration: {}", e),
+            )
+        })?;
         let mut tagged = calib;
         if let Some(obj) = tagged.as_object_mut() {
-            obj.insert("phase".into(), serde_json::Value::String("calibration".into()));
+            obj.insert(
+                "phase".into(),
+                serde_json::Value::String("calibration".into()),
+            );
         }
         reports.push(tagged);
     }
@@ -126,7 +139,9 @@ async fn run_recluster_inline(
     let report = run_recluster_phase_with_lock(conn_mutex, &model, &plan_dir, &caller).await;
 
     match report {
-        Ok(r) => Ok(Json(serde_json::json!({ "phase": "recluster", "report": r }))),
+        Ok(r) => Ok(Json(
+            serde_json::json!({ "phase": "recluster", "report": r }),
+        )),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
 }

@@ -7,6 +7,20 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 
+/// Snapshot the multiplexer into the session store NOW. Durability is
+/// otherwise the 30s auto-save timer plus the close-to-tray hook — a
+/// force-killed daemon (taskkill, crash, e2e harness) loses anything
+/// younger than the last tick. Restart-persistence tests call this first.
+pub async fn save_session_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    crate::update::shutdown::persist_session(&state.svc.app_handle, &state.svc)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct SearchSessionsQuery {
     q: String,
@@ -30,12 +44,11 @@ pub async fn search_sessions_api(
     axum::extract::Query(q): axum::extract::Query<SearchSessionsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let terms: Vec<String> = q
-        .q
-        .split_whitespace()
-        .map(|s| s.to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
+    let terms: Vec<String> =
+        q.q.split_whitespace()
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
     if terms.is_empty() {
         return Ok(Json(serde_json::json!({ "hits": [] })));
     }
@@ -60,7 +73,10 @@ pub async fn get_session_api(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     match state.svc.agent_registry.find_session(&session_id) {
         Some(meta) => Ok(Json(serde_json::to_value(meta).unwrap_or_default())),
-        None => Err((StatusCode::NOT_FOUND, format!("session {} not found", session_id))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            format!("session {} not found", session_id),
+        )),
     }
 }
 
@@ -89,34 +105,43 @@ pub async fn resume_session_api(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let body = body.map(|Json(v)| v).unwrap_or(ResumeSessionBody {
-        title: None, workspace_id: None, workspace_name: None, model: None,
+        title: None,
+        workspace_id: None,
+        workspace_name: None,
+        model: None,
     });
 
-    let meta = state
-        .svc
-        .agent_registry
-        .find_session(&session_id)
-        .ok_or((StatusCode::NOT_FOUND, format!("session {} not found", session_id)))?;
+    let meta = state.svc.agent_registry.find_session(&session_id).ok_or((
+        StatusCode::NOT_FOUND,
+        format!("session {} not found", session_id),
+    ))?;
 
     let cwd = meta.project_path.clone().ok_or((
         StatusCode::BAD_REQUEST,
-        format!("session {} has no recorded project_path; can't decide cwd", session_id),
+        format!(
+            "session {} has no recorded project_path; can't decide cwd",
+            session_id
+        ),
     ))?;
 
     let resume_cmd_preview = state
         .svc
         .agent_registry
-        .with_provider(&meta.provider, |p| p.build_resume_command(&meta.session_id, true))
+        .with_provider(&meta.provider, |p| {
+            p.build_resume_command(&meta.session_id, true)
+        })
         .flatten();
 
-    // Idempotency: if a live pane already holds this session_id, return it as-is.
-    // Two concurrent resume calls (UI reconnect, CLI retry) must not both spawn.
+    // Idempotency: if a live pane already holds this session_id, return it as-is. Two concurrent resume calls (UI reconnect, CLI retry) must not
+    // both spawn.
     {
         let mux = state.svc.mux.lock();
         let existing_pane = mux.pane_ids_with_session(&session_id).into_iter().next();
         if let Some(pane_id) = existing_pane {
             let snap = mux.snapshot();
-            let (ws_id, tab_id) = snap.workspaces.iter()
+            let (ws_id, tab_id) = snap
+                .workspaces
+                .iter()
                 .find_map(|w| {
                     let tab = w.tabs.iter().find(|t| t.pane_id == pane_id)?;
                     Some((w.id.clone(), tab.id.clone()))
@@ -137,12 +162,8 @@ pub async fn resume_session_api(
     let ws_id = match body.workspace_id {
         Some(id) => id,
         None => {
-            // Reuse existing workspace at this cwd if there is one. Going
-            // through `WorkspaceCreate` here would spawn an extra empty
-            // Terminal tab as a side effect (intentional for the UI "open
-            // folder" button, but pure noise for a programmatic resume).
-            // `spawn_agent` will create the only tab we actually want —
-            // the resumed agent pane.
+            // Reuse existing workspace at this cwd if there is one. Going through `WorkspaceCreate` here would spawn an extra empty Terminal tab as a side
+            // Ignore extra effect for programmatic resume; it should only create the single resumed agent tab.
             let existing_id = state
                 .svc
                 .mux
@@ -175,7 +196,10 @@ pub async fn resume_session_api(
                     .get("id")
                     .and_then(|v| v.as_str())
                     .map(String::from)
-                    .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "workspace create returned no id".into()))?
+                    .ok_or((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "workspace create returned no id".into(),
+                    ))?
             }
         }
     };
@@ -186,7 +210,9 @@ pub async fn resume_session_api(
         args: None,
         cwd: Some(cwd.clone()),
         title: body.title.or_else(|| {
-            meta.title.clone().or_else(|| Some(format!("resumed {}", &meta.session_id[..8])))
+            meta.title
+                .clone()
+                .or_else(|| Some(format!("resumed {}", &meta.session_id[..8])))
         }),
         role: None,
         parent_pane_id: None,
@@ -206,7 +232,9 @@ pub async fn resume_session_api(
         .spawn_agent(spawn_params, None)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    state.svc.set_and_lock_pane_agent_type(&spawned.pane_id, meta.provider.clone());
+    state
+        .svc
+        .set_and_lock_pane_agent_type(&spawned.pane_id, meta.provider.clone());
     state.svc.emit_state_changed();
 
     Ok(Json(serde_json::json!({

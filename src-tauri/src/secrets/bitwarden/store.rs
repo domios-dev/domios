@@ -12,9 +12,7 @@ use crate::secrets::{SecretError, SecretStore, SecretString};
 
 use super::exec::{BwExec, BwRunCtx, NoopBwExec};
 use super::subprocess::SubprocessBwExec;
-use super::{
-    BW_KEYRING_LOGIN_EMAIL, BW_KEYRING_SERVICE, BW_KEYRING_SESSION, DEFAULT_BW_SERVER,
-};
+use super::{BW_KEYRING_LOGIN_EMAIL, BW_KEYRING_SERVICE, BW_KEYRING_SESSION, DEFAULT_BW_SERVER};
 
 pub struct BitwardenStore {
     pub(super) exec: Arc<dyn BwExec>,
@@ -50,11 +48,7 @@ impl BitwardenStore {
         Self::new_with_server(exec, keychain, DEFAULT_BW_SERVER.to_string())
     }
 
-    pub fn new_with_server(
-        exec: Arc<dyn BwExec>,
-        keychain: Keychain,
-        server_url: String,
-    ) -> Self {
+    pub fn new_with_server(exec: Arc<dyn BwExec>, keychain: Keychain, server_url: String) -> Self {
         let session = keychain
             .get(BW_KEYRING_SESSION)
             .ok()
@@ -103,9 +97,13 @@ impl BitwardenStore {
     /// file. Called once at construction. Silent failures — falls back to
     /// JIT auto-unlock on the next operation via [`try_unlock_from_file`].
     pub async fn auto_unlock_from_keychain(&self) {
-        if self.unavailable_reason.is_some() { return; }
+        if self.unavailable_reason.is_some() {
+            return;
+        }
         if let Ok(s) = self.bw_status().await {
-            if s.status == "unlocked" { return; }
+            if s.status == "unlocked" {
+                return;
+            }
         }
         self.try_unlock_from_file().await;
     }
@@ -156,7 +154,9 @@ impl BitwardenStore {
     /// JIT auto-unlock: read ~/.codeterm/secrets/bitwarden-master.env on every
     /// locked op so the agent never has to see/think about unlock.
     pub(super) async fn try_unlock_from_file(&self) {
-        if self.unavailable_reason.is_some() { return; }
+        if self.unavailable_reason.is_some() {
+            return;
+        }
         let path = match super::master_password_file_path() {
             Some(p) => p,
             None => return,
@@ -174,7 +174,11 @@ impl BitwardenStore {
             api_key_client_secret: None,
         };
         if let Err(e) = self.unlock(creds).await {
-            log::warn!("[secrets/bw] JIT unlock from {} failed: {}", path.display(), e);
+            log::warn!(
+                "[secrets/bw] JIT unlock from {} failed: {}",
+                path.display(),
+                e
+            );
         }
     }
 
@@ -220,10 +224,8 @@ impl BitwardenStore {
             .await
             .map_err(|e| SecretError::Backend { message: e })?;
         let data = resp.into_data()?;
-        // bw status --response wraps the real payload in
-        // { "object": "template", "template": { status, serverUrl, … } }
-        // (modern) or returns it flat (legacy). The shared envelope
-        // helper handles both shapes plus the {data: ...} list wrapper.
+        // bw status --response wraps the real payload in { "object": "template", "template": { status, serverUrl, … } } (modern) or returns it flat
+        // (legacy). The shared envelope helper handles both shapes plus the {data: ...} list wrapper.
         serde_json::from_value(unwrap_data_envelope(data)).map_err(|e| SecretError::Backend {
             message: format!("parse bw status: {}", e),
         })
@@ -272,9 +274,6 @@ pub fn is_valid_http_url(s: &str) -> bool {
         .nth(1)
         .unwrap_or("")
         .trim_start_matches('/');
-    let host = after_scheme
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or("");
+    let host = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
     !host.is_empty()
 }

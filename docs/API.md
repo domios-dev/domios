@@ -13,6 +13,12 @@ All multiplexer operations (workspace/tab/pane management, agent spawn, batch co
 
 Base URL: `http://<host>:7685/api`
 
+**Public vs internal REST surfaces.** This reference documents agent-facing and
+operator-facing REST routes. Browser mirror plumbing, debug-clock endpoints,
+upload/PTY mirror routes, and other web-only internals are intentionally not part
+of the public contract; see `src-tauri/src/api/web_routes.rs` and the route
+registration in `src-tauri/src/api/routes.rs` when auditing those surfaces.
+
 ### Authentication
 Optional Bearer token. Set in config:
 ```toml
@@ -40,26 +46,35 @@ Then: `Authorization: Bearer your-secret-token`
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/workspaces` | — | List all workspaces |
-| POST | `/api/workspaces` | `{name}` | Create workspace |
+| POST | `/api/workspaces` | `{name, cwd?}` | Create workspace. When `cwd` matches an existing workspace, the existing workspace is returned with `existing: true`; no new workspace is created and the requested name is ignored. |
 | POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
 | POST | `/api/workspaces/{id}/close` | — | Delete workspace |
 | POST | `/api/workspaces/{id}/tabs` | — | Create tab |
-| POST | `/api/workspaces/{id}/tabs/{tid}/move` | `{to_workspace_id}` | Move tab between workspaces |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/rename` | `{name}` | Rename tab |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/move` | `{to_workspace_id}` | Move tab between workspaces |
 
 #### Panes
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/panes` | — | List all panes |
+| POST | `/api/panes` | `{title?, cwd?, workspace_id?, cmd?, eager?}` | Create a shell pane. When `cmd` is provided, CodeTerm sends it to the fresh pane through the same verified send path used by `/api/panes/{id}/send`, with Enter appended. |
 | POST | `/api/panes/{id}/send` | `{text?, enter?, raw?, batch?: [{text, enter?, delay_ms?}], source_pane?}` | Send text to PTY. Fire-and-forget — returns `{ok:true}` as soon as bytes are written. Verification fields were removed in v1.2.3 (#101): TUI agents (Claude/Codex) intercept input and don't echo per-character, so the old `verify` flag couldn't deliver on its name. For agent request/response, a future `codeterm agent send` will hook into provider semantics. |
+| POST | `/api/panes/{id}/stop` | — | Stop the pane's PTY process |
 | POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
 | GET | `/api/panes/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
 | GET | `/api/panes/{id}/text` | `?formatted=false` | Visible terminal text (VT100-parsed, alternate buffer included). Served from the backend — no frontend roundtrip, works for hidden panes. Response: `{"text": "...", "formatted": false, "pane_id": "..."}`. With `?formatted=true` the `text` contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility (used on pane remount to restore TUI apps like Claude that hide the cursor via DECTCEM). |
+| GET | `/api/panes/{id}/usage` | — | Latest usage/cost counters recorded for this pane |
 | GET | `/api/panes/{id}/output/stream` | — | SSE real-time output stream |
+| GET | `/api/agent-runs/{pane_id}/log` | — | Agent run log for a pane |
 | POST | `/api/panes/{id}/focus` | — | Focus pane |
 | POST | `/api/panes/{id}/close` | — | Close pane + kill PTY |
 | POST | `/api/panes/{id}/rename` | `{title}` | Rename pane/tab (pinned) |
 | POST | `/api/panes/{id}/resize` | `{cols, rows}` | Resize terminal |
+| GET | `/api/panes/{id}/chat` | — | Chat snapshot for the pane |
+| POST | `/api/panes/{id}/chat/start` | — | Start chat JSONL tailing |
+| POST | `/api/panes/{id}/chat/stop` | — | Stop chat JSONL tailing |
+| POST | `/api/panes/{id}/chat/backfill` | `{before_offset, max_bytes?}` | Backfill older chat JSONL content |
 | POST | `/api/panes/{id}/hook/permission` | `{question?, options?: [{label, value}]}` | Notify that agent is showing a permission prompt (see below) |
 | POST | `/api/panes/{id}/hook/stop` | `{}` | Notify that the agent finished its turn (see below) |
 | POST | `/api/panes/{id}/hook/session_start` | *(Claude SessionStart JSON, forwarded from stdin)* | Persist the agent-reported `session_id` on the pane; covers `/new` and `/clear` inside the TUI (see below) |
@@ -68,16 +83,17 @@ Then: `Authorization: Bearer your-secret-token`
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| POST | `/api/panes/{id}/role` | `{role, parent_pane_id?, can_spawn?}` | Set pane role (`Orchestrator`, `Lead`, `Worker`). Accepts `Conductor`/`SubWorker` as backward-compat aliases. |
-| DELETE | `/api/panes/{id}/role` | — | Clear role (orphans children) |
+| POST | `/api/panes/{id}/role` | `{role, parent_pane_id?, can_spawn?}` | Set pane role (`Orchestrator` or `Worker`; `Conductor` accepted as an alias for `Orchestrator`). |
+| DELETE | `/api/panes/{id}/role` | — | Clear role: detach a Worker from its Orchestrator, or orphan an Orchestrator's Workers |
 | GET | `/api/panes/{id}/status` | — | Pane status + role + children info |
-| GET | `/api/panes/{id}/children` | — | List child panes |
 | POST | `/api/panes/{id}/report` | `{message}` | Send report to direct parent (cascade, not to Orchestrator). Auto-injected into parent's PTY. |
 | GET | `/api/panes/{id}/reports` | `?clear=true` | Read reports from children (optionally clearing them) |
 | POST | `/api/panes/{id}/can-spawn` | `{can_spawn: bool}` | Toggle whether pane can spawn children |
-| GET | `/api/agents` | — | List all panes that have roles |
-| GET | `/api/agents/hierarchy` | — | Full hierarchy tree |
+| POST | `/api/panes/{id}/agent-type` | `{agent_type}` | Mark a pane as running a specific agent provider |
+| POST | `/api/panes/{id}/prompt/respond` | `{response}` | Respond to a pending permission prompt |
+| POST | `/api/panes/{id}/prompt/clear` | — | Clear a pending permission prompt |
 | GET | `/api/agents/providers` | — | List registered agent providers as `Vec<ProviderDescriptor>`. Each descriptor carries `id`, `display_name`, `available_models`, `default_model`, `settings_schema`, etc. Single source of truth for "what agents and models does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
+| GET | `/api/providers` | — | Public provider list alias for agent/provider selectors |
 | POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?}` | One-call agent spawn (see below) |
 
 #### Batch
@@ -109,11 +125,11 @@ Fields returned by `GET /api/panes` for each pane:
 | `url` | `string?` | URL for canvas panes (localhost, data URLs) |
 | `agent_type` | `string?` | Agent running in pane, e.g. `"claude"` |
 | `claude_session_id` | `string?` | Linked Claude Code session ID for resume |
-| `role` | `string?` | `"Orchestrator"`, `"Lead"`, `"Worker"`, or `null` |
+| `role` | `string?` | `"Orchestrator"`, `"Worker"`, or `null` |
 | `parent_pane_id` | `string?` | Parent pane ID in hierarchy, or `null` |
-| `can_spawn` | `bool` | Whether this pane can spawn children. Orchestrator: true (default). Lead: true (default). Worker: always false. |
+| `can_spawn` | `bool` | Whether this pane can spawn children. Orchestrator: true (default). Worker: always false. |
 | `connected_services` | `string[]` | External services connected to this pane (e.g. `["telegram"]`). Shown as icons in sidebar. |
-| `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Orchestrator), 2 (Lead or Worker under Orchestrator), 3 (Worker under Lead) |
+| `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Orchestrator), 2 (Worker under Orchestrator) |
 
 #### Permission Hook (POST /api/panes/{id}/hook/permission)
 
@@ -168,6 +184,8 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 #### File serving
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
+| GET | `/api/fs/list-dir` | `?path=...` | List a local directory |
+| POST | `/api/fs/mkdir` | `{path}` | Create a local directory |
 | GET | `/api/serve-file` | `?path=...` | Serve a local file (assets, screenshots, etc.) |
 
 #### Notifications
@@ -199,19 +217,35 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 #### Mesh Networking
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
+| GET | `/api/mesh/ping` | — | Lightweight mesh liveness probe |
+| GET | `/api/mesh/debug/sign` | — | Mint a signed mesh auth token for diagnostics |
 | GET | `/api/mesh/status` | — | Mesh identity, peers, discovery status |
 | GET | `/api/mesh/peers` | — | List all peers (paired + discovered) |
+| GET | `/api/mesh/web-token` | — | Mint a short-lived browser token for this daemon's web mirror |
+| GET | `/api/mesh/peers/{id}/web-token` | — | Ask a paired peer for a short-lived web token and browser host |
 | POST | `/api/mesh/discover` | — | Trigger discovery, return discovered peers |
 | POST | `/api/mesh/connect` | `{instance_id}` | Initiate pairing with a discovered peer (crypto handled server-side) |
 | POST | `/api/mesh/approve` | `{request_id}` | Accept an incoming pairing request |
 | POST | `/api/mesh/reject` | `{request_id}` | Reject and block an incoming pairing request |
 | POST | `/api/mesh/disconnect` | `{instance_id}` | Unpair from a paired peer (notifies remote side) |
+| POST | `/api/mesh/pair/request` | `PairingRequest` | Inbound pairing request from a peer |
+| POST | `/api/mesh/pair/accept` | `PairingAccept` | Inbound acceptance for a pairing request |
+| POST | `/api/mesh/pair/confirm` | `PairingConfirm` | Inbound pairing confirmation |
+| POST | `/api/mesh/pair/reject` | `{request_id}` | Inbound pairing rejection |
+| POST | `/api/mesh/introduce` | `{...}` | Introduce peers to each other |
+| POST | `/api/mesh/sync` | `MeshSyncPayload` | Exchange mesh gossip/discovery state |
+| POST | `/api/mesh/broadcast/start` | — | Start local discovery broadcast |
+| POST | `/api/mesh/broadcast/stop` | — | Stop local discovery broadcast |
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
 | DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (used internally by disconnect broadcast) |
+| POST | `/api/mesh/refresh` | — | Refresh local addresses and announce them to peers |
 | POST | `/api/mesh/peers/add-manual` | `{address, port}` | Inject a `Manual` discovered peer by Tailscale IP / port (skips mDNS / UDP scan). Returns `{ok, instance_id}` and emits `mesh-state-changed`. |
 | POST | `/api/mesh/peers/approve/{id}` | — | Path-style alias for `POST /api/mesh/approve` (`request_id` in URL). |
 | POST | `/api/mesh/peers/reject/{id}` | — | Path-style alias for `POST /api/mesh/reject`. |
 | POST | `/api/mesh/peers/disconnect/{id}` | — | Path-style alias for `POST /api/mesh/disconnect` (`instance_id` in URL). |
+| POST | `/api/mesh/announce` | `PeerAnnounce` | Inbound peer address announcement |
+| POST | `/api/mesh/announce/all` | `?to=peer_id?` | Announce local addresses to one peer or all peers |
+| POST | `/api/mesh/peers/{id}/addr` | `{ip, port?}` | Override a paired peer's cached address |
 
 **Mesh-disabled gate (503).** When `config.mesh.enabled = false`, the auth middleware short-circuits every `/api/mesh/*` path other than `/api/mesh/ping` with `503 Mesh networking is disabled`. The same 503 also fires for any caller authenticated via the mesh signed-token path (i.e. another peer relaying to us) — the local Bearer token still works. Toggle the config back on to restore mesh routing without restarting the daemon.
 
@@ -225,6 +259,67 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level — they handle crypto, key exchange, and peer notification automatically. These mirror the Tauri IPC commands used by the UI. Management commands are local-only and cannot be relayed via `--mesh`.
 
 **Flat peer model:** Paired = trusted. No crown, no king, no trust declarations. Each machine sets an **AccessLevel** (Full/ReadOnly/AgentIsolated) per peer locally via the `mesh_set_access` Tauri command. Default is Full. UDP discovery broadcasts every 30 seconds.
+
+#### Memory
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/mem/search` | `?q=...` | Search memory items |
+| POST | `/api/mem/items` | `{...}` | Save a memory item |
+| GET | `/api/mem/items/{id}` | — | Get one memory item |
+| PATCH | `/api/mem/items/{id}` | `{...}` | Update one memory item |
+| DELETE | `/api/mem/items/{id}` | — | Delete one memory item |
+| GET | `/api/mem/items/{id}/history` | — | Read item history |
+| GET | `/api/mem/pinned` | — | List pinned memory items |
+| GET | `/api/mem/taxonomy` | — | Read memory taxonomy |
+| GET | `/api/mem/tail` | — | Tail recent memory events |
+| DELETE | `/api/mem/forget/{area}` | — | Forget all memory in an area |
+| GET | `/api/mem/wake-up` | — | Agent wake-up memory context |
+| GET | `/api/mem/stats` | — | Memory store statistics |
+| POST | `/api/mem/reembed` | — | Rebuild embeddings |
+| POST | `/api/mem/learn` | `{...}` | Learn from agent/user context |
+| POST | `/api/mem/promote/{id}` | — | Promote a memory item |
+| POST | `/api/mem/flush` | — | Flush pending memory writes |
+| POST | `/api/mem/check-duplicate` | `{...}` | Check for duplicate memory |
+| POST | `/api/mem/dream` | `{...}` | Run memory consolidation |
+| POST | `/api/mem/extract-pending` | `{...}` | Extract pending memories |
+| GET | `/api/mem/dream/report` | — | Latest memory consolidation report |
+| POST | `/api/mem/sync` | `{...}` | Sync memory state |
+| GET | `/api/mem/sync/status` | — | Memory sync status |
+| POST | `/api/mem/graph/entities` | `{...}` | Create graph entities |
+| POST | `/api/mem/graph/relate` | `{...}` | Create graph relations |
+| GET | `/api/mem/graph/related` | `?id=...` | Related graph entities |
+| POST | `/api/mem/graph/invalidate` | `{...}` | Invalidate graph cache |
+| GET | `/api/mem/graph/timeline` | — | Graph timeline |
+| GET | `/api/mem/graph/traverse` | `?id=...` | Traverse graph neighborhood |
+| GET | `/api/mem/graph/path` | `?from=...&to=...` | Find graph path |
+| GET | `/api/mem/graph/tunnels` | — | Graph tunnel candidates |
+| POST | `/api/mem/graph/alias` | `{...}` | Add graph alias |
+| GET | `/api/mem/graph/full` | — | Full graph view |
+| GET | `/api/mem/graph/labels` | — | Graph labels |
+| GET | `/api/mem/graph/edges` | — | Graph edges |
+| GET | `/api/mem/graph/snapshot` | — | Compressed graph snapshot |
+| POST | `/api/mem/graph/layout/rebuild` | — | Rebuild graph layout |
+| POST | `/api/mem/graph/repair/find-relations` | `{...}` | Find relation repair candidates |
+| POST | `/api/mem/graph/repair/delete-relations` | `{...}` | Delete relation repair candidates |
+| POST | `/api/mem/graph/repair/merge-relations` | `{...}` | Merge relation repair candidates |
+| POST | `/api/mem/graph/repair/find-entities` | `{...}` | Find entity repair candidates |
+| POST | `/api/mem/graph/repair/augment-entity` | `{...}` | Augment graph entity |
+| POST | `/api/mem/graph/repair/delete-entity` | `{...}` | Delete graph entity |
+| POST | `/api/mem/graph/repair/orphan-vectors` | `{...}` | Repair orphan vectors |
+| POST | `/api/mem/graph/repair/orphan-blobs` | `{...}` | Repair orphan blobs |
+| GET | `/api/mem/pinned-positions` | — | List pinned graph positions |
+| PATCH | `/api/mem/pinned-positions/{mem_id}` | `{...}` | Set pinned graph position |
+| DELETE | `/api/mem/pinned-positions/{mem_id}` | — | Delete pinned graph position |
+| GET | `/api/mem/activity/recent` | — | Recent memory activity |
+| POST | `/api/mem/calibration/sweep` | `{...}` | Run memory calibration sweep |
+| GET | `/api/mem/calibration/log` | — | Read calibration log |
+| GET | `/api/mem/workers` | — | List memory workers |
+| POST | `/api/mem/workers` | `{...}` | Spawn memory worker |
+| GET | `/api/mem/workers/{id}` | — | Get memory worker status |
+| DELETE | `/api/mem/workers/{id}` | — | Kill memory worker |
+| POST | `/api/mem/workers/{id}/progress` | `{...}` | Submit worker progress |
+| POST | `/api/mem/workers/{id}/report` | `{...}` | Submit worker report |
+| GET | `/api/mem/workers/{id}/log` | — | Read worker log |
 
 #### Bridge (Telegram / External Services)
 | Method | Path | Body / Query | Description |
@@ -459,7 +554,7 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 | GET | `/api/mem/items/{id}` | — | Get one item (full body). On real (non-worker) reads, `evidence_count` is bumped for kinds `skill | lesson | rule | fact | preference`. Bump is suppressed when the request carries `X-CodeTerm-Worker-Id` so internal sweeps (dreamer, extraction) don't poison the score. |
 | GET | `/api/mem/pinned` | `?limit=N` | List items with `is_pinned_wakeup = 1`, ordered by `importance DESC, evidence_count DESC, updated_at DESC`. `limit` defaults to 100, hard-capped at 500. |
 | POST | `/api/mem/items` | `{kind, title, body, scope?, summary?, area?, tags?, source?, importance?, replace?, skip_extract?, source_path?, pinned?}` | Save a mem item. `pinned: true` atomically sets `is_pinned_wakeup = 1` in the same INSERT (no follow-up PATCH). `scope` accepts `"global"` (default) or `"workspace:<id>"`. `skip_extract: true` suppresses the auto-extraction cascade (seed loaders use this to avoid re-extracting bundled items on every startup). |
-| PATCH | `/api/mem/items/{id}` | `{title?, summary?, area?, tags?, body?, importance?, pinned?}` | Partial update. `pinned: true|false` toggles `is_pinned_wakeup`; the change is recorded in `mem_item_history` so the audit trail captures explicit pin intent. |
+| PATCH | `/api/mem/items/{id}` | `{title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partial update. `pinned: true|false` toggles `is_pinned_wakeup`; the change is recorded in `mem_item_history` so the audit trail captures explicit pin intent. `changed_by` is an optional audit actor; the server trims and sanitizes it, and falls back to the actor headers when omitted or blank. |
 | DELETE | `/api/mem/items/{id}` | — | Delete an item |
 | GET | `/api/mem/wake-up` | `?budget=N&l0_only=true&no_l0=true&workspace=<ws>&explain=true` | L0 + L1 critical-context digest. `workspace` boosts items scoped to that workspace (`scope = "workspace:<ws>"`) by `+0.5` in the L1 score and admits them alongside global rows. `explain=true` appends a per-item score breakdown comment block. L1 budget defaults to `[memory] l1_budget_tokens` (default 300) when `budget` is omitted. |
 | GET | `/api/mem/stats` | — | Counts per kind, totals, index health |
@@ -518,6 +613,31 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 `kind` is the `SecretError` JSON (snake_case `kind` discriminator: `logged_out`, `locked`, `not_found`, `ambiguous`, `already_exists`, `bad_request`, `backend`; payload fields where present — `candidates` for `ambiguous`, `message` for `bad_request` / `backend`). `message` is a human string with C0 control characters stripped (defends against ANSI/OSC injection when the CLI prints the error verbatim).
 
 **Logging discipline:** the daemon never logs the value field, the master password, or session tokens. The reveal endpoint is the only path that emits plaintext.
+
+#### Session Snapshot
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| POST | `/api/session/save` | — | Snapshot the multiplexer (workspaces/tabs/panes) into the session store immediately. Durability is otherwise the 30s auto-save timer + close-to-tray hook; e2e harnesses call this before force-killing the daemon so restart-persistence is deterministic. |
+
+#### Web Mirror
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/web/` | — | The CodeTerm web mirror: the same React bundle as the desktop app, served static (public route; every API call it makes stays token-gated). Exact `/web` 308s to `/web/`. `?a11y=1` enables the screen-reader terminal DOM. |
+| GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs/panes + focus) — the browser bundle's `mux_get_state`. |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
+| POST | `/api/panes/{id}/chat-view` | `{enabled}` | Toggle a pane's chat view flag. |
+| GET | `/api/mesh/peers/{id}/services` | — | Peer services view (same cache+failover as the Mesh tab). |
+| GET | `/api/events/stream` | — | SSE of system events (`data: {event_type, data}`) — mux/mesh/pane-status changes; the web bundle's `listen()`. |
+| GET | `/api/pty/{id}/read` | — | Long-poll one chunk of PTY output (JSON byte array) — the browser terminal's read loop. |
+| POST | `/api/pty/{id}/write` | `{data}` | Write input to a PTY. |
+| POST | `/api/pty/{id}/resize` | `{cols, rows}` | Resize a PTY. |
+
+#### Debug (test-only capabilities)
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/debug/clock` | — | `{mocked, now_ms}` — whether cron runs on a mock clock, and its current time. |
+| POST | `/api/debug/clock/advance` | `{ms}` | Advance the mock cron clock and wake the scheduler so overdue jobs fire immediately. **409** unless the daemon is a debug build started with `CODETERM_TEST_CLOCK=1` (release builds never activate the mock). Powers the 07-cron e2e suite's time travel. |
 
 #### Past Agent Sessions
 | Method | Path | Body / Query | Description |
@@ -718,7 +838,7 @@ curl -X POST http://host:7685/api/keepawake/stop -H "Authorization: Bearer $TOKE
 
 Creates a **new tab** in the parent's workspace, assigns a role, launches an agent (claude/aider/any), and optionally sends a task. All in one request. The response returns immediately (non-blocking) -- PTY readiness detection and agent launch happen in a background thread.
 
-The hierarchy (Orchestrator -> Lead -> Worker) is a logical chain, not visual splits. Each agent gets its own tab. Agent spawns do not auto-switch the active tab -- the user stays on their current tab.
+The hierarchy (Orchestrator -> Worker) is a logical chain, not visual splits. Each agent gets its own tab. Agent spawns do not auto-switch the active tab -- the user stays on their current tab.
 
 **Request body:**
 ```json
@@ -727,16 +847,17 @@ The hierarchy (Orchestrator -> Lead -> Worker) is a logical chain, not visual sp
   "agent_name": "architect",   // maps to --agent flag (.claude/agents/ file)
   "title": "Worker-1",         // tab title (default: agent_name or agent command)
   "cwd": "C:/project",         // working directory
-  "role": "Worker",            // Orchestrator, Lead, Worker (accepts Conductor/SubWorker as aliases)
-  "parent_pane_id": "a3f1b2c7", // parent for Lead/Worker (8-char hex ID)
+  "role": "Worker",            // Orchestrator or Worker (Conductor accepted as alias for Orchestrator)
+  "parent_pane_id": "a3f1b2c7", // parent Orchestrator for a Worker (8-char hex ID)
   "can_spawn": true,           // allow spawning children
   "task": "analyze the code",  // baked into launch via -p flag (instant start)
+  "model": "sonnet",           // optional; must match the provider's advertised model list when one exists
   "args": ["--verbose"],       // extra agent args
   "workspace_id": "b4e2c8d1"  // optional, defaults to active workspace
 }
 ```
 
-All fields are optional. `agent` defaults to `"claude"`. For Claude, `--dangerously-skip-permissions` is added automatically. When `task` is provided, it is passed via the `-p` flag so the agent starts working immediately (no delay). When `agent_name` is provided, it maps to `--agent <name>` which loads the agent definition from `.claude/agents/<name>.md`.
+All fields are optional. `agent` defaults to `"claude"`. For Claude, `--dangerously-skip-permissions` is added automatically. When `model` is provided and the provider advertises models, unknown ids are rejected before pane creation; run `codeterm agent models <provider>` for valid ids. When `task` is provided, it is passed via the `-p` flag so the agent starts working immediately (no delay). When `agent_name` is provided, it maps to `--agent <name>` which loads the agent definition from `.claude/agents/<name>.md`.
 
 **Response** (returned immediately, before agent is fully started):
 ```json
@@ -752,8 +873,7 @@ Execute multiple operations in a single HTTP request. Commands run sequentially.
 {
   "commands": [
     {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Orchestrator", "agent": "claude", "cwd": "C:/project", "can_spawn": true}},
-    {"method": "spawn", "id": "lead", "params": {"title": "Lead-1", "role": "Lead", "parent_pane_id": "$boss", "agent": "claude", "cwd": "C:/project", "task": "coordinate team"}},
-    {"method": "spawn", "params": {"title": "Worker-1", "role": "Worker", "parent_pane_id": "$lead", "agent": "claude", "task": "analyze code"}},
+    {"method": "spawn", "params": {"title": "Worker-1", "role": "Worker", "parent_pane_id": "$boss", "agent": "claude", "task": "analyze code"}},
     {"method": "spawn", "params": {"title": "Worker-2", "role": "Worker", "parent_pane_id": "$boss", "agent": "claude"}},
     {"method": "notify", "params": {"title": "All spawned", "body": "4 agents ready"}}
   ]
@@ -860,6 +980,22 @@ curl http://host:7685/api/network
 # {"local_ip":"192.168.1.195","tailscale_ip":"100.84.159.37","api_url":"http://192.168.1.195:7685"}
 ```
 
+#### Updates
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/update/status` | — | Current updater state and last update result |
+
+#### Git
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/git/graph` | — | Commit graph for configured repositories |
+| GET | `/api/git/commit/{sha}/files` | — | Files changed by a commit |
+| GET | `/api/git/commit/{sha}/diff` | — | Diff for a commit |
+| GET | `/api/git/workdir-diff` | — | Current working tree diff |
+| GET | `/api/git/workdir-files` | — | Current working tree changed-file list |
+| POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
+| GET | `/api/git/repos` | — | Known repositories |
+
 ## Socket API (JSON-RPC v2)
 
 ### Connection
@@ -878,7 +1014,7 @@ Newline-delimited JSON:
 | Method | Params | Description |
 |--------|--------|-------------|
 | `system.identify` | — | Version, platform, features |
-| `system.capabilities` | — | List all methods |
+| `system.capabilities` | — | List all methods. Socket-only; unsupported over mesh relay. |
 | `workspace.list` | — | List workspaces |
 | `workspace.create` | `{name}` | Create workspace |
 | `workspace.focus` | `{workspace_id}` | Focus workspace |
@@ -927,224 +1063,9 @@ Newline-delimited JSON:
 
 ## CLI
 
-Most pane commands default to `$CODETERM_PANE_ID` (if set) then fall back to the **current focused pane** when no ID is given.
-
-```bash
-codeterm identify                               # System info
-codeterm capabilities                           # List API methods
-
-# Workspaces
-codeterm workspace list                         # List workspaces
-codeterm workspace current                      # Get current workspace ID
-codeterm workspace create "Name"                # Create workspace
-codeterm workspace focus ID                     # Switch workspace
-codeterm workspace rename ID "New Name"         # Rename
-codeterm workspace close ID                     # Delete
-codeterm workspace move-tab TAB FROM TO             # Move tab between workspaces
-
-# Panes
-codeterm pane list                              # List panes
-codeterm pane current                           # Get current pane ID
-codeterm pane current --last                    # Get last pane ID
-codeterm pane focus ID                          # Focus pane
-codeterm pane close ID                          # Close pane
-codeterm pane rename "title" [--pane ID] [--id ID]  # Rename tab (default: current)
-
-# Terminal I/O
-codeterm send-text "command" [--pane ID] [--id ID]  # Send text (default: current, --id alias for --pane)
-codeterm get-output [--pane ID] [--id ID] [--lines 50]  # Read output (default: current, --id alias for --pane)
-
-# Notifications
-codeterm notify "Title" [--body "..."] [--level info|warning|error]
-codeterm notifications [--unread]               # List
-codeterm notifications clear                    # Clear all
-
-# Themes
-codeterm theme list                             # List all themes
-codeterm theme apply NAME                       # Apply a theme
-codeterm theme save ID FILE [--apply]           # Save custom theme (+ apply)
-codeterm theme delete ID                        # Delete custom theme
-codeterm theme dir                              # Show themes directory
-
-# Agent Hierarchy
-codeterm agent list                            # List all panes with roles
-codeterm agent hierarchy                       # Show full hierarchy tree
-codeterm agent set-conductor [--pane ID]       # Mark pane as orchestrator (alias: set-orchestrator). Workers/Leads blocked.
-codeterm agent link --parent ID [--pane ID]    # Link pane under parent (auto-detects role: Lead under Orchestrator, Worker under Lead)
-codeterm agent unlink [--pane ID]              # Clear role. Workers/Leads with a parent CANNOT unlink (backend blocks).
-codeterm agent children [--pane ID]            # List children of pane
-codeterm agent allow-spawn [--pane ID]         # Toggle can_spawn
-codeterm agent report MESSAGE [--pane ID]      # Send report to direct parent (cascade, not to orchestrator). Auto-injected into parent's PTY.
-codeterm agent reports [--pane ID] [--clear]   # Read reports from children
-codeterm agent status [--pane ID]              # Get detailed status + role
-codeterm agent compact [--pane ID]             # Send /compact to Claude (compacts context)
-codeterm agent model <sonnet|haiku|opus> [--pane ID]  # Switch Claude model (sends /model <name>)
-codeterm agent restart [--pane ID] [--force] [--grace-secs N]
-                                               # Restart agent (graceful /exit + auto-resume)
-                                               # --force skips the graceful exit, --grace-secs overrides the default 10s timeout
-codeterm agent providers                       # List registered agent providers (id, display_name, default_model, model count). Backed by GET /api/agents/providers.
-codeterm agent models PROVIDER                 # List available models for one provider (e.g. `codeterm agent models claude`)
-codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS_ID] [--args A1 A2]
-                                               # One-call agent spawn (default agent: claude)
-                                               # Role: Orchestrator, Lead, Worker (accepts Conductor/SubWorker as aliases)
-                                               # Creates a new tab (does NOT auto-switch active tab)
-                                               # --task is baked into launch via -p flag (instant start, no delay)
-                                               # --workspace for cross-workspace spawn
-                                               # Returns immediately (non-blocking); agent launch happens in background
-                                               # Uses socket API (not REST) for reliability
-                                               # NOTE: --agent-name is only available via REST API, not CLI
-
-# Cron Jobs
-codeterm cron list [--workspace ID]            # List all cron jobs
-codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs" [--agent claude] [--model opus] [--cwd /path] [--description "desc"] [--once]
-                                               # Create cron job (5-field cron: min hour dom mon dow)
-                                               # --agent / --model: provider and model override (see `agent providers`/`agent models`)
-                                               # --once: oneshot job (schedule accepts "in 5m", "in 1h30m", ISO8601, unix ms)
-codeterm cron edit ID [--name N] [--schedule S] [--task T] [--cwd D] [--description X] [--agent A] [--model M] [--jitter-max-ms MS]
-                                               # Update cron job fields. --jitter-max-ms: 0 = off, positive = cap in ms.
-codeterm cron delete ID                        # Delete cron job
-codeterm cron enable ID                        # Enable cron job
-codeterm cron disable ID                       # Disable cron job
-codeterm cron cancel ID                        # Stop any currently-running executions (does not delete the job)
-codeterm cron trigger ID                       # Manually trigger cron job
-codeterm cron history ID                       # Show run history
-codeterm cron complete --run-id UUID --summary "result"
-                                               # Mark cron run as complete (called by spawned agent)
-
-# Services (daemon registry — local cron + daemon services for the Mesh tab)
-codeterm service list [--kind cron|daemon] [--enabled true|false]
-                                               # List services. Cron jobs are projected as virtual `cron`-kind services.
-codeterm service add NAME [--kind daemon] [--health-mode http|tcp|process|script] \
-                          [--url URL] [--host H] [--port P] [--process-label L] [--script-path P] \
-                          [--health-path /healthz] [--health-interval 30] [--description D] [--push]
-                                               # Register a daemon. With --push, a 64-hex Bearer token is generated and
-                                               # printed ONCE — daemons send it on POST /api/panes/{id}/send to write
-                                               # to a pane without the global API token.
-codeterm service show ID                       # Detail (config, health snapshot, recent activity)
-codeterm service edit ID [--name N] [--url U] [--enabled true|false]
-codeterm service delete ID                     # Removes service + push token + activity
-codeterm service token ID --rotate             # Rotate push token (old invalidated immediately, new printed once).
-                                               # Without --rotate the command refuses — tokens are write-only after creation.
-
-# Configuration
-codeterm config get <key>                      # Get config value (dot-notation, e.g. "integrations.telegram_enabled")
-codeterm config set <key> <value>              # Set config value (JSON: true, false, 42, "string", ["array"])
-
-# Self-update
-codeterm update --check                        # Check for available updates on the current channel
-codeterm update --apply                        # Download, verify, install, restart (Tauri-plugin-updater)
-codeterm update --channel                      # Print current channel
-codeterm update --channel <stable|rc|nightly>  # Switch channel (persists to config.toml)
-codeterm update --apply --manifest-url URL     # Override manifest URL (dev/test only; release builds reject non-https)
-
-# Memory (mem)
-codeterm mem search "<query>" [--kind K] [--area A] [--scope S] [--limit N] [--rerank]
-                                               # Hybrid search (FTS5 + vector). --rerank layers an LLM second-pass.
-codeterm mem get <id>                          # Print one item (full body). Bumps evidence_count for skill|lesson|rule|fact|preference (skipped when called from a worker pane via $CODETERM_WORKER_ID).
-codeterm mem save --kind K --title T [--area A] [--tags csv] [--scope S] [--workspace WS] [--pin] [--importance N] [--source-path P] [--replace] [--skip-extract] "<body>"
-                                               # Atomic create. --pin sets is_pinned_wakeup=1 in the same INSERT. --workspace WS is shorthand for --scope workspace:WS.
-codeterm mem update <id> [--title T] [--summary S] [--area A] [--tags csv] [--body B] [--importance N] [--changed-by ACTOR]
-                                               # Partial update. --changed-by sets the X-CodeTerm-Actor header (lands in mem_item_history.changed_by; default "user").
-codeterm mem delete <id>                       # Remove an item (also vectors + relations)
-codeterm mem forget AREA                       # Batch delete every item in one area
-codeterm mem history <id>                      # Full audit trail (create/update/promote/delete)
-codeterm mem taxonomy [--workspace W]          # {area -> {kind -> count}} for the store or one workspace
-codeterm mem tail [--follow] [--limit N]       # Recent mem writes, newest first
-codeterm mem stats                             # Counts by kind + blob sizes
-codeterm mem wake-up [--budget N] [--l0-only] [--no-l0] [--workspace WS] [--explain]
-                                               # L0 + L1 wake-up digest. --workspace boosts ws-scoped items in L1 ranking. --explain appends a per-item score breakdown.
-codeterm mem pin <id>                          # Set is_pinned_wakeup=1 (always loaded in L1, subject to budget)
-codeterm mem unpin <id>                        # Clear is_pinned_wakeup
-codeterm mem pinned [--limit N]                # List pinned items (default 100, max 500)
-codeterm mem learn "<text>" [--kind insight|error|feature]   # Quick capture
-codeterm mem sync [--path P]                   # Trigger Librarian re-index for source-tracked items
-codeterm mem extract-pending [--limit N]       # Re-queue extraction workers for unprocessed items
-codeterm mem calibration log [--since ISO] [--limit N] [--count]
-                                               # Audit log of dreamer-calibration changes
-codeterm mem calibration sweep [--force]       # Run the importance/archive sweep. Server-gated to Sunday unless --force.
-codeterm mem skill new <slug> [--area A]       # Scaffold a skill folder + register
-codeterm mem skill add <folder> [--area A]     # Register an existing skill folder
-codeterm mem skill list                        # List registered skills
-codeterm mem graph related --id <id>           # Outgoing relations
-codeterm mem graph create --id <id> --type <T> [--props JSON] [--scope S]
-codeterm mem graph relate --from <id> --rel <r> --to <id> [--valid-from ISO] [--valid-to ISO]
-codeterm mem graph timeline --entity <id>     # Full temporal history
-codeterm mem graph traverse --from <id> [--hops N]
-codeterm mem graph path --from <id> --to <id>
-codeterm mem reembed [--scope items|entities|all]
-                                               # Re-embed mem_items / graph entities into mem_vectors
-codeterm mem dream run [--phase light|deep|normalize|all]
-                                               # Manually trigger dreaming (server-routed)
-codeterm mem dream diary [--limit N]           # Print recent dream-diary entries
-codeterm mem worker spawn --intent NAME --task "..." [--agent claude] [--parent ID]
-                                               # Ad-hoc graph worker
-codeterm mem worker list                       # List all workers (running + done)
-codeterm mem worker progress "<status>"        # From inside a worker (uses $CODETERM_WORKER_ID)
-codeterm mem worker report "<summary>"         # Final report + mark done
-
-# Secrets — pluggable secret store (local OS keychain / Bitwarden / mock / future backends)
-codeterm mem secret status                     # Show backend + auth status (json with --json)
-codeterm mem secret sync                       # Pull latest from remote vault (Bitwarden); no-op for local/mock
-codeterm mem secret unlock --email u@x.com     # Read master password from stdin (preferred), or pass --password
-codeterm mem secret unlock                     # No input → server-side auto-unlock if persist_master_password is on
-codeterm mem secret lock                       # Drop in-process session; OS-keychain creds kept
-codeterm mem secret logout                     # Drop session AND every persisted credential
-codeterm mem secret save --name openai-prod    # Read value from stdin: echo -n "$VALUE" | codeterm mem secret save --name openai-prod
-codeterm mem secret save --name K --value V    # Inline (visible in shell history — prefer stdin)
-codeterm mem secret save --name K --value V --folder work --org ORG_ID --collection COLL_ID --notes "..." --overwrite
-codeterm mem secret get --name openai-prod     # Raw value to stdout, no trailing newline
-codeterm mem secret get --name openai-prod --json   # {item_id, name, value, notes}
-codeterm mem secret search "openai"            # Positional query; metadata-only search
-codeterm mem secret list --org ORG_ID --folder work --limit 20
-codeterm mem secret delete --name openai-prod  # Interactive y/N prompt; --yes skips
-                                               # --mesh PEER on any secret subcommand exits 7 (local-only)
-
-# Bridge (Telegram / External Services)
-codeterm bridge send --to CHAT_ID --service telegram "message text"
-                                               # Send message to Telegram user/chat
-codeterm bridge send --to CHAT_ID --service telegram --append "more text"
-                                               # Append to previous message (edits in-place)
-codeterm bridge send --to CHAT_ID --type photo --file /path/to/img.png --caption "Look"
-                                               # Send photo with caption
-codeterm bridge send --to CHAT_ID --type document --file /path/to/f.pdf --filename "report.pdf"
-                                               # Send document with custom filename
-codeterm bridge send --to CHAT_ID --type voice --file /path/to/audio.ogg
-                                               # Send voice/video/animation/sticker
-codeterm bridge migrate --to PEER [--service telegram] [--announce] [--announce-chat-id ID] \
-                        [--no-rollback] [--force] [--claim-timeout-ms 10000]
-                                               # Hot-relocate the active poller to a paired mesh peer.
-                                               # Daemons stay up; no restart. Source is disabled,
-                                               # target claims the upstream lock; auto-rollback on
-                                               # failure. MUST run on the SOURCE machine — running
-                                               # via `--mesh PEER` exits 6.
-                                               # Exit codes: 0 success / 1 generic / 5 preflight
-                                               # (target unreachable, no token+vault, missing peer)
-                                               # / 6 usage error / 7 split-brain (rollback also failed).
-
-# Mesh Networking
-codeterm mesh status                           # Show mesh identity, peers, discovery
-codeterm mesh peers                            # List paired + discovered peers
-codeterm mesh discover                         # Trigger discovery scan, list discovered peers
-codeterm mesh connect INSTANCE_ID              # Initiate pairing with discovered peer
-codeterm mesh approve REQUEST_ID               # Accept incoming pairing request
-codeterm mesh reject REQUEST_ID                # Reject + block incoming pairing request
-codeterm mesh disconnect INSTANCE_ID           # Unpair from a paired peer
-codeterm mesh exec TARGET "command" [--pane ID]  # Execute command on remote peer
-codeterm mesh send TARGET "text" [--pane ID]   # Send text to remote peer
-codeterm mesh output TARGET [--pane ID]        # Get output from remote peer
-codeterm mesh panes TARGET                     # List panes on remote peer
-
-# Past Agent Sessions
-codeterm sessions search "QUERY" [--provider claude|codex|all] [--project PATH] [--limit N] [--max-snippets N]
-                                               # Cross-provider session content search
-codeterm sessions get SESSION_ID               # Print metadata for a past session (provider, cwd, file path, times)
-codeterm sessions resume SESSION_ID [--title T] [--workspace-id ID] [--workspace-name N]
-                                               # Atomic resume: locate session, open the right workspace + pane, hand the resume id
-                                               # to the provider with the correct CLI shape (no double --resume injection)
-
-```
-
-Add `--json` flag for machine-readable output.
+The complete CLI reference is auto-generated from the clap command tree:
+see **`docs/CLI.md`** (regenerated by `codeterm cli-manifest --write`). The
+machine-readable tree lives in `docs/cli-manifest.json`.
 
 ### Internal Tauri Commands
 
@@ -1175,7 +1096,7 @@ Set automatically in every PTY spawned by CodeTerm:
 | `CODETERM_SOCKET_PATH` | `\\.\pipe\codeterm-1234` | Socket path |
 | `CODETERM_PANE_ID` | `a3f1b2c7` | Current pane ID (8-char hex) |
 | `CODETERM_WORKSPACE_ID` | `b4e2c8d1` | Current workspace ID (8-char hex) |
-| `CODETERM_ROLE` | `Orchestrator` | Agent role: `Orchestrator`, `Lead`, or `Worker` (empty if no role). Set at PTY spawn. |
+| `CODETERM_ROLE` | `Orchestrator` | Agent role: `Orchestrator` or `Worker` (empty if no role). Set at PTY spawn. |
 | `CODETERM_PARENT_PANE_ID` | `b4e2c8d1` | Parent pane ID in hierarchy (empty if Orchestrator or no role). Set at PTY spawn. |
 | `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by CodeTerm so CLI and hooks use the correct port (dev: 7686, prod: 7685). |
 | `CODETERM_API_TOKEN` | `your-secret-token` | Bearer token for the API. Injected into every PTY when `[api].token` is set, so CLI subcommands and the auth-enforced hook callbacks (`/api/panes/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring. |
@@ -1215,7 +1136,6 @@ Dev builds (`tauri.dev.conf.json`) use identifier `com.codeterm.dev` and are ful
 
 Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and loaded at compile time via `include_str!()`. Role-specific suffixes are appended to tasks at spawn time:
 - **Worker** (`worker_suffix.md`): Instructions to report back via `codeterm agent report`.
-- **Lead** (`lead_suffix.md`): Spawn instructions + "Do NOT sleep or poll for reports" rule.
 - **Orchestrator** (`orchestrator_suffix.md`): "Do NOT sleep or poll for reports" rule.
 - **Cron tasks** (`cron_complete_suffix.md`): Completion instruction with `cron complete --run-id` command.
 - **General Agent** (`general_agent.md`): System prompt for the always-on General Agent.
@@ -1223,4 +1143,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 47 -->
+<!-- revision: 57 -->

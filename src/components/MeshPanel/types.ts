@@ -36,6 +36,10 @@ export interface Service {
   enabled: boolean;
   // Populated client-side when merging from remote peers
   source_peer?: string;
+  /** Last-known data served from the daemon cache (peer unreachable). */
+  stale?: boolean;
+  /** Online state of the owning peer at merge time. */
+  peer_online?: boolean;
 }
 
 export interface ActivityEvent {

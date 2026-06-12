@@ -85,10 +85,13 @@ pub fn evict(dir: &Path, policy: EvictionPolicy) {
         Err(_) => return,
     };
 
-    let mut files: Vec<(PathBuf, u64, SystemTime)> = entries.iter()
+    let mut files: Vec<(PathBuf, u64, SystemTime)> = entries
+        .iter()
         .filter_map(|e| {
             let meta = e.metadata().ok()?;
-            if !meta.is_file() { return None; }
+            if !meta.is_file() {
+                return None;
+            }
             let modified = meta.modified().ok()?;
             Some((e.path(), meta.len(), modified))
         })
@@ -100,10 +103,14 @@ pub fn evict(dir: &Path, policy: EvictionPolicy) {
     match policy {
         EvictionPolicy::MaxBytes(limit) => {
             let total: u64 = files.iter().map(|(_, sz, _)| sz).sum();
-            if total <= limit { return; }
+            if total <= limit {
+                return;
+            }
             let mut remaining = total;
             for (path, sz, _) in &files {
-                if remaining <= limit { break; }
+                if remaining <= limit {
+                    break;
+                }
                 if std::fs::remove_file(path).is_ok() {
                     log::debug!("[attachments] evicted {} ({} bytes)", path.display(), sz);
                     remaining -= sz;
@@ -111,7 +118,9 @@ pub fn evict(dir: &Path, policy: EvictionPolicy) {
             }
         }
         EvictionPolicy::MaxCount(limit) => {
-            if files.len() <= limit { return; }
+            if files.len() <= limit {
+                return;
+            }
             let drop_count = files.len() - limit;
             for (path, _, _) in files.iter().take(drop_count) {
                 if std::fs::remove_file(path).is_ok() {
@@ -133,7 +142,13 @@ mod tests {
     #[test]
     fn test_save_and_read_back() {
         let bucket = unique_bucket();
-        let path = save(&bucket, "hello.txt", b"hello world", EvictionPolicy::MaxCount(10)).unwrap();
+        let path = save(
+            &bucket,
+            "hello.txt",
+            b"hello world",
+            EvictionPolicy::MaxCount(10),
+        )
+        .unwrap();
         assert!(path.exists());
         let content = std::fs::read(&path).unwrap();
         assert_eq!(content, b"hello world");
@@ -177,7 +192,13 @@ mod tests {
         let bucket = unique_bucket();
         // Create 5 files with delays so modified times differ
         for i in 0..5 {
-            save(&bucket, &format!("f{}.txt", i), &[i as u8], EvictionPolicy::MaxCount(100)).unwrap();
+            save(
+                &bucket,
+                &format!("f{}.txt", i),
+                &[i as u8],
+                EvictionPolicy::MaxCount(100),
+            )
+            .unwrap();
             std::thread::sleep(std::time::Duration::from_millis(15));
         }
 
@@ -203,7 +224,13 @@ mod tests {
         let bucket = unique_bucket();
         // Create 3 files of 1000 bytes each — exceeds 2500 byte limit
         for i in 0..3 {
-            save(&bucket, &format!("f{}.bin", i), &vec![0u8; 1000], EvictionPolicy::MaxBytes(100_000)).unwrap();
+            save(
+                &bucket,
+                &format!("f{}.bin", i),
+                &vec![0u8; 1000],
+                EvictionPolicy::MaxBytes(100_000),
+            )
+            .unwrap();
             std::thread::sleep(std::time::Duration::from_millis(15));
         }
 

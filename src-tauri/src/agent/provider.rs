@@ -22,7 +22,10 @@ pub enum VerifySubmitStrategy {
     /// from the bottom rows. Cheap heuristic: poll the last few rows; once
     /// the needle is gone, wait `idle_after_drain` of no-screen-change
     /// before declaring submitted.
-    TuiInputDrained { timeout: Duration, idle_after_drain: Duration },
+    TuiInputDrained {
+        timeout: Duration,
+        idle_after_drain: Duration,
+    },
     /// No verification — for providers where post-submit state is not
     /// observable from the PTY (session-id-injection, headless flag delivery, etc.).
     None,
@@ -45,10 +48,8 @@ pub struct AgentLaunchParams {
     pub skip_permissions: bool,
     // True for one-shot hidden panes; providers pick non-interactive delivery.
     pub headless: bool,
-    // Pre-generated session id to use when starting a NEW conversation.
-    // Honored only by providers reporting `SessionIdInjection != None` —
-    // others ignore it (they generate ids themselves and CodeTerm has to
-    // detect after launch).
+    // Pre-generated session id to use when starting a NEW conversation. Honored only by providers reporting `SessionIdInjection != None` — others
+    // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
     pub session_id: Option<String>,
 }
 
@@ -97,10 +98,8 @@ pub struct SessionMessage {
     pub is_meta: bool,
 }
 
-
-// `ProviderDescriptor` is the wire format every plugin reports through
-// `AgentProvider::describe()`; the frontend renders Settings, Sidebar,
-// and command palette entries from the list with no per-provider JS.
+// `ProviderDescriptor` is every plugin's describe() wire payload used by the
+// frontend for Settings, Sidebar, and command-palette rows.
 
 /// Single model offered by an agent provider.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -244,21 +243,30 @@ pub enum SettingField {
         open: PathOpenKind,
     },
     /// Polled status badge: frontend invokes `query_command` and renders
-    /// the variant whose `id` matches the returned value.
+    /// the variant whose `id` matches the returned value. `query_args`
+    /// is an optional name → value map forwarded as the invoke arguments
+    /// (snake_case keys are remapped to camelCase by Tauri automatically).
     Badge {
         query_command: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        query_args: Option<serde_json::Value>,
         variants: Vec<BadgeVariant>,
     },
 
     // ── Actions ──────────────────────────────────────────────────
     /// Button that invokes a backend command. Optional `state_query`
     /// turns it into a multi-state button (Install / Reinstall / Update).
+    /// Both `command` and `state_query` use the same `args` payload —
+    /// pass `provider_id` here for generic dispatchers that target a
+    /// specific provider.
     Action {
         id: String,
         label: String,
         command: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         state_query: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        args: Option<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         confirm: Option<String>,
         #[serde(default = "ActionStyle::default_primary")]
@@ -345,7 +353,11 @@ pub fn usage_tracking_section(probe_command: &str) -> SettingField {
 }
 
 /// Build the "Model" settings section from a provider's available models.
-pub fn model_select_section(description: &str, models: Vec<ModelInfo>, default: Option<&str>) -> SettingField {
+pub fn model_select_section(
+    description: &str,
+    models: Vec<ModelInfo>,
+    default: Option<&str>,
+) -> SettingField {
     SettingField::Section {
         title: "Model".into(),
         description: Some(description.into()),
@@ -401,10 +413,44 @@ pub struct ProviderDescriptor {
     /// pipes it into a fresh terminal pane when the user clicks Install.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_command: Option<String>,
+    /// Provider-declared in-agent model switch command template. `{model}` is
+    /// replaced by the frontend with the selected `ModelInfo.id`. Absent means
+    /// the provider may publish models for launch/config surfaces but does not
+    /// support an arg-based live session switch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_switch_format: Option<String>,
+    /// `true` when this provider declares a stop_keystroke — UI shows
+    /// a Stop button on the pane that POSTs to `/api/panes/:id/stop`.
+    #[serde(default)]
+    pub supports_stop: bool,
+    /// `true` when the provider can render a pane as chat — either it
+    /// stores sessions as tailable JSONL or serves structured chat from
+    /// its own store. The UI gates the chat/terminal toggle on this
+    /// instead of a hardcoded provider list.
+    #[serde(default)]
+    pub supports_chat_ui: bool,
+    /// Trust status of the bundle backing this provider. `system` =
+    /// shipped by CodeTerm, hash matched the build-time table.
+    /// `unverified` = same id as a system plugin but the bundle on
+    /// disk has a different hash (user-modified or tampered).
+    /// `third_party` = plugin id not in the system table.
+    /// `unknown` = native (Rust-side) provider, no hash to check.
+    #[serde(default)]
+    pub trust: ProviderTrust,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderTrust {
+    System,
+    Unverified,
+    ThirdParty,
+    #[default]
+    Unknown,
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 3;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 5;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 pub trait AgentProvider: Send + Sync {
@@ -444,7 +490,9 @@ pub trait AgentProvider: Send + Sync {
     /// shell-prompt polling — providers running TUIs or non-observable flows
     /// override (TuiInputDrained / None).
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
-        VerifySubmitStrategy::ShellPrompt { timeout: Duration::from_secs(5) }
+        VerifySubmitStrategy::ShellPrompt {
+            timeout: Duration::from_secs(5),
+        }
     }
 
     /// Detect this agent from the pane/tab title string.
@@ -466,7 +514,69 @@ pub trait AgentProvider: Send + Sync {
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf>;
 
     /// Detect the most recent session ID for the given working directory.
-    fn detect_session_id(&self, cwd: &str, exclude: &[String], max_age: Option<Duration>) -> Option<String>;
+    fn detect_session_id(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+    ) -> Option<String>;
+
+    /// Detect a session that belongs to this launch attempt.
+    ///
+    /// `max_age` is interpreted as "younger than now - max_age". Callers pass
+    /// launch age so stale sessions in the same cwd are ignored.
+    /// `injected_session_id` is an optional pre-generated id used by providers
+    /// that support session-id injection.
+    fn detect_launched_session_id(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+    ) -> Option<String>;
+
+    /// Detect that a provider session for this launch is actually active.
+    ///
+    /// `screen_text` can be passed when available to avoid false-positive
+    /// attachment to stale filesystem sessions. For providers with explicit or
+    /// seeded session IDs this is usually `Some(session_id) == session_id`.
+    /// Implementations should return the same sid contract as
+    /// `detect_launched_session_id`.
+    fn detect_started_session(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+        screen_text: Option<&str>,
+    ) -> Option<String>;
+
+    /// Common startup detector used by providers that should only claim a
+    /// filesystem-detected session after seeing provider output markers.
+    fn detect_started_session_with_markers(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+        screen_text: Option<&str>,
+    ) -> Option<String> {
+        let Some(sid) = self.detect_launched_session_id(cwd, exclude, max_age, injected_session_id)
+        else {
+            return None;
+        };
+
+        if injected_session_id.is_some() {
+            return Some(sid);
+        }
+
+        match screen_text {
+            Some(text) if text.trim().is_empty() => Some(sid),
+            Some(text) if self.detect_from_output(text) => Some(sid),
+            Some(_) => None,
+            None => Some(sid),
+        }
+    }
 
     /// Whether a session id still has a backing file (JSONL / session store / whatever
     /// the provider keeps). Default implementation is `session_file_path(...).exists()`.
@@ -475,6 +585,14 @@ pub trait AgentProvider: Send + Sync {
         self.session_file_path(cwd, session_id)
             .map(|p| p.exists())
             .unwrap_or(false)
+    }
+
+    /// Session creation time, for providers whose sessions have no per-session
+    /// file (sqlite-backed, e.g. opencode) so the launch-window birth-time guard
+    /// in `detect_launched_session_id` can still reject pre-launch sessions.
+    /// Default `None` — file-based providers rely on filesystem timestamps.
+    fn session_created_at(&self, _cwd: &str, _session_id: &str) -> Option<std::time::SystemTime> {
+        None
     }
 
     /// Build a command to resume an existing session.
@@ -516,9 +634,58 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    /// Resolve the actual session JSONL file for `(cwd, session_id)`. The
+    /// chat tailer reads this file with byte-offset bookmarks. Returns
+    /// `None` when the provider doesn't store sessions as a single JSONL
+    /// (opencode is sqlite-backed — returns `None`; the UI will hide
+    /// the toggle for those providers).
+    fn session_jsonl_path(&self, _cwd: &str, _session_id: &str) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    /// Parse new messages from `path` starting at `from_offset` bytes,
+    /// returning the delta + new offset. Implementations must be
+    /// tolerant of partial last lines (a poll can land mid-write): if
+    /// trailing bytes don't terminate in `\n`, hold them back and return
+    /// `new_offset` pointing at the start of the incomplete line.
+    fn parse_session_delta(
+        &self,
+        _path: &std::path::Path,
+        _from_offset: u64,
+    ) -> crate::agent::chat_types::SessionDelta {
+        crate::agent::chat_types::SessionDelta {
+            new_offset: _from_offset,
+            messages: vec![],
+        }
+    }
+
+    /// Provider serves chat as structured messages it parses itself (e.g.
+    /// sqlite) rather than a tailable JSONL file. When true, the host uses
+    /// `read_structured_chat` and a DB poller instead of `session_jsonl_path`
+    /// + the byte-offset tailer.
+    fn uses_structured_chat(&self) -> bool {
+        false
+    }
+
+    /// Read structured chat for `(cwd, session_id)`. `cursor` is an opaque
+    /// bookmark from a prior call (`None` = from the start). Returns
+    /// new-or-updated messages plus the next cursor. Like the JSONL tail,
+    /// returning the still-growing tail message again is fine — the UI merges
+    /// by message id.
+    fn read_structured_chat(
+        &self,
+        _cwd: &str,
+        _session_id: &str,
+        _cursor: Option<&str>,
+    ) -> crate::agent::chat_types::StructuredChat {
+        crate::agent::chat_types::StructuredChat::default()
+    }
+
     /// Whether this agent supports hook-based detection (vs PTY parsing fallback).
     /// Agents with hooks get detected via API endpoints, not PTY output parsing.
-    fn has_hooks(&self) -> bool { false }
+    fn has_hooks(&self) -> bool {
+        false
+    }
 
     /// Build raw bytes to navigate to and confirm a prompt option.
     /// `option_index` is 0-based (0 = first option, already selected).
@@ -558,17 +725,23 @@ pub trait AgentProvider: Send + Sync {
     }
 
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
-    fn is_output_noise(&self, text: &str) -> bool { let _ = text; false }
+    fn is_output_noise(&self, text: &str) -> bool {
+        let _ = text;
+        false
+    }
 
     /// Bottom rows occupied by status bar/chrome, excluded from idle detection hash.
-    fn status_bar_rows(&self) -> u16 { 0 }
-
+    fn status_bar_rows(&self) -> u16 {
+        0
+    }
 
     /// Quick pre-filter on raw PTY chunks (must be fast).
     /// If true, full detection runs on the VT100 screen content.
     fn has_event_markers(&self, chunk: &str) -> bool {
-        chunk.contains("❯") || chunk.contains("proceed")
-            || chunk.contains("Esc to cancel") || chunk.contains("Tab to amend")
+        chunk.contains("❯")
+            || chunk.contains("proceed")
+            || chunk.contains("Esc to cancel")
+            || chunk.contains("Tab to amend")
             || (chunk.contains("1.") && chunk.contains("2."))
     }
 
@@ -608,11 +781,28 @@ pub trait AgentProvider: Send + Sync {
 
     /// In-agent command that switches the underlying model, if supported.
     fn model_switch_command(&self, _model: &str) -> Option<String> {
+        self.model_switch_format()
+            .map(|fmt| fmt.replace("{model}", _model))
+    }
+
+    /// In-agent model switch command template. Frontend consumers use the
+    /// template to render provider-agnostic model pickers without hardcoding
+    /// provider slash commands.
+    fn model_switch_format(&self) -> Option<&str> {
         None
     }
 
     /// In-agent command that exits the REPL cleanly, if supported.
     fn exit_command(&self) -> Option<&str> {
+        None
+    }
+
+    /// Raw key bytes the host writes into the PTY to interrupt the
+    /// agent's current generation without exiting. Most TUIs accept
+    /// Esc (`""`); cursor-agent listens for Ctrl+C (`""`).
+    /// Returning `None` means the provider has no in-pane stop hook
+    /// and the UI should hide the Stop affordance for that pane.
+    fn stop_keystroke(&self) -> Option<&str> {
         None
     }
 
@@ -647,8 +837,43 @@ pub trait AgentProvider: Send + Sync {
         Ok(())
     }
 
-    // Self-presentation: frontend reads provider tabs, models, and
-    // settings purely from these + `describe()`. Defaults stay empty.
+    // CodeTerm integration varies: Claude uses hooks for permission/task callbacks;
+    // Codex/OpenCode are PTY-observed and need no extra provider config.
+
+    /// Status of CodeTerm's notification integration with this provider —
+    /// returned as opaque JSON so each provider shapes it for its own UI.
+    /// Default: providers without external integration report `status: "ok"`
+    /// and the Badge renders "available".
+    fn check_integration(&self) -> serde_json::Value {
+        serde_json::json!({ "status": "ok" })
+    }
+
+    /// Install CodeTerm's notification integration. `api_port` is the local
+    /// CodeTerm HTTP port that callbacks should target. Default no-op.
+    fn install_integration(&self, _api_port: u16) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn uninstall_integration(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Idempotent auto-install on startup. Called once per registered
+    /// provider during boot. Default no-op.
+    fn ensure_integration_on_startup(&self, _api_port: u16) {}
+
+    // Project rules: only Claude reads `~/.claude/rules/codeterm.md`.
+    // Others inject rules elsewhere, so installed defaults to true when file is absent.
+
+    fn check_rule_status(&self) -> serde_json::Value {
+        serde_json::json!({ "installed": true, "update_available": false })
+    }
+
+    fn install_rule(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    // Self-presentation: frontend reads provider tabs, models, and settings purely from these + `describe()`. Defaults stay empty.
 
     /// Models this provider offers (e.g. sonnet, opus, haiku for Claude).
     fn available_models(&self) -> Vec<ModelInfo> {
@@ -742,7 +967,27 @@ pub trait AgentProvider: Send + Sync {
             preserves_context_on_resume: self.preserves_context_on_resume(),
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
+            model_switch_format: self.model_switch_format().map(|s| s.to_string()),
+            supports_stop: self.stop_keystroke().is_some(),
+            supports_chat_ui: self.supports_chat_ui(),
+            trust: self.trust(),
         }
+    }
+
+    /// Whether a pane running this provider can be shown as chat. Defaults
+    /// to "yes if it serves structured chat"; JSONL providers override to
+    /// `true`. The frontend reads this off the descriptor — no hardcoded
+    /// provider list.
+    fn supports_chat_ui(&self) -> bool {
+        self.uses_structured_chat()
+    }
+
+    /// Bundle trust status. Default impl returns `Unknown` (native
+    /// providers — no hash to check). JS-backed providers override
+    /// to return System/Unverified/ThirdParty based on the
+    /// build-time hash table.
+    fn trust(&self) -> ProviderTrust {
+        ProviderTrust::Unknown
     }
 }
 
@@ -837,11 +1082,13 @@ mod tests {
                     label: "Do Thing".into(),
                     command: "test_command".into(),
                     state_query: Some("query_state".into()),
+                    args: None,
                     confirm: None,
                     style: ActionStyle::Primary,
                 },
                 SettingField::Badge {
                     query_command: "check_state".into(),
+                    query_args: None,
                     variants: vec![BadgeVariant {
                         id: "ok".into(),
                         label: "OK".into(),
@@ -864,18 +1111,20 @@ mod tests {
             preserves_context_on_resume: true,
             cli_binary: Some("testcli".into()),
             install_command: Some("npm i -g testcli".into()),
+            model_switch_format: Some("/model {model}".into()),
+            supports_stop: true,
+            supports_chat_ui: true,
+            trust: ProviderTrust::System,
         };
 
         let json = serde_json::to_string(&original).expect("serialize");
-        let decoded: ProviderDescriptor =
-            serde_json::from_str(&json).expect("deserialize");
+        let decoded: ProviderDescriptor = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(original, decoded, "round-trip must be lossless");
     }
 
     #[test]
     fn provider_descriptor_rejects_unknown_fields() {
-        // schema_version protects against silent breakage; deny_unknown_fields
-        // protects against typos in field names.
+        // schema_version protects against silent breakage; deny_unknown_fields protects against typos in field names.
         let bad = r#"{
             "schema_version": 1,
             "id": "test",
@@ -886,6 +1135,7 @@ mod tests {
             "supports_lazy_skills": false,
             "has_hooks": false,
             "preserves_context_on_resume": true,
+            "model_switch_format": "/model {model}",
             "extra_unknown_field": "boom"
         }"#;
         let result: Result<ProviderDescriptor, _> = serde_json::from_str(bad);
@@ -897,18 +1147,68 @@ mod tests {
     struct StubProvider;
 
     impl AgentProvider for StubProvider {
-        fn id(&self) -> &str { "stub" }
-        fn display_name(&self) -> &str { "Stub" }
-        fn build_launch_command(&self, _: &AgentLaunchParams) -> String { String::new() }
-        fn readiness_strategy(&self) -> ReadinessStrategy {
-            ReadinessStrategy::FixedDelay { duration: Duration::from_secs(0) }
+        fn id(&self) -> &str {
+            "stub"
         }
-        fn task_delivery(&self) -> TaskDelivery { TaskDelivery::PtyInput }
-        fn detect_from_title(&self, _: &str) -> bool { false }
-        fn detect_from_output(&self, _: &str) -> bool { false }
-        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> { None }
-        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> { None }
-        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> { None }
+        fn display_name(&self) -> &str {
+            "Stub"
+        }
+        fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+            String::new()
+        }
+        fn readiness_strategy(&self) -> ReadinessStrategy {
+            ReadinessStrategy::FixedDelay {
+                duration: Duration::from_secs(0),
+            }
+        }
+        fn task_delivery(&self) -> TaskDelivery {
+            TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+            None
+        }
+        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+            None
+        }
+        fn detect_launched_session_id(
+            &self,
+            cwd: &str,
+            exclude: &[String],
+            max_age: Option<Duration>,
+            injected_session_id: Option<&str>,
+        ) -> Option<String> {
+            if let Some(sid) = injected_session_id {
+                if self.session_exists(cwd, sid) {
+                    return Some(sid.to_string());
+                }
+            }
+            self.detect_session_id(cwd, exclude, max_age)
+        }
+        fn detect_started_session(
+            &self,
+            cwd: &str,
+            exclude: &[String],
+            max_age: Option<Duration>,
+            injected_session_id: Option<&str>,
+            screen_text: Option<&str>,
+        ) -> Option<String> {
+            self.detect_started_session_with_markers(
+                cwd,
+                exclude,
+                max_age,
+                injected_session_id,
+                screen_text,
+            )
+        }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
     }
 
     #[test]
@@ -920,8 +1220,8 @@ mod tests {
         assert_eq!(desc.display_name, "Stub");
         assert!(desc.available_models.is_empty());
         assert!(desc.settings_schema.is_empty());
-        assert!(desc.preserves_context_on_resume);  // default true
-        assert!(!desc.supports_lazy_skills);          // default false
-        assert!(!desc.has_hooks);                     // default false
+        assert!(desc.preserves_context_on_resume); // default true
+        assert!(!desc.supports_lazy_skills); // default false
+        assert!(!desc.has_hooks); // default false
     }
 }

@@ -11,11 +11,7 @@ use crate::{api, cron, mem, mesh, service, socket, update, CronState, CronWake};
 use super::states::AppStates;
 
 /// Start socket server, REST API server, and cron scheduler.
-pub(crate) fn start_servers(
-    app: &tauri::App,
-    states: &AppStates,
-    service_state: &ServiceState,
-) {
+pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state: &ServiceState) {
     let app_handle = app.handle().clone();
 
     // Start socket server
@@ -30,13 +26,23 @@ pub(crate) fn start_servers(
         log::error!("Failed to start socket server: {}", e);
     }
 
-    // Initialize cron store and scheduler
-    let cron_store = cron::store::CronStore::new();
+    // Initialize cron store and scheduler. Debug builds started with CODETERM_TEST_CLOCK=1 get a MockClock (driven via /api/debug/clock) so the
+    // e2e suite can time-travel; release builds never do.
+    let test_clock: Option<Arc<cron::clock::MockClock>> =
+        if cfg!(debug_assertions) && std::env::var("CODETERM_TEST_CLOCK").as_deref() == Ok("1") {
+            log::warn!("[cron] CODETERM_TEST_CLOCK=1 — cron runs on a mock clock");
+            Some(cron::clock::MockClock::new())
+        } else {
+            None
+        };
+    let cron_store = match &test_clock {
+        Some(clock) => cron::store::CronStore::new_with_clock(clock.clone()),
+        None => cron::store::CronStore::new(),
+    };
     let cron_state: CronState = Arc::new(Mutex::new(cron_store));
     let cron_wake: CronWake = Arc::new(std::sync::Condvar::new());
 
-    // Auto-install bundled mem dreaming cron if not present. Idempotent
-    // by name. Schedule "0 3 * * *" + ±90min jitter (anti-anti-cheat).
+    // Auto-install bundled mem dreaming cron if not present. Idempotent by name. Schedule "0 3 * * *" + ±90min jitter (anti-anti-cheat).
     {
         let mut cs = cron_state.lock();
         match mem::dreaming::ensure_dreaming_cron(&mut cs) {
@@ -44,9 +50,8 @@ pub(crate) fn start_servers(
             Ok(false) => log::debug!("[mem] dreaming cron already present"),
             Err(e) => log::warn!("[mem] failed to install dreaming cron: {}", e),
         }
-        // Librarian now runs as a CLI subprocess via the mem supervisor.
-        // Remove the legacy LLM-based cron from any older install so we don't
-        // keep burning tokens to wrap a single bash command.
+        // Librarian now runs as a CLI subprocess via the mem supervisor. Remove the legacy LLM-based cron from any older install so we don't keep
+        // burning tokens to wrap a single bash command.
         if mem::dreaming::remove_legacy_librarian_cron(&mut cs) {
             log::info!("[mem] removed legacy librarian cron (replaced by direct loop)");
         }
@@ -87,17 +92,27 @@ pub(crate) fn start_servers(
                 config: states.config.clone(),
                 mesh: states.mesh.clone(),
                 keepawake: states.keepawake.clone(),
+                resize_owner: states.resize_owner.clone(),
+                test_clock: test_clock.clone(),
+                events: states.event_broadcaster.clone(),
+                web_dist: resolve_web_dist(),
+                web_tokens: std::sync::Arc::new(std::sync::Mutex::new(
+                    std::collections::HashMap::new(),
+                )),
             };
             let router = api::routes::create_router(api_state);
             let host = api_config.host.clone();
             let port = api_config.port;
+            if host == "0.0.0.0" {
+                log::warn!(
+                    "[api] binding to 0.0.0.0 exposes the API to all network interfaces — \
+                     consider setting api.host = \"127.0.0.1\" in config for better security"
+                );
+            }
             // Set CODETERM_API_PORT so PTY children (and Claude hooks) know the correct port
             std::env::set_var("CODETERM_API_PORT", port.to_string());
-            // Capture the secrets handle so we can run any one-time
-            // async init (e.g. Bitwarden auto-unlock from stored master
-            // password) BEFORE the listener accepts connections. Without
-            // this gate, /api/secrets/status would briefly serve a stale
-            // "Locked" while init was still running on a parallel task.
+            // Capture the secrets handle so can run any one-time async init (e.g. Bitwarden auto-unlock from stored master password) BEFORE the listener
+            // accepts connections. Without this gate, /api/secrets/status would briefly serve a stale "Locked" while init was still running on a parallel task.
             let secrets_for_init = service_state.secrets.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Builder::new_multi_thread()
@@ -155,7 +170,12 @@ pub(crate) fn start_servers(
                 std::thread::sleep(std::time::Duration::from_secs(2));
                 log::info!("[general-agent] Delayed start beginning...");
                 service::general_agent::start_general_agent(
-                    &svc, &mux, &pty, &screen_state, &config_state, &app_h,
+                    &svc,
+                    &mux,
+                    &pty,
+                    &screen_state,
+                    &config_state,
+                    &app_h,
                 );
             });
 
@@ -185,8 +205,34 @@ pub(crate) fn start_servers(
         super::bridge::spawn_telegram_bridge(service_state.clone());
     }
 
-    // If the previous instance was killed by `update --apply --after-update`,
-    // pick up the queued message and inject it into the general pane once the
-    // agent is ready.
+    // If the previous instance was killed by `update --apply --after-update`, pick up the queued message and inject it into the general pane once the agent is ready.
     update::post_update::spawn(service_state.clone());
+}
+
+/// Locate the built React bundle for the /web mirror.
+/// Priority: explicit env override → repo dist (dev builds) →
+/// exe-adjacent dist (portable/prod layouts). None → /web returns 404
+/// and the daemon logs the miss once.
+fn resolve_web_dist() -> Option<std::path::PathBuf> {
+    let candidates = [
+        std::env::var("CODETERM_WEB_DIST")
+            .ok()
+            .map(std::path::PathBuf::from),
+        Some(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("..")
+                .join("dist"),
+        ),
+        std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|d| d.join("dist"))),
+    ];
+    for cand in candidates.into_iter().flatten() {
+        if cand.join("index.html").exists() {
+            log::info!("[web] serving /web from {}", cand.display());
+            return Some(cand);
+        }
+    }
+    log::warn!("[web] no dist/ bundle found — /web disabled (build with `pnpm build`)");
+    None
 }

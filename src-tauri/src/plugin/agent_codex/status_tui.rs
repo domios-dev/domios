@@ -45,7 +45,12 @@ fn normalize(raw: &str) -> String {
     raw.replace('\r', "").replace('█', " ").replace('░', " ")
 }
 
-fn parse_gauge(text: &str, marker: &str, is_weekly: bool, now_ms: i64) -> (Option<f32>, Option<i64>) {
+fn parse_gauge(
+    text: &str,
+    marker: &str,
+    is_weekly: bool,
+    now_ms: i64,
+) -> (Option<f32>, Option<i64>) {
     let pattern = format!(
         r"{marker}[\s\S]{{0,200}}?(\d+(?:\.\d+)?)\s*%\s*left[\s\S]*?\(resets?\s+([^)]+?)\)",
         marker = marker
@@ -77,7 +82,11 @@ fn parse_session_resets(raw: &str, now_ms: i64) -> Option<i64> {
     let hh: u32 = caps.get(1)?.as_str().parse().ok()?;
     let mm: u32 = caps.get(2)?.as_str().parse().ok()?;
     let now_dt = Local.timestamp_millis_opt(now_ms).single()?;
-    let mut target = now_dt.with_hour(hh)?.with_minute(mm)?.with_second(0)?.with_nanosecond(0)?;
+    let mut target = now_dt
+        .with_hour(hh)?
+        .with_minute(mm)?
+        .with_second(0)?
+        .with_nanosecond(0)?;
     if target <= now_dt {
         target += chrono::Duration::days(1);
     }
@@ -152,6 +161,9 @@ mod tests {
     #[test]
     fn garbled_returns_err() {
         let p = CodexStatusUsageParser::new();
-        assert!(matches!(p.parse("no markers here"), Err(UsageParseError::NothingFound)));
+        assert!(matches!(
+            p.parse("no markers here"),
+            Err(UsageParseError::NothingFound)
+        ));
     }
 }

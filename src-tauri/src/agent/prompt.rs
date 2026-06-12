@@ -4,6 +4,7 @@
 //! Does NOT hold any external locks — takes data by value, returns decisions.
 
 use std::collections::HashMap;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
@@ -38,6 +39,8 @@ pub enum PromptDecision {
         pane_id: String,
     },
 }
+
+pub type ParsedPrompt = Option<(String, Vec<(String, String)>)>;
 
 /// Centralized prompt detection state machine.
 /// Keyed by pane_id.
@@ -85,7 +88,31 @@ impl PromptDetector {
             None => return PromptDecision::None,
         };
 
-        self.detect_and_transition(pane_id, text, parse_fn)
+        let parsed = parse_prompt_safely(|| parse_fn(text));
+        self.transition_from_parsed(pane_id, parsed)
+    }
+
+    pub fn evaluate_pty_output_parsed(
+        &mut self,
+        pane_id: &str,
+        has_markers: bool,
+        clean_ring_text_present: bool,
+        parsed: ParsedPrompt,
+    ) -> PromptDecision {
+        let is_active = matches!(
+            self.states.get(pane_id),
+            Some(PanePromptState::Active { .. })
+        );
+
+        if !has_markers && !is_active {
+            return PromptDecision::None;
+        }
+
+        if !clean_ring_text_present {
+            return PromptDecision::None;
+        }
+
+        self.transition_from_parsed(pane_id, parsed)
     }
 
     /// Entry point for hook path (API endpoint).
@@ -98,7 +125,9 @@ impl PromptDetector {
         // Hooks are authoritative — skip cooldown check
         let state = self.states.get(pane_id);
         match state {
-            Some(PanePromptState::Active { prompt: existing, .. }) => {
+            Some(PanePromptState::Active {
+                prompt: existing, ..
+            }) => {
                 if same_options(&existing.options, &prompt.options) {
                     return PromptDecision::None;
                 }
@@ -140,25 +169,50 @@ impl PromptDetector {
     where
         F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
     {
-        // Hooks are authoritative — skip cooldown, always parse
-        let parsed = parse_fn(clean_ring_text);
-        log::info!("[prompt] hook_detected_parse for {}: parsed={}, text_len={}", pane_id, parsed.is_some(), clean_ring_text.len());
-        if parsed.is_none() && clean_ring_text.len() > 100 {
-            log::info!("[prompt] screen tail: {:?}", &clean_ring_text[clean_ring_text.len().saturating_sub(300)..]);
-        }
-        match parsed {
-            Some((question, opts)) => {
-                log::info!("[prompt] parsed question={:?}, opts={}", question, opts.len());
-                let prompt = build_prompt(question, opts);
-                self.hook_detected_explicit(pane_id, prompt)
-            }
-            None => PromptDecision::None,
-        }
+        let parsed = parse_hook_prompt(clean_ring_text, parse_fn);
+        self.hook_detected_parsed(
+            pane_id,
+            clean_ring_text.len(),
+            Some(utf8_tail(clean_ring_text, 300)),
+            parsed,
+        )
     }
 
     /// Called when prompt is cleared via API (test cleanup) — resets to Idle.
     pub fn clear(&mut self, pane_id: &str) {
         self.states.remove(pane_id);
+    }
+
+    pub fn hook_detected_parsed(
+        &mut self,
+        pane_id: &str,
+        text_len: usize,
+        text_tail: Option<&str>,
+        parsed: ParsedPrompt,
+    ) -> PromptDecision {
+        log::info!(
+            "[prompt] hook_detected_parse for {}: parsed={}, text_len={}",
+            pane_id,
+            parsed.is_some(),
+            text_len
+        );
+        if parsed.is_none() && text_len > 100 {
+            if let Some(tail) = text_tail {
+                log::info!("[prompt] screen tail: {:?}", tail);
+            }
+        }
+        match parsed {
+            Some((question, opts)) => {
+                log::info!(
+                    "[prompt] parsed question={:?}, opts={}",
+                    question,
+                    opts.len()
+                );
+                let prompt = build_prompt(question, opts);
+                self.hook_detected_explicit(pane_id, prompt)
+            }
+            None => PromptDecision::None,
+        }
     }
 
     /// Called when user clicks a prompt button — transitions to Cooldown.
@@ -185,73 +239,53 @@ impl PromptDetector {
         self.states.remove(pane_id);
     }
 
-    fn detect_and_transition<F>(
-        &mut self,
-        pane_id: &str,
-        text: &str,
-        parse_fn: F,
-    ) -> PromptDecision
-    where
-        F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
-    {
-        let state = self.states.get(pane_id);
-
-        match state {
-            Some(PanePromptState::Active { prompt: existing, .. }) => {
-                match parse_fn(text) {
-                    Some((question, opts)) => {
-                        let new_prompt = build_prompt(question, opts);
-                        if same_options(&existing.options, &new_prompt.options) {
-                            PromptDecision::None
-                        } else {
-                            self.states.insert(
-                                pane_id.to_string(),
-                                PanePromptState::Active {
-                                    prompt: new_prompt.clone(),
-                                    detected_at: Instant::now(),
-                                },
-                            );
-                            PromptDecision::PromptUpdated {
-                                pane_id: pane_id.to_string(),
-                                prompt: new_prompt,
-                            }
-                        }
-                    }
-                    None => {
-                        // Prompt gone from screen — user answered in terminal
-                        self.states.insert(pane_id.to_string(), PanePromptState::Idle);
-                        PromptDecision::PromptCleared {
+    fn transition_from_parsed(&mut self, pane_id: &str, parsed: ParsedPrompt) -> PromptDecision {
+        match self.states.get(pane_id) {
+            Some(PanePromptState::Active {
+                prompt: existing, ..
+            }) => match parsed {
+                Some((question, opts)) => {
+                    let new_prompt = build_prompt(question, opts);
+                    if same_options(&existing.options, &new_prompt.options) {
+                        PromptDecision::None
+                    } else {
+                        self.states.insert(
+                            pane_id.to_string(),
+                            PanePromptState::Active {
+                                prompt: new_prompt.clone(),
+                                detected_at: Instant::now(),
+                            },
+                        );
+                        PromptDecision::PromptUpdated {
                             pane_id: pane_id.to_string(),
+                            prompt: new_prompt,
                         }
                     }
                 }
-            }
+                None => {
+                    self.states
+                        .insert(pane_id.to_string(), PanePromptState::Idle);
+                    PromptDecision::PromptCleared {
+                        pane_id: pane_id.to_string(),
+                    }
+                }
+            },
 
             Some(PanePromptState::Cooldown { responded_at }) => {
                 if responded_at.elapsed().as_millis() < self.cooldown_ms as u128 {
                     return PromptDecision::None;
                 }
-                self.states.insert(pane_id.to_string(), PanePromptState::Idle);
-                self.try_detect(pane_id, text, parse_fn)
+                self.states
+                    .insert(pane_id.to_string(), PanePromptState::Idle);
+                self.try_apply_parsed(pane_id, parsed)
             }
 
-            Some(PanePromptState::Idle) | None => {
-                self.try_detect(pane_id, text, parse_fn)
-            }
+            Some(PanePromptState::Idle) | None => self.try_apply_parsed(pane_id, parsed),
         }
     }
 
-    fn try_detect<F>(
-        &mut self,
-        pane_id: &str,
-        text: &str,
-        parse_fn: F,
-    ) -> PromptDecision
-    where
-        F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
-    {
-        let result = parse_fn(text);
-        match result {
+    fn try_apply_parsed(&mut self, pane_id: &str, parsed: ParsedPrompt) -> PromptDecision {
+        match parsed {
             Some((question, opts)) => {
                 let prompt = build_prompt(question, opts);
                 self.states.insert(
@@ -267,6 +301,40 @@ impl PromptDetector {
                 }
             }
             None => PromptDecision::None,
+        }
+    }
+}
+
+pub(crate) fn utf8_tail(text: &str, max_bytes: usize) -> &str {
+    if text.len() <= max_bytes {
+        return text;
+    }
+    let mut start = text.len() - max_bytes;
+    while start < text.len() && !text.is_char_boundary(start) {
+        start += 1;
+    }
+    &text[start..]
+}
+
+fn parse_hook_prompt<F>(
+    clean_ring_text: &str,
+    parse_fn: F,
+) -> Option<(String, Vec<(String, String)>)>
+where
+    F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
+{
+    parse_prompt_safely(|| parse_fn(clean_ring_text))
+}
+
+pub(crate) fn parse_prompt_safely<F>(parse_fn: F) -> ParsedPrompt
+where
+    F: FnOnce() -> ParsedPrompt,
+{
+    match catch_unwind(AssertUnwindSafe(parse_fn)) {
+        Ok(parsed) => parsed,
+        Err(_) => {
+            log::error!("[prompt] parser panicked; ignoring prompt detection");
+            None
         }
     }
 }
@@ -287,7 +355,9 @@ fn same_options(a: &[PromptOption], b: &[PromptOption]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter().zip(b.iter()).all(|(x, y)| x.value == y.value && x.label == y.label)
+    a.iter()
+        .zip(b.iter())
+        .all(|(x, y)| x.value == y.value && x.label == y.label)
 }
 
 #[cfg(test)]
@@ -442,7 +512,8 @@ mod tests {
         let mut det = PromptDetector::new();
         det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         // Prompt disappears from screen (user answered in terminal)
-        let decision = det.evaluate_pty_output("pane-1", true, Some("no prompt here"), parse_yes_no);
+        let decision =
+            det.evaluate_pty_output("pane-1", true, Some("no prompt here"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::PromptCleared { .. }));
         assert!(det.active_prompt("pane-1").is_none());
     }
@@ -459,6 +530,71 @@ mod tests {
         let mut det = PromptDetector::new();
         let decision = det.hook_detected_parse("pane-1", "nothing", parse_yes_no);
         assert!(matches!(decision, PromptDecision::None));
+    }
+
+    #[test]
+    fn test_hook_parse_multibyte_tail_does_not_panic() {
+        let mut det = PromptDetector::new();
+        let text = format!("{}{}{}", "a".repeat(10), "─", "b".repeat(298));
+        assert_eq!(
+            text.len() - 300,
+            11,
+            "fixture must put old byte-slice start inside the box drawing char"
+        );
+        assert!(
+            !text.is_char_boundary(text.len() - 300),
+            "fixture must reproduce the invalid UTF-8 boundary"
+        );
+
+        let decision = det.hook_detected_parse("pane-1", &text, parse_yes_no);
+
+        assert!(matches!(decision, PromptDecision::None));
+    }
+
+    #[test]
+    fn test_hook_parse_contains_parser_panic() {
+        let mut det = PromptDetector::new();
+        let decision = det.hook_detected_parse("pane-1", "│ emoji 😀 cjk 漢字", |_| {
+            panic!("provider parser bug")
+        });
+
+        assert!(matches!(decision, PromptDecision::None));
+    }
+
+    #[test]
+    fn test_parser_panic_does_not_strand_detector_lock() {
+        let detector = parking_lot::Mutex::new(PromptDetector::new());
+        let text = "│ emoji 😀 cjk 漢字";
+
+        let parsed = parse_prompt_safely(|| {
+            panic!("provider parser bug");
+        });
+        let decision =
+            detector
+                .lock()
+                .hook_detected_parsed("pane-1", text.len(), Some(text), parsed);
+        assert!(matches!(decision, PromptDecision::None));
+
+        let parsed = parse_prompt_safely(|| parse_yes_no("proceed"));
+        let decision = detector.lock().hook_detected_parsed(
+            "pane-1",
+            "proceed".len(),
+            Some("proceed"),
+            parsed,
+        );
+        assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
+    }
+
+    #[test]
+    fn test_utf8_tail_starts_on_char_boundary() {
+        let text = format!("{}{}{}", "a".repeat(10), "😀", "b".repeat(298));
+        let old_start = text.len() - 300;
+        assert!(!text.is_char_boundary(old_start));
+
+        let tail = utf8_tail(&text, 300);
+
+        assert!(tail.len() <= 300);
+        assert!(tail.starts_with('b'));
     }
 
     #[test]

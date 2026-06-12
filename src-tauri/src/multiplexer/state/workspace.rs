@@ -19,11 +19,12 @@ impl MultiplexerState {
         WorkspaceInfo {
             id: workspace_id.clone(),
             name,
-            tab_count: 1,
+            tab_count: 0,
             is_active: false,
             cwd,
             protected: false,
             pane_ids: vec![],
+            existing: None,
         }
     }
 
@@ -49,11 +50,7 @@ impl MultiplexerState {
     /// so callers can drop the mux lock before acting on the result.
     pub fn find_workspace_info_by_cwd(&self, query: &str) -> Option<WorkspaceInfo> {
         let ws = self.find_workspace_by_cwd(query)?;
-        let pane_ids: Vec<String> = ws
-            .tabs
-            .iter()
-            .map(|t| t.pane_id.clone())
-            .collect();
+        let pane_ids: Vec<String> = ws.tabs.iter().map(|t| t.pane_id.clone()).collect();
         Some(WorkspaceInfo {
             id: ws.id.clone(),
             name: ws.name.clone(),
@@ -62,6 +59,7 @@ impl MultiplexerState {
             cwd: ws.cwd.clone(),
             protected: ws.protected,
             pane_ids,
+            existing: None,
         })
     }
 
@@ -128,7 +126,9 @@ impl MultiplexerState {
     }
 
     pub fn rename_workspace(&mut self, id: &str, name: &str) -> Result<(), String> {
-        let ws = self.workspaces.iter_mut()
+        let ws = self
+            .workspaces
+            .iter_mut()
             .find(|w| w.id == id)
             .ok_or_else(|| format!("Workspace not found: {}", id))?;
         ws.name = name.to_string();
@@ -151,16 +151,25 @@ impl MultiplexerState {
     }
 
     /// Move a tab from one workspace to another. Returns error if not found.
-    pub fn move_tab(&mut self, tab_id: &str, from_workspace_id: &str, to_workspace_id: &str) -> Result<(), String> {
+    pub fn move_tab(
+        &mut self,
+        tab_id: &str,
+        from_workspace_id: &str,
+        to_workspace_id: &str,
+    ) -> Result<(), String> {
         if from_workspace_id == to_workspace_id {
             return Ok(());
         }
 
-        let from_ws = self.workspaces.iter_mut()
+        let from_ws = self
+            .workspaces
+            .iter_mut()
             .find(|w| w.id == from_workspace_id)
             .ok_or_else(|| format!("Source workspace not found: {}", from_workspace_id))?;
 
-        let tab_idx = from_ws.tabs.iter()
+        let tab_idx = from_ws
+            .tabs
+            .iter()
             .position(|t| t.id == tab_id)
             .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
 
@@ -174,11 +183,11 @@ impl MultiplexerState {
             from_ws.active_tab_id = from_ws.tabs.last().map(|t| t.id.clone());
         }
 
-        let to_ws = self.workspaces.iter_mut()
+        let to_ws = self
+            .workspaces
+            .iter_mut()
             .find(|w| w.id == to_workspace_id)
-            .ok_or_else(|| {
-                format!("Destination workspace not found: {}", to_workspace_id)
-            })?;
+            .ok_or_else(|| format!("Destination workspace not found: {}", to_workspace_id))?;
 
         to_ws.tabs.push(tab);
         to_ws.active_tab_id = Some(tab_id.to_string());
@@ -190,9 +199,7 @@ impl MultiplexerState {
         self.workspaces
             .iter()
             .map(|w| {
-                let pane_ids: Vec<String> = w.tabs.iter()
-                    .map(|t| t.pane_id.clone())
-                    .collect();
+                let pane_ids: Vec<String> = w.tabs.iter().map(|t| t.pane_id.clone()).collect();
                 WorkspaceInfo {
                     id: w.id.clone(),
                     name: w.name.clone(),
@@ -201,9 +208,9 @@ impl MultiplexerState {
                     cwd: w.cwd.clone(),
                     protected: w.protected,
                     pane_ids,
+                    existing: None,
                 }
             })
             .collect()
     }
 }
-

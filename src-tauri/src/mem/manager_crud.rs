@@ -1,10 +1,10 @@
 //! Mem CRUD operations: save, get, update, delete.
 
-use super::{extract, graph, store, MemKind, MemManager, NewMemItem};
 use super::graph::Relation;
-use super::store::MemItem;
 #[cfg(feature = "embeddings")]
 use super::reindex::compose_embed_text;
+use super::store::MemItem;
+use super::{extract, graph, store, MemKind, MemManager, NewMemItem};
 
 impl MemManager {
     pub fn save(&self, item: NewMemItem) -> Result<String, String> {
@@ -36,7 +36,10 @@ impl MemManager {
                 )
                 .ok();
             if let Some(dup_id) = existing {
-                log::info!("[mem] dedup: bumping recurrence on existing {} (same kind+title)", dup_id);
+                log::info!(
+                    "[mem] dedup: bumping recurrence on existing {} (same kind+title)",
+                    dup_id
+                );
                 let _ = conn.execute(
                     "UPDATE mem_items SET recurrence_count = recurrence_count + 1,
                                          accessed_at = ?1
@@ -75,7 +78,11 @@ impl MemManager {
         }
         if matches!(
             item.kind,
-            MemKind::Conversation | MemKind::Note | MemKind::Daily | MemKind::Learning | MemKind::Fact
+            MemKind::Conversation
+                | MemKind::Note
+                | MemKind::Daily
+                | MemKind::Learning
+                | MemKind::Fact
         ) {
             let extracted = extract::extract_all(&item.body);
             for ext in extracted {
@@ -137,7 +144,8 @@ impl MemManager {
         let ids: Vec<String> = {
             let mut out = Vec::new();
             if let Ok(mut stmt) = conn.prepare("SELECT id FROM mem_items WHERE area = ?1") {
-                if let Ok(rows) = stmt.query_map(rusqlite::params![area], |r| r.get::<_, String>(0)) {
+                if let Ok(rows) = stmt.query_map(rusqlite::params![area], |r| r.get::<_, String>(0))
+                {
                     for row in rows.flatten() {
                         out.push(row);
                     }

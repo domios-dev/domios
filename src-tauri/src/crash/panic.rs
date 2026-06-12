@@ -7,6 +7,7 @@ use super::report;
 pub fn install_panic_hook() {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        crate::keepawake::cleanup_active_children_for_exit();
         write_panic_report(info);
         prev(info);
     }));
@@ -19,9 +20,14 @@ fn write_panic_report(info: &std::panic::PanicHookInfo<'_>) {
     let mut s = report::header("panic");
     let _ = writeln!(s);
 
-    let _ = writeln!(s, "Thread: {}", std::thread::current().name().unwrap_or("<unnamed>"));
+    let _ = writeln!(
+        s,
+        "Thread: {}",
+        std::thread::current().name().unwrap_or("<unnamed>")
+    );
 
-    let location = info.location()
+    let location = info
+        .location()
         .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
         .unwrap_or_else(|| "<unknown>".into());
     let _ = writeln!(s, "Location: {}", location);

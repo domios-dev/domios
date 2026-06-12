@@ -19,11 +19,8 @@ pub struct TabInfo {
     pub pane_id: String,
 }
 
-// ── Commands ─────────────────────────────────────────────────────────
-//
-// All state-mutating commands delegate to ServiceContext for consistent
-// behavior (PTY cleanup, event emission). Read-only commands access
-// MuxState directly since they don't need side-effects.
+// Mutating commands route through ServiceContext for PTY cleanup/event emission.
+// Read-only commands read MuxState directly since they have no side effects.
 
 /// Returns the full multiplexer state for frontend hydration (read-only).
 #[tauri::command]
@@ -86,17 +83,27 @@ pub fn mux_move_tab(
 pub fn mux_create_tab(
     svc: State<'_, ServiceState>,
     workspace_id: String,
+    eager: Option<bool>,
 ) -> Result<TabInfo, String> {
     let (tab_id, pane_id) = svc.create_tab(&workspace_id)?;
     // User-created tabs are Orchestrators by default (can spawn agents)
     let _ = svc.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
+    if eager.unwrap_or(false) {
+        svc.ensure_pane_pty_for_send(&pane_id)?;
+    }
     // Read tab title from state
-    let title = svc.mux.lock()
+    let title = svc
+        .mux
+        .lock()
         .get_workspace(&workspace_id)
         .and_then(|ws| ws.tabs.iter().find(|t| t.id == tab_id))
         .map(|t| t.title.clone())
         .unwrap_or_else(|| "Tab".to_string());
-    Ok(TabInfo { id: tab_id, title, pane_id })
+    Ok(TabInfo {
+        id: tab_id,
+        title,
+        pane_id,
+    })
 }
 
 /// Close a tab and kill its PTYs.
@@ -132,19 +139,13 @@ pub fn mux_rename_tab(
 
 /// Close a pane and kill its PTY (cascade-closes children).
 #[tauri::command]
-pub fn mux_close_pane(
-    svc: State<'_, ServiceState>,
-    pane_id: String,
-) -> Result<(), String> {
+pub fn mux_close_pane(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
     svc.close_pane(&pane_id)
 }
 
 /// Set the focused pane.
 #[tauri::command]
-pub fn mux_set_focused_pane(
-    svc: State<'_, ServiceState>,
-    pane_id: String,
-) -> Result<(), String> {
+pub fn mux_set_focused_pane(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
     svc.focus_pane(&pane_id)
 }
 
@@ -239,7 +240,13 @@ pub fn detect_pane_session_id(
     exclude: Option<Vec<String>>,
     max_age_secs: Option<u64>,
 ) -> Result<Option<String>, String> {
-    detect_agent_session_id(&svc.agent_registry, &provider_id, &cwd, exclude, max_age_secs)
+    detect_agent_session_id(
+        &svc.agent_registry,
+        &provider_id,
+        &cwd,
+        exclude,
+        max_age_secs,
+    )
 }
 
 /// Generic agent session detection — delegates to provider from registry.
@@ -252,7 +259,8 @@ pub fn detect_agent_session_id(
 ) -> Result<Option<String>, String> {
     let excluded = exclude.unwrap_or_default();
     let max_age = max_age_secs.map(std::time::Duration::from_secs);
-    registry.with_provider(agent_type, |p| p.detect_session_id(cwd, &excluded, max_age))
+    registry
+        .with_provider(agent_type, |p| p.detect_session_id(cwd, &excluded, max_age))
         .ok_or_else(|| format!("Unknown agent type: {}", agent_type))
         .map(|opt| opt)
 }
@@ -305,10 +313,7 @@ pub fn mux_set_pane_role(
 
 /// Clear a pane's orchestration role (also orphans children).
 #[tauri::command]
-pub fn mux_clear_pane_role(
-    svc: State<'_, ServiceState>,
-    pane_id: String,
-) -> Result<(), String> {
+pub fn mux_clear_pane_role(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
     svc.clear_pane_role(&pane_id)
 }
 

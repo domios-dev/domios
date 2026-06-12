@@ -123,9 +123,17 @@ fn preference_auto_extracted_from_note() {
     })
     .unwrap();
     let stats = mem.stats().unwrap();
-    assert!(stats.total_items >= 2, "expected ≥2 items, got {}", stats.total_items);
+    assert!(
+        stats.total_items >= 2,
+        "expected ≥2 items, got {}",
+        stats.total_items
+    );
     let pref_count = stats.by_kind.get("preference").copied().unwrap_or(0);
-    assert!(pref_count >= 1, "expected ≥1 preference, got {}", pref_count);
+    assert!(
+        pref_count >= 1,
+        "expected ≥1 preference, got {}",
+        pref_count
+    );
 }
 
 #[test]
@@ -161,5 +169,8 @@ fn try_conn_for_times_out_when_held_by_another_thread() {
     holder.join().unwrap();
 
     let ok = mem.try_conn_for(Duration::from_millis(200));
-    assert!(ok.is_some(), "lock should be reacquirable after holder drops");
+    assert!(
+        ok.is_some(),
+        "lock should be reacquirable after holder drops"
+    );
 }

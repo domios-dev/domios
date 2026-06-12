@@ -2,8 +2,7 @@ use tauri::{AppHandle, Emitter};
 
 #[tauri::command]
 pub fn get_windows_build_number() -> u32 {
-    // Build number is constant for the OS lifetime — cache to avoid spawning
-    // cmd.exe on every TerminalPane mount (~1s on Win11 with Defender).
+    // Build number is constant for the OS lifetime — cache to avoid spawning cmd.exe on every TerminalPane mount (~1s on Win11 with Defender).
     static CACHED: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
     *CACHED.get_or_init(|| {
         #[cfg(target_os = "windows")]
@@ -26,7 +25,9 @@ pub fn get_windows_build_number() -> u32 {
             19041
         }
         #[cfg(not(target_os = "windows"))]
-        { 0 }
+        {
+            0
+        }
     })
 }
 
@@ -42,19 +43,26 @@ pub fn get_network_info(
     state: tauri::State<'_, crate::config::ConfigState>,
     mesh: tauri::State<'_, crate::MeshStateHandle>,
 ) -> Result<serde_json::Value, String> {
-    let local_ip = crate::api::routes::local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
-    // Single source of truth: read the cached value populated by
-    // `mesh::discovery::detect_tailscale` from the periodic refresh loop.
-    // Avoids duplicating the probe logic (which lacked IP validation,
-    // the GUI-bridge fallback, and a timeout).
+    let local_ip =
+        crate::api::routes::local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
+    // Single source of truth: read the cached value populated by `mesh::discovery::detect_tailscale` from the periodic refresh loop. Avoids
+    // duplicating the probe logic (which lacked IP validation, the GUI-bridge fallback, and a timeout).
     let tailscale_ip = mesh.lock().tailscale_ip.clone();
+    let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
+    let tailscale_https_url = if crate::mesh::discovery::tailscale_serve_https_enabled() {
+        tailscale_dns.as_ref().map(|dns| format!("https://{}", dns))
+    } else {
+        None
+    };
     let port = state.lock().api.port;
     Ok(serde_json::json!({
         "local_ip": local_ip,
         "tailscale_ip": tailscale_ip,
+        "tailscale_dns": tailscale_dns,
         "api_port": port,
         "api_url": format!("http://{}:{}", local_ip, port),
         "tailscale_url": tailscale_ip.as_ref().map(|ip| format!("http://{}:{}", ip, port)),
+        "tailscale_https_url": tailscale_https_url,
     }))
 }
 
@@ -79,7 +87,9 @@ pub async fn get_shell_diagnostics() -> serde_json::Value {
             fn exists_on_path(name: &str) -> Option<String> {
                 let path = std::env::var("PATH").ok()?;
                 for dir in path.split(';') {
-                    if dir.is_empty() { continue; }
+                    if dir.is_empty() {
+                        continue;
+                    }
                     let p = std::path::Path::new(dir).join(name);
                     if p.is_file() {
                         return Some(p.to_string_lossy().into_owned());
@@ -89,7 +99,9 @@ pub async fn get_shell_diagnostics() -> serde_json::Value {
             }
             let pwsh = exists_on_path("pwsh.exe");
             let ps5 = exists_on_path("powershell.exe");
-            let current = pwsh.clone().or(ps5.clone())
+            let current = pwsh
+                .clone()
+                .or(ps5.clone())
                 .unwrap_or_else(|| std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into()));
             serde_json::json!({
                 "platform": platform,
@@ -100,11 +112,13 @@ pub async fn get_shell_diagnostics() -> serde_json::Value {
             })
         })
         .await
-        .unwrap_or_else(|_| serde_json::json!({
-            "platform": platform,
-            "pwsh_installed": true,
-            "current_shell": "unknown",
-        }))
+        .unwrap_or_else(|_| {
+            serde_json::json!({
+                "platform": platform,
+                "pwsh_installed": true,
+                "current_shell": "unknown",
+            })
+        })
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -137,7 +151,10 @@ pub fn suggest_install_pwsh(
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
         loop {
             if std::time::Instant::now() > deadline {
-                log::warn!("[suggest_install_pwsh] gave up waiting for PTY on {}", pane_id_bg);
+                log::warn!(
+                    "[suggest_install_pwsh] gave up waiting for PTY on {}",
+                    pane_id_bg
+                );
                 return;
             }
             let pty_id = svc_arc
@@ -160,6 +177,29 @@ pub fn suggest_install_pwsh(
         }
     });
     Ok(pane_id)
+}
+
+/// Frontend reports WebGL renderer health here. Goes into the daemon
+/// log so rendering health is observable without opening the WebView
+/// devtools. Called from useXterm.ts on every TerminalPane mount.
+///
+/// state: "loaded" — WebGL addon attached successfully
+///        "context_lost" — GPU context dropped (xterm will fall back)
+///        "failed" — WebGL addon constructor threw
+///        "skipped_macos" / "skipped_test_mode" — deliberate DOM renderer
+#[tauri::command]
+pub fn report_webgl_status(state: String, detail: Option<String>) {
+    match state.as_str() {
+        "loaded" => log::info!("[webgl] addon loaded"),
+        "skipped_macos" => log::info!("[webgl] skipped on macOS — DOM renderer active"),
+        "skipped_test_mode" => log::info!("[webgl] skipped in test mode"),
+        "context_lost" => log::warn!("[webgl] GPU context lost — DOM fallback engaged"),
+        "failed" => log::warn!(
+            "[webgl] addon failed to load: {}",
+            detail.as_deref().unwrap_or("<no detail>")
+        ),
+        other => log::warn!("[webgl] unknown state from FE: {other}"),
+    }
 }
 
 #[tauri::command]

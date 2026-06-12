@@ -22,7 +22,7 @@ export interface Tab {
   pane_id: string;
 }
 
-export type AgentRole = "Orchestrator" | "Lead" | "Worker" | "Conductor" | "SubWorker";
+export type AgentRole = "Orchestrator" | "Worker";
 
 export interface PromptOption {
   label: string;
@@ -406,6 +406,7 @@ export interface MemoryConfig {
 export interface UiConfig {
   memory_tab_enabled?: boolean;
   mesh_tab_enabled?: boolean;
+  default_new_agent_pane_chat?: boolean;
 }
 
 export interface AppConfig {
@@ -425,9 +426,8 @@ export interface AppConfig {
   ui?: UiConfig;
 }
 
-// ── Plugin self-presentation wire types (Chunk B) ──────────────────
-// Mirror `src-tauri/src/agent/provider.rs`. Frontend reads these via
-// the `list_agent_providers` Tauri command / REST endpoint.
+// Provider descriptor wire types mirror `src-tauri/src/agent/provider.rs`.
+// Frontend consumes them via `list_agent_providers`.
 
 export interface ModelInfo {
   id: string;
@@ -457,13 +457,19 @@ export type SettingField =
   | { kind: "api_key"; env_var: string; label: string; link?: string }
   | { kind: "info"; title?: string; body: string; level: NoteLevel }
   | { kind: "path_link"; label: string; path: string; open: PathOpenKind }
-  | { kind: "badge"; query_command: string; variants: BadgeVariant[] }
+  | {
+      kind: "badge";
+      query_command: string;
+      query_args?: Record<string, unknown>;
+      variants: BadgeVariant[];
+    }
   | {
       kind: "action";
       id: string;
       label: string;
       command: string;
       state_query?: string;
+      args?: Record<string, unknown>;
       confirm?: string;
       style: ActionStyle;
     }
@@ -486,10 +492,17 @@ export interface ProviderDescriptor {
   supports_lazy_skills: boolean;
   has_hooks: boolean;
   preserves_context_on_resume: boolean;
+  /// Provider can render a pane as chat (JSONL sessions or structured/DB-backed
+  /// chat). Gates the chat/terminal toggle — replaces the old hardcoded set.
+  supports_chat_ui?: boolean;
   /// Binary name to probe via `which` when checking installation. Optional —
   /// providers without a CLI dependency leave this null.
   cli_binary?: string | null;
   /// Shell command that installs the CLI for the current platform. Used by
   /// the Install card on the per-provider Settings screen.
   install_command?: string | null;
+  /// Provider-declared in-agent model switch template. `{model}` is replaced
+  /// with the selected ModelInfo id. Missing means the provider does not
+  /// support arg-based live model switching.
+  model_switch_format?: string | null;
 }

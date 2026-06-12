@@ -8,26 +8,42 @@ pub fn handle_usage(
     token: Option<&str>,
 ) {
     match action {
-        UsageAction::Latest { provider, account_id } => {
+        UsageAction::Latest {
+            provider,
+            account_id,
+        } => {
             let url = build_url(base, "/api/usage/latest", &provider, account_id.as_deref());
             get_json(http, &url, token, json_mode, render_latest);
         }
-        UsageAction::Projection { provider, account_id } => {
-            let url = build_url(base, "/api/usage/projection", &provider, account_id.as_deref());
+        UsageAction::Projection {
+            provider,
+            account_id,
+        } => {
+            let url = build_url(
+                base,
+                "/api/usage/projection",
+                &provider,
+                account_id.as_deref(),
+            );
             get_json(http, &url, token, json_mode, render_projection);
         }
-        UsageAction::Refresh { provider, account_id } => {
+        UsageAction::Refresh {
+            provider,
+            account_id,
+        } => {
             let mut body = serde_json::json!({ "provider": provider });
             if let Some(a) = account_id {
                 body["account_id"] = serde_json::json!(a);
             }
-            let mut req = http
-                .post(format!("{}/api/usage/refresh", base))
-                .json(&body);
+            let mut req = http.post(format!("{}/api/usage/refresh", base)).json(&body);
             if let Some(t) = token {
                 req = req.header("Authorization", format!("Bearer {}", t));
             }
-            match req.send().and_then(|r| r.error_for_status()).and_then(|r| r.json::<serde_json::Value>()) {
+            match req
+                .send()
+                .and_then(|r| r.error_for_status())
+                .and_then(|r| r.json::<serde_json::Value>())
+            {
                 Ok(v) => {
                     if json_mode {
                         println!("{}", serde_json::to_string(&v).unwrap_or_default());
@@ -45,7 +61,12 @@ pub fn handle_usage(
 }
 
 fn build_url(base: &str, path: &str, provider: &str, account_id: Option<&str>) -> String {
-    let mut url = format!("{}{}?provider={}", base, path, urlencoding::encode(provider));
+    let mut url = format!(
+        "{}{}?provider={}",
+        base,
+        path,
+        urlencoding::encode(provider)
+    );
     if let Some(a) = account_id {
         url.push_str(&format!("&account_id={}", urlencoding::encode(a)));
     }
@@ -65,11 +86,17 @@ fn get_json<F: FnOnce(&serde_json::Value)>(
     }
     let resp = match req.send().and_then(|r| r.error_for_status()) {
         Ok(r) => r,
-        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
     };
     let v: serde_json::Value = match resp.json() {
         Ok(v) => v,
-        Err(e) => { eprintln!("Error: parse json: {}", e); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("Error: parse json: {}", e);
+            std::process::exit(1);
+        }
     };
     if json_mode {
         println!("{}", serde_json::to_string(&v).unwrap_or_default());
@@ -97,23 +124,48 @@ fn render_projection(v: &serde_json::Value) {
         return;
     }
     if let Some(s) = v.get("session").filter(|s| !s.is_null()) {
-        let proj = s.get("projected_pct").and_then(|x| x.as_f64()).unwrap_or(0.0);
-        let rate = s.get("rate_per_min").and_then(|x| x.as_f64()).unwrap_or(0.0);
-        let over = s.get("will_exceed").and_then(|x| x.as_bool()).unwrap_or(false);
+        let proj = s
+            .get("projected_pct")
+            .and_then(|x| x.as_f64())
+            .unwrap_or(0.0);
+        let rate = s
+            .get("rate_per_min")
+            .and_then(|x| x.as_f64())
+            .unwrap_or(0.0);
+        let over = s
+            .get("will_exceed")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(false);
         println!(
             "session: projected {:.0}% by reset · {:.2} %/min{}",
-            proj, rate,
+            proj,
+            rate,
             if over { " · WILL EXCEED" } else { "" }
         );
     } else {
         println!("session: (no projection)");
     }
     if let Some(w) = v.get("weekly").filter(|w| !w.is_null()) {
-        let eod = w.get("end_of_today_pct").and_then(|x| x.as_f64()).unwrap_or(0.0);
-        let eoc = w.get("end_of_cycle_pct").and_then(|x| x.as_f64()).unwrap_or(0.0);
-        let wd = w.get("avg_weekday_spend").and_then(|x| x.as_f64()).unwrap_or(0.0);
-        let we = w.get("avg_weekend_spend").and_then(|x| x.as_f64()).unwrap_or(0.0);
-        let rest = w.get("rest_of_today_est").and_then(|x| x.as_f64()).unwrap_or(0.0);
+        let eod = w
+            .get("end_of_today_pct")
+            .and_then(|x| x.as_f64())
+            .unwrap_or(0.0);
+        let eoc = w
+            .get("end_of_cycle_pct")
+            .and_then(|x| x.as_f64())
+            .unwrap_or(0.0);
+        let wd = w
+            .get("avg_weekday_spend")
+            .and_then(|x| x.as_f64())
+            .unwrap_or(0.0);
+        let we = w
+            .get("avg_weekend_spend")
+            .and_then(|x| x.as_f64())
+            .unwrap_or(0.0);
+        let rest = w
+            .get("rest_of_today_est")
+            .and_then(|x| x.as_f64())
+            .unwrap_or(0.0);
         let conf = w.get("confidence").and_then(|x| x.as_str()).unwrap_or("?");
         println!(
             "weekly:  end-of-today {:.0}% · end-of-cycle {:.0}% [{}]",

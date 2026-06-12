@@ -119,9 +119,9 @@ impl ScreenState {
         let parser = self.parsers.get(pty_id)?;
         let screen = parser.screen();
         let (rows, cols) = screen.size();
-        let last_nonblank: Option<u16> = (0..rows).rev().find(|&r| {
-            !screen.contents_between(r, 0, r, cols).trim().is_empty()
-        });
+        let last_nonblank: Option<u16> = (0..rows)
+            .rev()
+            .find(|&r| !screen.contents_between(r, 0, r, cols).trim().is_empty());
         let end_row_excl = last_nonblank.map(|r| r + 1).unwrap_or(rows);
         let start_row = end_row_excl.saturating_sub(max_rows as u16);
         let mut out = String::new();
@@ -196,16 +196,15 @@ impl ScreenState {
 pub fn screen_has_agent_tui(screen_text: &str) -> bool {
     // Box-drawing corners + thick verticals seen in agent TUIs but never in shells.
     const TUI_GLYPHS: &[char] = &[
-        '╭', '╰', '╮', '╯',           // Claude (light rounded)
-        '┏', '┓', '┗', '┛',           // heavy square corners
-        '╹', '╻', '╺', '╸',           // half-line caps (opencode logo)
-        '┃',                            // heavy vertical (opencode borders)
+        '╭', '╰', '╮', '╯', // Claude (light rounded)
+        '┏', '┓', '┗', '┛', // heavy square corners
+        '╹', '╻', '╺', '╸', // half-line caps (opencode logo)
+        '┃', // heavy vertical (opencode borders)
     ];
     if screen_text.chars().any(|c| TUI_GLYPHS.contains(&c)) {
         return true;
     }
-    // Six+ consecutive `▀` (upper-half blocks) — opencode logo/borders never
-    // appear in normal shell output.
+    // Six+ consecutive `▀` (upper-half blocks) — opencode logo/borders never appear in normal shell output.
     screen_text.contains("▀▀▀▀▀▀")
 }
 
@@ -238,8 +237,7 @@ pub fn screen_has_shell_prompt(screen_text: &str) -> bool {
             if trimmed == ">" || trimmed == "> " {
                 return false;
             }
-            // Claude Code TUI idle input cursor: `❯` (U+276F), optional trailing space.
-            // Some agent TUIs use `›` (U+203A) similarly. Match anywhere on the
+            // Claude Code TUI idle input cursor: `❯` (U+276F), optional trailing space. Some agent TUIs use `›` (U+203A) similarly. Match anywhere on the
             // last line so this still fires when the cursor sits inside a box.
             if trimmed.contains('\u{276F}') || trimmed.contains('\u{203A}') {
                 return true;
@@ -250,9 +248,7 @@ pub fn screen_has_shell_prompt(screen_text: &str) -> bool {
                 || trimmed.ends_with('%')
                 // PowerShell ready prompt: starts with "PS " and ends with ">".
                 || (trimmed.starts_with("PS ") && trimmed.ends_with('>'))
-                // Generic `name>` form (cmd.exe `C:\path>`, fish `name>`, etc).
-                // Must contain non-`>` content before the trailing `>` so we don't
-                // accept bare-arrow continuation lines.
+                // Generic `name>` form (cmd.exe `C:\path>`, fish `name>`, etc). Must contain non-`>` content before the trailing `>` so we don't accept bare-arrow continuation lines.
                 || (trimmed.ends_with('>') && trimmed.chars().any(|c| c != '>' && !c.is_whitespace()))
         }
     }
@@ -264,8 +260,7 @@ mod tests {
 
     #[test]
     fn powershell_continuation_is_not_a_ready_prompt() {
-        // The `>>` continuation indicator appears when the previous command was
-        // incomplete (unclosed quote, mid-pipe). NEVER treat as ready — the
+        // The `>>` continuation indicator appears when the previous command was incomplete (unclosed quote, mid-pipe). NEVER treat as ready — the
         // launch_cmd would just become more input on the broken line.
         assert!(!screen_has_shell_prompt(">>"));
         assert!(!screen_has_shell_prompt(">> "));
@@ -289,13 +284,14 @@ mod tests {
 
     #[test]
     fn claude_tui_input_cursor_is_recognized() {
-        // Issue #72: idle Claude TUI shows `❯` (U+276F) as the input cursor.
-        // `send-text --verify` was timing out with PromptNeverReady because the
+        // Issue #72: idle Claude TUI shows `❯` (U+276F) as the input cursor. `send-text --verify` was timing out with PromptNeverReady because the
         // matcher only knew POSIX/Windows shell markers.
         assert!(screen_has_shell_prompt("❯ "));
         assert!(screen_has_shell_prompt("❯"));
         // Cursor inside a box border (typical Claude TUI layout).
-        assert!(screen_has_shell_prompt("│ ❯                                        │"));
+        assert!(screen_has_shell_prompt(
+            "│ ❯                                        │"
+        ));
         // Some agent TUIs use the lighter single-arrow glyph.
         assert!(screen_has_shell_prompt("› hello"));
         // Mid-action TUI screens must still report not-ready.
@@ -305,30 +301,37 @@ mod tests {
 
     #[test]
     fn bare_shell_prompt_rejects_active_tui() {
-        // Claude TUI with idle cursor on the last non-empty line. `screen_has_shell_prompt`
-        // accepts `❯` (issue #72), so without the TUI veto the restart code would think
-        // the shell is back and pipe the launch command into Claude's input box.
+        // Claude TUI with idle cursor on the last non-empty line. `screen_has_shell_prompt` accepts `❯` (issue #72), so without the TUI veto the
+        // restart code would think the shell is back and pipe the launch command into Claude's input box.
         let claude_tui = "╭──────────────────────────╮\n│ ❯                        │";
-        assert!(screen_has_shell_prompt(claude_tui), "❯ still looks shell-ish");
-        assert!(!screen_has_bare_shell_prompt(claude_tui), "TUI border must veto");
+        assert!(
+            screen_has_shell_prompt(claude_tui),
+            "❯ still looks shell-ish"
+        );
+        assert!(
+            !screen_has_bare_shell_prompt(claude_tui),
+            "TUI border must veto"
+        );
     }
 
     #[test]
     fn bare_shell_prompt_accepts_real_shell() {
         // Starship-style prompt — `❯` but no box-drawing or TUI footer.
-        assert!(screen_has_bare_shell_prompt("~/code/codeterm on  master\n❯ "));
+        assert!(screen_has_bare_shell_prompt(
+            "~/code/codeterm on  master\n❯ "
+        ));
         assert!(screen_has_bare_shell_prompt("user@host:~$ "));
         assert!(screen_has_bare_shell_prompt("PS C:\\Users\\User> "));
     }
 
     #[test]
     fn agent_tui_detected_by_universal_glyphs() {
-        // Universal glyph check (box-drawing, block chars) — no text patterns here.
-        // Text patterns live in each provider's screen_has_tui() implementation.
+        // Universal glyph check (box-drawing, block chars) — no text patterns here. Text patterns live in each provider's screen_has_tui()
+        // implementation.
         assert!(screen_has_agent_tui("╭─ foo ─╮"));
         assert!(screen_has_agent_tui("▀▀▀▀▀▀ opencode logo"));
         assert!(!screen_has_agent_tui("some content\n? for shortcuts")); // text → provider
-        assert!(!screen_has_agent_tui("working\nEsc to interrupt"));     // text → provider
+        assert!(!screen_has_agent_tui("working\nEsc to interrupt")); // text → provider
         assert!(!screen_has_agent_tui("just a plain shell output"));
         assert!(!screen_has_agent_tui("❯ "));
     }
@@ -363,7 +366,11 @@ mod tests {
         ss.process("pty1", b"Hello\x1b[?25l");
         let formatted = ss.get_screen_formatted("pty1").unwrap();
         let s = String::from_utf8_lossy(&formatted);
-        assert!(s.contains("\x1b[?25l"), "formatted should preserve DECTCEM hide: {:?}", s);
+        assert!(
+            s.contains("\x1b[?25l"),
+            "formatted should preserve DECTCEM hide: {:?}",
+            s
+        );
     }
 
     #[test]

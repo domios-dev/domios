@@ -24,7 +24,11 @@ pub async fn mesh_refresh(
     crate::mesh::refresh_local_addresses(&state.mesh);
     let report = crate::mesh::broadcast_announce(&state.mesh, None).await;
 
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     let mesh = state.mesh.lock();
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -59,7 +63,10 @@ pub async fn mesh_announce_inbound(
     headers: HeaderMap,
     Json(ann): Json<crate::mesh::types::PeerAnnounce>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
+    let auth = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     let token = auth.strip_prefix("Bearer ").unwrap_or("");
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
@@ -81,7 +88,11 @@ pub async fn mesh_announce_inbound(
                 ann.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>()
             );
             drop(mesh);
-            let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+            crate::api::events::emit_everywhere(
+                &state.svc.app_handle,
+                "mesh-state-changed",
+                serde_json::Value::Null,
+            );
             Ok(Json(serde_json::json!({ "ok": true, "changed": true })))
         }
         Ok(None) => Ok(Json(serde_json::json!({ "ok": true, "changed": false }))),
@@ -115,15 +126,20 @@ pub async fn mesh_set_peer_addr(
         if mesh.paired_peers.contains_key(&peer_id) {
             peer_id.clone()
         } else {
-            mesh.paired_peers.values()
+            mesh.paired_peers
+                .values()
                 .find(|p| p.instance_name == peer_id)
                 .map(|p| p.instance_id.clone())
-                .ok_or((StatusCode::NOT_FOUND, format!("Peer {} not paired", peer_id)))?
+                .ok_or((
+                    StatusCode::NOT_FOUND,
+                    format!("Peer {} not paired", peer_id),
+                ))?
         }
     };
 
     let mut mesh = state.mesh.lock();
-    let prev = mesh.set_peer_addr_override(&resolved_id, &body.ip, body.port)
+    let prev = mesh
+        .set_peer_addr_override(&resolved_id, &body.ip, body.port)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     log::info!(
         "[mesh/set-addr] peer={} override old={:?} new={}{}",
@@ -133,6 +149,10 @@ pub async fn mesh_set_peer_addr(
         body.port.map(|p| format!(":{}", p)).unwrap_or_default()
     );
     drop(mesh);
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
     Ok(Json(serde_json::json!({ "ok": true, "previous": prev })))
 }

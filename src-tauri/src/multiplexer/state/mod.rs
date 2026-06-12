@@ -20,7 +20,10 @@ mod tests;
 fn short_id() -> String {
     let uuid = Uuid::new_v4();
     let bytes = uuid.as_bytes();
-    format!("{:02x}{:02x}{:02x}{:02x}", bytes[0], bytes[1], bytes[2], bytes[3])
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3]
+    )
 }
 
 /// Lightweight workspace summary for listing.
@@ -33,6 +36,9 @@ pub struct WorkspaceInfo {
     pub cwd: Option<String>,
     pub protected: bool,
     pub pane_ids: Vec<String>,
+    /// Set to true when create_workspace deduped by cwd (no new ws was created).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub existing: Option<bool>,
 }
 
 /// Central multiplexer state: workspaces, tabs, panes, and their relationships.
@@ -102,6 +108,7 @@ impl MultiplexerState {
             protected: false,
             connected_services: vec![],
             agent_set_at: None,
+            agent_booting: false,
             hidden: false,
             show_in_tabbar: true,
             worker_id: None,

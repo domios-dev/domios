@@ -45,7 +45,11 @@ mod tests {
     #[test]
     fn known_short_labels_resolve() {
         for label in ["sonnet", "opus", "haiku"] {
-            assert_ne!(resolve_model_id(label), label, "short label {label} must resolve");
+            assert_ne!(
+                resolve_model_id(label),
+                label,
+                "short label {label} must resolve"
+            );
         }
     }
 }

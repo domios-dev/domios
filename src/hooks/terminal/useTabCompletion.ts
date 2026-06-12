@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../lib/bridge";
 import { InputTracker } from "../../lib/completions/inputTracker";
 import { CompletionEngine } from "../../lib/completions/engine";
 import { defaultDefinitions } from "../../lib/completions/definitions";
@@ -60,7 +60,7 @@ export function useTabCompletion({
         const erase = "\x7f".repeat(eraseCount);
         const insert = items[0].text + " ";
         const ptyId = connectedPtyRef.current;
-        if (ptyId) invoke("write_pty_string", { ptyId, data: erase + insert });
+        if (ptyId) invoke("write_pty_string", { ptyId, data: erase + insert, raw: false });
         tracker.feed(erase + insert);
         return true;
       }
@@ -96,7 +96,7 @@ export function useTabCompletion({
     const erase = "\x7f".repeat(eraseCount);
     const insert = item.text + " ";
     const ptyId = connectedPtyRef.current;
-    if (ptyId) invoke("write_pty_string", { ptyId, data: erase + insert });
+    if (ptyId) invoke("write_pty_string", { ptyId, data: erase + insert, raw: false });
     tracker?.feed(erase + insert);
     setCompletionItems([]);
   }, [connectedPtyRef]);

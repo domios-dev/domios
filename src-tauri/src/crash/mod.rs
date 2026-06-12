@@ -60,25 +60,36 @@ pub fn trigger_test_crash(kind: &str) -> Result<(), String> {
 /// Updates the marker after a successful scan.
 pub fn check_previous_crashes() -> Vec<PathBuf> {
     let dir = report::crashes_dir();
-    let marker = crate::paths::data_dir().join("state").join("crashes_last_seen.txt");
+    let marker = crate::paths::data_dir()
+        .join("state")
+        .join("crashes_last_seen.txt");
 
     let last_seen = std::fs::read_to_string(&marker)
         .ok()
         .and_then(|s| s.trim().parse::<i64>().ok())
         .unwrap_or(0);
 
-    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
 
     let mut new_reports: Vec<(i64, PathBuf)> = Vec::new();
     let mut latest_mtime = last_seen;
 
     for entry in entries.flatten() {
         let path = entry.path();
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
-        if !name.ends_with(".txt") { continue }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.ends_with(".txt") {
+            continue;
+        }
 
-        let Ok(metadata) = entry.metadata() else { continue };
-        let mtime = metadata.modified()
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let mtime = metadata
+            .modified()
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs() as i64)

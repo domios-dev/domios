@@ -1,28 +1,35 @@
 //! Workspace & tab operations.
 
-use crate::multiplexer::state::WorkspaceInfo;
 use super::ServiceContext;
+use crate::multiplexer::state::WorkspaceInfo;
 
 impl ServiceContext {
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
         self.mux.lock().list_workspaces()
     }
 
-    pub fn create_workspace(&self, name: String, cwd: Option<String>, activate: bool) -> WorkspaceInfo {
+    pub fn create_workspace(
+        &self,
+        name: String,
+        cwd: Option<String>,
+        activate: bool,
+    ) -> WorkspaceInfo {
         if let Some(cwd_str) = cwd.as_deref() {
             let existing = self.mux.lock().find_workspace_info_by_cwd(cwd_str);
             if let Some(ws) = existing {
                 if activate {
                     let _ = self.mux.lock().set_active_workspace(&ws.id);
                 }
-                let _ = self.create_tab_with_activate(&ws.id, activate);
                 log::info!(
                     "[workspace] reused existing workspace '{}' ({}) for cwd={}",
                     ws.name,
                     ws.id,
                     cwd_str
                 );
-                return ws;
+                return WorkspaceInfo {
+                    existing: Some(true),
+                    ..ws
+                };
             }
         }
 
@@ -77,7 +84,11 @@ impl ServiceContext {
         self.create_tab_with_activate(workspace_id, true)
     }
 
-    pub fn create_tab_with_activate(&self, workspace_id: &str, activate: bool) -> Result<(String, String), String> {
+    pub fn create_tab_with_activate(
+        &self,
+        workspace_id: &str,
+        activate: bool,
+    ) -> Result<(String, String), String> {
         let result = {
             let mut mux = self.mux.lock();
             let (tab_id, pane_id) = mux.create_tab(workspace_id)?;

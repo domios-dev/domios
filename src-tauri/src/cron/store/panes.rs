@@ -7,7 +7,10 @@ use super::CronStore;
 
 impl CronStore {
     pub fn register_pane(&mut self, pane_id: &str, job_id: &str, run_id: &str) {
-        self.pane_owners.insert(pane_id.to_string(), (job_id.to_string(), run_id.to_string()));
+        self.pane_owners.insert(
+            pane_id.to_string(),
+            (job_id.to_string(), run_id.to_string()),
+        );
     }
 
     pub fn get_pane_owner(&self, pane_id: &str) -> Option<&(String, String)> {
@@ -40,7 +43,9 @@ impl CronStore {
     }
 
     pub fn logs_dir(&self) -> PathBuf {
-        let dir = self.file_path.parent()
+        let dir = self
+            .file_path
+            .parent()
             .unwrap_or_else(|| std::path::Path::new("."))
             .join("crons");
         let _ = fs::create_dir_all(&dir);
