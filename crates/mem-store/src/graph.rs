@@ -166,6 +166,11 @@ pub fn revive_broken(
          AND to_id IN (SELECT id FROM entities UNION SELECT id FROM mem_items)",
     );
     let mut binds: Vec<String> = vec![];
+    let since_param = if opts.since.is_some() {
+        Some(format!("?{}", binds.len() + 1))
+    } else {
+        None
+    };
     if let Some(s) = &opts.since {
         sql.push_str(&format!(
             " AND datetime(valid_to) >= datetime(?{})",
@@ -183,6 +188,25 @@ pub fn revive_broken(
         " AND NOT EXISTS (SELECT 1 FROM relations a WHERE a.valid_to IS NULL \
           AND a.from_id = relations.from_id AND a.relation_type = relations.relation_type \
           AND a.to_id = relations.to_id AND a.scope = relations.scope)",
+    );
+    // Prod can contain clusters of multiple CLOSED duplicate rows with the
+    // same (from, rel, to, scope). Reviving every row in such a cluster would
+    // make the closed copies collide with each other on the active-unique
+    // partial index. Pick one deterministic winner per cluster: latest
+    // valid_to, then latest valid_from, then highest rowid.
+    sql.push_str(
+        " AND relations.rowid = (SELECT c.rowid FROM relations c \
+          WHERE c.valid_to IS NOT NULL \
+          AND c.from_id = relations.from_id AND c.relation_type = relations.relation_type \
+          AND c.to_id = relations.to_id AND c.scope = relations.scope \
+          AND c.from_id IN (SELECT id FROM entities UNION SELECT id FROM mem_items) \
+          AND c.to_id IN (SELECT id FROM entities UNION SELECT id FROM mem_items)",
+    );
+    if let Some(param) = &since_param {
+        sql.push_str(&format!(" AND datetime(c.valid_to) >= datetime({})", param));
+    }
+    sql.push_str(
+        " ORDER BY datetime(c.valid_to) DESC, datetime(c.valid_from) DESC, c.rowid DESC LIMIT 1)",
     );
 
     let count_sql = format!("SELECT COUNT(*) FROM relations WHERE {}", sql);
