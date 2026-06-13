@@ -164,7 +164,13 @@ pub fn spawn_tailer(
             let from = off.load(Ordering::Acquire);
             // I4: parse_session_delta is fault-tolerant — it advances offset past chunks the plugin couldn't handle, so we never busy-loop on broken bytes.
             let delta = registry
-                .with_provider(&cfg.provider_id, |p| p.parse_session_delta(&path, from))
+                .with_provider(&cfg.provider_id, |p| {
+                    let mut delta = p.parse_session_delta(&path, from);
+                    for m in &mut delta.messages {
+                        crate::service::pane_chat::enrich_interactive(m, p);
+                    }
+                    delta
+                })
                 .unwrap_or_else(|| crate::agent::chat_types::SessionDelta {
                     new_offset: from,
                     messages: vec![],
