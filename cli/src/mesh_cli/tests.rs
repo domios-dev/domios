@@ -513,6 +513,7 @@ fn send_text_stdin_mesh_body_preserves_exact_text() {
 fn web_link_is_local_only_over_mesh() {
     let cmd = Commands::Web {
         action: crate::args::misc::WebAction::Link {
+            peer: None,
             host: None,
             port: None,
             query: false,
