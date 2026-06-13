@@ -50,10 +50,6 @@ pub enum InjectionError {
         waited: Duration,
         screen_tail: String,
     },
-    UnsafePromptVisible {
-        reason: String,
-        screen_tail: String,
-    },
     PtyClosed {
         pty_id: String,
     },
@@ -83,16 +79,6 @@ impl std::fmt::Display for InjectionError {
                     f,
                     "submit not confirmed after {:?}; screen_tail={:?}",
                     waited, screen_tail
-                )
-            }
-            Self::UnsafePromptVisible {
-                reason,
-                screen_tail,
-            } => {
-                write!(
-                    f,
-                    "refusing to inject input while unsafe prompt is visible; reason={:?}; screen_tail={:?}",
-                    reason, screen_tail
                 )
             }
             Self::PtyClosed { pty_id } => write!(f, "pty {} is closed", pty_id),
