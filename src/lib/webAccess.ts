@@ -59,3 +59,75 @@ export function webLinkWithToken(url: string, token?: string | null): string {
 export function serveHint(port: number): string {
   return `Tip: run 'tailscale serve --bg --https=443 http://127.0.0.1:${port}' for a clean HTTPS URL — phones prefer it.`;
 }
+
+// ── One-click "Enable Web Access" (Tailscale Serve auto-setup) ──────────────
+
+/** Preferred public HTTPS port — phone-friendly, no port suffix in the URL.
+ * Mirrors `serve_setup::DEFAULT_HTTPS_PORT` on the backend. */
+const DEFAULT_HTTPS_PORT = 443;
+
+/** Backend `serve_setup::ServeStatus` (serde snake_case). */
+export interface ServeStatus {
+  installed: boolean;
+  active: boolean;
+  https_url?: string | null;
+  self_dns?: string | null;
+  platform?: string | null;
+}
+
+export type ServeSetupState = "not-installed" | "active" | "port-collision" | "can-enable";
+
+export interface ServeSetupPlan {
+  state: ServeSetupState;
+  /** Public HTTPS port the setup will request. */
+  httpsPort: number;
+  /** Exact shell commands the enable will run, in order — shown verbatim at the
+   * confirm step so the user sees precisely what mutation they are authorizing. */
+  commands: string[];
+  /** The clean URL this will produce, when the MagicDNS name is known. */
+  resultUrl: string | null;
+  /** True only when an enable is safe to offer (state === 'can-enable'). */
+  canEnable: boolean;
+}
+
+/** Sibling CodeTerm API port (prod 7685 ↔ dev 7686). Mirrors the backend. */
+function siblingCodetermPort(port: number): number | null {
+  if (port === 7685) return 7686;
+  if (port === 7686) return 7685;
+  return null;
+}
+
+/** A public HTTPS port that collides with our own or the sibling CodeTerm's API
+ * port would proxy into the wrong daemon — refuse it. Mirrors the backend. */
+function wouldClobberCodetermPort(apiPort: number, httpsPort: number): boolean {
+  return httpsPort === apiPort || siblingCodetermPort(apiPort) === httpsPort;
+}
+
+/** Pure decision for the Web Access "Enable" affordance: given the probed Serve
+ * status, this daemon's API port, and the host platform, decide which UI state
+ * to show and the exact commands an enable would run. No side effects — the
+ * mutation only happens when the UI invokes `enable_web_access` after confirm. */
+export function planServeSetup(
+  status: ServeStatus,
+  apiPort: number,
+  platform: string,
+): ServeSetupPlan {
+  const httpsPort = DEFAULT_HTTPS_PORT;
+  const isMac = platform === "macos" || platform === "darwin";
+  const proxy = `http://127.0.0.1:${apiPort}`;
+  const serveCmd = `tailscale serve --bg --https=${httpsPort} ${proxy}`;
+  // macOS provisions a cert before serve; the preview shows it only when we know
+  // the MagicDNS name (the cert command's argument).
+  const commands =
+    isMac && status.self_dns ? [`tailscale cert ${status.self_dns}`, serveCmd] : [serveCmd];
+  const suffix = httpsPort === DEFAULT_HTTPS_PORT ? "" : `:${httpsPort}`;
+  const resultUrl = status.self_dns ? `https://${status.self_dns}${suffix}/web/` : null;
+
+  let state: ServeSetupState;
+  if (!status.installed) state = "not-installed";
+  else if (status.active) state = "active";
+  else if (wouldClobberCodetermPort(apiPort, httpsPort)) state = "port-collision";
+  else state = "can-enable";
+
+  return { state, httpsPort, commands, resultUrl, canEnable: state === "can-enable" };
+}
