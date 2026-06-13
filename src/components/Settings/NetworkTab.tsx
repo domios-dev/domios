@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
+import { buildWebAccessUrls, serveHint, type WebAccessNetworkInfo } from "../../lib/webAccess";
 
 export function NetworkTab() {
   return (
@@ -48,33 +49,22 @@ function WebAccessSection() {
   const [show, setShow] = useState(false);
   const [copied, setCopied] = useState(false);
   const [hosts, setHosts] = useState<string[]>([]);
+  const [usingFallback, setUsingFallback] = useState(false);
+  const [port, setPort] = useState(7685);
 
   useEffect(() => {
     void (async () => {
       try {
         const cfg = await invoke<{ api?: { token?: string; port?: number } }>("get_config");
         setToken(cfg.api?.token ?? null);
-        const port = cfg.api?.port ?? 7685;
-        const status = await invoke<{
-          local_ip?: string;
-          tailscale_ip?: string;
-          tailscale_https_url?: string;
-        }>(
-          "get_network_info",
-        ).catch(() => ({}) as {
-          local_ip?: string;
-          tailscale_ip?: string;
-          tailscale_https_url?: string;
-        });
-        const list = [
-          status.tailscale_https_url ? `${status.tailscale_https_url}/web/` : null,
-          status.tailscale_ip ? `http://${status.tailscale_ip}:${port}/web/` : null,
-          status.local_ip ? `http://${status.local_ip}:${port}/web/` : null,
-          `http://127.0.0.1:${port}/web/`,
-        ]
-          .filter((v): v is string => Boolean(v))
-          .map((url) => url);
-        setHosts([...new Set(list)]);
+        const fallbackPort = cfg.api?.port ?? 7685;
+        const status = await invoke<WebAccessNetworkInfo>("get_network_info").catch(
+          () => ({}) as WebAccessNetworkInfo,
+        );
+        const picked = buildWebAccessUrls(status, fallbackPort);
+        setHosts(picked.urls);
+        setUsingFallback(picked.usingFallback);
+        setPort(status.api_port ?? fallbackPort);
       } catch {
         /* settings panel stays usable without this section's data */
       }
@@ -90,10 +80,20 @@ function WebAccessSection() {
         password.
       </p>
       <div className="space-y-1">
-        {hosts.map((h) => (
-          <div key={h} className="text-xs font-mono text-[var(--ct-fg)]">{h}</div>
+        {hosts.map((h, i) => (
+          <div
+            key={h}
+            className={`text-xs font-mono ${i === 0 ? "text-[var(--ct-fg)] font-medium" : "text-[var(--ct-muted-fg)]"}`}
+          >
+            {h}
+          </div>
         ))}
       </div>
+      {usingFallback && (
+        <p data-testid="web-access-serve-hint" className="text-xs text-[var(--ct-muted)] leading-snug">
+          {serveHint(port)}
+        </p>
+      )}
       <div className="flex items-center gap-2">
         <code
           data-testid="web-access-token"
