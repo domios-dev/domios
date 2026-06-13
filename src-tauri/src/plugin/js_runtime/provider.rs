@@ -821,6 +821,10 @@ impl AgentProvider for JsProvider {
         self.trust
     }
 
+    fn is_native(&self) -> bool {
+        false
+    }
+
     fn usage_probe_command(&self) -> Option<&str> {
         self.manifest.spawn.usage_probe_command.as_deref()
     }

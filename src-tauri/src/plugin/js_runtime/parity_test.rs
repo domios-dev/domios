@@ -1558,6 +1558,40 @@ mod opencode {
 // Loader behaviour.
 
 #[test]
+fn third_party_without_host_api_is_rejected_before_vm_load() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("unknown-third-party");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("plugin.json"),
+        r#"{
+            "id": "unknown-third-party",
+            "version": "0.1.0",
+            "displayName": "Unknown Third Party",
+            "spawn": {
+                "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+                "taskDelivery": "pty_input",
+                "verifySubmit": { "kind": "none" }
+            },
+            "entry": "plugin.js"
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("plugin.js"),
+        "throw new Error('must not execute before hostApi validation');",
+    )
+    .unwrap();
+
+    let err = match load_one(&dir.join("plugin.json")) {
+        Ok(_) => panic!("legacy drop-in must be skipped"),
+        Err(err) => err,
+    };
+    assert!(err.contains("hostApi None unsupported"), "got: {err}");
+    assert!(err.contains("skipping load"), "got: {err}");
+}
+
+#[test]
 fn all_workspace_plugins_load() {
     if require_plugins().is_none() {
         return;

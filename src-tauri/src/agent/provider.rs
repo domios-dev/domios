@@ -989,6 +989,16 @@ pub trait AgentProvider: Send + Sync {
     fn trust(&self) -> ProviderTrust {
         ProviderTrust::Unknown
     }
+
+    /// Whether this is a native (Rust) implementation. JS drop-ins override to
+    /// `false`. The registry relies on this so it never records a JS provider as
+    /// the "native fallback" another provider delegates to: a JS-only provider
+    /// re-registered on hot-reload would otherwise become its own fallback, and
+    /// `JsProvider::native()` returning itself makes capability delegation
+    /// recurse until the stack overflows.
+    fn is_native(&self) -> bool {
+        true
+    }
 }
 
 /// Cumulative token usage for one agent session.
