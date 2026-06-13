@@ -304,7 +304,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             })
             .unwrap_or_default();
         let cursor = delta.cursor.clone();
-        if !svc.chat_registry.acquire(&pane_id) {
+        if !svc.chat_registry.acquire(&pane_id, &session_id) {
             let sink =
                 crate::service::pane_chat::structured_sink::make_sink(svc.app_handle.clone());
             let handle = crate::service::pane_chat::spawn_structured_poller(
@@ -319,7 +319,8 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                 svc.agent_registry.clone(),
                 sink,
             );
-            svc.chat_registry.insert(pane_id.clone(), handle);
+            svc.chat_registry
+                .insert(pane_id.clone(), session_id.clone(), handle);
         }
         return Ok(ChatStartResult {
             text: String::new(),
@@ -354,7 +355,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     // Multiple webviews can attach to the same pane. The tailer is per pane, but subscriptions are per client; share the existing worker when one
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
-    if !svc.chat_registry.acquire(&pane_id) {
+    if !svc.chat_registry.acquire(&pane_id, &session_id) {
         let sink = crate::service::pane_chat::structured_sink::make_flatten_sink(
             svc.app_handle.clone(),
             msg_count,
@@ -371,7 +372,8 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             svc.agent_registry.clone(),
             sink,
         );
-        svc.chat_registry.insert(pane_id.clone(), handle);
+        svc.chat_registry
+            .insert(pane_id.clone(), session_id.clone(), handle);
     }
     let tailer_ms = tailer_started.elapsed().as_millis();
     let total_ms = started.elapsed().as_millis();

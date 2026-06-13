@@ -40,6 +40,18 @@ impl TailerHandle {
         self.offset.load(Ordering::Acquire)
     }
 
+    /// True while the polling thread is still running. A tailer can die on its
+    /// own (session file vanished for >10 polls, provider path went None) yet
+    /// stay registered — the registry uses this to detect such a corpse and
+    /// respawn a fresh tailer instead of handing back a dead stream.
+    pub fn is_alive(&self) -> bool {
+        self.join
+            .lock()
+            .as_ref()
+            .map(|j| !j.is_finished())
+            .unwrap_or(false)
+    }
+
     /// Signal the worker thread to exit and join. Idempotent. Drops
     /// the handle by consumption.
     pub fn shutdown(self) {

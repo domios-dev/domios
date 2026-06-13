@@ -177,11 +177,11 @@ export function TerminalPane({
   const SHEET_HEADER = "2.5rem";
   const SHEET_FOOTER = "3.75rem";
 
-  useEffect(() => {
-    if (uiMode !== "chat") {
-      void invoke("chat_stop", { paneId }).catch(() => {});
-    }
-  }, [paneId, uiMode]);
+  // chat_start/chat_stop are owned exclusively by useChatSession's mount/
+  // unmount (PaneSessionChat is mounted iff uiMode === "chat"). A second
+  // chat_stop here used to double-decrement the tailer refcount under
+  // StrictMode/HMR churn, shutting the live tailer down while chat was still
+  // mounted — sent bubbles then never got their real echo. Keep it 1:1.
 
   useEffect(() => {
     if (isFocused && terminalOwnsLivePty) {
