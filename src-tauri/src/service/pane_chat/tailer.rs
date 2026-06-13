@@ -111,7 +111,6 @@ pub fn spawn_tailer(
     let stop = stop_flag.clone();
     let off = offset.clone();
     let join = thread::spawn(move || {
-        let mut missing_streak = 0u32;
         let mut cached_path: Option<PathBuf> = None;
         while !stop.load(Ordering::Acquire) {
             // Re-resolve the JSONL path each iteration. Cheap (plugin call + string concat) and lets the plugin transparently handle session-file
@@ -151,15 +150,17 @@ pub fn spawn_tailer(
                 // tailer. Today the session_id is fixed at spawn.
             }
             if !path.exists() {
-                missing_streak += 1;
-                if missing_streak > 10 {
-                    log::info!("[pane_chat] giving up on {:?} (10 polls missing)", path);
-                    return;
-                }
+                // The session JSONL may not exist YET: a fresh agent creates it
+                // only on its first completed turn (seconds out on a slow first
+                // turn / model spin-up). Keep watching — never permanently give
+                // up — so the chat populates the moment the file appears. The
+                // registry's stop flag (chat_stop / handle drop) bounds this
+                // thread's lifetime, so a session that never materializes does
+                // not spin forever. (Was: gave up after 10 missing polls → "No
+                // messages yet" forever even after claude wrote the file.)
                 thread::sleep(cfg.poll_interval);
                 continue;
             }
-            missing_streak = 0;
             let from = off.load(Ordering::Acquire);
             // I4: parse_session_delta is fault-tolerant — it advances offset past chunks the plugin couldn't handle, so we never busy-loop on broken bytes.
             let delta = registry
