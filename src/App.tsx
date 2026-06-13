@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "./lib/bridge";
 import { IS_WEB } from "./lib/webApi";
 import { Titlebar } from "./components/Titlebar/Titlebar";
@@ -30,6 +30,20 @@ import { blendColor, deriveColor } from "./lib/colors";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { pasteToPane } from "./lib/panePasteRegistry";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
+
+const MemoizedTabContent = memo(TabContent);
+
+function jsonEquals<T>(a: T, b: T): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function useStableJsonValue<T>(value: T): T {
+  const ref = useRef(value);
+  if (!jsonEquals(ref.current, value)) {
+    ref.current = value;
+  }
+  return ref.current;
+}
 
 /**
  * Derive CSS custom properties from a ThemeConfig so the entire UI
@@ -152,16 +166,21 @@ function AppInner() {
   }, []);
   // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
   const { config, updateConfig, theme } = useConfig();
+  const stableTheme = useStableJsonValue(theme);
+  const stableFontConfig = useStableJsonValue(config.font);
+  const stableTerminalConfig = useStableJsonValue(config.terminal);
+  const stableApiConfig = useStableJsonValue(config.api);
 
   // Resolve usage-tracking toggle once per config change so every pane's UsageBubble can read it via prop instead of subscribing to config
   // events on its own (the per-bubble `useConfig` was multiplying invokes by pane count and made the webview unresponsive after many resumes).
-  const usageEnabledByProvider = useMemo(() => {
+  const computedUsageEnabledByProvider = useMemo(() => {
     const out: Record<string, boolean> = {};
     for (const [pid, pc] of Object.entries(config.agents ?? {})) {
       out[pid] = pc?.usage_tracking_enabled === true;
     }
     return out;
   }, [config.agents]);
+  const usageEnabledByProvider = useStableJsonValue(computedUsageEnabledByProvider);
 
   const {
     state,
@@ -537,12 +556,12 @@ function AppInner() {
   ]);
 
   // Compute CSS vars from theme
-  const themeStyles = useMemo(() => themeToCSS(theme), [theme]);
-  const isCRT = theme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
+  const themeStyles = useMemo(() => themeToCSS(stableTheme), [stableTheme]);
+  const isCRT = stableTheme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
 
   // Set color-scheme + theme vars on documentElement so portals (modals, popups rendered into document.body via createPortal) inherit them.
   useEffect(() => {
-    const hex = theme.background.replace("#", "");
+    const hex = stableTheme.background.replace("#", "");
     const r = parseInt(hex.substring(0, 2), 16);
     const g = parseInt(hex.substring(2, 4), 16);
     const b = parseInt(hex.substring(4, 6), 16);
@@ -551,15 +570,15 @@ function AppInner() {
     for (const [k, v] of Object.entries(themeStyles)) {
       document.documentElement.style.setProperty(k, v);
     }
-  }, [theme.background, themeStyles]);
+  }, [stableTheme.background, themeStyles]);
 
   return (
     <div
       className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
       style={{
         ...themeStyles,
-        backgroundColor: theme.background,
-        color: theme.foreground,
+        backgroundColor: stableTheme.background,
+        color: stableTheme.foreground,
         // 100% of #root, which owns viewport sizing (dvh + safe-area padding in index.html). keyboardInset
         // covers iOS Safari, where the keyboard shrinks only the VISUAL viewport and dvh stays put (see useKeyboardInset).
         height: keyboardInset ? `calc(100% - ${keyboardInset}px)` : "100%",
@@ -575,7 +594,7 @@ function AppInner() {
         <Titlebar
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
           onNewTab={handleNewTab}
-          theme={theme}
+          theme={stableTheme}
           onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
         />
       )}
@@ -666,7 +685,7 @@ function AppInner() {
           {mountedMemory && (
             <div className="absolute inset-0" style={viewLayerStyle(mainView === "memory")}>
               <MemoryPanel
-                api={config.api}
+                api={stableApiConfig}
                 onClose={() => {
                   setMemoryOpen(false);
                   setMemoryInitial(undefined);
@@ -681,7 +700,7 @@ function AppInner() {
           {mountedMesh && (
             <div className="absolute inset-0" style={viewLayerStyle(mainView === "mesh")}>
               <MeshPanel
-                api={config.api}
+                api={stableApiConfig}
                 config={config}
                 onConfigUpdate={updateConfig}
                 onClose={() => setMeshOpen(false)}
@@ -691,7 +710,7 @@ function AppInner() {
           {mountedGit && (
             <div className="absolute inset-0" style={viewLayerStyle(mainView === "git")}>
               <GitPanel
-                api={config.api}
+                api={stableApiConfig}
                 cwd={gitRepoCwd}
                 onClose={() => setMainView("workspace")}
               />
@@ -719,18 +738,18 @@ function AppInner() {
                   transition: "opacity 200ms ease",
                 }}
               >
-                <TabContent
+                <MemoizedTabContent
                   pane={state.panes[tab.pane_id]}
                   isFocused={state.focused_pane_id === tab.pane_id}
                   onFocusPane={setFocusedPane}
                   onPtySpawned={handlePtySpawned}
-                  theme={theme}
-                  fontConfig={config.font}
-                  terminalConfig={config.terminal}
+                  theme={stableTheme}
+                  fontConfig={stableFontConfig}
+                  terminalConfig={stableTerminalConfig}
                   usageEnabledByProvider={usageEnabledByProvider}
                   gitInfo={gitPaneId === tab.pane_id ? focusedGitInfo : null}
                   onOpenGit={openGit}
-                  api={config.api}
+                  api={stableApiConfig}
                   workspaceCwd={ws.cwd ?? null}
                 />
               </div>
@@ -740,7 +759,7 @@ function AppInner() {
           ) : mainView === "workspace" ? (
             <div
               className="flex items-center justify-center w-full h-full text-sm"
-              style={{ color: theme.bright_black }}
+              style={{ color: stableTheme.bright_black }}
             >
               Loading...
             </div>
