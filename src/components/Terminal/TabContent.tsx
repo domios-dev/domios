@@ -47,8 +47,8 @@ export function TabContent({
   const usageVisible = !!usageProvider && usageEnabledByProvider?.[usageProvider] === true;
 
   return (
-    <PaneWrapper paneId={pane.id} isFocused={isFocused}>
-      <div className="relative w-full h-full" style={{ background: "#000" }}>
+    <PaneWrapper paneId={pane.id}>
+      <div className="relative w-full h-full" style={{ background: theme?.background ?? "transparent" }}>
         <TerminalPane
           key={pane.id}
           paneId={pane.id}
@@ -83,7 +83,6 @@ export function TabContent({
 
 interface PaneWrapperProps {
   paneId: string;
-  isFocused: boolean;
   children: React.ReactNode;
 }
 
@@ -92,7 +91,7 @@ function PaneWrapper({ paneId, children }: PaneWrapperProps) {
     <div
       data-pane-id={paneId}
       className="w-full h-full relative group/pane"
-      style={{ outline: "none", boxShadow: "none", border: "none", background: "#000" }}
+      style={{ outline: "none", boxShadow: "none", border: "none", background: "transparent" }}
     >
       {children}
     </div>

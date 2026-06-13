@@ -399,6 +399,7 @@ export function TerminalPane({
     : hasSplits && isFocused
       ? "var(--ct-muted-fg, #8b949e)"
       : "transparent";
+  const terminalBackground = theme?.background ?? "transparent";
   const terminalKeyBar = <TerminalKeyBar onSendKey={writePty} className="w-full" />;
 
   // --- Render ---
@@ -411,7 +412,7 @@ export function TerminalPane({
         borderTop: hasSplits ? `1px solid ${topAccent}` : "none",
         outline: "none",
         boxShadow: "none",
-        background: "#000",
+        background: terminalBackground,
         transition: bellFlash ? "border-color 0.1s ease-in" : "border-color 0.15s ease-out",
       }}
       onMouseDown={handleClick}
@@ -477,7 +478,7 @@ export function TerminalPane({
             : "none",
           borderTop: mobileSheet ? "none" : undefined,
           borderBottom: mobileSheet ? "none" : undefined,
-          background: "#000",
+          background: terminalBackground,
           visibility: terminalVisible ? "visible" : "hidden",
           pointerEvents: terminalVisible ? "auto" : "none",
           zIndex: terminalFallbackOpen ? 4 : uiMode === "terminal" ? 1 : 0,
@@ -498,7 +499,7 @@ export function TerminalPane({
               : fallbackChat || showTerminalKeyBar ? 8 : 0,
             opacity: shell.overlayVisible ? 0 : 1,
             transition: "opacity 0.3s ease-in",
-            background: "#000",
+            background: terminalBackground,
           }}
           onClick={() => termRef.current?.focus()}
         >
@@ -510,7 +511,7 @@ export function TerminalPane({
             style={{
               paddingBottom: "var(--ct-composer-bottom-padding, 0.5rem)",
               borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 24%, transparent)",
-              background: "#000",
+              background: terminalBackground,
             }}
           >
             {terminalKeyBar}
