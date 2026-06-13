@@ -93,6 +93,17 @@ pub(crate) struct SendTextBody {
     /// Mesh hops and hierarchy reports use the same marker family.
     #[serde(default)]
     source_pane: Option<String>,
+    /// Originating peer name, injected by the mesh relay (authenticated from
+    /// the signed token — peers cannot spoof it). Present ⇒ this delivery
+    /// crossed the mesh; the label is peer-qualified `label@peer`.
+    #[serde(default)]
+    source_peer: Option<String>,
+    /// Source agent label + model, threaded from the originating peer (the
+    /// source pane is foreign and cannot be resolved against the local mux).
+    #[serde(default)]
+    source_label: Option<String>,
+    #[serde(default)]
+    source_model: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -162,27 +173,49 @@ pub async fn send_text(
         ));
     }
 
-    // Prefix only for agent recipients; shells run the bytes verbatim.
-    let source_prefix: Option<String> = body
-        .source_pane
-        .as_deref()
-        .filter(|s| !s.is_empty() && *s != pane_id)
-        .and_then(|src| {
-            let mux = state.svc.mux.lock();
-            if mux
-                .get_pane(&pane_id)
-                .and_then(|p| p.agent_type.as_ref())
-                .is_none()
-            {
-                return None; // shell recipient — no prefix
+    // Prefix only for agent recipients; shells run the bytes verbatim. One
+    // canonical builder serves both local and mesh-relayed deliveries.
+    let source_prefix: Option<String> = body.source_pane.as_deref().and_then(|src| {
+        let mux = state.svc.mux.lock();
+        let target_is_agent = mux
+            .get_pane(&pane_id)
+            .and_then(|p| p.agent_type.as_ref())
+            .is_some();
+        match body.source_peer.as_deref().filter(|p| !p.is_empty()) {
+            // Mesh delivery: the source pane is foreign — identity comes from
+            // the body (resolved on the originating peer), peer-qualified here.
+            Some(peer) => {
+                let label = body
+                    .source_label
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or(peer);
+                crate::service::msg_prefix::delivery_prefix(
+                    target_is_agent,
+                    src,
+                    &pane_id,
+                    label,
+                    body.source_model.as_deref(),
+                    Some(peer),
+                )
             }
-            let from_label = mux.display_label_for_pane(src);
-            let model = mux
-                .get_pane(src)
-                .and_then(|p| p.agent_session_model.clone());
-            let pfx = crate::service::msg_prefix::CtxPrefix::message(from_label, src).model(model);
-            Some(pfx.build())
-        });
+            // Local delivery: resolve the label/model from the local mux.
+            None => {
+                let from_label = mux.display_label_for_pane(src);
+                let model = mux
+                    .get_pane(src)
+                    .and_then(|p| p.agent_session_model.clone());
+                crate::service::msg_prefix::delivery_prefix(
+                    target_is_agent,
+                    src,
+                    &pane_id,
+                    &from_label,
+                    model.as_deref(),
+                    None,
+                )
+            }
+        }
+    });
     let prepend = |s: &str| -> String {
         match &source_prefix {
             Some(p) => format!("{}{}", p, s),
