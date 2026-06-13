@@ -114,6 +114,10 @@ pub struct SpawnConfig {
     pub supports_lazy_skills: bool,
     #[serde(default)]
     pub has_hooks: bool,
+    /// Plugin exports `parseInteractiveEvents` — host calls it to extract
+    /// interactive prompts. When false the native fallback handles it.
+    #[serde(default)]
+    pub interactive_events: bool,
     /// TUI command that prints the account usage screen (e.g. claude `/usage`,
     /// codex `/status`). Pairs with the plugin's `parseUsage` export; the
     /// usage poller skips providers without both.

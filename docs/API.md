@@ -96,6 +96,18 @@ Then: `Authorization: Bearer your-secret-token`
 | GET | `/api/providers` | — | Public provider list alias for agent/provider selectors |
 | POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?}` | One-call agent spawn (see below) |
 
+#### Interactive chat prompts (#162)
+
+Chat messages may carry an `interactive` array of answerable prompt widgets parsed from the provider's session stream — populated via the `AgentProvider::parse_interactive_events` capability (native or JS `parseInteractiveEvents` + manifest `interactiveEvents` flag), never by branching on a provider id. It rides on both chat wire shapes: the `GET /chat` and `chat/start` snapshot (`RichMessage[]`) and the live `pane-chat-msg-{paneId}` events (`ChatMsg[]`, attached to the tool-call message). First element type:
+
+```json
+{ "type": "question", "id": "toolu_42-0", "toolUseId": "toolu_42",
+  "prompt": "Which database?", "header": "Database",
+  "options": [{ "label": "Postgres", "description": "Relational" }], "multiSelect": false }
+```
+
+The enum is open for future element types. The frontend renders each as a clickable widget and routes the answer back through the existing pane send path (`/api/panes/{id}/send`).
+
 #### Batch
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -1143,4 +1155,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 57 -->
+<!-- revision: 58 -->

@@ -5,6 +5,9 @@ export type {
   ProviderChatAdapter,
   ChatOrigin,
   SlashCommand,
+  InteractiveElement,
+  InteractiveQuestion,
+  InteractiveOption,
 } from "./types";
 export {
   chatMessageFingerprint,
