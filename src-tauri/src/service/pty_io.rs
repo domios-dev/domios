@@ -578,18 +578,25 @@ impl ServiceContext {
 
         self.feed_input_parser(pty_id, text, enter);
 
-        let paste = if cfg!(windows) {
-            format!("\x1b[200~ {}\x1b[201~", text)
+        // Empty text is a bare submit (e.g. `codeterm send --submit` to unstick a
+        // paste already sitting in the composer): skip the bracketed paste so we
+        // don't inject a stray space on Windows — just press Enter below.
+        let bytes_written = if text.is_empty() {
+            0
         } else {
-            format!("\x1b[200~{}\x1b[201~", text)
+            let paste = if cfg!(windows) {
+                format!("\x1b[200~ {}\x1b[201~", text)
+            } else {
+                format!("\x1b[200~{}\x1b[201~", text)
+            };
+            self.pty
+                .lock()
+                .write(pty_id, paste.as_bytes())
+                .map_err(|_| InjectionError::PtyClosed {
+                    pty_id: pty_id.to_string(),
+                })?;
+            paste.len()
         };
-        self.pty
-            .lock()
-            .write(pty_id, paste.as_bytes())
-            .map_err(|_| InjectionError::PtyClosed {
-                pty_id: pty_id.to_string(),
-            })?;
-        let bytes_written = paste.len();
 
         // Echo verify: informational only. Timeout means we couldn't confirm, not that the paste failed. PtyUnknown is the only real failure here and surfaces as PtyClosed.
         let echo_observed = if opts.verify_echo {
@@ -616,6 +623,30 @@ impl ServiceContext {
         } else {
             false
         };
+
+        // #155: a TUI composer must finish ingesting the bracketed paste before
+        // the submit Enter — a `\r` sent mid-ingest is swallowed as part of the
+        // paste, leaving a long message typed-but-unsent. When we didn't already
+        // wait on echo, block (bounded, suffix/placeholder-aware) until the paste
+        // appears in the composer so the Enter lands as a real submit. Scoped to
+        // TuiInputDrained providers (codex/claude); shell sends (ShellPrompt) and
+        // bare submits (empty text) are unaffected.
+        if enter
+            && !text.is_empty()
+            && !opts.verify_echo
+            && matches!(
+                &submit_strategy,
+                VerifySubmitStrategy::TuiInputDrained { .. }
+            )
+        {
+            let _ = wait_for_echo(
+                &self.screen_state,
+                pty_id,
+                text,
+                opts.echo_timeout.max(std::time::Duration::from_secs(2)),
+                tail_rows,
+            );
+        }
 
         // Enter ALWAYS fires when the caller asked for it. This is the load-bearing line — no early-return above this point can skip it unless the PTY is already gone.
         let submit_observed = if enter {

@@ -115,6 +115,13 @@ pub enum Commands {
         /// into the provider's request/response cycle.
         #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
         stdin: bool,
+
+        /// Submit with a bare Enter. Allows EMPTY text — use to submit a paste
+        /// that landed in an agent's composer but never sent (the manual
+        /// unstick for the long-message no-submit case). With text, behaves like
+        /// a normal send (text is submitted, which is already the default).
+        #[arg(long, visible_alias = "enter")]
+        submit: bool,
     },
 
     /// Web mirror helpers (share links, etc.)

@@ -4046,6 +4046,16 @@
           ]
         },
         {
+          "name": "submit",
+          "positional": false,
+          "value_name": "SUBMIT",
+          "default": null,
+          "help": "Submit with a bare Enter. Allows EMPTY text — use to submit a paste that landed in an agent's composer but never sent (the manual unstick for the long-message no-submit case). With text, behaves like a normal send (text is submitted, which is already the default)",
+          "aliases": [
+            "enter"
+          ]
+        },
+        {
           "name": "text",
           "positional": true,
           "value_name": "TEXT",

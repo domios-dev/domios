@@ -407,8 +407,17 @@ fn main() {
             text,
             from_file,
             stdin,
+            submit,
         } => {
-            cmd::local_io::handle_send_text(&mut client, cli.json, pane, text, from_file, stdin);
+            cmd::local_io::handle_send_text(
+                &mut client,
+                cli.json,
+                pane,
+                text,
+                from_file,
+                stdin,
+                submit,
+            );
             return;
         }
 
@@ -888,6 +897,31 @@ mod subcommand_contract_tests {
                 stdin: true,
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn send_submit_without_text_parses() {
+        // Bare-Enter affordance: `send --submit` must parse with no positional.
+        let parsed = Cli::try_parse_from(["codeterm", "send", "--submit", "--pane", "abc123"])
+            .expect("send --submit parses");
+        assert!(matches!(
+            parsed.command,
+            Commands::SendText {
+                text: None,
+                submit: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn send_enter_alias_parses() {
+        let parsed = Cli::try_parse_from(["codeterm", "send", "--enter", "--pane", "abc123"])
+            .expect("send --enter (alias of --submit) parses");
+        assert!(matches!(
+            parsed.command,
+            Commands::SendText { submit: true, .. }
         ));
     }
 

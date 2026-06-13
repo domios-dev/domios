@@ -50,9 +50,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             pane,
             from_file,
             stdin: use_stdin,
+            submit,
         } => {
             let mut stdin = std::io::stdin();
-            send_text_to_api(text, pane, from_file, *use_stdin, &mut stdin)
+            send_text_to_api(text, pane, from_file, *use_stdin, *submit, &mut stdin)
         }
         Commands::Notify { title, body, level } => (
             "POST".into(),
@@ -779,6 +780,7 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
     pane: &Option<String>,
     from_file: &Option<String>,
     from_stdin: bool,
+    submit: bool,
     stdin: &mut R,
 ) -> (String, String, Option<String>) {
     let p = pane.as_deref().unwrap_or("general");
@@ -791,10 +793,13 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
                 std::process::exit(1);
             }
         };
-    if body_text.trim().is_empty() {
+    // --submit allows an empty payload: a bare Enter to submit a paste already
+    // sitting in the recipient's composer.
+    if body_text.trim().is_empty() && !submit {
         eprintln!("Error: send-text payload is empty (mesh path, source: {input_source})");
         eprintln!("hint: --stdin via heredoc may have dropped under your shell wrapper;");
         eprintln!("      try --from-file <path> with a real tempfile.");
+        eprintln!("      to send a bare Enter (submit a stuck paste), pass --submit.");
         std::process::exit(2);
     }
     let body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
