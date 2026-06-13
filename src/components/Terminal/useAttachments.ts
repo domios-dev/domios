@@ -2,6 +2,42 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { useTauriFileDrop } from "../../hooks/terminal";
 import { useWebFileDrop } from "./ComposerActions";
+import { storeBlob } from "./voice/audio";
+
+const IMAGE_EXT: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/bmp": "bmp",
+  "image/svg+xml": "svg",
+};
+
+function imageExt(mime: string): string {
+  return IMAGE_EXT[mime] ?? (mime.split("/")[1]?.split(";")[0] || "png");
+}
+
+/**
+ * Read a pasted image as a Blob. The synchronous paste event omits clipboard
+ * image DATA (screenshots) on WebView2 (Windows) / WKWebView (macOS), so prefer
+ * the async Clipboard API — which the terminal already uses successfully — and
+ * fall back to the sync File captured during the event dispatch (#152).
+ */
+async function readClipboardImage(syncFile: File | null): Promise<{ blob: Blob; ext: string } | null> {
+  try {
+    if (navigator.clipboard && "read" in navigator.clipboard) {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const type = item.types.find((t) => t.startsWith("image/"));
+        if (type) return { blob: await item.getType(type), ext: imageExt(type) };
+      }
+    }
+  } catch {
+    // Permission denied / unsupported — fall back to the sync file.
+  }
+  if (syncFile) return { blob: syncFile, ext: imageExt(syncFile.type) };
+  return null;
+}
 
 export function useAttachments({
   chatRootRef,
@@ -40,8 +76,20 @@ export function useAttachments({
 
   const handlePasteEvent = useCallback(async (e: ClipboardEvent) => {
     const cd = e.clipboardData;
-    if (!cd) return;
+    // Capture the sync image File now — clipboardData is only valid during the
+    // synchronous event dispatch; the async reads below would see it emptied.
+    const syncImageFile = cd
+      ? (Array.from(cd.items).find((it) => it.kind === "file" && it.type.startsWith("image/"))?.getAsFile() ?? null)
+      : null;
+    // When the image is visible synchronously, stop the default paste AND the
+    // terminal's own window paste handler now (both can't be cancelled after an
+    // await) so the screenshot attaches here instead of leaking to the PTY.
+    if (syncImageFile) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
 
+    // 1. Native OS file paths (Explorer/Finder copy) — Tauri only; throws in web.
     try {
       const paths = await invoke<string[]>("read_clipboard_files");
       if (paths && paths.length > 0) {
@@ -49,36 +97,25 @@ export function useAttachments({
         addAttachments(paths);
         return;
       }
-    } catch { /* fall through to image / text */ }
-
-    const imageItem = Array.from(cd.items).find(
-      (it) => it.kind === "file" && it.type.startsWith("image/"),
-    );
-    if (imageItem) {
-      e.preventDefault();
-      const file = imageItem.getAsFile();
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const result = reader.result;
-        if (typeof result !== "string") return;
-        const commaIdx = result.indexOf(",");
-        const b64 = commaIdx >= 0 ? result.slice(commaIdx + 1) : result;
-        const mime = file.type || "image/png";
-        const suffix = mime.split("/")[1] || "png";
-        try {
-          const path = await invoke<string>("save_temp_file", {
-            data: b64,
-            extension: suffix,
-          });
-          addAttachments([path]);
-        } catch (err) {
-          console.warn("[chat] paste-image failed:", err);
-        }
-      };
-      reader.readAsDataURL(file);
+    } catch {
+      // Not in Tauri, or no files on the clipboard — continue.
     }
-  }, [addAttachments]);
+
+    // 2. Screenshot / image. The synchronous paste event omits clipboard image
+    //    DATA on WebView2 / WKWebView, so a pasted screenshot never attached and
+    //    leaked to the terminal (#152). Read it via the async Clipboard API and
+    //    save through storeBlob (→ /api/upload in web, temp file in Tauri).
+    const image = await readClipboardImage(syncImageFile);
+    if (image) {
+      e.preventDefault();
+      try {
+        const path = await storeBlob(image.blob, `pasted-image-${Date.now()}.${image.ext}`);
+        if (path.trim()) addAttachments([path]);
+      } catch (err) {
+        onError(err instanceof Error ? err.message : String(err));
+      }
+    }
+  }, [addAttachments, onError]);
 
   useEffect(() => {
     const onWindowPaste = (e: ClipboardEvent) => {
