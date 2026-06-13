@@ -87,6 +87,10 @@ CLIPPY_ALLOW=(
     -A clippy::filter_next
     -A clippy::needless_return
     -A clippy::collapsible_match
+    # Pre-existing lints surfaced by newer stable clippy (>=1.95); toolchain is
+    # pinned in rust-toolchain.toml, these cover the baseline it flags.
+    -A clippy::unnecessary_sort_by
+    -A unused_unsafe
 )
 
 echo "Pre-push: running cargo fmt --check..."
