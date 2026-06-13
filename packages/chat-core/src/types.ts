@@ -18,6 +18,25 @@ export interface ChatAttachment {
   path?: string;
 }
 
+export interface InteractiveOption {
+  label: string;
+  description?: string;
+}
+
+/** A question prompt (AskUserQuestion) surfaced by the provider for in-chat answering. */
+export interface InteractiveQuestion {
+  type: "question";
+  id: string;
+  toolUseId: string;
+  prompt: string;
+  header?: string;
+  options: InteractiveOption[];
+  multiSelect: boolean;
+}
+
+/** Discriminated union, open for future interactive session-event kinds. */
+export type InteractiveElement = InteractiveQuestion;
+
 export interface NormalizedChatMessage {
   id: string;
   type: ChatMessageKind;
@@ -38,6 +57,8 @@ export interface NormalizedChatMessage {
   collapsed?: boolean;
   duration?: string;
   payload?: unknown;
+  /** Interactive prompts the provider extracted from this message (answerable widgets). */
+  interactive?: InteractiveElement[];
 }
 
 export interface ProviderChatAdapter<TMessage extends NormalizedChatMessage = NormalizedChatMessage> {

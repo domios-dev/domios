@@ -7,6 +7,7 @@
 
 mod detection;
 mod integration;
+mod interactive;
 mod launch;
 mod schemas;
 mod sessions;
@@ -72,6 +73,13 @@ impl AgentProvider for ClaudeProvider {
 
     fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
         sessions::parse_session_messages(file_path)
+    }
+
+    fn parse_interactive_events(
+        &self,
+        msg: &crate::agent::chat_types::RichMessage,
+    ) -> Vec<crate::agent::chat_types::InteractiveElement> {
+        interactive::parse_interactive_events(msg)
     }
 
     fn readiness_strategy(&self) -> ReadinessStrategy {

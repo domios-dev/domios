@@ -37,9 +37,15 @@ import {
   shortPath,
 } from "./MarkdownBody";
 import { ToolIcon } from "./toolIcons";
+import { InteractiveElementRenderer } from "./interactive/InteractiveElementRenderer";
+import type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  /** Route an interactive widget's answer back to the agent (existing send path). */
+  onAnswerInteractive?: InteractiveAnswerHandler;
+  /** Widget ids already answered — kept in the parent so they survive remounts. */
+  answeredInteractiveIds?: Set<string>;
   /** When set, this user message arrived via a codeterm channel (cross-pane,
    *  telegram, mesh, slash-command) and should render as a typed header
    *  instead of the default right-aligned "user" styling. */
@@ -51,7 +57,7 @@ interface MessageBubbleProps {
   resolvePaneName?: PaneNameResolver;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds }: MessageBubbleProps) {
   // Auto-expand for Write-style tool input (the file body being written) and
   // for Edit/MultiEdit (always show the diff). A bash/grep result must NOT
   // force-expand — it shows a compact inline tail under the pill instead.
@@ -304,6 +310,24 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             </pre>
           )}
         </div>
+      </div>
+    );
+  }
+
+  // Interactive prompt — answerable widget rendered in place of the raw
+  // tool-call JSON (e.g. AskUserQuestion). Provider-agnostic: the backend
+  // already parsed the tool payload into `interactive`.
+  if (message.interactive && message.interactive.length > 0) {
+    return (
+      <div className="w-full">
+        {message.interactive.map((el) => (
+          <InteractiveElementRenderer
+            key={el.id}
+            element={el}
+            onAnswer={onAnswerInteractive}
+            answered={answeredInteractiveIds?.has(el.id)}
+          />
+        ))}
       </div>
     );
   }

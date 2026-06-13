@@ -778,6 +778,27 @@ impl AgentProvider for JsProvider {
         }
     }
 
+    fn parse_interactive_events(
+        &self,
+        msg: &crate::agent::chat_types::RichMessage,
+    ) -> Vec<crate::agent::chat_types::InteractiveElement> {
+        if self.manifest.spawn.interactive_events && self.has_js("parseInteractiveEvents") {
+            let arg = match serde_json::to_value(msg) {
+                Ok(v) => v,
+                Err(_) => return Vec::new(),
+            };
+            return self
+                .try_call::<Vec<crate::agent::chat_types::InteractiveElement>>(
+                    "parseInteractiveEvents",
+                    &[arg],
+                )
+                .unwrap_or_default();
+        }
+        self.native()
+            .map(|n| n.parse_interactive_events(msg))
+            .unwrap_or_default()
+    }
+
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
         self.try_call::<Option<String>>(
             "buildResumeCommand",
