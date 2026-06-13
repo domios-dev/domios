@@ -172,6 +172,79 @@ fn extract_uuid_from_stem() {
 }
 
 #[test]
+fn codex_fresh_detection_does_not_guess_newest_same_cwd_rollout() {
+    let _guard = CODEX_ENV_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("2026").join("06").join("13");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let cwd = "/tmp/codex-same-cwd";
+    let sid_a = "019ebbbb-0000-7000-8000-000000000101";
+    let sid_b = "019ebbbb-0000-7000-8000-000000000202";
+    std::fs::write(
+        sessions.join(format!("rollout-2026-06-13T12-00-00-{sid_a}.jsonl")),
+        format!(r#"{{"type":"session_meta","payload":{{"id":"{sid_a}","cwd":"{cwd}"}}}}"#),
+    )
+    .unwrap();
+    std::fs::write(
+        sessions.join(format!("rollout-2026-06-13T12-00-01-{sid_b}.jsonl")),
+        format!(r#"{{"type":"session_meta","payload":{{"id":"{sid_b}","cwd":"{cwd}"}}}}"#),
+    )
+    .unwrap();
+
+    let prev = std::env::var("CODETERM_CODEX_SESSIONS_ROOT").ok();
+    unsafe {
+        std::env::set_var(
+            "CODETERM_CODEX_SESSIONS_ROOT",
+            dir.path().to_string_lossy().as_ref(),
+        );
+    }
+    let p = CodexProvider::new();
+    assert_eq!(p.detect_session_id(cwd, &[], None), None);
+    assert_eq!(
+        p.detect_launched_session_id(cwd, &[], Some(std::time::Duration::from_secs(300)), None),
+        None
+    );
+    assert_eq!(
+        p.detect_started_session(
+            cwd,
+            &[],
+            Some(std::time::Duration::from_secs(300)),
+            None,
+            Some("OpenAI Codex\nSession ID: 019ebbbb-0000-7000-8000-000000000101"),
+        )
+        .as_deref(),
+        Some(sid_a)
+    );
+    assert_eq!(
+        p.detect_started_session(
+            cwd,
+            &[sid_a.to_string()],
+            Some(std::time::Duration::from_secs(300)),
+            None,
+            Some("OpenAI Codex\nSession ID: 019ebbbb-0000-7000-8000-000000000101"),
+        ),
+        None
+    );
+    assert_eq!(
+        p.detect_started_session(
+            cwd,
+            &[sid_a.to_string()],
+            Some(std::time::Duration::from_secs(300)),
+            None,
+            Some("OpenAI Codex\nSession ID: 019ebbbb-0000-7000-8000-000000000202"),
+        )
+        .as_deref(),
+        Some(sid_b)
+    );
+    unsafe {
+        match prev {
+            Some(value) => std::env::set_var("CODETERM_CODEX_SESSIONS_ROOT", value),
+            None => std::env::remove_var("CODETERM_CODEX_SESSIONS_ROOT"),
+        }
+    }
+}
+
+#[test]
 fn codex_detect_active_session_does_not_roll_to_foreign_newer_session() {
     let _guard = CODEX_ENV_LOCK.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
