@@ -118,7 +118,10 @@ pub async fn start(
         state.svc.agent_registry.clone(),
         sink,
     );
-    let started = state.svc.chat_registry.insert(pane_id.clone(), handle);
+    let started = state
+        .svc
+        .chat_registry
+        .insert(pane_id.clone(), info.session_id.clone(), handle);
     if !started {
         log::info!(
             "[pane_chat] re-start requested for pane={} (already running); returning fresh snapshot",

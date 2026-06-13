@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
-  dedupeRecentUserMessages,
-  matchesRecentUserMessage,
+  matchedOptimisticEchoes,
   type NormalizedChatMessage as ChatMessage,
+  type OptimisticEcho,
 } from "@codeterm/chat-core";
 import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "../../lib/chatPrefixes";
 
-const OPTIMISTIC_TTL_MS = 60_000;
 const INITIAL_VISIBLE_MESSAGES = 220;
 const VISIBLE_MESSAGE_STEP = 160;
 
@@ -33,6 +32,10 @@ function mergeById(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] 
   return Array.from(map.values()).sort(
     (a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0),
   );
+}
+
+function toEchoes(msgs: ChatMessage[]): OptimisticEcho[] {
+  return msgs.map((m) => ({ id: m.id, content: m.content, sentAtMs: Number(m.timestamp) || 0 }));
 }
 
 function groupToolResults(messages: ChatMessage[]): ChatMessage[] {
@@ -122,24 +125,18 @@ export function useChatSession({
 
   const parsed = useMemo<ChatMessage[]>(() => structured ?? [], [structured]);
 
-  const matchesParsedUser = useCallback(
-    (optimisticMessage: ChatMessage, recentParsed: ChatMessage[]) => {
-      return matchesRecentUserMessage(optimisticMessage, recentParsed);
-    },
-    [],
-  );
-
   const allMessages = useMemo(() => {
-    const dedupedParsed = dedupeRecentUserMessages(parsed);
-    const groupedParsed = groupToolResults(dedupedParsed);
-    if (optimistic.length === 0) return groupedParsed;
-    const tail = Math.max(optimistic.length * 4, 20);
-    const recentParsed = groupedParsed.slice(-tail);
-    const stillPending = optimistic.filter(
-      (m) => !matchesParsedUser(m, recentParsed),
-    );
-    return [...groupedParsed, ...stillPending];
-  }, [parsed, optimistic, matchesParsedUser]);
+    const grouped = groupToolResults(parsed);
+    if (optimistic.length === 0) return grouped;
+    // Render every real user turn (mergeById already dedupes by stable id — no
+    // content-collapse that would swallow a legitimately repeated message).
+    // A bubble is hidden only once a real echo positively claims it.
+    const parsedUsers = parsed.filter((m) => m.type === "user");
+    const { matchedIds } = matchedOptimisticEchoes(toEchoes(optimistic), parsedUsers);
+    const matched = new Set(matchedIds);
+    const stillPending = optimistic.filter((m) => !matched.has(m.id));
+    return [...grouped, ...stillPending];
+  }, [parsed, optimistic]);
 
   const enrichedMessages = useMemo(() => {
     const visible = allMessages.slice(-visibleMessageCount);
@@ -203,42 +200,17 @@ export function useChatSession({
     );
   }, []);
 
+  // Garbage-collect bubbles whose real echo has landed. NO timer eviction:
+  // a bubble lives until a parsed user message positively, consume-once claims
+  // it. If the echo never arrives the bubble stays — visible, not silently lost.
   useEffect(() => {
     if (optimistic.length === 0) return;
-    const now = Date.now();
-    const tail = Math.max(optimistic.length * 4, 20);
-    const recentParsed = parsed.slice(-tail);
-    setOptimistic((prev) => {
-      const next = prev.filter((m) => {
-        if (matchesParsedUser(m, recentParsed)) return false;
-        if (m.timestamp) {
-          const sentAt = Number(m.timestamp);
-          if (!Number.isNaN(sentAt) && now - sentAt > OPTIMISTIC_TTL_MS) {
-            return false;
-          }
-        }
-        return true;
-      });
-      return next.length === prev.length ? prev : next;
-    });
-  }, [parsed, optimistic.length, matchesParsedUser]);
-
-  useEffect(() => {
-    if (optimistic.length === 0) return;
-    const id = setInterval(() => {
-      const now = Date.now();
-      setOptimistic((prev) => {
-        const next = prev.filter((m) => {
-          if (!m.timestamp) return true;
-          const sentAt = Number(m.timestamp);
-          if (Number.isNaN(sentAt)) return true;
-          return now - sentAt <= OPTIMISTIC_TTL_MS;
-        });
-        return next.length === prev.length ? prev : next;
-      });
-    }, 10_000);
-    return () => clearInterval(id);
-  }, [optimistic.length]);
+    const parsedUsers = parsed.filter((m) => m.type === "user");
+    const { matchedIds } = matchedOptimisticEchoes(toEchoes(optimistic), parsedUsers);
+    if (matchedIds.length === 0) return;
+    const matched = new Set(matchedIds);
+    setOptimistic((prev) => prev.filter((m) => !matched.has(m.id)));
+  }, [parsed, optimistic]);
 
   return {
     loading,

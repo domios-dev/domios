@@ -259,7 +259,7 @@ export function PaneSessionChat({
               data-testid="chat-message"
               data-message-role={msg.type}
               style={isPending ? { opacity: 0.55 } : undefined}
-              title={isPending ? "sending… (echo expected within 60s)" : undefined}
+              title={isPending ? "sending… (clears when the agent echoes it back)" : undefined}
             >
               <MessageBubble
                 message={msg}
