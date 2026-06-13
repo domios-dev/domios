@@ -302,35 +302,18 @@ impl AgentProvider for CodexProvider {
 
     fn detect_session_id(
         &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
+        _cwd: &str,
+        _exclude: &[String],
+        _max_age: Option<Duration>,
     ) -> Option<String> {
-        let root = Self::sessions_root()?;
-        if !root.exists() {
-            return None;
-        }
-
-        let now = std::time::SystemTime::now();
-        let recency_limit = max_age.unwrap_or_else(|| Duration::from_secs(300));
-        let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
-
-        // Walk YYYY/MM/DD directories — collects (stem, modified_time) The cwd filter is applied lazily during the walk so we don't read every JSONL
-        // header in the tree; only candidates that pass age + exclude get their first line parsed.
-        collect_jsonl_files(&root, &mut sessions, &now, &recency_limit, exclude, cwd, 0);
-
-        sessions.sort_by(|a, b| b.1.cmp(&a.1));
-        // Return UUID extracted from the stem (codex resume expects UUID, not filename)
-        sessions
-            .first()
-            .and_then(|(stem, _)| extract_session_uuid(stem).map(|s| s.to_string()))
+        None
     }
 
     fn detect_launched_session_id(
         &self,
         cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
+        _exclude: &[String],
+        _max_age: Option<Duration>,
         injected_session_id: Option<&str>,
     ) -> Option<String> {
         if let Some(session_id) = injected_session_id {
@@ -338,68 +321,32 @@ impl AgentProvider for CodexProvider {
                 return Some(session_id.to_string());
             }
         }
-        if let Some(age) = max_age {
-            let after = std::time::SystemTime::now() - age;
-            let mut by_dir: Vec<(String, std::time::SystemTime)> = Vec::new();
-            walk_jsonl_recursive(&Self::sessions_root()?, 0, &mut |path| {
-                let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                    return;
-                };
-                let (meta_sid, meta_cwd) = read_session_meta(path).unwrap_or((None, None));
-                let Some(meta_cwd) = meta_cwd.as_deref() else {
-                    return;
-                };
-                if !paths_equivalent(meta_cwd, cwd) {
-                    return;
-                }
-                let sid = meta_sid.or_else(|| extract_session_uuid(stem).map(String::from));
-                let Some(sid) = sid else {
-                    return;
-                };
-                if exclude.iter().any(|sid2| sid2 == &sid) {
-                    return;
-                }
-                let Ok(meta) = std::fs::metadata(path) else {
-                    return;
-                };
-                // Birth time, not mtime: this detector answers "which session did
-                // THIS launch create". A foreign session in the same cwd (e.g. the
-                // prod instance's codex working in the same repo) is constantly
-                // written, so its mtime always passes the launch window and it
-                // would steal the latch. A file created before our launch can
-                // never be ours.
-                let ts = meta.created().or_else(|_| meta.modified()).ok();
-                if let Some(ts) = ts {
-                    if ts <= after {
-                        return;
-                    }
-                    by_dir.push((sid, ts));
-                }
-            });
-            by_dir.sort_by(|a, b| b.1.cmp(&a.1));
-            if let Some((sid, _)) = by_dir.first() {
-                return Some(sid.clone());
-            }
-            return None;
-        }
-        self.detect_session_id(cwd, exclude, None)
+        None
     }
 
     fn detect_started_session(
         &self,
         cwd: &str,
         exclude: &[String],
-        max_age: Option<Duration>,
+        _max_age: Option<Duration>,
         injected_session_id: Option<&str>,
         screen_text: Option<&str>,
     ) -> Option<String> {
-        self.detect_started_session_with_markers(
-            cwd,
-            exclude,
-            max_age,
-            injected_session_id,
-            screen_text,
-        )
+        if let Some(session_id) = injected_session_id {
+            if self.session_exists(cwd, session_id) {
+                return Some(session_id.to_string());
+            }
+        }
+
+        let sid = screen_text.and_then(extract_visible_session_uuid)?;
+        if exclude.iter().any(|claimed| claimed == &sid) {
+            return None;
+        }
+        if self.session_exists(cwd, &sid) {
+            Some(sid)
+        } else {
+            None
+        }
     }
 
     fn detect_active_session(&self, _cwd: &str, _current_sid: &str) -> Option<String> {
@@ -553,118 +500,39 @@ fn extract_session_uuid(stem: &str) -> Option<&str> {
     }
 }
 
-/// Recursively find JSONL session files in the Codex date-based directory tree.
-fn collect_jsonl_files(
-    dir: &std::path::Path,
-    sessions: &mut Vec<(String, std::time::SystemTime)>,
-    now: &std::time::SystemTime,
-    recency_limit: &Duration,
-    exclude: &[String],
-    cwd_filter: &str,
-    depth: u8,
-) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-
-    for entry in entries.filter_map(|e| e.ok()) {
-        let ft = match entry.file_type() {
-            Ok(ft) => ft,
-            Err(_) => continue,
-        };
-
-        if ft.is_dir() && depth < 4 {
-            collect_jsonl_files(
-                &entry.path(),
-                sessions,
-                now,
-                recency_limit,
-                exclude,
-                cwd_filter,
-                depth + 1,
-            );
-            continue;
-        }
-
-        let name = entry.file_name().to_string_lossy().to_string();
-        if !name.ends_with(".jsonl") {
-            continue;
-        }
-
-        let stem = name.trim_end_matches(".jsonl");
-        let candidate_uuid = extract_session_uuid(stem).unwrap_or(stem);
-        if exclude.iter().any(|e| e == candidate_uuid || e == stem) {
-            continue;
-        }
-
-        if let Ok(meta) = entry.metadata() {
-            if let Ok(modified) = meta.modified() {
-                if let Ok(age) = now.duration_since(modified) {
-                    if age > *recency_limit {
-                        continue;
-                    }
-                }
+fn extract_visible_session_uuid(text: &str) -> Option<String> {
+    let lower = text.to_ascii_lowercase();
+    let labels = ["session id", "session_id", "session-id"];
+    for label in labels {
+        let mut start = 0;
+        while let Some(pos) = lower[start..].find(label) {
+            let offset = start + pos + label.len();
+            if let Some(uuid) = first_uuid_like(&text[offset..]) {
+                return Some(uuid.to_string());
             }
-            // cwd filter — read only the session_meta header (first line) and match `payload.cwd`. Without this, parallel codex panes in the same
-            // workspace see candidates from sibling cwds and pick the wrong rollout, then loop forever in the atomic-claim retry path.
-            if !cwd_filter.is_empty() && !rollout_cwd_matches(&entry.path(), cwd_filter) {
-                continue;
-            }
-            let sort_key = meta.created().or_else(|_| meta.modified());
-            if let Ok(ts) = sort_key {
-                sessions.push((stem.to_string(), ts));
-            }
+            start = offset;
         }
     }
+    None
 }
 
-fn rollout_cwd_matches(path: &std::path::Path, cwd: &str) -> bool {
-    use std::io::{BufRead, BufReader};
-    let Ok(file) = std::fs::File::open(path) else {
-        return false;
-    };
-    let mut reader = BufReader::new(file);
-    let mut line = String::new();
-    if reader
-        .read_line(&mut line)
-        .ok()
-        .filter(|n| *n > 0)
-        .is_none()
-    {
-        return false;
+fn first_uuid_like(text: &str) -> Option<&str> {
+    for token in text.split(|c: char| !(c.is_ascii_hexdigit() || c == '-')) {
+        if is_uuid_like(token) {
+            return Some(token);
+        }
     }
-    let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) else {
-        return false;
-    };
-    let kind = val.get("type").and_then(|v| v.as_str()).unwrap_or_default();
-    if kind != "session_meta" {
-        return false;
-    }
-    let recorded = match val
-        .get("payload")
-        .and_then(|p| p.get("cwd"))
-        .and_then(|c| c.as_str())
-    {
-        Some(s) => s,
-        None => return false,
-    };
-    paths_equivalent(recorded, cwd)
+    None
 }
 
-fn paths_equivalent(a: &str, b: &str) -> bool {
-    let norm = |s: &str| -> String {
-        let trimmed = s.trim_end_matches('/');
-        let canon = std::fs::canonicalize(trimmed)
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| trimmed.to_string());
-        if cfg!(any(target_os = "macos", target_os = "windows")) {
-            canon.to_lowercase()
-        } else {
-            canon
-        }
-    };
-    norm(a) == norm(b)
+fn is_uuid_like(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && [8, 13, 18, 23].iter().all(|i| bytes[*i] == b'-')
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(i, b)| [8, 13, 18, 23].contains(&i) || b.is_ascii_hexdigit())
 }
 
 /// Find a session file by UUID anywhere in the date-based tree.
@@ -694,8 +562,7 @@ fn find_file_by_suffix(dir: &std::path::Path, suffix: &str, depth: u8) -> Option
 }
 
 /// Recursively visit every `*.jsonl` file under the codex sessions tree
-/// (which is YYYY/MM/DD deep). Mirror of `collect_jsonl_files` but without
-/// the exclude/recency filtering — session search wants them all.
+/// (which is YYYY/MM/DD deep).
 fn walk_jsonl_recursive(dir: &std::path::Path, depth: u8, visit: &mut dyn FnMut(&std::path::Path)) {
     if depth > 5 {
         return;
