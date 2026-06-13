@@ -898,14 +898,6 @@ Disconnect (unpair) from a paired peer
 
 Trigger mesh discovery scan (list discovered peers)
 
-#### `codeterm mesh exec`
-
-Execute a command on a remote mesh peer
-
-- `<command>` — Command to execute
-- `--pane` — Target pane on remote instance (default: general)
-- `<target>` — Target peer name or instance ID
-
 #### `codeterm mesh offline`
 
 Go offline: stop pinging peers, stop announcing, stop refreshing local addresses (which keeps Tailscale alive). The daemon stays up; peers will time out our presence on their side. Local-only command
@@ -1383,6 +1375,7 @@ Web mirror helpers (share links, etc.)
 Print a ready-to-open /web URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead)
 
 - `--host` — Host override (default: Tailscale IP > LAN IP > 127.0.0.1)
+- `--peer` — Build a link for a paired mesh PEER (by instance name) instead of this machine: resolves the peer's host (prefers its HTTPS tailscale-serve FQDN) and mints the peer's web token. Overrides --host/--port
 - `--port` — Port override (default: this daemon's API port)
 - `--query` — Emit ?token= instead of #token= — easier to type, but query strings reach server/proxy logs; the fragment never does
 
