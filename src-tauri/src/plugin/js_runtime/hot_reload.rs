@@ -195,9 +195,10 @@ mod tests {
     }
 
     fn manifest_for(id: &str) -> String {
+        use crate::plugin::js_runtime::host_api::HOST_API_VERSION;
         format!(
             r#"{{
-                "id":"{id}","version":"0","displayName":"{id}",
+                "id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
                 "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
                          "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}},
                 "entry":"plugin.js"

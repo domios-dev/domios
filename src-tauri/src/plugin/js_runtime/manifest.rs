@@ -30,6 +30,12 @@ pub struct PluginManifest {
     /// Minimum CodeTerm version required; gated by the plugin CLI on install/update.
     #[serde(default)]
     pub min_codeterm: Option<String>,
+    /// Plugin/host contract version this drop-in targets. Third-party plugins
+    /// must declare a value this build supports (`host_api::HOST_API_VERSION`)
+    /// or they are skipped at load instead of registered against an interface
+    /// they don't conform to (#16). First-party bundled plugins are exempt.
+    #[serde(default)]
+    pub host_api: Option<u32>,
 
     // Identity / UI
     #[serde(default)]
