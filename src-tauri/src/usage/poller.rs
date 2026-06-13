@@ -13,6 +13,12 @@ const TICK_INTERVAL: Duration = Duration::from_secs(30);
 /// Adaptive backoff steps in seconds: 10 min at peak activity, up to 50 min
 /// when idle. Last value is the floor for overnight off-device usage capture.
 const BACKOFF_STEPS_S: [u64; 5] = [600, 1200, 1800, 2400, 3000];
+/// Probe attempts per poll. A single ConPTY hiccup or a slow first `/usage`
+/// load shouldn't burn the whole (10-50 min) interval — respawn a fresh hidden
+/// pane and try once more before recording a failure. Permanent errors (missing
+/// binary) skip the retry. Each attempt tears down its own pane, so there is no
+/// leak across retries.
+const PROBE_MAX_ATTEMPTS: u32 = 2;
 
 #[derive(Clone, Default)]
 pub struct PaneActivity {
@@ -224,6 +230,38 @@ fn current_backoff(idx: usize) -> Duration {
     }
 }
 
+/// Run the probe, respawning a fresh hidden pane and retrying on a recoverable
+/// failure (transient ConPTY race, slow load, no output). A missing binary is
+/// permanent and skips the retry. The final error — if every attempt fails — is
+/// returned so the caller records an HONEST failure rather than hanging.
+async fn run_probe_with_retry(
+    svc: &ServiceContext,
+    key: &AccountKey,
+) -> Result<super::probe::UsageProbeOutcome, super::probe::ProbeError> {
+    use super::probe::ProbeError;
+    let mut attempt = 1;
+    loop {
+        let probe = UsageProbe::new(svc.clone());
+        match probe.run(&key.provider, key.account_id.as_deref()).await {
+            Ok(o) => return Ok(o),
+            Err(e) => {
+                let recoverable = !matches!(e, ProbeError::BinaryMissing(_));
+                if !recoverable || attempt >= PROBE_MAX_ATTEMPTS {
+                    return Err(e);
+                }
+                log::warn!(
+                    "[usage.poller] probe {:?} attempt {}/{} failed ({}); retrying with fresh pane",
+                    key.provider,
+                    attempt,
+                    PROBE_MAX_ATTEMPTS,
+                    e
+                );
+                attempt += 1;
+            }
+        }
+    }
+}
+
 async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<(), String> {
     {
         let mut accounts = inner.accounts.lock();
@@ -235,8 +273,7 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
         state.last_probe_at = Some(Instant::now());
     }
 
-    let probe = UsageProbe::new(inner.svc.clone());
-    let outcome = probe.run(&key.provider, key.account_id.as_deref()).await;
+    let outcome = run_probe_with_retry(&inner.svc, &key).await;
 
     match outcome {
         Ok(o) => {
