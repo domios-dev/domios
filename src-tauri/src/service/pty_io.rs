@@ -449,12 +449,30 @@ impl ServiceContext {
     /// interactive TUI input paths (`send_text_*`), which still use bracketed
     /// paste because Claude / Codex TUIs require it.
     pub fn send_shell_spawn(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
+        self.await_shell_ready(pty_id);
         let bytes = build_spawn_dispatch(cmd).map_err(|e| e.to_string())?;
         self.pty
             .lock()
             .write(pty_id, &bytes)
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    /// Windows ConPTY: writing a launch command before the shell prompt is
+    /// rendered races the first byte — it can be dropped or duplicated, yielding
+    /// a mangled command line (e.g. `c codex`, which PowerShell rejects with
+    /// CommandNotFoundException). Block (bounded) until the prompt appears so
+    /// PSReadLine's bracketed-paste handler is armed before the write. Native
+    /// PTYs on macOS/Linux don't exhibit this race, so this is a no-op there.
+    fn await_shell_ready(&self, pty_id: &str) {
+        #[cfg(windows)]
+        poll_shell_prompt(
+            &self.screen_state,
+            pty_id,
+            std::time::Duration::from_secs(10),
+        );
+        #[cfg(not(windows))]
+        let _ = pty_id;
     }
 
     fn await_pty_link_blocking(
@@ -693,6 +711,10 @@ impl ServiceContext {
         };
 
         let started = std::time::Instant::now();
+
+        // Gate on shell-prompt readiness before writing — see `await_shell_ready`
+        // (Windows ConPTY first-byte race → mangled launch like `c codex`).
+        self.await_shell_ready(pty_id);
 
         self.feed_input_parser(pty_id, cmd, true);
 

@@ -361,6 +361,17 @@ pub fn start_general_agent(
     };
 
     log::info!("[general-agent] Launching on PTY {}: {}", pty_id, cmd);
+    // Windows ConPTY: writing the launch command before the shell prompt is
+    // rendered races the first byte (drop/duplicate → mangled command like
+    // `c codex` → CommandNotFoundException). Wait for the prompt so PSReadLine's
+    // bracketed-paste handler is armed first. Bounded + best-effort; no-op on
+    // native PTYs (macOS/Linux don't exhibit the race).
+    #[cfg(windows)]
+    crate::service::pty_io::poll_shell_prompt(
+        screen_state,
+        &pty_id,
+        std::time::Duration::from_secs(10),
+    );
     let payload: Vec<u8> = if cfg!(windows) {
         // Bracketed paste + sacrificial space absorbs PSReadLine/ConPTY first-byte race on Windows.
         format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes()
