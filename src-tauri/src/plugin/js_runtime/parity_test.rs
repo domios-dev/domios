@@ -636,6 +636,44 @@ mod claude {
         );
     }
 
+    /// #163: the tailer reads `session_jsonl_path`, so it must resolve to the
+    /// canonical project dir the agent actually writes to. Claude canonicalizes
+    /// the cwd (symlinks resolved) before encoding; if the host hands the JS
+    /// drop-in a raw symlinked cwd, the tailer watches a dir that never appears
+    /// (e.g. `/tmp` vs `/private/tmp` on macOS) and chat never streams live.
+    #[cfg(unix)]
+    #[test]
+    fn session_jsonl_path_canonicalizes_symlinked_cwd() {
+        use std::os::unix::fs::symlink;
+        if require_plugins().is_none() {
+            return;
+        }
+        let base = std::env::temp_dir().join(format!("ct-w3-163-{}", std::process::id()));
+        let real = base.join("real-target");
+        let link = base.join("link-alias");
+        std::fs::create_dir_all(&real).unwrap();
+        let _ = std::fs::remove_file(&link);
+        symlink(&real, &link).unwrap();
+
+        let j = load_js("claude");
+        let p = j
+            .session_jsonl_path(link.to_str().unwrap(), "sess-xyz")
+            .expect("should resolve a path");
+        let s = p.to_string_lossy();
+        // Must encode the canonical (real) target, not the symlink alias —
+        // otherwise the tailer watches a directory claude never writes to.
+        assert!(
+            s.contains("real-target"),
+            "path must encode the canonical symlink target: {s}"
+        );
+        assert!(
+            !s.contains("link-alias"),
+            "path must not encode the raw symlink alias: {s}"
+        );
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
     /// A JS provider that reimplements AskUserQuestion extraction in JS,
     /// declaring `interactiveEvents: true` so the host dispatches to it.
     fn claude_interactive_js() -> JsProvider {
