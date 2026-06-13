@@ -152,6 +152,14 @@ case "$CMD" in
   build)
     ensure_deps
     pnpm tauri build
+    # Release gate: /web is served from the exe-adjacent dist/ bundle that
+    # tauri.conf bundle.resources maps in (../dist -> dist). If pnpm build
+    # produced no dist/index.html the installer ships a /web that 404s.
+    if [ ! -f dist/index.html ]; then
+      echo "❌ RELEASE GATE: dist/index.html missing after build — /web would 404. Run 'pnpm build'." >&2
+      exit 1
+    fi
+    echo "✅ web bundle present (dist/index.html) — packaged into installer via bundle.resources"
     ;;
   embed)
     # Force-rebuild the codeterm-embed binary. Skipped on every dev cycle
