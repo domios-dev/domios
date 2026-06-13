@@ -92,6 +92,7 @@ pub fn handle_send_text(
     text: Option<String>,
     from_file: Option<String>,
     from_stdin: bool,
+    submit: bool,
 ) {
     let mut stdin = std::io::stdin();
     let (resolved_text, source) =
@@ -102,27 +103,38 @@ pub fn handle_send_text(
                 std::process::exit(1);
             }
         };
-    // Reject empty payloads loudly. Silent zero-byte sends were the bug behind several "mesh sent but recipient saw empty" reports.
-    if resolved_text.trim().is_empty() {
+    let is_empty = resolved_text.trim().is_empty();
+    // Reject empty payloads loudly — silent zero-byte sends were the bug behind
+    // several "mesh sent but recipient saw empty" reports. EXCEPT with --submit,
+    // where an empty payload is the whole point: a bare Enter to submit a paste
+    // already sitting in the composer.
+    if is_empty && !submit {
         eprintln!("Error: send-text payload is empty (source: {})", source);
         eprintln!("hint: if using --stdin, ensure the heredoc actually delivered content;");
         eprintln!("      if --from-file, verify the path exists and isn't 0 bytes;");
         eprintln!("      if positional, your shell may have eaten the content.");
+        eprintln!("      to send a bare Enter (submit a stuck paste), pass --submit.");
         std::process::exit(2);
     }
-    if let Err(msg) = guard_against_shell_mangle(&resolved_text) {
-        eprintln!("Error: {}", msg);
-        eprintln!(
-            "hint: your shell expanded a command-substitution before codeterm-CLI received it."
-        );
-        eprintln!("      Use --from-file <path> or --from-stdin <<'EOF' ... EOF for content with backticks/$/code.");
-        std::process::exit(2);
+    if !is_empty {
+        if let Err(msg) = guard_against_shell_mangle(&resolved_text) {
+            eprintln!("Error: {}", msg);
+            eprintln!(
+                "hint: your shell expanded a command-substitution before codeterm-CLI received it."
+            );
+            eprintln!("      Use --from-file <path> or --from-stdin <<'EOF' ... EOF for content with backticks/$/code.");
+            std::process::exit(2);
+        }
     }
     let pane_id = resolve_pane(client, pane);
     let mut params = serde_json::json!({
         "pane_id": pane_id,
         "text": resolved_text,
     });
+    if submit {
+        // Be explicit so the daemon presses Enter even for an empty payload.
+        params["enter"] = serde_json::json!(true);
+    }
     // Carry the sender's pane id when running inside CodeTerm so the daemon can prepend a [from <title> pane=<id>] return-address prefix on the
     // recipient side. Skip when target is self (chatting with own pane — no point self-tagging).
     if let Ok(my_pane) = std::env::var("CODETERM_PANE_ID") {

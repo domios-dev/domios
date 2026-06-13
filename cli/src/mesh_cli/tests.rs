@@ -483,6 +483,7 @@ fn send_text_is_fire_and_forget_on_mesh() {
         pane: Some("abc123".into()),
         from_file: None,
         stdin: false,
+        submit: false,
     };
     let (m, p, b) = cli_command_to_api(&cmd);
     assert_eq!(m, "POST");
@@ -499,12 +500,38 @@ fn send_text_is_fire_and_forget_on_mesh() {
 fn send_text_stdin_mesh_body_preserves_exact_text() {
     let text = "it's got 'quotes' and \"doubles\"\nsecond line\n";
     let mut stdin = text.as_bytes();
-    let (m, p, b) =
-        super::api_map::send_text_to_api(&None, &Some("abc123".into()), &None, true, &mut stdin);
+    let (m, p, b) = super::api_map::send_text_to_api(
+        &None,
+        &Some("abc123".into()),
+        &None,
+        true,
+        false,
+        &mut stdin,
+    );
     assert_eq!(m, "POST");
     assert_eq!(p, "/api/panes/abc123/send");
     let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
     assert_eq!(body["text"], text);
+}
+
+#[test]
+fn send_submit_allows_empty_payload_on_mesh() {
+    // --submit with no text is a bare Enter to unstick a paste in the composer.
+    let empty = "";
+    let mut stdin = empty.as_bytes();
+    let (m, p, b) = super::api_map::send_text_to_api(
+        &None,
+        &Some("abc123".into()),
+        &None,
+        true,
+        true,
+        &mut stdin,
+    );
+    assert_eq!(m, "POST");
+    assert_eq!(p, "/api/panes/abc123/send");
+    let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
+    assert_eq!(body["text"], "");
+    assert_eq!(body["enter"], true);
 }
 
 /// `web link` embeds the LOCAL token — relaying would mint a link with
