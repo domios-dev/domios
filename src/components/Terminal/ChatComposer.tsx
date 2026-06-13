@@ -15,6 +15,10 @@ const COMPOSER_MIN_HEIGHT = 20;
 const COMPOSER_SINGLE_LINE_THRESHOLD = 28;
 const COMPOSER_MAX_HEIGHT = 150;
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
+// Shown the instant a voice note is sent — transcription (cold Whisper can take
+// several seconds) then morphs this bubble into the transcript, or an error.
+const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
+const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
 const CLI_FALLBACK_COMMANDS = new Set([
   "/usage",
   "/config",
@@ -204,6 +208,7 @@ export function ChatComposer({
   clearAttachments,
   handlePasteEvent,
   addOptimistic,
+  updateOptimistic,
   showComposerError,
   onOpenTerminalFallback,
   onToggleTerminalFallback,
@@ -218,7 +223,8 @@ export function ChatComposer({
   removeAttachment: (path: string) => void;
   clearAttachments: () => void;
   handlePasteEvent: (event: ClipboardEvent) => void | Promise<void>;
-  addOptimistic: (content: string) => void;
+  addOptimistic: (content: string) => string;
+  updateOptimistic: (id: string, content: string) => void;
   showComposerError: (message: string) => void;
   onOpenTerminalFallback?: () => void;
   onToggleTerminalFallback?: () => void;
@@ -351,15 +357,30 @@ export function ChatComposer({
     const dupKey = `${text} ${allAttachments.join("|")}`;
     if (dupKey === lastSendRef.current.text && nowTs - lastSendRef.current.at < 500) return;
     lastSendRef.current = { text: dupKey, at: nowTs };
+    // Voice notes: show the bubble immediately so the user sees progress during
+    // the (possibly multi-second, cold-Whisper) transcription gap, then morph it
+    // into the transcript — instead of staring at silence until the text lands.
+    const hasAudio = allAttachments.some((p) => AUDIO_ATTACHMENT_RE.test(p));
+    const placeholderId = hasAudio ? addOptimistic(VOICE_TRANSCRIBING_PLACEHOLDER) : null;
+    let transcribeFailed = false;
     const pathParts = await Promise.all(
-      allAttachments.map(async (p) =>
-        AUDIO_ATTACHMENT_RE.test(p)
-          ? await invoke<string>("transcribe_voice_attachment", { path: p }).catch(
-              () => quotePathForPaste(p),
-            )
-          : quotePathForPaste(p),
-      ),
+      allAttachments.map(async (p) => {
+        if (!AUDIO_ATTACHMENT_RE.test(p)) return quotePathForPaste(p);
+        try {
+          return await invoke<string>("transcribe_voice_attachment", { path: p });
+        } catch {
+          transcribeFailed = true;
+          return quotePathForPaste(p);
+        }
+      }),
     );
+    if (placeholderId && transcribeFailed) {
+      updateOptimistic(placeholderId, VOICE_TRANSCRIBE_ERROR);
+      setInput("");
+      clearAttachments();
+      refocusComposer();
+      return;
+    }
     const pathLines = pathParts.join(" ");
     const composed = text && pathLines
       ? `${text} ${pathLines}`
@@ -381,7 +402,11 @@ export function ChatComposer({
       refocusComposer();
       return;
     }
-    addOptimistic(composed);
+    if (placeholderId) {
+      updateOptimistic(placeholderId, composed);
+    } else {
+      addOptimistic(composed);
+    }
     setInput("");
     clearAttachments();
     refocusComposer();
