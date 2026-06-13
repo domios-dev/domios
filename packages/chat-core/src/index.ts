@@ -11,10 +11,7 @@ export {
   normalizeChatText,
   type FingerprintableChatMessage,
 } from "./normalize";
-export {
-  dedupeRecentUserMessages,
-  matchesRecentUserMessage,
-} from "./dedupe";
+export { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
 export {
   MARKER_OPEN,
   MARKER_CLOSE,
