@@ -1128,9 +1128,10 @@ mod codex {
     }
 
     /// Build a synthetic `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
-    /// tree in a tempdir, point HOME at it, then walk through the
-    /// plugin. Verifies enumerateSessions, detectSessionId, and
-    /// sessionFilePath all work end-to-end without native Rust help.
+    /// tree in a tempdir, then walk through the plugin. Verifies
+    /// enumerateSessions and sessionFilePath work end-to-end without native
+    /// Rust help, while session detection stays strict instead of guessing by
+    /// newest cwd rollout.
     #[test]
     fn codex_rollout_walk_via_plugin() {
         if require_plugins().is_none() {
@@ -1227,12 +1228,17 @@ mod codex {
         assert_eq!(by_id[uuid_a].project_path.as_deref(), Some("/proj/foo"));
         assert_eq!(by_id[uuid_b].project_path.as_deref(), Some("/other/dir"));
 
-        // detectSessionId filters by cwd and returns the newest match.
-        let latest = provider.detect_session_id("/proj/foo", &[], None);
-        assert_eq!(latest.as_deref(), Some(uuid_c));
-
-        let latest_excl = provider.detect_session_id("/proj/foo", &[uuid_c.to_string()], None);
-        assert_eq!(latest_excl.as_deref(), Some(uuid_a));
+        assert_eq!(provider.detect_session_id("/proj/foo", &[], None), None);
+        assert_eq!(
+            provider.detect_launched_session_id(
+                "/proj/foo",
+                &[],
+                Some(std::time::Duration::from_secs(300)),
+                None,
+            ),
+            None
+        );
+        assert_eq!(provider.detect_active_session("/proj/foo", uuid_a), None);
 
         // sessionFilePath resolves UUID → on-disk rollout path.
         let path = provider.session_file_path("ignored", uuid_a).unwrap();
@@ -1245,6 +1251,36 @@ mod codex {
                 None => std::env::remove_var("CODETERM_CODEX_SESSIONS_ROOT"),
             }
         }
+    }
+
+    #[test]
+    fn codex_session_detection_does_not_guess_newest_cwd_parity() {
+        if require_plugins().is_none() {
+            return;
+        }
+        let (n, j) = pair();
+        assert_eq!(n.detect_session_id("/same/cwd", &[], None), None);
+        assert_eq!(j.detect_session_id("/same/cwd", &[], None), None);
+        assert_eq!(
+            n.detect_launched_session_id(
+                "/same/cwd",
+                &[],
+                Some(std::time::Duration::from_secs(30)),
+                None,
+            ),
+            None
+        );
+        assert_eq!(
+            j.detect_launched_session_id(
+                "/same/cwd",
+                &[],
+                Some(std::time::Duration::from_secs(30)),
+                None,
+            ),
+            None
+        );
+        assert_eq!(n.detect_active_session("/same/cwd", "sid-a"), None);
+        assert_eq!(j.detect_active_session("/same/cwd", "sid-a"), None);
     }
 }
 
