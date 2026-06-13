@@ -517,12 +517,8 @@ fn extract_visible_session_uuid(text: &str) -> Option<String> {
 }
 
 fn first_uuid_like(text: &str) -> Option<&str> {
-    for token in text.split(|c: char| !(c.is_ascii_hexdigit() || c == '-')) {
-        if is_uuid_like(token) {
-            return Some(token);
-        }
-    }
-    None
+    text.split(|c: char| !(c.is_ascii_hexdigit() || c == '-'))
+        .find(|&token| is_uuid_like(token))
 }
 
 fn is_uuid_like(value: &str) -> bool {
