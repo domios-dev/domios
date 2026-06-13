@@ -561,7 +561,9 @@ impl ServiceContext {
         };
         let started = std::time::Instant::now();
         let tail_rows: usize = 8;
-        super::inject_safety::refuse_if_unsafe_prompt(&self.screen_state, pty_id)?;
+        // #22: notify (never block) — an unsafe-prompt detection must not lock
+        // the user out of sending; a stale/resolved menu used to hard-refuse here.
+        super::inject_safety::notify_if_unsafe_prompt(&self.screen_state, pty_id);
 
         if opts.require_prompt_first {
             let ready = poll_shell_prompt(&self.screen_state, pty_id, opts.prompt_timeout);
