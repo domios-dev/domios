@@ -421,6 +421,41 @@ mod tests {
     }
 
     #[test]
+    fn detect_active_session_never_grabs_a_sibling_session_in_same_cwd() {
+        // Bug B (#25 / W3): сессии перепутаны. Session resolution must be
+        // IDENTITY-BOUND — a pane is resolved only by its OWN recorded id, never
+        // by "newest in cwd". So when 2+ agents share a cwd, a pane must NOT roll
+        // onto a SIBLING's session even though the sibling's file is right there
+        // and the pane's own file may not exist yet. The tab is the single
+        // source of truth. (Regression guard: a newest-for-cwd / most-recently-
+        // written fallback here is exactly the cross-contamination bug.)
+        let p = super::super::ClaudeProvider::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().to_string_lossy().to_string();
+        let my_sid = "mine-0000-0000-0000-000000000000"; // pane's own id (no file yet)
+        let sibling_sid = "sibl-1111-1111-1111-111111111111";
+        let Some(sib_path) = p.session_file_path(&cwd, sibling_sid) else {
+            return;
+        };
+        let Some(dir) = sib_path.parent().map(|d| d.to_path_buf()) else {
+            return;
+        };
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        // Materialize ONLY the sibling's session in this shared cwd.
+        if std::fs::write(&sib_path, "{\"cwd\":\"x\"}\n").is_err() {
+            return;
+        }
+        assert_eq!(
+            p.detect_active_session(&cwd, my_sid),
+            None,
+            "must never roll a pane onto a sibling's session (no newest-for-cwd)",
+        );
+        let _ = std::fs::remove_file(&sib_path);
+    }
+
+    #[test]
     fn test_verbatim_cwd_encodes_like_plain_cwd() {
         // The whole point: a verbatim-prefixed canonical path must encode to the
         // SAME claude project dir as the plain cwd — otherwise resume never matches.
