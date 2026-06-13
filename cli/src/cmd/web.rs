@@ -112,7 +112,10 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
         .and_then(|p| p.as_array())
         .and_then(|arr| {
             arr.iter().find(|p| {
-                let name = p.get("instance_name").and_then(|v| v.as_str()).unwrap_or("");
+                let name = p
+                    .get("instance_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let pid = p.get("instance_id").and_then(|v| v.as_str()).unwrap_or("");
                 name.eq_ignore_ascii_case(peer_name) || pid.starts_with(peer_name)
             })
@@ -141,8 +144,14 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
         );
         std::process::exit(1);
     };
-    let host = resp.get("host").and_then(|v| v.as_str()).unwrap_or_default();
-    let peer_token = resp.get("token").and_then(|v| v.as_str()).unwrap_or_default();
+    let host = resp
+        .get("host")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let peer_token = resp
+        .get("token")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
     if host.is_empty() || peer_token.is_empty() {
         eprintln!("Error: peer returned an incomplete web link.");
         std::process::exit(1);
