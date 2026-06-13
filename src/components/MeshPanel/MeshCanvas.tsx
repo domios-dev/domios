@@ -22,6 +22,11 @@ interface PeerLayout {
   isGhost?: boolean;
 }
 
+interface PushStats {
+  pushCount: number;
+  pulsing: boolean;
+}
+
 interface Props {
   thisMachine: { name: string; ip: string };
   peers: PeerStatus[];
@@ -116,13 +121,72 @@ export function MeshCanvas({
   );
 
   const local = layout[0];
-  const now = Date.now();
+  const remoteLayout = useMemo(() => layout.slice(1), [layout]);
+  const serviceByPeer = useMemo(() => {
+    const grouped = new Map<string, Service[]>();
+    grouped.set(thisMachine.name, []);
+    for (const s of services) {
+      const key = s.source_peer || thisMachine.name;
+      const list = grouped.get(key);
+      if (list) list.push(s);
+      else grouped.set(key, [s]);
+    }
+    return grouped;
+  }, [services, thisMachine.name]);
+  const pushStatsByPeer = useMemo(() => {
+    const now = Date.now();
+    const stats = new Map<string, PushStats>();
+    for (const p of peers) stats.set(p.name, { pushCount: 0, pulsing: false });
+    for (const rp of recentPushes) {
+      const inVolumeWindow = now - rp.at < VOLUME_WINDOW_MS;
+      const inPulseWindow = now - rp.at < PULSE_WINDOW_MS;
+      if (!inVolumeWindow && !inPulseWindow) continue;
+      for (const p of peers) {
+        if (!rp.source_id.includes(p.name) && !rp.target.includes(p.name)) continue;
+        const stat = stats.get(p.name);
+        if (!stat) continue;
+        if (inVolumeWindow) stat.pushCount++;
+        if (inPulseWindow) stat.pulsing = true;
+      }
+    }
+    return stats;
+  }, [peers, recentPushes]);
+  const peerLinks = useMemo(
+    () =>
+      remoteLayout.flatMap((a, i) =>
+        remoteLayout.slice(i + 1).map((b, j) => ({ a, b, key: `p2p-${a.name}-${b.name}-${i}-${j}` })),
+      ),
+    [remoteLayout],
+  );
 
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
+  const transformRef = useRef(transform);
+  const dragFrameRef = useRef<number | null>(null);
+  const pendingTransformRef = useRef<typeof transform | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
   const lastAutoFitKeyRef = useRef<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const commitTransform = useCallback((next: typeof transform) => {
+    transformRef.current = next;
+    setTransform(next);
+  }, []);
+
+  const scheduleTransform = useCallback(
+    (next: typeof transform) => {
+      transformRef.current = next;
+      pendingTransformRef.current = next;
+      if (dragFrameRef.current != null) return;
+      dragFrameRef.current = requestAnimationFrame(() => {
+        dragFrameRef.current = null;
+        const pending = pendingTransformRef.current;
+        pendingTransformRef.current = null;
+        if (pending) setTransform(pending);
+      });
+    },
+    [],
+  );
 
   const fitToView = useCallback(() => {
     if (!layout.length || width <= 0 || height <= 0) return;
@@ -139,12 +203,12 @@ export function MeshCanvas({
     const cyView = height / 2;
     const cxModel = (minX + maxX) / 2;
     const cyModel = (minY + maxY) / 2;
-    setTransform({
+    commitTransform({
       x: cxView - cxModel * scale,
       y: cyView - cyModel * scale,
       scale,
     });
-  }, [layout, width, height]);
+  }, [layout, width, height, commitTransform]);
 
   useEffect(() => {
     if (layout.length === 0 || width <= 0 || height <= 0) return;
@@ -158,8 +222,8 @@ export function MeshCanvas({
     dragRef.current = {
       startX: e.clientX,
       startY: e.clientY,
-      baseX: transform.x,
-      baseY: transform.y,
+      baseX: transformRef.current.x,
+      baseY: transformRef.current.y,
     };
     setIsDragging(true);
   };
@@ -169,7 +233,11 @@ export function MeshCanvas({
     const onMove = (e: MouseEvent) => {
       const d = dragRef.current;
       if (!d) return;
-      setTransform((t) => ({ ...t, x: d.baseX + (e.clientX - d.startX), y: d.baseY + (e.clientY - d.startY) }));
+      scheduleTransform({
+        ...transformRef.current,
+        x: d.baseX + (e.clientX - d.startX),
+        y: d.baseY + (e.clientY - d.startY),
+      });
     };
     const onUp = () => {
       dragRef.current = null;
@@ -180,8 +248,12 @@ export function MeshCanvas({
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      if (dragFrameRef.current != null) {
+        cancelAnimationFrame(dragFrameRef.current);
+        dragFrameRef.current = null;
+      }
     };
-  }, [isDragging]);
+  }, [isDragging, scheduleTransform]);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
@@ -190,15 +262,21 @@ export function MeshCanvas({
       const nextScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, t.scale + delta));
       if (nextScale === t.scale) return t;
       const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return { ...t, scale: nextScale };
+      if (!rect) {
+        const next = { ...t, scale: nextScale };
+        transformRef.current = next;
+        return next;
+      }
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
       const ratio = nextScale / t.scale;
-      return {
+      const next = {
         scale: nextScale,
         x: cx - (cx - t.x) * ratio,
         y: cy - (cy - t.y) * ratio,
       };
+      transformRef.current = next;
+      return next;
     });
   }, []);
 
@@ -232,14 +310,26 @@ export function MeshCanvas({
       )}
       <div className="absolute top-2 right-2 z-10 flex gap-1 text-[10px]">
         <button
-          onClick={() => setTransform((t) => ({ ...t, scale: Math.min(MAX_SCALE, t.scale + ZOOM_STEP) }))}
+          onClick={() =>
+            setTransform((t) => {
+              const next = { ...t, scale: Math.min(MAX_SCALE, t.scale + ZOOM_STEP) };
+              transformRef.current = next;
+              return next;
+            })
+          }
           className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded w-6 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)]"
           title="Zoom in"
         >
           +
         </button>
         <button
-          onClick={() => setTransform((t) => ({ ...t, scale: Math.max(MIN_SCALE, t.scale - ZOOM_STEP) }))}
+          onClick={() =>
+            setTransform((t) => {
+              const next = { ...t, scale: Math.max(MIN_SCALE, t.scale - ZOOM_STEP) };
+              transformRef.current = next;
+              return next;
+            })
+          }
           className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded w-6 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)]"
           title="Zoom out"
         >
@@ -268,7 +358,7 @@ export function MeshCanvas({
           height={height}
           style={{ overflow: "visible" }}
         >
-          {layout.slice(1).map((p, i) => {
+          {remoteLayout.map((p, i) => {
             if (p.isGhost) {
               return (
                 <ConnectionLine
@@ -283,16 +373,7 @@ export function MeshCanvas({
                 />
               );
             }
-            const peerPushes = recentPushes.filter(
-              (rp) =>
-                rp.source_id.includes(p.name) || rp.target.includes(p.name),
-            );
-            const pushCount = peerPushes.filter(
-              (rp) => now - rp.at < VOLUME_WINDOW_MS,
-            ).length;
-            const pulsing = peerPushes.some(
-              (rp) => now - rp.at < PULSE_WINDOW_MS,
-            );
+            const stats = pushStatsByPeer.get(p.name);
             return (
               <ConnectionLine
                 key={`hub-${p.name}-${i}`}
@@ -300,17 +381,16 @@ export function MeshCanvas({
                 fromY={local.y}
                 toX={p.x}
                 toY={p.y}
-                pushCount={pushCount}
-                pulsing={pulsing}
+                pushCount={stats?.pushCount ?? 0}
+                pulsing={stats?.pulsing ?? false}
               />
             );
           })}
-          {layout.slice(1).flatMap((a, i) =>
-            layout.slice(i + 2).map((b, j) => {
+          {peerLinks.map(({ a, b, key }) => {
               if (a.isGhost || b.isGhost) return null;
               return (
                 <ConnectionLine
-                  key={`p2p-${a.name}-${b.name}-${i}-${j}`}
+                  key={key}
                   fromX={a.x}
                   fromY={a.y}
                   toX={b.x}
@@ -319,8 +399,7 @@ export function MeshCanvas({
                   pulsing={false}
                 />
               );
-            })
-          )}
+            })}
         </svg>
         {layout.map((p, i) => (
           <div
@@ -350,9 +429,7 @@ export function MeshCanvas({
                 isThisMachine={p.isThisMachine}
                 isPaired={p.isPaired}
                 accessLevel={p.accessLevel as "full" | "read_only" | "agent_isolated" | undefined}
-                services={services.filter((s) =>
-                  p.isThisMachine ? !s.source_peer : s.source_peer === p.name,
-                )}
+                services={serviceByPeer.get(p.name) ?? []}
                 onClick={() => onPeerClick(p.name)}
                 offline={p.isThisMachine && !meshEnabled}
                 onGoOnline={p.isThisMachine ? onGoOnline : undefined}
