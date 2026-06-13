@@ -1,11 +1,13 @@
 /**
  * 12-web / voice-indicator — a voice note shows an immediate "transcribing…"
- * bubble that morphs into the transcript (or an error) instead of a blank gap
- * while the (possibly cold) Whisper daemon works. See issue #158.
+ * bubble that morphs into the transcript, and an honest error bubble when
+ * transcription fails — instead of a blank gap while the (possibly cold)
+ * Whisper daemon works. See issue #158.
  *
  * MediaRecorder + getUserMedia are stubbed (deterministic >MIN_VOICE_BYTES blob,
  * no real mic), and /api/upload + /api/transcribe-voice are mocked so we control
- * the transcription latency and the success/failure outcome.
+ * the transcription latency and the success/failure outcome. Both phases run in
+ * ONE spawned chat pane so there is exactly one composer in the DOM.
  */
 import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { ApiClient, readDevToken } from "../../helpers/api-client";
@@ -42,85 +44,81 @@ const FAKE_MEDIA = `
   window.MediaRecorder = FakeRecorder;
 `;
 
-async function bootChatPane(
-  page: Page,
-): Promise<{ paneId: string; inboxId: string }> {
-  await page.addInitScript(FAKE_MEDIA);
-  await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
-  await page.locator('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]').first().waitFor({ timeout: 20_000 });
-  // Mobile viewport defaults agent panes to chat mode → ComposerActions (mic) renders.
-  const inbox = (await api.createPane({ title: "pw-voice-inbox" })) as { id: string };
-  await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
-  const spawned = await api.post<{ pane_id: string }>("/agents/spawn", {
-    agent: "claude",
-    model: "sonnet",
-    role: "Worker",
-    title: "pw-voice-agent",
-    parent_pane_id: inbox.id,
-    report_target_pane_id: inbox.id,
-    skip_permissions: true,
-    activate: true,
-    task: "Wait silently.",
-  });
-  await page.locator('[data-testid="composer-voice-button"]').waitFor({ timeout: 60_000 });
-  return { paneId: spawned.pane_id, inboxId: inbox.id };
-}
-
 async function holdVoice(page: Page): Promise<void> {
-  const btn = page.locator('[data-testid="composer-voice-button"]');
+  const btn = page.locator('[data-testid="composer-voice-button"]').filter({ visible: true }).first();
   const box = await btn.boundingBox();
   if (!box) throw new Error("voice button has no box");
-  const cx = box.x + box.width / 2;
-  const cy = box.y + box.height / 2;
-  await page.mouse.move(cx, cy);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.waitForTimeout(400);
   await page.mouse.up();
 }
 
-test("@golden voice note shows transcribing placeholder, then morphs into the transcript", async () => {
-  const page = await browser.newContext({ viewport: { width: 375, height: 812 } }).then((c) => c.newPage());
+test("@golden voice note: transcribing placeholder morphs into transcript, and failure shows an honest error", async () => {
+  test.setTimeout(180_000);
+  const ctx = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  const page = await ctx.newPage();
+  await page.addInitScript(FAKE_MEDIA);
+
+  // Mock the upload (fast) — transcribe is (re)routed per phase below.
   await page.route("**/api/upload", (r) =>
     r.fulfill({ contentType: "application/json", body: JSON.stringify({ path: "/tmp/pw-voice.ogg", size: 8192 }) }),
   );
-  // Deliberate 2.5s latency simulates a cold Whisper daemon.
-  await page.route("**/api/transcribe-voice", async (r) => {
-    await new Promise((res) => setTimeout(res, 2500));
-    await r.fulfill({ contentType: "application/json", body: JSON.stringify({ line: "hello from the transcript" }) });
-  });
 
-  let ids: { paneId: string; inboxId: string } | undefined;
-  try {
-    ids = await bootChatPane(page);
-    await holdVoice(page);
-    // Placeholder appears immediately (well within the 2.5s transcribe window).
-    await expect(page.locator('[data-testid="chat-message"]', { hasText: "Transcribing voice note" })).toBeVisible({ timeout: 2000 });
-    // Then it morphs into the transcript in place.
-    await expect(page.locator('[data-testid="chat-message"]', { hasText: "hello from the transcript" })).toBeVisible({ timeout: 8000 });
-    await expect(page.locator('[data-testid="chat-message"]', { hasText: "Transcribing voice note" })).toHaveCount(0);
-  } finally {
-    if (ids?.paneId) await api.closePane(ids.paneId).catch(() => {});
-    if (ids?.inboxId) await api.closePane(ids.inboxId).catch(() => {});
-    await page.context().close();
+  // Close panes left by earlier runs (keep workspaces so an active workspace
+  // remains) → exactly one chat composer once we spawn below.
+  for (const pane of await api.panes()) {
+    if (!pane.protected) await api.closePane(pane.id).catch(() => {});
   }
-});
 
-test("@golden voice transcription failure surfaces an honest error placeholder", async () => {
-  const page = await browser.newContext({ viewport: { width: 375, height: 812 } }).then((c) => c.newPage());
-  await page.route("**/api/upload", (r) =>
-    r.fulfill({ contentType: "application/json", body: JSON.stringify({ path: "/tmp/pw-voice.ogg", size: 8192 }) }),
-  );
-  // Daemon down → 500 → transcribe_voice_attachment throws → error placeholder.
-  await page.route("**/api/transcribe-voice", (r) => r.fulfill({ status: 500, body: "transcribe daemon down" }));
+  await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
+  await page.locator('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]').first().waitFor({ timeout: 20_000 });
 
-  let ids: { paneId: string; inboxId: string } | undefined;
+  // Mobile viewport defaults the spawned agent pane to chat mode → the mic renders.
+  const inbox = (await api.createPane({ title: "pw-voice-inbox" })) as { id: string };
+  let agentPaneId: string | undefined;
   try {
-    ids = await bootChatPane(page);
+    await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
+    const spawned = await api.post<{ pane_id: string }>("/agents/spawn", {
+      agent: "claude",
+      model: "sonnet",
+      role: "Worker",
+      title: "pw-voice-agent",
+      parent_pane_id: inbox.id,
+      report_target_pane_id: inbox.id,
+      skip_permissions: true,
+      activate: true,
+      task: "Wait silently.",
+    });
+    agentPaneId = spawned.pane_id;
+    await page.locator('[data-testid="composer-voice-button"]').filter({ visible: true }).first().waitFor({ timeout: 60_000 });
+
+    // ── Phase 1: deliberate 2.5s latency (cold Whisper) → placeholder → transcript ──
+    await page.route("**/api/transcribe-voice", async (r) => {
+      await new Promise((res) => setTimeout(res, 2500));
+      await r.fulfill({ contentType: "application/json", body: JSON.stringify({ line: "hello from the transcript" }) });
+    });
     await holdVoice(page);
-    await expect(page.locator('[data-testid="chat-message"]', { hasText: "transcription failed" })).toBeVisible({ timeout: 8000 });
+    await expect(
+      page.locator('[data-testid="chat-message"]', { hasText: "Transcribing voice note" }),
+    ).toBeVisible({ timeout: 2000 });
+    await expect(
+      page.locator('[data-testid="chat-message"]', { hasText: "hello from the transcript" }),
+    ).toBeVisible({ timeout: 8000 });
+    await expect(
+      page.locator('[data-testid="chat-message"]', { hasText: "Transcribing voice note" }),
+    ).toHaveCount(0);
+
+    // ── Phase 2: daemon down (500) → placeholder → honest error, nothing sent ──
+    await page.unroute("**/api/transcribe-voice");
+    await page.route("**/api/transcribe-voice", (r) => r.fulfill({ status: 500, body: "transcribe daemon down" }));
+    await holdVoice(page);
+    await expect(
+      page.locator('[data-testid="chat-message"]', { hasText: "transcription failed" }),
+    ).toBeVisible({ timeout: 8000 });
   } finally {
-    if (ids?.paneId) await api.closePane(ids.paneId).catch(() => {});
-    if (ids?.inboxId) await api.closePane(ids.inboxId).catch(() => {});
-    await page.context().close();
+    if (agentPaneId) await api.closePane(agentPaneId).catch(() => {});
+    await api.closePane(inbox.id).catch(() => {});
+    await ctx.close();
   }
 });
