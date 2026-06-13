@@ -93,6 +93,21 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     audioCtxRef.current = null;
   }
 
+  // iOS standalone PWAs re-prompt for mic access on EVERY getUserMedia call —
+  // they don't persist the grant the way Safari tabs do. So acquire the stream
+  // ONCE and keep it warm: reuse it across recordings, only stopping the tracks
+  // on real teardown (unmount). The mic-in-use indicator stays on between
+  // takes, which is the accepted trade for not re-prompting every ~1-2 min.
+  async function acquireWarmStream(): Promise<MediaStream> {
+    const warm = streamRef.current;
+    if (warm && warm.getAudioTracks().some((t) => t.readyState === "live")) {
+      return warm;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    streamRef.current = stream;
+    return stream;
+  }
+
   function startSampling(stream: MediaStream) {
     try {
       const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -148,11 +163,10 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await acquireWarmStream();
       const mime = pickAudioMime();
       mimeRef.current = mime;
       const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      streamRef.current = stream;
       chunksRef.current = [];
       stopKindRef.current = "send";
       startedAtRef.current = performance.now();
@@ -164,8 +178,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
         const kind = stopKindRef.current;
         const durationSec = Math.max(0, (performance.now() - startedAtRef.current) / 1000);
         const peaks = buildWaveform(peaksRef.current);
-        stream.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
+        // Keep streamRef alive (warm) — only teardown on unmount stops the mic.
         teardownAnalyser();
 
         if (kind === "discard") {
