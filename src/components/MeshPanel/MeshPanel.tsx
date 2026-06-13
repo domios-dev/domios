@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import QRCode from "qrcode";
 import { Check, ChevronUp, ChevronDown, Copy, ExternalLink, RefreshCw, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
@@ -14,6 +14,7 @@ import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { tabClass, UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
+import { buildWebAccessUrls, webLinkWithToken, serveHint } from "../../lib/webAccess";
 
 const TABS: MeshTab[] = ["map", "activity", "network"];
 
@@ -93,14 +94,19 @@ interface NetworkInfo {
   api_port?: number;
 }
 
-function buildWebUiLink(config: AppConfig, network: NetworkInfo | null): string {
-  const port = network?.api_port ?? config.api.port;
-  const token = config.api.token ? `#token=${encodeURIComponent(config.api.token)}` : "";
-  if (network?.tailscale_https_url) {
-    return `${network.tailscale_https_url}/web/${token}`;
-  }
-  const host = network?.tailscale_ip || network?.local_ip || "127.0.0.1";
-  return `http://${host}:${port}/web/${token}`;
+interface WebUiTarget {
+  link: string;
+  usingFallback: boolean;
+  port: number;
+}
+
+function buildWebUiTarget(config: AppConfig, network: NetworkInfo | null): WebUiTarget {
+  const picked = buildWebAccessUrls(network, config.api.port);
+  return {
+    link: webLinkWithToken(picked.primary, config.api.token),
+    usingFallback: picked.usingFallback,
+    port: network?.api_port ?? config.api.port,
+  };
 }
 
 function WebUiModal({
@@ -110,7 +116,8 @@ function WebUiModal({
   config: AppConfig;
   onClose: () => void;
 }) {
-  const [link, setLink] = useState(() => buildWebUiLink(config, null));
+  const [target, setTarget] = useState<WebUiTarget>(() => buildWebUiTarget(config, null));
+  const link = target.link;
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState<"link" | "token" | null>(null);
 
@@ -119,7 +126,7 @@ function WebUiModal({
     async function load() {
       const network = await invoke<NetworkInfo>("get_network_info").catch(() => null);
       if (cancelled) return;
-      setLink(buildWebUiLink(config, network));
+      setTarget(buildWebUiTarget(config, network));
     }
     void load();
     return () => {
@@ -237,6 +244,15 @@ function WebUiModal({
             </button>
           </div>
 
+          {target.usingFallback && (
+            <p
+              data-testid="web-ui-serve-hint"
+              className={`${UI_TEXT.metaMuted} w-full text-left leading-snug`}
+            >
+              {serveHint(target.port)}
+            </p>
+          )}
+
           <div className="grid w-full grid-cols-2 gap-2">
             <button
               type="button"
@@ -307,18 +323,35 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   }, [triggerRefresh]);
 
   const mapRef = useRef<HTMLDivElement>(null);
-  const [mapWidth, setMapWidth] = useState(800);
-  const [mapHeight, setMapHeight] = useState(600);
+  const [mapSize, setMapSize] = useState({ width: 800, height: 600 });
   const [drawerState, setDrawerState] = useState<DrawerState>(null);
   const [tablesOpen, setTablesOpen] = useState(false);
+  const serviceCounts = useMemo(
+    () => ({
+      crons: data.services.filter((s) => s.kind === "cron").length,
+      daemons: data.services.filter((s) => s.kind === "daemon").length,
+    }),
+    [data.services],
+  );
+  const handlePeerClick = useCallback((name: string) => {
+    setDrawerState({ kind: "peer", id: name });
+  }, []);
+  const handleServiceClick = useCallback((s: Service) => {
+    setDrawerState({ kind: "service", id: s.id });
+  }, []);
 
   useEffect(() => {
     const el = mapRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
       const r = el.getBoundingClientRect();
-      if (r.width > 0) setMapWidth(r.width);
-      if (r.height > 0) setMapHeight(r.height);
+      if (r.width <= 0 || r.height <= 0) return;
+      setMapSize((prev) => {
+        if (Math.abs(prev.width - r.width) < 1 && Math.abs(prev.height - r.height) < 1) {
+          return prev;
+        }
+        return { width: r.width, height: r.height };
+      });
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -350,10 +383,6 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  const handlePeerClick = (name: string) =>
-    setDrawerState({ kind: "peer", id: name });
-  const handleServiceClick = (s: Service) =>
-    setDrawerState({ kind: "service", id: s.id });
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
       <div
@@ -399,8 +428,8 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
                 services={data.services}
                 recentPushes={recentPushes}
                 onPeerClick={handlePeerClick}
-                width={mapWidth}
-                height={mapHeight}
+                width={mapSize.width}
+                height={mapSize.height}
                 onAddPeerClick={() => setActiveTab("network")}
                 meshEnabled={config.mesh.enabled}
                 onGoOnline={goOnline}
@@ -408,8 +437,8 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
               />
             </div>
             <CollapsibleTablesDrawer
-              cronsCount={data.services.filter((s) => s.kind === "cron").length}
-              servicesCount={data.services.filter((s) => s.kind === "daemon").length}
+              cronsCount={serviceCounts.crons}
+              servicesCount={serviceCounts.daemons}
               open={tablesOpen}
               onToggle={() => setTablesOpen((v) => !v)}
               services={data.services}
