@@ -107,6 +107,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     listen<{ pane_id: string; status: PaneStatus }>(
       "pane-status-changed",
       (event) => {
+        if (!event.payload) return;
         dispatch({
           type: "UPDATE_PANE_STATUS",
           paneId: event.payload.pane_id,
