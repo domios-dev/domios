@@ -669,9 +669,17 @@ impl AgentProvider for JsProvider {
                 .native()
                 .and_then(|n| n.session_jsonl_path(cwd, session_id));
         }
+        // The sandboxed JS encodes the cwd but can't touch the FS, so canonicalize
+        // here first — same as `sessions_dir`. Without this the tailer watches a
+        // symlink alias dir (e.g. `/tmp`) while the agent writes to the resolved
+        // one (`/private/tmp`), so live deltas never fire. (#163)
+        let resolved = match self.manifest.sessions.as_ref().map(|s| s.cwd_encoding) {
+            Some(super::CwdEncoding::DashEncoded) => crate::paths::canonical_cwd(cwd),
+            _ => cwd.to_string(),
+        };
         let s: Option<String> = self.try_call(
             "sessionJsonlPath",
-            &[serde_json::json!(cwd), serde_json::json!(session_id)],
+            &[serde_json::json!(resolved), serde_json::json!(session_id)],
         );
         s.filter(|p| !p.is_empty()).map(std::path::PathBuf::from)
     }
