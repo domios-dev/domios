@@ -22,6 +22,10 @@ pub struct CtxPrefix {
     pub from_pane: String,
     pub model: Option<String>,
     pub mesh: Option<String>,
+    /// Originating peer for cross-mesh deliveries. When set, the rendered
+    /// label is qualified as `from_name@peer` (e.g. `Edison@BLACKSTAR`) so the
+    /// recipient can attribute the message to the source agent *and* its host.
+    pub peer: Option<String>,
 }
 
 fn short_id(id: &str) -> &str {
@@ -66,10 +70,28 @@ impl CtxPrefix {
         self
     }
 
+    pub fn peer(mut self, peer: Option<String>) -> Self {
+        self.peer = peer.filter(|p| !p.trim().is_empty());
+        self
+    }
+
     /// Render just the `[...]` prefix token (no trailing space/body).
     pub fn build(&self) -> String {
         let pane = short_id(&self.from_pane);
-        let label = clean_name(&self.from_name);
+        let base = clean_name(&self.from_name);
+        // Peer-qualify the label for cross-mesh deliveries. Skip the `@peer`
+        // suffix when no distinct source label is known (avoids `PEER@PEER`).
+        let label = match &self.peer {
+            Some(peer) => {
+                let peer_clean = clean_name(peer);
+                if base.is_empty() || base == peer_clean {
+                    peer_clean
+                } else {
+                    format!("{}@{}", base, peer_clean)
+                }
+            }
+            None => base,
+        };
         let kind = if self.kind_report { "report" } else { "pane" };
         let name_key = if self.kind_report { "from" } else { "label" };
         crate::message_markers::Marker::new(kind)
@@ -84,6 +106,32 @@ impl CtxPrefix {
     pub fn wrap(&self, body: &str) -> String {
         format!("{}{}", self.build(), body)
     }
+}
+
+/// The single canonical decision for every agent-to-agent delivery path
+/// (local socket send, HTTP send, mesh relay). Returns the source prefix
+/// token to prepend, or `None` when no prefix should be applied.
+///
+/// Shells run bytes verbatim — `target_is_agent == false` always yields
+/// `None`. A self-send (`source_pane == target_pane`) or an empty source
+/// also yields `None`. When `peer` is set the delivery crossed the mesh and
+/// the label is peer-qualified (`label@peer`, tagged `mesh=peer`).
+pub fn delivery_prefix(
+    target_is_agent: bool,
+    source_pane: &str,
+    target_pane: &str,
+    label: &str,
+    model: Option<&str>,
+    peer: Option<&str>,
+) -> Option<String> {
+    if !target_is_agent || source_pane.is_empty() || source_pane == target_pane {
+        return None;
+    }
+    let mut pfx = CtxPrefix::message(label, source_pane).model(model.map(str::to_string));
+    if let Some(p) = peer.filter(|p| !p.trim().is_empty()) {
+        pfx = pfx.peer(Some(p.to_string())).mesh(Some(p.to_string()));
+    }
+    Some(pfx.build())
 }
 
 #[cfg(test)]
@@ -140,6 +188,91 @@ mod tests {
         assert_eq!(
             p.wrap("hello"),
             "-=-codeterm:pane label=Edison pane=e8a0ac20-=-hello"
+        );
+    }
+
+    #[test]
+    fn peer_qualifies_label() {
+        let p = CtxPrefix::message("Edison", "e8a0ac20")
+            .peer(Some("BLACKSTAR".into()))
+            .build();
+        assert_eq!(
+            p,
+            "-=-codeterm:pane label=Edison@BLACKSTAR pane=e8a0ac20-=-"
+        );
+    }
+
+    #[test]
+    fn peer_without_label_uses_peer_alone() {
+        // No distinct source label → don't render the silly `PEER@PEER`.
+        let p = CtxPrefix::message("", "e8a0ac20")
+            .peer(Some("BLACKSTAR".into()))
+            .build();
+        assert_eq!(p, "-=-codeterm:pane label=BLACKSTAR pane=e8a0ac20-=-");
+    }
+
+    // --- delivery_prefix: one canonical decision per delivery path ---
+
+    #[test]
+    fn delivery_local_agent_recipient_gets_prefix() {
+        let p = delivery_prefix(true, "e8a0ac20", "ce9bce56", "Edison", Some("opus"), None);
+        assert_eq!(
+            p.as_deref(),
+            Some("-=-codeterm:pane label=Edison pane=e8a0ac20 model=opus-=-")
+        );
+    }
+
+    #[test]
+    fn delivery_shell_recipient_gets_none() {
+        // Shells run bytes verbatim — no source tag, local or mesh.
+        assert_eq!(
+            delivery_prefix(false, "e8a0ac20", "ce9bce56", "Edison", None, None),
+            None
+        );
+        assert_eq!(
+            delivery_prefix(
+                false,
+                "e8a0ac20",
+                "ce9bce56",
+                "Edison",
+                None,
+                Some("BLACKSTAR")
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn delivery_mesh_agent_recipient_gets_peer_qualified_prefix() {
+        let p = delivery_prefix(
+            true,
+            "e8a0ac20",
+            "ce9bce56",
+            "Edison",
+            Some("sonnet"),
+            Some("BLACKSTAR"),
+        );
+        assert_eq!(
+            p.as_deref(),
+            Some(
+                "-=-codeterm:pane label=Edison@BLACKSTAR pane=e8a0ac20 model=sonnet mesh=BLACKSTAR-=-"
+            )
+        );
+    }
+
+    #[test]
+    fn delivery_self_send_gets_none() {
+        assert_eq!(
+            delivery_prefix(true, "e8a0ac20", "e8a0ac20", "Edison", None, None),
+            None
+        );
+    }
+
+    #[test]
+    fn delivery_empty_source_gets_none() {
+        assert_eq!(
+            delivery_prefix(true, "", "ce9bce56", "Edison", None, None),
+            None
         );
     }
 }

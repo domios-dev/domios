@@ -128,11 +128,11 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("source_pane"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
-                .and_then(|s| mux.lock().resolve_pane_id(&s))
-                .filter(|s| !s.is_empty() && s != &resolved_target);
-            // Source-prefix only for agent recipients; shells just execute the bytes.
+                .and_then(|s| mux.lock().resolve_pane_id(&s));
+            // Local delivery: resolve the source label/model from the mux, then
+            // route through the one canonical prefix builder (peer = None).
             let text = match source_pane.as_deref() {
-                Some(src) if target_has_agent => {
+                Some(src) => {
                     let (from_label, model) = {
                         let m = mux.lock();
                         (
@@ -140,11 +140,19 @@ pub(super) fn dispatch(
                             m.get_pane(src).and_then(|p| p.agent_session_model.clone()),
                         )
                     };
-                    crate::service::msg_prefix::CtxPrefix::message(from_label, src)
-                        .model(model)
-                        .wrap(&raw_text)
+                    match crate::service::msg_prefix::delivery_prefix(
+                        target_has_agent,
+                        src,
+                        &resolved_target,
+                        &from_label,
+                        model.as_deref(),
+                        None,
+                    ) {
+                        Some(prefix) => format!("{}{}", prefix, raw_text),
+                        None => raw_text,
+                    }
                 }
-                _ => raw_text,
+                None => raw_text,
             };
             svc.as_ref()
                 .send_text(&resolved_target, &text, enter)
