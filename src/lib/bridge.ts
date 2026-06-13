@@ -42,6 +42,10 @@ const HTTP_MAP: Record<string, Mapper> = {
   // PATCH: the route has no POST; the handler merges top-level keys, so the full config object works as a partial.
   update_config: (a) => webJson("PATCH", "/api/config", a.config),
   get_network_info: () => webJson("GET", "/api/network"),
+  get_serve_status: () => webJson("GET", "/api/network/serve/status"),
+  enable_web_access: (a) =>
+    webJson("POST", "/api/network/serve/enable", { https_port: a.https_port }),
+  disable_web_access: () => webJson("POST", "/api/network/serve/disable"),
 
   // ── multiplexer ──
   mux_get_state: () => webJson("GET", "/api/mux/state"),
