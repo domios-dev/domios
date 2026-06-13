@@ -90,6 +90,7 @@ export function PaneSessionChat({
     hiddenMessageCount,
     loadOlder,
     addOptimistic,
+    updateOptimistic,
   } = useChatSession({ paneId, agentSessionId, onError });
 
   const {
@@ -287,6 +288,7 @@ export function PaneSessionChat({
         clearAttachments={clearAttachments}
         handlePasteEvent={handlePasteEvent}
         addOptimistic={addOptimistic}
+        updateOptimistic={updateOptimistic}
         showComposerError={showComposerError}
         onOpenTerminalFallback={onOpenTerminalFallback}
         onToggleTerminalFallback={onToggleTerminalFallback}

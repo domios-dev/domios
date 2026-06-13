@@ -181,15 +181,26 @@ export function useChatSession({
   }, [hiddenMessageCount]);
 
   const addOptimistic = useCallback((content: string) => {
+    const id = `opt-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
     setOptimistic((prev) => [
       ...prev,
       {
-        id: `opt-${Date.now()}`,
+        id,
         type: "user",
         content,
         timestamp: String(Date.now()),
       },
     ]);
+    return id;
+  }, []);
+
+  /** Replace an optimistic bubble's content in place — used to morph a
+   * "transcribing…" placeholder into the final transcript (or an error)
+   * without the bubble shifting or re-mounting. */
+  const updateOptimistic = useCallback((id: string, content: string) => {
+    setOptimistic((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, content, timestamp: String(Date.now()) } : m)),
+    );
   }, []);
 
   useEffect(() => {
@@ -238,5 +249,6 @@ export function useChatSession({
     hiddenMessageCount,
     loadOlder,
     addOptimistic,
+    updateOptimistic,
   };
 }
