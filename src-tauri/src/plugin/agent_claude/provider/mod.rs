@@ -166,6 +166,35 @@ impl AgentProvider for ClaudeProvider {
         sessions::detect_session_model(cwd, session_id)
     }
 
+    /// Re-bind the pane when its recorded session file has vanished.
+    ///
+    /// Steady state — the recorded JSONL is present — returns `None`: we never
+    /// roll a live binding to a "newer" file in the cwd (the #156 discipline;
+    /// the chat must keep reading the tab's own conversation). But when the
+    /// recorded file is GONE (Claude was resumed into an id whose JSONL was
+    /// since deleted/compacted, so it minted a fresh session), keeping the dead
+    /// id renders an empty chat forever. In that one case we re-detect the
+    /// pane's live session in this cwd — the recently-written rollout — so the
+    /// chat heals. The caller applies the cross-pane `other_session_ids` guard,
+    /// so this cannot steal a sibling pane's session; honest `None` when no
+    /// recent session exists.
+    fn detect_active_session(&self, cwd: &str, current_sid: &str) -> Option<String> {
+        let recorded_alive = sessions::session_file_path(cwd, current_sid)
+            .map(|p| p.exists())
+            .unwrap_or(false);
+        if recorded_alive {
+            return None;
+        }
+        let exclude = [current_sid.to_string()];
+        // Only re-bind to a session that is genuinely LIVE — written within the
+        // same recency window the rest of the provider treats as "active" (300s,
+        // tolerating an idle agent waiting for input). Keys on mtime, so the
+        // file being actively written wins over a stale prior session or an
+        // empty just-created stub. A long-idle cwd yields honest `None` (empty
+        // chat) rather than surfacing an old conversation as if it were current.
+        sessions::most_recently_written_session(cwd, &exclude, None)
+    }
+
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
         launch::build_resume_command(session_id, skip_permissions)
     }

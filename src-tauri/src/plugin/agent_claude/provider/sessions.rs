@@ -409,6 +409,52 @@ pub(super) fn detect_session_id(
     sessions.first().map(|(id, _)| id.clone())
 }
 
+/// Most-recently-WRITTEN session in `cwd` (excluding `exclude`), within
+/// `max_age` of now. Unlike [`detect_session_id`] (which sorts by birth time
+/// to pick the newest-created file), this keys on modification time: the file
+/// the agent is actively appending to is the pane's live conversation. Used
+/// only to recover a pane whose recorded session JSONL has vanished — a
+/// just-created empty stub must not win over the conversation being written.
+pub(super) fn most_recently_written_session(
+    cwd: &str,
+    exclude: &[String],
+    max_age: Option<Duration>,
+) -> Option<String> {
+    let sessions_dir = sessions_dir(cwd)?;
+    if !sessions_dir.exists() {
+        return None;
+    }
+    let now = std::time::SystemTime::now();
+    let recency_limit = max_age.unwrap_or_else(|| Duration::from_secs(300));
+    let mut best: Option<(String, std::time::SystemTime)> = None;
+    for entry in std::fs::read_dir(&sessions_dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+    {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Some(stem) = name.strip_suffix(".jsonl") else {
+            continue;
+        };
+        if stem.len() < 32 || !stem.contains('-') || exclude.iter().any(|e| e == stem) {
+            continue;
+        }
+        let Ok(modified) = entry.metadata().and_then(|m| m.modified()) else {
+            continue;
+        };
+        if now
+            .duration_since(modified)
+            .map(|age| age > recency_limit)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        if best.as_ref().map(|(_, t)| modified > *t).unwrap_or(true) {
+            best = Some((stem.to_string(), modified));
+        }
+    }
+    best.map(|(id, _)| id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,6 +501,117 @@ mod tests {
         assert!(path_str.contains(".claude"));
         assert!(path_str.contains("projects"));
         assert!(path_str.contains("-home-user-project"));
+    }
+
+    #[test]
+    fn detect_active_session_keeps_live_binding() {
+        // Recorded JSONL present → never roll (no newest-for-cwd guessing on a
+        // live binding). Even if a newer file exists in the cwd we return None.
+        let p = super::super::ClaudeProvider::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().to_string_lossy().to_string();
+        let recorded_sid = "live-aaaa-bbbb-cccc-000000000000";
+        let Some(recorded) = p.session_file_path(&cwd, recorded_sid) else {
+            return;
+        };
+        let Some(dir) = recorded.parent().map(|d| d.to_path_buf()) else {
+            return;
+        };
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        if std::fs::write(&recorded, "{\"cwd\":\"x\"}\n").is_err() {
+            return;
+        }
+        assert_eq!(p.detect_active_session(&cwd, recorded_sid), None);
+        let _ = std::fs::remove_file(&recorded);
+    }
+
+    #[test]
+    fn detect_active_session_recovers_when_recorded_missing() {
+        // Recorded id's JSONL is GONE but a live session exists in the cwd →
+        // re-bind to the live one so the chat heals instead of showing empty.
+        let p = super::super::ClaudeProvider::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().to_string_lossy().to_string();
+        let dead_sid = "dead-0000-1111-2222-333333333333";
+        let live_sid = "live-4444-5555-6666-777777777777";
+        let Some(live_path) = p.session_file_path(&cwd, live_sid) else {
+            return;
+        };
+        let Some(dir) = live_path.parent().map(|d| d.to_path_buf()) else {
+            return;
+        };
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        if std::fs::write(&live_path, "{\"cwd\":\"x\"}\n").is_err() {
+            return;
+        }
+        assert_eq!(
+            p.detect_active_session(&cwd, dead_sid).as_deref(),
+            Some(live_sid),
+            "dead recorded id must re-bind to the live session in cwd",
+        );
+        let _ = std::fs::remove_file(&live_path);
+    }
+
+    #[test]
+    fn detect_active_session_prefers_most_recently_written_over_newer_stub() {
+        // A stub session created LATER but not written since must not win over
+        // the conversation that is actively being appended to.
+        let p = super::super::ClaudeProvider::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().to_string_lossy().to_string();
+        let live_sid = "live-1111-2222-3333-444444444444";
+        let stub_sid = "stub-5555-6666-7777-888888888888";
+        let (Some(live_path), Some(stub_path)) = (
+            p.session_file_path(&cwd, live_sid),
+            p.session_file_path(&cwd, stub_sid),
+        ) else {
+            return;
+        };
+        let Some(dir) = live_path.parent().map(|d| d.to_path_buf()) else {
+            return;
+        };
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        // Stub is created (birth) last, but the live file is modified last.
+        if std::fs::write(&live_path, "{\"cwd\":\"x\"}\n").is_err() {
+            return;
+        }
+        if std::fs::write(&stub_path, "{}\n").is_err() {
+            return;
+        }
+        let recent = std::time::SystemTime::now();
+        let _ = filetime::set_file_mtime(
+            &stub_path,
+            filetime::FileTime::from_system_time(recent - std::time::Duration::from_secs(120)),
+        );
+        let _ = filetime::set_file_mtime(&live_path, filetime::FileTime::from_system_time(recent));
+        assert_eq!(
+            p.detect_active_session(&cwd, "dead-0000-0000-0000-000000000000")
+                .as_deref(),
+            Some(live_sid),
+            "recovery must pick the actively-written session, not a newer stub",
+        );
+        let _ = std::fs::remove_file(&live_path);
+        let _ = std::fs::remove_file(&stub_path);
+    }
+
+    #[test]
+    fn detect_active_session_honest_none_when_nothing_to_recover() {
+        // Recorded id's JSONL is gone and the cwd has no other session →
+        // honest None (never a wrong guess), chat stays empty rather than
+        // binding to an unrelated conversation.
+        let p = super::super::ClaudeProvider::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().to_string_lossy().to_string();
+        assert_eq!(
+            p.detect_active_session(&cwd, "dead-9999-8888-7777-666666666666"),
+            None,
+        );
     }
 
     #[test]

@@ -205,6 +205,59 @@ impl ServiceContext {
         });
     }
 
+    /// Re-bind the pane to a provider-reported live session when the recorded
+    /// one rolled or died (e.g. Claude was resumed into an id whose JSONL was
+    /// since deleted, so it minted a fresh session; the recorded id then points
+    /// at an absent file and chat renders empty). Provider detection is
+    /// identity-bound (never a blind newest-for-cwd guess on a live binding —
+    /// the #156 discipline); this only fires when the provider reports a roll.
+    /// Cross-pane safe: never claims a session another pane owns, and only
+    /// rebinds while the pane still runs the same provider. Returns the pane's
+    /// effective session id after any rebind (`current_sid` when unchanged).
+    pub fn rebind_active_session(
+        &self,
+        pane_id: &str,
+        provider_id: &str,
+        cwd: &str,
+        current_sid: &str,
+    ) -> String {
+        let Some(active) = self
+            .agent_registry
+            .with_provider(provider_id, |p| p.detect_active_session(cwd, current_sid))
+            .flatten()
+        else {
+            return current_sid.to_string();
+        };
+        let claimed = {
+            let mut mux = self.mux.lock();
+            if mux.other_session_ids(pane_id).contains(&active) {
+                false
+            } else if let Some(p) = mux.get_pane_mut(pane_id) {
+                if p.agent_type.as_deref() == Some(provider_id) {
+                    p.agent_session_id = Some(active.clone());
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+        if claimed {
+            log::info!(
+                "[session-rebind] pane {} {} -> {} ({})",
+                pane_id,
+                current_sid,
+                active,
+                provider_id,
+            );
+            self.emit_state_changed();
+            active
+        } else {
+            current_sid.to_string()
+        }
+    }
+
     /// Bam-refresh model on the newly focused pane so the badge updates the
     /// instant the user switches tabs, instead of waiting up to one tick.
     pub fn refresh_focused_pane_model(&self) {
@@ -240,39 +293,11 @@ impl ServiceContext {
         let screen_text = pty_id
             .as_ref()
             .and_then(|id| self.screen_state.lock().get_screen_text(id));
-        // If the provider rolled the live session out from under us (opencode /model swap), point the pane at the new sid before scanning models.
+        // If the provider rolled the live session out from under us (opencode
+        // /model swap, or a Claude resume into a since-deleted id), point the
+        // pane at its live sid before scanning models.
         if let Some(ref current) = session_id {
-            if let Some(new_sid) = self
-                .agent_registry
-                .with_provider(agent_id, |p| p.detect_active_session(&cwd, current))
-                .flatten()
-            {
-                let claimed = {
-                    let mut mux = self.mux.lock();
-                    if mux.other_session_ids(pane_id).contains(&new_sid) {
-                        false
-                    } else if let Some(p) = mux.get_pane_mut(pane_id) {
-                        if p.agent_type.as_deref() == Some(agent_id) {
-                            p.agent_session_id = Some(new_sid.clone());
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                };
-                if claimed {
-                    log::info!(
-                        "[session-detect] rolled pane {} from {} → {} ({})",
-                        pane_id,
-                        current,
-                        new_sid,
-                        agent_id,
-                    );
-                    self.emit_state_changed();
-                }
-            }
+            self.rebind_active_session(pane_id, agent_id, &cwd, current);
         }
         let session_id = {
             let mux = self.mux.lock();

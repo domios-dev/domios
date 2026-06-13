@@ -448,6 +448,16 @@ impl AgentProvider for JsProvider {
     }
 
     fn detect_active_session(&self, cwd: &str, current_sid: &str) -> Option<String> {
+        // Like the other session-detection capabilities, delegate to the
+        // displaced native provider when the JS drop-in doesn't implement this.
+        // The FS-heavy "recorded file vanished → re-detect the live session"
+        // logic lives in the native provider (the QuickJS sandbox can't walk
+        // the sessions dir), so without this fallback a stale binding never heals.
+        if !self.has_js("detectActiveSession") {
+            return self
+                .native()
+                .and_then(|n| n.detect_active_session(cwd, current_sid));
+        }
         self.try_call::<Option<String>>("detectActiveSession", &[json!(cwd), json!(current_sid)])
             .flatten()
     }

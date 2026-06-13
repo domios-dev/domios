@@ -87,6 +87,26 @@ pub async fn start(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    // Heal a stale binding (recorded session JSONL vanished) before resolving
+    // the path, so the web chat shows the live conversation rather than an
+    // empty pane. No-op when the provider reports no roll.
+    if let Some((provider, cwd, sid)) = {
+        let m = state.svc.mux.lock();
+        m.get_pane(&pane_id).and_then(|p| {
+            match (
+                p.agent_type.clone(),
+                p.cwd.clone(),
+                p.agent_session_id.clone(),
+            ) {
+                (Some(pr), Some(c), Some(s)) => Some((pr, c, s)),
+                _ => None,
+            }
+        })
+    } {
+        state
+            .svc
+            .rebind_active_session(&pane_id, &provider, &cwd, &sid);
+    }
     let info = pane_chat_info(&state, &pane_id)?;
     let path = resolve_jsonl_path(&state, &info)?;
 

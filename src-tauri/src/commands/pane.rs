@@ -253,41 +253,14 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         (provider, cwd, sid, t.elapsed().as_millis())
     };
 
-    // Chat view is a reader for the tab's saved conversation, not a session detector. A provider may still report that the live process has rolled
-    // to a newer backing session (Codex resume starts a fresh rollout). Only accept that provider-owned handoff when no sibling pane already owns it.
+    // Chat view is a reader for the tab's saved conversation, not a session
+    // detector. A provider may still report that the live process rolled to a
+    // different backing session (Codex resume starts a fresh rollout; a Claude
+    // resume into a since-deleted id mints a new one) — rebind to the pane's
+    // live session so the snapshot does not read an absent file. Cross-pane
+    // safe; no-op when the provider reports no roll.
     let detect_started = std::time::Instant::now();
-    if let Some(active_sid) = svc
-        .agent_registry
-        .with_provider(&provider_id, |p| p.detect_active_session(&cwd, &session_id))
-        .flatten()
-    {
-        let claimed = {
-            let mut mux = svc.mux.lock();
-            if mux.other_session_ids(&pane_id).contains(&active_sid) {
-                false
-            } else if let Some(pane) = mux.get_pane_mut(&pane_id) {
-                if pane.agent_type.as_deref() == Some(provider_id.as_str()) {
-                    pane.agent_session_id = Some(active_sid.clone());
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        };
-        if claimed {
-            log::info!(
-                "[chat_start] rolled pane {} from {} -> {} ({})",
-                pane_id,
-                session_id,
-                active_sid,
-                provider_id,
-            );
-            svc.emit_state_changed();
-            session_id = active_sid;
-        }
-    }
+    session_id = svc.rebind_active_session(&pane_id, &provider_id, &cwd, &session_id);
     let detect_ms = detect_started.elapsed().as_millis();
 
     // DB-backed providers (sqlite, e.g. opencode) have no tailable JSONL: read
