@@ -404,9 +404,18 @@ pub(super) fn detect_session_id(
         }
     }
 
-    // Sort by newest first — the most recently CREATED file = current session
-    sessions.sort_by(|a, b| b.1.cmp(&a.1));
-    sessions.first().map(|(id, _)| id.clone())
+    // Identity-bound, never "newest-for-cwd": refuse to guess when 2+ recent
+    // sessions are viable candidates (multiple agents sharing this cwd). Picking
+    // the newest would hand one pane a SIBLING's session — and detection order /
+    // a stale exclude list could swap them (сессии перепутаны, #25/W3). Bind
+    // ONLY when the candidate is unambiguous; otherwise the caller waits for an
+    // identity signal (the injected --session-id or the per-pane SessionStart
+    // hook). The exclude list collapses the set as siblings get bound, so the
+    // last unclaimed session still resolves cleanly.
+    match sessions.as_slice() {
+        [(id, _)] => Some(id.clone()),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -418,6 +427,87 @@ mod tests {
     fn test_encode_cwd() {
         assert_eq!(encode_cwd("/home/user/project"), "-home-user-project");
         assert_eq!(encode_cwd("C:\\Users\\test"), "C--Users-test");
+    }
+
+    #[test]
+    fn detect_launched_session_binds_injected_id_even_with_a_sibling_present() {
+        // Bug B case (i): a SPAWNED pane carries a unique injected --session-id.
+        // Detection must bind THAT identity-bound id, never a sibling sharing the
+        // cwd — proving injected panes are already safe (guard against regressing
+        // the injected short-circuit into a newest-for-cwd guess).
+        let p = super::super::ClaudeProvider::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().to_string_lossy().to_string();
+        let injected = "injc1111-2222-4333-8444-555566667777";
+        let sibling = "sibd9999-8888-4777-8666-555544443333";
+        let Some(inj_path) = p.session_file_path(&cwd, injected) else {
+            return;
+        };
+        let Some(dir) = inj_path.parent().map(|d| d.to_path_buf()) else {
+            return;
+        };
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let sib_path = dir.join(format!("{sibling}.jsonl"));
+        if std::fs::write(&inj_path, "{}\n").is_err() || std::fs::write(&sib_path, "{}\n").is_err()
+        {
+            return;
+        }
+        assert_eq!(
+            p.detect_launched_session_id(&cwd, &[], None, Some(injected))
+                .as_deref(),
+            Some(injected),
+            "a spawned pane must bind its OWN injected id, never a sibling in the cwd",
+        );
+        let _ = std::fs::remove_file(&inj_path);
+        let _ = std::fs::remove_file(&sib_path);
+    }
+
+    #[test]
+    fn detect_session_id_refuses_to_guess_when_ambiguous_in_shared_cwd() {
+        // Bug B (#25 / W3): сессии перепутаны. When 2+ agents share a cwd and a
+        // pane's session is None (restart/resume), the newest-in-cwd guess hands
+        // one pane a SIBLING's session — and detection ORDER / a stale exclude
+        // list can swap them. When more than one recent session is a viable
+        // candidate (none pinned by the exclude list), detection MUST refuse —
+        // honest None — instead of guessing. Identity-bound binding (the
+        // injected --session-id / the per-pane SessionStart hook) resolves it.
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().to_string_lossy().to_string();
+        let s1 = "aaaa1111-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        let s2 = "bbbb2222-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+        let Some(p1) = session_file_path(&cwd, s1) else {
+            return;
+        };
+        let Some(dir) = p1.parent().map(|d| d.to_path_buf()) else {
+            return;
+        };
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let p2 = dir.join(format!("{s2}.jsonl"));
+        if std::fs::write(&p1, "{}\n").is_err() || std::fs::write(&p2, "{}\n").is_err() {
+            return;
+        }
+
+        // Two recent sibling sessions, nothing excluded → ambiguous → no guess.
+        assert_eq!(
+            detect_session_id(&cwd, &[], Some(Duration::from_secs(300))),
+            None,
+            "must refuse to guess when 2+ sibling sessions are viable candidates",
+        );
+
+        // Excluding the sibling disambiguates → the unique candidate binds.
+        let got = detect_session_id(&cwd, &[s2.to_string()], Some(Duration::from_secs(300)));
+        assert_eq!(
+            got.as_deref(),
+            Some(s1),
+            "with the sibling excluded there is exactly one candidate → bind it",
+        );
+
+        let _ = std::fs::remove_file(&p1);
+        let _ = std::fs::remove_file(&p2);
     }
 
     #[test]
