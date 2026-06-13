@@ -6,12 +6,27 @@ use crate::WebAction;
 
 pub fn handle_web(json_mode: bool, action: WebAction) {
     match action {
-        WebAction::Link { host, port, query } => link(json_mode, host, port, query),
+        WebAction::Link {
+            peer,
+            host,
+            port,
+            query,
+        } => link(json_mode, peer, host, port, query),
     }
 }
 
-fn link(json_mode: bool, host_flag: Option<String>, port_flag: Option<u16>, query: bool) {
+fn link(
+    json_mode: bool,
+    peer_flag: Option<String>,
+    host_flag: Option<String>,
+    port_flag: Option<u16>,
+    query: bool,
+) {
     let (base, _auth) = crate::read_api_config();
+    if let Some(peer) = peer_flag {
+        link_peer(json_mode, &base, &peer, query);
+        return;
+    }
     // The link must embed the STABLE api.token from config.toml — never the signed mesh token read_api_config prefers (those expire in ~60s and
     // are nonce-protected against replay, i.e. dead on first reuse).
     let Some(token) = config_api_token().filter(|t| !t.is_empty()) else {
@@ -60,6 +75,89 @@ fn link(json_mode: bool, host_flag: Option<String>, port_flag: Option<u16>, quer
         println!(
             "{}",
             serde_json::json!({ "url": url, "host": host, "port": port })
+        );
+    } else {
+        println!("{}", url);
+    }
+}
+
+/// Build a /web link for a paired mesh peer: resolve the peer name to its
+/// instance id, then let the peer mint its own web token. The daemon's
+/// peer-web-token route already returns a `host` that prefers the peer's
+/// HTTPS tailscale-serve FQDN over a mixed-content http://IP front, so the
+/// resulting link works from an https-origin browser.
+fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
+    let Some(token) = config_api_token().filter(|t| !t.is_empty()) else {
+        eprintln!("Error: no api.token in config — web access needs one (Settings → Network).");
+        std::process::exit(1);
+    };
+    let Ok(http) = crate::build_http(&Some(token.clone())) else {
+        eprintln!("Error: failed to build HTTP client.");
+        std::process::exit(1);
+    };
+
+    let peers = http
+        .get(format!("{}/api/mesh/peers", base))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .ok()
+        .and_then(|r| r.json::<serde_json::Value>().ok());
+    let Some(peers) = peers else {
+        eprintln!("Error: could not reach the daemon to list mesh peers.");
+        std::process::exit(1);
+    };
+    // Match on instance name (case-insensitive) or an instance-id prefix.
+    let id = peers
+        .get("paired")
+        .and_then(|p| p.as_array())
+        .and_then(|arr| {
+            arr.iter().find(|p| {
+                let name = p.get("instance_name").and_then(|v| v.as_str()).unwrap_or("");
+                let pid = p.get("instance_id").and_then(|v| v.as_str()).unwrap_or("");
+                name.eq_ignore_ascii_case(peer_name) || pid.starts_with(peer_name)
+            })
+        })
+        .and_then(|p| p.get("instance_id").and_then(|v| v.as_str()))
+        .map(str::to_string);
+    let Some(id) = id else {
+        eprintln!(
+            "Error: no paired peer matching '{}'. Run `codeterm mesh peers` to list.",
+            peer_name
+        );
+        std::process::exit(1);
+    };
+
+    let resp = http
+        .get(format!("{}/api/mesh/peers/{}/web-token", base, id))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .ok()
+        .and_then(|r| r.json::<serde_json::Value>().ok())
+        .filter(|r| r.get("ok").and_then(|v| v.as_bool()).unwrap_or(false));
+    let Some(resp) = resp else {
+        eprintln!(
+            "Error: could not mint a web token for peer '{}' (peer offline or web access disabled).",
+            peer_name
+        );
+        std::process::exit(1);
+    };
+    let host = resp.get("host").and_then(|v| v.as_str()).unwrap_or_default();
+    let peer_token = resp.get("token").and_then(|v| v.as_str()).unwrap_or_default();
+    if host.is_empty() || peer_token.is_empty() {
+        eprintln!("Error: peer returned an incomplete web link.");
+        std::process::exit(1);
+    }
+
+    // `host` already carries the scheme (https://fqdn or http://ip:port).
+    let url = if query {
+        format!("{}/web/?token={}", host, peer_token)
+    } else {
+        format!("{}/web/#token={}", host, peer_token)
+    };
+    if json_mode {
+        println!(
+            "{}",
+            serde_json::json!({ "url": url, "host": host, "peer": peer_name })
         );
     } else {
         println!("{}", url);
