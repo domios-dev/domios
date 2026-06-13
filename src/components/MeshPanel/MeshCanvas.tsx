@@ -222,6 +222,7 @@ export function MeshCanvas({
         <div className="absolute top-2 left-2 z-10">
           <button
             onClick={onOpenWebUi}
+            data-testid="web-ui-trigger"
             className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2.5 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)] text-[9px] uppercase tracking-wide"
             title="Open Web UI"
           >
