@@ -130,6 +130,18 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/network", get(network_routes::network_info))
         .route(
+            "/api/network/serve/status",
+            get(network_routes::serve_status_handler),
+        )
+        .route(
+            "/api/network/serve/enable",
+            post(network_routes::serve_enable_handler),
+        )
+        .route(
+            "/api/network/serve/disable",
+            post(network_routes::serve_disable_handler),
+        )
+        .route(
             "/api/keepawake",
             get(network_routes::keepawake_status_handler),
         )

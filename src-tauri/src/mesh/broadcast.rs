@@ -299,7 +299,8 @@ pub fn refresh_local_addresses(mesh: &MeshState) -> bool {
 
     discovery::detect_tailscale(mesh);
     discovery::detect_local_ip(mesh);
-    let https = discovery::tailscale_serve_https_url(crate::config::load_config().api.port);
+    let https =
+        super::serve_setup::tailscale_serve_https_url(crate::config::load_config().api.port);
     mesh.lock().local_https_url = https.clone();
 
     let new_ts = mesh.lock().tailscale_ip.clone();

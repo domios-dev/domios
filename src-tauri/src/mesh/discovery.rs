@@ -217,6 +217,17 @@ pub fn unregister_mdns_service(mesh: &Arc<Mutex<MeshManager>>) {
 /// Hard cap on how long any single Tailscale CLI probe is allowed to run.
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Binary lookup order for the Tailscale CLI: bare name (resolved via PATH)
+/// first, then the common absolute install locations (macOS app bundle,
+/// Homebrew, Linux package). Shared by every probe + the serve-setup module.
+pub(crate) const TAILSCALE_CANDIDATES: [&str; 5] = [
+    "tailscale",
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    "/opt/homebrew/bin/tailscale",
+    "/usr/local/bin/tailscale",
+    "/usr/bin/tailscale",
+];
+
 enum ProbeOutcome {
     Found(String),
     NoBinary,
@@ -242,14 +253,7 @@ pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
         mesh.lock().tailscale_ip = Some(ip);
         return;
     }
-    let candidates = [
-        "tailscale",
-        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-        "/opt/homebrew/bin/tailscale",
-        "/usr/local/bin/tailscale",
-        "/usr/bin/tailscale",
-    ];
-    for cmd in &candidates {
+    for cmd in TAILSCALE_CANDIDATES {
         match try_tailscale_probe(cmd, ProbeMode::Direct) {
             ProbeOutcome::Found(ip) => {
                 log::info!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
@@ -309,14 +313,7 @@ fn is_tailscale_ip(ip: &str) -> bool {
 /// Run `tailscale status --json` and extract peer IPv4 addresses.
 /// Uses no_window_std so it doesn't flash a console on Windows.
 fn tailscale_status_peer_ips() -> Vec<String> {
-    let candidates = [
-        "tailscale",
-        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-        "/opt/homebrew/bin/tailscale",
-        "/usr/local/bin/tailscale",
-        "/usr/bin/tailscale",
-    ];
-    for cmd in &candidates {
+    for cmd in TAILSCALE_CANDIDATES {
         let mut c = std::process::Command::new(cmd);
         c.args(["status", "--json"]);
         crate::process_util::no_window_std(&mut c);
@@ -354,81 +351,32 @@ pub fn tailscale_self_dns_name() -> Option<String> {
     (!dns.is_empty() && dns.ends_with(".ts.net")).then_some(dns)
 }
 
-/// Returns the HTTPS base URL (e.g. `https://host.ts.net`, or
-/// `https://host.ts.net:7600` for a non-443 listener) ONLY when Tailscale
-/// Serve terminates HTTPS and proxies its root handler to *this* daemon's API
-/// port. Returning the URL whenever HTTPS is merely enabled — regardless of
-/// where Serve actually proxies — hands users a 502 link when Serve points at a
-/// different (e.g. dev) port. Verifying the proxy target is the whole point.
-pub fn tailscale_serve_https_url(api_port: u16) -> Option<String> {
-    parse_serve_https_url(&tailscale_serve_status_json()?, api_port)
+fn tailscale_status_json() -> Option<serde_json::Value> {
+    run_tailscale_json(&["status", "--json"], std::time::Duration::from_secs(3))
 }
 
-fn parse_serve_https_url(val: &serde_json::Value, api_port: u16) -> Option<String> {
-    let web = val.get("Web")?.as_object()?;
-    for (host_port, cfg) in web {
-        // Key shape: "host.ts.net:443". Split on the LAST colon — the port.
-        let (host, port) = host_port.rsplit_once(':')?;
-        let https_terminated = val
-            .get("TCP")
-            .and_then(|t| t.get(port))
-            .and_then(|p| p.get("HTTPS"))
-            .and_then(|b| b.as_bool())
-            .unwrap_or(false);
-        if !https_terminated {
-            continue;
-        }
-        let root_proxy = cfg
-            .get("Handlers")
-            .and_then(|h| h.get("/"))
-            .and_then(|h| h.get("Proxy"))
-            .and_then(|p| p.as_str());
-        if root_proxy.is_some_and(|p| proxy_targets_local_port(p, api_port)) {
-            return Some(if port == "443" {
-                format!("https://{host}")
-            } else {
-                format!("https://{host}:{port}")
-            });
+/// Path to the first Tailscale binary that actually responds to `version`, or
+/// None when none does. Doubles as an honest "is Tailscale installed" probe:
+/// because it runs the binary rather than just stat-ing a path, a stale path or
+/// a half-installed GUI bridge reports as not-installed instead of tricking the
+/// UI into offering serve setup that can't succeed.
+pub(crate) fn tailscale_binary() -> Option<String> {
+    for cmd in TAILSCALE_CANDIDATES {
+        let mut c = std::process::Command::new(cmd);
+        c.arg("version");
+        crate::process_util::no_window_std(&mut c);
+        if let Some((true, _)) = run_with_timeout(&mut c, std::time::Duration::from_secs(3)) {
+            return Some(cmd.to_string());
         }
     }
     None
 }
 
-/// True when a Serve proxy target (e.g. `http://127.0.0.1:7685`) points at a
-/// loopback host on the given port — i.e. at this daemon.
-fn proxy_targets_local_port(proxy: &str, port: u16) -> bool {
-    let authority = proxy
-        .split_once("://")
-        .map(|(_, rest)| rest)
-        .unwrap_or(proxy);
-    let authority = authority.split('/').next().unwrap_or(authority);
-    let Some((host, p)) = authority.rsplit_once(':') else {
-        return false;
-    };
-    let host_local = matches!(host, "127.0.0.1" | "localhost" | "[::1]" | "::1");
-    host_local && p.parse::<u16>().map(|n| n == port).unwrap_or(false)
-}
-
-fn tailscale_status_json() -> Option<serde_json::Value> {
-    run_tailscale_json(&["status", "--json"], std::time::Duration::from_secs(3))
-}
-
-fn tailscale_serve_status_json() -> Option<serde_json::Value> {
-    run_tailscale_json(
-        &["serve", "status", "--json"],
-        std::time::Duration::from_secs(3),
-    )
-}
-
-fn run_tailscale_json(args: &[&str], timeout: std::time::Duration) -> Option<serde_json::Value> {
-    let candidates = [
-        "tailscale",
-        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-        "/opt/homebrew/bin/tailscale",
-        "/usr/local/bin/tailscale",
-        "/usr/bin/tailscale",
-    ];
-    for cmd in &candidates {
+pub(crate) fn run_tailscale_json(
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> Option<serde_json::Value> {
+    for cmd in TAILSCALE_CANDIDATES {
         let mut c = std::process::Command::new(cmd);
         c.args(args);
         crate::process_util::no_window_std(&mut c);
@@ -552,7 +500,7 @@ fn parse_first_ip(stdout: &str) -> Option<String> {
     })
 }
 
-fn run_with_timeout(
+pub(crate) fn run_with_timeout(
     cmd: &mut std::process::Command,
     timeout: std::time::Duration,
 ) -> Option<(bool, String)> {
@@ -903,64 +851,7 @@ pub fn send_immediate_beacon(mesh: &Arc<Mutex<MeshManager>>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_first_ip, parse_serve_https_url, proxy_targets_local_port};
-    use serde_json::json;
-
-    fn serve_json(host_port: &str, https_port: &str, proxy: &str) -> serde_json::Value {
-        json!({
-            "TCP": { https_port: { "HTTPS": true } },
-            "Web": { host_port: { "Handlers": { "/": { "Proxy": proxy } } } }
-        })
-    }
-
-    #[test]
-    fn serve_url_none_when_no_serve() {
-        assert_eq!(parse_serve_https_url(&json!({}), 7685), None);
-    }
-
-    #[test]
-    fn serve_url_https_443_targeting_our_port() {
-        let v = serve_json("host.ts.net:443", "443", "http://127.0.0.1:7685");
-        assert_eq!(
-            parse_serve_https_url(&v, 7685).as_deref(),
-            Some("https://host.ts.net")
-        );
-    }
-
-    #[test]
-    fn serve_url_https_non_443_keeps_port_suffix() {
-        let v = serve_json("host.ts.net:7600", "7600", "http://127.0.0.1:7685");
-        assert_eq!(
-            parse_serve_https_url(&v, 7685).as_deref(),
-            Some("https://host.ts.net:7600")
-        );
-    }
-
-    #[test]
-    fn serve_url_none_when_proxy_targets_different_port() {
-        // Serve points at the dev port (7686) but we are the prod daemon (7685):
-        // advertising the HTTPS URL here would hand the user a 502 link.
-        let v = serve_json("host.ts.net:443", "443", "http://127.0.0.1:7686");
-        assert_eq!(parse_serve_https_url(&v, 7685), None);
-    }
-
-    #[test]
-    fn serve_url_none_when_https_not_terminated() {
-        let v = json!({
-            "TCP": { "443": { "HTTPS": false } },
-            "Web": { "host.ts.net:443": { "Handlers": { "/": { "Proxy": "http://127.0.0.1:7685" } } } }
-        });
-        assert_eq!(parse_serve_https_url(&v, 7685), None);
-    }
-
-    #[test]
-    fn proxy_target_matches_loopback_variants() {
-        assert!(proxy_targets_local_port("http://127.0.0.1:7685", 7685));
-        assert!(proxy_targets_local_port("http://localhost:7685", 7685));
-        assert!(!proxy_targets_local_port("http://127.0.0.1:7686", 7685));
-        assert!(!proxy_targets_local_port("http://10.0.0.5:7685", 7685));
-        assert!(!proxy_targets_local_port("garbage", 7685));
-    }
+    use super::parse_first_ip;
 
     #[test]
     fn parse_first_ip_happy_path() {
