@@ -49,12 +49,8 @@ pub fn get_network_info(
     // duplicating the probe logic (which lacked IP validation, the GUI-bridge fallback, and a timeout).
     let tailscale_ip = mesh.lock().tailscale_ip.clone();
     let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
-    let tailscale_https_url = if crate::mesh::discovery::tailscale_serve_https_enabled() {
-        tailscale_dns.as_ref().map(|dns| format!("https://{}", dns))
-    } else {
-        None
-    };
     let port = state.lock().api.port;
+    let tailscale_https_url = crate::mesh::discovery::tailscale_serve_https_url(port);
     Ok(serde_json::json!({
         "local_ip": local_ip,
         "tailscale_ip": tailscale_ip,

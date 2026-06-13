@@ -13,12 +13,8 @@ pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_j
     // duplicating the probe logic (which previously lacked IP validation, the GUI-bridge fallback, and a timeout).
     let tailscale_ip = state.mesh.lock().tailscale_ip.clone();
     let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
-    let tailscale_https_url = if crate::mesh::discovery::tailscale_serve_https_enabled() {
-        tailscale_dns.as_ref().map(|dns| format!("https://{}", dns))
-    } else {
-        None
-    };
     let port = state.api_port;
+    let tailscale_https_url = crate::mesh::discovery::tailscale_serve_https_url(port);
 
     Json(serde_json::json!({
         "local_ip": local_ip,
