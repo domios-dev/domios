@@ -14,7 +14,7 @@ pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_j
     let tailscale_ip = state.mesh.lock().tailscale_ip.clone();
     let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
     let port = state.api_port;
-    let tailscale_https_url = crate::mesh::discovery::tailscale_serve_https_url(port);
+    let tailscale_https_url = crate::mesh::tailscale_serve_https_url(port);
 
     Json(serde_json::json!({
         "local_ip": local_ip,
@@ -25,6 +25,50 @@ pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_j
         "tailscale_url": tailscale_ip.as_ref().map(|ip| format!("http://{}:{}", ip, port)),
         "tailscale_https_url": tailscale_https_url,
     }))
+}
+
+/// Read-only Tailscale Serve status for the web mirror's Web Access panel.
+pub async fn serve_status_handler(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let status = crate::mesh::probe_serve_status(state.api_port);
+    Ok(Json(
+        serde_json::to_value(status).unwrap_or(serde_json::Value::Null),
+    ))
+}
+
+#[derive(Deserialize, Default)]
+pub(crate) struct ServeEnableBody {
+    https_port: Option<u16>,
+}
+
+/// Consent-gated: enable `tailscale serve` HTTPS → this daemon. The caller (the
+/// Web Access UI) is responsible for confirming with the user first.
+pub async fn serve_enable_handler(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    body: Option<Json<ServeEnableBody>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let result = crate::mesh::enable_web_serve(state.api_port, body.https_port);
+    Ok(Json(
+        serde_json::to_value(result).unwrap_or(serde_json::Value::Null),
+    ))
+}
+
+/// Tear down the Serve HTTPS listener proxying to this daemon.
+pub async fn serve_disable_handler(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let result = crate::mesh::disable_web_serve(state.api_port);
+    Ok(Json(
+        serde_json::to_value(result).unwrap_or(serde_json::Value::Null),
+    ))
 }
 
 #[derive(Deserialize, Default)]

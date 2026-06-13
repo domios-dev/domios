@@ -1,6 +1,21 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { buildWebAccessUrls, serveHint, type WebAccessNetworkInfo } from "../../lib/webAccess";
+import {
+  buildWebAccessUrls,
+  planServeSetup,
+  serveHint,
+  type ServeSetupPlan,
+  type ServeStatus,
+  type WebAccessNetworkInfo,
+} from "../../lib/webAccess";
+
+interface ServeResult {
+  ok: boolean;
+  code: string;
+  https_url?: string | null;
+  used_fallback?: boolean;
+  warning?: string | null;
+}
 
 export function NetworkTab() {
   return (
@@ -51,25 +66,76 @@ function WebAccessSection() {
   const [hosts, setHosts] = useState<string[]>([]);
   const [usingFallback, setUsingFallback] = useState(false);
   const [port, setPort] = useState(7685);
+  const [serveStatus, setServeStatus] = useState<ServeStatus | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [resultMsg, setResultMsg] = useState<string | null>(null);
+
+  async function refresh(fallbackPort: number) {
+    const status = await invoke<WebAccessNetworkInfo>("get_network_info").catch(
+      () => ({}) as WebAccessNetworkInfo,
+    );
+    const picked = buildWebAccessUrls(status, fallbackPort);
+    setHosts(picked.urls);
+    setUsingFallback(picked.usingFallback);
+    setPort(status.api_port ?? fallbackPort);
+    const serve = await invoke<ServeStatus>("get_serve_status").catch(() => null);
+    setServeStatus(serve);
+  }
 
   useEffect(() => {
     void (async () => {
       try {
         const cfg = await invoke<{ api?: { token?: string; port?: number } }>("get_config");
         setToken(cfg.api?.token ?? null);
-        const fallbackPort = cfg.api?.port ?? 7685;
-        const status = await invoke<WebAccessNetworkInfo>("get_network_info").catch(
-          () => ({}) as WebAccessNetworkInfo,
-        );
-        const picked = buildWebAccessUrls(status, fallbackPort);
-        setHosts(picked.urls);
-        setUsingFallback(picked.usingFallback);
-        setPort(status.api_port ?? fallbackPort);
+        await refresh(cfg.api?.port ?? 7685);
       } catch {
         /* settings panel stays usable without this section's data */
       }
     })();
   }, []);
+
+  const plan: ServeSetupPlan | null = serveStatus
+    ? planServeSetup(serveStatus, port, serveStatus.platform ?? "")
+    : null;
+
+  // The exact-command preview only flips to a real mutation on the SECOND click:
+  // first click reveals `confirming`; "Confirm & Enable" is the deliberate
+  // second action that actually invokes the consent-gated backend command.
+  async function runEnable() {
+    setBusy(true);
+    setResultMsg(null);
+    try {
+      const res = await invoke<ServeResult>("enable_web_access", {});
+      setConfirming(false);
+      if (res.ok) {
+        setResultMsg(
+          res.warning ?? `Web Access enabled${res.https_url ? ` — ${res.https_url}/web/` : ""}`,
+        );
+      } else {
+        setResultMsg(`Could not enable Web Access (${res.code}).`);
+      }
+      await refresh(port);
+    } catch (e) {
+      setResultMsg(`Enable failed: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runDisable() {
+    setBusy(true);
+    setResultMsg(null);
+    try {
+      const res = await invoke<ServeResult>("disable_web_access", {});
+      setResultMsg(res.ok ? "Web Access disabled." : `Could not disable (${res.code}).`);
+      await refresh(port);
+    } catch (e) {
+      setResultMsg(`Disable failed: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="rounded border border-[var(--ct-border)] p-4 space-y-3">
@@ -89,9 +155,40 @@ function WebAccessSection() {
           </div>
         ))}
       </div>
-      {usingFallback && (
-        <p data-testid="web-access-serve-hint" className="text-xs text-[var(--ct-muted)] leading-snug">
-          {serveHint(port)}
+      {usingFallback && plan && (
+        <WebAccessSetup
+          plan={plan}
+          port={port}
+          confirming={confirming}
+          busy={busy}
+          onStart={() => {
+            setResultMsg(null);
+            setConfirming(true);
+          }}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => void runEnable()}
+        />
+      )}
+      {plan?.state === "active" && (
+        <div
+          data-testid="web-access-active"
+          className="text-xs text-[var(--ct-muted)] leading-snug flex items-center justify-between gap-2"
+        >
+          <span className="text-[var(--ct-green)]">
+            Web Access is active{serveStatus?.https_url ? ` — ${serveStatus.https_url}/web/` : ""}.
+          </span>
+          <button
+            onClick={() => void runDisable()}
+            disabled={busy}
+            className="shrink-0 text-xs px-2 py-1 rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] disabled:opacity-40"
+          >
+            Disable
+          </button>
+        </div>
+      )}
+      {resultMsg && (
+        <p data-testid="web-access-result" className="text-xs text-[var(--ct-muted)] leading-snug">
+          {resultMsg}
         </p>
       )}
       <div className="flex items-center gap-2">
@@ -119,6 +216,101 @@ function WebAccessSection() {
           className="text-xs px-2 py-1.5 rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] disabled:opacity-40"
         >
           {copied ? "Copied ✓" : "Copy"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The consent-gated "Enable Web Access" affordance, shown only while falling
+ * back to a raw IP+port URL. Enabling runs a Tailscale Serve mutation, so it is
+ * strictly two-step: the first click reveals the EXACT commands that will run;
+ * only "Confirm & Enable" actually invokes the backend.
+ */
+function WebAccessSetup({
+  plan,
+  port,
+  confirming,
+  busy,
+  onStart,
+  onCancel,
+  onConfirm,
+}: {
+  plan: ServeSetupPlan;
+  port: number;
+  confirming: boolean;
+  busy: boolean;
+  onStart: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (plan.state === "not-installed") {
+    return (
+      <p data-testid="web-access-not-installed" className="text-xs text-[var(--ct-muted)] leading-snug">
+        Install Tailscale to get a clean, phone-friendly HTTPS link. Without it,
+        use one of the addresses above.
+      </p>
+    );
+  }
+  if (plan.state === "port-collision") {
+    return (
+      <p data-testid="web-access-port-collision" className="text-xs text-[var(--ct-yellow)] leading-snug">
+        Can't auto-enable: the public HTTPS port ({plan.httpsPort}) would collide
+        with a CodeTerm API port. Configure Tailscale Serve manually.
+      </p>
+    );
+  }
+  if (plan.state !== "can-enable") return null;
+
+  if (!confirming) {
+    return (
+      <div className="space-y-2">
+        <p data-testid="web-access-serve-hint" className="text-xs text-[var(--ct-muted)] leading-snug">
+          {serveHint(port)}
+        </p>
+        <button
+          data-testid="web-access-enable"
+          onClick={onStart}
+          className="text-xs px-2.5 py-1.5 rounded border border-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
+        >
+          Enable Web Access
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-testid="web-access-confirm"
+      className="space-y-2 rounded border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-2.5"
+    >
+      <p className="text-xs text-[var(--ct-fg)] leading-snug">
+        This runs the following on your machine:
+      </p>
+      <pre className="text-[11px] font-mono text-[var(--ct-muted-fg)] whitespace-pre-wrap break-all">
+        {plan.commands.join("\n")}
+      </pre>
+      {plan.resultUrl && (
+        <p className="text-xs text-[var(--ct-muted)] leading-snug">
+          Result: <span className="font-mono">{plan.resultUrl}</span>
+        </p>
+      )}
+      <div className="flex items-center gap-2">
+        <button
+          data-testid="web-access-confirm-enable"
+          onClick={onConfirm}
+          disabled={busy}
+          className="text-xs px-2.5 py-1.5 rounded border border-[var(--ct-accent)] text-[var(--ct-accent)] hover:bg-[var(--ct-hover)] disabled:opacity-40"
+        >
+          {busy ? "Enabling…" : "Confirm & Enable"}
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={busy}
+          className="text-xs px-2.5 py-1.5 rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] disabled:opacity-40"
+        >
+          Cancel
         </button>
       </div>
     </div>
