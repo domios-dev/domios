@@ -248,7 +248,6 @@ pub fn wait_for_submit_tui_drained(
     tail_rows: usize,
 ) -> Result<String, HelperErr> {
     let deadline = std::time::Instant::now() + timeout;
-    let needle = normalize_ws(submitted_text);
 
     let drained_tail = loop {
         if std::time::Instant::now() >= deadline {
@@ -263,8 +262,14 @@ pub fn wait_for_submit_tui_drained(
             Some(t) => t,
             None => return Err(HelperErr::PtyUnknown(pty_id.to_string())),
         };
-        let t_norm = normalize_ws(&t);
-        if needle.is_empty() || !t_norm.contains(&needle) {
+        // Drained == the composer no longer shows the submitted text. Reuse the
+        // suffix/placeholder-aware presence check from echo verify: a plain
+        // `tail.contains(full_text)` can never match a multi-KB paste whose head
+        // scrolled out of the tail window, so it falsely reported "drained" the
+        // instant the paste landed — submit-verify then passed after a single
+        // \r that the still-ingesting TUI swallowed, and the message sat unsent
+        // (#155). An empty submission has nothing to drain — treat as done.
+        if submitted_text.is_empty() || !screen_contains_echo(&t, submitted_text) {
             break t;
         }
         std::thread::sleep(POLL_INTERVAL);
@@ -587,6 +592,66 @@ mod tests {
             elapsed < Duration::from_millis(300),
             "elapsed {:?} too long — deadline check might be broken",
             elapsed
+        );
+    }
+
+    // #155: a long paste whose full text can't fit the tail window must NOT be
+    // reported as "drained" the instant it lands — that false-positive let
+    // submit-verify pass after a single swallowed \r, so the message sat unsent.
+    #[test]
+    fn wait_for_submit_tui_drained_long_paste_not_falsely_drained() {
+        let h = handle();
+        let long = "A".repeat(2000);
+        // Composer shows only the tail of the paste; the head scrolled out of
+        // the visible window (exactly the multi-KB codex/claude case).
+        let visible_tail = format!("prompt> {}", &long[long.len() - 200..]);
+        feed(&h, "p1", visible_tail.as_bytes());
+        let start = std::time::Instant::now();
+        let res = wait_for_submit_tui_drained(
+            &h,
+            "p1",
+            &long,
+            Duration::from_millis(200),
+            Duration::from_millis(50),
+            TEST_TAIL_ROWS,
+        );
+        assert!(
+            matches!(res, Err(HelperErr::Timeout(_))),
+            "long paste still on screen must NOT be reported as drained; got {:?}",
+            res
+        );
+        assert!(
+            start.elapsed() >= Duration::from_millis(190),
+            "must have actually polled to the deadline, elapsed {:?}",
+            start.elapsed()
+        );
+    }
+
+    #[test]
+    fn wait_for_submit_tui_drained_long_paste_drains_when_cleared() {
+        let h = handle();
+        let long = "B".repeat(2000);
+        let visible_tail = format!("prompt> {}", &long[long.len() - 200..]);
+        feed(&h, "p1", visible_tail.as_bytes());
+        let h2 = h.clone();
+        let join = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(40));
+            // Submit clears the composer — paste suffix is gone from the tail.
+            feed(&h2, "p1", b"\x1b[2J\x1b[Hassistant reply\nprompt> ");
+        });
+        let res = wait_for_submit_tui_drained(
+            &h,
+            "p1",
+            &long,
+            Duration::from_secs(2),
+            Duration::from_millis(80),
+            TEST_TAIL_ROWS,
+        );
+        join.join().unwrap();
+        assert!(
+            res.is_ok(),
+            "long paste cleared from composer must be reported as drained; got {:?}",
+            res
         );
     }
 }

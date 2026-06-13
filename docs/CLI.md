@@ -1166,6 +1166,7 @@ Aliases: send-text
 - `--from_file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
 - `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
 - `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
+- `--submit` — Submit with a bare Enter. Allows EMPTY text — use to submit a paste that landed in an agent's composer but never sent (the manual unstick for the long-message no-submit case). With text, behaves like a normal send (text is submitted, which is already the default)
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 
 #### `codeterm service`
