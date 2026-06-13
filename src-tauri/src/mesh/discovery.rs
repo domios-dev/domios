@@ -354,15 +354,59 @@ pub fn tailscale_self_dns_name() -> Option<String> {
     (!dns.is_empty() && dns.ends_with(".ts.net")).then_some(dns)
 }
 
-pub fn tailscale_serve_https_enabled() -> bool {
-    let Some(val) = tailscale_serve_status_json() else {
+/// Returns the HTTPS base URL (e.g. `https://host.ts.net`, or
+/// `https://host.ts.net:7600` for a non-443 listener) ONLY when Tailscale
+/// Serve terminates HTTPS and proxies its root handler to *this* daemon's API
+/// port. Returning the URL whenever HTTPS is merely enabled — regardless of
+/// where Serve actually proxies — hands users a 502 link when Serve points at a
+/// different (e.g. dev) port. Verifying the proxy target is the whole point.
+pub fn tailscale_serve_https_url(api_port: u16) -> Option<String> {
+    parse_serve_https_url(&tailscale_serve_status_json()?, api_port)
+}
+
+fn parse_serve_https_url(val: &serde_json::Value, api_port: u16) -> Option<String> {
+    let web = val.get("Web")?.as_object()?;
+    for (host_port, cfg) in web {
+        // Key shape: "host.ts.net:443". Split on the LAST colon — the port.
+        let (host, port) = host_port.rsplit_once(':')?;
+        let https_terminated = val
+            .get("TCP")
+            .and_then(|t| t.get(port))
+            .and_then(|p| p.get("HTTPS"))
+            .and_then(|b| b.as_bool())
+            .unwrap_or(false);
+        if !https_terminated {
+            continue;
+        }
+        let root_proxy = cfg
+            .get("Handlers")
+            .and_then(|h| h.get("/"))
+            .and_then(|h| h.get("Proxy"))
+            .and_then(|p| p.as_str());
+        if root_proxy.is_some_and(|p| proxy_targets_local_port(p, api_port)) {
+            return Some(if port == "443" {
+                format!("https://{host}")
+            } else {
+                format!("https://{host}:{port}")
+            });
+        }
+    }
+    None
+}
+
+/// True when a Serve proxy target (e.g. `http://127.0.0.1:7685`) points at a
+/// loopback host on the given port — i.e. at this daemon.
+fn proxy_targets_local_port(proxy: &str, port: u16) -> bool {
+    let authority = proxy
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(proxy);
+    let authority = authority.split('/').next().unwrap_or(authority);
+    let Some((host, p)) = authority.rsplit_once(':') else {
         return false;
     };
-    val.get("TCP")
-        .and_then(|v| v.get("443"))
-        .and_then(|v| v.get("HTTPS"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
+    let host_local = matches!(host, "127.0.0.1" | "localhost" | "[::1]" | "::1");
+    host_local && p.parse::<u16>().map(|n| n == port).unwrap_or(false)
 }
 
 fn tailscale_status_json() -> Option<serde_json::Value> {
@@ -859,7 +903,64 @@ pub fn send_immediate_beacon(mesh: &Arc<Mutex<MeshManager>>) {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_first_ip;
+    use super::{parse_first_ip, parse_serve_https_url, proxy_targets_local_port};
+    use serde_json::json;
+
+    fn serve_json(host_port: &str, https_port: &str, proxy: &str) -> serde_json::Value {
+        json!({
+            "TCP": { https_port: { "HTTPS": true } },
+            "Web": { host_port: { "Handlers": { "/": { "Proxy": proxy } } } }
+        })
+    }
+
+    #[test]
+    fn serve_url_none_when_no_serve() {
+        assert_eq!(parse_serve_https_url(&json!({}), 7685), None);
+    }
+
+    #[test]
+    fn serve_url_https_443_targeting_our_port() {
+        let v = serve_json("host.ts.net:443", "443", "http://127.0.0.1:7685");
+        assert_eq!(
+            parse_serve_https_url(&v, 7685).as_deref(),
+            Some("https://host.ts.net")
+        );
+    }
+
+    #[test]
+    fn serve_url_https_non_443_keeps_port_suffix() {
+        let v = serve_json("host.ts.net:7600", "7600", "http://127.0.0.1:7685");
+        assert_eq!(
+            parse_serve_https_url(&v, 7685).as_deref(),
+            Some("https://host.ts.net:7600")
+        );
+    }
+
+    #[test]
+    fn serve_url_none_when_proxy_targets_different_port() {
+        // Serve points at the dev port (7686) but we are the prod daemon (7685):
+        // advertising the HTTPS URL here would hand the user a 502 link.
+        let v = serve_json("host.ts.net:443", "443", "http://127.0.0.1:7686");
+        assert_eq!(parse_serve_https_url(&v, 7685), None);
+    }
+
+    #[test]
+    fn serve_url_none_when_https_not_terminated() {
+        let v = json!({
+            "TCP": { "443": { "HTTPS": false } },
+            "Web": { "host.ts.net:443": { "Handlers": { "/": { "Proxy": "http://127.0.0.1:7685" } } } }
+        });
+        assert_eq!(parse_serve_https_url(&v, 7685), None);
+    }
+
+    #[test]
+    fn proxy_target_matches_loopback_variants() {
+        assert!(proxy_targets_local_port("http://127.0.0.1:7685", 7685));
+        assert!(proxy_targets_local_port("http://localhost:7685", 7685));
+        assert!(!proxy_targets_local_port("http://127.0.0.1:7686", 7685));
+        assert!(!proxy_targets_local_port("http://10.0.0.5:7685", 7685));
+        assert!(!proxy_targets_local_port("garbage", 7685));
+    }
 
     #[test]
     fn parse_first_ip_happy_path() {
