@@ -659,6 +659,16 @@ pub trait AgentProvider: Send + Sync {
         }
     }
 
+    /// Parse provider-specific interactive prompts (AskUserQuestion, ...) out of a
+    /// single parsed message. Default: none. Core never branches on provider id —
+    /// it asks every provider via this capability.
+    fn parse_interactive_events(
+        &self,
+        _msg: &crate::agent::chat_types::RichMessage,
+    ) -> Vec<crate::agent::chat_types::InteractiveElement> {
+        Vec::new()
+    }
+
     /// Provider serves chat as structured messages it parses itself (e.g.
     /// sqlite) rather than a tailable JSONL file. When true, the host uses
     /// `read_structured_chat` and a DB poller instead of `session_jsonl_path`

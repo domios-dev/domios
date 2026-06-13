@@ -13,6 +13,38 @@
 
 use serde::{Deserialize, Serialize};
 
+/// A provider-agnostic interactive prompt surfaced to the chat UI. Populated
+/// by the enrich pipeline (`AgentProvider::parse_interactive_events`), never
+/// from raw JSONL parsing. New kinds (Confirm, Select, …) plug in here so call
+/// sites that already render `Vec<InteractiveElement>` need no change.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum InteractiveElement {
+    Question(InteractiveQuestion),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InteractiveQuestion {
+    /// Stable widget key: `{tool_use_id}-{question_index}`.
+    pub id: String,
+    /// Source AskUserQuestion tool_use id — answer-routing correlation.
+    pub tool_use_id: String,
+    pub prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub header: Option<String>,
+    pub options: Vec<InteractiveOption>,
+    pub multi_select: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InteractiveOption {
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageBlock {
     /// "text" | "thinking" | "tool_use" | "tool_result" | ...
@@ -52,6 +84,10 @@ pub struct RichMessage {
     /// Raw ISO timestamp string passed straight through to the frontend.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub timestamp: Option<String>,
+    /// Interactive prompts extracted from this message by the provider. Filled
+    /// by the enrich pipeline, not by JSONL parsing.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub interactive: Vec<InteractiveElement>,
 }
 
 /// Result of a single delta read on a session JSONL. `new_offset` is the
@@ -125,6 +161,9 @@ pub struct ChatMsg {
     /// Default-collapsed in the UI (tool calls/results, thinking).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub collapsed: bool,
+    /// Interactive prompts attached to this message (matched by tool_use id).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub interactive: Vec<InteractiveElement>,
 }
 
 /// Result of one structured-chat read. `cursor` is an opaque bookmark
