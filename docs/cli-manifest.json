@@ -3236,38 +3236,6 @@
           "subcommands": []
         },
         {
-          "name": "exec",
-          "about": "Execute a command on a remote mesh peer",
-          "aliases": [],
-          "args": [
-            {
-              "name": "command",
-              "positional": true,
-              "value_name": "COMMAND",
-              "default": null,
-              "help": "Command to execute",
-              "aliases": []
-            },
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": "general",
-              "help": "Target pane on remote instance (default: general)",
-              "aliases": []
-            },
-            {
-              "name": "target",
-              "positional": true,
-              "value_name": "TARGET",
-              "default": null,
-              "help": "Target peer name or instance ID",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
           "name": "offline",
           "about": "Go offline: stop pinging peers, stop announcing, stop refreshing local addresses (which keeps Tailscale alive). The daemon stays up; peers will time out our presence on their side. Local-only command",
           "aliases": [],
@@ -4830,6 +4798,14 @@
               "value_name": "HOST",
               "default": null,
               "help": "Host override (default: Tailscale IP > LAN IP > 127.0.0.1)",
+              "aliases": []
+            },
+            {
+              "name": "peer",
+              "positional": false,
+              "value_name": "PEER",
+              "default": null,
+              "help": "Build a link for a paired mesh PEER (by instance name) instead of this machine: resolves the peer's host (prefers its HTTPS tailscale-serve FQDN) and mints the peer's web token. Overrides --host/--port",
               "aliases": []
             },
             {

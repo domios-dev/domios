@@ -184,6 +184,24 @@ fn validate_relay_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Inject the authenticated originating-peer name into a relayed `/send` body
+/// so the forwarded local send handler can build a peer-qualified source
+/// prefix. No-op for non-send relays. The peer name overrides any body-supplied
+/// value — it is derived from the signed token, not the (spoofable) payload.
+fn tag_relay_send_source(
+    body: &mut serde_json::Value,
+    method: &str,
+    path: &str,
+    sender_name: &str,
+) {
+    if !(path.contains("/send") && method.eq_ignore_ascii_case("POST")) {
+        return;
+    }
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("source_peer".into(), serde_json::json!(sender_name));
+    }
+}
+
 pub async fn mesh_relay(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -228,25 +246,13 @@ pub async fn mesh_relay(
             .unwrap_or_else(|| sender_id.clone())
     };
 
-    // Prefix text with the unified CodeTerm marker for send endpoints.
+    // Tag the originating peer so the forwarded local /send applies the one
+    // canonical, agent-guarded CtxPrefix (agents get `label@peer`; shells stay
+    // verbatim). `sender_name` comes from the signed token, so a peer cannot
+    // spoof its own identity. We do NOT pre-wrap here — prefixing lives in the
+    // single send handler to keep one source of truth and one agent guard.
     let mut body = cmd.body.clone();
-    if cmd.path.contains("/send") && cmd.method.eq_ignore_ascii_case("POST") {
-        if let Some(text) = body.get("text").and_then(|v| v.as_str()) {
-            let source_pane = body
-                .get("source_pane")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            body["text"] = serde_json::json!(crate::service::msg_prefix::CtxPrefix::message(
-                &sender_name,
-                source_pane
-            )
-            .mesh(Some(sender_name.clone()))
-            .wrap(text));
-            if let Some(obj) = body.as_object_mut() {
-                obj.remove("source_pane");
-            }
-        }
-    }
+    tag_relay_send_source(&mut body, &cmd.method, &cmd.path, &sender_name);
 
     let local_url = format!("http://127.0.0.1:{}{}", state.api_port, cmd.path);
     let signed_token = state.mesh.lock().sign_request().map_err(|e| {
@@ -325,7 +331,38 @@ pub async fn mesh_relay(
 
 #[cfg(test)]
 mod tests {
-    use super::{path_requires_full_access, validate_relay_path};
+    use super::{path_requires_full_access, tag_relay_send_source, validate_relay_path};
+
+    #[test]
+    fn relay_send_tags_originating_peer() {
+        let mut body = serde_json::json!({"text": "hi", "source_pane": "e8a0ac20"});
+        tag_relay_send_source(&mut body, "POST", "/api/panes/general/send", "BLACKSTAR");
+        assert_eq!(body["source_peer"], serde_json::json!("BLACKSTAR"));
+        // Text is NOT pre-wrapped — the send handler owns prefixing.
+        assert_eq!(body["text"], serde_json::json!("hi"));
+        assert_eq!(body["source_pane"], serde_json::json!("e8a0ac20"));
+    }
+
+    #[test]
+    fn relay_send_peer_overrides_spoofed_body_value() {
+        let mut body = serde_json::json!({"text": "hi", "source_peer": "I-AM-ROOT"});
+        tag_relay_send_source(&mut body, "post", "/api/panes/x/send", "BLACKSTAR");
+        assert_eq!(body["source_peer"], serde_json::json!("BLACKSTAR"));
+    }
+
+    #[test]
+    fn relay_non_send_paths_untouched() {
+        let mut body = serde_json::json!({"foo": "bar"});
+        tag_relay_send_source(&mut body, "GET", "/api/panes", "BLACKSTAR");
+        assert_eq!(body.get("source_peer"), None);
+        let mut body2 = serde_json::json!({"foo": "bar"});
+        tag_relay_send_source(&mut body2, "GET", "/api/panes/x/send", "BLACKSTAR");
+        assert_eq!(
+            body2.get("source_peer"),
+            None,
+            "GET /send must not be tagged"
+        );
+    }
 
     #[test]
     fn valid_relay_paths_pass() {
