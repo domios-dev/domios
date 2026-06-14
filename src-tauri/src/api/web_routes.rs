@@ -398,11 +398,14 @@ pub async fn claim_resize_owner(
     Json(body): Json<ResizeOwnerBody>,
 ) -> Result<Json<crate::resize_owner::ResizeOwner>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let owner =
-        state
-            .resize_owner
-            .lock()
-            .claim(pane_id, body.pty_id, body.client_id, body.cols, body.rows, body.force);
+    let owner = state.resize_owner.lock().claim(
+        pane_id,
+        body.pty_id,
+        body.client_id,
+        body.cols,
+        body.rows,
+        body.force,
+    );
     state
         .events
         .publish(crate::api::events::SystemEvent::Generic {

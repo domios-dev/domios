@@ -46,7 +46,13 @@ mod tests {
 
     #[test]
     fn leaves_normal_titles_unchanged() {
-        assert_eq!(normalize_agent_title_value("web 404 investigator"), "web 404 investigator");
-        assert_eq!(normalize_agent_title_value("C:/Projects/Git/web"), "C:/Projects/Git/web");
+        assert_eq!(
+            normalize_agent_title_value("web 404 investigator"),
+            "web 404 investigator"
+        );
+        assert_eq!(
+            normalize_agent_title_value("C:/Projects/Git/web"),
+            "C:/Projects/Git/web"
+        );
     }
 }
