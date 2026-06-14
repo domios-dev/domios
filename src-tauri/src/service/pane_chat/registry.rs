@@ -118,6 +118,13 @@ impl ChatRegistry {
         }
     }
 
+    pub fn shutdown_pane(&self, pane_id: &str) {
+        let h = self.inner.lock().remove(pane_id).map(|entry| entry.handle);
+        if let Some(handle) = h {
+            handle.shutdown();
+        }
+    }
+
     pub fn is_running(&self, pane_id: &str) -> bool {
         self.inner.lock().contains_key(pane_id)
     }
@@ -230,6 +237,15 @@ mod tests {
         assert!(!registry.is_running("pane"));
         assert!(registry.insert("pane".into(), "new-sid".into(), handle_at(9)));
         assert_eq!(registry.current_offset("pane"), Some(9));
+    }
+
+    #[test]
+    fn shutdown_pane_stops_even_with_multiple_subscribers() {
+        let registry = ChatRegistry::default();
+        assert!(registry.insert("pane".into(), SID.into(), handle_at(42)));
+        assert!(registry.acquire("pane", SID));
+        registry.shutdown_pane("pane");
+        assert!(!registry.is_running("pane"));
     }
 
     #[test]

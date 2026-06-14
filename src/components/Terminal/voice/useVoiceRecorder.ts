@@ -17,6 +17,11 @@ export interface VoicePreviewData {
 }
 
 const WAVEFORM_BARS = 40;
+const LIVE_WAVEFORM_BARS = 24;
+
+function quietLiveWaveform(): number[] {
+  return new Array(LIVE_WAVEFORM_BARS).fill(0.1);
+}
 
 /** Downsample the raw per-tick peaks captured while recording into a fixed
  * bar count, normalised to 0..1 so the preview waveform fills its track. */
@@ -48,6 +53,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [preview, setPreview] = useState<VoicePreviewData | null>(null);
+  const [livePeaks, setLivePeaks] = useState<number[]>(quietLiveWaveform);
 
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -126,6 +132,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
         let peak = 0;
         for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128) / 128);
         peaksRef.current.push(peak);
+        setLivePeaks((prev) => [...prev.slice(1), Math.max(0.08, Math.min(1, peak * 3.2))]);
       }, 60);
     } catch {
       // Waveform is decorative — never let analyser setup break recording.
@@ -168,6 +175,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       mimeRef.current = mime;
       const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       chunksRef.current = [];
+      setLivePeaks(quietLiveWaveform());
       stopKindRef.current = "send";
       startedAtRef.current = performance.now();
       rec.ondataavailable = (e) => {
@@ -227,6 +235,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       teardownAnalyser();
+      setLivePeaks(quietLiveWaveform());
       onError(microphoneErrorMessage(e));
       return false;
     }
@@ -249,6 +258,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       rec.stop();
       recRef.current = null;
       setRecording(false);
+      setLivePeaks(quietLiveWaveform());
     });
   }
 
@@ -281,5 +291,5 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     });
   }
 
-  return { recording, elapsed, preview, start, stop, stopForPreview, commitPreview, discardPreview };
+  return { recording, elapsed, preview, livePeaks, start, stop, stopForPreview, commitPreview, discardPreview };
 }

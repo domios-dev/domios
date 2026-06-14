@@ -465,7 +465,7 @@ A repo-wide `tracing` filter prevents the `secrets::*` modules from logging at `
 
 ### UI (Phase 3)
 
-- WebDriver smoke: open Settings → Secrets, switch backend dropdown to Mock, sign in (mock accepts any creds), save a secret via the form, list shows it, delete clears it.
+- Playwright/CDP smoke: open Settings → Secrets, switch backend dropdown to Mock, sign in (mock accepts any creds), save a secret via the form, list shows it, delete clears it.
 - Manual test plan in `docs/SECRETS.md` covers: real Bitwarden login (interactive), API-key login, lock/unlock cycle, sign-out, backend swap.
 
 ### Regression (Phase 4)
@@ -492,4 +492,4 @@ Each phase compiles, has its own tests, and gets a `code-reviewer` pass before m
 2. **Per-pane vs per-machine auth:** all panes inside the same daemon share the unlocked vault. That's the right default for a desktop app. If we ever want per-pane scoping (e.g. "agent X in pane Y can only read secrets tagged `work`"), it's a layer on top — not in the trait surface for now.
 3. **Naming:** `codeterm mem secret` reads as "this is a memory subcommand," which it isn't really — secrets are stored externally. We could surface a top-level `codeterm secret` aliasing the same handlers. The user's brief says reuse the mem surface; sticking with that for v1, will revisit if it's noisy in practice.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

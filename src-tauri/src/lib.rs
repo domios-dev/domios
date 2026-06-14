@@ -9,6 +9,7 @@ mod commands_mesh;
 mod config;
 mod crash;
 pub mod cron;
+pub mod delayed_send;
 pub mod dispatch;
 mod keepawake;
 mod liveness;
@@ -99,13 +100,6 @@ pub fn run() {
             }
             updater.build()
         });
-
-    // WebDriver plugin for E2E UI testing (cargo build --features webdriver)
-    #[cfg(feature = "webdriver")]
-    {
-        builder = builder.plugin(tauri_plugin_webdriver::init());
-        log::info!("WebDriver plugin enabled for E2E testing");
-    }
 
     // Single-instance: only in release builds so dev and prod can run side by side
     if !cfg!(debug_assertions) {
@@ -202,6 +196,11 @@ pub fn run() {
             commands::chat_backfill,
             commands::chat_send_text,
             commands::transcribe_voice_attachment,
+            commands::delayed_send_list,
+            commands::delayed_send_create,
+            commands::delayed_send_update,
+            commands::delayed_send_delete,
+            commands::delayed_send_send_now,
             commands::check_cli_installed,
             commands::install_provider_in_pane,
             commands::plugin_manager_snapshot,
@@ -524,6 +523,10 @@ pub fn run() {
                 bridge_supervisor: Arc::new(bridge::supervisor::BridgeSupervisor::new()),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
                 chat_registry: crate::service::pane_chat::ChatRegistry::new(),
+                delayed_send: crate::delayed_send::DelayedSendQueue::open(
+                    crate::paths::data_dir().join("delayed_send.json"),
+                )
+                .expect("delayed_send init"),
                 secrets: {
                     let cfg_guard = states.config.lock();
                     let cfg = cfg_guard.integrations.secrets.clone();
@@ -547,6 +550,7 @@ pub fn run() {
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
+            crate::delayed_send::start_scheduler(service_state.clone());
 
             // Re-kick session-name + model pollers for panes restored from snapshot: set_pane_agent_type fires on transitions, but a restore brings
             // agent_type back already-set so no transition ever happens. Walk the restored panes once at boot.

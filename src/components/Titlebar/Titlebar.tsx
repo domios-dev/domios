@@ -6,6 +6,7 @@ import logoUrl from "../../assets/logo.png";
 
 import { isMac } from "../../lib/keybindings";
 import { UI_BUTTON } from "../shared/design";
+import { UpdateBadge } from "../UpdateBadge";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { MeshPresenceTray } from "./MeshPresenceTray";
 
@@ -19,11 +20,10 @@ interface TitlebarProps {
 export function Titlebar({
   onToggleSidebar: _onToggleSidebar,
   theme: _theme,
-  onOpenSettingsAbout: _onOpenSettingsAbout,
+  onOpenSettingsAbout,
 }: TitlebarProps) {
   void _theme;
   void _onToggleSidebar;
-  void _onOpenSettingsAbout;
   // Window chrome controls only exist in the Tauri shell; the browser tab owns its own window in web-mirror mode.
   const isTauri = "__TAURI_INTERNALS__" in window;
   const appWindow = isTauri ? getCurrentWindow() : null;
@@ -47,24 +47,28 @@ export function Titlebar({
         />
       )}
 
-      <div className="flex items-center gap-2 pl-3" data-tauri-drag-region>
+      <button
+        type="button"
+        onClick={onOpenSettingsAbout}
+        className="flex h-full items-center gap-2 pl-3 pr-2 text-left hover:bg-[var(--ct-hover)]"
+        title="About CodeTerm"
+      >
         <img
           src={logoUrl}
           alt=""
           className="h-4 w-4 rounded-sm opacity-90"
-          data-tauri-drag-region
         />
         <span
           className="text-[11px] font-medium text-[var(--ct-muted-fg)]"
-          data-tauri-drag-region
         >
           CodeTerm
         </span>
-      </div>
+      </button>
 
       <div className="flex-1" data-tauri-drag-region />
 
       <div className="flex items-center h-full gap-1">
+        <UpdateBadge />
         <MeshPresenceTray />
         <KeepAwakeTray />
       </div>

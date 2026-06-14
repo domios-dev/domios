@@ -1,5 +1,6 @@
 // Run: npx tsx packages/chat-core/src/dedupe.test.ts
 import { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
+import { markVoice } from "./markers";
 import type { NormalizedChatMessage } from "./types";
 
 let passed = 0;
@@ -25,8 +26,8 @@ function echo(id: string, content: string, sentAtMs: number): OptimisticEcho {
 
 const T0 = 1_700_000_000_000;
 
-// 1. No real echo yet → bubble stays pending forever (no timer eviction).
-//    This is root cause #1: the old 60s TTL deleted it; now only a real echo can.
+// 1. No real echo yet -> bubble stays pending. This helper clears only when
+//    the provider transcript proves the message landed.
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
     [echo("opt-1", "deploy the thing", T0)],
@@ -34,6 +35,54 @@ const T0 = 1_700_000_000_000;
   );
   eq(matchedIds, [], "no echo → not matched");
   eq(pendingIds, ["opt-1"], "no echo → stays pending");
+}
+
+// 9. Several quick sends may be accepted by a terminal TUI as one real user
+//    turn. The combined transcript turn claims each covered optimistic bubble.
+{
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [
+      echo("opt-1", "send many at once", T0),
+      echo("opt-2", "and check it", T0 + 100),
+    ],
+    [user("a-0", "send many at once and check it", T0 + 500)],
+  );
+  eq(matchedIds, ["opt-1", "opt-2"], "combined user turn clears covered bubbles");
+  eq(pendingIds, [], "combined user turn leaves no covered bubble pending");
+}
+
+// 10. Coverage is token-based and consume-once, so a one-token echo does not
+//     match inside a longer token and repeated short sends need repeated tokens.
+{
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echo("opt-1", "й", T0), echo("opt-2", "йо", T0 + 100), echo("opt-3", "йо", T0 + 200)],
+    [user("a-0", "йо й", T0 + 500)],
+  );
+  eq(matchedIds, ["opt-1", "opt-2"], "token coverage consumes exact token occurrences");
+  eq(pendingIds, ["opt-3"], "missing repeated token stays pending");
+}
+
+// 11. A newer bubble is not cleared by an older combined history turn.
+{
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echo("opt-1", "fresh", T0)],
+    [user("old-0", "fresh other", T0 - 60_000)],
+  );
+  eq(matchedIds, [], "older combined turn does not clear fresh bubble");
+  eq(pendingIds, ["opt-1"], "fresh bubble remains pending");
+}
+
+// 12. CodeTerm voice markers are matched by their file identity. Provider
+//     timestamps can be older than the optimistic update because transcription
+//     formats the marker before the TUI records the user turn.
+{
+  const file = "C:\\tmp\\voice-note-123.webm";
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echo("opt-voice", markVoice(file, null, "no transcriber daemon"), T0)],
+    [user("voice-0", markVoice(file, "transcribed later", null), T0 - 60_000)],
+  );
+  eq(matchedIds, ["opt-voice"], "voice marker clears by file identity");
+  eq(pendingIds, [], "voice marker leaves no duplicate pending bubble");
 }
 
 // 2. Real echo with equal content AND timestamp >= sentAt → matched (bubble cleared).

@@ -214,7 +214,11 @@ pub(crate) fn handle_send_text(
     text: Option<String>,
     from_file: Option<String>,
     stdin: bool,
-    submit: bool,
+    actions: Option<String>,
+    delay: Option<String>,
+    at: Option<String>,
 ) {
-    crate::cmd::send_text::handle_send_text(client, json, pane, text, from_file, stdin, submit);
+    crate::cmd::send_text::handle_send_text(
+        client, json, pane, text, from_file, stdin, actions, delay, at,
+    );
 }

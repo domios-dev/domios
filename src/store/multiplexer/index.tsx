@@ -321,6 +321,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       }
       // Set `agent_type` early so detect_from_output can save session IDs.
       invoke("mux_set_pane_agent_type", { paneId: tabInfo.pane_id, agentType: agentId }).catch(() => {});
+      await loadDefaultNewAgentPaneChat().catch(() => false);
       if (shouldDefaultNewAgentPaneToChat(agentId)) {
         invoke("mux_set_chat_view", { paneId: tabInfo.pane_id, enabled: true }).catch(() => {});
       }

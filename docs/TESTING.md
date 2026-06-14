@@ -16,7 +16,6 @@ For assertion discipline and layer-specific recipes, see `docs/contributing/writ
 | API e2e | `tests/e2e/test_*.py` | pytest (`./build.sh e2e`) | no | yes (7686) | spike (D7) | <30s |
 | UI smoke | `tests/playwright`, `@smoke` | `pnpm test:pw:smoke` | no | yes | local-only* | <10s |
 | UI golden | `tests/playwright`, `@golden` | `pnpm test:pw:golden` | yes | yes | local-only* | <5min |
-| WebDriver | `tests/webdriver/` | wdio | no | yes | local-only | <30s |
 | Behaviour bench | `evals/<name>/` | `bash run.sh` via `_lib/lib.sh` | yes | yes (dev-locked) | never | unbounded |
 
 \* Playwright stays out of hosted CI by decision because it needs a WebView2
@@ -138,35 +137,25 @@ pip install -r tests/e2e/requirements.txt  # requests, pytest
 
 ## UI tests
 
-Test real app UI via WebDriver against the actual Tauri WebView. Click buttons, verify elements render, test prompt approval flow.
+Test real app UI with Playwright against the actual Tauri dev console. On
+Windows, CodeTerm's WebView2 window exposes Chrome DevTools Protocol on port
+9223; Playwright attaches with `chromium.connectOverCDP`, so tests drive the
+real Tauri WebView, real IPC, and real daemon state.
 
 ```bash
-# Needs dev instance with WebDriver enabled
-pnpm tauri dev --config src-tauri/tauri.dev.conf.json -- --features webdriver
-
-# Run tests
-cd tests/webdriver && npm test
-
-# Run specific spec
-cd tests/webdriver && npx wdio run wdio.conf.js --spec specs/prompt-approval.js
+./build.sh dev --wait
+pnpm test:pw:lint
+pnpm test:pw:smoke
+pnpm test:pw:golden
+pnpm test:pw:full
 ```
 
-### UI test specs
+Operational details live in `tests/playwright/README.md`: CDP setup,
+projects/tags, golden-test policy, web-mirror mode, and prod guards.
 
-| File | Tests | What |
-|------|-------|------|
-| `app-loads.js` | 3 | App renders, sidebar, terminal |
-| `prompt-approval.js` | 16 | Prompt card, buttons, click Yes/No, two-pane isolation, custom labels |
-
-### UI test setup
-
-Requires `tauri-plugin-webdriver` (embedded WebDriver on port 4445):
-- Cargo feature: `--features webdriver` (not included in production)
-- Works on all platforms: macOS (WKWebView), Windows (WebView2), Linux (WebKitGTK)
-
-```bash
-cd tests/webdriver && npm install  # first time
-```
+The legacy Tauri WebDriver/WDIO harness was removed; do not add new WebDriver
+tests. For browser-mode `/web` coverage, use the `tests/playwright/suites/12-web`
+suite, which launches a normal browser against the daemon's web mirror.
 
 ## Logging
 
@@ -194,8 +183,8 @@ Known platform differences:
 
 ## Manual paste smoke matrix
 
-Paste paths must be re-checked manually on each platform until the
-WebDriver harness lands (#102 follow-up). All paths route through
+Paste paths must be re-checked manually on each platform where Playwright
+cannot exercise the OS clipboard path directly. All paths route through
 `src/lib/clipboardPaste.ts` — file/image classification is shared,
 so a regression in one path usually means a regression in all.
 
@@ -331,4 +320,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

@@ -15,11 +15,13 @@ import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { CrashReportToast } from "./components/CrashReportToast";
 import { ChatUiDefaultPrompt } from "./components/ChatUiDefaultPrompt";
+import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { HamburgerIcon } from "./components/Icons";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useAgentProviders } from "./hooks/useAgentProviders";
+import { UpdateProvider } from "./hooks/useUpdate";
 import {
   MultiplexerProvider,
   useMultiplexer,
@@ -781,6 +783,8 @@ function AppInner() {
       <ChatUiDefaultPrompt />
 
       <NavigationBackBar onBack={handleBackToMemory} />
+
+      <UpdateProgressLayer />
     </div>
   );
 }
@@ -788,7 +792,9 @@ function AppInner() {
 export function App() {
   return (
     <MultiplexerProvider>
-      <AppInner />
+      <UpdateProvider>
+        <AppInner />
+      </UpdateProvider>
     </MultiplexerProvider>
   );
 }

@@ -117,7 +117,7 @@ pub async fn start(
             cwd: info.cwd.clone(),
             session_id: info.session_id.clone(),
             start_offset: snapshot.new_offset,
-            poll_interval: std::time::Duration::from_millis(500),
+            poll_interval: crate::service::pane_chat::live_chat_poll_interval(),
         },
         state.svc.agent_registry.clone(),
         sink,

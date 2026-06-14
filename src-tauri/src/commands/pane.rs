@@ -135,7 +135,7 @@ pub fn read_session_jsonl(
     tail_bytes: Option<u64>,
 ) -> Result<String, String> {
     // 1. Get agent_session_id, agent_type, and cwd from pane
-    let (mut session_id, cwd, agent_type) = {
+    let (session_id, cwd, agent_type) = {
         let m = mux.lock();
         let pane = m
             .get_pane(&pane_id)
@@ -314,7 +314,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                     cwd: cwd.clone(),
                     session_id: session_id.clone(),
                     start_cursor: cursor.clone(),
-                    poll_interval: std::time::Duration::from_millis(500),
+                    poll_interval: crate::service::pane_chat::live_chat_poll_interval(),
                 },
                 svc.agent_registry.clone(),
                 sink,
@@ -367,7 +367,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                 cwd: cwd.clone(),
                 session_id: session_id.clone(),
                 start_offset: total,
-                poll_interval: std::time::Duration::from_millis(500),
+                poll_interval: crate::service::pane_chat::live_chat_poll_interval(),
             },
             svc.agent_registry.clone(),
             sink,

@@ -15,6 +15,7 @@ export {
   type FingerprintableChatMessage,
 } from "./normalize";
 export { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
+export { lastSessionResetIndex, trimAfterSessionReset } from "./sessionReset";
 export {
   MARKER_OPEN,
   MARKER_CLOSE,

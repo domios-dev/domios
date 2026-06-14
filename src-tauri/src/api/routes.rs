@@ -7,11 +7,11 @@ use axum::{
 use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, cors::CorsLayer};
 
 use super::{
-    agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, fs_routes, git_routes,
-    health_routes, hook_routes, logs_routes, mem_routes, mesh_routes, network_routes,
-    notification_routes, pane_chat_routes, pane_routes, pasteboard_routes, services_routes,
-    session_routes, theme_routes, updater_routes, usage_routes, web_routes, webhook_routes,
-    workspace_routes,
+    agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, delayed_send_routes,
+    fs_routes, git_routes, health_routes, hook_routes, logs_routes, mem_routes, mesh_routes,
+    network_routes, notification_routes, pane_chat_routes, pane_routes, pasteboard_routes,
+    services_routes, session_routes, theme_routes, updater_routes, usage_routes, web_routes,
+    webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -109,6 +109,18 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/panes/{id}/chat/backfill",
             post(pane_chat_routes::backfill),
+        )
+        .route(
+            "/api/panes/{id}/delayed-messages",
+            get(delayed_send_routes::list).post(delayed_send_routes::create),
+        )
+        .route(
+            "/api/delayed-messages/{id}",
+            axum::routing::patch(delayed_send_routes::update).delete(delayed_send_routes::delete),
+        )
+        .route(
+            "/api/delayed-messages/{id}/send-now",
+            post(delayed_send_routes::send_now),
         )
         .route("/api/serve-file", get(notification_routes::serve_file))
         .route(

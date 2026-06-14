@@ -12,6 +12,7 @@ use crate::mesh_cli::MeshAction;
 use super::agent::AgentAction;
 use super::cron::CronAction;
 use super::debug::DebugAction;
+use super::delayed::DelayedAction;
 use super::mem::MemAction;
 use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
@@ -89,7 +90,7 @@ pub enum Commands {
     },
 
     /// Send text to a pane (default: current pane)
-    #[command(name = "send", visible_alias = "send-text")]
+    #[command(name = "send")]
     SendText {
         /// Text to send (positional, or omit and use --from-file/--stdin)
         text: Option<String>,
@@ -116,12 +117,27 @@ pub enum Commands {
         #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
         stdin: bool,
 
-        /// Submit with a bare Enter. Allows EMPTY text — use to submit a paste
-        /// that landed in an agent's composer but never sent (the manual
-        /// unstick for the long-message no-submit case). With text, behaves like
-        /// a normal send (text is submitted, which is already the default).
-        #[arg(long, visible_alias = "enter")]
-        submit: bool,
+        /// Terminal actions to run after optional text, comma-separated.
+        /// Examples: enter, esc, up, down, left, right, tab, backspace,
+        /// ctrl-c, delay:250ms. With --actions, text is inserted first but
+        /// not auto-submitted; include enter when you want to submit it.
+        #[arg(long, conflicts_with_all = ["delay", "at"])]
+        actions: Option<String>,
+
+        /// Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d.
+        /// Bare number means minutes.
+        #[arg(long, conflicts_with = "at")]
+        delay: Option<String>,
+
+        /// Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM.
+        #[arg(long, conflicts_with = "delay")]
+        at: Option<String>,
+    },
+
+    /// Manage delayed Chat UI sends
+    Delayed {
+        #[command(subcommand)]
+        action: DelayedAction,
     },
 
     /// Web mirror helpers (share links, etc.)

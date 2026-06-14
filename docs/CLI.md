@@ -66,7 +66,7 @@ Read reports (for orchestrator panes)
 
 #### `codeterm agent restart`
 
-Restart agent (gracefully /exit + auto-resume to pick up settings or recover)
+Restart agent (graceful exit; resumes only when the pane has a valid session)
 
 - `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
 - `--grace_secs` — Wait this long for graceful exit before force-killing (seconds)
@@ -264,6 +264,50 @@ Internal diagnostics — verify crash reporter, etc. Dev-only; hidden from --hel
 Trigger a synthetic crash to verify the crash-reporter writes files. Daemon dies (segv/abort) or just records a panic report (panic). Only available in dev builds
 
 - `--kind` — Kind of crash to trigger
+
+#### `codeterm delayed`
+
+Manage delayed Chat UI sends
+
+#### `codeterm delayed create`
+
+Queue a delayed message
+
+- `--at` — Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--delay` — Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes
+- `--from_file` — Read text from a file instead of the positional arg
+- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--stdin` — Read text from stdin
+- `<text>` — Text to queue (positional, or omit and use --from-file/--stdin)
+
+#### `codeterm delayed delete`
+
+Delete a delayed message
+
+- `<id>` — Delayed message ID
+
+#### `codeterm delayed edit`
+
+Edit a queued or failed delayed message
+
+- `--at` — Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--delay` — Relative delay from now: 45s, 10m, 1h30m, 2d. Bare number means minutes
+- `--from_file` — Read replacement text from a file
+- `<id>` — Delayed message ID
+- `--stdin` — Read replacement text from stdin
+- `--text` — Replacement text
+
+#### `codeterm delayed list`
+
+List delayed messages for a pane
+
+- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+
+#### `codeterm delayed send-now`
+
+Send a delayed message immediately
+
+- `<id>` — Delayed message ID
 
 #### `codeterm docs`
 
@@ -1161,12 +1205,12 @@ Update bundled system provider plugins from the official plugin channel
 
 Send text to a pane (default: current pane)
 
-Aliases: send-text
-
+- `--actions` — Terminal actions to run after optional text, comma-separated. Examples: enter, esc, up, down, left, right, tab, backspace, ctrl-c, delay:250ms. With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
+- `--at` — Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes
 - `--from_file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
 - `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
 - `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
-- `--submit` — Submit with a bare Enter. Allows EMPTY text — use to submit a paste that landed in an agent's composer but never sent (the manual unstick for the long-message no-submit case). With text, behaves like a normal send (text is submitted, which is already the default)
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 
 #### `codeterm service`
@@ -1318,12 +1362,6 @@ Check for updates and manage CodeTerm version
 
 - `--after_update` — Message to inject into the General Agent pane after the new daemon boots. Useful for remote-triggered updates ("run the update and then verify health") — GA reads it as user input post-restart
 - `--manifest_url` — Override manifest URL when paired with `install --auto`. Backend must be built with `dev-updater-allowlocal` for non-https URLs
-
-#### `codeterm update channel`
-
-Get or set the update channel (stable, rc, nightly)
-
-- `<channel>` — New channel value. Omit to print current channel
 
 #### `codeterm update check`
 

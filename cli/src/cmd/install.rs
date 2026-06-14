@@ -57,7 +57,7 @@ pub fn run_install_from_file(
             :api_ready\r\n\
             echo [self-install] daemon API ready, waiting 5s for shell+agent resume >> \"%LOG%\"\r\n\
             timeout /t 5 /nobreak > nul\r\n\
-            \"{cli}\" send-text --pane {pane} --from-file \"{file}\" >> \"%LOG%\" 2>&1\r\n\
+            \"{cli}\" send --pane {pane} --from-file \"{file}\" >> \"%LOG%\" 2>&1\r\n\
             echo [self-install] continue prompt delivered >> \"%LOG%\"\r\n\
             del \"{file}\" 2>nul\r\n\
             :cleanup\r\n",

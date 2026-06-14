@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod bridge;
 pub mod cron;
+pub mod delayed;
 pub mod docs;
 pub mod dream;
 pub mod graph_mutate;

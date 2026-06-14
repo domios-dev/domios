@@ -29,7 +29,7 @@ product version. `codeterm identify` is authoritative for version/build.
 Commands default to the **current focused pane** when no id is given. Reference your own pane via `$CODETERM_PANE_ID` — `pane current` returns the *focused* pane, which may be someone else's.
 
 ```bash
-codeterm pane list                                 # workspace tree: pane id, name, model; sub-agents nested. --agents = agent panes only
+codeterm pane list                                 # workspace tree: workspace ids, pane ids, names, models; sub-agents nested
 codeterm pane search "<pattern>"                   # fuzzy across tab name, model, agent, id — cross-script (Далтон → Dalton)
 codeterm pane new --workspace WS_ID [--cmd "<sh>"]  # plain shell pane (no agent) that runs --cmd on spawn → servers/watchers/long processes
                                                    # PREFER this over running them inside your own shell: e.g. spawn frontend + backend
@@ -39,72 +39,99 @@ codeterm pane rename "title"                       # your tab; no --pane needed
 codeterm pane focus PANE_ID
 codeterm pane close PANE_ID
 codeterm pane stop [--pane PANE_ID]                 # interrupt the agent's current generation. Does NOT close the pane.
-codeterm send "text" --pane PANE_ID            # types text into the pane (agent prompt or shell)
+codeterm send "text" --pane PANE_ID                 # types text into the pane and submits it
+codeterm send --actions enter --pane PANE_ID         # press a key; useful for stuck prompts
+codeterm send "text" --actions enter --pane PANE_ID  # insert text, then run explicit actions
+codeterm send --actions "esc,delay:200ms,up,enter" --pane PANE_ID  # action sequence with delays
+codeterm send --delay 10m "text" --pane PANE_ID      # queue a future Chat UI send in 10 minutes
+codeterm send --delay 4h "text" --pane PANE_ID       # in 4 hours; units: s/m/h/d, compounds ok: 1h30m
+codeterm send --delay 1d "text" --pane PANE_ID       # in 24 hours; bare number means minutes
+codeterm send --at 2026-06-15T09:00 "text" --pane PANE_ID  # exact local time; RFC3339 also works
+codeterm delayed list --pane PANE_ID                 # list queued/failed delayed sends
+codeterm delayed edit ID --delay 5m --text "..."     # modify queued/failed delayed send
+codeterm delayed send-now ID                         # deliver queued/failed delayed send immediately
+codeterm delayed delete ID                           # remove queued/failed delayed send
 codeterm pane exec "<cmd>" --pane PANE_ID           # run a shell command headlessly; returns stdout
 codeterm get-output --pane PANE_ID                  # raw terminal scrollback
 codeterm pane chat --pane PANE_ID [--since N]       # PARSED chat transcript of an agent pane (text/thinking/tool calls/results) — inspect what a sub-agent actually did, not raw ANSI
 
-codeterm workspace list
-codeterm workspace create "Name" [--cwd PATH]      # empty, no auto-tab. --cwd becomes the default for agents spawned with --workspace.
-codeterm workspace focus ID
-codeterm workspace rename ID "New Name"
-codeterm workspace close ID
-codeterm workspace move-tab TAB FROM TO
+codeterm workspace create "Name" [--cwd PATH]       # optional: create an empty workspace for independent work; discover ids via pane list
 ```
 
-## Spawning sub-panes
+`send --actions` accepts comma-separated keys: `enter`, `esc`, `tab`,
+`backspace`, `delete`, `up`, `down`, `left`, `right`, `home`, `end`,
+`pageup`, `pagedown`, `space`, `ctrl-c`, plus `delay:250ms` / `delay:1s`.
+Repeats use `key*3` (for example `down*3`). When `--actions` is present,
+the optional text is inserted first but not auto-submitted; include `enter`
+when you want to submit it.
 
-A sub-pane is a child agent you own. Spawn one when a piece of the work feels like it belongs to you — your context, your responsibility, you'll get the report back — but you want it to run in its own pane: parallel work, isolated context, separate workspace, or a step the user should see live.
+Delayed sends are not the normal send path. Use `--delay` / `--at` only for
+future delivery the user asked for; plain `codeterm send` is immediate and
+must not be buffered by the agent.
 
-| Situation | How |
-|-----------|-----|
-| Sub-task you own (parent = you) | `codeterm agent spawn claude --task "... when done: codeterm agent report 'summary'"` |
-| Independent task with its own workspace | add `--workspace $WS` (no implicit parent) |
-| Task on another machine | add `--mesh PEER` (the peer runs it standalone) |
+## Spawning agents
 
-Sub-panes don't spawn further sub-panes — keep the tree one level deep. For multi-step work, plan the steps yourself and dispatch them as sibling `agent spawn` calls.
+Provider is the first positional argument (`claude`, `codex`, `opencode`, ...).
+Use provider/model discovery; do not hardcode model ids from memory.
 
 ```bash
-codeterm pane list                                 # workspace tree of panes; your sub-panes nest under you (--agents = agent panes only)
-codeterm pane list --agents                        # agent panes + hierarchy
-codeterm agent providers                           # registered providers (claude, codex, …) + default models + capabilities
-codeterm agent models <provider>                   # models a provider accepts (e.g. agent models claude)
-                                                   # providers/models/version come from these commands — never grep src/ or read source for them
-codeterm agent spawn claude --task "..." [--title T] [--workspace WS] [--mesh PEER] [--cwd PATH]
-codeterm agent report "summary"                    # report to your parent (when you ARE a sub-pane)
-codeterm agent reports                             # read your sub-panes' reports
+codeterm agent providers                           # providers + capabilities
+codeterm agent models claude                       # valid model ids for one provider
+codeterm agent spawn PROVIDER [--task TEXT] [--model MODEL] [--title T] [--workspace WS] [--cwd PATH] [--mesh PEER]
+```
+
+Two spawn shapes:
+
+| Shape | Use when | Command shape |
+|-------|----------|---------------|
+| Worker/sub-pane | Leaf task you own; child reports back to you; no further spawning | `codeterm agent spawn claude --role Worker --parent $CODETERM_PANE_ID --task "... when done: codeterm agent report 'summary'"` |
+| Orchestrator/root | Independent objective, separate workspace, or remote machine | `codeterm agent spawn codex --role Orchestrator --workspace WS_ID --task "..."` |
+
+Optional args: `--title` names the tab, `--workspace` chooses where the pane is
+created, `--cwd` overrides process cwd, `--mesh` runs the spawn on a peer,
+`--model` is the provider-specific spawn-time model selector. For existing panes,
+do not assume live model switching is universal; respawn/restart with the desired
+`--model` unless provider docs say otherwise.
+
+`--task` is launch-time input, not an inbound `-=-codeterm:pane...-=-` message.
+No return-address prefix is injected into the task. If the child must report or
+reply elsewhere, put the exact `codeterm agent report`, `codeterm send`, or
+`codeterm bridge send` command in the task body.
+
+```bash
+codeterm agent report "summary"                    # report to your parent/target when YOU are the spawned agent
+codeterm agent reports [--clear]                   # read reports addressed to this pane; clear after processing if desired
 codeterm pane status [--pane ID]                   # one pane's agent state (type, session, prompt)
 codeterm agent compact [--pane ID]                 # /compact
-codeterm agent model sonnet|haiku|opus [--pane ID]  # Claude panes only — Codex has no scriptable switch; respawn with `agent spawn codex --model`
-codeterm agent restart --pane ID [--force]         # graceful /exit + auto-resume; --force kills hung PTY
+codeterm agent restart --pane ID [--force]         # graceful exit; resumes only when session is valid; --force kills hung PTY
 ```
 
-**Always include `codeterm agent report '...'` in the task body** — without it the sub-pane finishes silently and you never hear back:
+Reports also auto-inject as `-=-codeterm:report ...-=-` messages into the target
+pane. React when they arrive; don't sleep/poll. Chase silent workers via
+`codeterm pane status --pane ID`, `codeterm pane chat --pane ID`, or
+`codeterm get-output --pane ID`.
 
-```bash
-codeterm agent spawn claude --title "Scout" \
-  --task "List files in ./src. When done: codeterm agent report 'found N files: ...'"
-```
-
-Reports auto-inject as `[Report from PANE_ID]` lines into your pane. React when they arrive — don't sleep/poll. Chase silent ones via `codeterm pane status` or `get-output --pane ID`.
-
-**Don't over-spawn.** Trivial recon (single grep/ls/cat/git/file read) — do it yourself. Spawn only for isolation, parallelism, separate workspace, or visible work the user wants to watch.
+Don't over-spawn. Trivial recon (single grep/ls/cat/git/file read) is local work.
+Spawn only for isolation, parallelism, separate workspace, remote execution, or
+visible work the user wants to watch.
 
 ## Message routing — the prefix is the return address
 
 Inbound messages can arrive with a CodeTerm marker telling you where they came from. That marker is the return address: reply via the same channel.
 
-| Incoming prefix | Reply with | Pane output? |
-|-----------------|------------|--------------|
-| `-=-codeterm:telegram user=USER_ID msg=N-=-text` | `codeterm bridge send --to USER_ID --service telegram "..."` | No |
-| `-=-codeterm:pane label=NAME pane=ID model=M-=-text` | `codeterm send "..." --pane ID` | No |
-| `-=-codeterm:mesh peer=PEER pane=ID-=-text` | `codeterm send "..." --pane ID --mesh PEER` | No |
-| `-=-codeterm:report from=NAME pane=ID ...-=-text` | Act on it or ignore; never reply | No |
-| *(no prefix)* | Normal pane chat | Yes |
+| Incoming prefix | Immediate tip | Reply with | Pane output? |
+|-----------------|---------------|------------|--------------|
+| `-=-codeterm:telegram user=USER_ID msg=N-=-text` | ANSWER IN TELEGRAM ONLY | `codeterm bridge send --to USER_ID --service telegram "..."` | No |
+| `-=-codeterm:pane label=NAME pane=ID model=M-=-text` | ANSWER BY COMMAND ONLY | `codeterm send "..." --pane ID` | No |
+| `-=-codeterm:mesh peer=PEER pane=ID-=-text` | ANSWER ON THAT PEER ONLY | `codeterm send "..." --pane ID --mesh PEER` | No |
+| `-=-codeterm:report from=NAME pane=ID ...-=-text` | REPORTS ARE INPUT, NOT CHAT | Act on it or ignore; never reply | No |
+| *(no prefix)* | LOCAL USER CHAT | Normal pane chat | Yes |
 
 When you `send --pane X` from inside a pane, the daemon stamps your message with `-=-codeterm:pane label=<your-name> pane=<your-id> model=<your-model>-=-` so the recipient and UI know who sent it.
 
-**Don't double-answer.** If the message came via Telegram, the user is on Telegram, not at the keyboard — reply via Telegram only, don't also dump the text in the pane. Same for mesh and inter-agent traffic.
+**Don't double-answer.** For Telegram/mesh/pane prefixes, the CLI command is
+the reply. After running it, do not also write the same answer in local pane
+output. The no-prefix case is the only normal pane-chat case.
 
 **Examples:**
 
@@ -129,19 +156,26 @@ The only case where you DO write in the pane is the no-prefix case (local user).
 
 ## Mesh networking
 
-CodeTerm instances form a mesh — flat peer model, paired = trusted, no king. Any local command works on a remote peer by adding `--mesh TARGET` (peer name or instance_id):
+CodeTerm instances form a mesh — flat peer model, paired = trusted, no king.
+Most pane/agent/workspace commands accept `--mesh PEER`, which means "run this
+against that peer's daemon and its panes", not the local machine.
 
 ```bash
 codeterm mesh status
 codeterm mesh peers                                # paired + discovered
-codeterm pane list --mesh PEER
-codeterm send "cmd" --pane ID --mesh PEER
-codeterm get-output --pane ID --mesh PEER
-codeterm agent spawn claude --task "..." --mesh PEER
-codeterm workspace create "CI" --mesh PEER
+codeterm pane list --mesh PEER                    # discover remote workspaces/pane ids
+codeterm get-output --pane ID --mesh PEER          # raw terminal scrollback from that remote pane
+codeterm pane chat --pane ID --mesh PEER           # parsed chat transcript from that remote agent pane
 ```
 
-Flow: `mesh peers` → find paired peer → `pane list --mesh PEER` → interact. Only paired peers accept commands. Mesh pairing (`mesh connect|approve|reject|disconnect`) is local to each machine and typically managed by the General Agent there.
+Use the same commands shown earlier with `--mesh PEER` appended when the target
+is remote. `get-output` is raw terminal bytes/scrollback; use `pane chat` when
+you want assistant/user/tool messages parsed from an agent session.
+
+Flow: `mesh peers` → find paired peer → `pane list --mesh PEER` → act on a
+specific remote pane/workspace id. Only paired peers accept commands. Mesh
+pairing (`mesh connect|approve|reject|disconnect`) is local to each machine and
+typically managed by the General Agent there.
 
 ### Pair a new device — `mesh broadcast`
 
@@ -173,17 +207,6 @@ codeterm agent spawn claude --mesh ROG --workspace WS \
 In-memory only, 20 entries max, TTL 1h default / 24h max, restart wipes. Not `mem save` — that pollutes the vector index.
 
 `paste get --pop|list|rm` — `--pop` reads + deletes. `--mesh PEER` works on every subcommand.
-
-## Web access link — `web link`
-
-When the user asks for "the web link" / "open me on the web" / "ссылку на веб":
-
-```bash
-codeterm web link            # http://<tailscale-ip>:<port>/web/#token=…  — paste-ready
-codeterm web link --json     # {"url": …, "host": …, "port": …}
-```
-
-Host auto-picks Tailscale > LAN > loopback (`--host`/`--port` override). The token rides the URL **fragment** so it never reaches server or proxy logs; `--query` emits `?token=` instead (more typeable, but loggable). The link authenticates THIS machine only — for another peer, run `web link` there (it's local-only over `--mesh` by design). Reply with the URL verbatim.
 
 ## Periodic tasks (cron)
 
@@ -239,47 +262,35 @@ codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--clai
 # Run on the SOURCE machine; --mesh PEER is rejected.
 ```
 
-## Themes & UI
-
-```bash
-codeterm theme list
-codeterm theme apply dracula
-codeterm notify "Title" --level info --body "Details"
-codeterm notifications --unread
-codeterm notifications clear
-```
-
-`Cmd+K` / `Ctrl+K` opens the command palette for quick tab/workspace/theme access.
-
 ## Updates
 
 ```bash
 codeterm update check                              # poll manifest
 codeterm update install --auto                     # download → verify ed25519 sig → install → restart
-codeterm update channel rc                         # switch channel (stable | rc | nightly)
 codeterm update install --auto --after-update "<text>"    # inject message into General pane after restart
 ```
 
 `--after-update TEXT` queues a message that the new daemon delivers to the General pane once it boots and the pane has a live PTY. Useful for remote-triggered updates over mesh ("update yourself then verify build hash"). Persisted to `~/.codeterm/post-update-message.txt`; deleted after delivery. If the GA pane doesn't come up within 60s the file stays for the next boot. No automated rollback — if the new build is bad, install the old version manually from GitHub releases.
 
+Update channel switching is disabled for now; use the default channel only.
+
 ## Plugins (providers)
 
-Agent providers (Claude, Codex, …) and other integrations ship as plugins, installed from **channels** (a git repo or local folder). The bundled system channel `codeterm-core` tracks the official `plugins/` directory.
+Agent providers (Claude, Codex, …) and other integrations ship as plugins.
+Day-to-day provider work usually needs only listing, local install for
+development, or refreshing bundled system providers.
 
 ```bash
 codeterm plugin list                               # installed plugins
-codeterm plugin install <id> [--channel NAME]      # install from a registered channel
 codeterm plugin install --from-dir <path>          # install from a local plugin folder
 codeterm plugin update [<id>]                       # update one, or all when id omitted
 codeterm plugin update-system                        # refresh bundled system providers from codeterm-core
 codeterm plugin remove <id> [--force]               # --force allows removing a verified/system plugin
-codeterm plugin channel list                         # registered channels
-codeterm plugin channel add <url|path> [--name N]    # add a git URL or local-path channel
-codeterm plugin channel refresh [<name>]             # refresh one channel, or all when name omitted
-codeterm plugin channel remove <name>
 ```
 
-Run `codeterm plugin <sub> --help` for exact flags — channel resolution and id overrides evolve. Use `update-system` after pulling a new CodeTerm build to pick up bundled provider fixes without a full reinstall.
+Run `codeterm plugin <sub> --help` or `codeterm docs CLI` for rare plugin
+channel operations. Use `update-system` after pulling a new CodeTerm build to
+pick up bundled provider fixes without a full reinstall.
 
 ## Usage tracking
 

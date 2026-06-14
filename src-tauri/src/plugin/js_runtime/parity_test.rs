@@ -1278,11 +1278,14 @@ mod codex {
         }
         let (_n, j) = pair();
         let cmd = j.build_resume_command("uuid-1234", false).unwrap();
-        assert_eq!(cmd, "codex resume 'uuid-1234'");
+        assert_eq!(
+            cmd,
+            "codex resume --dangerously-bypass-hook-trust 'uuid-1234'"
+        );
         let cmd2 = j.build_resume_command("uuid-1234", true).unwrap();
         assert_eq!(
             cmd2,
-            "codex resume --dangerously-bypass-approvals-and-sandbox 'uuid-1234'"
+            "codex resume --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox 'uuid-1234'"
         );
     }
 
@@ -1552,8 +1555,9 @@ mod opencode {
 
     /// Stand up a synthetic opencode.db at $XDG_DATA_HOME/opencode/opencode.db,
     /// seed it with rows that mirror the real schema, then point the plugin
-    /// at it via env override and exercise detectSessionId / detectActiveSession
-    /// / detectSessionModel / sessionExists end-to-end through `JsProvider`.
+    /// at it via env override and exercise the exact-session sqlite operations
+    /// through `JsProvider`. Hook-backed providers must not claim "newest for
+    /// cwd"; binding comes from the provider-reported session id.
     #[test]
     fn opencode_sqlite_session_detection_via_plugin() {
         if require_plugins().is_none() {
@@ -1657,21 +1661,24 @@ mod opencode {
         .unwrap();
         let provider = JsProvider::new(manifest, std::sync::Arc::new(vm));
 
-        // Newest live session in /proj/foo with no exclusion → ses_new.
+        // Hook-backed provider: sqlite is not an ownership oracle.
         let sid = provider.detect_session_id("/proj/foo", &[], None);
-        assert_eq!(sid.as_deref(), Some("ses_new"));
+        assert_eq!(sid, None);
 
-        // Exclusion list skips ses_new → next newest is ses_excluded.
+        // Exclusions do not matter because no cwd-based claim is allowed.
         let sid2 = provider.detect_session_id("/proj/foo", &["ses_new".to_string()], None);
-        assert_eq!(sid2.as_deref(), Some("ses_excluded"));
+        assert_eq!(sid2, None);
 
-        // Strict max_age = 50 ms — even ses_new (now-1000) misses.
+        // max_age is ignored for ownership because the provider hook is required.
         let none = provider.detect_session_id(
             "/proj/foo",
             &[],
             Some(std::time::Duration::from_millis(50)),
         );
-        assert!(none.is_none(), "max_age filter must drop everything");
+        assert!(
+            none.is_none(),
+            "cwd-based sqlite detection must stay disabled"
+        );
 
         // Archived + other-cwd rows must NOT surface.
         let sid_other = provider.detect_session_id("/totally/different/dir", &[], None);
@@ -1685,9 +1692,9 @@ mod opencode {
         let model = provider.detect_session_model("/proj/foo", "ses_new");
         assert_eq!(model.as_deref(), Some("anthropic/claude-opus-4-7"));
 
-        // detectActiveSession returns the session id with the most recent message in the cwd.
+        // detectActiveSession also must not pick a different newest session.
         let active = provider.detect_active_session("/proj/foo", "");
-        assert_eq!(active.as_deref(), Some("ses_new"));
+        assert_eq!(active, None);
 
         // Regression (#52): a pane that launched THIS instant (age_from_launch
         // rounds to 0ms) must NOT adopt a pre-existing sibling session. opencode

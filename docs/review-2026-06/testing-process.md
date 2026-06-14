@@ -1,9 +1,8 @@
 # CodeTerm Testing Process — Target Methodology
 
-**Status:** PROPOSED — this document defines the process; backlog items D1–D8 in
-[stabilization-backlog.md](stabilization-backlog.md) implement it. Once implemented,
-the taxonomy section migrates into `docs/TESTING.md` (task D6) and this file becomes
-the design record.
+**Status:** SUPERSEDED DESIGN RECORD — current test instructions live in
+`docs/TESTING.md` and `tests/playwright/README.md`. WebDriver/WDIO was removed; UI
+automation now uses Playwright over WebView2 CDP.
 
 **Problem being solved.** Today tests are written ad hoc: no rule for which layer a
 new test belongs to, no way to verify a new test actually tests anything, five
@@ -24,7 +23,6 @@ spec the agent happened to read.
 | API e2e | `tests/e2e/test_*.py` | pytest (`./build.sh e2e`) | no | yes (7686) | spike (D7) | <30s |
 | UI smoke | `tests/playwright`, `@smoke` | `pnpm test:pw:smoke` | no | yes | local-only* | <10s |
 | UI golden | `tests/playwright`, `@golden` | `pnpm test:pw:golden` | **yes** | yes | local-only* | <5min |
-| WebDriver | `tests/webdriver/` | wdio | no | yes | local-only | <30s |
 | Behaviour bench | `evals/<name>/` | `bash run.sh` via `_lib/lib.sh` | yes | yes (dev-locked) | never | unbounded |
 
 \* Playwright stays out of hosted CI **by decision** (needs WebView2 desktop + claude
@@ -246,12 +244,8 @@ that IS the finding" — current `agents.spec.ts` comment, kept as policy.
 - **Non-goal: Playwright in hosted CI.** Re-evaluate only if a self-hosted Windows
   runner ever appears. The pre-PR gate + nightly local cron is the compensating
   control; don't burn effort fighting the WebView2/auth wall.
-- **WebDriver stays, with a narrow charter.** Playwright here is Windows-only (CDP
-  attach to WebView2); WebDriver (wdio + tauri plugin) is the cross-platform UI
-  fallback for macOS/Linux. Decision: keep both, but WebDriver covers ONLY what must
-  be verified on non-Windows (platform-specific webview behavior, prompt-approval
-  rendering) — it does not duplicate Playwright suites. If Playwright ever attaches
-  cross-platform, fold WebDriver in and delete it.
+- **Superseded:** WebDriver/WDIO no longer exists in this repo. Do not add new
+  `tests/webdriver` tests or the Tauri WebDriver plugin back; use Playwright/CDP.
 - **Non-goal (for now): coverage metrics.** No tarpaulin/llvm-cov/vitest-coverage
   gates — coverage % is a vanity gate at this team size and would fight the
   real-daemon test style. Revisit if a regression ships that a coverage gate would
@@ -265,4 +259,4 @@ that IS the finding" — current `agents.spec.ts` comment, kept as policy.
   2–3 reference suites, the rest convert when touched. New tests follow this doc from
   day one.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

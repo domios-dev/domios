@@ -80,7 +80,21 @@ pub async fn check_and_apply(
 
     update_state.lock().set_phase(UpdatePhase::Downloading);
     log::info!("[updater] downloading and installing v{}", update.version);
-    if let Err(e) = update.download_and_install(|_, _| {}, || {}).await {
+    let chunk_state = update_state.clone();
+    let finish_state = update_state.clone();
+    if let Err(e) = update
+        .download_and_install(
+            move |chunk_len, content_length| {
+                chunk_state
+                    .lock()
+                    .record_download_chunk(chunk_len as u64, content_length);
+            },
+            move || {
+                finish_state.lock().set_phase(UpdatePhase::Applying);
+            },
+        )
+        .await
+    {
         let msg = format!("download/install failed: {}", e);
         log::error!("[updater] {}", msg);
         return Err(msg);
