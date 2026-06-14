@@ -336,7 +336,7 @@ pub enum WebAction {
         /// --host/--port.
         #[arg(long)]
         peer: Option<String>,
-        /// Host override (default: Tailscale IP > LAN IP > 127.0.0.1).
+        /// Host override (default: Tailscale Serve HTTPS > Tailscale IP > LAN IP > 127.0.0.1).
         #[arg(long)]
         host: Option<String>,
         /// Port override (default: this daemon's API port).

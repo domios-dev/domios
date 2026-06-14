@@ -4975,7 +4975,7 @@
               "positional": false,
               "value_name": "HOST",
               "default": null,
-              "help": "Host override (default: Tailscale IP > LAN IP > 127.0.0.1)",
+              "help": "Host override (default: Tailscale Serve HTTPS > Tailscale IP > LAN IP > 127.0.0.1)",
               "aliases": []
             },
             {
