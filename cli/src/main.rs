@@ -937,7 +937,7 @@ mod subcommand_contract_tests {
             "--pane",
             "abc123",
         ]);
-        assert!(matches!(parsed, Err(_)));
+        assert!(parsed.is_err());
     }
 
     #[test]
