@@ -18,6 +18,10 @@ case "$(uname -s 2>/dev/null || echo unknown)" in
         ;;
 esac
 
+if [ -f scripts/prepare-embed-stub.js ]; then
+    node scripts/prepare-embed-stub.js >/dev/null
+fi
+
 echo "Pre-push: running cargo check..."
 
 # Main crate
