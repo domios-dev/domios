@@ -161,7 +161,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                     &state,
                     false,
                     format!(
-                        "idle for {}s — claude exited without result event",
+                        "idle for {}s — agent exited without result event",
                         idle_secs
                     ),
                 );

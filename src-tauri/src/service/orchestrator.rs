@@ -179,7 +179,7 @@ impl SpawnAgentParams {
                     .collect()
             }),
             cwd: json_str(params, "cwd"),
-            title: json_str(params, "title"),
+            title: super::spawn_title::normalize_agent_title(json_str(params, "title")),
             role: json_str(params, "role"),
             parent_pane_id: json_str(params, "parent_pane_id")
                 .or_else(|| json_str(params, "parent")),
@@ -252,9 +252,10 @@ impl ServiceContext {
     /// Variant of `spawn_agent_sync` with a readiness oneshot for echo+submit verification.
     pub fn spawn_agent_sync_with_ready(
         &self,
-        params: SpawnAgentParams,
+        mut params: SpawnAgentParams,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
+        params.title = super::spawn_title::normalize_agent_title(params.title.take());
         let role = params.role.clone();
         let agent = params
             .agent
@@ -283,6 +284,7 @@ impl ServiceContext {
         mut params: SpawnAgentParams,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
+        params.title = super::spawn_title::normalize_agent_title(params.title.take());
         let default_provider = crate::config::default_agent_provider();
         let agent_cmd = params
             .agent

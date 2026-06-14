@@ -626,10 +626,11 @@ pub async fn claim_resize_owner(
     client_id: String,
     cols: u16,
     rows: u16,
+    force: Option<bool>,
 ) -> Result<crate::resize_owner::ResizeOwner, String> {
     let owner = resize_owner
         .lock()
-        .claim(pane_id, pty_id, client_id, cols, rows);
+        .claim(pane_id, pty_id, client_id, cols, rows, force.unwrap_or(false));
     events.publish(crate::api::events::SystemEvent::Generic {
         event_type: "pty-resize-owner-changed".to_string(),
         data: serde_json::to_value(&owner).unwrap_or_default(),
