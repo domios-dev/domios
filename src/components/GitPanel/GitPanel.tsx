@@ -159,13 +159,14 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
 
   const hasMore = graph != null && graph.commits.length % PAGE === 0 && graph.commits.length > 0;
 
-  // After a revert: refetch graph to update the dirty flag without resetting
-  // the selection. If the tree is clean now, drop the workdir selection to HEAD.
+  // After a workdir mutation: refetch the first graph page so newly created
+  // commits appear immediately. If the tree is clean now, move from the
+  // workdir pseudo-row to HEAD.
   const onReverted = useCallback(async () => {
     if (!activeCwd) return;
     try {
       const g = await fetchGraph(api, activeCwd, PAGE, 0);
-      setGraph((cur) => (cur ? { ...g, commits: cur.commits } : g));
+      setGraph(g);
       if (!g.dirty) {
         setSelectedSha((cur) => (cur === WORKDIR_SHA ? (g.commits[0]?.sha ?? null) : cur));
         setSelectedPath(null);
