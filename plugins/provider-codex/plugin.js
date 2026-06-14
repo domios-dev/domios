@@ -1,5 +1,6 @@
 // Codex provider plugin: detect/parse/slash commands plus rollout-tree session discovery.
 
+var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 var TITLE_RE = /codex/i;
 var OUTPUT_FINGERPRINTS = [
   "OpenAI Codex",
@@ -92,6 +93,7 @@ module.exports.default = {
     if (p.headless && p.task) {
       parts.push("codex");
       parts.push("exec");
+      parts.push("--dangerously-bypass-hook-trust");
       if (p.skipPermissions) {
         parts.push("--dangerously-bypass-approvals-and-sandbox");
       }
@@ -101,6 +103,7 @@ module.exports.default = {
       parts.push(host.shell.quote(p.task));
     } else {
       parts.push("codex");
+      parts.push("--dangerously-bypass-hook-trust");
       if (p.skipPermissions) {
         parts.push("--dangerously-bypass-approvals-and-sandbox");
       }
@@ -114,6 +117,7 @@ module.exports.default = {
 
   buildResumeCommand: function (sessionId, skipPermissions) {
     var parts = ["codex", "resume"];
+    parts.push("--dangerously-bypass-hook-trust");
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
     }
@@ -218,30 +222,102 @@ module.exports.default = {
   },
 
   detectSessionId: function (cwd, exclude, maxAgeMs) {
-    var root = codexSessionsRoot();
-    if (!root || !host.fs.fileExists(root)) return null;
-    var nowMs = host.unixNowMs();
-    var cutoff = maxAgeMs > 0 ? nowMs - maxAgeMs : null;
-    var excluded = exclude || [];
-    var candidates = [];
-    var files = host.fs.walkDir(root, 5);
-    for (var i = 0; i < files.length; i++) {
-      var f = files[i];
-      if (!f.isFile || !endsWith(f.name, ".jsonl")) continue;
-      if (cutoff !== null && f.modifiedMs !== null && f.modifiedMs < cutoff) continue;
-      var meta = readSessionMeta(f.path);
-      if (!meta) continue;
-      // Compare `meta.cwd` via `host.path.equal` (slash-style differences ignored).
-      if (meta.cwd && !host.path.equal(meta.cwd, cwd)) continue;
-      var stem = f.name.substring(0, f.name.length - 6);
-      var sid = meta.sessionId || extractSessionUuid(stem);
-      if (!sid) continue;
-      if (excluded.indexOf(sid) !== -1) continue;
-      candidates.push({ sid: sid, ts: f.modifiedMs || f.createdMs || 0 });
+    return null;
+  },
+
+  checkIntegration: function () {
+    var path = codexHooksPath();
+    if (!path || !host.fs.fileExists(path)) {
+      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false };
     }
-    if (candidates.length === 0) return null;
-    candidates.sort(function (a, b) { return b.ts - a.ts; });
-    return candidates[0].sid;
+    var json = host.fs.readJson(path);
+    if (!json) {
+      return { hooks_file_exists: true, hooks_installed: false, session_start_hook: false };
+    }
+    var arr = json.hooks && json.hooks.SessionStart;
+    var installed = Array.isArray(arr) && arr.some(isCodetermCodexHook);
+    var windowsReady = host.platform() !== "windows" || (
+      !!codexWindowsHookScriptPath() &&
+      host.fs.fileExists(codexWindowsHookScriptPath()) &&
+      Array.isArray(arr) &&
+      arr.some(hasCodetermCodexWindowsCommand)
+    );
+    return {
+      hooks_file_exists: true,
+      hooks_installed: installed && windowsReady,
+      session_start_hook: installed && windowsReady,
+    };
+  },
+
+  installIntegration: function (apiPort) {
+    var path = codexHooksPath();
+    if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
+
+    var json = host.fs.fileExists(path) ? (host.fs.readJson(path) || {}) : {};
+    if (!json.hooks || typeof json.hooks !== "object") json.hooks = {};
+    if (!Array.isArray(json.hooks.SessionStart)) json.hooks.SessionStart = [];
+    json.hooks.SessionStart = json.hooks.SessionStart.filter(function (entry) {
+      return !isCodetermCodexHook(entry);
+    });
+
+    var nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
+    var port = apiPort | 0;
+    var portExpr = "${CODETERM_API_PORT:-" + port + "}";
+    var authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
+    var cmd = "curl -s -X POST http://localhost:" + portExpr
+      + "/api/panes/$CODETERM_PANE_ID/hook/session_start "
+      + "-H 'Content-Type: application/json' "
+      + "-H 'X-CodeTerm-Agent-Provider: codex' "
+      + authH
+      + " --data-binary @- > " + nullDev + " 2>&1 || true";
+    var scriptPath = codexWindowsHookScriptPath();
+    var commandWindows = scriptPath
+      ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"'
+      : cmd;
+
+    if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript(port))) {
+      return { ok: false, error: "writeFile failed for " + scriptPath };
+    }
+
+    json.hooks.SessionStart.push({
+      matcher: "startup|resume|clear|compact",
+      hooks: [{
+        type: "command",
+        command: cmd,
+        commandWindows: commandWindows,
+        timeout: 5,
+        _source: CODETERM_CODEX_HOOK_MARKER,
+      }],
+    });
+
+    var ok = host.fs.writeJson(path, json);
+    if (ok) {
+      host.log("info", "[codex-plugin] SessionStart hook installed at " + path);
+      return { ok: true };
+    }
+    return { ok: false, error: "writeJson failed for " + path };
+  },
+
+  uninstallIntegration: function () {
+    var path = codexHooksPath();
+    if (!path || !host.fs.fileExists(path)) return { ok: true };
+    var json = host.fs.readJson(path);
+    if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: true };
+    if (Array.isArray(json.hooks.SessionStart)) {
+      json.hooks.SessionStart = json.hooks.SessionStart.filter(function (entry) {
+        return !isCodetermCodexHook(entry);
+      });
+    }
+    var ok = host.fs.writeJson(path, json);
+    var scriptPath = codexWindowsHookScriptPath();
+    if (scriptPath && host.fs.fileExists(scriptPath)) host.fs.removeFile(scriptPath);
+    return ok ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
+  },
+
+  ensureIntegrationOnStartup: function (apiPort) {
+    var status = this.checkIntegration();
+    if (status && status.hooks_installed) return { ok: true };
+    return this.installIntegration(apiPort);
   },
 
   // Parse the `/status` TUI screen into a UsageSnapshot-shaped object
@@ -266,31 +342,7 @@ module.exports.default = {
   },
 
   detectActiveSession: function (cwd, currentSid) {
-    var root = codexSessionsRoot();
-    if (!root || !host.fs.fileExists(root)) return null;
-    var currentPath = this.sessionFilePath(cwd, currentSid);
-    var currentTs = 0;
-    var files = host.fs.walkDir(root, 5);
-    for (var i = 0; i < files.length; i++) {
-      if (files[i].path === currentPath) {
-        currentTs = files[i].modifiedMs || files[i].createdMs || 0;
-        break;
-      }
-    }
-    var best = null;
-    for (var j = 0; j < files.length; j++) {
-      var f = files[j];
-      if (!f.isFile || !endsWith(f.name, ".jsonl")) continue;
-      var meta = readSessionMeta(f.path);
-      if (!meta || (meta.cwd && !host.path.equal(meta.cwd, cwd))) continue;
-      var stem = f.name.substring(0, f.name.length - 6);
-      var sid = meta.sessionId || extractSessionUuid(stem);
-      if (!sid || sid === currentSid) continue;
-      var ts = f.modifiedMs || f.createdMs || 0;
-      if (ts <= currentTs) continue;
-      if (!best || ts > best.ts) best = { sid: sid, ts: ts };
-    }
-    return best ? best.sid : null;
+    return null;
   },
 
   enumerateSessions: function () {
@@ -407,6 +459,74 @@ var codexSessionsRoot = function () {
   if (!home) return null;
   var sep = host.platform() === "windows" ? "\\" : "/";
   return home + sep + ".codex" + sep + "sessions";
+};
+
+var codexHooksPath = function () {
+  var home = host.homeDir();
+  if (!home) return null;
+  var sep = host.platform() === "windows" ? "\\" : "/";
+  return home + sep + ".codex" + sep + "hooks.json";
+};
+
+var codexWindowsHookScriptPath = function () {
+  var home = host.homeDir();
+  if (!home) return null;
+  var sep = host.platform() === "windows" ? "\\" : "/";
+  return home + sep + ".codex" + sep + "codeterm-session-start.ps1";
+};
+
+var codexWindowsHookScript = function (apiPort) {
+  return [
+    "# " + CODETERM_CODEX_HOOK_MARKER,
+    '$ErrorActionPreference = "SilentlyContinue"',
+    "$pane = $env:CODETERM_PANE_ID",
+    "if ([string]::IsNullOrWhiteSpace($pane)) { exit 0 }",
+    '$port = if ($env:CODETERM_API_PORT) { $env:CODETERM_API_PORT } else { "' + String(apiPort || 7686) + '" }',
+    '$base = if ($env:CODETERM_API_URL) { $env:CODETERM_API_URL.TrimEnd("/") } else { "http://127.0.0.1:$port" }',
+    "$headers = @{",
+    '  "Content-Type" = "application/json"',
+    '  "X-CodeTerm-Agent-Provider" = "codex"',
+    "}",
+    "if ($env:CODETERM_API_TOKEN) {",
+    '  $headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
+    "}",
+    "$body = [Console]::In.ReadToEnd()",
+    'Invoke-RestMethod -Method Post -Uri "$base/api/panes/$pane/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
+    "exit 0",
+    "",
+  ].join("\n");
+};
+
+var isCodetermCodexHook = function (entry) {
+  var hooks = entry && entry.hooks;
+  if (!Array.isArray(hooks)) return false;
+  for (var i = 0; i < hooks.length; i++) {
+    var hook = hooks[i];
+    if (!hook) continue;
+    if (hook._source === CODETERM_CODEX_HOOK_MARKER) return true;
+    var cmd = String(hook.command || "");
+    if (
+      cmd.indexOf("/hook/session_start") !== -1 &&
+      cmd.indexOf("X-CodeTerm-Agent-Provider: codex") !== -1
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
+
+var hasCodetermCodexWindowsCommand = function (entry) {
+  var hooks = entry && entry.hooks;
+  if (!Array.isArray(hooks)) return false;
+  for (var i = 0; i < hooks.length; i++) {
+    var hook = hooks[i];
+    if (!hook || hook._source !== CODETERM_CODEX_HOOK_MARKER) continue;
+    var command = String(hook.commandWindows || "");
+    if (command.indexOf("codeterm-session-start.ps1") !== -1) {
+      return true;
+    }
+  }
+  return false;
 };
 
 // rollout-YYYY-MM-DDTHH-MM-SS-<uuid> → uuid

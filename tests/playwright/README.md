@@ -17,10 +17,8 @@ see [`docs/TESTING.md`](../../docs/TESTING.md).
 - Pure browser-side Playwright against the Vite server is **not viable**:
   the frontend calls `@tauri-apps/api` `invoke()` directly with no HTTP
   fallback, so outside a Tauri WebView the UI is non-functional.
-- `./build.sh webdriver` wires the app-embedded WebDriver server (port
-  4445) for the existing **wdio** suite (`tests/webdriver/`). Playwright
-  cannot speak classic WebDriver; wdio remains the cross-platform UI
-  fallback (macOS/Linux WebKit has no CDP). This suite is Windows-first.
+- The old Tauri WebDriver/WDIO harness was removed. Desktop UI automation
+  uses this Playwright/CDP path only.
 - Backend coverage uses plain `fetch` against `/api/*` with the dev token
   from `~/.codeterm-dev/config.toml`.
 
@@ -33,6 +31,10 @@ pnpm test:pw:golden  # @golden project, one retry and 5min timeout
 pnpm test:pw:full    # all non-quarantined tests
 ```
 
+On Windows PowerShell, start/restart dev with `.\build.ps1 dev --wait`.
+Do not call plain `bash ./build.sh ...` from PowerShell; it can resolve to
+WSL. Use `build.ps1` or Git Bash directly.
+
 **There is no CI for this suite — by decision, not omission** (hosted
 runners lack the claude CLI auth and a verified WebView2 desktop; a
 self-hosted runner was considered and rejected). The contract:
@@ -42,8 +44,8 @@ self-hosted runner was considered and rejected). The contract:
 > trivial sonnet calls) for changes touching the daemon API,
 > multiplexer, mesh, mem, agents, or the frontend shell.
 
-Windows is required for the UI-driving tests (CDP/WebView2 — see the
-tooling section); on macOS/Linux run what applies and say so in the PR.
+Windows is required for the desktop UI-driving tests (CDP/WebView2 — see
+the tooling section); on macOS/Linux run API/unit layers and say so in the PR.
 
 `pnpm test:pw` resolves to `playwright test -c tests/playwright`; the tiered
 scripts select the `smoke`, `golden`, or `full` projects from the config. If your
@@ -160,4 +162,4 @@ server-spawned panes do). Each throws a clear
 - Suites assert **UI DOM state**, not just API JSON, wherever the action
   has a user-visible effect.
 
-<!-- revision: 1 -->
+<!-- revision: 3 -->

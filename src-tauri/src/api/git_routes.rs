@@ -11,6 +11,7 @@ use std::time::Duration;
 use crate::api::routes::{check_auth, AppState};
 
 const GIT_TIMEOUT: Duration = Duration::from_secs(10);
+const GIT_PUSH_TIMEOUT: Duration = Duration::from_secs(60);
 const OUTPUT_CAP: usize = 1024 * 1024;
 const TRUNCATION_MARKER: &str = "\n<<TRUNCATED>>";
 const FIELD_SEP: u8 = 0x1f;
@@ -25,6 +26,14 @@ pub(crate) struct GitOutput {
 
 /// Run `git -C <cwd> --no-pager <args>` with a 10s timeout and a 1 MB output cap.
 pub(crate) async fn run_git(cwd: &str, args: &[&str]) -> Result<GitOutput, String> {
+    run_git_with_timeout(cwd, args, GIT_TIMEOUT).await
+}
+
+async fn run_git_with_timeout(
+    cwd: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<GitOutput, String> {
     let mut cmd = tokio::process::Command::new("git");
     cmd.arg("-C").arg(cwd).arg("--no-pager").args(args);
     cmd.stdin(std::process::Stdio::null());
@@ -33,7 +42,7 @@ pub(crate) async fn run_git(cwd: &str, args: &[&str]) -> Result<GitOutput, Strin
     crate::process_util::no_window_tokio(&mut cmd);
 
     let child = cmd.spawn().map_err(|e| format!("spawn git: {}", e))?;
-    let output = match tokio::time::timeout(GIT_TIMEOUT, child.wait_with_output()).await {
+    let output = match tokio::time::timeout(timeout, child.wait_with_output()).await {
         Ok(Ok(out)) => out,
         Ok(Err(e)) => return Err(format!("wait git: {}", e)),
         Err(_) => return Err("git command timed out".to_string()),
@@ -60,6 +69,13 @@ async fn ensure_repo(cwd: &str) -> Result<(), (StatusCode, String)> {
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     if !out.status_ok {
         return Err((StatusCode::NOT_FOUND, "not a git repository".to_string()));
+    }
+    Ok(())
+}
+
+fn validate_git_path(path: &str) -> Result<(), (StatusCode, String)> {
+    if path.is_empty() || path.contains("..") || path.starts_with('-') {
+        return Err((StatusCode::BAD_REQUEST, "invalid path".to_string()));
     }
     Ok(())
 }
@@ -483,6 +499,7 @@ pub(crate) struct WorkdirFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     old_path: Option<String>,
     status: String,
+    staged: bool,
     added: Option<u64>,
     deleted: Option<u64>,
 }
@@ -517,7 +534,9 @@ fn classify_porcelain(xy: &[u8]) -> &'static str {
 /// Parse `git status --porcelain=v1 -z`: NUL-separated entries; a rename entry
 /// ("R" in XY) is immediately followed by a second NUL-separated field holding
 /// the old path. Returns `(path, old_path, status)` tuples.
-fn parse_status_porcelain(stdout: &[u8]) -> Vec<(String, Option<String>, &'static str)> {
+type ParsedStatus = (String, Option<String>, &'static str, bool);
+
+fn parse_status_porcelain(stdout: &[u8]) -> Vec<ParsedStatus> {
     let mut out = Vec::new();
     let mut fields = stdout.split(|&b| b == 0).filter(|f| !f.is_empty());
     while let Some(entry) = fields.next() {
@@ -525,6 +544,7 @@ fn parse_status_porcelain(stdout: &[u8]) -> Vec<(String, Option<String>, &'stati
             continue;
         }
         let xy = &entry[0..2];
+        let staged = xy[0] != b' ' && xy[0] != b'?';
         let path = String::from_utf8_lossy(&entry[3..]).to_string();
         let status = classify_porcelain(xy);
         if status == "renamed" {
@@ -532,9 +552,9 @@ fn parse_status_porcelain(stdout: &[u8]) -> Vec<(String, Option<String>, &'stati
             let old_path = fields
                 .next()
                 .map(|f| String::from_utf8_lossy(f).to_string());
-            out.push((path, old_path, status));
+            out.push((path, old_path, status, staged));
         } else {
-            out.push((path, None, status));
+            out.push((path, None, status, staged));
         }
     }
     out
@@ -566,12 +586,12 @@ fn parse_numstat_counts(
 }
 
 fn merge_workdir_files(
-    statuses: Vec<(String, Option<String>, &'static str)>,
+    statuses: Vec<ParsedStatus>,
     counts: &std::collections::HashMap<String, (Option<u64>, Option<u64>)>,
 ) -> Vec<WorkdirFile> {
     statuses
         .into_iter()
-        .map(|(path, old_path, status)| {
+        .map(|(path, old_path, status, staged)| {
             // Untracked files have no numstat-vs-HEAD counts.
             let (added, deleted) = if status == "untracked" {
                 (None, None)
@@ -582,6 +602,7 @@ fn merge_workdir_files(
                 path,
                 old_path,
                 status: status.to_string(),
+                staged,
                 added,
                 deleted,
             }
@@ -631,7 +652,7 @@ pub(crate) struct RevertFileBody {
     path: String,
 }
 
-/// First mutating git endpoint — surgical, arg-vector only, `--` guards the path.
+/// Surgical mutating endpoint: arg-vector only, `--` guards the path.
 pub async fn git_revert_file(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -640,9 +661,7 @@ pub async fn git_revert_file(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     ensure_repo(&body.cwd).await?;
 
-    if body.path.is_empty() || body.path.contains("..") || body.path.starts_with('-') {
-        return Err((StatusCode::BAD_REQUEST, "invalid path".to_string()));
-    }
+    validate_git_path(&body.path)?;
 
     // Look up the file's porcelain status before mutating.
     let status = run_git(
@@ -664,8 +683,8 @@ pub async fn git_revert_file(
     }
     let entry_status = parse_status_porcelain(&status.stdout)
         .into_iter()
-        .find(|(p, _, _)| *p == body.path)
-        .map(|(_, _, s)| s);
+        .find(|(p, _, _, _)| *p == body.path)
+        .map(|(_, _, s, _)| s);
     match entry_status {
         Some("untracked") => {
             return Err((
@@ -689,6 +708,164 @@ pub async fn git_revert_file(
         return Err((StatusCode::INTERNAL_SERVER_ERROR, out.stderr));
     }
     Ok(Json(serde_json::json!({ "reverted": true })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct GitFileBody {
+    cwd: String,
+    path: String,
+}
+
+pub async fn git_stage_file(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<GitFileBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    ensure_repo(&body.cwd).await?;
+    validate_git_path(&body.path)?;
+
+    let out = run_git(&body.cwd, &["add", "--", &body.path])
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !out.status_ok {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, out.stderr));
+    }
+    Ok(Json(serde_json::json!({ "staged": true })))
+}
+
+pub async fn git_unstage_file(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<GitFileBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    ensure_repo(&body.cwd).await?;
+    validate_git_path(&body.path)?;
+
+    let out = run_git(&body.cwd, &["restore", "--staged", "--", &body.path])
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !out.status_ok {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, out.stderr));
+    }
+    Ok(Json(serde_json::json!({ "unstaged": true })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct GitFilesBody {
+    cwd: String,
+    paths: Vec<String>,
+}
+
+fn validate_git_paths(paths: &[String]) -> Result<(), (StatusCode, String)> {
+    if paths.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "no paths".to_string()));
+    }
+    for path in paths {
+        validate_git_path(path)?;
+    }
+    Ok(())
+}
+
+pub async fn git_stage_files(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<GitFilesBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    ensure_repo(&body.cwd).await?;
+    validate_git_paths(&body.paths)?;
+
+    let mut args = vec!["add", "--"];
+    args.extend(body.paths.iter().map(String::as_str));
+    let out = run_git(&body.cwd, &args)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !out.status_ok {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, out.stderr));
+    }
+    Ok(Json(serde_json::json!({ "staged": true })))
+}
+
+pub async fn git_unstage_files(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<GitFilesBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    ensure_repo(&body.cwd).await?;
+    validate_git_paths(&body.paths)?;
+
+    let mut args = vec!["restore", "--staged", "--"];
+    args.extend(body.paths.iter().map(String::as_str));
+    let out = run_git(&body.cwd, &args)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !out.status_ok {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, out.stderr));
+    }
+    Ok(Json(serde_json::json!({ "unstaged": true })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct CommitBody {
+    cwd: String,
+    message: String,
+}
+
+pub async fn git_commit(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CommitBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    ensure_repo(&body.cwd).await?;
+
+    let message = body.message.trim();
+    if message.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "commit message is empty".to_string(),
+        ));
+    }
+
+    let out = run_git(&body.cwd, &["commit", "-m", message])
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !out.status_ok {
+        return Err((StatusCode::CONFLICT, out.stderr));
+    }
+    Ok(Json(serde_json::json!({
+        "committed": true,
+        "stdout": render_capped(&out.stdout),
+    })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct PushBody {
+    cwd: String,
+}
+
+pub async fn git_push(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PushBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    ensure_repo(&body.cwd).await?;
+
+    let out = run_git_with_timeout(&body.cwd, &["push"], GIT_PUSH_TIMEOUT)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !out.status_ok {
+        return Err((StatusCode::CONFLICT, out.stderr));
+    }
+    Ok(Json(serde_json::json!({
+        "pushed": true,
+        "stdout": render_capped(&out.stdout),
+        "stderr": out.stderr,
+    })))
 }
 
 #[derive(Deserialize)]

@@ -1,0 +1,8 @@
+# Pin the toolchain so clippy/rustfmt behave identically on every machine and in
+# CI. Without this, floating `stable` (dtolnay/rust-toolchain@stable in CI) drifts
+# between dev machines and flags pre-existing lints the pre-push allow-list never
+# saw, forcing --no-verify pushes. Bump deliberately, in lockstep with the
+# CLIPPY_ALLOW list in .githooks/pre-push.
+[toolchain]
+channel = "1.95.0"
+components = ["clippy", "rustfmt"]

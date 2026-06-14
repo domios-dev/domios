@@ -665,16 +665,16 @@ pattern. Nothing that talks to 7685 survives.
 
 **Problem.** Five runners, five invocations, no aggregate: `./build.sh test` (Rust),
 `./build.sh e2e` (pytest), `pnpm test:pw` (Playwright), `pnpm test:plugins`
-(provider tests), `tests/webdriver` (manual `npm test`), TS unit tests run via bare
-`npx tsx` and aren't in any script. Nobody — human or agent — can answer "is everything
-green?" with one command.
+(provider tests), and TS unit tests run via bare `npx tsx` and aren't in any script.
+Nobody — human or agent — can answer "is everything green?" with one command.
 
 **Task.** Add `test:all` to build.sh: runs Rust unit → TS unit (add a proper
 `test:unit` script using vitest for `src/**/*.test.ts` + `packages/`) → plugin tests →
 pytest e2e (only if dev is up — probe `/api/health` on 7686, skip with a loud SKIPPED
-otherwise) → Playwright `@smoke` only (same dev-up condition). Print a per-layer
-summary table and exit non-zero if any executed layer failed. Layers that need real
-LLM calls are excluded from `test:all` by design (see testing-process.md taxonomy).
+otherwise) → Playwright `@smoke` only (same dev-up condition). The old
+`tests/webdriver`/WDIO layer has been removed. Print a per-layer summary table and
+exit non-zero if any executed layer failed. Layers that need real LLM calls are
+excluded from `test:all` by design (see testing-process.md taxonomy).
 
 **Acceptance.** `./build.sh test:all` on a clean checkout with dev down: unit layers
 run, integration layers SKIP loudly, exit reflects unit results. With dev up: all
@@ -1291,4 +1291,4 @@ Sonnet ×27 · Opus ×10 · GPT-5.5 ×3 · Codex/Spark ×5 · Haiku — cheap ve
 S-effort doc tasks throughout. GPT-5.5 tasks remain gated on G1 (AGENTS.md) so Codex
 workers get the hard rules. See [agent-team.md](agent-team.md) for the rubric.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

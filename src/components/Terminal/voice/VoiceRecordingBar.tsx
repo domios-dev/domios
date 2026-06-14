@@ -16,16 +16,19 @@ function formatPrecise(ms: number): string {
 export function VoiceRecordingBar({
   mode,
   armed = false,
+  peaks,
   cancelHintRef,
   onCancel,
 }: {
   mode: "hold" | "locked";
   armed?: boolean;
+  peaks: number[];
   cancelHintRef: React.RefObject<HTMLDivElement | null>;
   onCancel: () => void;
 }) {
   const [ms, setMs] = useState(0);
   const startRef = useRef(performance.now());
+  const visiblePeaks = peaks.length > 0 ? peaks : [0.1];
 
   useEffect(() => {
     startRef.current = performance.now();
@@ -43,6 +46,31 @@ export function VoiceRecordingBar({
         {formatPrecise(ms)}
       </span>
 
+      <div
+        data-testid="composer-voice-live-waveform"
+        className="mx-1 grid h-8 min-w-0 flex-1 items-center gap-[2px] overflow-hidden rounded-full px-2 py-1"
+        style={{
+          gridTemplateColumns: `repeat(${visiblePeaks.length}, minmax(2px, 1fr))`,
+          background: "color-mix(in srgb, var(--ct-bg,#0d1117) 32%, transparent)",
+        }}
+        aria-hidden
+      >
+        {visiblePeaks.map((peak, index) => (
+          <span
+            key={index}
+            className="w-full rounded-full"
+            style={{
+              height: `${Math.max(12, Math.round(peak * 100))}%`,
+              background: armed
+                ? "color-mix(in srgb, var(--ct-red,#f85149) 82%, white 8%)"
+                : "color-mix(in srgb, var(--ct-accent,#58a6ff) 72%, var(--ct-muted-fg,#8b949e) 28%)",
+              opacity: 0.42 + Math.min(0.58, peak),
+              transition: "height 80ms linear, opacity 80ms linear, background 120ms linear",
+            }}
+          />
+        ))}
+      </div>
+
       {mode === "hold" ? (
         <div
           ref={cancelHintRef}
@@ -59,7 +87,7 @@ export function VoiceRecordingBar({
               onCancel();
             }
           }}
-          className={`ml-auto flex items-center gap-1 pr-1 text-[12px] font-medium transition-colors ${
+          className={`flex shrink-0 items-center gap-1 pr-1 text-[12px] font-medium transition-colors ${
             armed
               ? "scale-105 text-[var(--ct-red,#f85149)]"
               : "ct-voice-cancel-slide text-[var(--ct-muted-fg)]"
@@ -77,7 +105,7 @@ export function VoiceRecordingBar({
             e.preventDefault();
             onCancel();
           }}
-          className="ml-auto rounded-full px-3 py-1 text-[12px] font-semibold uppercase tracking-wide text-[var(--ct-red,#f85149)] transition-colors hover:bg-[color-mix(in_srgb,var(--ct-red,#f85149)_14%,transparent)]"
+          className="shrink-0 rounded-full px-3 py-1 text-[12px] font-semibold uppercase tracking-wide text-[var(--ct-red,#f85149)] transition-colors hover:bg-[color-mix(in_srgb,var(--ct-red,#f85149)_14%,transparent)]"
         >
           Cancel
         </button>

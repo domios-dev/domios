@@ -17,6 +17,11 @@ export interface VoicePreviewData {
 }
 
 const WAVEFORM_BARS = 40;
+const LIVE_WAVEFORM_BARS = 24;
+
+function quietLiveWaveform(): number[] {
+  return new Array(LIVE_WAVEFORM_BARS).fill(0.1);
+}
 
 /** Downsample the raw per-tick peaks captured while recording into a fixed
  * bar count, normalised to 0..1 so the preview waveform fills its track. */
@@ -48,6 +53,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [preview, setPreview] = useState<VoicePreviewData | null>(null);
+  const [livePeaks, setLivePeaks] = useState<number[]>(quietLiveWaveform);
 
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -93,6 +99,21 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     audioCtxRef.current = null;
   }
 
+  // iOS standalone PWAs re-prompt for mic access on EVERY getUserMedia call —
+  // they don't persist the grant the way Safari tabs do. So acquire the stream
+  // ONCE and keep it warm: reuse it across recordings, only stopping the tracks
+  // on real teardown (unmount). The mic-in-use indicator stays on between
+  // takes, which is the accepted trade for not re-prompting every ~1-2 min.
+  async function acquireWarmStream(): Promise<MediaStream> {
+    const warm = streamRef.current;
+    if (warm && warm.getAudioTracks().some((t) => t.readyState === "live")) {
+      return warm;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    streamRef.current = stream;
+    return stream;
+  }
+
   function startSampling(stream: MediaStream) {
     try {
       const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -111,6 +132,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
         let peak = 0;
         for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128) / 128);
         peaksRef.current.push(peak);
+        setLivePeaks((prev) => [...prev.slice(1), Math.max(0.08, Math.min(1, peak * 3.2))]);
       }, 60);
     } catch {
       // Waveform is decorative — never let analyser setup break recording.
@@ -148,12 +170,12 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await acquireWarmStream();
       const mime = pickAudioMime();
       mimeRef.current = mime;
       const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      streamRef.current = stream;
       chunksRef.current = [];
+      setLivePeaks(quietLiveWaveform());
       stopKindRef.current = "send";
       startedAtRef.current = performance.now();
       rec.ondataavailable = (e) => {
@@ -164,8 +186,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
         const kind = stopKindRef.current;
         const durationSec = Math.max(0, (performance.now() - startedAtRef.current) / 1000);
         const peaks = buildWaveform(peaksRef.current);
-        stream.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
+        // Keep streamRef alive (warm) — only teardown on unmount stops the mic.
         teardownAnalyser();
 
         if (kind === "discard") {
@@ -214,6 +235,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       teardownAnalyser();
+      setLivePeaks(quietLiveWaveform());
       onError(microphoneErrorMessage(e));
       return false;
     }
@@ -236,6 +258,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       rec.stop();
       recRef.current = null;
       setRecording(false);
+      setLivePeaks(quietLiveWaveform());
     });
   }
 
@@ -268,5 +291,5 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     });
   }
 
-  return { recording, elapsed, preview, start, stop, stopForPreview, commitPreview, discardPreview };
+  return { recording, elapsed, preview, livePeaks, start, stop, stopForPreview, commitPreview, discardPreview };
 }

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { Service } from "./types";
 
 type AccessLevel = "full" | "read_only" | "agent_isolated";
@@ -24,7 +25,7 @@ const HEALTH_DOT_COLOR: Record<string, string> = {
 
 const MAX_SERVICES_ON_CARD = 5;
 
-export function PeerTerminal({
+function PeerTerminalComponent({
   name,
   ip,
   isThisMachine,
@@ -122,3 +123,5 @@ export function PeerTerminal({
     </div>
   );
 }
+
+export const PeerTerminal = memo(PeerTerminalComponent);

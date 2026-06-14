@@ -34,8 +34,9 @@ ls tests/                                              # must: only dirs + playw
 ```
 
 ## Forbidden
-- Do not touch `tests/playwright/`, `tests/e2e/`, `tests/webdriver/`,
-  `tests/manual/`, `tests/fixtures/` contents — directories stay as-is.
+- Do not touch `tests/playwright/`, `tests/e2e/`, `tests/manual/`,
+  `tests/fixtures/` contents — directories stay as-is. `tests/webdriver/` was
+  removed after this task record was written.
 - Do not delete a file that step 1 found referenced — report it instead.
 
 ## Report

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "../../lib/bridge";
+import { invoke, listen } from "../../lib/bridge";
 import { createPortal } from "react-dom";
 
 type Presence = "online" | "offline";
@@ -33,18 +33,31 @@ export function MeshPresenceTray() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // 10s poll — picks up external edits (CLI / config.toml).
   useEffect(() => {
     let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
     (async () => {
       const v = await fetchEnabled();
-      if (!cancelled && v !== null) setState(v);
-    })();
-    const id = setInterval(async () => {
-      const v = await fetchEnabled();
       if (!cancelled && v !== null) setState((prev) => (prev === v ? prev : v));
-    }, 10000);
-    return () => { cancelled = true; clearInterval(id); };
+    })();
+
+    listen<AppConfigShape>("config-changed", (event) => {
+      if (cancelled) return;
+      const next = event.payload?.mesh?.enabled ? "online" : "offline";
+      setState((prev) => (prev === next ? prev : next));
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   const choose = useCallback(async (next: Presence) => {

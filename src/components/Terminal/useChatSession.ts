@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
-  dedupeRecentUserMessages,
-  matchesRecentUserMessage,
+  lastSessionResetIndex,
+  matchedOptimisticEchoes,
+  trimAfterSessionReset,
   type NormalizedChatMessage as ChatMessage,
+  type OptimisticEcho,
 } from "@codeterm/chat-core";
 import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "../../lib/chatPrefixes";
 
-const OPTIMISTIC_TTL_MS = 60_000;
 const INITIAL_VISIBLE_MESSAGES = 220;
 const VISIBLE_MESSAGE_STEP = 160;
 
@@ -33,6 +34,18 @@ function mergeById(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] 
   return Array.from(map.values()).sort(
     (a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0),
   );
+}
+
+function toEchoes(msgs: ChatMessage[]): OptimisticEcho[] {
+  return msgs.map((m) => ({ id: m.id, content: m.content, sentAtMs: Number(m.timestamp) || 0 }));
+}
+
+function timestampMs(ts: string | undefined): number | null {
+  if (!ts) return null;
+  const numeric = Number(ts);
+  if (Number.isFinite(numeric)) return numeric;
+  const parsed = Date.parse(ts);
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
 function groupToolResults(messages: ChatMessage[]): ChatMessage[] {
@@ -121,25 +134,32 @@ export function useChatSession({
   }, [error]);
 
   const parsed = useMemo<ChatMessage[]>(() => structured ?? [], [structured]);
-
-  const matchesParsedUser = useCallback(
-    (optimisticMessage: ChatMessage, recentParsed: ChatMessage[]) => {
-      return matchesRecentUserMessage(optimisticMessage, recentParsed);
-    },
-    [],
-  );
+  const resetParsed = useMemo(() => trimAfterSessionReset(parsed), [parsed]);
+  const resetCutoffMs = useMemo(() => {
+    const index = lastSessionResetIndex(parsed);
+    return index >= 0 ? timestampMs(parsed[index]?.timestamp) : null;
+  }, [parsed]);
+  const liveOptimistic = useMemo(() => {
+    if (resetCutoffMs == null) return optimistic;
+    return optimistic.filter((m) => {
+      const ts = timestampMs(m.timestamp);
+      return ts == null || ts >= resetCutoffMs;
+    });
+  }, [optimistic, resetCutoffMs]);
 
   const allMessages = useMemo(() => {
-    const dedupedParsed = dedupeRecentUserMessages(parsed);
-    const groupedParsed = groupToolResults(dedupedParsed);
-    if (optimistic.length === 0) return groupedParsed;
-    const tail = Math.max(optimistic.length * 4, 20);
-    const recentParsed = groupedParsed.slice(-tail);
-    const stillPending = optimistic.filter(
-      (m) => !matchesParsedUser(m, recentParsed),
-    );
-    return [...groupedParsed, ...stillPending];
-  }, [parsed, optimistic, matchesParsedUser]);
+    const grouped = groupToolResults(resetParsed);
+    if (liveOptimistic.length === 0) return grouped;
+    // Render every real user turn (mergeById already dedupes by stable id — no
+    // content-collapse that would swallow a legitimately repeated message).
+    // A bubble is hidden once the provider transcript positively claims it,
+    // either exactly or as part of a combined TUI-submitted user turn.
+    const parsedUsers = resetParsed.filter((m) => m.type === "user");
+    const { matchedIds } = matchedOptimisticEchoes(toEchoes(liveOptimistic), parsedUsers);
+    const matched = new Set(matchedIds);
+    const stillPending = liveOptimistic.filter((m) => !matched.has(m.id));
+    return [...grouped, ...stillPending];
+  }, [resetParsed, liveOptimistic]);
 
   const enrichedMessages = useMemo(() => {
     const visible = allMessages.slice(-visibleMessageCount);
@@ -181,53 +201,46 @@ export function useChatSession({
   }, [hiddenMessageCount]);
 
   const addOptimistic = useCallback((content: string) => {
+    const id = `opt-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
     setOptimistic((prev) => [
       ...prev,
       {
-        id: `opt-${Date.now()}`,
+        id,
         type: "user",
         content,
         timestamp: String(Date.now()),
       },
     ]);
+    return id;
   }, []);
 
+  /** Replace an optimistic bubble's content in place — used to morph a
+   * "transcribing…" placeholder into the final transcript (or an error)
+   * without the bubble shifting or re-mounting. */
+  const updateOptimistic = useCallback((id: string, content: string) => {
+    setOptimistic((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, content, timestamp: String(Date.now()) } : m)),
+    );
+  }, []);
+
+  // Garbage-collect bubbles whose real echo has landed or whose pre-reset
+  // history is no longer visible. If the echo never arrives the bubble stays
+  // visible; combined transcript turns can still claim several quick sends.
   useEffect(() => {
     if (optimistic.length === 0) return;
-    const now = Date.now();
-    const tail = Math.max(optimistic.length * 4, 20);
-    const recentParsed = parsed.slice(-tail);
+    const parsedUsers = resetParsed.filter((m) => m.type === "user");
+    const { matchedIds } = matchedOptimisticEchoes(toEchoes(optimistic), parsedUsers);
+    const matched = new Set(matchedIds);
     setOptimistic((prev) => {
       const next = prev.filter((m) => {
-        if (matchesParsedUser(m, recentParsed)) return false;
-        if (m.timestamp) {
-          const sentAt = Number(m.timestamp);
-          if (!Number.isNaN(sentAt) && now - sentAt > OPTIMISTIC_TTL_MS) {
-            return false;
-          }
-        }
-        return true;
+        if (matched.has(m.id)) return false;
+        if (resetCutoffMs == null) return true;
+        const ts = timestampMs(m.timestamp);
+        return ts == null || ts >= resetCutoffMs;
       });
       return next.length === prev.length ? prev : next;
     });
-  }, [parsed, optimistic.length, matchesParsedUser]);
-
-  useEffect(() => {
-    if (optimistic.length === 0) return;
-    const id = setInterval(() => {
-      const now = Date.now();
-      setOptimistic((prev) => {
-        const next = prev.filter((m) => {
-          if (!m.timestamp) return true;
-          const sentAt = Number(m.timestamp);
-          if (Number.isNaN(sentAt)) return true;
-          return now - sentAt <= OPTIMISTIC_TTL_MS;
-        });
-        return next.length === prev.length ? prev : next;
-      });
-    }, 10_000);
-    return () => clearInterval(id);
-  }, [optimistic.length]);
+  }, [resetParsed, resetCutoffMs, optimistic]);
 
   return {
     loading,
@@ -238,5 +251,6 @@ export function useChatSession({
     hiddenMessageCount,
     loadOlder,
     addOptimistic,
+    updateOptimistic,
   };
 }

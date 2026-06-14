@@ -7,6 +7,10 @@ export interface GitInfo {
   repo_root: string;
 }
 
+function gitInfoEquals(a: GitInfo | null, b: GitInfo | null): boolean {
+  return a?.branch === b?.branch && a?.is_dirty === b?.is_dirty && a?.repo_root === b?.repo_root;
+}
+
 export function useGitInfo(paneId: string | null): GitInfo | null {
   const [info, setInfo] = useState<GitInfo | null>(null);
 
@@ -15,8 +19,8 @@ export function useGitInfo(paneId: string | null): GitInfo | null {
 
     const fetchInfo = () => {
       invoke<GitInfo | null>("get_pane_git_info", { paneId })
-        .then(setInfo)
-        .catch(() => setInfo(null));
+        .then((next) => setInfo((prev) => (gitInfoEquals(prev, next) ? prev : next)))
+        .catch(() => setInfo((prev) => (prev === null ? prev : null)));
     };
 
     fetchInfo();

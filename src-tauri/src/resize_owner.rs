@@ -28,7 +28,13 @@ impl ResizeOwnerRegistry {
         client_id: String,
         cols: u16,
         rows: u16,
+        force: bool,
     ) -> ResizeOwner {
+        if let Some(owner) = self.owners_by_pty.get(&pty_id) {
+            if !force && owner.client_id != client_id {
+                return owner.clone();
+            }
+        }
         let owner = ResizeOwner {
             pane_id,
             pty_id: pty_id.clone(),
@@ -61,3 +67,84 @@ fn now_millis() -> u64 {
 }
 
 pub type ResizeOwnerState = Arc<Mutex<ResizeOwnerRegistry>>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_cannot_steal_existing_resize_owner_without_force() {
+        let mut registry = ResizeOwnerRegistry::default();
+        let first = registry.claim(
+            "pane".into(),
+            "pty".into(),
+            "tauri:desktop".into(),
+            160,
+            48,
+            false,
+        );
+        let second = registry.claim(
+            "pane".into(),
+            "pty".into(),
+            "web:phone".into(),
+            80,
+            24,
+            false,
+        );
+
+        assert_eq!(second.client_id, first.client_id);
+        assert_eq!(second.cols, 160);
+        assert!(registry.is_owner("pty", "tauri:desktop"));
+        assert!(!registry.is_owner("pty", "web:phone"));
+    }
+
+    #[test]
+    fn same_client_can_refresh_existing_resize_owner_without_force() {
+        let mut registry = ResizeOwnerRegistry::default();
+        registry.claim(
+            "pane".into(),
+            "pty".into(),
+            "web:phone".into(),
+            80,
+            24,
+            false,
+        );
+        let owner = registry.claim(
+            "pane".into(),
+            "pty".into(),
+            "web:phone".into(),
+            160,
+            48,
+            false,
+        );
+
+        assert_eq!(owner.client_id, "web:phone");
+        assert_eq!(owner.cols, 160);
+        assert!(registry.is_owner("pty", "web:phone"));
+    }
+
+    #[test]
+    fn explicit_web_takeover_can_reclaim_from_tauri_resize_owner() {
+        let mut registry = ResizeOwnerRegistry::default();
+        registry.claim(
+            "pane".into(),
+            "pty".into(),
+            "tauri:desktop".into(),
+            160,
+            48,
+            false,
+        );
+        let owner = registry.claim(
+            "pane".into(),
+            "pty".into(),
+            "web:phone".into(),
+            80,
+            24,
+            true,
+        );
+
+        assert_eq!(owner.client_id, "web:phone");
+        assert_eq!(owner.cols, 80);
+        assert!(registry.is_owner("pty", "web:phone"));
+    }
+}

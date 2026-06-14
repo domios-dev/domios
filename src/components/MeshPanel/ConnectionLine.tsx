@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 interface Props {
   fromX: number;
   fromY: number;
@@ -12,7 +14,7 @@ const BASE_WIDTH = 1;
 const MAX_EXTRA_WIDTH = 4;
 const VOLUME_CAP = 10;
 
-export function ConnectionLine({ fromX, fromY, toX, toY, pushCount, pulsing, isGhost }: Props) {
+function ConnectionLineComponent({ fromX, fromY, toX, toY, pushCount, pulsing, isGhost }: Props) {
   const intensity = Math.min(pushCount, VOLUME_CAP) / VOLUME_CAP;
   const width = BASE_WIDTH + MAX_EXTRA_WIDTH * intensity;
   const opacity = isGhost ? 0.25 : 0.45 + 0.45 * intensity;
@@ -52,3 +54,5 @@ export function ConnectionLine({ fromX, fromY, toX, toY, pushCount, pulsing, isG
     </>
   );
 }
+
+export const ConnectionLine = memo(ConnectionLineComponent);

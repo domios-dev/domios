@@ -64,32 +64,6 @@ fn apply_with_manifest_url_appends_query() {
 }
 
 #[test]
-fn channel_get_maps_to_get_channel() {
-    let (m, p, b) = cli_command_to_api(&update_cmd(
-        Some(UpdateAction::Channel { channel: None }),
-        None,
-    ));
-    assert_eq!(m, "GET");
-    assert_eq!(p, "/api/update/channel");
-    assert!(b.is_none());
-}
-
-#[test]
-fn channel_set_maps_to_post_channel_with_body() {
-    let (m, p, b) = cli_command_to_api(&update_cmd(
-        Some(UpdateAction::Channel {
-            channel: Some("rc".to_string()),
-        }),
-        None,
-    ));
-    assert_eq!(m, "POST");
-    assert_eq!(p, "/api/update/channel");
-    let body = b.expect("body");
-    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(v["channel"], "rc");
-}
-
-#[test]
 fn update_install_local_only_options_are_rejected_over_mesh() {
     let (m, reason, b) = cli_command_to_api(&update_cmd(
         Some(UpdateAction::Install {
@@ -483,6 +457,9 @@ fn send_text_is_fire_and_forget_on_mesh() {
         pane: Some("abc123".into()),
         from_file: None,
         stdin: false,
+        actions: None,
+        delay: None,
+        at: None,
     };
     let (m, p, b) = cli_command_to_api(&cmd);
     assert_eq!(m, "POST");
@@ -491,7 +468,29 @@ fn send_text_is_fire_and_forget_on_mesh() {
     assert_eq!(body["text"], "ping");
     assert!(
         body.get("verify").is_none(),
-        "send-text must never carry verify — the flag has been removed (#101)"
+        "send must never carry verify — the flag has been removed (#101)"
+    );
+}
+
+#[test]
+fn send_delay_maps_to_delayed_messages() {
+    let cmd = Commands::SendText {
+        text: Some("later".into()),
+        pane: Some("abc123".into()),
+        from_file: None,
+        stdin: false,
+        actions: None,
+        delay: Some("1m".into()),
+        at: None,
+    };
+    let (m, p, b) = cli_command_to_api(&cmd);
+    assert_eq!(m, "POST");
+    assert_eq!(p, "/api/panes/abc123/delayed-messages");
+    let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
+    assert_eq!(body["text"], "later");
+    assert!(
+        body["scheduledAtMs"].as_u64().is_some(),
+        "delayed send must carry scheduledAtMs"
     );
 }
 
@@ -499,12 +498,39 @@ fn send_text_is_fire_and_forget_on_mesh() {
 fn send_text_stdin_mesh_body_preserves_exact_text() {
     let text = "it's got 'quotes' and \"doubles\"\nsecond line\n";
     let mut stdin = text.as_bytes();
-    let (m, p, b) =
-        super::api_map::send_text_to_api(&None, &Some("abc123".into()), &None, true, &mut stdin);
+    let (m, p, b) = super::api_map::send_text_to_api(
+        &None,
+        &Some("abc123".into()),
+        &None,
+        true,
+        &None,
+        &mut stdin,
+    );
     assert_eq!(m, "POST");
     assert_eq!(p, "/api/panes/abc123/send");
     let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
     assert_eq!(body["text"], text);
+}
+
+#[test]
+fn send_actions_allows_empty_payload_on_mesh() {
+    let empty = "";
+    let mut stdin = empty.as_bytes();
+    let actions = Some("enter".to_string());
+    let (m, p, b) = super::api_map::send_text_to_api(
+        &None,
+        &Some("abc123".into()),
+        &None,
+        true,
+        &actions,
+        &mut stdin,
+    );
+    assert_eq!(m, "POST");
+    assert_eq!(p, "/api/panes/abc123/send");
+    let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
+    assert!(body.get("text").is_none());
+    assert_eq!(body["actions"][0]["type"], "key");
+    assert_eq!(body["actions"][0]["key"], "enter");
 }
 
 /// `web link` embeds the LOCAL token — relaying would mint a link with
@@ -513,6 +539,7 @@ fn send_text_stdin_mesh_body_preserves_exact_text() {
 fn web_link_is_local_only_over_mesh() {
     let cmd = Commands::Web {
         action: crate::args::misc::WebAction::Link {
+            peer: None,
             host: None,
             port: None,
             query: false,

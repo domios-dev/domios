@@ -222,6 +222,49 @@ pub(crate) fn validate_agent_model(
     ))
 }
 
+pub(crate) fn resolve_fresh_agent_model(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    requested: Option<String>,
+    resume_session_id: Option<&str>,
+) -> Option<String> {
+    if resume_session_id.is_some() {
+        return requested.and_then(non_empty_model);
+    }
+    if let Some(model) = requested.and_then(non_empty_model) {
+        return Some(model);
+    }
+    if let Some(model) = crate::config::provider_config(provider_id)
+        .default_model
+        .and_then(non_empty_model)
+    {
+        if model_is_advertised(registry, provider_id, &model) {
+            return Some(model);
+        }
+        log::warn!(
+            "[spawn] ignoring stale default model '{}' for provider '{}'",
+            model,
+            provider_id
+        );
+    }
+    registry
+        .with_provider(provider_id, |p| p.default_model())
+        .flatten()
+        .and_then(non_empty_model)
+}
+
+fn non_empty_model(model: String) -> Option<String> {
+    let trimmed = model.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn model_is_advertised(registry: &AgentRegistry, provider_id: &str, model: &str) -> bool {
+    registry
+        .with_provider(provider_id, |p| p.available_models())
+        .map(|models| models.is_empty() || models.iter().any(|m| m.id == model))
+        .unwrap_or(false)
+}
+
 impl ServiceContext {
     pub(crate) fn spawn_visible_agent_impl(
         &self,
@@ -255,7 +298,13 @@ impl ServiceContext {
                 agent_cmd, available
             ));
         }
-        validate_agent_model(&self.agent_registry, &agent_cmd, agent.model.as_deref())?;
+        let launch_model = resolve_fresh_agent_model(
+            &self.agent_registry,
+            &agent_cmd,
+            agent.model.clone(),
+            agent.resume_session_id.as_deref(),
+        );
+        validate_agent_model(&self.agent_registry, &agent_cmd, launch_model.as_deref())?;
 
         let title = spec
             .title
@@ -377,6 +426,11 @@ impl ServiceContext {
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
+        if let Some(ref model) = launch_model {
+            if let Some(pane) = self.mux.lock().get_pane_mut(&pane_id) {
+                pane.agent_session_model = Some(model.clone());
+            }
+        }
         self.emit_state_changed();
 
         let role_suffixed_task = agent.task.as_ref().map(|t| {
@@ -398,7 +452,8 @@ impl ServiceContext {
             }
         });
 
-        let legacy_params = spec.to_agent_params()?;
+        let mut legacy_params = spec.to_agent_params()?;
+        legacy_params.model = launch_model;
         let launch_cmd = build_agent_command(
             &agent_cmd,
             &legacy_params,
@@ -604,10 +659,16 @@ impl ServiceContext {
                 agent.provider, available
             ));
         }
+        let launch_model = resolve_fresh_agent_model(
+            &self.agent_registry,
+            &agent.provider,
+            agent.model.clone(),
+            agent.resume_session_id.as_deref(),
+        );
         validate_agent_model(
             &self.agent_registry,
             &agent.provider,
-            agent.model.as_deref(),
+            launch_model.as_deref(),
         )?;
 
         let ws_id = {
@@ -638,6 +699,9 @@ impl ServiceContext {
                 }
                 if let Some(ref dir) = resolved_cwd {
                     pane.cwd = Some(dir.clone());
+                }
+                if let Some(ref model) = launch_model {
+                    pane.agent_session_model = Some(model.clone());
                 }
                 if let Some(ref rtid) = agent.report_target_pane_id {
                     pane.report_target_pane_id = Some(rtid.clone());
@@ -728,8 +792,7 @@ impl ServiceContext {
         }
         self.emit_state_changed();
 
-        let model_args: Vec<String> = agent
-            .model
+        let model_args: Vec<String> = launch_model
             .as_ref()
             .and_then(|m| {
                 self.agent_registry

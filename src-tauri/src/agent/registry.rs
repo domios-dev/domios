@@ -50,8 +50,15 @@ impl AgentRegistry {
 
     /// The displaced native provider for `id`, if any. Used by JS providers to
     /// delegate capabilities they don't implement (e.g. sqlite-backed chat).
+    /// Returns only genuinely native impls — a JS provider must never be handed
+    /// back as a fallback, or `JsProvider::native()` could resolve to itself and
+    /// recurse forever (#16).
     pub fn native_fallback(&self, id: &str) -> Option<Arc<dyn AgentProvider>> {
-        self.native_fallbacks.read().get(id).cloned()
+        self.native_fallbacks
+            .read()
+            .get(id)
+            .filter(|p| p.is_native())
+            .cloned()
     }
 
     /// Register an agent provider. Overwrites any prior provider with the same
@@ -64,10 +71,17 @@ impl AgentRegistry {
         log::info!("[agent-registry] registered provider: {}", id);
         let mut guard = self.providers.write();
         if let Some(prev) = guard.remove(&id) {
-            self.native_fallbacks
-                .write()
-                .entry(id.clone())
-                .or_insert_with(|| Arc::from(prev));
+            // Only a genuine native impl is a valid capability fallback. A JS
+            // provider displaced by re-registration of the same id (hot-reload of
+            // a JS-only drop-in) must NOT become the fallback — `native()` would
+            // then return itself and capability delegation would recurse until
+            // the stack overflows (#16).
+            if prev.is_native() {
+                self.native_fallbacks
+                    .write()
+                    .entry(id.clone())
+                    .or_insert_with(|| Arc::from(prev));
+            }
         }
         guard.insert(id, provider);
     }
@@ -374,6 +388,125 @@ mod tests {
         let reg = AgentRegistry::new();
         reg.register_provider(Box::new(ClaudeProvider::new()));
         reg
+    }
+
+    /// Minimal provider used to exercise the native-fallback bookkeeping.
+    /// `native` toggles `is_native()` so we can model both a real native impl
+    /// and a JS drop-in without spinning a VM.
+    struct FallbackStub {
+        id: &'static str,
+        native: bool,
+    }
+
+    impl crate::agent::provider::AgentProvider for FallbackStub {
+        fn id(&self) -> &str {
+            self.id
+        }
+        fn display_name(&self) -> &str {
+            self.id
+        }
+        fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
+            String::new()
+        }
+        fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
+            crate::agent::provider::ReadinessStrategy::FixedDelay {
+                duration: std::time::Duration::from_secs(0),
+            }
+        }
+        fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
+            crate::agent::provider::TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
+            None
+        }
+        fn detect_session_id(
+            &self,
+            _: &str,
+            _: &[String],
+            _: Option<std::time::Duration>,
+        ) -> Option<String> {
+            None
+        }
+        fn detect_launched_session_id(
+            &self,
+            _: &str,
+            _: &[String],
+            _: Option<std::time::Duration>,
+            _: Option<&str>,
+        ) -> Option<String> {
+            None
+        }
+        fn detect_started_session(
+            &self,
+            _: &str,
+            _: &[String],
+            _: Option<std::time::Duration>,
+            _: Option<&str>,
+            _: Option<&str>,
+        ) -> Option<String> {
+            None
+        }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
+        fn is_native(&self) -> bool {
+            self.native
+        }
+    }
+
+    /// #16 regression: a JS-only provider (no native sibling) re-registered on
+    /// hot-reload must NOT be captured as its own native fallback. Otherwise
+    /// `JsProvider::native()` resolves to itself and capability delegation
+    /// recurses until the stack overflows.
+    #[test]
+    fn js_only_provider_never_becomes_native_fallback() {
+        let reg = AgentRegistry::new();
+        // First registration (authoritative pass), then re-registration
+        // (hot-reload seeding tick) — the second displaces the first.
+        reg.register_provider(Box::new(FallbackStub {
+            id: "drop-in",
+            native: false,
+        }));
+        reg.register_provider(Box::new(FallbackStub {
+            id: "drop-in",
+            native: false,
+        }));
+        assert!(
+            reg.native_fallback("drop-in").is_none(),
+            "a JS drop-in displaced by re-registration must never be a fallback"
+        );
+    }
+
+    /// A JS provider displacing a genuine native impl still records the native
+    /// one as the fallback (the legitimate delegation case), and re-registration
+    /// keeps it native.
+    #[test]
+    fn native_impl_is_preserved_as_fallback_across_reregistration() {
+        let reg = AgentRegistry::new();
+        reg.register_provider(Box::new(FallbackStub {
+            id: "dual",
+            native: true,
+        }));
+        reg.register_provider(Box::new(FallbackStub {
+            id: "dual",
+            native: false,
+        }));
+        let fb = reg
+            .native_fallback("dual")
+            .expect("native fallback recorded");
+        assert!(fb.is_native(), "fallback must be the native impl");
+        // Hot-reload re-registers the JS provider again — fallback stays native.
+        reg.register_provider(Box::new(FallbackStub {
+            id: "dual",
+            native: false,
+        }));
+        assert!(reg.native_fallback("dual").unwrap().is_native());
     }
 
     #[test]

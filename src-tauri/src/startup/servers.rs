@@ -226,6 +226,16 @@ fn resolve_web_dist() -> Option<std::path::PathBuf> {
         std::env::current_exe()
             .ok()
             .and_then(|e| e.parent().map(|d| d.join("dist"))),
+        // macOS .app: exe is Contents/MacOS/<bin>, bundled resources land in Contents/Resources/.
+        std::env::current_exe().ok().and_then(|e| {
+            e.parent()
+                .and_then(|d| d.parent())
+                .map(|d| d.join("Resources").join("dist"))
+        }),
+        // Tauri layouts that nest bundled resources under a `resources/` subdir.
+        std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|d| d.join("resources").join("dist"))),
     ];
     for cand in candidates.into_iter().flatten() {
         if cand.join("index.html").exists() {

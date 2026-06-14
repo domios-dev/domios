@@ -6,6 +6,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 
 use super::cache::{LayoutCache, Position};
+use super::placement::COORD_RANGE;
 
 pub const MAX_IDS: usize = 500;
 
@@ -78,6 +79,7 @@ pub enum DeltaResponse {
     },
 }
 
+#[derive(Clone)]
 struct ItemMeta {
     kind: String,
     importance: f64,
@@ -140,6 +142,27 @@ fn load_item_meta(conn: &Connection) -> Result<HashMap<String, ItemMeta>, String
     Ok(meta)
 }
 
+fn fallback_position(id: &str, index: usize, count: usize) -> Position {
+    let h = stable_hash(id);
+    let angle = (h as f64 / u64::MAX as f64) * std::f64::consts::TAU;
+    let radius = (count.max(1) as f64).sqrt() * (COORD_RANGE as f64 * 0.025);
+    let jitter = (((h >> 32) as f64 / u32::MAX as f64) - 0.5) * radius * 0.35;
+    Position {
+        x: (angle.cos() * (radius + jitter)) as f32,
+        y: (angle.sin() * (radius + jitter)) as f32,
+        cluster_id: (index / 64) as u32,
+    }
+}
+
+fn stable_hash(s: &str) -> u64 {
+    let mut h = 0xcbf29ce484222325u64;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
 fn load_pinned(conn: &Connection) -> HashMap<String, (f32, f32)> {
     let mut out = HashMap::new();
     if let Ok(mut stmt) = conn.prepare("SELECT mem_id, x, y FROM graph_pinned_positions") {
@@ -163,13 +186,26 @@ pub fn build_snapshot(conn: &Connection, cache: &LayoutCache) -> Result<Snapshot
     let meta = load_item_meta(conn)?;
     let pinned = load_pinned(conn);
     let keep: HashSet<String> = meta.keys().cloned().collect();
-    let positions = cache.positions_filtered(&keep);
+    let mut positions = cache.positions_filtered(&keep);
 
     let placed_ids: HashSet<String> = positions.iter().map(|(id, _)| id.clone()).collect();
     let vectorized_without_position = meta
         .iter()
         .filter(|(id, m)| m.has_vector && !placed_ids.contains(*id))
         .count();
+    let mut missing: Vec<String> = meta
+        .keys()
+        .filter(|id| !placed_ids.contains(*id))
+        .cloned()
+        .collect();
+    missing.sort();
+    let total = meta.len();
+    positions.extend(
+        missing
+            .into_iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), fallback_position(&id, i, total))),
+    );
 
     let mut nodes = Vec::with_capacity(positions.len());
     let mut cluster_sum: HashMap<u32, (f64, f64, usize)> = HashMap::new();
@@ -439,6 +475,24 @@ mod tests {
         let snap = build_snapshot(&conn, &cache).unwrap();
         assert_eq!(snap.nodes.len(), 1);
         assert_eq!(snap.nodes[0].id, "fact_live");
+    }
+
+    #[test]
+    fn snapshot_positions_live_nodes_when_cache_empty() {
+        let conn = Connection::open_in_memory().unwrap();
+        schema(&conn);
+        insert_item(&conn, "fact_a", "fact", 3.0);
+        insert_item(&conn, "rule_b", "rule", 5.0);
+        let cache = cache_at(&std::env::temp_dir());
+
+        let snap = build_snapshot(&conn, &cache).unwrap();
+        assert_eq!(snap.nodes.len(), 2);
+        assert_eq!(snap.stats.node_count, 2);
+        assert!(snap
+            .nodes
+            .iter()
+            .all(|n| n.x.is_finite() && n.y.is_finite()));
+        assert_eq!(snap.clusters.iter().map(|c| c.size).sum::<usize>(), 2);
     }
 
     #[test]

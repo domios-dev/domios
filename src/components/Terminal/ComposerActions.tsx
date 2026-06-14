@@ -21,7 +21,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
-import { ChevronUp, Lock, Mic, Paperclip, SendHorizontal, Square } from "lucide-react";
+import { ChevronUp, Clock3, Lock, Mic, Paperclip, SendHorizontal, Square } from "lucide-react";
 import { IS_WEB } from "../../lib/webApi";
 import { storeBlob } from "./voice/audio";
 import { useVoiceRecorder } from "./voice/useVoiceRecorder";
@@ -85,6 +85,7 @@ export function useWebFileDrop(
 interface Props {
   onAttach: (paths: string[]) => void;
   onSend: () => void;
+  onSchedule?: () => void;
   onSendWithAttachments: (paths: string[]) => void;
   onError: (msg: string) => void;
   sendDisabled: boolean;
@@ -100,6 +101,7 @@ type VoiceMode = "hold" | "locked" | "preview" | null;
 export function ComposerActions({
   onAttach,
   onSend,
+  onSchedule,
   onSendWithAttachments,
   onError,
   sendDisabled,
@@ -407,15 +409,43 @@ export function ComposerActions({
                 <VoiceRecordingBar
                   mode={isLocked ? "locked" : "hold"}
                   armed={cancelArmed}
+                  peaks={voice.livePeaks}
                   cancelHintRef={cancelHintRef}
                   onCancel={() => void cancelVoice()}
                 />
               )}
             </div>
           )}
-          <div className={composerHidden ? "relative flex w-full items-center opacity-0 pointer-events-none" : "relative flex w-full items-center"}>
+          <div
+            className={
+              composerHidden
+                ? "relative flex min-w-0 flex-1 items-center opacity-0 pointer-events-none"
+                : "relative flex min-w-0 flex-1 items-center"
+            }
+          >
             {children}
           </div>
+          {!composerHidden && mainIsSend && onSchedule && (
+            <button
+              type="button"
+              data-testid="composer-schedule-button"
+              title="Schedule send"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.preventDefault();
+                onSchedule();
+              }}
+              className={`${btnBase} ml-1 h-8 w-8 shrink-0 rounded-full text-[var(--ct-muted-fg)] transition hover:text-[var(--ct-fg)] hover:brightness-125`}
+              style={{
+                background:
+                  "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 82%, white 7%)",
+                border:
+                  "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",
+              }}
+            >
+              <Clock3 size={16} strokeWidth={2.2} />
+            </button>
+          )}
         </div>
         {/* mb-1 optically centers the 40px buttons against the 48px single-line input (items-end row). */}
         {!isPreview && (
@@ -469,6 +499,11 @@ export function ComposerActions({
               onClick={(e) => {
                 e.preventDefault();
                 if (isLocked) void stopToPreview();
+              }}
+              onContextMenu={(e) => {
+                if (!mainIsSend || !onSchedule) return;
+                e.preventDefault();
+                onSchedule();
               }}
               className={`${btnBase} ${voiceActive ? "" : "ct-composer-round-button"} absolute left-1/2 top-1/2 rounded-full border text-white ${
                 voiceActive

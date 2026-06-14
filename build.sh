@@ -7,10 +7,10 @@
 #   ./build.sh check     — cargo check only (~2s incremental)
 #   ./build.sh test      — run Rust unit tests
 #   ./build.sh build     — production build
+#   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
 #   ./build.sh cli       — build CLI and install to ~/.codeterm/bin/ + ~/.codeterm-dev/bin/
 #   ./build.sh clean     — clean build cache
 #   ./build.sh kill      — kill dev instance (safe, won't touch prod)
-#   ./build.sh webdriver — dev with WebDriver for UI tests
 #   ./build.sh e2e       — run non-LLM E2E tests against dev (port 7686)
 #   ./build.sh e2e:llm   — run LLM E2E tests against dev (real provider tokens)
 #   source build.sh env  — load MSVC env vars into current shell (Windows only)
@@ -84,6 +84,11 @@ install_cli_to() {
   echo "CLI installed to $bin_dir"
 }
 
+prepare_bundle_stubs() {
+  node scripts/prepare-cli-stub.js
+  node scripts/prepare-embed-stub.js
+}
+
 start_dev_wait_process() {
   local log="$1"
   local cmd=(pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json)
@@ -144,19 +149,40 @@ case "$CMD" in
     # Already loaded above. Use: source build.sh env
     ;;
   check)
+    prepare_bundle_stubs
     cargo check --manifest-path src-tauri/Cargo.toml
     ;;
   test)
+    prepare_bundle_stubs
     cargo test --manifest-path src-tauri/Cargo.toml --lib
     ;;
   build)
     ensure_deps
     pnpm tauri build
+    # Release gate: /web is served from the exe-adjacent dist/ bundle that
+    # tauri.conf bundle.resources maps in (../dist -> dist). If pnpm build
+    # produced no dist/index.html the installer ships a /web that 404s.
+    if [ ! -f dist/index.html ]; then
+      echo "❌ RELEASE GATE: dist/index.html missing after build — /web would 404. Run 'pnpm build'." >&2
+      exit 1
+    fi
+    echo "✅ web bundle present (dist/index.html) — packaged into installer via bundle.resources"
+    ;;
+  bootstrap)
+    ensure_deps
+    prepare_bundle_stubs
+    touch cli/src/main.rs
+    cargo build --release --manifest-path cli/Cargo.toml
+    CODETERM_DEV=1 node scripts/bundle-cli.js
+    cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
+    node scripts/bundle-embed.js
+    echo "Bootstrap complete: bundled CLI and codeterm-embed are present."
     ;;
   embed)
     # Force-rebuild the codeterm-embed binary. Skipped on every dev cycle
     # by default — use this when you change embed sources or pull new
     # ONNX/embeddings deps.
+    prepare_bundle_stubs
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
     node scripts/bundle-embed.js
     echo "codeterm-embed rebuilt"
@@ -252,13 +278,6 @@ case "$CMD" in
       pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json
     fi
     ;;
-  webdriver)
-    kill_dev
-    ensure_deps
-    echo "Starting dev with WebDriver..."
-    export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=9223}"
-    pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json -- --features webdriver
-    ;;
   e2e)
     export CODETERM_API_URL="http://127.0.0.1:7686"
     cd tests/e2e
@@ -316,7 +335,7 @@ case "$CMD" in
     exit "$ta_rc"
     ;;
   *)
-    echo "Usage: ./build.sh {dev|check|test|test:all|build|cli|clean|kill|webdriver|e2e|env}"
+    echo "Usage: ./build.sh {dev|check|test|test:all|build|cli|clean|kill|e2e|env}"
     exit 1
     ;;
 esac

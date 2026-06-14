@@ -107,6 +107,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     listen<{ pane_id: string; status: PaneStatus }>(
       "pane-status-changed",
       (event) => {
+        if (!event.payload) return;
         dispatch({
           type: "UPDATE_PANE_STATUS",
           paneId: event.payload.pane_id,
@@ -320,6 +321,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       }
       // Set `agent_type` early so detect_from_output can save session IDs.
       invoke("mux_set_pane_agent_type", { paneId: tabInfo.pane_id, agentType: agentId }).catch(() => {});
+      await loadDefaultNewAgentPaneChat().catch(() => false);
       if (shouldDefaultNewAgentPaneToChat(agentId)) {
         invoke("mux_set_chat_view", { paneId: tabInfo.pane_id, enabled: true }).catch(() => {});
       }

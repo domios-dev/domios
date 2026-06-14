@@ -1,7 +1,5 @@
 use std::time::{Duration, Instant};
 
-use crate::agent::provider::VerifySubmitStrategy;
-use crate::service::inject_verify::VerifyOpts;
 use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
 use crate::service::ServiceContext;
 
@@ -112,16 +110,14 @@ impl UsageProbe {
         started: Instant,
     ) -> Result<UsageProbeOutcome, ProbeError> {
         let svc = self.svc.clone();
-        let (warmup, submit_strategy) = svc
+        let warmup = svc
             .agent_registry
-            .with_provider(provider, |p| {
-                (p.task_input_warmup(), p.verify_submit_strategy())
-            })
-            .unwrap_or((Duration::ZERO, VerifySubmitStrategy::None));
+            .with_provider(provider, |p| p.task_input_warmup())
+            .unwrap_or(Duration::ZERO);
 
-        wait_for_tui(&svc, pty_id, Duration::from_secs(60))
+        wait_for_tui(&svc, pty_id, TUI_READY_TIMEOUT)
             .await
-            .map_err(|m| ProbeError::NotReady(m))?;
+            .map_err(ProbeError::NotReady)?;
 
         {
             let mut pty = svc.pty.lock();
@@ -129,15 +125,8 @@ impl UsageProbe {
         }
         tokio::time::sleep(Duration::from_millis(800)).await;
 
-        let opts = VerifyOpts {
-            require_prompt_first: false,
-            verify_echo: false,
-            verify_submit: true,
-            prompt_timeout: Duration::from_secs(5),
-            echo_timeout: Duration::from_secs(3),
-            submit_timeout: Duration::from_secs(5),
-        };
-
+        // ESC clears any partial input / open menu and warms the ConPTY input
+        // path before the real command write.
         let pty_owned = pty_id.to_string();
         let svc_for_send = svc.clone();
         tokio::task::spawn_blocking(move || {
@@ -155,54 +144,13 @@ impl UsageProbe {
             .flatten()
             .unwrap_or_else(|| "/usage".to_string());
 
-        let pty_owned = pty_id.to_string();
-        let svc_for_send = svc.clone();
-        let strategy_for_send = submit_strategy.clone();
-        let opts_for_send = opts.clone();
-        let cmd_for_send = probe_cmd.clone();
-        tokio::task::spawn_blocking(move || {
-            svc_for_send.send_text_verified(
-                &pty_owned,
-                &cmd_for_send,
-                true,
-                strategy_for_send,
-                opts_for_send,
-            )
-        })
-        .await
-        .map_err(|e| ProbeError::Internal(format!("send join: {}", e)))?
-        .map_err(|e| ProbeError::Internal(format!("send {}: {}", probe_cmd, e)))?;
-
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        let pty_owned = pty_id.to_string();
-        let svc_for_extra = svc.clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            let pty = svc_for_extra.pty.lock();
-            pty.write(&pty_owned, b"\r")
-        })
-        .await;
+        write_slash_command(&svc, pty_id, &probe_cmd).await?;
 
         tokio::time::sleep(warmup).await;
 
         let raw_text = wait_for_output(&svc, pty_id, provider).await?;
 
-        let svc_for_exit = svc.clone();
-        let pty_exit = pty_id.to_string();
-        let _ = tokio::task::spawn_blocking(move || {
-            svc_for_exit.send_text_verified(
-                &pty_exit,
-                "/exit",
-                true,
-                VerifySubmitStrategy::None,
-                VerifyOpts {
-                    require_prompt_first: false,
-                    verify_echo: false,
-                    verify_submit: false,
-                    ..Default::default()
-                },
-            )
-        })
-        .await;
+        let _ = write_slash_command(&svc, pty_id, "/exit").await;
 
         let _ = pane_id;
         Ok(UsageProbeOutcome {
@@ -210,6 +158,51 @@ impl UsageProbe {
             elapsed_ms: started.elapsed().as_millis() as u64,
         })
     }
+}
+
+/// Write a slash command into an already-running agent TUI as a CLEAN bracketed
+/// paste, then submit.
+///
+/// Deliberately bypasses `send_text_verified`, which on Windows prepends a
+/// sacrificial leading space (`\x1b[200~ {}\x1b[201~`) to absorb the
+/// ConPTY/PSReadLine first-byte race. That race is a *shell-startup*
+/// phenomenon (it gates the launch command, already handled upstream via
+/// `poll_shell_prompt` in `spawn_hidden_agent_impl`). By the time we reach
+/// here the agent TUI has been rendering for seconds, so no first byte is
+/// dropped — and the leading space *survives*, turning `/usage` into ` /usage`
+/// which the TUI treats as prose, not a command. That is the intermittent
+/// Windows probe failure: a warmer ConPTY made the byte less likely to drop,
+/// so the poisoning space appeared more often, not less. A clean paste keeps
+/// the leading `/` intact on every platform.
+async fn write_slash_command(
+    svc: &ServiceContext,
+    pty_id: &str,
+    cmd: &str,
+) -> Result<(), ProbeError> {
+    let payload = format!("\x1b[200~{}\x1b[201~", cmd);
+    let pty_owned = pty_id.to_string();
+    let svc_for_paste = svc.clone();
+    tokio::task::spawn_blocking(move || {
+        let pty = svc_for_paste.pty.lock();
+        pty.write(&pty_owned, payload.as_bytes())
+    })
+    .await
+    .map_err(|e| ProbeError::Internal(format!("paste join: {}", e)))?
+    .map_err(|e| ProbeError::Internal(format!("paste write: {}", e)))?;
+
+    // Submit twice with a settle between: a freshly-rendered TUI can swallow a
+    // too-early `\r`, leaving the command typed-but-never-sent.
+    for settle_ms in [150u64, 600] {
+        tokio::time::sleep(Duration::from_millis(settle_ms)).await;
+        let pty_owned = pty_id.to_string();
+        let svc_for_enter = svc.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            let pty = svc_for_enter.pty.lock();
+            pty.write(&pty_owned, b"\r")
+        })
+        .await;
+    }
+    Ok(())
 }
 
 async fn wait_for_tui(svc: &ServiceContext, pty_id: &str, timeout: Duration) -> Result<(), String> {
@@ -252,8 +245,26 @@ fn screen_has_tui_input(text: &str) -> bool {
         || lower.contains("ctrl+l")
 }
 
-const TOTAL_BUDGET: Duration = Duration::from_secs(8);
-const STILL_LOADING_DEADLINE: Duration = Duration::from_secs(5);
+/// How long to wait for the agent TUI input box to render before giving up.
+/// Windows agent boot (node + provider) is meaningfully slower, so allow more
+/// headroom; a genuine dead launch still fails honestly within this bound and
+/// the poller retries with a fresh pane.
+#[cfg(windows)]
+const TUI_READY_TIMEOUT: Duration = Duration::from_secs(45);
+#[cfg(not(windows))]
+const TUI_READY_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Total time to wait for the `/usage` panel to reach a parseable state. The
+/// panel fetches usage data over the network and routinely shows
+/// "Loading usage data…" for several seconds on a cold/slow connection — the
+/// old 8s budget (plus a 5s loading-abort) frequently gave up before the data
+/// landed, the core "does not fetch reliably" symptom. Windows gets extra
+/// headroom for the slower render path.
+#[cfg(windows)]
+const TOTAL_BUDGET: Duration = Duration::from_secs(25);
+#[cfg(not(windows))]
+const TOTAL_BUDGET: Duration = Duration::from_secs(15);
+
 const POLL_INTERVAL: Duration = Duration::from_millis(400);
 
 async fn wait_for_output(
@@ -281,9 +292,8 @@ async fn wait_for_output(
             if has_parseable_markers(&text, provider) {
                 return Ok(text);
             }
-            if started.elapsed() >= STILL_LOADING_DEADLINE && only_loading_state(&text) {
-                return Err(ProbeError::NotReady("still loading after 5s".into()));
-            }
+            // "Loading usage data…" is normal progress, not a failure — keep
+            // polling through the full budget instead of bailing early.
         }
         tokio::time::sleep(POLL_INTERVAL).await;
     }
@@ -291,6 +301,11 @@ async fn wait_for_output(
         Err(ProbeError::NoOutput)
     } else if has_parseable_markers(&last_text, provider) {
         Ok(last_text)
+    } else if only_loading_state(&last_text) {
+        Err(ProbeError::NotReady(format!(
+            "usage panel still loading after {}ms",
+            TOTAL_BUDGET.as_millis()
+        )))
     } else {
         Err(ProbeError::NotReady(
             "output never reached parseable state".into(),
