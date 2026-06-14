@@ -19,6 +19,7 @@ import {
   type SlashCommandSuggestion,
 } from "../../lib/slashCommands";
 import type { ModelInfo, PendingPrompt, ProviderDescriptor } from "../../lib/types";
+import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 
 const COMPOSER_MIN_HEIGHT = 20;
 const COMPOSER_SINGLE_LINE_THRESHOLD = 28;
@@ -281,10 +282,30 @@ export function ChatComposer({
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [delayedBusyId, setDelayedBusyId] = useState<string | null>(null);
   const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [modelSuggestionDismissedFor, setModelSuggestionDismissedFor] = useState<string | null>(null);
+  const firstLine = input.split("\n")[0] || "";
+  const modelCommandQuery = useMemo(() => {
+    const match = firstLine.match(/^\/model\s+([^\n]*)$/i);
+    return match ? match[1].trim().toLowerCase() : null;
+  }, [firstLine]);
+  const filteredModelOptions = useMemo(() => {
+    if (modelCommandQuery === null) return [];
+    if (!providerDescriptor?.model_switch_format) return [];
+    const needle = modelCommandQuery;
+    if (!needle) return modelOptions;
+    return modelOptions.filter((model) => {
+      const haystack = `${model.id} ${model.display_name} ${model.description ?? ""}`.toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [modelCommandQuery, modelOptions, providerDescriptor?.model_switch_format]);
+  const modelSuggestionOpen = modelCommandQuery !== null
+    && filteredModelOptions.length > 0
+    && !modelPickerOpen
+    && modelSuggestionDismissedFor !== firstLine;
 
   const suggestions = useMemo(
-    () => filterSlashCommands(input.split("\n")[0] || ""),
-    [input],
+    () => filterSlashCommands(firstLine),
+    [firstLine],
   );
 
   const refocusComposer = useCallback(() => {
@@ -312,10 +333,25 @@ export function ChatComposer({
   }, [input]);
 
   useEffect(() => {
-    const firstLine = input.split("\n")[0] || "";
-    setPickerOpen(!modelPickerOpen && firstLine.startsWith("/") && suggestions.length > 0);
+    if (modelSuggestionDismissedFor && modelSuggestionDismissedFor !== firstLine) {
+      setModelSuggestionDismissedFor(null);
+    }
+  }, [firstLine, modelSuggestionDismissedFor]);
+
+  useEffect(() => {
+    setPickerOpen(
+      !modelPickerOpen
+        && !modelSuggestionOpen
+        && firstLine.startsWith("/")
+        && suggestions.length > 0,
+    );
     setPickerHighlight(0);
-  }, [input, modelPickerOpen, suggestions.length]);
+  }, [firstLine, modelPickerOpen, modelSuggestionOpen, suggestions.length]);
+
+  useEffect(() => {
+    if (!modelSuggestionOpen) return;
+    setModelHighlight((h) => Math.min(Math.max(h, 0), filteredModelOptions.length - 1));
+  }, [filteredModelOptions.length, modelSuggestionOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -418,6 +454,15 @@ export function ChatComposer({
     [providerDescriptor, refocusComposer, sendRawToPty, setInput, showComposerError],
   );
 
+  function completeModelDraft(model: ModelInfo) {
+    const lines = input.split("\n");
+    lines[0] = `/model ${model.id}`;
+    setInput(lines.join("\n"));
+    setPickerOpen(false);
+    setModelPickerOpen(false);
+    refocusComposer();
+  }
+
   function buildDraft(extraAttachments: string[] = []) {
     const text = input.trim();
     const cleanExtraAttachments = extraAttachments
@@ -471,6 +516,18 @@ export function ChatComposer({
       clearAttachments();
       refocusComposer();
       return;
+    }
+    if (
+      allAttachments.length === 0
+      && modelCommandQuery !== null
+      && providerDescriptor?.model_switch_format
+      && filteredModelOptions.length > 0
+    ) {
+      const model = filteredModelOptions[Math.min(modelHighlight, filteredModelOptions.length - 1)];
+      if (model) {
+        await chooseModel(model);
+        return;
+      }
     }
     if (allAttachments.length === 0 && composed.trim() === "/model") {
       setInput("");
@@ -682,6 +739,13 @@ export function ChatComposer({
             highlighted={pickerHighlight}
             onPick={pickSuggestion}
           />
+          <ModelSuggestionPicker
+            models={modelSuggestionOpen ? filteredModelOptions : []}
+            highlighted={modelHighlight}
+            defaultModel={providerDescriptor?.default_model}
+            onHighlight={setModelHighlight}
+            onPick={(model) => void chooseModel(model)}
+          />
           <textarea
             data-testid="chat-composer"
             ref={textareaRef}
@@ -713,6 +777,35 @@ export function ChatComposer({
                 if (e.key === "Escape") {
                   e.preventDefault();
                   setModelPickerOpen(false);
+                  return;
+                }
+              }
+              if (modelSuggestionOpen) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setModelHighlight((h) => Math.min(h + 1, filteredModelOptions.length - 1));
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setModelHighlight((h) => Math.max(h - 1, 0));
+                  return;
+                }
+                if (e.key === "Tab") {
+                  e.preventDefault();
+                  const model = filteredModelOptions[modelHighlight];
+                  if (model) completeModelDraft(model);
+                  return;
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  const model = filteredModelOptions[modelHighlight];
+                  if (model) void chooseModel(model);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setModelSuggestionDismissedFor(firstLine);
                   return;
                 }
               }
