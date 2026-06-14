@@ -379,9 +379,10 @@ cp claude.example.toml claude.toml
 # edit claude.toml — change display names, add models, set default
 ```
 
-CodeTerm picks `claude.toml` up immediately (no restart) and **replaces** the
-built-in list. Delete `claude.toml` (the override; NOT the `.example` file)
-to fall back to built-in defaults.
+CodeTerm picks `claude.toml` up immediately (no restart). Static provider
+catalogs merge overrides by default; dynamic providers may treat an override as
+a pinned list. Delete `claude.toml` (the override; NOT the `.example` file) to
+fall back to provider defaults.
 
 ## Files
 
@@ -399,8 +400,8 @@ default = "opus"
 
 [[models]]
 id = "opus"
-display_name = "Claude Opus 4.7 (1M context)"
-description = "Most capable for complex reasoning."
+display_name = "Claude Opus 4.8 (1M context)"
+description = "Best for everyday, complex tasks."
 
 [[models]]
 id = "sonnet"
@@ -433,8 +434,8 @@ the entire list, period.
 
 1. `<this dir>/<provider>.toml` (override) merged with built-ins, OR replacing
    them entirely if `replace = true`.
-2. Plugin defaults shipped with the current CodeTerm build (auto-updated
-   on upgrade).
+2. Provider defaults: either the provider's live CLI catalog when available,
+   or plugin defaults shipped with the current CodeTerm build.
 
 Syntax error or empty `[[models]]`? CodeTerm logs a warning and falls back
 to built-ins — the picker never goes empty.

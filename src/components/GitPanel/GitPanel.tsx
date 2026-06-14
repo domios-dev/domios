@@ -13,13 +13,15 @@ import {
 } from "./gitApi";
 import { GraphView } from "./GraphView";
 import {
-  CommitDetail,
+  CommitFilesPane,
   CommitMetaHeader,
+  DiffPane,
   FileList,
+  FileListLoadingBadge,
   useCommitFiles,
   useCopyPathMenu,
 } from "./CommitDetail";
-import { WorkdirDetail, WorkdirFilesWithDiff } from "./WorkdirDetail";
+import { WorkdirFilesPane, WorkdirFilesWithDiff } from "./WorkdirDetail";
 import { DiffModal } from "./DiffModal";
 import { RepoSwitcher } from "./RepoSwitcher";
 import { useGitLayout, type GitLayoutMode } from "./useGitLayout";
@@ -91,7 +93,7 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
       try {
         const g = await fetchGraph(api, activeCwd, PAGE, 0, signal);
         setGraph(g);
-        setSelectedSha(g.commits[0]?.sha ?? null);
+        setSelectedSha(g.dirty ? WORKDIR_SHA : (g.commits[0]?.sha ?? null));
         setSelectedPath(null);
       } catch (e) {
         if (e instanceof NotARepoError) setNotRepo(true);
@@ -332,6 +334,7 @@ function WideBody({
   graph,
   selectedSha,
   selectedPath,
+  selectedCommit,
   split,
   hasMore,
   loadingMore,
@@ -340,54 +343,88 @@ function WideBody({
   onSelectFile,
   onReverted,
 }: PanelBodyProps) {
-  const boxRef = useRef<HTMLDivElement>(null);
-  const { ratio, onPointerDown, reset } = useDragRatio(boxRef, {
-    storageKey: "ct-git-split",
+  const outerRef = useRef<HTMLDivElement>(null);
+  const filesTreeRef = useRef<HTMLDivElement>(null);
+  const previewSplit = useDragRatio(outerRef, {
+    storageKey: "ct-git-main-preview-split",
     axis: "x",
-    minPx: 280,
+    minPx: 300,
+    defaultRatio: 0.4,
+  });
+  const filesTreeSplit = useDragRatio(filesTreeRef, {
+    storageKey: "ct-git-files-tree-split",
+    axis: "y",
+    minPx: 150,
+    defaultRatio: 0.42,
   });
 
   const isWorkdir = selectedSha === WORKDIR_SHA;
 
   return (
-    <div ref={boxRef} className="absolute inset-0 flex min-h-0">
-      <div className="relative min-w-0" style={{ flex: `0 0 ${ratio * 100}%` }}>
-        <GraphView
-          commits={graph.commits}
-          selectedSha={selectedSha}
-          onSelect={onSelectCommit}
-          hasMore={hasMore}
-          loadingMore={loadingMore}
-          onLoadMore={onLoadMore}
-          dirty={graph.dirty}
+    <div ref={outerRef} className="absolute inset-0 flex min-h-0">
+      <div
+        ref={filesTreeRef}
+        className="relative flex flex-col min-w-0"
+        style={{ flex: `0 0 ${previewSplit.ratio * 100}%` }}
+      >
+        <div
+          className="relative min-h-0 overflow-hidden"
+          style={{ flex: `0 0 ${filesTreeSplit.ratio * 100}%` }}
+        >
+          {isWorkdir ? (
+            <WorkdirFilesPane
+              api={api}
+              cwd={cwd}
+              selectedPath={selectedPath}
+              onSelectFile={onSelectFile}
+              onReverted={onReverted}
+            />
+          ) : selectedSha && selectedCommit ? (
+            <CommitFilesPane
+              api={api}
+              cwd={cwd}
+              sha={selectedSha}
+              commit={selectedCommit}
+              selectedPath={selectedPath}
+              onSelectFile={onSelectFile}
+            />
+          ) : (
+            <Centered text="Select a commit." />
+          )}
+        </div>
+        <div
+          className="ct-git-divider ct-git-divider--h"
+          onPointerDown={filesTreeSplit.onPointerDown}
+          onDoubleClick={filesTreeSplit.reset}
+          role="separator"
+          aria-orientation="horizontal"
         />
+        <div className="relative flex-1 min-h-0">
+          <GraphView
+            commits={graph.commits}
+            selectedSha={selectedSha}
+            onSelect={onSelectCommit}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            onLoadMore={onLoadMore}
+            dirty={graph.dirty}
+            headSha={graph.head_sha}
+            branch={graph.branch}
+          />
+        </div>
       </div>
       <div
         className="ct-git-divider"
-        onPointerDown={onPointerDown}
-        onDoubleClick={reset}
+        onPointerDown={previewSplit.onPointerDown}
+        onDoubleClick={previewSplit.reset}
         role="separator"
         aria-orientation="vertical"
       />
-      <div className="relative flex-1 min-w-0">
-        {isWorkdir ? (
-          <WorkdirDetail
-            api={api}
-            cwd={cwd}
-            split={split}
-            selectedPath={selectedPath}
-            onSelectFile={onSelectFile}
-            onReverted={onReverted}
-          />
+      <div className="relative flex-1 min-w-0 overflow-hidden">
+        {selectedSha && selectedPath ? (
+          <DiffPane api={api} cwd={cwd} sha={selectedSha} path={selectedPath} split={split} />
         ) : selectedSha ? (
-          <CommitDetail
-            api={api}
-            cwd={cwd}
-            sha={selectedSha}
-            split={split}
-            selectedPath={selectedPath}
-            onSelectFile={onSelectFile}
-          />
+          <Centered text="Select a file to view its diff." />
         ) : (
           <Centered text="Select a commit." />
         )}
@@ -434,6 +471,8 @@ function MediumBody({
           loadingMore={loadingMore}
           onLoadMore={onLoadMore}
           dirty={graph.dirty}
+          headSha={graph.head_sha}
+          branch={graph.branch}
         />
       </div>
       <div
@@ -503,6 +542,8 @@ function NarrowBody({
           loadingMore={loadingMore}
           onLoadMore={onLoadMore}
           dirty={graph.dirty}
+          headSha={graph.head_sha}
+          branch={graph.branch}
           touch
         />
       </div>
@@ -592,6 +633,7 @@ function FilesWithDiff({
         onContextMenu={copyMenu.open}
         touch={touch}
       />
+      <FileListLoadingBadge loading={loading} />
       {copyMenu.node}
       {selectedFile && (
         <DiffModal

@@ -35,7 +35,7 @@ impl ClaudeProvider {
             "claude",
             crate::agent::model_catalog::RegisteredDefaults {
                 models: schemas::builtin_models(),
-                default: Some("sonnet".into()),
+                default: Some("opus".into()),
             },
         );
         Self
@@ -444,7 +444,7 @@ mod tests {
         assert_eq!(desc.id, "claude");
         assert_eq!(desc.display_name, "Claude Code");
         assert_eq!(desc.icon_hint.as_deref(), Some("✳"));
-        assert_eq!(desc.default_model.as_deref(), Some("sonnet"));
+        assert_eq!(desc.default_model.as_deref(), Some("opus"));
         assert!(desc.preserves_context_on_resume);
         assert!(desc.supports_lazy_skills);
         assert!(desc.has_hooks);

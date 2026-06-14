@@ -285,10 +285,25 @@ pub fn build_agent_launch_command(
     agent_id: String,
     skip_permissions: bool,
 ) -> Result<String, String> {
+    let model_args = crate::service::spawn::resolve_fresh_agent_model(
+        &svc.agent_registry,
+        &agent_id,
+        None,
+        None,
+    )
+    .and_then(|model| {
+        svc.agent_registry
+            .with_provider(&agent_id, |p| p.model_launch_args(&model))
+    })
+    .unwrap_or_default();
     let params = crate::agent::provider::AgentLaunchParams {
         agent_name: None,
         task: None,
-        args: None,
+        args: if model_args.is_empty() {
+            None
+        } else {
+            Some(model_args)
+        },
         skip_permissions,
         headless: false,
         session_id: None,

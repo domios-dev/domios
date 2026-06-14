@@ -32,6 +32,7 @@ fn agent_spec(provider: &str) -> SpawnPaneSpec {
 struct ModelProvider {
     id: &'static str,
     models: Vec<crate::agent::provider::ModelInfo>,
+    default_model: Option<String>,
 }
 
 impl ModelProvider {
@@ -46,6 +47,7 @@ impl ModelProvider {
                     description: None,
                 })
                 .collect(),
+            default_model: model_ids.first().map(|id| (*id).to_string()),
         }
     }
 }
@@ -128,6 +130,10 @@ impl crate::agent::provider::AgentProvider for ModelProvider {
     fn available_models(&self) -> Vec<crate::agent::provider::ModelInfo> {
         self.models.clone()
     }
+
+    fn default_model(&self) -> Option<String> {
+        self.default_model.clone()
+    }
 }
 
 fn registry_with(provider: ModelProvider) -> crate::agent::registry::AgentRegistry {
@@ -195,6 +201,51 @@ fn validate_agent_model_passes_through_non_enumerable_provider() {
     let registry = registry_with(ModelProvider::new("dynamic", &[]));
 
     assert!(validate_agent_model(&registry, "dynamic", Some("anything-goes")).is_ok());
+}
+
+#[test]
+fn fresh_agent_model_uses_provider_default_when_missing() {
+    let registry = registry_with(ModelProvider::new(
+        "model-test-default",
+        &["model-a", "model-b"],
+    ));
+
+    assert_eq!(
+        resolve_fresh_agent_model(&registry, "model-test-default", None, None).as_deref(),
+        Some("model-a")
+    );
+}
+
+#[test]
+fn fresh_agent_model_keeps_explicit_model() {
+    let registry = registry_with(ModelProvider::new(
+        "model-test-explicit",
+        &["model-a", "model-b"],
+    ));
+
+    assert_eq!(
+        resolve_fresh_agent_model(
+            &registry,
+            "model-test-explicit",
+            Some(" model-b ".into()),
+            None
+        )
+        .as_deref(),
+        Some("model-b")
+    );
+}
+
+#[test]
+fn resume_agent_model_does_not_inject_default() {
+    let registry = registry_with(ModelProvider::new(
+        "model-test-resume",
+        &["model-a", "model-b"],
+    ));
+
+    assert_eq!(
+        resolve_fresh_agent_model(&registry, "model-test-resume", None, Some("sid-1")),
+        None
+    );
 }
 
 #[test]

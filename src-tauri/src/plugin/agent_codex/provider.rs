@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[path = "models.rs"]
+mod models;
+
 use super::status_tui::CodexStatusUsageParser;
 use super::usage as codex_usage;
 use crate::agent::chat_types::{MessageBlock, RichMessage, SessionDelta};
@@ -22,7 +25,7 @@ impl CodexProvider {
         crate::agent::model_catalog::register(
             "codex",
             crate::agent::model_catalog::RegisteredDefaults {
-                models: builtin_models(),
+                models: models::fallback_models(),
                 default: Some("gpt-5.5".into()),
             },
         );
@@ -39,40 +42,6 @@ impl CodexProvider {
         let home = dirs::home_dir()?;
         Some(home.join(".codex").join("sessions"))
     }
-}
-
-fn builtin_models() -> Vec<ModelInfo> {
-    vec![
-        ModelInfo {
-            id: "gpt-5.5".into(),
-            display_name: "GPT-5.5".into(),
-            description: Some(
-                "Frontier model for complex coding, research, and real-world work.".into(),
-            ),
-        },
-        ModelInfo {
-            id: "gpt-5.4".into(),
-            display_name: "GPT-5.4".into(),
-            description: Some("Strong model for everyday coding.".into()),
-        },
-        ModelInfo {
-            id: "gpt-5.4-mini".into(),
-            display_name: "GPT-5.4 Mini".into(),
-            description: Some(
-                "Small, fast, and cost-efficient model for simpler coding tasks.".into(),
-            ),
-        },
-        ModelInfo {
-            id: "gpt-5.3-codex".into(),
-            display_name: "GPT-5.3 Codex".into(),
-            description: Some("Coding-optimized model.".into()),
-        },
-        ModelInfo {
-            id: "gpt-5.2".into(),
-            display_name: "GPT-5.2".into(),
-            description: Some("Optimized for professional work and long-running agents.".into()),
-        },
-    ]
 }
 
 impl AgentProvider for CodexProvider {
@@ -474,11 +443,11 @@ impl AgentProvider for CodexProvider {
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {
-        crate::agent::model_catalog::resolve_models("codex")
+        models::available_codex_models()
     }
 
     fn default_model(&self) -> Option<String> {
-        crate::agent::model_catalog::resolve_default("codex")
+        models::default_codex_model()
     }
 
     fn preserves_context_on_resume(&self) -> bool {
