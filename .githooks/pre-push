@@ -2,6 +2,22 @@
 # Pre-push hook: cargo check before pushing to catch compile errors early
 # Saves CI minutes by failing locally first
 
+set -euo pipefail
+
+case "$(uname -s 2>/dev/null || echo unknown)" in
+    MINGW*|MSYS*|CYGWIN*)
+        if [ -z "${CARGO_TARGET_DIR:-}" ]; then
+            tmp_root="${TMPDIR:-${TEMP:-/tmp}}"
+            if command -v cygpath >/dev/null 2>&1; then
+                tmp_root="$(cygpath -u "$tmp_root" 2>/dev/null || echo "$tmp_root")"
+            fi
+            export CARGO_TARGET_DIR="$tmp_root/codeterm-prepush-target"
+        fi
+        mkdir -p "$CARGO_TARGET_DIR"
+        echo "Pre-push: using isolated Cargo target on Windows: $CARGO_TARGET_DIR"
+        ;;
+esac
+
 echo "Pre-push: running cargo check..."
 
 # Main crate

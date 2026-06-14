@@ -346,7 +346,7 @@ fn parse_ctrl_key(value: &str) -> Option<u8> {
 }
 
 fn send_actions_via_http(
-    json: bool,
+    _json: bool,
     pane_id: &str,
     text: &str,
     actions: Vec<SendActionSpec>,
@@ -378,11 +378,7 @@ fn send_actions_via_http(
         return Ok(serde_json::json!({"ok": true}));
     }
     let value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    if json {
-        Ok(value)
-    } else {
-        Ok(value)
-    }
+    Ok(value)
 }
 
 pub fn resolve_send_text_input<R: std::io::Read>(
