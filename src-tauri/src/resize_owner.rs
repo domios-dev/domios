@@ -101,7 +101,14 @@ mod tests {
     #[test]
     fn same_client_can_refresh_existing_resize_owner_without_force() {
         let mut registry = ResizeOwnerRegistry::default();
-        registry.claim("pane".into(), "pty".into(), "web:phone".into(), 80, 24, false);
+        registry.claim(
+            "pane".into(),
+            "pty".into(),
+            "web:phone".into(),
+            80,
+            24,
+            false,
+        );
         let owner = registry.claim(
             "pane".into(),
             "pty".into(),
