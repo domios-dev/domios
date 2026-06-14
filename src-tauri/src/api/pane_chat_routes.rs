@@ -98,7 +98,11 @@ pub async fn start(
         .svc
         .agent_registry
         .with_provider(&info.provider_id, |p| {
-            p.parse_session_delta(&path, start_offset)
+            let mut snapshot = p.parse_session_delta(&path, start_offset);
+            for m in &mut snapshot.messages {
+                crate::service::pane_chat::enrich_interactive(m, p);
+            }
+            snapshot
         })
         .unwrap_or(crate::agent::chat_types::SessionDelta {
             new_offset: file_size,
@@ -113,12 +117,15 @@ pub async fn start(
             cwd: info.cwd.clone(),
             session_id: info.session_id.clone(),
             start_offset: snapshot.new_offset,
-            poll_interval: std::time::Duration::from_millis(500),
+            poll_interval: crate::service::pane_chat::live_chat_poll_interval(),
         },
         state.svc.agent_registry.clone(),
         sink,
     );
-    let started = state.svc.chat_registry.insert(pane_id.clone(), handle);
+    let started = state
+        .svc
+        .chat_registry
+        .insert(pane_id.clone(), info.session_id.clone(), handle);
     if !started {
         log::info!(
             "[pane_chat] re-start requested for pane={} (already running); returning fresh snapshot",
@@ -178,7 +185,13 @@ pub async fn backfill(
         let delta = state
             .svc
             .agent_registry
-            .with_provider(&info.provider_id, |p| p.parse_session_delta(&tmp_path, 0))
+            .with_provider(&info.provider_id, |p| {
+                let mut delta = p.parse_session_delta(&tmp_path, 0);
+                for m in &mut delta.messages {
+                    crate::service::pane_chat::enrich_interactive(m, p);
+                }
+                delta
+            })
             .unwrap_or(crate::agent::chat_types::SessionDelta {
                 new_offset: 0,
                 messages: vec![],

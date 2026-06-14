@@ -97,39 +97,39 @@ pub(super) fn prettify_model_id(id: &str) -> String {
 pub(super) fn fallback_models() -> Vec<ModelInfo> {
     vec![
         ModelInfo {
-            id: "anthropic/claude-opus-4-7".into(),
-            display_name: "Anthropic · Claude Opus 4.7".into(),
-            description: Some("Anthropic frontier model — strongest coding intelligence.".into()),
-        },
-        ModelInfo {
-            id: "anthropic/claude-sonnet-4-6".into(),
-            display_name: "Anthropic · Claude Sonnet 4.6".into(),
-            description: Some("Anthropic balanced model — fast + capable.".into()),
-        },
-        ModelInfo {
-            id: "anthropic/claude-haiku-4-5".into(),
-            display_name: "Anthropic · Claude Haiku 4.5".into(),
-            description: Some("Anthropic small model — cheap, fast.".into()),
-        },
-        ModelInfo {
-            id: "openai/gpt-5.5".into(),
-            display_name: "OpenAI · GPT-5.5".into(),
-            description: Some("OpenAI frontier model.".into()),
-        },
-        ModelInfo {
             id: "opencode/big-pickle".into(),
-            display_name: "OpenCode Zen · Big Pickle".into(),
-            description: Some("OpenCode-hosted frontier coding model (free tier).".into()),
+            display_name: "OpenCode · Big Pickle".into(),
+            description: Some("OpenCode-hosted frontier coding model.".into()),
         },
         ModelInfo {
-            id: "opencode/deepseek-v4-flash".into(),
-            display_name: "OpenCode Zen · DeepSeek V4 Flash".into(),
+            id: "opencode/mimo-v2.5-free".into(),
+            display_name: "OpenCode · Mimo V2.5 Free".into(),
+            description: Some("Free tier coding model.".into()),
+        },
+        ModelInfo {
+            id: "opencode/deepseek-v4-flash-free".into(),
+            display_name: "OpenCode · DeepSeek V4 Flash Free".into(),
             description: Some("Free tier, fast DeepSeek model.".into()),
         },
         ModelInfo {
-            id: "opencode/ring-2.6-1t".into(),
-            display_name: "OpenCode Zen · Ring 2.6 1T".into(),
-            description: Some("Free tier, 1T parameter Ring model.".into()),
+            id: "opencode/nemotron-3-ultra-free".into(),
+            display_name: "OpenCode · Nemotron 3 Ultra Free".into(),
+            description: Some("Free tier model.".into()),
+        },
+        ModelInfo {
+            id: "opencode/claude-opus-4-8".into(),
+            display_name: "OpenCode · Claude Opus 4.8".into(),
+            description: Some("Claude Opus via OpenCode-hosted routing.".into()),
+        },
+        ModelInfo {
+            id: "opencode/claude-sonnet-4-6".into(),
+            display_name: "OpenCode · Claude Sonnet 4.6".into(),
+            description: Some("Claude Sonnet via OpenCode-hosted routing.".into()),
+        },
+        ModelInfo {
+            id: "opencode/gpt-5.5".into(),
+            display_name: "OpenCode · GPT-5.5".into(),
+            description: Some("GPT-5.5 via OpenCode-hosted routing.".into()),
         },
     ]
 }

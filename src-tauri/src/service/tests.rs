@@ -92,6 +92,15 @@ fn test_spawn_agent_params_parent_alias() {
 }
 
 #[test]
+fn test_spawn_agent_params_normalizes_msys_converted_title() {
+    let json = serde_json::json!({
+        "title": "C:/Program Files/Git/web 404 investigator"
+    });
+    let params = SpawnAgentParams::from_json(&json).unwrap();
+    assert_eq!(params.title.as_deref(), Some("web 404 investigator"));
+}
+
+#[test]
 fn test_json_str() {
     let v = serde_json::json!({"name": "test", "count": 5});
     assert_eq!(json_str(&v, "name"), Some("test".to_string()));

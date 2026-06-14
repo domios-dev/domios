@@ -217,6 +217,17 @@ pub fn unregister_mdns_service(mesh: &Arc<Mutex<MeshManager>>) {
 /// Hard cap on how long any single Tailscale CLI probe is allowed to run.
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Binary lookup order for the Tailscale CLI: bare name (resolved via PATH)
+/// first, then the common absolute install locations (macOS app bundle,
+/// Homebrew, Linux package). Shared by every probe + the serve-setup module.
+pub(crate) const TAILSCALE_CANDIDATES: [&str; 5] = [
+    "tailscale",
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    "/opt/homebrew/bin/tailscale",
+    "/usr/local/bin/tailscale",
+    "/usr/bin/tailscale",
+];
+
 enum ProbeOutcome {
     Found(String),
     NoBinary,
@@ -242,14 +253,7 @@ pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
         mesh.lock().tailscale_ip = Some(ip);
         return;
     }
-    let candidates = [
-        "tailscale",
-        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-        "/opt/homebrew/bin/tailscale",
-        "/usr/local/bin/tailscale",
-        "/usr/bin/tailscale",
-    ];
-    for cmd in &candidates {
+    for cmd in TAILSCALE_CANDIDATES {
         match try_tailscale_probe(cmd, ProbeMode::Direct) {
             ProbeOutcome::Found(ip) => {
                 log::info!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
@@ -309,14 +313,7 @@ fn is_tailscale_ip(ip: &str) -> bool {
 /// Run `tailscale status --json` and extract peer IPv4 addresses.
 /// Uses no_window_std so it doesn't flash a console on Windows.
 fn tailscale_status_peer_ips() -> Vec<String> {
-    let candidates = [
-        "tailscale",
-        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-        "/opt/homebrew/bin/tailscale",
-        "/usr/local/bin/tailscale",
-        "/usr/bin/tailscale",
-    ];
-    for cmd in &candidates {
+    for cmd in TAILSCALE_CANDIDATES {
         let mut c = std::process::Command::new(cmd);
         c.args(["status", "--json"]);
         crate::process_util::no_window_std(&mut c);
@@ -354,37 +351,32 @@ pub fn tailscale_self_dns_name() -> Option<String> {
     (!dns.is_empty() && dns.ends_with(".ts.net")).then_some(dns)
 }
 
-pub fn tailscale_serve_https_enabled() -> bool {
-    let Some(val) = tailscale_serve_status_json() else {
-        return false;
-    };
-    val.get("TCP")
-        .and_then(|v| v.get("443"))
-        .and_then(|v| v.get("HTTPS"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-}
-
 fn tailscale_status_json() -> Option<serde_json::Value> {
     run_tailscale_json(&["status", "--json"], std::time::Duration::from_secs(3))
 }
 
-fn tailscale_serve_status_json() -> Option<serde_json::Value> {
-    run_tailscale_json(
-        &["serve", "status", "--json"],
-        std::time::Duration::from_secs(3),
-    )
+/// Path to the first Tailscale binary that actually responds to `version`, or
+/// None when none does. Doubles as an honest "is Tailscale installed" probe:
+/// because it runs the binary rather than just stat-ing a path, a stale path or
+/// a half-installed GUI bridge reports as not-installed instead of tricking the
+/// UI into offering serve setup that can't succeed.
+pub(crate) fn tailscale_binary() -> Option<String> {
+    for cmd in TAILSCALE_CANDIDATES {
+        let mut c = std::process::Command::new(cmd);
+        c.arg("version");
+        crate::process_util::no_window_std(&mut c);
+        if let Some((true, _)) = run_with_timeout(&mut c, std::time::Duration::from_secs(3)) {
+            return Some(cmd.to_string());
+        }
+    }
+    None
 }
 
-fn run_tailscale_json(args: &[&str], timeout: std::time::Duration) -> Option<serde_json::Value> {
-    let candidates = [
-        "tailscale",
-        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-        "/opt/homebrew/bin/tailscale",
-        "/usr/local/bin/tailscale",
-        "/usr/bin/tailscale",
-    ];
-    for cmd in &candidates {
+pub(crate) fn run_tailscale_json(
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> Option<serde_json::Value> {
+    for cmd in TAILSCALE_CANDIDATES {
         let mut c = std::process::Command::new(cmd);
         c.args(args);
         crate::process_util::no_window_std(&mut c);
@@ -508,7 +500,7 @@ fn parse_first_ip(stdout: &str) -> Option<String> {
     })
 }
 
-fn run_with_timeout(
+pub(crate) fn run_with_timeout(
     cmd: &mut std::process::Command,
     timeout: std::time::Duration,
 ) -> Option<(bool, String)> {

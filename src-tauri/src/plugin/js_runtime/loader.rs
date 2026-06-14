@@ -111,6 +111,14 @@ pub fn load_one(manifest_path: &Path) -> Result<JsProvider, String> {
         .ok_or_else(|| "manifest has no parent dir".to_string())?;
     let trust = compute_trust(&manifest.id, bundle_dir);
 
+    // Validate-before-load: refuse to instantiate a non-conforming third-party
+    // drop-in. Doing it BEFORE the VM spins means untrusted, incompatible code
+    // never runs (#16).
+    if let Err(reason) = validate_conformance(&manifest, &trust) {
+        log::warn!("[plugin/{}] {reason}", manifest.id);
+        return Err(reason);
+    }
+
     let sandbox = Arc::new(compute_sandbox(&trust, bundle_dir, &manifest));
     let vm = PluginVm::load_with_manifest_sandboxed(&manifest.id, &entry, manifest_json, sandbox)
         .map_err(|e| format!("VM init for {}: {e}", manifest.id))?;
@@ -164,6 +172,37 @@ fn compute_sandbox(
     PluginSandbox::restricted(read_roots, write_roots)
 }
 
+/// Gate a third-party drop-in against the host contract before it loads.
+///
+/// First-party ids (anything in the system-plugin table — including dev and
+/// hash-mismatched copies, which surface as `System`/`Unverified`) ship with
+/// the build and move in lockstep with the host, so they're exempt. A genuine
+/// `ThirdParty` plugin must declare a `hostApi` this build understands; if it's
+/// missing or unsupported the plugin is skipped loudly rather than registered
+/// against an interface it doesn't conform to (#16). Pure + env-free so the
+/// decision is deterministic and unit-testable.
+fn validate_conformance(
+    manifest: &PluginManifest,
+    trust: &crate::agent::provider::ProviderTrust,
+) -> Result<(), String> {
+    use crate::agent::provider::ProviderTrust;
+    use crate::plugin::js_runtime::host_api::HOST_API_VERSION;
+
+    if !matches!(trust, ProviderTrust::ThirdParty) {
+        return Ok(());
+    }
+    if crate::plugin::system_plugins::lookup(&manifest.id).is_some() {
+        return Ok(());
+    }
+    match manifest.host_api {
+        Some(v) if v == HOST_API_VERSION => Ok(()),
+        got => Err(format!(
+            "incompatible (trust=ThirdParty): hostApi {got:?} unsupported \
+             — this build requires hostApi {HOST_API_VERSION} — skipping load"
+        )),
+    }
+}
+
 fn compute_trust(id: &str, bundle_dir: &Path) -> crate::agent::provider::ProviderTrust {
     use crate::agent::provider::ProviderTrust;
     use crate::plugin::{bundle_hash, system_plugins};
@@ -214,6 +253,24 @@ mod tests {
     }
 
     fn min_manifest(id: &str) -> String {
+        use crate::plugin::js_runtime::host_api::HOST_API_VERSION;
+        format!(
+            r#"{{
+                "id": "{id}",
+                "version": "0.1.0",
+                "displayName": "{id} Test",
+                "hostApi": {HOST_API_VERSION},
+                "spawn": {{
+                    "readinessStrategy": {{ "kind": "fixed_delay", "durationMs": 0 }},
+                    "taskDelivery": "pty_input",
+                    "verifySubmit": {{ "kind": "none" }}
+                }},
+                "entry": "plugin.js"
+            }}"#
+        )
+    }
+
+    fn legacy_manifest_without_host_api(id: &str) -> String {
         format!(
             r#"{{
                 "id": "{id}",
@@ -237,6 +294,68 @@ mod tests {
             }};
             "#
         )
+    }
+
+    fn manifest_with_host_api(id: &str, host_api: u32) -> String {
+        format!(
+            r#"{{
+                "id": "{id}",
+                "version": "0.1.0",
+                "displayName": "{id} Test",
+                "hostApi": {host_api},
+                "spawn": {{
+                    "readinessStrategy": {{ "kind": "fixed_delay", "durationMs": 0 }},
+                    "taskDelivery": "pty_input",
+                    "verifySubmit": {{ "kind": "none" }}
+                }},
+                "entry": "plugin.js"
+            }}"#
+        )
+    }
+
+    /// #16 Layer B: a genuine third-party drop-in with no declared `hostApi`
+    /// is skipped, not loaded — the daemon must boot past an incompatible
+    /// custom plugin instead of registering it against a contract it doesn't meet.
+    #[test]
+    fn validate_conformance_rejects_thirdparty_without_host_api() {
+        use crate::agent::provider::ProviderTrust;
+        let m: PluginManifest =
+            serde_json::from_str(&legacy_manifest_without_host_api("totally-unknown-xyz")).unwrap();
+        let err = validate_conformance(&m, &ProviderTrust::ThirdParty)
+            .expect_err("missing hostApi must be rejected");
+        assert!(
+            err.contains("incompatible (trust=ThirdParty)"),
+            "got: {err}"
+        );
+        assert!(err.contains("skipping load"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_conformance_accepts_thirdparty_with_matching_host_api() {
+        use crate::agent::provider::ProviderTrust;
+        use crate::plugin::js_runtime::host_api::HOST_API_VERSION;
+        let json = manifest_with_host_api("totally-unknown-xyz2", HOST_API_VERSION);
+        let m: PluginManifest = serde_json::from_str(&json).unwrap();
+        assert!(validate_conformance(&m, &ProviderTrust::ThirdParty).is_ok());
+    }
+
+    #[test]
+    fn validate_conformance_rejects_thirdparty_with_wrong_host_api() {
+        use crate::agent::provider::ProviderTrust;
+        use crate::plugin::js_runtime::host_api::HOST_API_VERSION;
+        let json = manifest_with_host_api("totally-unknown-xyz3", HOST_API_VERSION + 99);
+        let m: PluginManifest = serde_json::from_str(&json).unwrap();
+        assert!(validate_conformance(&m, &ProviderTrust::ThirdParty).is_err());
+    }
+
+    /// First-party trust levels are never gated — they ship with the build.
+    #[test]
+    fn validate_conformance_exempts_first_party_trust() {
+        use crate::agent::provider::ProviderTrust;
+        let m: PluginManifest = serde_json::from_str(&min_manifest("totally-unknown-xyz")).unwrap();
+        assert!(validate_conformance(&m, &ProviderTrust::System).is_ok());
+        assert!(validate_conformance(&m, &ProviderTrust::Unverified).is_ok());
+        assert!(validate_conformance(&m, &ProviderTrust::Unknown).is_ok());
     }
 
     #[test]

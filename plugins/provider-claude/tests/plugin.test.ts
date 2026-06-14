@@ -120,5 +120,36 @@ try {
 assert(parsed.messages.length === 1, "parseSessionDelta corrupted lines are skipped");
 assert(warned === 1, "parseSessionDelta emits one warning for a session with invalid entries");
 
+console.log("\n--- parseUsage reset formats ---\n");
+
+const now = new Date(2026, 5, 14, 15, 0, 0, 0).getTime();
+const usage = hostPlugin.parseUsage(
+  [
+    "Current session 100% usedResets 3:30pm (Europe/Kiev)",
+    "Current week (all models) 64% usedResets Jun 14, 2026 at 4 PM (Europe/Kiev)",
+  ].join("\n"),
+  now,
+);
+assert(usage?.weekly_pct === 64, "parseUsage extracts weekly pct");
+assert(usage?.weekly_resets_at_ms === new Date(2026, 5, 14, 16, 0, 0, 0).getTime(), "parseUsage accepts comma/year reset date");
+
+const sameDayUsage = hostPlugin.parseUsage(
+  [
+    "Current session 100% usedResets 3:30pm (Europe/Kiev)",
+    "Current week (all models) 64% usedResets 4 PM (Europe/Kiev)",
+  ].join("\n"),
+  now,
+);
+assert(sameDayUsage?.weekly_resets_at_ms === new Date(2026, 5, 14, 16, 0, 0, 0).getTime(), "parseUsage accepts bare weekly reset time");
+
+const claudeCurrentUsage = hostPlugin.parseUsage(
+  [
+    "Current session 100% usedResets 3:39pm (Europe/Kiev)",
+    "Current week (all models) 64% usedResets Jun 14, 7:59pm (Europe/Kiev)",
+  ].join("\n"),
+  now,
+);
+assert(claudeCurrentUsage?.weekly_resets_at_ms === new Date(2026, 5, 14, 19, 59, 0, 0).getTime(), "parseUsage accepts month-day comma time");
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

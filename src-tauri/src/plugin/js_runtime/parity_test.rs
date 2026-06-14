@@ -636,6 +636,165 @@ mod claude {
         );
     }
 
+    /// #163: the tailer reads `session_jsonl_path`, so it must resolve to the
+    /// canonical project dir the agent actually writes to. Claude canonicalizes
+    /// the cwd (symlinks resolved) before encoding; if the host hands the JS
+    /// drop-in a raw symlinked cwd, the tailer watches a dir that never appears
+    /// (e.g. `/tmp` vs `/private/tmp` on macOS) and chat never streams live.
+    #[cfg(unix)]
+    #[test]
+    fn session_jsonl_path_canonicalizes_symlinked_cwd() {
+        use std::os::unix::fs::symlink;
+        if require_plugins().is_none() {
+            return;
+        }
+        let base = std::env::temp_dir().join(format!("ct-w3-163-{}", std::process::id()));
+        let real = base.join("real-target");
+        let link = base.join("link-alias");
+        std::fs::create_dir_all(&real).unwrap();
+        let _ = std::fs::remove_file(&link);
+        symlink(&real, &link).unwrap();
+
+        let j = load_js("claude");
+        let p = j
+            .session_jsonl_path(link.to_str().unwrap(), "sess-xyz")
+            .expect("should resolve a path");
+        let s = p.to_string_lossy();
+        // Must encode the canonical (real) target, not the symlink alias —
+        // otherwise the tailer watches a directory claude never writes to.
+        assert!(
+            s.contains("real-target"),
+            "path must encode the canonical symlink target: {s}"
+        );
+        assert!(
+            !s.contains("link-alias"),
+            "path must not encode the raw symlink alias: {s}"
+        );
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// A JS provider that reimplements AskUserQuestion extraction in JS,
+    /// declaring `interactiveEvents: true` so the host dispatches to it.
+    fn claude_interactive_js() -> JsProvider {
+        let manifest_json = r#"{
+            "id":"claude-interactive","version":"0.1.0","displayName":"X",
+            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
+                     "taskDelivery":"pty_input",
+                     "verifySubmit":{"kind":"none"},
+                     "interactiveEvents":true}
+        }"#;
+        let plugin_js = r#"
+            module.exports.default = {
+                parseInteractiveEvents(msg) {
+                    var out = [];
+                    var blocks = (msg && msg.blocks) || [];
+                    for (var bi = 0; bi < blocks.length; bi++) {
+                        var b = blocks[bi];
+                        if (!b || b.kind !== "tool_use") continue;
+                        var data = b.data || {};
+                        if (data.name !== "AskUserQuestion") continue;
+                        var toolId = data.id || "";
+                        var input = data.input || {};
+                        var questions = input.questions;
+                        if (!Array.isArray(questions)) continue;
+                        for (var i = 0; i < questions.length; i++) {
+                            var q = questions[i];
+                            if (!q || !Array.isArray(q.options)) continue;
+                            var options = [];
+                            for (var oi = 0; oi < q.options.length; oi++) {
+                                var o = q.options[oi];
+                                if (!o || typeof o.label !== "string") continue;
+                                var opt = { label: o.label };
+                                if (typeof o.description === "string") opt.description = o.description;
+                                options.push(opt);
+                            }
+                            var elem = {
+                                type: "question",
+                                id: toolId + "-" + i,
+                                toolUseId: toolId,
+                                prompt: typeof q.question === "string" ? q.question : "",
+                                options: options,
+                                multiSelect: q.multiSelect === true
+                            };
+                            if (typeof q.header === "string") elem.header = q.header;
+                            out.push(elem);
+                        }
+                    }
+                    return out;
+                }
+            };
+        "#;
+        let manifest: crate::plugin::js_runtime::PluginManifest =
+            serde_json::from_str(manifest_json).unwrap();
+        let vm = crate::plugin::js_runtime::vm::PluginVm::from_source_with(
+            "claude-interactive",
+            plugin_js.to_string(),
+            Some(manifest_json.to_string()),
+        )
+        .unwrap();
+        JsProvider::new(manifest, std::sync::Arc::new(vm))
+    }
+
+    fn ask_user_question_fixture() -> crate::agent::chat_types::RichMessage {
+        use crate::agent::chat_types::{MessageBlock, RichMessage};
+        use serde_json::json;
+        RichMessage {
+            role: "assistant".into(),
+            blocks: vec![
+                MessageBlock {
+                    kind: "text".into(),
+                    data: json!({"text": "deciding"}),
+                },
+                MessageBlock {
+                    kind: "tool_use".into(),
+                    data: json!({
+                        "id": "toolu_parity",
+                        "name": "AskUserQuestion",
+                        "input": {
+                            "questions": [
+                                {
+                                    "question": "Pick a runtime",
+                                    "header": "Runtime",
+                                    "multiSelect": false,
+                                    "options": [
+                                        {"label": "Node", "description": "JS runtime"},
+                                        {"label": "Deno"}
+                                    ]
+                                },
+                                {
+                                    "question": "Pick features",
+                                    "multiSelect": true,
+                                    "options": [
+                                        {"label": "TLS"},
+                                        {"label": "HTTP2", "description": "multiplexed"}
+                                    ]
+                                }
+                            ]
+                        }
+                    }),
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn parse_interactive_events_native_js_parity() {
+        // No bundled-plugin dependency (inline JS + native impl), so this always
+        // runs — the parity gate must not silently skip.
+        let n = ClaudeProvider::new();
+        let j = claude_interactive_js();
+        let fixture = ask_user_question_fixture();
+        let native = n.parse_interactive_events(&fixture);
+        let js = j.parse_interactive_events(&fixture);
+        assert_eq!(native.len(), 2, "native must extract two questions");
+        assert_eq!(
+            native, js,
+            "native and JS parseInteractiveEvents must agree on the same fixture"
+        );
+    }
+
     #[test]
     fn parse_session_delta_handles_polymorphic_content() {
         if require_plugins().is_none() {
@@ -970,284 +1129,7 @@ mod claude {
 
 // Codex parity.
 
-mod codex {
-    use super::*;
-    use crate::plugin::agent_codex::CodexProvider;
-
-    fn pair() -> (CodexProvider, JsProvider) {
-        (CodexProvider::new(), load_js("codex"))
-    }
-
-    #[test]
-    fn detect_from_title_parity() {
-        if require_plugins().is_none() {
-            return;
-        }
-        let (n, j) = pair();
-        for s in ["Codex", "codex prompt", "RUNNING CODEX"] {
-            assert!(n.detect_from_title(s));
-            assert!(j.detect_from_title(s));
-        }
-        for s in ["bash", "claude"] {
-            assert!(!n.detect_from_title(s));
-            assert!(!j.detect_from_title(s));
-        }
-    }
-
-    #[test]
-    fn detect_from_output_parity() {
-        if require_plugins().is_none() {
-            return;
-        }
-        let (n, j) = pair();
-        let cases = [
-            ("OpenAI Codex v1.2", true),
-            ("permissions: YOLO mode", true),
-            ("Would you like to run the following command", true),
-            ("Would you like to grant these permissions", true),
-            ("approve network access", true),
-            ("codex>", true),
-            ("random shell text", false),
-        ];
-        for (s, expect) in cases {
-            assert_eq!(n.detect_from_output(s), expect, "native: {s}");
-            assert_eq!(j.detect_from_output(s), expect, "js: {s}");
-        }
-    }
-
-    #[test]
-    fn screen_has_tui_parity() {
-        if require_plugins().is_none() {
-            return;
-        }
-        let (n, j) = pair();
-        for s in ["OpenAI Codex banner", "ctrl+c to cancel"] {
-            assert!(n.screen_has_tui(s));
-            assert!(j.screen_has_tui(s));
-        }
-        for s in ["bash $ ", "random output"] {
-            assert!(!n.screen_has_tui(s));
-            assert!(!j.screen_has_tui(s));
-        }
-    }
-
-    #[test]
-    fn has_event_markers_parity() {
-        if require_plugins().is_none() {
-            return;
-        }
-        let (n, j) = pair();
-        for s in [
-            "Would you like to proceed",
-            "do you approve this",
-            "run the following command?",
-            "make the following edits?",
-            "grant these permissions to",
-        ] {
-            assert_eq!(n.has_event_markers(s), j.has_event_markers(s), "{s}");
-            assert!(n.has_event_markers(s));
-        }
-        assert_eq!(
-            n.has_event_markers("just normal output"),
-            j.has_event_markers("just normal output")
-        );
-    }
-
-    #[test]
-    fn slash_commands_parity() {
-        if require_plugins().is_none() {
-            return;
-        }
-        let (n, j) = pair();
-        assert_eq!(n.compact_command(), j.compact_command());
-        assert_eq!(n.exit_command(), j.exit_command());
-        assert_eq!(n.auto_approve_flags(), j.auto_approve_flags());
-        assert_eq!(
-            n.model_launch_args("gpt-5.5"),
-            j.model_launch_args("gpt-5.5")
-        );
-    }
-
-    #[test]
-    fn parse_session_messages_parity_on_rollout_fixture() {
-        if require_plugins().is_none() {
-            return;
-        }
-        let (n, j) = pair();
-        let jsonl = "{\"type\":\"meta\",\"x\":1}\n\
-            {\"type\":\"response_item\",\"timestamp\":\"2026-04-12T09:00:00Z\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}}\n\
-            {\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hi back\"},{\"type\":\"tool_call\"}]}}\n\
-            {\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"developer\",\"content\":[{\"type\":\"text\",\"text\":\"skip me\"}]}}\n";
-
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::fs::write(tmp.path(), jsonl).unwrap();
-
-        let nm = n.parse_session_messages(tmp.path());
-        let jm = j.parse_session_messages(tmp.path());
-
-        assert_eq!(nm.len(), jm.len());
-        for (a, b) in nm.iter().zip(jm.iter()) {
-            assert_eq!(a.role, b.role);
-            assert_eq!(a.text, b.text);
-            assert_eq!(a.is_meta, b.is_meta);
-        }
-    }
-
-    #[test]
-    fn metadata_parity() {
-        if require_plugins().is_none() {
-            return;
-        }
-        let (n, j) = pair();
-        assert_eq!(n.id(), j.id());
-        assert_eq!(n.display_name(), j.display_name());
-        assert_eq!(n.binary_name(), j.binary_name());
-        assert_eq!(n.cli_binary(), j.cli_binary());
-        assert_eq!(n.icon_hint(), j.icon_hint());
-        assert_eq!(n.icon_color(), j.icon_color());
-        assert_eq!(n.status_bar_rows(), j.status_bar_rows());
-        assert_eq!(
-            n.preserves_context_on_resume(),
-            j.preserves_context_on_resume()
-        );
-    }
-
-    #[test]
-    fn resume_command_carries_session_id() {
-        if require_plugins().is_none() {
-            return;
-        }
-        let (_n, j) = pair();
-        let cmd = j.build_resume_command("uuid-1234", false).unwrap();
-        assert_eq!(cmd, "codex resume 'uuid-1234'");
-        let cmd2 = j.build_resume_command("uuid-1234", true).unwrap();
-        assert_eq!(
-            cmd2,
-            "codex resume --dangerously-bypass-approvals-and-sandbox 'uuid-1234'"
-        );
-    }
-
-    /// Build a synthetic `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
-    /// tree in a tempdir, point HOME at it, then walk through the
-    /// plugin. Verifies enumerateSessions, detectSessionId, and
-    /// sessionFilePath all work end-to-end without native Rust help.
-    #[test]
-    fn codex_rollout_walk_via_plugin() {
-        if require_plugins().is_none() {
-            return;
-        }
-        let dir = tempfile::tempdir().unwrap();
-        // Plugin honours `CODETERM_CODEX_SESSIONS_ROOT` to avoid hitting the user's real `~/.codex/sessions` during tests. (dirs::home_dir ignores
-        // HOME env on Windows, so HOME redirect would be ineffective.)
-        let sessions_root = dir.path().join("codex-sessions");
-        let sessions = sessions_root.join("2026").join("04").join("12");
-        std::fs::create_dir_all(&sessions).unwrap();
-
-        let uuid_a = "019d773a-a5e8-7a02-9295-a40f9f9016ea";
-        let uuid_b = "029d773a-a5e8-7a02-9295-a40f9f9016ea";
-        let uuid_c = "039d773a-a5e8-7a02-9295-a40f9f9016ea";
-        let file_a = sessions.join(format!("rollout-2026-04-12T10-00-01-{uuid_a}.jsonl"));
-        let file_b = sessions.join(format!("rollout-2026-04-12T10-30-00-{uuid_b}.jsonl"));
-        let file_c = sessions.join(format!("rollout-2026-04-12T11-00-00-{uuid_c}.jsonl"));
-        std::fs::write(
-            &file_a,
-            format!(
-                r#"{{"type":"session_meta","payload":{{"id":"{uuid_a}","cwd":"/proj/foo"}}}}
-{{"type":"response_item","payload":{{"type":"message","role":"user","content":[]}}}}
-"#
-            ),
-        )
-        .unwrap();
-        std::fs::write(
-            &file_b,
-            format!(
-                r#"{{"type":"session_meta","payload":{{"id":"{uuid_b}","cwd":"/other/dir"}}}}
-"#
-            ),
-        )
-        .unwrap();
-        std::fs::write(
-            &file_c,
-            format!(
-                r#"{{"type":"session_meta","payload":{{"id":"{uuid_c}","cwd":"/proj/foo"}}}}
-"#
-            ),
-        )
-        .unwrap();
-        // Touch modified times so c > a > b ordering is deterministic.
-        let now = std::time::SystemTime::now();
-        let _ = filetime::set_file_mtime(
-            &file_a,
-            filetime::FileTime::from_system_time(now - std::time::Duration::from_secs(60)),
-        );
-        let _ = filetime::set_file_mtime(&file_c, filetime::FileTime::from_system_time(now));
-
-        // Synthetic plugin pointing at our tempdir via HOME env.
-        let plugin_js = std::fs::read_to_string(
-            workspace_plugins_root()
-                .join("provider-codex")
-                .join("plugin.js"),
-        )
-        .unwrap();
-        let manifest_json = r#"{
-            "id":"codex-test","version":"0","displayName":"X","binaryName":"codex",
-            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
-                     "taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}
-        }"#;
-        let manifest: crate::plugin::js_runtime::PluginManifest =
-            serde_json::from_str(manifest_json).unwrap();
-        let prev = std::env::var("CODETERM_CODEX_SESSIONS_ROOT").ok();
-        unsafe {
-            std::env::set_var(
-                "CODETERM_CODEX_SESSIONS_ROOT",
-                sessions_root.to_string_lossy().as_ref(),
-            );
-        }
-        let vm = crate::plugin::js_runtime::vm::PluginVm::from_source_with(
-            "codex-test",
-            plugin_js,
-            Some(manifest_json.to_string()),
-        )
-        .unwrap();
-        let provider = JsProvider::new(manifest, std::sync::Arc::new(vm));
-
-        // enumerateSessions sees all three rollouts with their meta.
-        let all = provider.enumerate_sessions();
-        let by_id: std::collections::HashMap<_, _> = all
-            .iter()
-            .map(|s| (s.session_id.clone(), s.clone()))
-            .collect();
-        assert_eq!(
-            by_id.len(),
-            3,
-            "expected 3 sessions, got {}: {by_id:#?}",
-            by_id.len()
-        );
-        assert_eq!(by_id[uuid_a].provider, "codex");
-        assert_eq!(by_id[uuid_a].project_path.as_deref(), Some("/proj/foo"));
-        assert_eq!(by_id[uuid_b].project_path.as_deref(), Some("/other/dir"));
-
-        // detectSessionId filters by cwd and returns the newest match.
-        let latest = provider.detect_session_id("/proj/foo", &[], None);
-        assert_eq!(latest.as_deref(), Some(uuid_c));
-
-        let latest_excl = provider.detect_session_id("/proj/foo", &[uuid_c.to_string()], None);
-        assert_eq!(latest_excl.as_deref(), Some(uuid_a));
-
-        // sessionFilePath resolves UUID → on-disk rollout path.
-        let path = provider.session_file_path("ignored", uuid_a).unwrap();
-        assert_eq!(path, file_a);
-
-        // Cleanup env so other tests see the original.
-        unsafe {
-            match prev {
-                Some(v) => std::env::set_var("CODETERM_CODEX_SESSIONS_ROOT", v),
-                None => std::env::remove_var("CODETERM_CODEX_SESSIONS_ROOT"),
-            }
-        }
-    }
-}
-
+mod codex;
 // Opencode parity.
 
 mod opencode {
@@ -1357,8 +1239,9 @@ mod opencode {
 
     /// Stand up a synthetic opencode.db at $XDG_DATA_HOME/opencode/opencode.db,
     /// seed it with rows that mirror the real schema, then point the plugin
-    /// at it via env override and exercise detectSessionId / detectActiveSession
-    /// / detectSessionModel / sessionExists end-to-end through `JsProvider`.
+    /// at it via env override and exercise the exact-session sqlite operations
+    /// through `JsProvider`. Hook-backed providers must not claim "newest for
+    /// cwd"; binding comes from the provider-reported session id.
     #[test]
     fn opencode_sqlite_session_detection_via_plugin() {
         if require_plugins().is_none() {
@@ -1462,21 +1345,24 @@ mod opencode {
         .unwrap();
         let provider = JsProvider::new(manifest, std::sync::Arc::new(vm));
 
-        // Newest live session in /proj/foo with no exclusion → ses_new.
+        // Hook-backed provider: sqlite is not an ownership oracle.
         let sid = provider.detect_session_id("/proj/foo", &[], None);
-        assert_eq!(sid.as_deref(), Some("ses_new"));
+        assert_eq!(sid, None);
 
-        // Exclusion list skips ses_new → next newest is ses_excluded.
+        // Exclusions do not matter because no cwd-based claim is allowed.
         let sid2 = provider.detect_session_id("/proj/foo", &["ses_new".to_string()], None);
-        assert_eq!(sid2.as_deref(), Some("ses_excluded"));
+        assert_eq!(sid2, None);
 
-        // Strict max_age = 50 ms — even ses_new (now-1000) misses.
+        // max_age is ignored for ownership because the provider hook is required.
         let none = provider.detect_session_id(
             "/proj/foo",
             &[],
             Some(std::time::Duration::from_millis(50)),
         );
-        assert!(none.is_none(), "max_age filter must drop everything");
+        assert!(
+            none.is_none(),
+            "cwd-based sqlite detection must stay disabled"
+        );
 
         // Archived + other-cwd rows must NOT surface.
         let sid_other = provider.detect_session_id("/totally/different/dir", &[], None);
@@ -1490,9 +1376,9 @@ mod opencode {
         let model = provider.detect_session_model("/proj/foo", "ses_new");
         assert_eq!(model.as_deref(), Some("anthropic/claude-opus-4-7"));
 
-        // detectActiveSession returns the session id with the most recent message in the cwd.
+        // detectActiveSession also must not pick a different newest session.
         let active = provider.detect_active_session("/proj/foo", "");
-        assert_eq!(active.as_deref(), Some("ses_new"));
+        assert_eq!(active, None);
 
         // Regression (#52): a pane that launched THIS instant (age_from_launch
         // rounds to 0ms) must NOT adopt a pre-existing sibling session. opencode
@@ -1522,6 +1408,40 @@ mod opencode {
 // Loader behaviour.
 
 #[test]
+fn third_party_without_host_api_is_rejected_before_vm_load() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("unknown-third-party");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("plugin.json"),
+        r#"{
+            "id": "unknown-third-party",
+            "version": "0.1.0",
+            "displayName": "Unknown Third Party",
+            "spawn": {
+                "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+                "taskDelivery": "pty_input",
+                "verifySubmit": { "kind": "none" }
+            },
+            "entry": "plugin.js"
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("plugin.js"),
+        "throw new Error('must not execute before hostApi validation');",
+    )
+    .unwrap();
+
+    let err = match load_one(&dir.join("plugin.json")) {
+        Ok(_) => panic!("legacy drop-in must be skipped"),
+        Err(err) => err,
+    };
+    assert!(err.contains("hostApi None unsupported"), "got: {err}");
+    assert!(err.contains("skipping load"), "got: {err}");
+}
+
+#[test]
 fn all_workspace_plugins_load() {
     if require_plugins().is_none() {
         return;
@@ -1531,3 +1451,11 @@ fn all_workspace_plugins_load() {
         assert_eq!(p.id(), id, "plugin id mismatch for {id}");
     }
 }
+
+/// #16 parity (discipline rule #2): a capability method a provider doesn't
+/// implement must SKIP-not-recurse and return the SAME sane default on BOTH the
+/// native and JS runtimes when there is no native fallback to delegate to. The
+/// crash dump showed `JsProvider::native()`-delegation looping forever once a
+/// JS-only provider became its own fallback; these two halves prove the JS path
+/// now matches the native control instead of overflowing the stack.
+mod no_native_fallback_recursion;

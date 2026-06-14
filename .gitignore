@@ -34,3 +34,6 @@ sp.json
 test-results/
 .qa-*.json
 .qa-read.py
+
+# native crash minidumps (machine-specific, never commit)
+.crashes/

@@ -1,8 +1,12 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[path = "models.rs"]
+mod models;
+
 use super::status_tui::CodexStatusUsageParser;
 use super::usage as codex_usage;
+use crate::agent::chat_types::{MessageBlock, RichMessage, SessionDelta};
 use crate::agent::provider::{
     self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy,
     SessionMessage, SessionMetadata, SettingField, TaskDelivery, UsageSnapshot,
@@ -21,7 +25,7 @@ impl CodexProvider {
         crate::agent::model_catalog::register(
             "codex",
             crate::agent::model_catalog::RegisteredDefaults {
-                models: builtin_models(),
+                models: models::fallback_models(),
                 default: Some("gpt-5.5".into()),
             },
         );
@@ -38,40 +42,6 @@ impl CodexProvider {
         let home = dirs::home_dir()?;
         Some(home.join(".codex").join("sessions"))
     }
-}
-
-fn builtin_models() -> Vec<ModelInfo> {
-    vec![
-        ModelInfo {
-            id: "gpt-5.5".into(),
-            display_name: "GPT-5.5".into(),
-            description: Some(
-                "Frontier model for complex coding, research, and real-world work.".into(),
-            ),
-        },
-        ModelInfo {
-            id: "gpt-5.4".into(),
-            display_name: "GPT-5.4".into(),
-            description: Some("Strong model for everyday coding.".into()),
-        },
-        ModelInfo {
-            id: "gpt-5.4-mini".into(),
-            display_name: "GPT-5.4 Mini".into(),
-            description: Some(
-                "Small, fast, and cost-efficient model for simpler coding tasks.".into(),
-            ),
-        },
-        ModelInfo {
-            id: "gpt-5.3-codex".into(),
-            display_name: "GPT-5.3 Codex".into(),
-            description: Some("Coding-optimized model.".into()),
-        },
-        ModelInfo {
-            id: "gpt-5.2".into(),
-            display_name: "GPT-5.2".into(),
-            description: Some("Optimized for professional work and long-running agents.".into()),
-        },
-    ]
 }
 
 impl AgentProvider for CodexProvider {
@@ -102,17 +72,21 @@ impl AgentProvider for CodexProvider {
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         let mut parts: Vec<String> = Vec::new();
         if params.headless && params.task.is_some() {
+            let task = params.task.as_ref().unwrap();
+            let (pipe_prefix, _path) = ShellSyntax::task_file_stdin_pipe(task);
+            parts.push(pipe_prefix);
             parts.push("codex".to_string());
             parts.push("exec".to_string());
+            parts.push("--dangerously-bypass-hook-trust".to_string());
             if params.skip_permissions {
                 parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
             }
             parts.push("-c".to_string());
             parts.push("'shell_environment_policy.inherit=all'".to_string());
             parts.push("--skip-git-repo-check".to_string());
-            parts.push(ShellSyntax::quote(params.task.as_ref().unwrap()));
         } else {
             parts.push("codex".to_string());
+            parts.push("--dangerously-bypass-hook-trust".to_string());
             if params.skip_permissions {
                 parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
             }
@@ -175,6 +149,10 @@ impl AgentProvider for CodexProvider {
         // session_id is a UUID — need to find the matching rollout-*-<uuid>.jsonl file
         let root = Self::sessions_root()?;
         find_session_file_by_uuid(&root, session_id)
+    }
+
+    fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
+        self.session_file_path(cwd, session_id)
     }
 
     fn read_usage(&self, cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
@@ -300,37 +278,24 @@ impl AgentProvider for CodexProvider {
         out
     }
 
+    fn parse_session_delta(&self, path: &std::path::Path, from_offset: u64) -> SessionDelta {
+        parse_codex_session_delta(path, from_offset)
+    }
+
     fn detect_session_id(
         &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
+        _cwd: &str,
+        _exclude: &[String],
+        _max_age: Option<Duration>,
     ) -> Option<String> {
-        let root = Self::sessions_root()?;
-        if !root.exists() {
-            return None;
-        }
-
-        let now = std::time::SystemTime::now();
-        let recency_limit = max_age.unwrap_or_else(|| Duration::from_secs(300));
-        let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
-
-        // Walk YYYY/MM/DD directories — collects (stem, modified_time) The cwd filter is applied lazily during the walk so we don't read every JSONL
-        // header in the tree; only candidates that pass age + exclude get their first line parsed.
-        collect_jsonl_files(&root, &mut sessions, &now, &recency_limit, exclude, cwd, 0);
-
-        sessions.sort_by(|a, b| b.1.cmp(&a.1));
-        // Return UUID extracted from the stem (codex resume expects UUID, not filename)
-        sessions
-            .first()
-            .and_then(|(stem, _)| extract_session_uuid(stem).map(|s| s.to_string()))
+        None
     }
 
     fn detect_launched_session_id(
         &self,
         cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
+        _exclude: &[String],
+        _max_age: Option<Duration>,
         injected_session_id: Option<&str>,
     ) -> Option<String> {
         if let Some(session_id) = injected_session_id {
@@ -338,68 +303,32 @@ impl AgentProvider for CodexProvider {
                 return Some(session_id.to_string());
             }
         }
-        if let Some(age) = max_age {
-            let after = std::time::SystemTime::now() - age;
-            let mut by_dir: Vec<(String, std::time::SystemTime)> = Vec::new();
-            walk_jsonl_recursive(&Self::sessions_root()?, 0, &mut |path| {
-                let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                    return;
-                };
-                let (meta_sid, meta_cwd) = read_session_meta(path).unwrap_or((None, None));
-                let Some(meta_cwd) = meta_cwd.as_deref() else {
-                    return;
-                };
-                if !paths_equivalent(meta_cwd, cwd) {
-                    return;
-                }
-                let sid = meta_sid.or_else(|| extract_session_uuid(stem).map(String::from));
-                let Some(sid) = sid else {
-                    return;
-                };
-                if exclude.iter().any(|sid2| sid2 == &sid) {
-                    return;
-                }
-                let Ok(meta) = std::fs::metadata(path) else {
-                    return;
-                };
-                // Birth time, not mtime: this detector answers "which session did
-                // THIS launch create". A foreign session in the same cwd (e.g. the
-                // prod instance's codex working in the same repo) is constantly
-                // written, so its mtime always passes the launch window and it
-                // would steal the latch. A file created before our launch can
-                // never be ours.
-                let ts = meta.created().or_else(|_| meta.modified()).ok();
-                if let Some(ts) = ts {
-                    if ts <= after {
-                        return;
-                    }
-                    by_dir.push((sid, ts));
-                }
-            });
-            by_dir.sort_by(|a, b| b.1.cmp(&a.1));
-            if let Some((sid, _)) = by_dir.first() {
-                return Some(sid.clone());
-            }
-            return None;
-        }
-        self.detect_session_id(cwd, exclude, None)
+        None
     }
 
     fn detect_started_session(
         &self,
         cwd: &str,
         exclude: &[String],
-        max_age: Option<Duration>,
+        _max_age: Option<Duration>,
         injected_session_id: Option<&str>,
         screen_text: Option<&str>,
     ) -> Option<String> {
-        self.detect_started_session_with_markers(
-            cwd,
-            exclude,
-            max_age,
-            injected_session_id,
-            screen_text,
-        )
+        if let Some(session_id) = injected_session_id {
+            if self.session_exists(cwd, session_id) {
+                return Some(session_id.to_string());
+            }
+        }
+
+        let sid = screen_text.and_then(extract_visible_session_uuid)?;
+        if exclude.iter().any(|claimed| claimed == &sid) {
+            return None;
+        }
+        if self.session_exists(cwd, &sid) {
+            Some(sid)
+        } else {
+            None
+        }
     }
 
     fn detect_active_session(&self, _cwd: &str, _current_sid: &str) -> Option<String> {
@@ -408,6 +337,7 @@ impl AgentProvider for CodexProvider {
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
         let mut parts = vec!["codex".to_string(), "resume".to_string()];
+        parts.push("--dangerously-bypass-hook-trust".to_string());
         if skip_permissions {
             parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
         }
@@ -418,7 +348,23 @@ impl AgentProvider for CodexProvider {
     }
 
     fn has_hooks(&self) -> bool {
-        false
+        true
+    }
+
+    fn check_integration(&self) -> serde_json::Value {
+        super::integration::check_integration()
+    }
+
+    fn install_integration(&self, api_port: u16) -> Result<(), String> {
+        super::integration::install_integration(api_port)
+    }
+
+    fn uninstall_integration(&self) -> Result<(), String> {
+        super::integration::uninstall_integration()
+    }
+
+    fn ensure_integration_on_startup(&self, api_port: u16) {
+        super::integration::ensure_integration_on_startup(api_port);
     }
 
     fn status_bar_rows(&self) -> u16 {
@@ -499,11 +445,11 @@ impl AgentProvider for CodexProvider {
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {
-        crate::agent::model_catalog::resolve_models("codex")
+        models::available_codex_models()
     }
 
     fn default_model(&self) -> Option<String> {
-        crate::agent::model_catalog::resolve_default("codex")
+        models::default_codex_model()
     }
 
     fn preserves_context_on_resume(&self) -> bool {
@@ -553,118 +499,35 @@ fn extract_session_uuid(stem: &str) -> Option<&str> {
     }
 }
 
-/// Recursively find JSONL session files in the Codex date-based directory tree.
-fn collect_jsonl_files(
-    dir: &std::path::Path,
-    sessions: &mut Vec<(String, std::time::SystemTime)>,
-    now: &std::time::SystemTime,
-    recency_limit: &Duration,
-    exclude: &[String],
-    cwd_filter: &str,
-    depth: u8,
-) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-
-    for entry in entries.filter_map(|e| e.ok()) {
-        let ft = match entry.file_type() {
-            Ok(ft) => ft,
-            Err(_) => continue,
-        };
-
-        if ft.is_dir() && depth < 4 {
-            collect_jsonl_files(
-                &entry.path(),
-                sessions,
-                now,
-                recency_limit,
-                exclude,
-                cwd_filter,
-                depth + 1,
-            );
-            continue;
-        }
-
-        let name = entry.file_name().to_string_lossy().to_string();
-        if !name.ends_with(".jsonl") {
-            continue;
-        }
-
-        let stem = name.trim_end_matches(".jsonl");
-        let candidate_uuid = extract_session_uuid(stem).unwrap_or(stem);
-        if exclude.iter().any(|e| e == candidate_uuid || e == stem) {
-            continue;
-        }
-
-        if let Ok(meta) = entry.metadata() {
-            if let Ok(modified) = meta.modified() {
-                if let Ok(age) = now.duration_since(modified) {
-                    if age > *recency_limit {
-                        continue;
-                    }
-                }
+fn extract_visible_session_uuid(text: &str) -> Option<String> {
+    let lower = text.to_ascii_lowercase();
+    let labels = ["session id", "session_id", "session-id"];
+    for label in labels {
+        let mut start = 0;
+        while let Some(pos) = lower[start..].find(label) {
+            let offset = start + pos + label.len();
+            if let Some(uuid) = first_uuid_like(&text[offset..]) {
+                return Some(uuid.to_string());
             }
-            // cwd filter — read only the session_meta header (first line) and match `payload.cwd`. Without this, parallel codex panes in the same
-            // workspace see candidates from sibling cwds and pick the wrong rollout, then loop forever in the atomic-claim retry path.
-            if !cwd_filter.is_empty() && !rollout_cwd_matches(&entry.path(), cwd_filter) {
-                continue;
-            }
-            let sort_key = meta.created().or_else(|_| meta.modified());
-            if let Ok(ts) = sort_key {
-                sessions.push((stem.to_string(), ts));
-            }
+            start = offset;
         }
     }
+    None
 }
 
-fn rollout_cwd_matches(path: &std::path::Path, cwd: &str) -> bool {
-    use std::io::{BufRead, BufReader};
-    let Ok(file) = std::fs::File::open(path) else {
-        return false;
-    };
-    let mut reader = BufReader::new(file);
-    let mut line = String::new();
-    if reader
-        .read_line(&mut line)
-        .ok()
-        .filter(|n| *n > 0)
-        .is_none()
-    {
-        return false;
-    }
-    let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) else {
-        return false;
-    };
-    let kind = val.get("type").and_then(|v| v.as_str()).unwrap_or_default();
-    if kind != "session_meta" {
-        return false;
-    }
-    let recorded = match val
-        .get("payload")
-        .and_then(|p| p.get("cwd"))
-        .and_then(|c| c.as_str())
-    {
-        Some(s) => s,
-        None => return false,
-    };
-    paths_equivalent(recorded, cwd)
+fn first_uuid_like(text: &str) -> Option<&str> {
+    text.split(|c: char| !(c.is_ascii_hexdigit() || c == '-'))
+        .find(|&token| is_uuid_like(token))
 }
 
-fn paths_equivalent(a: &str, b: &str) -> bool {
-    let norm = |s: &str| -> String {
-        let trimmed = s.trim_end_matches('/');
-        let canon = std::fs::canonicalize(trimmed)
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| trimmed.to_string());
-        if cfg!(any(target_os = "macos", target_os = "windows")) {
-            canon.to_lowercase()
-        } else {
-            canon
-        }
-    };
-    norm(a) == norm(b)
+fn is_uuid_like(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && [8, 13, 18, 23].iter().all(|i| bytes[*i] == b'-')
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(i, b)| [8, 13, 18, 23].contains(&i) || b.is_ascii_hexdigit())
 }
 
 /// Find a session file by UUID anywhere in the date-based tree.
@@ -694,8 +557,7 @@ fn find_file_by_suffix(dir: &std::path::Path, suffix: &str, depth: u8) -> Option
 }
 
 /// Recursively visit every `*.jsonl` file under the codex sessions tree
-/// (which is YYYY/MM/DD deep). Mirror of `collect_jsonl_files` but without
-/// the exclude/recency filtering — session search wants them all.
+/// (which is YYYY/MM/DD deep).
 fn walk_jsonl_recursive(dir: &std::path::Path, depth: u8, visit: &mut dyn FnMut(&std::path::Path)) {
     if depth > 5 {
         return;
@@ -733,6 +595,262 @@ fn read_session_meta(path: &std::path::Path) -> Option<(Option<String>, Option<S
         .and_then(|s| s.as_str())
         .map(String::from);
     Some((id, cwd))
+}
+
+fn parse_codex_session_delta(path: &std::path::Path, from_offset: u64) -> SessionDelta {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return SessionDelta {
+            new_offset: from_offset,
+            messages: vec![],
+        };
+    };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let start = from_offset.min(len);
+    if f.seek(SeekFrom::Start(start)).is_err() {
+        return SessionDelta {
+            new_offset: start,
+            messages: vec![],
+        };
+    }
+    let mut bytes = Vec::new();
+    if f.read_to_end(&mut bytes).is_err() || bytes.is_empty() {
+        return SessionDelta {
+            new_offset: start,
+            messages: vec![],
+        };
+    }
+
+    let complete_len = if bytes.ends_with(b"\n") {
+        bytes.len()
+    } else {
+        match bytes.iter().rposition(|b| *b == b'\n') {
+            Some(pos) => pos + 1,
+            None => 0,
+        }
+    };
+    if complete_len == 0 {
+        return SessionDelta {
+            new_offset: start,
+            messages: vec![],
+        };
+    }
+
+    let text = String::from_utf8_lossy(&bytes[..complete_len]);
+    let mut messages = Vec::new();
+    for (line_idx, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Some(msg) = parse_codex_rich_message(line, start, line_idx) {
+            messages.push(msg);
+        }
+    }
+
+    SessionDelta {
+        new_offset: start + complete_len as u64,
+        messages,
+    }
+}
+
+fn parse_codex_rich_message(line: &str, start: u64, line_idx: usize) -> Option<RichMessage> {
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    if v.get("type").and_then(|t| t.as_str()) != Some("response_item") {
+        return None;
+    }
+    let payload = v.get("payload")?;
+    let timestamp = v
+        .get("timestamp")
+        .and_then(|t| t.as_str())
+        .map(String::from);
+    let ts = timestamp
+        .as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.timestamp());
+    let uuid = payload
+        .get("id")
+        .or_else(|| payload.get("call_id"))
+        .and_then(|id| id.as_str())
+        .map(String::from)
+        .or_else(|| Some(format!("codex-{start}-{line_idx}")));
+
+    match payload.get("type").and_then(|t| t.as_str())? {
+        "message" => parse_codex_message_payload(payload, timestamp, ts, uuid),
+        "reasoning" => parse_codex_reasoning_payload(payload, timestamp, ts, uuid),
+        "function_call" => parse_codex_function_call_payload(payload, timestamp, ts, uuid),
+        "function_call_output" => {
+            parse_codex_function_call_output_payload(payload, timestamp, ts, uuid)
+        }
+        _ => None,
+    }
+}
+
+fn parse_codex_message_payload(
+    payload: &serde_json::Value,
+    timestamp: Option<String>,
+    ts: Option<i64>,
+    uuid: Option<String>,
+) -> Option<RichMessage> {
+    let role = match payload.get("role").and_then(|r| r.as_str()) {
+        Some("developer") | Some("system") => "system",
+        Some("user") => "user",
+        Some("assistant") => "assistant",
+        _ => return None,
+    };
+    let blocks = payload
+        .get("content")
+        .and_then(|c| c.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let kind = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                    if matches!(kind, "input_text" | "output_text" | "text") {
+                        item.get("text")
+                            .and_then(|t| t.as_str())
+                            .map(|text| MessageBlock {
+                                kind: "text".into(),
+                                data: serde_json::json!({ "text": text }),
+                            })
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if blocks.is_empty() {
+        return None;
+    }
+    let first_text = blocks
+        .iter()
+        .filter_map(|b| b.data.get("text").and_then(|t| t.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(RichMessage {
+        role: role.into(),
+        blocks,
+        ts,
+        uuid,
+        is_meta: Some(role == "system" || (role == "user" && is_codeterm_injection(&first_text))),
+        timestamp,
+        interactive: vec![],
+    })
+}
+
+fn parse_codex_reasoning_payload(
+    payload: &serde_json::Value,
+    timestamp: Option<String>,
+    ts: Option<i64>,
+    uuid: Option<String>,
+) -> Option<RichMessage> {
+    let text = payload
+        .get("summary")
+        .and_then(|s| s.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    item.get("text")
+                        .or_else(|| item.get("summary"))
+                        .and_then(|t| t.as_str())
+                        .map(String::from)
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    if text.trim().is_empty() {
+        return None;
+    }
+    Some(RichMessage {
+        role: "assistant".into(),
+        blocks: vec![MessageBlock {
+            kind: "thinking".into(),
+            data: serde_json::json!({ "text": text }),
+        }],
+        ts,
+        uuid,
+        is_meta: None,
+        timestamp,
+        interactive: vec![],
+    })
+}
+
+fn parse_codex_function_call_payload(
+    payload: &serde_json::Value,
+    timestamp: Option<String>,
+    ts: Option<i64>,
+    uuid: Option<String>,
+) -> Option<RichMessage> {
+    let id = payload
+        .get("call_id")
+        .or_else(|| payload.get("id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    if id.is_empty() && name.is_empty() {
+        return None;
+    }
+    let input = payload
+        .get("arguments")
+        .and_then(|v| v.as_str())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        .or_else(|| payload.get("arguments").cloned())
+        .unwrap_or_else(|| serde_json::json!({}));
+    Some(RichMessage {
+        role: "assistant".into(),
+        blocks: vec![MessageBlock {
+            kind: "tool_use".into(),
+            data: serde_json::json!({
+                "id": id,
+                "name": name,
+                "input": input,
+            }),
+        }],
+        ts,
+        uuid,
+        is_meta: None,
+        timestamp,
+        interactive: vec![],
+    })
+}
+
+fn parse_codex_function_call_output_payload(
+    payload: &serde_json::Value,
+    timestamp: Option<String>,
+    ts: Option<i64>,
+    uuid: Option<String>,
+) -> Option<RichMessage> {
+    let call_id = payload
+        .get("call_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if call_id.is_empty() {
+        return None;
+    }
+    let output = payload
+        .get("output")
+        .or_else(|| payload.get("content"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::String(String::new()));
+    Some(RichMessage {
+        role: "user".into(),
+        blocks: vec![MessageBlock {
+            kind: "tool_result".into(),
+            data: serde_json::json!({
+                "tool_use_id": call_id,
+                "content": output,
+                "is_error": false,
+            }),
+        }],
+        ts,
+        uuid,
+        is_meta: None,
+        timestamp,
+        interactive: vec![],
+    })
 }
 
 /// Tail-scan a codex jsonl for the latest `turn_context.payload.model`.

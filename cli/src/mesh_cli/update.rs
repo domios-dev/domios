@@ -30,9 +30,6 @@ pub(crate) fn resolve_update_action(
             continue_pane: continue_pane.clone(),
             after_update: action_after_update.clone().or(after_update),
         },
-        Some(UpdateAction::Channel { channel }) => UpdateAction::Channel {
-            channel: channel.clone(),
-        },
         None => UpdateAction::Check { force: false },
     }
 }

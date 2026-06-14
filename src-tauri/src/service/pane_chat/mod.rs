@@ -26,9 +26,23 @@ pub use tailer::{
 #[cfg(test)]
 mod tailer_tests;
 
-use crate::agent::chat_types::{ChatAttachment, ChatMsg, RichMessage};
+use crate::agent::chat_types::{ChatAttachment, ChatMsg, InteractiveElement, RichMessage};
 
 const THINKING_PREVIEW: usize = 200;
+pub const LIVE_CHAT_POLL_INTERVAL_MS: u64 = 100;
+
+pub fn live_chat_poll_interval() -> std::time::Duration {
+    std::time::Duration::from_millis(LIVE_CHAT_POLL_INTERVAL_MS)
+}
+
+/// Populate `msg.interactive` from the provider's capability. Called at every
+/// provider-in-scope tail/snapshot/backfill site so both wire shapes carry it.
+pub fn enrich_interactive(
+    msg: &mut RichMessage,
+    provider: &dyn crate::agent::provider::AgentProvider,
+) {
+    msg.interactive = provider.parse_interactive_events(msg);
+}
 
 /// Short, human-readable summary of a tool input (file path, command, …),
 /// mirroring the desktop parser's `summarizeInput`.
@@ -357,6 +371,16 @@ pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
             "tool_use" => {
                 let name = get("name");
                 let args = summarize_tool_input(b.data.get("input"));
+                let tool_id = b.data.get("id").and_then(|v| v.as_str());
+                let interactive = rich
+                    .interactive
+                    .iter()
+                    .filter(|e| {
+                        matches!(e, InteractiveElement::Question(q)
+                            if Some(q.tool_use_id.as_str()) == tool_id)
+                    })
+                    .cloned()
+                    .collect();
                 ChatMsg {
                     id,
                     kind: "tool_call".into(),
@@ -364,8 +388,9 @@ pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
                     tool_name: Some(name),
                     tool_args: Some(args),
                     tool_input: b.data.get("input").cloned(),
-                    tool_id: b.data.get("id").and_then(|v| v.as_str()).map(String::from),
+                    tool_id: tool_id.map(String::from),
                     collapsed: true,
+                    interactive,
                     ..Default::default()
                 }
             }
@@ -448,7 +473,13 @@ pub fn pane_chat_snapshot(
             .ok_or("provider has no JSONL and no structured chat")?;
         let delta = svc
             .agent_registry
-            .with_provider(&provider_id, |p| p.parse_session_delta(&path, 0))
+            .with_provider(&provider_id, |p| {
+                let mut delta = p.parse_session_delta(&path, 0);
+                for m in &mut delta.messages {
+                    enrich_interactive(m, p);
+                }
+                delta
+            })
             .ok_or("provider missing")?;
         delta
             .messages
@@ -468,6 +499,11 @@ mod chat_snapshot_tests {
     use super::*;
     use crate::agent::chat_types::{MessageBlock, RichMessage};
     use serde_json::json;
+
+    #[test]
+    fn live_chat_poll_interval_stays_low_latency() {
+        assert!(live_chat_poll_interval() <= std::time::Duration::from_millis(150));
+    }
 
     #[test]
     fn rich_text_and_tool_flatten() {

@@ -14,6 +14,17 @@ import { useDragRatio } from "./useDragRatio";
 import { ContextMenu } from "../Terminal/ContextMenu";
 import { UI_TEXT } from "../shared/design";
 
+const diffScrollPositions = new Map<string, { top: number; left: number }>();
+const MAX_DIFF_SCROLL_POSITIONS = 200;
+
+function rememberDiffScroll(key: string, top: number, left: number) {
+  if (diffScrollPositions.size >= MAX_DIFF_SCROLL_POSITIONS && !diffScrollPositions.has(key)) {
+    const oldest = diffScrollPositions.keys().next().value;
+    if (oldest) diffScrollPositions.delete(oldest);
+  }
+  diffScrollPositions.set(key, { top, left });
+}
+
 // Right-click "Copy path" menu for commit file rows (no revert on history).
 export function useCopyPathMenu() {
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
@@ -41,6 +52,7 @@ export interface DisplayFile {
   added: number | null;
   deleted: number | null;
   status?: string;
+  staged?: boolean;
 }
 
 interface CommitDetailProps {
@@ -52,17 +64,17 @@ interface CommitDetailProps {
   onSelectFile: (path: string) => void;
 }
 
-// Wide-layout detail: file list stacked over diff, draggable h-divider between.
+// Wide-layout detail: file list on the left, diff preview on the right.
 // Selection is controlled by the panel so it survives layout-mode crossings.
 export function CommitDetail({ api, cwd, sha, split, selectedPath, onSelectFile }: CommitDetailProps) {
   const { files, error, loading } = useCommitFiles(api, cwd, sha);
   const copyMenu = useCopyPathMenu();
   const boxRef = useRef<HTMLDivElement>(null);
   const { ratio, onPointerDown, reset } = useDragRatio(boxRef, {
-    storageKey: "ct-git-hsplit",
-    axis: "y",
-    minPx: 120,
-    defaultRatio: 0.35,
+    storageKey: "ct-git-commit-files-split",
+    axis: "x",
+    minPx: 220,
+    defaultRatio: 0.32,
   });
 
   // Wide always shows a diff: fall back to the first file for display only,
@@ -70,8 +82,8 @@ export function CommitDetail({ api, cwd, sha, split, selectedPath, onSelectFile 
   const effectivePath = selectedPath ?? files[0]?.path ?? null;
 
   return (
-    <div ref={boxRef} className="flex flex-col h-full min-h-0">
-      <div className="overflow-auto min-h-0" style={{ flex: `0 0 ${ratio * 100}%` }}>
+    <div ref={boxRef} className="flex h-full min-h-0">
+      <div className="relative overflow-auto min-w-0" style={{ flex: `0 0 ${ratio * 100}%` }}>
         <FileList
           files={files}
           error={error}
@@ -80,22 +92,68 @@ export function CommitDetail({ api, cwd, sha, split, selectedPath, onSelectFile 
           onSelect={onSelectFile}
           onContextMenu={copyMenu.open}
         />
+        <FileListLoadingBadge loading={loading} />
         {copyMenu.node}
       </div>
       <div
-        className="ct-git-divider ct-git-divider--h"
+        className="ct-git-divider"
         onPointerDown={onPointerDown}
         onDoubleClick={reset}
         role="separator"
-        aria-orientation="horizontal"
+        aria-orientation="vertical"
       />
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div className="flex-1 min-w-0 overflow-hidden">
         {effectivePath ? (
           <DiffPane api={api} cwd={cwd} sha={sha} path={effectivePath} split={split} />
         ) : (
           <div className={`p-4 ${UI_TEXT.meta}`}>Select a file to view its diff.</div>
         )}
       </div>
+    </div>
+  );
+}
+
+interface CommitFilesPaneProps {
+  api: ApiConfig;
+  cwd: string;
+  sha: string;
+  commit?: GitCommit | null;
+  selectedPath: string | null;
+  onSelectFile: (path: string) => void;
+  touch?: boolean;
+}
+
+export function CommitFilesPane({
+  api,
+  cwd,
+  sha,
+  commit,
+  selectedPath,
+  onSelectFile,
+  touch,
+}: CommitFilesPaneProps) {
+  const { files, error, loading } = useCommitFiles(api, cwd, sha);
+  const copyMenu = useCopyPathMenu();
+
+  useEffect(() => {
+    if (loading || files.length === 0 || files.some((f) => f.path === selectedPath)) return;
+    onSelectFile(files[0].path);
+  }, [files, loading, onSelectFile, selectedPath]);
+
+  return (
+    <div className="relative h-full overflow-auto pb-[var(--ct-safe-bottom,0px)]">
+      {commit && <CommitMetaHeader commit={commit} />}
+      <FileList
+        files={files}
+        error={error}
+        loading={loading}
+        selectedPath={selectedPath}
+        onSelect={onSelectFile}
+        onContextMenu={copyMenu.open}
+        touch={touch}
+      />
+      <FileListLoadingBadge loading={loading} />
+      {copyMenu.node}
     </div>
   );
 }
@@ -143,6 +201,9 @@ interface FileListProps {
   onCancelRevert?: () => void;
   showStatus?: boolean;
   touch?: boolean;
+  onToggleStaged?: (file: DisplayFile) => void;
+  stagingBusyPath?: string | null;
+  stagingDisabled?: boolean;
 }
 
 export function FileList({
@@ -157,10 +218,12 @@ export function FileList({
   onCancelRevert,
   showStatus,
   touch,
+  onToggleStaged,
+  stagingBusyPath,
+  stagingDisabled,
 }: FileListProps) {
   return (
     <>
-      {loading && <div className={`p-3 ${UI_TEXT.meta}`}>Loading files…</div>}
       {error && <div className="p-3 text-[11px] text-[var(--ct-red)]">{error}</div>}
       {!loading && !error && files.length === 0 && (
         <div className={`p-3 ${UI_TEXT.meta}`}>No file changes.</div>
@@ -175,10 +238,17 @@ export function FileList({
             onCancel={() => onCancelRevert?.()}
           />
         ) : (
-          <button
+          <div
             key={f.path}
-            type="button"
+            role="button"
+            tabIndex={0}
             onClick={() => onSelect(f.path)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              if (e.target instanceof HTMLInputElement) return;
+              e.preventDefault();
+              onSelect(f.path);
+            }}
             onContextMenu={onContextMenu ? (e) => onContextMenu(e, f) : undefined}
             className={`w-full text-left px-3 flex items-center gap-2 text-[12px] border-b border-[color-mix(in_srgb,var(--ct-border)_35%,transparent)] ${
               touch ? "py-2.5 min-h-[40px]" : "py-1.5"
@@ -188,6 +258,14 @@ export function FileList({
                 : "hover:bg-[color-mix(in_srgb,var(--ct-fg)_5%,transparent)]"
             }`}
           >
+            {onToggleStaged && (
+              <StagingCheckbox
+                file={f}
+                busy={stagingBusyPath === f.path}
+                disabled={stagingDisabled === true}
+                onToggle={() => onToggleStaged(f)}
+              />
+            )}
             {showStatus && f.status && <StatusBadge status={f.status} />}
             <FileStat added={f.added} deleted={f.deleted} />
             <span className="flex-1 min-w-0 truncate text-[var(--ct-fg)]">
@@ -200,10 +278,47 @@ export function FileList({
                 <span title={f.path}>{f.path}</span>
               )}
             </span>
-          </button>
+          </div>
         ),
       )}
     </>
+  );
+}
+
+export function FileListLoadingBadge({ loading }: { loading: boolean }) {
+  if (!loading) return null;
+  return (
+    <div className="ct-git-loading-badge">
+      <span className="ct-git-spinner" aria-hidden />
+      <span>Loading files</span>
+    </div>
+  );
+}
+
+function StagingCheckbox({
+  file,
+  busy,
+  disabled,
+  onToggle,
+}: {
+  file: DisplayFile;
+  busy: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  const staged = file.staged === true;
+  const inputDisabled = disabled || busy || file.status === "conflicted";
+  return (
+    <input
+      type="checkbox"
+      checked={staged}
+      disabled={inputDisabled}
+      aria-label={staged ? `Unstage ${file.path}` : `Stage ${file.path}`}
+      title={staged ? "Unstage" : "Stage"}
+      onClick={(e) => e.stopPropagation()}
+      onChange={onToggle}
+      className="ct-git-stage-checkbox"
+    />
   );
 }
 
@@ -303,6 +418,8 @@ export function DiffPane({ api, cwd, sha, path, split }: DiffPaneProps) {
   const [patch, setPatch] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollKey = `${cwd}\u0000${sha}\u0000${path}\u0000${split ? "split" : "unified"}`;
 
   useEffect(() => {
     let active = true;
@@ -337,32 +454,57 @@ export function DiffPane({ api, cwd, sha, path, split }: DiffPaneProps) {
   );
   const lang = useMemo(() => langFor(path), [path]);
 
-  if (loading) return <div className={`p-4 ${UI_TEXT.meta}`}>Loading diff…</div>;
-  if (error) return <div className="p-4 text-[11px] text-[var(--ct-red)]">{error}</div>;
-  if (!patch) return null;
-  if (isBinary) {
-    return <div className={`p-4 ${UI_TEXT.meta}`}>Binary file — no preview.</div>;
-  }
+  useEffect(() => {
+    const node = scrollRef.current;
+    return () => {
+      if (node) rememberDiffScroll(scrollKey, node.scrollTop, node.scrollLeft);
+    };
+  }, [scrollKey]);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    const pos = diffScrollPositions.get(scrollKey);
+    if (!node || !pos || loading || error) return;
+    const raf = window.requestAnimationFrame(() => {
+      node.scrollTop = pos.top;
+      node.scrollLeft = pos.left;
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [scrollKey, loading, error, patch]);
 
   return (
-    <div className="ct-git-diff">
+    <div
+      ref={scrollRef}
+      className="ct-git-diff h-full overflow-auto"
+      onScroll={(e) => {
+        rememberDiffScroll(scrollKey, e.currentTarget.scrollTop, e.currentTarget.scrollLeft);
+      }}
+    >
+      {loading && <div className={`p-4 ${UI_TEXT.meta}`}>Loading diff…</div>}
+      {error && <div className="p-4 text-[11px] text-[var(--ct-red)]">{error}</div>}
+      {!loading && !error && !patch && null}
+      {!loading && !error && isBinary && (
+        <div className={`p-4 ${UI_TEXT.meta}`}>Binary file — no preview.</div>
+      )}
       {truncated && (
         <div className="px-4 py-2 text-[11px] text-[var(--ct-yellow)] border-b border-[var(--ct-border)]">
           diff truncated
         </div>
       )}
-      <DiffView
-        data={{
-          hunks: [patch],
-          oldFile: { fileName: path, fileLang: lang },
-          newFile: { fileName: path, fileLang: lang },
-        }}
-        diffViewMode={split ? DiffModeEnum.Split : DiffModeEnum.Unified}
-        diffViewTheme="dark"
-        diffViewHighlight
-        diffViewWrap={false}
-        key={`${sha}:${path}:${lang}`}
-      />
+      {!loading && !error && patch && !isBinary && (
+        <DiffView
+          data={{
+            hunks: [patch],
+            oldFile: { fileName: path, fileLang: lang },
+            newFile: { fileName: path, fileLang: lang },
+          }}
+          diffViewMode={split ? DiffModeEnum.Split : DiffModeEnum.Unified}
+          diffViewTheme="dark"
+          diffViewHighlight
+          diffViewWrap={false}
+          key={`${sha}:${path}:${lang}`}
+        />
+      )}
     </div>
   );
 }

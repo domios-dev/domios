@@ -82,6 +82,9 @@ pub(crate) struct SendTextBody {
     text: Option<String>,
     #[serde(default = "default_true")]
     enter: bool,
+    /// Terminal key/action sequence. When present, optional text is inserted
+    /// first without auto-submit, then actions are written as raw PTY bytes.
+    actions: Option<Vec<SendAction>>,
     /// Batch: send multiple commands sequentially with optional delays
     batch: Option<Vec<BatchCommand>>,
     /// Raw mode: bypass bracket paste, send bytes directly to PTY.
@@ -93,6 +96,17 @@ pub(crate) struct SendTextBody {
     /// Mesh hops and hierarchy reports use the same marker family.
     #[serde(default)]
     source_pane: Option<String>,
+    /// Originating peer name, injected by the mesh relay (authenticated from
+    /// the signed token — peers cannot spoof it). Present ⇒ this delivery
+    /// crossed the mesh; the label is peer-qualified `label@peer`.
+    #[serde(default)]
+    source_peer: Option<String>,
+    /// Source agent label + model, threaded from the originating peer (the
+    /// source pane is foreign and cannot be resolved against the local mux).
+    #[serde(default)]
+    source_label: Option<String>,
+    #[serde(default)]
+    source_model: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -103,7 +117,64 @@ pub(crate) struct BatchCommand {
     delay_ms: Option<u64>,
 }
 
-/// PTY init takes ~1-2s after agent_spawn returns; send-text fired
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub(crate) enum SendAction {
+    Key { key: String },
+    Delay { ms: u64 },
+}
+
+fn send_action_bytes(key: &str) -> Option<Vec<u8>> {
+    let normalized = key.replace('_', "-").to_ascii_lowercase();
+    match normalized.as_str() {
+        "enter" | "return" => Some(b"\r".to_vec()),
+        "esc" | "escape" => Some(b"\x1b".to_vec()),
+        "tab" => Some(b"\t".to_vec()),
+        "backspace" | "bs" => Some(vec![0x7f]),
+        "delete" | "del" => Some(b"\x1b[3~".to_vec()),
+        "up" | "arrow-up" => Some(b"\x1b[A".to_vec()),
+        "down" | "arrow-down" => Some(b"\x1b[B".to_vec()),
+        "right" | "arrow-right" => Some(b"\x1b[C".to_vec()),
+        "left" | "arrow-left" => Some(b"\x1b[D".to_vec()),
+        "home" => Some(b"\x1b[H".to_vec()),
+        "end" => Some(b"\x1b[F".to_vec()),
+        "pageup" | "page-up" | "pgup" => Some(b"\x1b[5~".to_vec()),
+        "pagedown" | "page-down" | "pgdn" => Some(b"\x1b[6~".to_vec()),
+        "space" => Some(b" ".to_vec()),
+        other => parse_ctrl_key(other).map(|b| vec![b]),
+    }
+}
+
+fn parse_ctrl_key(value: &str) -> Option<u8> {
+    let key = value
+        .strip_prefix("ctrl-")
+        .or_else(|| value.strip_prefix("control-"))
+        .or_else(|| value.strip_prefix("c-"))?;
+    if key.len() != 1 {
+        return None;
+    }
+    let b = key.as_bytes()[0].to_ascii_lowercase();
+    if b.is_ascii_lowercase() {
+        Some(b - b'a' + 1)
+    } else if b == b'[' {
+        Some(0x1b)
+    } else {
+        None
+    }
+}
+
+fn action_preview(actions: &[SendAction]) -> String {
+    actions
+        .iter()
+        .map(|a| match a {
+            SendAction::Key { key } => key.clone(),
+            SendAction::Delay { ms } => format!("delay:{ms}ms"),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// PTY init takes ~1-2s after agent_spawn returns; send fired
 /// immediately would otherwise hit "no PTY" unconditionally. Poll for
 /// the link with this short budget so a script can chain spawn → send.
 async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
@@ -162,33 +233,110 @@ pub async fn send_text(
         ));
     }
 
-    // Prefix only for agent recipients; shells run the bytes verbatim.
-    let source_prefix: Option<String> = body
-        .source_pane
-        .as_deref()
-        .filter(|s| !s.is_empty() && *s != pane_id)
-        .and_then(|src| {
-            let mux = state.svc.mux.lock();
-            if mux
-                .get_pane(&pane_id)
-                .and_then(|p| p.agent_type.as_ref())
-                .is_none()
-            {
-                return None; // shell recipient — no prefix
+    // Prefix only for agent recipients; shells run the bytes verbatim. One
+    // canonical builder serves both local and mesh-relayed deliveries.
+    let source_prefix: Option<String> = body.source_pane.as_deref().and_then(|src| {
+        let mux = state.svc.mux.lock();
+        let target_is_agent = mux
+            .get_pane(&pane_id)
+            .and_then(|p| p.agent_type.as_ref())
+            .is_some();
+        match body.source_peer.as_deref().filter(|p| !p.is_empty()) {
+            // Mesh delivery: the source pane is foreign — identity comes from
+            // the body (resolved on the originating peer), peer-qualified here.
+            Some(peer) => {
+                let label = body
+                    .source_label
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or(peer);
+                crate::service::msg_prefix::delivery_prefix(
+                    target_is_agent,
+                    src,
+                    &pane_id,
+                    label,
+                    body.source_model.as_deref(),
+                    Some(peer),
+                )
             }
-            let from_label = mux.display_label_for_pane(src);
-            let model = mux
-                .get_pane(src)
-                .and_then(|p| p.agent_session_model.clone());
-            let pfx = crate::service::msg_prefix::CtxPrefix::message(from_label, src).model(model);
-            Some(pfx.build())
-        });
+            // Local delivery: resolve the label/model from the local mux.
+            None => {
+                let from_label = mux.display_label_for_pane(src);
+                let model = mux
+                    .get_pane(src)
+                    .and_then(|p| p.agent_session_model.clone());
+                crate::service::msg_prefix::delivery_prefix(
+                    target_is_agent,
+                    src,
+                    &pane_id,
+                    &from_label,
+                    model.as_deref(),
+                    None,
+                )
+            }
+        }
+    });
     let prepend = |s: &str| -> String {
         match &source_prefix {
             Some(p) => format!("{}{}", p, s),
             None => s.to_string(),
         }
     };
+
+    if let Some(actions) = body.actions {
+        if actions.is_empty() {
+            return Err((StatusCode::BAD_REQUEST, "actions cannot be empty"));
+        }
+        let mut writes: Vec<(Option<u64>, Vec<u8>)> = Vec::with_capacity(actions.len());
+        for action in &actions {
+            match action {
+                SendAction::Delay { ms } => writes.push((Some(*ms), Vec::new())),
+                SendAction::Key { key } => {
+                    let Some(bytes) = send_action_bytes(key) else {
+                        return Err((StatusCode::BAD_REQUEST, "unknown action key"));
+                    };
+                    writes.push((None, bytes));
+                }
+            }
+        }
+
+        let raw_text = body.text.clone().unwrap_or_default();
+        let text_was_sent = !raw_text.is_empty();
+        if text_was_sent {
+            let text = prepend(&raw_text);
+            state
+                .svc
+                .send_text_when_ready(&pane_id, &text, false)
+                .await
+                .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        }
+
+        let pty_id = state
+            .svc
+            .resolve_pty_id(&pane_id)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        let pty = state.svc.pty.clone();
+        tokio::spawn(async move {
+            if text_was_sent {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+            for (delay, bytes) in writes {
+                if let Some(ms) = delay {
+                    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+                    continue;
+                }
+                let _ = pty.lock().write(&pty_id, &bytes);
+            }
+        });
+
+        let preview = if raw_text.is_empty() {
+            format!("<actions:{}>", action_preview(&actions))
+        } else {
+            format!("{} <actions:{}>", raw_text, action_preview(&actions))
+        };
+        record_push_activity(&state, &svc_token_match, &pane_id, &preview);
+        return Ok(Json(serde_json::json!({"ok": true, "actions": true})));
+    }
 
     if let Some(batch) = body.batch {
         let preview = batch
@@ -677,150 +825,4 @@ pub async fn get_pane_text(
 }
 
 #[cfg(test)]
-mod tests_send_text_body {
-    use super::*;
-
-    #[test]
-    fn send_text_body_enter_defaults_true() {
-        let json = r#"{"text": "ls"}"#;
-        let body: SendTextBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.text, Some("ls".to_string()));
-        assert!(
-            body.enter,
-            "enter should default to true via default_true()"
-        );
-        assert!(body.batch.is_none());
-    }
-
-    #[test]
-    fn send_text_body_enter_explicit_false() {
-        let json = r#"{"text": "partial", "enter": false}"#;
-        let body: SendTextBody = serde_json::from_str(json).unwrap();
-        assert!(!body.enter);
-    }
-
-    #[test]
-    fn send_text_body_enter_explicit_true() {
-        let json = r#"{"text": "cmd", "enter": true}"#;
-        let body: SendTextBody = serde_json::from_str(json).unwrap();
-        assert!(body.enter);
-    }
-
-    #[test]
-    fn send_text_body_only_text() {
-        let json = r#"{"text": "hello"}"#;
-        let body: SendTextBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.text, Some("hello".to_string()));
-        assert!(body.enter, "enter defaults to true when omitted");
-    }
-
-    #[test]
-    fn send_text_body_empty_object() {
-        let json = r#"{}"#;
-        let body: SendTextBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.text, None, "text is None when omitted");
-        assert!(body.enter, "enter defaults to true even with empty body");
-    }
-
-    #[test]
-    fn send_text_body_text_null() {
-        let json = r#"{"text": null}"#;
-        let body: SendTextBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.text, None);
-        assert!(body.enter);
-    }
-
-    #[test]
-    fn send_text_body_with_batch() {
-        let json = r#"{
-            "batch": [
-                {"text": "cmd1"},
-                {"text": "cmd2", "enter": false},
-                {"text": "cmd3", "enter": true, "delay_ms": 500}
-            ]
-        }"#;
-        let body: SendTextBody = serde_json::from_str(json).unwrap();
-        let batch = body.batch.unwrap();
-        assert_eq!(batch.len(), 3);
-        assert!(batch[0].enter, "batch item enter defaults to true");
-        assert!(!batch[1].enter);
-        assert!(batch[2].enter);
-        assert_eq!(batch[2].delay_ms, Some(500));
-    }
-
-    #[test]
-    fn batch_command_enter_defaults_true() {
-        let json = r#"{"text": "echo hi"}"#;
-        let cmd: BatchCommand = serde_json::from_str(json).unwrap();
-        assert!(
-            cmd.enter,
-            "BatchCommand.enter defaults to true via default_true()"
-        );
-    }
-
-    #[test]
-    fn exec_body_deserialize() {
-        let json = r#"{"command": "ls -la"}"#;
-        let body: ExecBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.command, "ls -la");
-        assert!(body.timeout_ms.is_none());
-        assert!(body.strip_ansi.is_none());
-    }
-
-    #[test]
-    fn exec_body_with_options() {
-        let json = r#"{"command": "echo test", "timeout_ms": 5000, "strip_ansi": true}"#;
-        let body: ExecBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.timeout_ms, Some(5000));
-        assert_eq!(body.strip_ansi, Some(true));
-    }
-
-    fn apply_exec_enter(command: &str) -> String {
-        if command.ends_with('\r') || command.ends_with('\n') {
-            command.to_string()
-        } else {
-            format!("{}\r", command)
-        }
-    }
-
-    #[test]
-    fn exec_command_no_trailing_newline_appends_cr() {
-        assert_eq!(apply_exec_enter("ls -la"), "ls -la\r");
-    }
-
-    #[test]
-    fn exec_command_trailing_cr_no_append() {
-        assert_eq!(apply_exec_enter("ls\r"), "ls\r");
-    }
-
-    #[test]
-    fn exec_command_trailing_newline_no_append() {
-        assert_eq!(apply_exec_enter("ls\n"), "ls\n");
-    }
-
-    #[test]
-    fn exec_command_trailing_crlf_no_append() {
-        assert_eq!(apply_exec_enter("ls\r\n"), "ls\r\n");
-    }
-
-    #[test]
-    fn exec_empty_command_appends_cr() {
-        assert_eq!(apply_exec_enter(""), "\r");
-    }
-
-    #[test]
-    fn default_true_returns_true() {
-        assert!(default_true());
-    }
-
-    /// send-text is always fire-and-forget — the `verify` field was removed in #101
-    /// because TUI agents intercept input and don't echo per-character, making
-    /// verification unreliable (especially over mesh). Deserialization must
-    /// accept legacy clients that still send the field by ignoring it.
-    #[test]
-    fn send_text_body_ignores_legacy_verify_field() {
-        let json = r#"{"text":"hi","verify":true}"#;
-        let body: SendTextBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.text.as_deref(), Some("hi"));
-    }
-}
+mod tests_send_text_body;

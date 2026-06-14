@@ -91,7 +91,6 @@ export function GitBubble({ info, cwd, api, onClick }: GitBubbleProps) {
           <path d="M3 4.6v2.8M3 7.4q0-2.9 6-2.9" />
         </svg>
         <span className="branch">{label}</span>
-        {isRepo && info!.is_dirty && <span className="dirty" />}
       </button>
     </div>
   );

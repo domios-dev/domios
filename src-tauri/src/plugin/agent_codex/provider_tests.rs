@@ -2,6 +2,28 @@ use super::*;
 
 static CODEX_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+fn task_file_path_from_launch(cmd: &str) -> String {
+    let marker = if ShellSyntax::IS_WINDOWS {
+        "Get-Content '"
+    } else {
+        "cat '"
+    };
+    let start = cmd.find(marker).expect("task pipe marker") + marker.len();
+    let rest = &cmd[start..];
+    let end = rest.find('\'').expect("closing task path quote");
+    rest[..end].to_string()
+}
+
+fn read_task_file(path: &str) -> String {
+    let bytes = std::fs::read(path).expect("task file should exist");
+    if ShellSyntax::IS_WINDOWS {
+        assert!(bytes.starts_with(&[0xEF, 0xBB, 0xBF]));
+        String::from_utf8(bytes[3..].to_vec()).expect("task file utf8")
+    } else {
+        String::from_utf8(bytes).expect("task file utf8")
+    }
+}
+
 #[test]
 fn codex_provider_id() {
     let p = CodexProvider::new();
@@ -68,7 +90,7 @@ fn codex_launch_interactive() {
         headless: false,
         session_id: None,
     });
-    assert_eq!(cmd, "codex");
+    assert_eq!(cmd, "codex --dangerously-bypass-hook-trust");
 }
 
 #[test]
@@ -83,7 +105,10 @@ fn codex_launch_interactive_skip_perms() {
         session_id: None,
     });
     // Codex CLI removed --full-auto; the surviving skip-approvals flag is --dangerously-bypass-approvals-and-sandbox (same one codex exec uses).
-    assert_eq!(cmd, "codex --dangerously-bypass-approvals-and-sandbox");
+    assert_eq!(
+        cmd,
+        "codex --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox"
+    );
 }
 
 #[test]
@@ -97,7 +122,10 @@ fn codex_launch_with_task_interactive_pane_uses_tui() {
         headless: false,
         session_id: None,
     });
-    assert_eq!(cmd, "codex --dangerously-bypass-approvals-and-sandbox");
+    assert_eq!(
+        cmd,
+        "codex --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox"
+    );
     assert!(!cmd.contains("exec"));
     assert!(!cmd.contains("fix the bug"));
     assert!(matches!(
@@ -109,18 +137,70 @@ fn codex_launch_with_task_interactive_pane_uses_tui() {
 #[test]
 fn codex_launch_with_task_headless_worker_uses_exec() {
     let p = CodexProvider::new();
+    let task = "fix the bug";
     let cmd = p.build_launch_command(&AgentLaunchParams {
         agent_name: None,
-        task: Some("fix the bug".to_string()),
+        task: Some(task.to_string()),
         args: None,
         skip_permissions: true,
         headless: true,
         session_id: None,
     });
-    assert!(cmd.contains("codex exec --dangerously-bypass-approvals-and-sandbox"));
+    assert!(cmd.contains(
+        "| codex exec --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox"
+    ));
     assert!(cmd.contains("shell_environment_policy.inherit=all"));
     assert!(cmd.contains("--skip-git-repo-check"));
-    assert!(cmd.contains("fix the bug"));
+    assert!(cmd.contains(".ct-task-"));
+    assert!(
+        !cmd.contains(task),
+        "task body must stay out of argv: {cmd}"
+    );
+
+    let path = task_file_path_from_launch(&cmd);
+    assert_eq!(read_task_file(&path), task);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn codex_headless_cron_task_is_piped_not_shell_quoted() {
+    let p = CodexProvider::new();
+    let task = r#"codeterm notify "Codex cron test fired" --level info --body "Sent test."
+
+You can report progress back to the cron creator by running: codeterm agent report "your message"
+
+IMPORTANT: When you are completely done with this task, you MUST run this exact command as your FINAL action:
+codeterm cron complete --run-id 90295e61-022c-4efc-a308-6c1bcc1ee0a8 --summary "<your concise summary>"
+
+Run:
+codeterm send "[cron-test-codex] fired" --pane 2fc81c5a"#;
+    let cmd = p.build_launch_command(&AgentLaunchParams {
+        agent_name: None,
+        task: Some(task.to_string()),
+        args: Some(vec!["-m".into(), "gpt-5.4-mini".into()]),
+        skip_permissions: true,
+        headless: true,
+        session_id: None,
+    });
+
+    assert!(cmd.contains("| codex exec "));
+    assert!(cmd.contains("-m gpt-5.4-mini"));
+    assert!(
+        !cmd.contains("IMPORTANT:"),
+        "cron suffix leaked into shell argv: {cmd}"
+    );
+    assert!(
+        !cmd.contains("90295e61-022c-4efc-a308-6c1bcc1ee0a8"),
+        "run id leaked into shell argv: {cmd}"
+    );
+    assert!(
+        !cmd.contains("[cron-test-codex] fired"),
+        "cron send text leaked into shell argv: {cmd}"
+    );
+
+    let path = task_file_path_from_launch(&cmd);
+    assert_eq!(read_task_file(&path), task);
+    let _ = std::fs::remove_file(path);
 }
 
 #[test]
@@ -134,7 +214,10 @@ fn codex_launch_headless_without_task_falls_back_to_tui() {
         headless: true,
         session_id: None,
     });
-    assert_eq!(cmd, "codex --dangerously-bypass-approvals-and-sandbox");
+    assert_eq!(
+        cmd,
+        "codex --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox"
+    );
 }
 
 #[test]
@@ -144,6 +227,7 @@ fn codex_resume_command_with_uuid() {
         .build_resume_command("019d6240-e61f-7463-9d7d-6d5afa4e7f93", true)
         .unwrap();
     assert!(cmd.contains("codex resume"));
+    assert!(cmd.contains("--dangerously-bypass-hook-trust"));
     assert!(cmd.contains("--dangerously-bypass-approvals-and-sandbox"));
     assert!(cmd.contains("019d6240-e61f-7463-9d7d-6d5afa4e7f93"));
 }
@@ -169,6 +253,79 @@ fn extract_uuid_from_stem() {
     );
     assert_eq!(extract_session_uuid("not-a-rollout"), None);
     assert_eq!(extract_session_uuid("rollout-short"), None);
+}
+
+#[test]
+fn codex_fresh_detection_does_not_guess_newest_same_cwd_rollout() {
+    let _guard = CODEX_ENV_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("2026").join("06").join("13");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let cwd = "/tmp/codex-same-cwd";
+    let sid_a = "019ebbbb-0000-7000-8000-000000000101";
+    let sid_b = "019ebbbb-0000-7000-8000-000000000202";
+    std::fs::write(
+        sessions.join(format!("rollout-2026-06-13T12-00-00-{sid_a}.jsonl")),
+        format!(r#"{{"type":"session_meta","payload":{{"id":"{sid_a}","cwd":"{cwd}"}}}}"#),
+    )
+    .unwrap();
+    std::fs::write(
+        sessions.join(format!("rollout-2026-06-13T12-00-01-{sid_b}.jsonl")),
+        format!(r#"{{"type":"session_meta","payload":{{"id":"{sid_b}","cwd":"{cwd}"}}}}"#),
+    )
+    .unwrap();
+
+    let prev = std::env::var("CODETERM_CODEX_SESSIONS_ROOT").ok();
+    unsafe {
+        std::env::set_var(
+            "CODETERM_CODEX_SESSIONS_ROOT",
+            dir.path().to_string_lossy().as_ref(),
+        );
+    }
+    let p = CodexProvider::new();
+    assert_eq!(p.detect_session_id(cwd, &[], None), None);
+    assert_eq!(
+        p.detect_launched_session_id(cwd, &[], Some(std::time::Duration::from_secs(300)), None),
+        None
+    );
+    assert_eq!(
+        p.detect_started_session(
+            cwd,
+            &[],
+            Some(std::time::Duration::from_secs(300)),
+            None,
+            Some("OpenAI Codex\nSession ID: 019ebbbb-0000-7000-8000-000000000101"),
+        )
+        .as_deref(),
+        Some(sid_a)
+    );
+    assert_eq!(
+        p.detect_started_session(
+            cwd,
+            &[sid_a.to_string()],
+            Some(std::time::Duration::from_secs(300)),
+            None,
+            Some("OpenAI Codex\nSession ID: 019ebbbb-0000-7000-8000-000000000101"),
+        ),
+        None
+    );
+    assert_eq!(
+        p.detect_started_session(
+            cwd,
+            &[sid_a.to_string()],
+            Some(std::time::Duration::from_secs(300)),
+            None,
+            Some("OpenAI Codex\nSession ID: 019ebbbb-0000-7000-8000-000000000202"),
+        )
+        .as_deref(),
+        Some(sid_b)
+    );
+    unsafe {
+        match prev {
+            Some(value) => std::env::set_var("CODETERM_CODEX_SESSIONS_ROOT", value),
+            None => std::env::remove_var("CODETERM_CODEX_SESSIONS_ROOT"),
+        }
+    }
 }
 
 #[test]
@@ -327,13 +484,12 @@ fn codex_status_bar_rows() {
 fn codex_metadata_describes_models() {
     let p = CodexProvider::new();
     let models = p.available_models();
-    assert_eq!(models.len(), 5);
+    assert!(models.len() >= 4);
     let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
     assert!(ids.contains(&"gpt-5.5"));
     assert!(ids.contains(&"gpt-5.4"));
     assert!(ids.contains(&"gpt-5.4-mini"));
-    assert!(ids.contains(&"gpt-5.3-codex"));
-    assert!(ids.contains(&"gpt-5.2"));
+    assert!(ids.contains(&"gpt-5.3-codex-spark"));
     assert_eq!(p.default_model().as_deref(), Some("gpt-5.5"));
 }
 
@@ -345,7 +501,7 @@ fn codex_describe_assembles_full_descriptor() {
     assert_eq!(desc.display_name, "Codex");
     assert_eq!(desc.icon_hint.as_deref(), Some("◆"));
     assert!(!desc.preserves_context_on_resume); // Codex resumes fresh
-    assert!(!desc.has_hooks);
+    assert!(desc.has_hooks);
     assert!(!desc.settings_schema.is_empty());
 }
 
@@ -430,4 +586,114 @@ fn extract_session_uuid_strips_rollout_timestamp_prefix() {
     // Malformed input must return None, not a garbled slice.
     assert_eq!(extract_session_uuid("not-a-rollout-file"), None);
     assert_eq!(extract_session_uuid("rollout-short"), None);
+}
+
+#[test]
+fn codex_session_jsonl_path_uses_exact_uuid() {
+    let _guard = CODEX_ENV_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("2026").join("06").join("14");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let sid = "019ebbbb-0000-7000-8000-000000000303";
+    let path = sessions.join(format!("rollout-2026-06-14T12-00-00-{sid}.jsonl"));
+    std::fs::write(
+        &path,
+        format!(r#"{{"type":"session_meta","payload":{{"id":"{sid}","cwd":"C:\\Developer\\codeterm"}}}}"#),
+    )
+    .unwrap();
+
+    let prev = std::env::var("CODETERM_CODEX_SESSIONS_ROOT").ok();
+    unsafe {
+        std::env::set_var(
+            "CODETERM_CODEX_SESSIONS_ROOT",
+            dir.path().to_string_lossy().as_ref(),
+        );
+    }
+    let p = CodexProvider::new();
+    assert_eq!(
+        p.session_jsonl_path("C:\\Developer\\codeterm", sid)
+            .as_deref(),
+        Some(path.as_path())
+    );
+    unsafe {
+        match prev {
+            Some(value) => std::env::set_var("CODETERM_CODEX_SESSIONS_ROOT", value),
+            None => std::env::remove_var("CODETERM_CODEX_SESSIONS_ROOT"),
+        }
+    }
+}
+
+#[test]
+fn codex_parse_session_delta_maps_messages_and_holds_partial_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rollout.jsonl");
+    let lines = vec![
+        serde_json::json!({
+            "timestamp": "2026-06-14T10:00:00Z",
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "hello"}]
+            }
+        })
+        .to_string(),
+        serde_json::json!({
+            "timestamp": "2026-06-14T10:00:01Z",
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "hi"}]
+            }
+        })
+        .to_string(),
+        serde_json::json!({
+            "timestamp": "2026-06-14T10:00:02Z",
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "shell",
+                "arguments": "{\"command\":\"pwd\"}"
+            }
+        })
+        .to_string(),
+        serde_json::json!({
+            "timestamp": "2026-06-14T10:00:03Z",
+            "type": "response_item",
+            "payload": {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "C:\\Developer\\codeterm"
+            }
+        })
+        .to_string(),
+        serde_json::json!({
+            "timestamp": "2026-06-14T10:00:04Z",
+            "type": "response_item",
+            "payload": {
+                "type": "reasoning",
+                "summary": [{"text": "thinking summary"}]
+            }
+        })
+        .to_string(),
+    ];
+    let complete = lines.join("\n") + "\n";
+    let content = complete.clone() + r#"{"type":"response_item""#;
+    std::fs::write(&path, content).unwrap();
+
+    let p = CodexProvider::new();
+    let delta = p.parse_session_delta(&path, 0);
+    assert_eq!(delta.new_offset, complete.len() as u64);
+    assert_eq!(delta.messages.len(), 5);
+    assert_eq!(delta.messages[0].role, "user");
+    assert_eq!(delta.messages[1].role, "assistant");
+    assert_eq!(delta.messages[2].blocks[0].kind, "tool_use");
+    assert_eq!(
+        delta.messages[2].blocks[0].data["input"]["command"].as_str(),
+        Some("pwd")
+    );
+    assert_eq!(delta.messages[3].blocks[0].kind, "tool_result");
+    assert_eq!(delta.messages[4].blocks[0].kind, "thinking");
 }

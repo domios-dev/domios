@@ -147,6 +147,10 @@ pub fn handle(write: bool) {
 mod tests {
     use super::*;
 
+    fn normalize_newlines(s: &str) -> String {
+        s.replace("\r\n", "\n")
+    }
+
     const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/cli-manifest.json");
 
     #[test]
@@ -154,8 +158,8 @@ mod tests {
         let committed = std::fs::read_to_string(MANIFEST_PATH)
             .expect("docs/cli-manifest.json missing — run `codeterm cli-manifest --write`");
         assert_eq!(
-            committed,
-            to_json(),
+            normalize_newlines(&committed),
+            normalize_newlines(&to_json()),
             "docs/cli-manifest.json is stale — run `codeterm cli-manifest --write`"
         );
     }
@@ -170,7 +174,8 @@ mod tests {
         let block = &md[start..end];
         let expected = format!("\n{}\n", to_markdown());
         assert_eq!(
-            block, expected,
+            normalize_newlines(block),
+            normalize_newlines(&expected),
             "docs/CLI.md auto-block stale — run `codeterm cli-manifest --write`"
         );
     }
