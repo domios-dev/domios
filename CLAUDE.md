@@ -34,7 +34,6 @@ All commands go through `build.sh`. Safe on Windows: never kills production Code
 ./build.sh cli              # rebuild CLI only → ~/.codeterm/bin/ (no dev restart)
 ./build.sh kill             # safe kill of dev only
 ./build.sh e2e              # E2E tests against running dev
-./build.sh webdriver        # dev with WebDriver for UI tests
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 ```
 
@@ -49,8 +48,13 @@ If `build` (git commit hash) differs from `git rev-parse HEAD`, the old build is
 Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-dev/logs/codeterm.log`.
 
 Full testing guide (3 layers, remote E2E, fixtures): `docs/TESTING.md`.
+UI automation/debugging uses Playwright over WebView2 CDP only; operational docs live in `tests/playwright/README.md`.
 
 **Cargo tests on Windows — never lose 10 min to a hang:**
+- From PowerShell, run repo commands through `.\build.ps1 ...`; it selects Git
+  Bash directly. Do not call plain `bash` from PowerShell because that can hit
+  `C:\Windows\System32\bash.exe` / WSL and fail on machines without a WSL distro.
+  If you need Bash explicitly, call `C:\Program Files\Git\bin\bash.exe`.
 - Run via **PowerShell foreground**, NOT Bash. Bash auto-backgrounds long commands; shell wrapper exits, cargo runs orphan and holds `target/debug/.cargo-lock`, every next `cargo test` then waits forever on that lock. PowerShell tool keeps cargo in the foreground so the timeout actually fires.
 - Always narrow first (`cargo test plugin::js_runtime::hot_reload`, not the whole `--lib`) and cap timeout at **90s**. If it hangs past 60s, that's almost always a deadlock in **your own code** (parking_lot is non-reentrant — never call `.lock()` on a Mutex while a previous guard on it is still alive on this thread), not a "linker is slow" infra problem. Incremental cargo on a warm cache compiles and links in seconds.
 - Stuck cargo? `Get-Process cargo,rustc,link | Stop-Process -Force` + delete `target/debug/.cargo-lock` + re-run. Always.

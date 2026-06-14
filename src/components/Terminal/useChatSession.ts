@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
+  lastSessionResetIndex,
   matchedOptimisticEchoes,
+  trimAfterSessionReset,
   type NormalizedChatMessage as ChatMessage,
   type OptimisticEcho,
 } from "@codeterm/chat-core";
@@ -36,6 +38,14 @@ function mergeById(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] 
 
 function toEchoes(msgs: ChatMessage[]): OptimisticEcho[] {
   return msgs.map((m) => ({ id: m.id, content: m.content, sentAtMs: Number(m.timestamp) || 0 }));
+}
+
+function timestampMs(ts: string | undefined): number | null {
+  if (!ts) return null;
+  const numeric = Number(ts);
+  if (Number.isFinite(numeric)) return numeric;
+  const parsed = Date.parse(ts);
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
 function groupToolResults(messages: ChatMessage[]): ChatMessage[] {
@@ -124,19 +134,32 @@ export function useChatSession({
   }, [error]);
 
   const parsed = useMemo<ChatMessage[]>(() => structured ?? [], [structured]);
+  const resetParsed = useMemo(() => trimAfterSessionReset(parsed), [parsed]);
+  const resetCutoffMs = useMemo(() => {
+    const index = lastSessionResetIndex(parsed);
+    return index >= 0 ? timestampMs(parsed[index]?.timestamp) : null;
+  }, [parsed]);
+  const liveOptimistic = useMemo(() => {
+    if (resetCutoffMs == null) return optimistic;
+    return optimistic.filter((m) => {
+      const ts = timestampMs(m.timestamp);
+      return ts == null || ts >= resetCutoffMs;
+    });
+  }, [optimistic, resetCutoffMs]);
 
   const allMessages = useMemo(() => {
-    const grouped = groupToolResults(parsed);
-    if (optimistic.length === 0) return grouped;
+    const grouped = groupToolResults(resetParsed);
+    if (liveOptimistic.length === 0) return grouped;
     // Render every real user turn (mergeById already dedupes by stable id — no
     // content-collapse that would swallow a legitimately repeated message).
-    // A bubble is hidden only once a real echo positively claims it.
-    const parsedUsers = parsed.filter((m) => m.type === "user");
-    const { matchedIds } = matchedOptimisticEchoes(toEchoes(optimistic), parsedUsers);
+    // A bubble is hidden once the provider transcript positively claims it,
+    // either exactly or as part of a combined TUI-submitted user turn.
+    const parsedUsers = resetParsed.filter((m) => m.type === "user");
+    const { matchedIds } = matchedOptimisticEchoes(toEchoes(liveOptimistic), parsedUsers);
     const matched = new Set(matchedIds);
-    const stillPending = optimistic.filter((m) => !matched.has(m.id));
+    const stillPending = liveOptimistic.filter((m) => !matched.has(m.id));
     return [...grouped, ...stillPending];
-  }, [parsed, optimistic]);
+  }, [resetParsed, liveOptimistic]);
 
   const enrichedMessages = useMemo(() => {
     const visible = allMessages.slice(-visibleMessageCount);
@@ -200,17 +223,24 @@ export function useChatSession({
     );
   }, []);
 
-  // Garbage-collect bubbles whose real echo has landed. NO timer eviction:
-  // a bubble lives until a parsed user message positively, consume-once claims
-  // it. If the echo never arrives the bubble stays — visible, not silently lost.
+  // Garbage-collect bubbles whose real echo has landed or whose pre-reset
+  // history is no longer visible. If the echo never arrives the bubble stays
+  // visible; combined transcript turns can still claim several quick sends.
   useEffect(() => {
     if (optimistic.length === 0) return;
-    const parsedUsers = parsed.filter((m) => m.type === "user");
+    const parsedUsers = resetParsed.filter((m) => m.type === "user");
     const { matchedIds } = matchedOptimisticEchoes(toEchoes(optimistic), parsedUsers);
-    if (matchedIds.length === 0) return;
     const matched = new Set(matchedIds);
-    setOptimistic((prev) => prev.filter((m) => !matched.has(m.id)));
-  }, [parsed, optimistic]);
+    setOptimistic((prev) => {
+      const next = prev.filter((m) => {
+        if (matched.has(m.id)) return false;
+        if (resetCutoffMs == null) return true;
+        const ts = timestampMs(m.timestamp);
+        return ts == null || ts >= resetCutoffMs;
+      });
+      return next.length === prev.length ? prev : next;
+    });
+  }, [resetParsed, resetCutoffMs, optimistic]);
 
   return {
     loading,

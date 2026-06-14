@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use super::status_tui::CodexStatusUsageParser;
 use super::usage as codex_usage;
+use crate::agent::chat_types::{MessageBlock, RichMessage, SessionDelta};
 use crate::agent::provider::{
     self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy,
     SessionMessage, SessionMetadata, SettingField, TaskDelivery, UsageSnapshot,
@@ -104,6 +105,7 @@ impl AgentProvider for CodexProvider {
         if params.headless && params.task.is_some() {
             parts.push("codex".to_string());
             parts.push("exec".to_string());
+            parts.push("--dangerously-bypass-hook-trust".to_string());
             if params.skip_permissions {
                 parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
             }
@@ -113,6 +115,7 @@ impl AgentProvider for CodexProvider {
             parts.push(ShellSyntax::quote(params.task.as_ref().unwrap()));
         } else {
             parts.push("codex".to_string());
+            parts.push("--dangerously-bypass-hook-trust".to_string());
             if params.skip_permissions {
                 parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
             }
@@ -175,6 +178,10 @@ impl AgentProvider for CodexProvider {
         // session_id is a UUID — need to find the matching rollout-*-<uuid>.jsonl file
         let root = Self::sessions_root()?;
         find_session_file_by_uuid(&root, session_id)
+    }
+
+    fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
+        self.session_file_path(cwd, session_id)
     }
 
     fn read_usage(&self, cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
@@ -300,6 +307,10 @@ impl AgentProvider for CodexProvider {
         out
     }
 
+    fn parse_session_delta(&self, path: &std::path::Path, from_offset: u64) -> SessionDelta {
+        parse_codex_session_delta(path, from_offset)
+    }
+
     fn detect_session_id(
         &self,
         _cwd: &str,
@@ -355,6 +366,7 @@ impl AgentProvider for CodexProvider {
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
         let mut parts = vec!["codex".to_string(), "resume".to_string()];
+        parts.push("--dangerously-bypass-hook-trust".to_string());
         if skip_permissions {
             parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
         }
@@ -365,7 +377,23 @@ impl AgentProvider for CodexProvider {
     }
 
     fn has_hooks(&self) -> bool {
-        false
+        true
+    }
+
+    fn check_integration(&self) -> serde_json::Value {
+        super::integration::check_integration()
+    }
+
+    fn install_integration(&self, api_port: u16) -> Result<(), String> {
+        super::integration::install_integration(api_port)
+    }
+
+    fn uninstall_integration(&self) -> Result<(), String> {
+        super::integration::uninstall_integration()
+    }
+
+    fn ensure_integration_on_startup(&self, api_port: u16) {
+        super::integration::ensure_integration_on_startup(api_port);
     }
 
     fn status_bar_rows(&self) -> u16 {
@@ -596,6 +624,262 @@ fn read_session_meta(path: &std::path::Path) -> Option<(Option<String>, Option<S
         .and_then(|s| s.as_str())
         .map(String::from);
     Some((id, cwd))
+}
+
+fn parse_codex_session_delta(path: &std::path::Path, from_offset: u64) -> SessionDelta {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return SessionDelta {
+            new_offset: from_offset,
+            messages: vec![],
+        };
+    };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let start = from_offset.min(len);
+    if f.seek(SeekFrom::Start(start)).is_err() {
+        return SessionDelta {
+            new_offset: start,
+            messages: vec![],
+        };
+    }
+    let mut bytes = Vec::new();
+    if f.read_to_end(&mut bytes).is_err() || bytes.is_empty() {
+        return SessionDelta {
+            new_offset: start,
+            messages: vec![],
+        };
+    }
+
+    let complete_len = if bytes.ends_with(b"\n") {
+        bytes.len()
+    } else {
+        match bytes.iter().rposition(|b| *b == b'\n') {
+            Some(pos) => pos + 1,
+            None => 0,
+        }
+    };
+    if complete_len == 0 {
+        return SessionDelta {
+            new_offset: start,
+            messages: vec![],
+        };
+    }
+
+    let text = String::from_utf8_lossy(&bytes[..complete_len]);
+    let mut messages = Vec::new();
+    for (line_idx, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Some(msg) = parse_codex_rich_message(line, start, line_idx) {
+            messages.push(msg);
+        }
+    }
+
+    SessionDelta {
+        new_offset: start + complete_len as u64,
+        messages,
+    }
+}
+
+fn parse_codex_rich_message(line: &str, start: u64, line_idx: usize) -> Option<RichMessage> {
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    if v.get("type").and_then(|t| t.as_str()) != Some("response_item") {
+        return None;
+    }
+    let payload = v.get("payload")?;
+    let timestamp = v
+        .get("timestamp")
+        .and_then(|t| t.as_str())
+        .map(String::from);
+    let ts = timestamp
+        .as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.timestamp());
+    let uuid = payload
+        .get("id")
+        .or_else(|| payload.get("call_id"))
+        .and_then(|id| id.as_str())
+        .map(String::from)
+        .or_else(|| Some(format!("codex-{start}-{line_idx}")));
+
+    match payload.get("type").and_then(|t| t.as_str())? {
+        "message" => parse_codex_message_payload(payload, timestamp, ts, uuid),
+        "reasoning" => parse_codex_reasoning_payload(payload, timestamp, ts, uuid),
+        "function_call" => parse_codex_function_call_payload(payload, timestamp, ts, uuid),
+        "function_call_output" => {
+            parse_codex_function_call_output_payload(payload, timestamp, ts, uuid)
+        }
+        _ => None,
+    }
+}
+
+fn parse_codex_message_payload(
+    payload: &serde_json::Value,
+    timestamp: Option<String>,
+    ts: Option<i64>,
+    uuid: Option<String>,
+) -> Option<RichMessage> {
+    let role = match payload.get("role").and_then(|r| r.as_str()) {
+        Some("developer") | Some("system") => "system",
+        Some("user") => "user",
+        Some("assistant") => "assistant",
+        _ => return None,
+    };
+    let blocks = payload
+        .get("content")
+        .and_then(|c| c.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let kind = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                    if matches!(kind, "input_text" | "output_text" | "text") {
+                        item.get("text")
+                            .and_then(|t| t.as_str())
+                            .map(|text| MessageBlock {
+                                kind: "text".into(),
+                                data: serde_json::json!({ "text": text }),
+                            })
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if blocks.is_empty() {
+        return None;
+    }
+    let first_text = blocks
+        .iter()
+        .filter_map(|b| b.data.get("text").and_then(|t| t.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(RichMessage {
+        role: role.into(),
+        blocks,
+        ts,
+        uuid,
+        is_meta: Some(role == "system" || (role == "user" && is_codeterm_injection(&first_text))),
+        timestamp,
+        interactive: vec![],
+    })
+}
+
+fn parse_codex_reasoning_payload(
+    payload: &serde_json::Value,
+    timestamp: Option<String>,
+    ts: Option<i64>,
+    uuid: Option<String>,
+) -> Option<RichMessage> {
+    let text = payload
+        .get("summary")
+        .and_then(|s| s.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    item.get("text")
+                        .or_else(|| item.get("summary"))
+                        .and_then(|t| t.as_str())
+                        .map(String::from)
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    if text.trim().is_empty() {
+        return None;
+    }
+    Some(RichMessage {
+        role: "assistant".into(),
+        blocks: vec![MessageBlock {
+            kind: "thinking".into(),
+            data: serde_json::json!({ "text": text }),
+        }],
+        ts,
+        uuid,
+        is_meta: None,
+        timestamp,
+        interactive: vec![],
+    })
+}
+
+fn parse_codex_function_call_payload(
+    payload: &serde_json::Value,
+    timestamp: Option<String>,
+    ts: Option<i64>,
+    uuid: Option<String>,
+) -> Option<RichMessage> {
+    let id = payload
+        .get("call_id")
+        .or_else(|| payload.get("id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    if id.is_empty() && name.is_empty() {
+        return None;
+    }
+    let input = payload
+        .get("arguments")
+        .and_then(|v| v.as_str())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        .or_else(|| payload.get("arguments").cloned())
+        .unwrap_or_else(|| serde_json::json!({}));
+    Some(RichMessage {
+        role: "assistant".into(),
+        blocks: vec![MessageBlock {
+            kind: "tool_use".into(),
+            data: serde_json::json!({
+                "id": id,
+                "name": name,
+                "input": input,
+            }),
+        }],
+        ts,
+        uuid,
+        is_meta: None,
+        timestamp,
+        interactive: vec![],
+    })
+}
+
+fn parse_codex_function_call_output_payload(
+    payload: &serde_json::Value,
+    timestamp: Option<String>,
+    ts: Option<i64>,
+    uuid: Option<String>,
+) -> Option<RichMessage> {
+    let call_id = payload
+        .get("call_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if call_id.is_empty() {
+        return None;
+    }
+    let output = payload
+        .get("output")
+        .or_else(|| payload.get("content"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::String(String::new()));
+    Some(RichMessage {
+        role: "user".into(),
+        blocks: vec![MessageBlock {
+            kind: "tool_result".into(),
+            data: serde_json::json!({
+                "tool_use_id": call_id,
+                "content": output,
+                "is_error": false,
+            }),
+        }],
+        ts,
+        uuid,
+        is_meta: None,
+        timestamp,
+        interactive: vec![],
+    })
 }
 
 /// Tail-scan a codex jsonl for the latest `turn_context.payload.model`.

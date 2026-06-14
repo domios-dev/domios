@@ -76,7 +76,7 @@ pub enum AgentAction {
         #[arg(long)]
         pane: Option<String>,
     },
-    /// Restart agent (gracefully /exit + auto-resume to pick up settings or recover)
+    /// Restart agent (graceful exit; resumes only when the pane has a valid session)
     Restart {
         /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
         #[arg(long)]

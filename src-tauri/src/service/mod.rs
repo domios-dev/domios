@@ -101,6 +101,7 @@ pub struct ServiceContext {
     pub restart_tracker: agent_restart::RestartTracker,
     /// Per-pane JSONL chat tailers — populated when a pane enters UI mode.
     pub chat_registry: Arc<crate::service::pane_chat::ChatRegistry>,
+    pub delayed_send: crate::delayed_send::DelayedSendQueue,
     /// Active secret-store backend (mock in Phase 1; bitwarden lands in Phase 2).
     pub secrets: crate::secrets::SecretStoreState,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.

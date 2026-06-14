@@ -82,6 +82,9 @@ pub(crate) struct SendTextBody {
     text: Option<String>,
     #[serde(default = "default_true")]
     enter: bool,
+    /// Terminal key/action sequence. When present, optional text is inserted
+    /// first without auto-submit, then actions are written as raw PTY bytes.
+    actions: Option<Vec<SendAction>>,
     /// Batch: send multiple commands sequentially with optional delays
     batch: Option<Vec<BatchCommand>>,
     /// Raw mode: bypass bracket paste, send bytes directly to PTY.
@@ -114,7 +117,64 @@ pub(crate) struct BatchCommand {
     delay_ms: Option<u64>,
 }
 
-/// PTY init takes ~1-2s after agent_spawn returns; send-text fired
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub(crate) enum SendAction {
+    Key { key: String },
+    Delay { ms: u64 },
+}
+
+fn send_action_bytes(key: &str) -> Option<Vec<u8>> {
+    let normalized = key.replace('_', "-").to_ascii_lowercase();
+    match normalized.as_str() {
+        "enter" | "return" => Some(b"\r".to_vec()),
+        "esc" | "escape" => Some(b"\x1b".to_vec()),
+        "tab" => Some(b"\t".to_vec()),
+        "backspace" | "bs" => Some(vec![0x7f]),
+        "delete" | "del" => Some(b"\x1b[3~".to_vec()),
+        "up" | "arrow-up" => Some(b"\x1b[A".to_vec()),
+        "down" | "arrow-down" => Some(b"\x1b[B".to_vec()),
+        "right" | "arrow-right" => Some(b"\x1b[C".to_vec()),
+        "left" | "arrow-left" => Some(b"\x1b[D".to_vec()),
+        "home" => Some(b"\x1b[H".to_vec()),
+        "end" => Some(b"\x1b[F".to_vec()),
+        "pageup" | "page-up" | "pgup" => Some(b"\x1b[5~".to_vec()),
+        "pagedown" | "page-down" | "pgdn" => Some(b"\x1b[6~".to_vec()),
+        "space" => Some(b" ".to_vec()),
+        other => parse_ctrl_key(other).map(|b| vec![b]),
+    }
+}
+
+fn parse_ctrl_key(value: &str) -> Option<u8> {
+    let key = value
+        .strip_prefix("ctrl-")
+        .or_else(|| value.strip_prefix("control-"))
+        .or_else(|| value.strip_prefix("c-"))?;
+    if key.len() != 1 {
+        return None;
+    }
+    let b = key.as_bytes()[0].to_ascii_lowercase();
+    if b.is_ascii_lowercase() {
+        Some(b - b'a' + 1)
+    } else if b == b'[' {
+        Some(0x1b)
+    } else {
+        None
+    }
+}
+
+fn action_preview(actions: &[SendAction]) -> String {
+    actions
+        .iter()
+        .map(|a| match a {
+            SendAction::Key { key } => key.clone(),
+            SendAction::Delay { ms } => format!("delay:{ms}ms"),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// PTY init takes ~1-2s after agent_spawn returns; send fired
 /// immediately would otherwise hit "no PTY" unconditionally. Poll for
 /// the link with this short budget so a script can chain spawn → send.
 async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
@@ -222,6 +282,61 @@ pub async fn send_text(
             None => s.to_string(),
         }
     };
+
+    if let Some(actions) = body.actions {
+        if actions.is_empty() {
+            return Err((StatusCode::BAD_REQUEST, "actions cannot be empty"));
+        }
+        let mut writes: Vec<(Option<u64>, Vec<u8>)> = Vec::with_capacity(actions.len());
+        for action in &actions {
+            match action {
+                SendAction::Delay { ms } => writes.push((Some(*ms), Vec::new())),
+                SendAction::Key { key } => {
+                    let Some(bytes) = send_action_bytes(key) else {
+                        return Err((StatusCode::BAD_REQUEST, "unknown action key"));
+                    };
+                    writes.push((None, bytes));
+                }
+            }
+        }
+
+        let raw_text = body.text.clone().unwrap_or_default();
+        let text_was_sent = !raw_text.is_empty();
+        if text_was_sent {
+            let text = prepend(&raw_text);
+            state
+                .svc
+                .send_text_when_ready(&pane_id, &text, false)
+                .await
+                .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        }
+
+        let pty_id = state
+            .svc
+            .resolve_pty_id(&pane_id)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        let pty = state.svc.pty.clone();
+        tokio::spawn(async move {
+            if text_was_sent {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+            for (delay, bytes) in writes {
+                if let Some(ms) = delay {
+                    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+                    continue;
+                }
+                let _ = pty.lock().write(&pty_id, &bytes);
+            }
+        });
+
+        let preview = if raw_text.is_empty() {
+            format!("<actions:{}>", action_preview(&actions))
+        } else {
+            format!("{} <actions:{}>", raw_text, action_preview(&actions))
+        };
+        record_push_activity(&state, &svc_token_match, &pane_id, &preview);
+        return Ok(Json(serde_json::json!({"ok": true, "actions": true})));
+    }
 
     if let Some(batch) = body.batch {
         let preview = batch
@@ -792,6 +907,36 @@ mod tests_send_text_body {
     }
 
     #[test]
+    fn send_text_body_with_actions() {
+        let json = r#"{
+            "actions": [
+                {"type": "key", "key": "esc"},
+                {"type": "delay", "ms": 200},
+                {"type": "key", "key": "enter"}
+            ]
+        }"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            body.actions.unwrap(),
+            vec![
+                SendAction::Key { key: "esc".into() },
+                SendAction::Delay { ms: 200 },
+                SendAction::Key {
+                    key: "enter".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn send_action_bytes_cover_navigation_keys() {
+        assert_eq!(send_action_bytes("enter").unwrap(), b"\r".to_vec());
+        assert_eq!(send_action_bytes("esc").unwrap(), b"\x1b".to_vec());
+        assert_eq!(send_action_bytes("up").unwrap(), b"\x1b[A".to_vec());
+        assert_eq!(send_action_bytes("ctrl-c").unwrap(), vec![3]);
+    }
+
+    #[test]
     fn exec_body_deserialize() {
         let json = r#"{"command": "ls -la"}"#;
         let body: ExecBody = serde_json::from_str(json).unwrap();
@@ -846,7 +991,7 @@ mod tests_send_text_body {
         assert!(default_true());
     }
 
-    /// send-text is always fire-and-forget — the `verify` field was removed in #101
+    /// send is always fire-and-forget — the `verify` field was removed in #101
     /// because TUI agents intercept input and don't echo per-character, making
     /// verification unreliable (especially over mesh). Deserialization must
     /// accept legacy clients that still send the field by ignoring it.

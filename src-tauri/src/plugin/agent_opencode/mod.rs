@@ -5,6 +5,7 @@
 //! session file layout, TUI noise, slash commands) lives in this module —
 //! core never references OpenCode directly.
 
+pub mod integration;
 pub mod provider;
 pub mod usage;
 
@@ -118,6 +119,6 @@ mod tests {
         assert_eq!(oc.compact_command(), Some("/compact"));
         assert_eq!(oc.exit_command(), Some("/exit"));
         assert!(!oc.supports_lazy_skills());
-        assert!(!oc.has_hooks());
+        assert!(oc.has_hooks());
     }
 }

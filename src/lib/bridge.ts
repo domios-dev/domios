@@ -136,6 +136,22 @@ const HTTP_MAP: Record<string, Mapper> = {
       text: a.text,
       enter: true,
     }),
+  delayed_send_list: (a) =>
+    webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/delayed-messages`),
+  delayed_send_create: (a) =>
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/delayed-messages`, {
+      text: a.text,
+      scheduledAtMs: a.scheduledAtMs,
+    }),
+  delayed_send_update: (a) =>
+    webJson("PATCH", `/api/delayed-messages/${enc(s(a, "id"))}`, {
+      text: a.text,
+      scheduledAtMs: a.scheduledAtMs,
+    }),
+  delayed_send_delete: (a) =>
+    webJson("DELETE", `/api/delayed-messages/${enc(s(a, "id"))}`),
+  delayed_send_send_now: (a) =>
+    webJson("POST", `/api/delayed-messages/${enc(s(a, "id"))}/send-now`),
   transcribe_voice_attachment: async (a) => {
     const resp = await webJson<{ line?: string }>("POST", "/api/transcribe-voice", {
       path: s(a, "path"),

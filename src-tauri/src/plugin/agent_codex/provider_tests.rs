@@ -68,7 +68,7 @@ fn codex_launch_interactive() {
         headless: false,
         session_id: None,
     });
-    assert_eq!(cmd, "codex");
+    assert_eq!(cmd, "codex --dangerously-bypass-hook-trust");
 }
 
 #[test]
@@ -83,7 +83,10 @@ fn codex_launch_interactive_skip_perms() {
         session_id: None,
     });
     // Codex CLI removed --full-auto; the surviving skip-approvals flag is --dangerously-bypass-approvals-and-sandbox (same one codex exec uses).
-    assert_eq!(cmd, "codex --dangerously-bypass-approvals-and-sandbox");
+    assert_eq!(
+        cmd,
+        "codex --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox"
+    );
 }
 
 #[test]
@@ -97,7 +100,10 @@ fn codex_launch_with_task_interactive_pane_uses_tui() {
         headless: false,
         session_id: None,
     });
-    assert_eq!(cmd, "codex --dangerously-bypass-approvals-and-sandbox");
+    assert_eq!(
+        cmd,
+        "codex --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox"
+    );
     assert!(!cmd.contains("exec"));
     assert!(!cmd.contains("fix the bug"));
     assert!(matches!(
@@ -117,7 +123,9 @@ fn codex_launch_with_task_headless_worker_uses_exec() {
         headless: true,
         session_id: None,
     });
-    assert!(cmd.contains("codex exec --dangerously-bypass-approvals-and-sandbox"));
+    assert!(cmd.contains(
+        "codex exec --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox"
+    ));
     assert!(cmd.contains("shell_environment_policy.inherit=all"));
     assert!(cmd.contains("--skip-git-repo-check"));
     assert!(cmd.contains("fix the bug"));
@@ -134,7 +142,10 @@ fn codex_launch_headless_without_task_falls_back_to_tui() {
         headless: true,
         session_id: None,
     });
-    assert_eq!(cmd, "codex --dangerously-bypass-approvals-and-sandbox");
+    assert_eq!(
+        cmd,
+        "codex --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox"
+    );
 }
 
 #[test]
@@ -144,6 +155,7 @@ fn codex_resume_command_with_uuid() {
         .build_resume_command("019d6240-e61f-7463-9d7d-6d5afa4e7f93", true)
         .unwrap();
     assert!(cmd.contains("codex resume"));
+    assert!(cmd.contains("--dangerously-bypass-hook-trust"));
     assert!(cmd.contains("--dangerously-bypass-approvals-and-sandbox"));
     assert!(cmd.contains("019d6240-e61f-7463-9d7d-6d5afa4e7f93"));
 }
@@ -418,7 +430,7 @@ fn codex_describe_assembles_full_descriptor() {
     assert_eq!(desc.display_name, "Codex");
     assert_eq!(desc.icon_hint.as_deref(), Some("◆"));
     assert!(!desc.preserves_context_on_resume); // Codex resumes fresh
-    assert!(!desc.has_hooks);
+    assert!(desc.has_hooks);
     assert!(!desc.settings_schema.is_empty());
 }
 
@@ -503,4 +515,114 @@ fn extract_session_uuid_strips_rollout_timestamp_prefix() {
     // Malformed input must return None, not a garbled slice.
     assert_eq!(extract_session_uuid("not-a-rollout-file"), None);
     assert_eq!(extract_session_uuid("rollout-short"), None);
+}
+
+#[test]
+fn codex_session_jsonl_path_uses_exact_uuid() {
+    let _guard = CODEX_ENV_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("2026").join("06").join("14");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let sid = "019ebbbb-0000-7000-8000-000000000303";
+    let path = sessions.join(format!("rollout-2026-06-14T12-00-00-{sid}.jsonl"));
+    std::fs::write(
+        &path,
+        format!(r#"{{"type":"session_meta","payload":{{"id":"{sid}","cwd":"C:\\Developer\\codeterm"}}}}"#),
+    )
+    .unwrap();
+
+    let prev = std::env::var("CODETERM_CODEX_SESSIONS_ROOT").ok();
+    unsafe {
+        std::env::set_var(
+            "CODETERM_CODEX_SESSIONS_ROOT",
+            dir.path().to_string_lossy().as_ref(),
+        );
+    }
+    let p = CodexProvider::new();
+    assert_eq!(
+        p.session_jsonl_path("C:\\Developer\\codeterm", sid)
+            .as_deref(),
+        Some(path.as_path())
+    );
+    unsafe {
+        match prev {
+            Some(value) => std::env::set_var("CODETERM_CODEX_SESSIONS_ROOT", value),
+            None => std::env::remove_var("CODETERM_CODEX_SESSIONS_ROOT"),
+        }
+    }
+}
+
+#[test]
+fn codex_parse_session_delta_maps_messages_and_holds_partial_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rollout.jsonl");
+    let lines = vec![
+        serde_json::json!({
+            "timestamp": "2026-06-14T10:00:00Z",
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "hello"}]
+            }
+        })
+        .to_string(),
+        serde_json::json!({
+            "timestamp": "2026-06-14T10:00:01Z",
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "hi"}]
+            }
+        })
+        .to_string(),
+        serde_json::json!({
+            "timestamp": "2026-06-14T10:00:02Z",
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "shell",
+                "arguments": "{\"command\":\"pwd\"}"
+            }
+        })
+        .to_string(),
+        serde_json::json!({
+            "timestamp": "2026-06-14T10:00:03Z",
+            "type": "response_item",
+            "payload": {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "C:\\Developer\\codeterm"
+            }
+        })
+        .to_string(),
+        serde_json::json!({
+            "timestamp": "2026-06-14T10:00:04Z",
+            "type": "response_item",
+            "payload": {
+                "type": "reasoning",
+                "summary": [{"text": "thinking summary"}]
+            }
+        })
+        .to_string(),
+    ];
+    let complete = lines.join("\n") + "\n";
+    let content = complete.clone() + r#"{"type":"response_item""#;
+    std::fs::write(&path, content).unwrap();
+
+    let p = CodexProvider::new();
+    let delta = p.parse_session_delta(&path, 0);
+    assert_eq!(delta.new_offset, complete.len() as u64);
+    assert_eq!(delta.messages.len(), 5);
+    assert_eq!(delta.messages[0].role, "user");
+    assert_eq!(delta.messages[1].role, "assistant");
+    assert_eq!(delta.messages[2].blocks[0].kind, "tool_use");
+    assert_eq!(
+        delta.messages[2].blocks[0].data["input"]["command"].as_str(),
+        Some("pwd")
+    );
+    assert_eq!(delta.messages[3].blocks[0].kind, "tool_result");
+    assert_eq!(delta.messages[4].blocks[0].kind, "thinking");
 }

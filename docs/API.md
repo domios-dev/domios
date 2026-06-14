@@ -59,7 +59,7 @@ Then: `Authorization: Bearer your-secret-token`
 |--------|------|------|-------------|
 | GET | `/api/panes` | — | List all panes |
 | POST | `/api/panes` | `{title?, cwd?, workspace_id?, cmd?, eager?}` | Create a shell pane. When `cmd` is provided, CodeTerm sends it to the fresh pane through the same verified send path used by `/api/panes/{id}/send`, with Enter appended. |
-| POST | `/api/panes/{id}/send` | `{text?, enter?, raw?, batch?: [{text, enter?, delay_ms?}], source_pane?}` | Send text to PTY. Fire-and-forget — returns `{ok:true}` as soon as bytes are written. Verification fields were removed in v1.2.3 (#101): TUI agents (Claude/Codex) intercept input and don't echo per-character, so the old `verify` flag couldn't deliver on its name. For agent request/response, a future `codeterm agent send` will hook into provider semantics. |
+| POST | `/api/panes/{id}/send` | `{text?, enter?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, enter?, delay_ms?}], source_pane?}` | Send text or terminal actions to PTY. Fire-and-forget — returns `{ok:true}` as soon as bytes are written or queued. `actions` supports keys (`enter`, `esc`, arrows, `tab`, `backspace`, `delete`, `home/end`, `pageup/pagedown`, `space`, `ctrl-c`) and millisecond delays. Verification fields were removed in v1.2.3 (#101): TUI agents (Claude/Codex) intercept input and don't echo per-character, so the old `verify` flag couldn't deliver on its name. For agent request/response, a future `codeterm agent send` will hook into provider semantics. |
 | POST | `/api/panes/{id}/stop` | — | Stop the pane's PTY process |
 | POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
 | GET | `/api/panes/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
@@ -75,10 +75,15 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/chat/start` | — | Start chat JSONL tailing |
 | POST | `/api/panes/{id}/chat/stop` | — | Stop chat JSONL tailing |
 | POST | `/api/panes/{id}/chat/backfill` | `{before_offset, max_bytes?}` | Backfill older chat JSONL content |
+| GET | `/api/panes/{id}/delayed-messages` | — | List queued/failed delayed Chat UI messages for this pane |
+| POST | `/api/panes/{id}/delayed-messages` | `{text, scheduledAtMs}` | Queue a message for future delivery to this pane. Normal send is unaffected. |
+| PATCH | `/api/delayed-messages/{id}` | `{text?, scheduledAtMs?}` | Edit a queued or failed delayed message |
+| DELETE | `/api/delayed-messages/{id}` | — | Delete a queued or failed delayed message |
+| POST | `/api/delayed-messages/{id}/send-now` | — | Deliver a queued or failed delayed message immediately |
 | POST | `/api/panes/{id}/hook/permission` | `{question?, options?: [{label, value}]}` | Notify that agent is showing a permission prompt (see below) |
 | POST | `/api/panes/{id}/hook/stop` | `{}` | Notify that the agent finished its turn (see below) |
 | POST | `/api/panes/{id}/hook/session_start` | *(Claude SessionStart JSON, forwarded from stdin)* | Persist the agent-reported `session_id` on the pane; covers `/new` and `/clear` inside the TUI (see below) |
-| POST | `/api/panes/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart the agent in this pane (graceful `/exit` + auto-resume). See [Agent Restart](#agent-restart-post-apipanesidagentrestart). |
+| POST | `/api/panes/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart the agent in this pane; resumes only when the recorded session is valid. See [Agent Restart](#agent-restart-post-apipanesidagentrestart). |
 
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
@@ -692,7 +697,7 @@ Response shape:
 1. Locate the session across providers (`AgentRegistry::find_session`) → get cwd + provider id from disk metadata (Claude reads cwd out of the JSONL itself; the encoded directory name is NOT trusted because it loses leading-dot folders and case).
 2. Reuse the workspace at `workspace_id` if given; otherwise create one at the recorded cwd, named `workspace_name` or the cwd basename.
 3. Spawn an agent pane in that workspace with `--resume <id>` baked into `args` (Claude). Other providers are routed via their `build_resume_command` shape.
-4. The pane's `agent_session_id` is NOT pre-set — the SessionStart hook records it as soon as the agent reports it, avoiding double `--resume` injection from the auto-resume code path in `commands.rs::spawn_pty`.
+4. The pane's `agent_session_id` is NOT pre-set — the SessionStart hook records it as soon as the agent reports it, avoiding double `--resume` injection from the launch/resume code path in `commands.rs::spawn_pty`.
 
 Response:
 ```json
@@ -730,16 +735,16 @@ The config is saved to disk and a `config-changed` Tauri event is emitted.
 |--------|------|------|-------------|
 | GET | `/api/update/check` | `?force=true` | Check for available updates on the active channel. Cached for 1 hour unless `force=true`. |
 | POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...` | Install the pending update. Without `method=auto`, returns either an OS install command or opens the download URL in the browser. With `method=auto`, runs the full Tauri-plugin-updater flow (download, signature verify, install, restart). `after_update` (optional) stashes a message to `~/.codeterm/post-update-message.txt`; the new daemon delivers it to the General pane after restart. |
-| GET | `/api/update/channel` | — | Returns `{"channel": "stable" \| "rc" \| "nightly"}` |
-| POST | `/api/update/channel` | `{channel}` | Set the active channel. Persists to `[updater] channel = "..."` in `config.toml` and updates the in-memory state. |
+| GET | `/api/update/channel` | — | Returns the active diagnostic channel, currently `{"channel":"stable"}` on normal installs. |
+| POST | `/api/update/channel` | `{channel}` | Disabled while CodeTerm ships only the default update channel; returns `409 update channel switching is disabled`. |
 
-**Channels.** `stable` is the default. `rc` follows release-candidate tags (`vX.Y.Z-rcN`); `nightly` follows develop builds. Manifests are signed with ed25519 — the public key is embedded in `tauri.conf.json`; signature verification is handled by `tauri-plugin-updater` and a wrong-key signature aborts the install before any binary is touched.
+**Channels.** Channel switching is intentionally disabled for now; use the default channel. Manifests are signed with ed25519 — the public key is embedded in `tauri.conf.json`; signature verification is handled by `tauri-plugin-updater` and a wrong-key signature aborts the install before any binary is touched.
 
 **Auto install flow (`method=auto`).** The daemon spawns a background tokio runtime that calls `update::apply::check_and_apply`. This:
 1. Picks the manifest URL from `updater.channel` (or `manifest_url` query override — only honored when the binary is built with `dev-updater-allowlocal` for non-https schemes; release builds reject it).
 2. Downloads the platform asset, verifies the ed25519 signature, performs the platform-specific install (atomic binary swap on Windows, rsync into `.app` on macOS).
 3. Performs the 9-step graceful shutdown: panes are signaled to exit, the mem WAL is checkpointed, the supervisor is stopped, then the app restarts.
-4. After restart, Claude/Codex panes auto-resume their sessions (no context wipe).
+4. After restart, panes with valid recorded provider sessions resume; stale or missing sessions launch fresh.
 
 The HTTP response returns immediately (`{"status": "updating", "version": "..."}`); progress is reported via Tauri events to the frontend (`UpdateBadge` + `UpdateModal`).
 
@@ -752,7 +757,7 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 #### Agent Restart (POST /api/panes/{id}/agent/restart)
 
-Restart the agent in a pane. Default behaviour is graceful: send `/exit` (provider-specific exit command), wait up to `grace_secs` for the PTY to exit, then auto-resume via the existing pane lifecycle (Claude restarts as `claude --resume <session_id>` if a session id is recorded).
+Restart the agent in a pane. Default behaviour is graceful: send the provider-specific exit command, wait up to `grace_secs` for the PTY to return to a shell prompt, then relaunch. If the recorded provider session still exists on disk, the provider resume command is used; otherwise CodeTerm launches a fresh session.
 
 ```json
 {"force": false, "grace_secs": 10}
@@ -1052,7 +1057,7 @@ Newline-delimited JSON:
 | `agent.link` | `{pane_id, parent_pane_id}` | Link pane under parent |
 | `agent.report` | `{pane_id, message}` | Send report to direct parent |
 | `agent.reports` | `{pane_id, clear?}` | Read reports from children |
-| `agent.restart` | `{pane_id, force?, grace_secs?}` | Restart the agent in a pane (graceful `/exit` + auto-resume; same flow as REST). |
+| `agent.restart` | `{pane_id, force?, grace_secs?}` | Restart the agent in a pane; resumes only when the recorded session is valid. |
 | `cron.list` | `{workspace_id?}` | List cron jobs |
 | `cron.get` | `{id}` | Get cron job by ID |
 | `cron.create` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?}` | Create cron job |
@@ -1155,4 +1160,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 58 -->
+<!-- revision: 62 -->

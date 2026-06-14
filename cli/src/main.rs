@@ -155,6 +155,7 @@ mod args;
 pub use args::agent::AgentAction;
 pub use args::cli::{Cli, Commands};
 pub use args::cron::CronAction;
+pub use args::delayed::DelayedAction;
 pub use args::mem::{
     MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
     MemSkillAction, MemWorkerAction,
@@ -407,7 +408,9 @@ fn main() {
             text,
             from_file,
             stdin,
-            submit,
+            actions,
+            delay,
+            at,
         } => {
             cmd::local_io::handle_send_text(
                 &mut client,
@@ -416,8 +419,15 @@ fn main() {
                 text,
                 from_file,
                 stdin,
-                submit,
+                actions,
+                delay,
+                at,
             );
+            return;
+        }
+
+        Commands::Delayed { action } => {
+            cmd::delayed::handle_delayed(&mut client, cli.json, action);
             return;
         }
 
@@ -901,27 +911,77 @@ mod subcommand_contract_tests {
     }
 
     #[test]
-    fn send_submit_without_text_parses() {
-        // Bare-Enter affordance: `send --submit` must parse with no positional.
-        let parsed = Cli::try_parse_from(["codeterm", "send", "--submit", "--pane", "abc123"])
-            .expect("send --submit parses");
+    fn send_actions_without_text_parses() {
+        let parsed =
+            Cli::try_parse_from(["codeterm", "send", "--actions", "enter", "--pane", "abc123"])
+                .expect("send --actions parses");
         assert!(matches!(
             parsed.command,
             Commands::SendText {
                 text: None,
-                submit: true,
+                actions: Some(ref v),
                 ..
-            }
+            } if v == "enter"
         ));
     }
 
     #[test]
-    fn send_enter_alias_parses() {
-        let parsed = Cli::try_parse_from(["codeterm", "send", "--enter", "--pane", "abc123"])
-            .expect("send --enter (alias of --submit) parses");
+    fn send_actions_conflicts_with_delay() {
+        let parsed = Cli::try_parse_from([
+            "codeterm",
+            "send",
+            "--actions",
+            "enter",
+            "--delay",
+            "10m",
+            "--pane",
+            "abc123",
+        ]);
+        assert!(matches!(parsed, Err(_)));
+    }
+
+    #[test]
+    fn send_delay_parses() {
+        let parsed = Cli::try_parse_from(["codeterm", "send", "--delay", "10m", "hello"])
+            .expect("send --delay parses");
         assert!(matches!(
             parsed.command,
-            Commands::SendText { submit: true, .. }
+            Commands::SendText {
+                delay: Some(ref v),
+                ..
+            } if v == "10m"
+        ));
+    }
+
+    #[test]
+    fn send_delay_conflicts_with_at() {
+        match Cli::try_parse_from([
+            "codeterm",
+            "send",
+            "--delay",
+            "10m",
+            "--at",
+            "2026-06-14T13:00:00Z",
+            "hello",
+        ]) {
+            Ok(_) => panic!("--delay and --at must conflict"),
+            Err(err) => assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict),
+        }
+    }
+
+    #[test]
+    fn delayed_create_parses() {
+        let parsed =
+            Cli::try_parse_from(["codeterm", "delayed", "create", "--delay", "5m", "hello"])
+                .expect("delayed create parses");
+        assert!(matches!(
+            parsed.command,
+            Commands::Delayed {
+                action: DelayedAction::Create {
+                    delay: Some(ref v),
+                    ..
+                }
+            } if v == "5m"
         ));
     }
 

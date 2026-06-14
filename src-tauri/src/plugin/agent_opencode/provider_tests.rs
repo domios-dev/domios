@@ -185,7 +185,7 @@ fn opencode_describe_assembles_full_descriptor() {
         Some("anthropic/claude-opus-4-7")
     );
     assert!(desc.preserves_context_on_resume);
-    assert!(!desc.has_hooks);
+    assert!(desc.has_hooks);
     assert!(!desc.settings_schema.is_empty());
 }
 
@@ -521,6 +521,36 @@ fn opencode_detect_session_model_never_falls_back_to_global_latest() {
     let p = OpenCodeProvider::new();
     assert_eq!(p.detect_session_model(cwd, "ses_empty"), None);
     assert_eq!(p.detect_active_session(cwd, "ses_empty"), None);
+    unsafe {
+        match prev {
+            Some(value) => std::env::set_var("XDG_DATA_HOME", value),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+    }
+}
+
+#[test]
+fn opencode_detect_session_id_requires_provider_report() {
+    let _guard = OPENCODE_ENV_LOCK.lock().unwrap();
+    let (dir, path) = fixture_data_home_db();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let cwd = "/tmp/no-ownership-guess";
+    insert_opencode_session(
+        &conn,
+        "ses_present",
+        cwd,
+        1,
+        100,
+        Some("opencode/big-pickle"),
+    );
+
+    let prev = std::env::var("XDG_DATA_HOME").ok();
+    unsafe {
+        std::env::set_var("XDG_DATA_HOME", dir.path());
+    }
+    let p = OpenCodeProvider::new();
+    assert_eq!(p.detect_session_id(cwd, &[], None), None);
+    assert_eq!(p.detect_launched_session_id(cwd, &[], None, None), None);
     unsafe {
         match prev {
             Some(value) => std::env::set_var("XDG_DATA_HOME", value),

@@ -29,6 +29,11 @@ mod tailer_tests;
 use crate::agent::chat_types::{ChatAttachment, ChatMsg, InteractiveElement, RichMessage};
 
 const THINKING_PREVIEW: usize = 200;
+pub const LIVE_CHAT_POLL_INTERVAL_MS: u64 = 100;
+
+pub fn live_chat_poll_interval() -> std::time::Duration {
+    std::time::Duration::from_millis(LIVE_CHAT_POLL_INTERVAL_MS)
+}
 
 /// Populate `msg.interactive` from the provider's capability. Called at every
 /// provider-in-scope tail/snapshot/backfill site so both wire shapes carry it.
@@ -494,6 +499,11 @@ mod chat_snapshot_tests {
     use super::*;
     use crate::agent::chat_types::{MessageBlock, RichMessage};
     use serde_json::json;
+
+    #[test]
+    fn live_chat_poll_interval_stays_low_latency() {
+        assert!(live_chat_poll_interval() <= std::time::Duration::from_millis(150));
+    }
 
     #[test]
     fn rich_text_and_tool_flatten() {

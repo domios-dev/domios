@@ -127,11 +127,9 @@ impl ServiceContext {
         if prev.is_none() && next.is_some() {
             self.replay_inbound_buffer(pane_id, next.as_deref().unwrap_or(""));
         }
-        // Trigger session polling on every fresh None→Some OR Some→Some(diff) transition so codex/opencode panes (no OSC title emit, never trip the
-        // xterm-based frontend detection) still get an agent_session_id saved without depending on each provider hitting a permission prompt before their `detect_from_output` patterns can match.
         if let Some(new_type) = next {
             if prev.as_deref() != Some(new_type.as_str()) {
-                self.kick_off_session_detection(pane_id, &new_type);
+                self.kick_off_session_detection_if_needed(pane_id, &new_type);
                 self.kick_off_session_name_detection(pane_id, &new_type);
                 self.refresh_session_model_once(pane_id, &new_type);
             }
@@ -173,10 +171,26 @@ impl ServiceContext {
             self.kick_off_session_name_detection(&pane_id, &agent_id);
             self.refresh_session_model_once(&pane_id, &agent_id);
             if needs_session {
-                self.kick_off_session_detection(&pane_id, &agent_id);
+                self.kick_off_session_detection_if_needed(&pane_id, &agent_id);
             }
         }
         self.start_focused_pane_model_poller();
+    }
+
+    fn kick_off_session_detection_if_needed(&self, pane_id: &str, agent_id: &str) {
+        let provider_has_hooks = self
+            .agent_registry
+            .with_provider(agent_id, |p| p.has_hooks())
+            .unwrap_or(false);
+        if provider_has_hooks {
+            log::debug!(
+                "[session-detect] skipping filesystem/session polling for hook-backed provider {} pane {}",
+                agent_id,
+                pane_id
+            );
+            return;
+        }
+        self.kick_off_session_detection(pane_id, agent_id);
     }
 
     fn start_focused_pane_model_poller(&self) {
@@ -237,6 +251,10 @@ impl ServiceContext {
             )
         };
         let Some(cwd) = cwd else { return };
+        let provider_has_hooks = self
+            .agent_registry
+            .with_provider(agent_id, |p| p.has_hooks())
+            .unwrap_or(false);
         let screen_text = pty_id
             .as_ref()
             .and_then(|id| self.screen_state.lock().get_screen_text(id));
@@ -282,6 +300,9 @@ impl ServiceContext {
         let sid = match session_id {
             Some(s) => s,
             None => {
+                if provider_has_hooks {
+                    return;
+                }
                 let detected = self
                     .agent_registry
                     .with_provider(agent_id, |p| {

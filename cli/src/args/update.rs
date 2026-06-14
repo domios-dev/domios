@@ -36,9 +36,4 @@ pub enum UpdateAction {
         #[arg(long, value_name = "TEXT")]
         after_update: Option<String>,
     },
-    /// Get or set the update channel (stable, rc, nightly)
-    Channel {
-        /// New channel value. Omit to print current channel.
-        channel: Option<String>,
-    },
 }

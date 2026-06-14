@@ -225,38 +225,5 @@ pub fn handle_update(
                 }
             }
         }
-        UpdateAction::Channel { channel } => {
-            let url = format!("{}/api/update/channel", base_url);
-            let result = match channel {
-                None => http.get(&url).send(),
-                Some(name) => http
-                    .post(&url)
-                    .json(&serde_json::json!({ "channel": name }))
-                    .send(),
-            };
-            match result {
-                Ok(resp) if resp.status().is_success() => {
-                    let body: serde_json::Value = resp.json().unwrap_or_default();
-                    if json {
-                        println!(
-                            "{}",
-                            serde_json::to_string_pretty(&body).unwrap_or_default()
-                        );
-                    } else if let Some(c) = body["channel"].as_str() {
-                        println!("Channel: {}", c);
-                    } else {
-                        println!("{}", body);
-                    }
-                }
-                Ok(resp) => {
-                    eprintln!("Error: {}", resp.status());
-                    std::process::exit(1);
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        }
     }
 }

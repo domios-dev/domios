@@ -1,18 +1,15 @@
 import { useUpdate } from "../hooks/useUpdate";
 import { UI_BUTTON } from "./shared/design";
 
-interface UpdateBadgeProps {
-  onNavigate?: () => void;
-}
+export function UpdateBadge() {
+  const { status, latestVersion, installing, progress, applyUpdate } = useUpdate();
 
-export function UpdateBadge({ onNavigate }: UpdateBadgeProps) {
-  const { status, latestVersion, applying } = useUpdate();
-
-  if (status === "available" && latestVersion) {
+  if (status === "available" && latestVersion && !installing) {
     return (
       <button
-        onClick={onNavigate}
-        title={`Update available: v${latestVersion}`}
+        type="button"
+        onClick={() => void applyUpdate()}
+        title={`Install update v${latestVersion}`}
         className={`${UI_BUTTON.primary} ${UI_BUTTON.sm}`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-white" />
@@ -21,14 +18,14 @@ export function UpdateBadge({ onNavigate }: UpdateBadgeProps) {
     );
   }
 
-  if (applying) {
+  if (installing) {
     return (
       <span
         title="Installing update"
         className={`${UI_BUTTON.base} ${UI_BUTTON.sm} ct-btn-ghost`}
       >
         <Spinner />
-        <span>Updating</span>
+        <span>{Math.max(1, Math.round(progress))}%</span>
       </span>
     );
   }

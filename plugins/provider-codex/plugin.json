@@ -25,7 +25,7 @@
     "statusBarRows": 1,
     "preservesContextOnResume": false,
     "supportsLazySkills": false,
-    "hasHooks": false,
+    "hasHooks": true,
     "usageProbeCommand": "/status"
   },
   "models": [

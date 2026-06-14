@@ -1,7 +1,13 @@
 //! Map local CLI commands to relay `(method, path, body)` calls for peer dispatch.
 //! Update this match when new `super::Commands` variants are added.
 
-use crate::{cmd::send_text::resolve_send_text_input, Commands, ServiceAction, UpdateAction};
+use crate::{
+    cmd::{
+        delayed::parse_schedule,
+        send_text::{actions_to_json, parse_actions_spec, resolve_send_text_input},
+    },
+    Commands, ServiceAction, UpdateAction,
+};
 
 use super::update::resolve_update_action;
 use super::{parse_ip_port, MeshAction, MeshPeerAction};
@@ -50,11 +56,91 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             pane,
             from_file,
             stdin: use_stdin,
-            submit,
+            actions,
+            delay,
+            at,
         } => {
             let mut stdin = std::io::stdin();
-            send_text_to_api(text, pane, from_file, *use_stdin, *submit, &mut stdin)
+            if delay.is_some() || at.is_some() {
+                delayed_create_to_api(text, pane, from_file, *use_stdin, delay, at, &mut stdin)
+            } else {
+                send_text_to_api(text, pane, from_file, *use_stdin, actions, &mut stdin)
+            }
         }
+        Commands::Delayed { action } => match action {
+            crate::DelayedAction::List { pane } => {
+                let p = pane.as_deref().unwrap_or("general");
+                (
+                    "GET".into(),
+                    format!("/api/panes/{}/delayed-messages", p),
+                    None,
+                )
+            }
+            crate::DelayedAction::Create {
+                text,
+                pane,
+                delay,
+                at,
+                from_file,
+                stdin: use_stdin,
+            } => {
+                let mut stdin = std::io::stdin();
+                delayed_create_to_api(text, pane, from_file, *use_stdin, delay, at, &mut stdin)
+            }
+            crate::DelayedAction::Edit {
+                id,
+                text,
+                delay,
+                at,
+                from_file,
+                stdin: use_stdin,
+            } => {
+                let mut body = serde_json::Map::new();
+                if text.is_some() || from_file.is_some() || *use_stdin {
+                    match resolve_send_text_input(
+                        text.clone(),
+                        from_file.clone(),
+                        *use_stdin,
+                        &mut std::io::stdin(),
+                    ) {
+                        Ok((text, _)) => {
+                            body.insert("text".into(), serde_json::json!(text));
+                        }
+                        Err(e) => return unsupported(&format!("delayed edit input error: {}", e)),
+                    }
+                }
+                if delay.is_some() || at.is_some() {
+                    match parse_schedule(delay.clone(), at.clone(), now_ms()) {
+                        Ok(ms) => {
+                            body.insert("scheduledAtMs".into(), serde_json::json!(ms));
+                        }
+                        Err(e) => {
+                            return unsupported(&format!("delayed edit schedule error: {}", e))
+                        }
+                    }
+                }
+                if body.is_empty() {
+                    return unsupported(
+                        "delayed edit needs --text/--from-file/--stdin and/or --delay/--at",
+                    );
+                }
+                (
+                    "PATCH".into(),
+                    format!("/api/delayed-messages/{}", id),
+                    Some(serde_json::Value::Object(body).to_string()),
+                )
+            }
+            crate::DelayedAction::Delete { id } => (
+                "DELETE".into(),
+                format!("/api/delayed-messages/{}", id),
+                None,
+            ),
+            crate::DelayedAction::SendNow { id } => (
+                "POST".into(),
+                format!("/api/delayed-messages/{}/send-now", id),
+                None,
+            ),
+        },
         Commands::Notify { title, body, level } => (
             "POST".into(),
             "/api/notifications".into(),
@@ -410,14 +496,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     }
                     ("POST".into(), format!("/api/update/install{}", qs), None)
                 }
-                UpdateAction::Channel { channel } => match channel {
-                    None => ("GET".into(), "/api/update/channel".into(), None),
-                    Some(name) => (
-                        "POST".into(),
-                        "/api/update/channel".into(),
-                        Some(serde_json::json!({"channel": name}).to_string()),
-                    ),
-                },
             }
         }
         Commands::Mesh { action } => match action {
@@ -780,7 +858,7 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
     pane: &Option<String>,
     from_file: &Option<String>,
     from_stdin: bool,
-    submit: bool,
+    actions: &Option<String>,
     stdin: &mut R,
 ) -> (String, String, Option<String>) {
     let p = pane.as_deref().unwrap_or("general");
@@ -793,21 +871,83 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
                 std::process::exit(1);
             }
         };
-    // --submit allows an empty payload: a bare Enter to submit a paste already
-    // sitting in the recipient's composer.
-    if body_text.trim().is_empty() && !submit {
-        eprintln!("Error: send-text payload is empty (mesh path, source: {input_source})");
+    let parsed_actions = actions
+        .as_deref()
+        .map(parse_actions_spec)
+        .transpose()
+        .unwrap_or_else(|e| {
+            eprintln!("Error: {}", e);
+            std::process::exit(2);
+        });
+    if body_text.trim().is_empty() && parsed_actions.is_none() {
+        eprintln!("Error: send payload is empty (mesh path, source: {input_source})");
         eprintln!("hint: --stdin via heredoc may have dropped under your shell wrapper;");
         eprintln!("      try --from-file <path> with a real tempfile.");
-        eprintln!("      to send a bare Enter (submit a stuck paste), pass --submit.");
+        eprintln!("      to send a bare Enter, pass --actions enter.");
         std::process::exit(2);
     }
-    let body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
+    let mut body = serde_json::json!({"source_pane": source});
+    if !body_text.is_empty() {
+        body["text"] = serde_json::json!(body_text);
+    }
+    if let Some(actions) = parsed_actions {
+        body["actions"] = actions_to_json(&actions);
+    } else {
+        body["text"] = serde_json::json!(body_text);
+        body["enter"] = serde_json::json!(true);
+    }
     (
         "POST".into(),
         format!("/api/panes/{}/send", p),
         Some(body.to_string()),
     )
+}
+
+pub(crate) fn delayed_create_to_api<R: std::io::Read>(
+    text: &Option<String>,
+    pane: &Option<String>,
+    from_file: &Option<String>,
+    from_stdin: bool,
+    delay: &Option<String>,
+    at: &Option<String>,
+    stdin: &mut R,
+) -> (String, String, Option<String>) {
+    let p = pane.as_deref().unwrap_or("general");
+    let (body_text, input_source) =
+        match resolve_send_text_input(text.clone(), from_file.clone(), from_stdin, stdin) {
+            Ok(value) => value,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        };
+    if body_text.trim().is_empty() {
+        eprintln!("Error: delayed message payload is empty (mesh path, source: {input_source})");
+        std::process::exit(2);
+    }
+    let scheduled_at_ms = match parse_schedule(delay.clone(), at.clone(), now_ms()) {
+        Ok(ms) => ms,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(2);
+        }
+    };
+    let body = serde_json::json!({
+        "text": body_text,
+        "scheduledAtMs": scheduled_at_ms,
+    });
+    (
+        "POST".into(),
+        format!("/api/panes/{}/delayed-messages", p),
+        Some(body.to_string()),
+    )
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
