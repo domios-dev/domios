@@ -110,12 +110,12 @@ export function TerminalPane({
   const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
   const terminalOwnsLivePty = !IS_WEB || terminalVisible;
   const resizeClientId = useMemo(() => getResizeClientId(), []);
-  const claimTerminalOwnership = useCallback(() => {
-    if (!terminalOwnsLivePty) return;
+  const claimTerminalOwnership = useCallback((force = false) => {
+    if (!terminalOwnsLivePty && !force) return;
     const term = termRef.current;
     const ptyIdNow = connectedPtyRef.current ?? ptyId ?? null;
     if (!term || !ptyIdNow || term.cols <= 0 || term.rows <= 0) return;
-    void claimResizeOwner(paneId, ptyIdNow, resizeClientId, term.cols, term.rows)
+    void claimResizeOwner(paneId, ptyIdNow, resizeClientId, term.cols, term.rows, force)
       .then(() => invoke("resize_pty", {
         ptyId: ptyIdNow,
         cols: term.cols,
@@ -348,7 +348,7 @@ export function TerminalPane({
 
   const handleClick = useCallback(() => {
     onFocus?.(paneId);
-    claimTerminalOwnership();
+    claimTerminalOwnership(true);
     termRef.current?.focus();
   }, [onFocus, paneId, termRef, claimTerminalOwnership]);
 
@@ -546,12 +546,20 @@ export function TerminalPane({
             }}
             onOpenTerminalFallback={() => {
               setTerminalFallbackOpen(true);
-              requestAnimationFrame(() => termRef.current?.focus());
+              requestAnimationFrame(() => {
+                claimTerminalOwnership(true);
+                termRef.current?.focus();
+              });
             }}
             onToggleTerminalFallback={() => {
               setTerminalFallbackOpen((open) => {
                 const next = !open;
-                if (next) requestAnimationFrame(() => termRef.current?.focus());
+                if (next) {
+                  requestAnimationFrame(() => {
+                    claimTerminalOwnership(true);
+                    termRef.current?.focus();
+                  });
+                }
                 return next;
               });
             }}

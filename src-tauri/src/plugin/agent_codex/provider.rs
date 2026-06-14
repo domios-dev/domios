@@ -72,6 +72,9 @@ impl AgentProvider for CodexProvider {
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         let mut parts: Vec<String> = Vec::new();
         if params.headless && params.task.is_some() {
+            let task = params.task.as_ref().unwrap();
+            let (pipe_prefix, _path) = ShellSyntax::task_file_stdin_pipe(task);
+            parts.push(pipe_prefix);
             parts.push("codex".to_string());
             parts.push("exec".to_string());
             parts.push("--dangerously-bypass-hook-trust".to_string());
@@ -81,7 +84,6 @@ impl AgentProvider for CodexProvider {
             parts.push("-c".to_string());
             parts.push("'shell_environment_policy.inherit=all'".to_string());
             parts.push("--skip-git-repo-check".to_string());
-            parts.push(ShellSyntax::quote(params.task.as_ref().unwrap()));
         } else {
             parts.push("codex".to_string());
             parts.push("--dangerously-bypass-hook-trust".to_string());
