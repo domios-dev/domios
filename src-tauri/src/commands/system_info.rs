@@ -213,12 +213,13 @@ pub fn suggest_install_pwsh(
 /// state: "loaded" — WebGL addon attached successfully
 ///        "context_lost" — GPU context dropped (xterm will fall back)
 ///        "failed" — WebGL addon constructor threw
-///        "skipped_macos" / "skipped_test_mode" — deliberate DOM renderer
+///        "skipped_macos" / "skipped_windows" / "skipped_test_mode" — deliberate DOM renderer
 #[tauri::command]
 pub fn report_webgl_status(state: String, detail: Option<String>) {
     match state.as_str() {
         "loaded" => log::info!("[webgl] addon loaded"),
         "skipped_macos" => log::info!("[webgl] skipped on macOS — DOM renderer active"),
+        "skipped_windows" => log::info!("[webgl] skipped on Windows — DOM renderer active"),
         "skipped_test_mode" => log::info!("[webgl] skipped in test mode"),
         "context_lost" => log::warn!("[webgl] GPU context lost — DOM fallback engaged"),
         "failed" => log::warn!(

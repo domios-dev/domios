@@ -115,6 +115,7 @@ export interface GitWorkdirFile {
   path: string;
   old_path?: string | null;
   status: GitWorkdirStatus;
+  staged: boolean;
   added: number | null;
   deleted: number | null;
 }
@@ -157,6 +158,60 @@ export async function revertFile(api: ApiConfig, cwd: string, path: string): Pro
     body: JSON.stringify({ cwd, path }),
   });
   if (!res.ok) throw new Error((await res.text()) || `revert failed: ${res.status}`);
+}
+
+export async function stageFile(api: ApiConfig, cwd: string, path: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/git/stage-file`, {
+    method: "POST",
+    headers: { ...authHeaders(api), "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd, path }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `stage failed: ${res.status}`);
+}
+
+export async function unstageFile(api: ApiConfig, cwd: string, path: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/git/unstage-file`, {
+    method: "POST",
+    headers: { ...authHeaders(api), "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd, path }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `unstage failed: ${res.status}`);
+}
+
+export async function stageFiles(api: ApiConfig, cwd: string, paths: string[]): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/git/stage-files`, {
+    method: "POST",
+    headers: { ...authHeaders(api), "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd, paths }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `stage failed: ${res.status}`);
+}
+
+export async function unstageFiles(api: ApiConfig, cwd: string, paths: string[]): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/git/unstage-files`, {
+    method: "POST",
+    headers: { ...authHeaders(api), "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd, paths }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `unstage failed: ${res.status}`);
+}
+
+export async function commitRepo(api: ApiConfig, cwd: string, message: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/git/commit`, {
+    method: "POST",
+    headers: { ...authHeaders(api), "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd, message }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `commit failed: ${res.status}`);
+}
+
+export async function pushRepo(api: ApiConfig, cwd: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/git/push`, {
+    method: "POST",
+    headers: { ...authHeaders(api), "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `push failed: ${res.status}`);
 }
 
 export async function fetchCommitDiff(

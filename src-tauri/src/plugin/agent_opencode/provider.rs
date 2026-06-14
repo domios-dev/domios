@@ -37,7 +37,7 @@ impl OpenCodeProvider {
             "opencode",
             crate::agent::model_catalog::RegisteredDefaults {
                 models: fallback_models(),
-                default: Some("anthropic/claude-opus-4-7".into()),
+                default: Some("opencode/big-pickle".into()),
             },
         );
         Self
@@ -760,7 +760,7 @@ impl AgentProvider for OpenCodeProvider {
 
     fn default_model(&self) -> Option<String> {
         crate::agent::model_catalog::try_override_default("opencode")
-            .or_else(|| Some("anthropic/claude-opus-4-7".into()))
+            .or_else(|| self.available_models().first().map(|m| m.id.clone()))
     }
 
     fn preserves_context_on_resume(&self) -> bool {

@@ -8,13 +8,13 @@ pub(super) fn builtin_models() -> Vec<ModelInfo> {
     vec![
         ModelInfo {
             id: "opus".into(),
-            display_name: "Claude Opus 4.7 (1M context)".into(),
-            description: Some("Most capable for complex work.".into()),
+            display_name: "Claude Opus 4.8 (1M context)".into(),
+            description: Some("Best for everyday, complex tasks.".into()),
         },
         ModelInfo {
             id: "sonnet".into(),
             display_name: "Claude Sonnet 4.6".into(),
-            description: Some("Best for everyday tasks. Default for most work.".into()),
+            description: Some("Efficient for routine tasks.".into()),
         },
         ModelInfo {
             id: "haiku".into(),
@@ -185,7 +185,7 @@ mod tests {
         assert!(ids.contains(&"sonnet"));
         assert!(ids.contains(&"opus"));
         assert!(ids.contains(&"haiku"));
-        assert_eq!(p.default_model().as_deref(), Some("sonnet"));
+        assert_eq!(p.default_model().as_deref(), Some("opus"));
     }
 
     #[test]

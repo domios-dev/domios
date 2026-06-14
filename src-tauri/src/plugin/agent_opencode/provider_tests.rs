@@ -180,10 +180,10 @@ fn opencode_describe_assembles_full_descriptor() {
     assert_eq!(desc.id, "opencode");
     assert_eq!(desc.display_name, "OpenCode");
     assert_eq!(desc.icon_hint.as_deref(), Some("◇"));
-    assert_eq!(
-        desc.default_model.as_deref(),
-        Some("anthropic/claude-opus-4-7")
-    );
+    assert!(desc
+        .default_model
+        .as_deref()
+        .is_some_and(|model| model.contains('/')));
     assert!(desc.preserves_context_on_resume);
     assert!(desc.has_hooks);
     assert!(!desc.settings_schema.is_empty());
@@ -245,9 +245,10 @@ fn opencode_does_not_contribute_notifications_card() {
 #[test]
 fn opencode_default_model_is_set() {
     let p = OpenCodeProvider::new();
-    assert_eq!(
-        p.default_model().as_deref(),
-        Some("anthropic/claude-opus-4-7")
+    let default = p.default_model().expect("default model");
+    assert!(
+        default.contains('/'),
+        "default model must be provider/model"
     );
 }
 
@@ -272,9 +273,9 @@ fn opencode_models_returns_non_empty_list_via_live_or_fallback() {
 fn opencode_fallback_seed_is_stable() {
     let seed = fallback_models();
     let ids: Vec<&str> = seed.iter().map(|m| m.id.as_str()).collect();
-    assert!(ids.contains(&"anthropic/claude-opus-4-7"));
-    assert!(ids.contains(&"anthropic/claude-sonnet-4-6"));
     assert!(ids.contains(&"opencode/big-pickle"));
+    assert!(ids.contains(&"opencode/mimo-v2.5-free"));
+    assert!(ids.contains(&"opencode/claude-opus-4-8"));
 }
 
 #[test]

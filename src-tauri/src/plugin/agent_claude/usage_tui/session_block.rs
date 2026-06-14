@@ -31,7 +31,7 @@ fn parse_block(
     let pct = caps.get(1).and_then(|m| m.as_str().parse::<f32>().ok());
     let time_raw = caps.get(2).map(|m| m.as_str().trim()).unwrap_or("");
     let resets_ms = if is_weekly {
-        resets::parse_month_day_clock(time_raw, now_ms)
+        resets::parse_weekly_reset(time_raw, now_ms)
     } else {
         resets::parse_today_clock(time_raw, now_ms)
     };

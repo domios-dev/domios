@@ -125,10 +125,64 @@ export function usePtyConnection({
       let pendingBytes = 0;
       let readPaused = false;
       let resumeResolve: (() => void) | null = null;
+      let pendingWriteChunks: Uint8Array[] = [];
+      let pendingWriteLength = 0;
+      let writeFrame: number | null = null;
 
       const waitForDrain = (): Promise<void> => {
         if (!readPaused) return Promise.resolve();
         return new Promise((resolve) => { resumeResolve = resolve; });
+      };
+
+      const flushPendingWrites = () => {
+        writeFrame = null;
+        if (!reading || disposed || pendingWriteLength === 0) return;
+
+        let payload: Uint8Array;
+        if (pendingWriteChunks.length === 1) {
+          payload = pendingWriteChunks[0];
+        } else {
+          payload = new Uint8Array(pendingWriteLength);
+          let offset = 0;
+          for (const chunk of pendingWriteChunks) {
+            payload.set(chunk, offset);
+            offset += chunk.length;
+          }
+        }
+
+        pendingWriteChunks = [];
+        pendingWriteLength = 0;
+
+        term.write(payload, () => {
+          pendingBytes -= payload.length;
+          if (readPaused && pendingBytes < WRITE_HIGH_WATERMARK / 2) {
+            readPaused = false;
+            resumeResolve?.();
+            resumeResolve = null;
+          }
+        });
+
+        const tail = payload.length > 200 ? payload.slice(payload.length - 200) : payload;
+        try {
+          const text = new TextDecoder().decode(tail);
+          onOutputChunk(text);
+        } catch { /* ignore decode errors */ }
+
+        if (firstData) {
+          firstData = false;
+          requestAnimationFrame(() => {
+            if (!localFitEnabledRef.current) return;
+            try { fitAddonRef.current?.fit(); } catch { /* ignore */ }
+          });
+        }
+      };
+
+      const enqueueTermWrite = (chunk: Uint8Array) => {
+        pendingWriteChunks.push(chunk);
+        pendingWriteLength += chunk.length;
+        if (writeFrame == null) {
+          writeFrame = requestAnimationFrame(flushPendingWrites);
+        }
       };
 
       const readLoop = async () => {
@@ -143,29 +197,7 @@ export function usePtyConnection({
               pendingBytes += chunk.length;
               if (pendingBytes >= WRITE_HIGH_WATERMARK) readPaused = true;
 
-              term.write(chunk, () => {
-                pendingBytes -= chunk.length;
-                if (readPaused && pendingBytes < WRITE_HIGH_WATERMARK / 2) {
-                  readPaused = false;
-                  resumeResolve?.();
-                  resumeResolve = null;
-                }
-              });
-
-              // Feed output to trackers
-              const tail = data.length > 200 ? data.slice(-200) : data;
-              try {
-                const text = new TextDecoder().decode(new Uint8Array(tail));
-                onOutputChunk(text);
-              } catch { /* ignore decode errors */ }
-
-              if (firstData) {
-                firstData = false;
-                requestAnimationFrame(() => {
-                  if (!localFitEnabledRef.current) return;
-                  try { fitAddonRef.current?.fit(); } catch { /* ignore */ }
-                });
-              }
+              enqueueTermWrite(chunk);
             }
           } catch (e) {
             if (reading) {
@@ -257,7 +289,15 @@ export function usePtyConnection({
       }
 
       readLoop();
-      cleanupFns.push(() => { reading = false; });
+      cleanupFns.push(() => {
+        reading = false;
+        if (writeFrame != null) {
+          cancelAnimationFrame(writeFrame);
+          writeFrame = null;
+        }
+        pendingWriteChunks = [];
+        pendingWriteLength = 0;
+      });
     };
 
     setupAndConnect().catch((e) => {

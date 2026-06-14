@@ -604,6 +604,15 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/git/workdir-diff", get(git_routes::git_workdir_diff))
         .route("/api/git/workdir-files", get(git_routes::git_workdir_files))
         .route("/api/git/revert-file", post(git_routes::git_revert_file))
+        .route("/api/git/stage-file", post(git_routes::git_stage_file))
+        .route("/api/git/unstage-file", post(git_routes::git_unstage_file))
+        .route("/api/git/stage-files", post(git_routes::git_stage_files))
+        .route(
+            "/api/git/unstage-files",
+            post(git_routes::git_unstage_files),
+        )
+        .route("/api/git/commit", post(git_routes::git_commit))
+        .route("/api/git/push", post(git_routes::git_push))
         .route("/api/git/repos", get(git_routes::git_repos));
 
     // gzip-scoped snapshot route: 100k-node payloads compress ~4:1. Kept on its

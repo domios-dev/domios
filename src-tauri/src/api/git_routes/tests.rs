@@ -313,14 +313,17 @@ fn porcelain_parses_modified_untracked_rename() {
     assert_eq!(parsed[0].0, "src/main.rs");
     assert!(parsed[0].1.is_none());
     assert_eq!(parsed[0].2, "modified");
+    assert!(!parsed[0].3);
 
     assert_eq!(parsed[1].0, "new.txt");
     assert_eq!(parsed[1].2, "untracked");
+    assert!(!parsed[1].3);
 
     // In -z output the rename's NEW path is the entry, the OLD path follows.
     assert_eq!(parsed[2].0, "old.txt");
     assert_eq!(parsed[2].1.as_deref(), Some("renamed.txt"));
     assert_eq!(parsed[2].2, "renamed");
+    assert!(parsed[2].3);
 }
 
 #[test]
@@ -338,8 +341,8 @@ fn porcelain_classify_states() {
 #[test]
 fn merge_workdir_untracked_has_null_counts() {
     let statuses = vec![
-        ("a.txt".to_string(), None, "modified"),
-        ("new.txt".to_string(), None, "untracked"),
+        ("a.txt".to_string(), None, "modified", false),
+        ("new.txt".to_string(), None, "untracked", false),
     ];
     let mut counts = std::collections::HashMap::new();
     counts.insert("a.txt".to_string(), (Some(3u64), Some(1u64)));
@@ -387,11 +390,49 @@ async fn workdir_files_against_fixture() {
 
     let modified = files.iter().find(|f| f.path == "renamed.txt").unwrap();
     assert_eq!(modified.status, "modified");
+    assert!(!modified.staged);
     assert_eq!(modified.added, Some(1));
 
     let untracked = files.iter().find(|f| f.path == "fresh.txt").unwrap();
     assert_eq!(untracked.status, "untracked");
+    assert!(!untracked.staged);
     assert!(untracked.added.is_none());
+}
+
+#[tokio::test]
+async fn workdir_files_reports_staged_index_state() {
+    if !git_available() {
+        return;
+    }
+    let tmp = build_fixture();
+    let p = tmp.path();
+    let cwd = p.to_str().unwrap();
+
+    write(p, "renamed.txt", "one\ntwo\nthree\nfour\nfive\nsix\n");
+    run(p, &["add", "renamed.txt"]);
+
+    let status = run_git(
+        cwd,
+        &[
+            "-c",
+            "core.quotePath=false",
+            "status",
+            "--porcelain=v1",
+            "-z",
+        ],
+    )
+    .await
+    .unwrap();
+    let numstat = run_git(
+        cwd,
+        &["-c", "core.quotePath=false", "diff", "--numstat", "HEAD"],
+    )
+    .await
+    .map(|o| parse_numstat_counts(&o.stdout))
+    .unwrap();
+    let files = merge_workdir_files(parse_status_porcelain(&status.stdout), &numstat);
+    let modified = files.iter().find(|f| f.path == "renamed.txt").unwrap();
+    assert!(modified.staged);
 }
 
 #[tokio::test]
@@ -427,8 +468,8 @@ async fn revert_restores_tracked_file() {
     .unwrap();
     let cls = parse_status_porcelain(&status.stdout)
         .into_iter()
-        .find(|(pp, _, _)| pp == "renamed.txt")
-        .map(|(_, _, s)| s);
+        .find(|(pp, _, _, _)| pp == "renamed.txt")
+        .map(|(_, _, s, _)| s);
     assert_eq!(cls, Some("modified"));
 
     let out = run_git(cwd, &["checkout", "HEAD", "--", "renamed.txt"])
@@ -467,8 +508,8 @@ async fn revert_untracked_is_refused() {
     .unwrap();
     let cls = parse_status_porcelain(&status.stdout)
         .into_iter()
-        .find(|(pp, _, _)| pp == "fresh.txt")
-        .map(|(_, _, s)| s);
+        .find(|(pp, _, _, _)| pp == "fresh.txt")
+        .map(|(_, _, s, _)| s);
     // The endpoint maps this to a 409; here we assert the discriminating status.
     assert_eq!(cls, Some("untracked"));
 }

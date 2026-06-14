@@ -8,7 +8,7 @@
 //! only enables macos_fsevent. Polling N files at 2s intervals is
 //! trivially cheap for the volumes here (1-10 plugins).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -37,6 +37,8 @@ pub struct HotReloadRegistry {
     /// Plugin id → tracked state. Mutex because the watcher mutates
     /// from a background thread.
     state: Mutex<HashMap<String, Tracked>>,
+    #[cfg(test)]
+    load_count: std::sync::atomic::AtomicUsize,
 }
 
 impl HotReloadRegistry {
@@ -45,6 +47,8 @@ impl HotReloadRegistry {
             roots,
             agent_registry,
             state: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            load_count: std::sync::atomic::AtomicUsize::new(0),
         })
     }
 
@@ -65,6 +69,31 @@ impl HotReloadRegistry {
     /// rescan (tests; manual reload command).
     pub fn tick(&self) {
         let mut seen: Vec<String> = Vec::new();
+        let candidates = self.discover_candidates();
+        for paths in candidates.values() {
+            for manifest_path in paths.iter().rev() {
+                if let Some(id) = self.reconcile_one(manifest_path) {
+                    seen.push(id);
+                    break;
+                }
+            }
+        }
+        // Anything we used to track that's no longer present → unregister.
+        let mut state = self.state.lock();
+        let removed: Vec<String> = state
+            .keys()
+            .filter(|id| !seen.contains(id))
+            .cloned()
+            .collect();
+        for id in removed {
+            state.remove(&id);
+            self.agent_registry.unregister_provider(&id);
+            log::info!("[plugin-watcher] unregistered {id} (folder removed)");
+        }
+    }
+
+    fn discover_candidates(&self) -> BTreeMap<String, Vec<PathBuf>> {
+        let mut candidates: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
         for root in &self.roots {
             if !root.exists() {
                 continue;
@@ -82,23 +111,20 @@ impl HotReloadRegistry {
                 if !manifest_path.exists() {
                     continue;
                 }
-                if let Some(id) = self.reconcile_one(&manifest_path) {
-                    seen.push(id);
-                }
+                let manifest = match PluginManifest::load(&manifest_path) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        log::warn!("[plugin-watcher] {} parse: {e}", manifest_path.display());
+                        continue;
+                    }
+                };
+                candidates
+                    .entry(manifest.id)
+                    .or_default()
+                    .push(manifest_path);
             }
         }
-        // Anything we used to track that's no longer present → unregister.
-        let mut state = self.state.lock();
-        let removed: Vec<String> = state
-            .keys()
-            .filter(|id| !seen.contains(id))
-            .cloned()
-            .collect();
-        for id in removed {
-            state.remove(&id);
-            self.agent_registry.unregister_provider(&id);
-            log::info!("[plugin-watcher] unregistered {id} (folder removed)");
-        }
+        candidates
     }
 
     /// Returns the plugin id once it's been seen / registered / reloaded.
@@ -159,6 +185,9 @@ impl HotReloadRegistry {
                 );
                 log::info!("[plugin-watcher] registered {id}");
                 crate::plugin::audit::append_daemon_reloaded(&id, &version);
+                #[cfg(test)]
+                self.load_count
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Some(id)
             }
             Err(e) => {
@@ -174,6 +203,11 @@ impl HotReloadRegistry {
     /// Snapshot of currently tracked plugin ids. Test/diagnostic.
     pub fn tracked_ids(&self) -> Vec<String> {
         self.state.lock().keys().cloned().collect()
+    }
+
+    #[cfg(test)]
+    pub fn load_count(&self) -> usize {
+        self.load_count.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -264,6 +298,73 @@ mod tests {
             .unwrap_or(false));
         assert!(!registry
             .with_provider("bar", |p| p.detect_from_title("v1"))
+            .unwrap_or(true));
+    }
+
+    #[test]
+    fn duplicate_roots_only_load_the_winning_plugin() {
+        let workspace = tempfile::tempdir().unwrap();
+        let user = tempfile::tempdir().unwrap();
+        let registry = Arc::new(AgentRegistry::new());
+        let watcher = HotReloadRegistry::new(
+            vec![workspace.path().to_path_buf(), user.path().to_path_buf()],
+            registry.clone(),
+        );
+
+        let workspace_dir = workspace.path().join("provider-dupe");
+        write(&workspace_dir.join("plugin.json"), &manifest_for("dupe"));
+        write(&workspace_dir.join("plugin.js"), &plugin_for("workspace"));
+        let user_dir = user.path().join("dupe");
+        write(&user_dir.join("plugin.json"), &manifest_for("dupe"));
+        write(&user_dir.join("plugin.js"), &plugin_for("user"));
+
+        watcher.tick();
+        assert_eq!(watcher.load_count(), 1);
+        assert!(registry
+            .with_provider("dupe", |p| p.detect_from_title("user cli"))
+            .unwrap_or(false));
+        assert!(!registry
+            .with_provider("dupe", |p| p.detect_from_title("workspace cli"))
+            .unwrap_or(true));
+
+        watcher.tick();
+        assert_eq!(
+            watcher.load_count(),
+            1,
+            "unchanged duplicate roots must not ping-pong reload"
+        );
+    }
+
+    #[test]
+    fn duplicate_root_removal_falls_back_to_lower_priority_plugin() {
+        let workspace = tempfile::tempdir().unwrap();
+        let user = tempfile::tempdir().unwrap();
+        let registry = Arc::new(AgentRegistry::new());
+        let watcher = HotReloadRegistry::new(
+            vec![workspace.path().to_path_buf(), user.path().to_path_buf()],
+            registry.clone(),
+        );
+
+        let workspace_dir = workspace.path().join("provider-dupe");
+        write(&workspace_dir.join("plugin.json"), &manifest_for("dupe"));
+        write(&workspace_dir.join("plugin.js"), &plugin_for("workspace"));
+        let user_dir = user.path().join("dupe");
+        write(&user_dir.join("plugin.json"), &manifest_for("dupe"));
+        write(&user_dir.join("plugin.js"), &plugin_for("user"));
+
+        watcher.tick();
+        assert!(registry
+            .with_provider("dupe", |p| p.detect_from_title("user cli"))
+            .unwrap_or(false));
+
+        std::fs::remove_dir_all(&user_dir).unwrap();
+        watcher.tick();
+
+        assert!(registry
+            .with_provider("dupe", |p| p.detect_from_title("workspace cli"))
+            .unwrap_or(false));
+        assert!(!registry
+            .with_provider("dupe", |p| p.detect_from_title("user cli"))
             .unwrap_or(true));
     }
 

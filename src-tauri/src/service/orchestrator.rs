@@ -284,11 +284,14 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
         let default_provider = crate::config::default_agent_provider();
-        let agent_cmd = params.agent.as_deref().unwrap_or(&default_provider);
+        let agent_cmd = params
+            .agent
+            .clone()
+            .unwrap_or_else(|| default_provider.clone());
         // Validate against the registry — reject unknown provider ids upfront.
         if self
             .agent_registry
-            .with_provider(agent_cmd, |_| ())
+            .with_provider(&agent_cmd, |_| ())
             .is_none()
         {
             let available = self.agent_registry.provider_ids().join(", ");
@@ -297,16 +300,22 @@ impl ServiceContext {
                 agent_cmd, available
             ));
         }
+        params.model = crate::service::spawn::resolve_fresh_agent_model(
+            &self.agent_registry,
+            &agent_cmd,
+            params.model.take(),
+            params.resume_session_id.as_deref(),
+        );
         crate::service::spawn::validate_agent_model(
             &self.agent_registry,
-            agent_cmd,
+            &agent_cmd,
             params.model.as_deref(),
         )?;
         let title = params
             .title
-            .as_deref()
-            .or(params.agent_name.as_deref())
-            .unwrap_or(agent_cmd);
+            .clone()
+            .or_else(|| params.agent_name.clone())
+            .unwrap_or_else(|| agent_cmd.clone());
 
         // 1. Find workspace — lock once, resolve everything
         let (ws_id, ws_cwd) = {
@@ -338,7 +347,7 @@ impl ServiceContext {
             default_chat_enabled,
             crate::service::spawn::PaneVisibility::Visible,
             self.agent_registry
-                .with_provider(agent_cmd, |p| p.supports_chat_ui())
+                .with_provider(&agent_cmd, |p| p.supports_chat_ui())
                 .unwrap_or(false),
         );
 
@@ -402,7 +411,7 @@ impl ServiceContext {
         }
 
         // 4. Rename pane immediately (metadata only)
-        self.rename_pane(&pane_id, title)?;
+        self.rename_pane(&pane_id, &title)?;
 
         // Pin agent_type before launch so detect_from_output can start session-id polling.
         // Without this tag, restarts can lose session_id and resume fails silently.
@@ -411,7 +420,7 @@ impl ServiceContext {
         // 4c. Pin agent_session_id for resume up-front: we know the id from the user's request, so don't wait for detect_session_id polling.
         let launch_session_id = if params.resume_session_id.is_none() {
             self.agent_registry
-                .with_provider(agent_cmd, |p| p.session_id_injection())
+                .with_provider(&agent_cmd, |p| p.session_id_injection())
                 .filter(|mode| !matches!(mode, crate::agent::provider::SessionIdInjection::None))
                 .map(|_| uuid::Uuid::new_v4().to_string())
         } else {
@@ -435,7 +444,7 @@ impl ServiceContext {
             _ => t.clone(),
         });
         let launch_cmd = build_agent_command(
-            agent_cmd,
+            &agent_cmd,
             &params,
             bg_task.as_deref(),
             launch_session_id.as_deref(),
@@ -447,7 +456,7 @@ impl ServiceContext {
             tab_id.clone(),
             ws_id.clone(),
             launch_cmd,
-            agent_cmd.to_string(),
+            agent_cmd.clone(),
             bg_task,
             ready_tx,
         );
@@ -456,8 +465,8 @@ impl ServiceContext {
             pane_id,
             tab_id,
             pty_id: String::new(), // PTY not yet assigned — happens async
-            agent: agent_cmd.to_string(),
-            title: title.to_string(),
+            agent: agent_cmd,
+            title,
             role: params.role,
             warning,
         })
