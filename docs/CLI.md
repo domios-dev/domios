@@ -1413,7 +1413,7 @@ Web mirror helpers (share links, etc.)
 
 Print a ready-to-open /web URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead)
 
-- `--host` — Host override (default: Tailscale IP > LAN IP > 127.0.0.1)
+- `--host` — Host override (default: Tailscale Serve HTTPS > Tailscale IP > LAN IP > 127.0.0.1)
 - `--peer` — Build a link for a paired mesh PEER (by instance name) instead of this machine: resolves the peer's host (prefers its HTTPS tailscale-serve FQDN) and mints the peer's web token. Overrides --host/--port
 - `--port` — Port override (default: this daemon's API port)
 - `--query` — Emit ?token= instead of #token= — easier to type, but query strings reach server/proxy logs; the fragment never does
