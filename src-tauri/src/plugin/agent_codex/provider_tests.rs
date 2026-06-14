@@ -2,6 +2,28 @@ use super::*;
 
 static CODEX_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+fn task_file_path_from_launch(cmd: &str) -> String {
+    let marker = if ShellSyntax::IS_WINDOWS {
+        "Get-Content '"
+    } else {
+        "cat '"
+    };
+    let start = cmd.find(marker).expect("task pipe marker") + marker.len();
+    let rest = &cmd[start..];
+    let end = rest.find('\'').expect("closing task path quote");
+    rest[..end].to_string()
+}
+
+fn read_task_file(path: &str) -> String {
+    let bytes = std::fs::read(path).expect("task file should exist");
+    if ShellSyntax::IS_WINDOWS {
+        assert!(bytes.starts_with(&[0xEF, 0xBB, 0xBF]));
+        String::from_utf8(bytes[3..].to_vec()).expect("task file utf8")
+    } else {
+        String::from_utf8(bytes).expect("task file utf8")
+    }
+}
+
 #[test]
 fn codex_provider_id() {
     let p = CodexProvider::new();
@@ -115,20 +137,70 @@ fn codex_launch_with_task_interactive_pane_uses_tui() {
 #[test]
 fn codex_launch_with_task_headless_worker_uses_exec() {
     let p = CodexProvider::new();
+    let task = "fix the bug";
     let cmd = p.build_launch_command(&AgentLaunchParams {
         agent_name: None,
-        task: Some("fix the bug".to_string()),
+        task: Some(task.to_string()),
         args: None,
         skip_permissions: true,
         headless: true,
         session_id: None,
     });
     assert!(cmd.contains(
-        "codex exec --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox"
+        "| codex exec --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox"
     ));
     assert!(cmd.contains("shell_environment_policy.inherit=all"));
     assert!(cmd.contains("--skip-git-repo-check"));
-    assert!(cmd.contains("fix the bug"));
+    assert!(cmd.contains(".ct-task-"));
+    assert!(
+        !cmd.contains(task),
+        "task body must stay out of argv: {cmd}"
+    );
+
+    let path = task_file_path_from_launch(&cmd);
+    assert_eq!(read_task_file(&path), task);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn codex_headless_cron_task_is_piped_not_shell_quoted() {
+    let p = CodexProvider::new();
+    let task = r#"codeterm notify "Codex cron test fired" --level info --body "Sent test."
+
+You can report progress back to the cron creator by running: codeterm agent report "your message"
+
+IMPORTANT: When you are completely done with this task, you MUST run this exact command as your FINAL action:
+codeterm cron complete --run-id 90295e61-022c-4efc-a308-6c1bcc1ee0a8 --summary "<your concise summary>"
+
+Run:
+codeterm send "[cron-test-codex] fired" --pane 2fc81c5a"#;
+    let cmd = p.build_launch_command(&AgentLaunchParams {
+        agent_name: None,
+        task: Some(task.to_string()),
+        args: Some(vec!["-m".into(), "gpt-5.4-mini".into()]),
+        skip_permissions: true,
+        headless: true,
+        session_id: None,
+    });
+
+    assert!(cmd.contains("| codex exec "));
+    assert!(cmd.contains("-m gpt-5.4-mini"));
+    assert!(
+        !cmd.contains("IMPORTANT:"),
+        "cron suffix leaked into shell argv: {cmd}"
+    );
+    assert!(
+        !cmd.contains("90295e61-022c-4efc-a308-6c1bcc1ee0a8"),
+        "run id leaked into shell argv: {cmd}"
+    );
+    assert!(
+        !cmd.contains("[cron-test-codex] fired"),
+        "cron send text leaked into shell argv: {cmd}"
+    );
+
+    let path = task_file_path_from_launch(&cmd);
+    assert_eq!(read_task_file(&path), task);
+    let _ = std::fs::remove_file(path);
 }
 
 #[test]

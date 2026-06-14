@@ -387,6 +387,8 @@ pub(crate) struct ResizeOwnerBody {
     client_id: String,
     cols: u16,
     rows: u16,
+    #[serde(default)]
+    force: bool,
 }
 
 pub async fn claim_resize_owner(
@@ -400,7 +402,7 @@ pub async fn claim_resize_owner(
         state
             .resize_owner
             .lock()
-            .claim(pane_id, body.pty_id, body.client_id, body.cols, body.rows);
+            .claim(pane_id, body.pty_id, body.client_id, body.cols, body.rows, body.force);
     state
         .events
         .publish(crate::api::events::SystemEvent::Generic {
