@@ -226,6 +226,7 @@ const HTTP_MAP: Record<string, Mapper> = {
       client_id: a.clientId,
       cols: a.cols,
       rows: a.rows,
+      force: a.force === true,
     }),
 
   // ── keepawake (sidebar toggle in web) ──

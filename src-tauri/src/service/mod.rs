@@ -32,6 +32,7 @@ pub mod pty_lifecycle;
 pub mod push;
 pub mod smart_add;
 pub mod spawn;
+mod spawn_title;
 pub mod store;
 pub mod sync_watcher;
 #[cfg(test)]
