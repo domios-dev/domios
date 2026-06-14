@@ -824,7 +824,10 @@ pub async fn git_commit(
 
     let message = body.message.trim();
     if message.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "commit message is empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "commit message is empty".to_string(),
+        ));
     }
 
     let out = run_git(&body.cwd, &["commit", "-m", message])
