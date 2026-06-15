@@ -96,20 +96,17 @@ Rust builds share the target dir — concurrent `tauri build` + `tauri dev` figh
 ```bash
 git checkout develop
 VER=1.2.0  # new
-OLD=1.1.2  # previous
-sed -i '' "s/^version = \"$OLD\"/version = \"$VER\"/" src-tauri/Cargo.toml
-sed -i '' "s/\"version\": \"$OLD\"/\"version\": \"$VER\"/g" src-tauri/tauri.conf.json package.json
+npm run sync:versions -- "$VER"
 ./build.sh check                      # refreshes Cargo.lock
+npm run check:versions
 
-# Verify all three files match $VER. The sed above sometimes misses (different
-# quote styles, OLD value wrong, etc.) and the bug isn't caught until BLACKSTAR
-# builds CodeTerm_1.1.8_x64-setup.exe with the stale version in the filename.
-# v1.1.9 burned 15min of build time on this; never again.
-grep "\"version\": \"$VER\"" src-tauri/tauri.conf.json package.json
-grep "^version = \"$VER\"" src-tauri/Cargo.toml
-# All three lines must print a match. If not, investigate before pushing the tag.
+# check:versions covers root package.json, src-tauri/Cargo.toml,
+# cli/Cargo.toml, src-tauri/tauri.conf.json, provider plugin manifests,
+# plugin package.json files, plugins/channel.json, and shared packages.
+# Do not hand-edit just one version file.
 
-git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json package.json
+git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
+  src-tauri/tauri.conf.json cli/Cargo.toml plugins packages scripts
 git commit -m "release: v$VER"
 git push origin develop
 ```
@@ -191,72 +188,54 @@ Cross-compile detail (why this script exists): `macos-x86_64-release` skill.
 gh release upload v$VER "$ARM" "$X64" --clobber
 ```
 
-### 7b. Sign DMGs + build `latest.json` + mirror to public repo
+### 7b. Build `latest.json` + mirror to public repo
 
 The GUI updater fetches `latest.json` anonymously, so the manifest plus the asset copies live in `rollacode/codeterm-releases`. Same files, separate repo.
 
 **⚠️ Format gotcha:** updater artifact names depend on `bundle.createUpdaterArtifacts`. CodeTerm currently uses Tauri v2 mode (`true`), not `"v1Compatible"`:
 
-- macOS: `<name>_<ver>_<arch>.app.tar.gz` (the `.app` bundle wrapped in gzipped tar)
+- macOS: `CodeTerm_aarch64.app.tar.gz` / `CodeTerm_x64.app.tar.gz` (the `.app` bundle wrapped in gzipped tar)
+- Linux: `CodeTerm_<ver>_amd64.AppImage`
 - Windows: `<name>_<ver>_x64-setup.exe` (the signed NSIS installer itself)
 
 Pointing macOS `latest.json` at `.dmg` makes `codeterm update install --auto` fail with `invalid gzip header`. In Tauri v2 mode, Windows `.exe` and Linux `.AppImage` are valid updater URLs; `.nsis.zip` / `.AppImage.tar.gz` are the old v1-compatible artifact names.
 
+**Preferred path:** tag-push CI builds each platform, uploads source artifacts to `rollacode/codeterm`, writes updater fragments whose URLs point at `rollacode/codeterm-releases`, then mirrors public assets and merged `latest.json`.
+
 ```bash
-WORK=/tmp/codeterm-${VER}-mirror
-mkdir -p "$WORK" && cp "$ARM" "$X64" "$WORK/"
+.codeterm/skills/github-release/scripts/release-status.sh "$VER"
+```
 
-# 1. Mac updater bundles + signatures came out of `mac-bundle.sh` above as
-#    $ARM_SIG / $X64_SIG. The .tar.gz files are in $WORK; .sig files are
-#    persisted alongside for archive but NOT uploaded to the release.
+**Manual mirror fallback:** use only when CI produced source assets but the public mirror failed (usually `PACKAGE_REPOS_TOKEN` 403 or a workflow script bug). This is what keeps the release shippable without rebuilding all platforms.
 
-# 2. Sign each updater artifact with the minisign key (key file at ~/.tauri/codeterm.key,
-# base64-encoded minisign secret, password empty for the local-dev key). The .sig is
-# READ once below to extract the base64 signature into latest.json, then thrown away —
-# the tauri updater reads `signature` from the manifest, never downloads .sig files.
-# The .dmg / .exe files do NOT need signing — they are user-facing only.
-KEY_B64=$(cat ~/.tauri/codeterm.key | tr -d '\n')
-for art in \
-  "$WORK"/CodeTerm_${VER}_aarch64.app.tar.gz \
-  "$WORK"/CodeTerm_${VER}_x64.app.tar.gz; do
-  TAURI_SIGNING_PRIVATE_KEY="$KEY_B64" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
-    node_modules/.bin/tauri signer sign "$art"
-done
-# NOTE: use `node_modules/.bin/tauri`, NOT `npx --yes @tauri-apps/cli signer sign`
-# — npx fails with "Unknown command: @tauri-apps/cli" on Windows and is brittle
-# on macOS too. Direct binary always works.
+```bash
+WORK=/tmp/codeterm-v${VER}-mirror
+rm -rf "$WORK" && mkdir -p "$WORK"
+gh release download "v$VER" --repo rollacode/codeterm --dir "$WORK" --clobber
 
-# 3. The Windows mesh worker (win-release.sh on BLACKSTAR / ROG) signs its own
-# NSIS .exe with the same minisign key (~/.tauri/codeterm.key, restored from
-# Bitwarden slug codeterm-tauri-minisign-private-key). With
-# bundle.createUpdaterArtifacts=true, Tauri v2 reuses the .exe as the updater
-# artifact; .nsis.zip is only for createUpdaterArtifacts="v1Compatible".
-
-# 4. Optional verify (requires `brew install minisign`):
-# base64 -D < "$WORK"/CodeTerm_${VER}_aarch64.app.tar.gz.sig > /tmp/check.minisig
-# echo "<pubkey base64 from tauri.conf.json>" | base64 -D > /tmp/check.pub
-# minisign -V -p /tmp/check.pub -m "$WORK"/CodeTerm_${VER}_aarch64.app.tar.gz
-
-# 5. Build the manifest. Schema = standard tauri-plugin-updater shape.
-# URLs MUST point at .app.tar.gz for macOS, .AppImage for Linux, and .exe for Windows.
-ARM_SIG=$(cat "$WORK/CodeTerm_${VER}_aarch64.app.tar.gz.sig" | tr -d '\n')
-X64_SIG=$(cat "$WORK/CodeTerm_${VER}_x64.app.tar.gz.sig"     | tr -d '\n')
-WIN_SIG=$(cat "$WORK/CodeTerm_${VER}_x64-setup.exe.sig" | tr -d '\n' 2>/dev/null || echo "")
-PUB_DATE=$(gh release view v$VER --json publishedAt --jq '.publishedAt')
-NOTES=$(gh release view v$VER --json body --jq '.body')
+ARM_SIG=$(tr -d '\n' < "$WORK/CodeTerm_aarch64.app.tar.gz.sig")
+X64_SIG=$(tr -d '\n' < "$WORK/CodeTerm_x64.app.tar.gz.sig")
+LINUX_SIG=$(tr -d '\n' < "$WORK/CodeTerm_${VER}_amd64.AppImage.sig")
+WIN_SIG=$(tr -d '\n' < "$WORK/CodeTerm_${VER}_x64-setup.exe.sig")
+PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+NOTES="See the assets to download this version and install."
 cat > "$WORK/latest.json" <<JSON
 {
   "version": "$VER",
-  "notes": $(printf '%s' "$NOTES" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))'),
+  "notes": "$NOTES",
   "pub_date": "$PUB_DATE",
   "platforms": {
     "darwin-aarch64": {
-      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_${VER}_aarch64.app.tar.gz",
+      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_aarch64.app.tar.gz",
       "signature": "$ARM_SIG"
     },
     "darwin-x86_64": {
-      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_${VER}_x64.app.tar.gz",
+      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_x64.app.tar.gz",
       "signature": "$X64_SIG"
+    },
+    "linux-x86_64": {
+      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_${VER}_amd64.AppImage",
+      "signature": "$LINUX_SIG"
     },
     "windows-x86_64": {
       "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_${VER}_x64-setup.exe",
@@ -267,29 +246,41 @@ cat > "$WORK/latest.json" <<JSON
 JSON
 python3 -m json.tool "$WORK/latest.json" >/dev/null  # validate
 
-# 6. Publish on the public mirror — upload the user-facing direct downloads
-# plus updater artifacts (.app.tar.gz for macOS; .exe for Windows). Do NOT upload
-# the .sig files — their content already lives inline in latest.json's `signature`
-# field, and the tauri updater never fetches separate .sig assets. Same rule for
-# any standalone CLI binary: it's already bundled inside the .app / .exe as a
-# sidecar, so no separate cli archive on the release.
-gh release create v$VER \
-  --repo rollacode/codeterm-releases \
-  --title "v$VER" --target main \
-  --notes "Release artifacts for CodeTerm v$VER. Source: https://github.com/rollacode/codeterm/releases/tag/v$VER (private)." \
-  --latest \
+if ! gh release view "v$VER" --repo rollacode/codeterm-releases >/dev/null 2>&1; then
+  gh release create "v$VER" \
+    --repo rollacode/codeterm-releases \
+    --title "CodeTerm v$VER" \
+    --notes "Auto-mirrored release artifacts for CodeTerm v$VER. Source: rollacode/codeterm v$VER." \
+    --latest
+fi
+
+gh release upload "v$VER" --repo rollacode/codeterm-releases --clobber \
   "$WORK/CodeTerm_${VER}_aarch64.dmg" \
   "$WORK/CodeTerm_${VER}_x64.dmg" \
+  "$WORK/CodeTerm_${VER}_amd64.AppImage" \
+  "$WORK/CodeTerm_${VER}_amd64.AppImage.sig" \
+  "$WORK/CodeTerm_${VER}_amd64.deb" \
+  "$WORK/CodeTerm_${VER}_amd64.deb.sig" \
   "$WORK/CodeTerm_${VER}_x64-setup.exe" \
-  "$WORK/CodeTerm_${VER}_aarch64.app.tar.gz" \
-  "$WORK/CodeTerm_${VER}_x64.app.tar.gz" \
+  "$WORK/CodeTerm_${VER}_x64-setup.exe.sig" \
+  "$WORK/CodeTerm_aarch64.app.tar.gz" \
+  "$WORK/CodeTerm_aarch64.app.tar.gz.sig" \
+  "$WORK/CodeTerm_x64.app.tar.gz" \
+  "$WORK/CodeTerm_x64.app.tar.gz.sig" \
   "$WORK/latest.json"
 
-# 7. Verify anon access (smoke):
+# Verify anon access and all updater URLs:
 curl -sIL https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json \
-  | grep -E '^HTTP' | tail -1     # → HTTP/2 200
+  | grep -E '^HTTP' | tail -1     # -> HTTP/2 200
+python3 - <<'PY'
+import json, urllib.request
+m=json.load(urllib.request.urlopen("https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json"))
+for platform, entry in m["platforms"].items():
+    req=urllib.request.Request(entry["url"], method="HEAD")
+    print(platform, urllib.request.urlopen(req).status, entry["url"])
+PY
 
-# 8. End-to-end smoke: a freshly-installed v$VER- daemon should pick this up.
+# End-to-end smoke: a freshly-installed v$VER- daemon should pick this up.
 # Run on the build host (after self-installing v$VER- via codeterm self-update or DMG):
 codeterm update check       # → 'Update available!' OR 'Up to date' (latest manifest is current)
 # On the previous-version host (still on v<previous>):
@@ -297,7 +288,7 @@ codeterm update install --auto     # → must NOT fail with 'invalid gzip header
                             # If it does, the manifest is still wrong — fix and re-publish before continuing.
 ```
 
-If the Windows build is still pending when you mirror, leave the `windows-x86_64.signature` placeholder ("") and update the manifest after BLACKSTAR uploads its signed `.exe.sig` (re-upload `latest.json` with `--clobber`).
+If the Windows or Linux build is still pending, do not publish the source release yet. Wait for all four updater platforms to exist in public `latest.json`, or users on the missing platform will not auto-update.
 
 ### 8. Windows build
 
@@ -601,6 +592,6 @@ As of 2026-05-12 this skill is the canonical release procedure. No `.claude/agen
 ## Known gaps (fix opportunistically)
 
 - `./build.sh build` should staple the DMG wrapper automatically — currently manual step in §5. Worth patching `build.sh` to mirror what `scripts/release-macos-x86_64.sh` already does.
-- No CI release workflow — everything's local. A GitHub Action on tag push would replace §§5-8.
+- Release workflows still need a green dry-run after `PACKAGE_REPOS_TOKEN` rotation; manual mirror fallback above is the escape hatch when source artifacts are valid but mirror upload fails.
 - Brew tap bump is manual — a `scripts/release-bump-brew.sh` could read the release JSON and rewrite the cask in one shot.
 - `tailscale file get` on Windows ignores GUI-Tailscale-received files (they land in `~/Downloads`, not the CLI inbox). Worth verifying / filing upstream.

@@ -18,25 +18,24 @@ never from `develop`, never from an untagged tree.
 
 ## The flow
 
-1. **Bump version on `develop`** (one commit). Three files must agree:
-   `src-tauri/Cargo.toml` (`version = "X.Y.Z"`), `src-tauri/tauri.conf.json`,
-   `package.json`. Run `./build.sh check` to refresh `Cargo.lock`, then `grep`
-   all three — a missed `sed` isn't caught until a builder bakes the stale
-   version into the installer filename. Commit `release: vX.Y.Z`, push.
+1. **Bump version on `develop`** (one commit). Run
+   `npm run sync:versions -- X.Y.Z`, then `./build.sh check` to refresh
+   `Cargo.lock`, then `npm run check:versions`. The script is the single version
+   sync point for root package metadata, Tauri config, Rust packages, provider
+   plugins, `plugins/channel.json`, and shared packages. Commit `release:
+   vX.Y.Z`, push.
 2. **Merge `develop` → `master`** via a GitHub PR (merge commit), then locally
    `git checkout master && git pull && git tag -a vX.Y.Z -m "…" && git push --tags`.
 3. **Draft the GitHub release** (`gh release create vX.Y.Z --draft`).
 4. **Checkout the tag** (`git checkout vX.Y.Z` → detached HEAD). All builds run
    from this tree.
-5. **macOS** (on a Mac): build → codesign (`Developer ID Application`) →
-   notarize+staple → pack+minisign the updater bundle, for **both** arm64 and
-   x86_64. Upload DMGs to the private repo; sign them, build `latest.json`, and
-   mirror artifacts + manifest to the public repo.
-6. **Windows** (on a paired mesh peer — **BLACKSTAR** is primary): dispatch
-   `scripts/win-release.sh vX.Y.Z`. It checks out the tag, installs, bundles the
-   NSIS `.exe`, signs, and uploads to both repos. The agent's final
-   `codeterm agent report` line is machine-parseable: `WINDOWS_READY=X.Y.Z sig=…`
-   on success, `BLOCKED step=…` on failure.
+5. **CI builds on tag push**: `release-macos`, `release-windows`, and
+   `release-linux` build from the tag, upload private source artifacts, produce
+   updater fragments whose URLs point at `rollacode/codeterm-releases`, and
+   mirror public assets + merged `latest.json`.
+6. **Manual builder fallback**: if a platform workflow is down, use the skill's
+   Mac/Windows mesh instructions. If the source artifacts exist but mirror upload
+   failed, use the skill's manual mirror fallback instead of rebuilding.
 7. **Publish** the release (un-draft) and verify the updater endpoint serves the
    new `latest.json`.
 8. **Sync `master` → `develop`** and return to `develop`.
@@ -74,6 +73,10 @@ never from `develop`, never from an untagged tree.
 - **Tauri v2 updater artifact names follow `createUpdaterArtifacts`.** With our
   current `true` setting, Linux uses `.AppImage` and Windows uses NSIS `.exe`.
   `.AppImage.tar.gz` / `.nsis.zip` are for `"v1Compatible"` only.
+- **If source release assets are valid but mirror failed**, download from
+  `rollacode/codeterm`, regenerate `latest.json` with public
+  `rollacode/codeterm-releases` URLs, upload to the mirror with `--clobber`, and
+  only then publish the private source release.
 
 ## Secrets (per builder machine)
 
@@ -83,4 +86,4 @@ notary credentials are backed up in mem — the skill lists the exact ids and
 restore paths. A builder without the minisign key produces artifacts the updater
 can't verify.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
