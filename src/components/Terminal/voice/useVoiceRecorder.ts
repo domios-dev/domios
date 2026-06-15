@@ -210,7 +210,10 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       return false;
     }
 
-    if ("permissions" in navigator && typeof navigator.permissions?.query === "function") {
+    // The Permissions API is reliable in browsers; the macOS WKWebView can report
+    // "denied" spuriously, so on native we skip the gate and let getUserMedia — which
+    // wry grants at the webview layer, then the OS prompts via TCC — be the truth.
+    if (IS_WEB && "permissions" in navigator && typeof navigator.permissions?.query === "function") {
       try {
         const permission = await navigator.permissions.query({ name: "microphone" as PermissionName });
         if (permission.state === "denied") {
