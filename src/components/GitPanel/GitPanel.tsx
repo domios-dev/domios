@@ -262,6 +262,11 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
         {graph?.dirty && (
           <span className="text-[11px] text-[var(--ct-yellow)] shrink-0">uncommitted changes</span>
         )}
+        <BranchDelta
+          base={graph?.branch_base ?? null}
+          added={graph?.branch_added ?? null}
+          deleted={graph?.branch_deleted ?? null}
+        />
         <span className="text-[11px] opacity-60 truncate min-w-0 flex-1" title={activeCwd ?? ""}>
           {activeCwd}
         </span>
@@ -675,6 +680,29 @@ function FilesWithDiff({
         />
       )}
     </div>
+  );
+}
+
+// Net line delta of the branch vs its fork point from the default branch (working tree included).
+function BranchDelta({
+  base,
+  added,
+  deleted,
+}: {
+  base: string | null;
+  added: number | null;
+  deleted: number | null;
+}) {
+  if (added == null || deleted == null || (added === 0 && deleted === 0)) return null;
+  const fmt = (n: number) => n.toLocaleString();
+  return (
+    <span
+      className="ct-git-delta shrink-0"
+      title={`Lines changed on this branch vs ${base ?? "base"} (working tree included)`}
+    >
+      <span className="ct-git-delta-add">+{fmt(added)}</span>
+      <span className="ct-git-delta-del">−{fmt(deleted)}</span>
+    </span>
   );
 }
 

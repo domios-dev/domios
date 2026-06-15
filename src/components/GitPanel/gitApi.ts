@@ -22,6 +22,9 @@ export interface GitGraphResponse {
   head_sha: string | null;
   branch: string | null;
   dirty: boolean;
+  branch_base?: string | null;
+  branch_added?: number | null;
+  branch_deleted?: number | null;
 }
 
 export type GitFileStatus = "added" | "modified" | "deleted" | "renamed" | "copied";
