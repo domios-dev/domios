@@ -195,12 +195,12 @@ gh release upload v$VER "$ARM" "$X64" --clobber
 
 The GUI updater fetches `latest.json` anonymously, so the manifest plus the asset copies live in `rollacode/codeterm-releases`. Same files, separate repo.
 
-**⚠️ Format gotcha (learned the hard way on v1.1.17): the `tauri-plugin-updater` does NOT consume raw `.dmg` / `.exe` files.** It expects:
+**⚠️ Format gotcha:** updater artifact names depend on `bundle.createUpdaterArtifacts`. CodeTerm currently uses Tauri v2 mode (`true`), not `"v1Compatible"`:
 
 - macOS: `<name>_<ver>_<arch>.app.tar.gz` (the `.app` bundle wrapped in gzipped tar)
-- Windows: `<name>_<ver>_x64-setup.nsis.zip` (the NSIS installer wrapped in a zip)
+- Windows: `<name>_<ver>_x64-setup.exe` (the signed NSIS installer itself)
 
-Pointing `latest.json` at `.dmg` / `.exe` URLs makes `codeterm update install --auto` fail with `invalid gzip header` on macOS and an analogous unpack error on Windows. The user-facing direct downloads (`.dmg` / `.exe`) still belong on the mirror — they are useful for first-install / out-of-band install — but the updater URLs in `latest.json` MUST point at the `.app.tar.gz` / `.nsis.zip` artifacts. Keep both formats side-by-side on the release.
+Pointing macOS `latest.json` at `.dmg` makes `codeterm update install --auto` fail with `invalid gzip header`. In Tauri v2 mode, Windows `.exe` and Linux `.AppImage` are valid updater URLs; `.nsis.zip` / `.AppImage.tar.gz` are the old v1-compatible artifact names.
 
 ```bash
 WORK=/tmp/codeterm-${VER}-mirror
@@ -227,11 +227,10 @@ done
 # on macOS too. Direct binary always works.
 
 # 3. The Windows mesh worker (win-release.sh on BLACKSTAR / ROG) signs its own
-# .nsis.zip with the same minisign key (~/.tauri/codeterm.key, restored from
-# Bitwarden slug codeterm-tauri-minisign-private-key). Since v1.3.3 the Tauri
-# bundler emits CodeTerm_${VER}_x64-setup.nsis.zip alongside the .exe automatically
-# (bundle.createUpdaterArtifacts = true in tauri.conf.json) — the worker's
-# Compress-Archive fallback only fires if that flag is ever turned off.
+# NSIS .exe with the same minisign key (~/.tauri/codeterm.key, restored from
+# Bitwarden slug codeterm-tauri-minisign-private-key). With
+# bundle.createUpdaterArtifacts=true, Tauri v2 reuses the .exe as the updater
+# artifact; .nsis.zip is only for createUpdaterArtifacts="v1Compatible".
 
 # 4. Optional verify (requires `brew install minisign`):
 # base64 -D < "$WORK"/CodeTerm_${VER}_aarch64.app.tar.gz.sig > /tmp/check.minisig
@@ -239,10 +238,10 @@ done
 # minisign -V -p /tmp/check.pub -m "$WORK"/CodeTerm_${VER}_aarch64.app.tar.gz
 
 # 5. Build the manifest. Schema = standard tauri-plugin-updater shape.
-# URLs MUST point at .app.tar.gz / .nsis.zip — not raw .dmg / .exe.
+# URLs MUST point at .app.tar.gz for macOS, .AppImage for Linux, and .exe for Windows.
 ARM_SIG=$(cat "$WORK/CodeTerm_${VER}_aarch64.app.tar.gz.sig" | tr -d '\n')
 X64_SIG=$(cat "$WORK/CodeTerm_${VER}_x64.app.tar.gz.sig"     | tr -d '\n')
-WIN_SIG=$(cat "$WORK/CodeTerm_${VER}_x64-setup.nsis.zip.sig" | tr -d '\n' 2>/dev/null || echo "")
+WIN_SIG=$(cat "$WORK/CodeTerm_${VER}_x64-setup.exe.sig" | tr -d '\n' 2>/dev/null || echo "")
 PUB_DATE=$(gh release view v$VER --json publishedAt --jq '.publishedAt')
 NOTES=$(gh release view v$VER --json body --jq '.body')
 cat > "$WORK/latest.json" <<JSON
@@ -260,7 +259,7 @@ cat > "$WORK/latest.json" <<JSON
       "signature": "$X64_SIG"
     },
     "windows-x86_64": {
-      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_${VER}_x64-setup.nsis.zip",
+      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_${VER}_x64-setup.exe",
       "signature": "$WIN_SIG"
     }
   }
@@ -269,7 +268,7 @@ JSON
 python3 -m json.tool "$WORK/latest.json" >/dev/null  # validate
 
 # 6. Publish on the public mirror — upload the user-facing direct downloads
-# (.dmg / .exe) AND the updater artifacts (.app.tar.gz / .nsis.zip). Do NOT upload
+# plus updater artifacts (.app.tar.gz for macOS; .exe for Windows). Do NOT upload
 # the .sig files — their content already lives inline in latest.json's `signature`
 # field, and the tauri updater never fetches separate .sig assets. Same rule for
 # any standalone CLI binary: it's already bundled inside the .app / .exe as a
@@ -284,7 +283,6 @@ gh release create v$VER \
   "$WORK/CodeTerm_${VER}_x64-setup.exe" \
   "$WORK/CodeTerm_${VER}_aarch64.app.tar.gz" \
   "$WORK/CodeTerm_${VER}_x64.app.tar.gz" \
-  "$WORK/CodeTerm_${VER}_x64-setup.nsis.zip" \
   "$WORK/latest.json"
 
 # 7. Verify anon access (smoke):
@@ -299,7 +297,7 @@ codeterm update install --auto     # → must NOT fail with 'invalid gzip header
                             # If it does, the manifest is still wrong — fix and re-publish before continuing.
 ```
 
-If the Windows build is still pending when you mirror, leave the `windows-x86_64.signature` placeholder ("") and update the manifest after BLACKSTAR uploads its signed `.nsis.zip.sig` (re-upload `latest.json` with `--clobber`). Same flow applies if BLACKSTAR delivers `.nsis.zip` AFTER you have already published the public mirror — just re-upload `latest.json` with the corrected windows signature.
+If the Windows build is still pending when you mirror, leave the `windows-x86_64.signature` placeholder ("") and update the manifest after BLACKSTAR uploads its signed `.exe.sig` (re-upload `latest.json` with `--clobber`).
 
 ### 8. Windows build
 
@@ -331,16 +329,13 @@ What the script does internally (`scripts/win-bundle.sh` + `win-upload.sh`):
 
 1. `git -c core.autocrlf=false checkout v$VER` (CRLF phantom-dirt workaround on Windows is built in).
 2. `pnpm install --frozen-lockfile`.
-3. **Export `TAURI_SIGNING_PRIVATE_KEY` BEFORE `./build.sh build`.** Without this env var, the Tauri bundler silently SKIPS the `.nsis.zip` and we fall back to repacking — historically this trap shipped DEFLATE-compressed zips that tauri-updater rejects (`Compression method not supported`). Caught the project on v1.1.22 AND v1.3.2 because the env-export was only done at the sign step. As of 2026-05-20 `win-bundle.sh` exports both `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` at script entry, so the bundler emits a proper STORED-compressed updater bundle the first time.
-4. `./build.sh build` (NSIS bundler emits `.exe` + `.nsis.zip` natively when the key env is exported).
-5. If the bundler still skips the `.nsis.zip` (very old tauri-cli), fallback uses `python zipfile.ZIP_STORED` — NEVER `powershell Compress-Archive`, whose `-CompressionLevel Optimal` always writes DEFLATE.
-6. **Verify compression method bytes 8-9 of the local file header are `00 00` (STORED) before signing.** `win-bundle.sh` does this and exits with `BLOCKED:` on any other value. Manual check: `od -A x -t x1 -N 10 CodeTerm_*_x64-setup.nsis.zip` — bytes at offset 8-9 must be `00 00`. `08 00` = DEFLATE (broken), `09 00` = Deflate64 (broken).
-7. Signs `.nsis.zip` via `node_modules/.bin/tauri signer sign` (NOT `npx --yes @tauri-apps/cli signer sign` — npx fails with "Unknown command" on Windows).
-8. Idempotent `gh release view || gh release create --draft` for both repos, then `gh release upload --clobber` for `.exe` + `.nsis.zip`.
+3. **Export `TAURI_SIGNING_PRIVATE_KEY` BEFORE `./build.sh build`.** Without this env var, the Tauri bundler skips updater signatures.
+4. `./build.sh build` (NSIS bundler emits `.exe` + `.exe.sig` in current Tauri v2 mode).
+5. Idempotent `gh release view || gh release create --draft` for both repos, then `gh release upload --clobber` for `.exe` + `.exe.sig`.
 
 Wall times (BLACKSTAR, cache-warm): ~3min build, +~30s install if `node_modules` cold, +~10s upload. Cold from a fresh `pnpm install`: ~5-7min total.
 
-**CI path (`release-windows.yml`)**: still triggers automatically on tag push and uploads `.exe` + `.nsis.zip` to the private repo. The mesh-worker flow is preferred because BLACKSTAR has the minisign key locally and can sign in one shot — CI does not have access to `~/.tauri/codeterm.key` so its outputs need to be re-signed manually anyway. Treat CI artifacts as a back-up source for `gh release download` when the worker is offline.
+**CI path (`release-windows.yml`)**: still triggers automatically on tag push and uploads `.exe` + `.exe.sig` to the private repo. Treat CI artifacts as a back-up source for `gh release download` when the worker is offline.
 
 Direct local invocation (on a Windows machine with a checkout, e.g. for testing the pipeline without dispatching an agent):
 
@@ -367,7 +362,7 @@ gh release edit v$VER --draft=false --latest
 gh release view v$VER --json assets --jq '.assets[] | "\(.name)  \(.size)B"'
 # Expect 4-5 assets on the source repo: aarch64.dmg, x64.dmg, x64-setup.exe + the
 # Linux artifacts (`amd64.deb`, `amd64.AppImage`) when CI shipped them via release-linux.yml.
-# The mirror (codeterm-releases) holds the same set plus `.app.tar.gz`, `.nsis.zip`, and `latest.json`.
+# The mirror (codeterm-releases) holds the same set plus `.app.tar.gz` and `latest.json`.
 
 # Public mirror — once Windows .exe arrives, also update its sig in latest.json
 # and re-upload --clobber. Verify GUI updater can resolve anonymously:
@@ -450,7 +445,7 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 | DMG `spctl` → "rejected, Unnotarized Developer ID" | tauri signed the `.app` but left the DMG wrapper unsigned | Run `xcrun notarytool submit … --wait && xcrun stapler staple …` manually |
 | `notarytool store-credentials` → HTTP 401 | keychain creds expired OR used `APPLE_PASSWORD` instead of `APPLE_APP_SPECIFIC_PASSWORD` | source the env file, use correct var name |
 | `git push origin master` → non-fast-forward | master diverged (e.g. previous release merged differently) | `git pull origin master --no-rebase --no-edit` then push again |
-| `codeterm update install --auto` → "invalid gzip header" | `latest.json` URLs point at raw `.dmg`/`.exe` instead of `.app.tar.gz`/`.nsis.zip` | rebuild manifest with wrapper URLs — see Step 7b. Wrappers are the ONLY format tauri-plugin-updater accepts |
+| `codeterm update install --auto` → "invalid gzip header" | macOS `latest.json` URL points at raw `.dmg` instead of `.app.tar.gz` | rebuild manifest with `.app.tar.gz` URLs — see Step 7b |
 | tauri-plugin-updater unpack on Windows → "Compression method not supported" | `.nsis.zip` built with 7z default (Deflate64); zip-rs only supports Deflate/Store | regenerate with `7z a -tzip -mm=Copy` (Store compression) |
 | tauri-plugin-updater unpack on macOS → "failed to unpack ._CodeTerm.app" | macOS `tar` includes AppleDouble metadata files (`._*`) by default | `COPYFILE_DISABLE=1 tar -czf ...` |
 | BLACKSTAR build: `UNKNOWN error opening node_modules/sigma/package.json` | Windows filesystem race on freshly added dep | `rm -rf node_modules && pnpm install` on BLACKSTAR |
@@ -461,6 +456,7 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 | release workflow mirror step → HTTP 403 `Resource not accessible by personal access token` | `PACKAGE_REPOS_TOKEN` lacks `contents:write` on `rollacode/codeterm-releases` | rotate/update the repo secret, or manually mirror with a local `gh` login that has admin/write on the public mirror before publishing |
 | `latest.json` maps both macOS platforms to `CodeTerm.app.tar.gz` | macOS workflow used the local generic updater bundle basename for the public URL | copy/sign/upload arch-specific updater assets and build fragments from `CodeTerm_aarch64.app.tar.gz` / `CodeTerm_x64.app.tar.gz` |
 | public mirror has assets but GUI updater still 404s | fragments were generated with `REPO=rollacode/codeterm`, so `latest.json` points at the private source repo | generate fragments with `REPO=rollacode/codeterm-releases`; source release may still store the fragment, but its URLs must be public |
+| Windows workflow says `No NSIS signature` while `.exe.sig` exists | workflow still assumes `createUpdaterArtifacts="v1Compatible"` `.nsis.zip`; current Tauri v2 `true` emits `.exe.sig` | use `*-setup.exe` / `.exe.sig` for `windows-x86_64`, or switch config to `"v1Compatible"` intentionally |
 | Windows: `sqlite-sys` cc-rs → "malloc.h not found" | `build.sh`'s `SDK_VER` (10.0.22621.0) ≠ installed Windows Kit | check `ls "/c/Program Files (x86)/Windows Kits/10/Include"` then `export SDK_VER=<found-version>` (e.g. 10.0.26100.0 on ROG) |
 | `gh release upload ...` → "no matches found" on Windows | MSYS git-bash + stale cd + relative paths | `cd` back to repo root before upload, or use absolute paths |
 | `git rev-parse v$VER` returns a SHA that doesn't appear in `git log` | annotated tag (`-a`) creates a tag object that points to the commit (one level of indirection) | use `git rev-parse v$VER^{commit}` for the commit SHA, or `gh release view v$VER --json targetCommitish` |
@@ -477,7 +473,7 @@ Adopted v1.1.8 onward. Cross-machine release coordination between Mac-Air (macOS
 
 **Roles per release:**
 - **macOS builder (Mac-Air)**: macOS arm64 + x86_64 builds, notarize+staple, minisign all 3 platforms, compose `latest.json`, publish public mirror.
-- **Windows builder (ROG primary, BLACKSTAR fallback)**: Windows build, `.exe` + `.nsis.zip` upload to private repo draft.
+- **Windows builder (ROG primary, BLACKSTAR fallback)**: Windows build, `.exe` + `.exe.sig` upload to private repo draft.
 - **Either side** can make the final "mark Latest on private" call after public mirror is verified live.
 
 **Communication contract:**
@@ -500,19 +496,19 @@ Adopted v1.1.8 onward. Cross-machine release coordination between Mac-Air (macOS
 
 ## Cross-machine signing when Bitwarden is locked
 
-If the Windows builder can't access the minisign key (Bitwarden locked, no `~/.tauri/codeterm.key` on disk), delegate signing to whichever peer DOES have BW unlocked. Used 2026-05-13: ROG built `.nsis.zip` but BW was locked there; BLACKSTAR did the signing.
+If the Windows builder can't access the minisign key (Bitwarden locked, no `~/.tauri/codeterm.key` on disk), delegate signing to whichever peer DOES have BW unlocked.
 
 ```bash
 # On the build host (ROG), send the file to the signer peer via Taildrop:
-tailscale file cp ~/Downloads/CodeTerm_${VER}_x64-setup.nsis.zip BLACKSTAR:
+tailscale file cp ~/Downloads/CodeTerm_${VER}_x64-setup.exe BLACKSTAR:
 
 # On the signer host (BLACKSTAR):
 # 1. File lands in ~/Downloads via the Windows GUI Tailscale (NOT the CLI inbox —
 #    `tailscale file get` returns 0/0 because GUI Tailscale handles incoming differently).
-#    May need to `mv ~/Downloads/CodeTerm_*.nsis.zip ./` manually.
+#    May need to `mv ~/Downloads/CodeTerm_*.exe ./` manually.
 
 # 2. Verify hash matches what the builder reported:
-sha256sum CodeTerm_${VER}_x64-setup.nsis.zip
+sha256sum CodeTerm_${VER}_x64-setup.exe
 # → compare against builder's number
 
 # 3. Pull minisign key from Bitwarden (BW unlocked here):
@@ -521,10 +517,10 @@ codeterm mem secret get --name codeterm-tauri-minisign-private-key > ~/.tauri/co
 # 4. Sign — key is used AS-IS (single-line base64), don't base64-decode:
 KEY=$(cat ~/.tauri/codeterm.key | tr -d '\n')
 TAURI_SIGNING_PRIVATE_KEY=$KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD='' \
-  pnpm --package=@tauri-apps/cli dlx tauri signer sign CodeTerm_${VER}_x64-setup.nsis.zip
+  pnpm --package=@tauri-apps/cli dlx tauri signer sign CodeTerm_${VER}_x64-setup.exe
 
 # 5. Upload the .sig to the private repo:
-gh release upload v$VER CodeTerm_${VER}_x64-setup.nsis.zip.sig --clobber --repo rollacode/codeterm
+gh release upload v$VER CodeTerm_${VER}_x64-setup.exe.sig --clobber --repo rollacode/codeterm
 ```
 
 **Important:** if Mac-Air already published the public mirror with its own valid sig (signs everything from one place), the cross-machine `.sig` upload to the private repo is redundant but harmless. The public mirror's `latest.json` is what the auto-updater actually consumes.
