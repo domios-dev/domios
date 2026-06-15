@@ -23,7 +23,7 @@ import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 
 const COMPOSER_MIN_HEIGHT = 20;
 const COMPOSER_SINGLE_LINE_THRESHOLD = 28;
-const COMPOSER_MAX_HEIGHT = 150;
+const COMPOSER_MAX_HEIGHT = 230;
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
 // Shown the instant a voice note is sent — transcription (cold Whisper can take
 // several seconds) then morphs this bubble into the transcript, or an error.
@@ -858,7 +858,7 @@ export function ChatComposer({
               border: "none",
               lineHeight: `${COMPOSER_MIN_HEIGHT}px`,
               margin: 0,
-              overflowY: "hidden",
+              overflowY: "auto",
             }}
           />
         </ComposerActions>
