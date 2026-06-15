@@ -439,7 +439,11 @@ impl AgentProvider for CodexProvider {
 
     fn install_command(&self, platform: &str) -> Option<String> {
         match platform {
-            "macos" | "linux" | "windows" => Some("npm install -g @openai/codex".into()),
+            "macos" | "linux" => Some("curl -fsSL https://chatgpt.com/codex/install.sh | sh".into()),
+            "windows" => Some(
+                "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
+                    .into(),
+            ),
             _ => None,
         }
     }
@@ -474,7 +478,13 @@ impl AgentProvider for CodexProvider {
                 description: None,
                 fields: vec![SettingField::Info {
                     title: None,
-                    body: "**CLI:** `codex` — install with `npm i -g @openai/codex`\n\n**Auth:** set `OPENAI_API_KEY` or run `codex login`".into(),
+                    body: concat!(
+                        "**CLI:** `codex` — macOS/Linux: ",
+                        "`curl -fsSL https://chatgpt.com/codex/install.sh | sh`; Windows: ",
+                        "`powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\"`",
+                        "\n\n**Auth:** set `OPENAI_API_KEY` or run `codex login`"
+                    )
+                    .into(),
                     level: NoteLevel::Info,
                 }],
             },

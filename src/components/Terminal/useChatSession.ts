@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
   lastSessionResetIndex,
+  mergeTimelineMessages,
   matchedOptimisticEchoes,
   trimAfterSessionReset,
   type NormalizedChatMessage as ChatMessage,
@@ -158,7 +159,7 @@ export function useChatSession({
     const { matchedIds } = matchedOptimisticEchoes(toEchoes(liveOptimistic), parsedUsers);
     const matched = new Set(matchedIds);
     const stillPending = liveOptimistic.filter((m) => !matched.has(m.id));
-    return [...grouped, ...stillPending];
+    return mergeTimelineMessages(grouped, stillPending);
   }, [resetParsed, liveOptimistic]);
 
   const enrichedMessages = useMemo(() => {

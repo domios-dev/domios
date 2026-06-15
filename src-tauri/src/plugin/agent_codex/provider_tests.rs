@@ -42,6 +42,25 @@ fn codex_auto_approve_flags() {
 }
 
 #[test]
+fn codex_install_command_uses_standalone_installer() {
+    let p = CodexProvider::new();
+    assert_eq!(
+        p.install_command("macos").as_deref(),
+        Some("curl -fsSL https://chatgpt.com/codex/install.sh | sh")
+    );
+    assert_eq!(
+        p.install_command("linux").as_deref(),
+        Some("curl -fsSL https://chatgpt.com/codex/install.sh | sh")
+    );
+    assert_eq!(
+        p.install_command("windows").as_deref(),
+        Some(
+            "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
+        )
+    );
+}
+
+#[test]
 fn codex_detect_from_title() {
     let p = CodexProvider::new();
     assert!(p.detect_from_title("codex"));

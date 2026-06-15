@@ -33,6 +33,8 @@ struct ModelProvider {
     id: &'static str,
     models: Vec<crate::agent::provider::ModelInfo>,
     default_model: Option<String>,
+    cli_binary: Option<&'static str>,
+    install_command: Option<&'static str>,
 }
 
 impl ModelProvider {
@@ -48,7 +50,15 @@ impl ModelProvider {
                 })
                 .collect(),
             default_model: model_ids.first().map(|id| (*id).to_string()),
+            cli_binary: None,
+            install_command: None,
         }
+    }
+
+    fn with_cli(mut self, binary: &'static str, install_command: &'static str) -> Self {
+        self.cli_binary = Some(binary);
+        self.install_command = Some(install_command);
+        self
     }
 }
 
@@ -134,6 +144,14 @@ impl crate::agent::provider::AgentProvider for ModelProvider {
     fn default_model(&self) -> Option<String> {
         self.default_model.clone()
     }
+
+    fn cli_binary(&self) -> Option<&str> {
+        self.cli_binary
+    }
+
+    fn install_command(&self, _: &str) -> Option<String> {
+        self.install_command.map(str::to_string)
+    }
 }
 
 fn registry_with(provider: ModelProvider) -> crate::agent::registry::AgentRegistry {
@@ -201,6 +219,35 @@ fn validate_agent_model_passes_through_non_enumerable_provider() {
     let registry = registry_with(ModelProvider::new("dynamic", &[]));
 
     assert!(validate_agent_model(&registry, "dynamic", Some("anything-goes")).is_ok());
+}
+
+#[test]
+fn provider_cli_availability_passes_without_cli_dependency() {
+    let registry = registry_with(ModelProvider::new("embedded-provider", &[]));
+
+    assert!(ensure_provider_cli_available(&registry, "embedded-provider").is_ok());
+}
+
+#[test]
+fn provider_cli_availability_rejects_missing_binary_with_install_hint() {
+    let registry = registry_with(ModelProvider::new("missing-cli", &[]).with_cli(
+        "codeterm-definitely-missing-provider-cli",
+        "install missing-cli",
+    ));
+
+    let err = ensure_provider_cli_available(&registry, "missing-cli").unwrap_err();
+    assert!(err.contains("Provider not installed"));
+    assert!(err.contains("codeterm-definitely-missing-provider-cli"));
+    assert!(err.contains("install missing-cli"));
+}
+
+#[test]
+fn provider_cli_availability_rejects_invalid_binary_name() {
+    let registry =
+        registry_with(ModelProvider::new("bad-cli", &[]).with_cli("bad cli", "install bad-cli"));
+
+    let err = ensure_provider_cli_available(&registry, "bad-cli").unwrap_err();
+    assert!(err.contains("invalid CLI binary"));
 }
 
 #[test]

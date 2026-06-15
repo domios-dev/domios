@@ -312,6 +312,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         refreshFromBackend();
         return;
       }
+      const cmd = await invoke<string>("build_agent_launch_command", { agentId, skipPermissions });
       invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId, activate: true });
@@ -325,7 +326,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       if (shouldDefaultNewAgentPaneToChat(agentId)) {
         invoke("mux_set_chat_view", { paneId: tabInfo.pane_id, enabled: true }).catch(() => {});
       }
-      const cmd = await invoke<string>("build_agent_launch_command", { agentId, skipPermissions });
       setPendingCommand(tabInfo.pane_id, cmd);
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
@@ -333,6 +333,22 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       invoke("mux_set_focused_pane", { paneId: tabInfo.pane_id }).catch(() => {});
       refreshFromBackend();
     } catch (e) {
+      const message = e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
+      const providerMissing = message.includes("Provider not installed:");
+      dispatch({
+        type: "ADD_NOTIFICATION",
+        notification: {
+          id: uid(),
+          pane_id: null,
+          workspace_id: workspaceId,
+          title: providerMissing ? "Provider not installed" : `Failed to spawn ${agentId}`,
+          body: message,
+          level: "Error",
+          timestamp: Date.now(),
+          read: false,
+          sticky: providerMissing,
+        },
+      });
       console.error(`Failed to spawn ${agentId} tab:`, e);
     }
   }, [refreshFromBackend]);

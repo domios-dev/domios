@@ -68,19 +68,36 @@ pub fn sync_to(id: &str, dst_root: &std::path::Path) -> std::io::Result<bool> {
         return Ok(false);
     };
     let dst = dst_root.join(id);
+    if !should_replace_installed(id, &dst) {
+        return Ok(false);
+    }
     if dst.exists() {
-        let newer = match (embedded_version(id), installed_version(&dst)) {
-            (Some(e), Some(i)) => embedded_is_newer(&e, &i),
-            _ => false,
-        };
-        if !newer {
-            return Ok(false);
-        }
         std::fs::remove_dir_all(&dst)?;
     }
     std::fs::create_dir_all(&dst)?;
     write_dir(plugin, &dst)?;
     Ok(true)
+}
+
+fn should_replace_installed(id: &str, dst: &std::path::Path) -> bool {
+    if !dst.exists() {
+        return true;
+    }
+    match (embedded_version(id), installed_version(dst)) {
+        (Some(e), Some(i)) if embedded_is_newer(&e, &i) => return true,
+        (Some(e), Some(i)) if installed_is_newer(&i, &e) => return false,
+        _ => {}
+    }
+    installed_hash_differs_from_current_system(id, dst)
+}
+
+fn installed_hash_differs_from_current_system(id: &str, dst: &std::path::Path) -> bool {
+    let Some(expected) = crate::plugin::system_plugins::lookup(id) else {
+        return false;
+    };
+    crate::plugin::bundle_hash::hash_bundle(dst)
+        .map(|actual| actual != expected)
+        .unwrap_or(true)
 }
 
 fn manifest_version(bytes: &[u8]) -> Option<String> {
@@ -106,6 +123,16 @@ fn embedded_is_newer(embedded: &str, installed: &str) -> bool {
         semver::Version::parse(installed),
     ) {
         (Ok(e), Ok(i)) => e > i,
+        _ => false,
+    }
+}
+
+fn installed_is_newer(installed: &str, embedded: &str) -> bool {
+    match (
+        semver::Version::parse(installed),
+        semver::Version::parse(embedded),
+    ) {
+        (Ok(i), Ok(e)) => i > e,
         _ => false,
     }
 }
@@ -237,5 +264,38 @@ mod tests {
             "newer install must not downgrade"
         );
         assert_eq!(installed_version(&dst).as_deref(), Some("9999.0.0"));
+    }
+
+    /// A same-version system plugin whose bytes no longer match this binary's
+    /// build-time hash table is repaired.
+    #[test]
+    fn sync_repairs_same_version_hash_drift() {
+        let tmp = tempfile::tempdir().unwrap();
+        let Some((id, expected_hash)) = system_plugins::SYSTEM_PLUGIN_HASHES.first().copied()
+        else {
+            return;
+        };
+        let Some(version) = embedded_version(id) else {
+            return;
+        };
+        let dst = tmp.path().join(id);
+        std::fs::create_dir_all(&dst).unwrap();
+        std::fs::write(
+            dst.join("plugin.json"),
+            format!(r#"{{"id":"{id}","version":"{version}","entry":"plugin.js"}}"#),
+        )
+        .unwrap();
+        std::fs::write(
+            dst.join("plugin.js"),
+            "module.exports.default = { stale: true };",
+        )
+        .unwrap();
+
+        assert!(
+            sync_to(id, tmp.path()).unwrap(),
+            "same-version hash drift must be repaired"
+        );
+        let actual = bundle_hash::hash_bundle(&dst).unwrap();
+        assert_eq!(actual, expected_hash);
     }
 }

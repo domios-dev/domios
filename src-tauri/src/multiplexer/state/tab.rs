@@ -4,24 +4,27 @@ use crate::multiplexer::types::Tab;
 impl MultiplexerState {
     /// Create a new tab in the given workspace. Returns (tab_id, new_pane_id).
     pub fn create_tab(&mut self, workspace_id: &str) -> Result<(String, String), String> {
+        let workspace_idx = self
+            .workspaces
+            .iter()
+            .position(|w| w.id == workspace_id)
+            .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
+        let title = names::generate_unique_tab_name(
+            self.workspaces[workspace_idx]
+                .tabs
+                .iter()
+                .map(|tab| tab.title.as_str()),
+        );
         let pane_id = self.create_pane();
         let tab_id = short_id();
 
-        if !self.workspaces.iter().any(|w| w.id == workspace_id) {
-            return Err(format!("Workspace not found: {}", workspace_id));
-        }
-
         let tab = Tab {
             id: tab_id.clone(),
-            title: names::generate_tab_name(),
+            title,
             pane_id: pane_id.clone(),
         };
 
-        let workspace = self
-            .workspaces
-            .iter_mut()
-            .find(|w| w.id == workspace_id)
-            .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
+        let workspace = &mut self.workspaces[workspace_idx];
 
         workspace.tabs.push(tab);
         // Only set active if this is the first tab (empty workspace)

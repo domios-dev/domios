@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "0.1.0",
+  "version": "1.4.3",
   "minCodeterm": "1.0.0",
   "displayName": "Codex",
   "binaryName": "codex",
@@ -57,9 +57,9 @@
   ],
   "defaultModel": "gpt-5.5",
   "installer": {
-    "macos": "npm install -g @openai/codex",
-    "linux": "npm install -g @openai/codex",
-    "windows": "npm install -g @openai/codex"
+    "macos": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+    "linux": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+    "windows": "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
   },
   "commands": {
     "compact": "/compact",
