@@ -68,6 +68,10 @@ never from `develop`, never from an untagged tree.
   `rollacode/codeterm-releases`.** The source release can upload with
   `GITHUB_TOKEN`, but the public updater mirror is a different repo and fails
   with HTTP 403 when this token is missing or scoped only to the source repo.
+- **macOS updater URLs must be arch-specific.** Never point both
+  `darwin-aarch64` and `darwin-x86_64` at generic `CodeTerm.app.tar.gz`; the
+  second macOS job can clobber that asset. Use `CodeTerm_aarch64.app.tar.gz`
+  and `CodeTerm_x64.app.tar.gz`.
 
 ## Secrets (per builder machine)
 
@@ -77,4 +81,4 @@ notary credentials are backed up in mem — the skill lists the exact ids and
 restore paths. A builder without the minisign key produces artifacts the updater
 can't verify.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

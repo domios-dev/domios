@@ -167,6 +167,7 @@ jobs:
           TAG: ${{ steps.tag.outputs.name }}
           REPO: ${{ github.repository }}
           PLATFORM_KEY: ${{ matrix.target == 'aarch64-apple-darwin' && 'darwin-aarch64' || 'darwin-x86_64' }}
+          MAC_ARCH_SUFFIX: ${{ matrix.target == 'aarch64-apple-darwin' && 'aarch64' || 'x64' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -178,12 +179,16 @@ jobs:
           [ -n "$UPDATER_SIG" ] || { echo "::error::No .app.tar.gz signature under $BUNDLE_ROOT/macos"; exit 1; }
           UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
           [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
+          RELEASE_BUNDLE="$BUNDLE_ROOT/macos/CodeTerm_${MAC_ARCH_SUFFIX}.app.tar.gz"
+          RELEASE_SIG="$RELEASE_BUNDLE.sig"
+          cp "$UPDATER_BUNDLE" "$RELEASE_BUNDLE"
+          cp "$UPDATER_SIG" "$RELEASE_SIG"
 
-          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$REPO"
+          gh release upload "$TAG" "$RELEASE_BUNDLE" "$RELEASE_SIG" --clobber --repo "$REPO"
 
           OUT="updater-${{ matrix.target }}.json"
-          UPDATER_BUNDLE="$UPDATER_BUNDLE" \
-          UPDATER_SIG="$UPDATER_SIG" \
+          UPDATER_BUNDLE="$RELEASE_BUNDLE" \
+          UPDATER_SIG="$RELEASE_SIG" \
           OUT="$OUT" \
             python3 .github/workflows/build-updater-fragment.py
           gh release upload "$TAG" "$OUT" --clobber --repo "$REPO"
@@ -223,6 +228,7 @@ jobs:
           MANIFEST: ${{ steps.channel.outputs.manifest }}
           PRERELEASE: ${{ steps.channel.outputs.prerelease }}
           MIRROR_REPO: rollacode/codeterm-releases
+          MAC_ARCH_SUFFIX: ${{ matrix.target == 'aarch64-apple-darwin' && 'aarch64' || 'x64' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -231,6 +237,10 @@ jobs:
           [ -n "$UPDATER_SIG" ] || { echo "::error::No .app.tar.gz signature under $BUNDLE_ROOT/macos"; exit 1; }
           UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
           [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
+          RELEASE_BUNDLE="$BUNDLE_ROOT/macos/CodeTerm_${MAC_ARCH_SUFFIX}.app.tar.gz"
+          RELEASE_SIG="$RELEASE_BUNDLE.sig"
+          cp "$UPDATER_BUNDLE" "$RELEASE_BUNDLE"
+          cp "$UPDATER_SIG" "$RELEASE_SIG"
 
           # Idempotent: create the release in the mirror only if missing.
           # Each platform workflow may run this step in any order; first one
@@ -250,5 +260,5 @@ jobs:
             fi
           fi
 
-          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" "$MANIFEST" \
+          gh release upload "$TAG" "$RELEASE_BUNDLE" "$RELEASE_SIG" "$MANIFEST" \
             --clobber --repo "$MIRROR_REPO"
