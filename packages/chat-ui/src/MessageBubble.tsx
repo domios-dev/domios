@@ -57,6 +57,12 @@ interface MessageBubbleProps {
   resolvePaneName?: PaneNameResolver;
 }
 
+// Kill switch for interactive AskUserQuestion widgets (all providers). Detection
+// is mistimed — the prompt surfaces AFTER the user has already answered — so the
+// widget is unreliable. Disabled until the timing is fixed; the question then
+// renders as a plain tool-call pill instead.
+const INTERACTIVE_QUESTIONS_ENABLED = false;
+
 export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds }: MessageBubbleProps) {
   // Auto-expand for Write-style tool input (the file body being written) and
   // for Edit/MultiEdit (always show the diff). A bash/grep result must NOT
@@ -317,7 +323,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   // Interactive prompt — answerable widget rendered in place of the raw
   // tool-call JSON (e.g. AskUserQuestion). Provider-agnostic: the backend
   // already parsed the tool payload into `interactive`.
-  if (message.interactive && message.interactive.length > 0) {
+  if (INTERACTIVE_QUESTIONS_ENABLED && message.interactive && message.interactive.length > 0) {
     return (
       <div className="w-full">
         {message.interactive.map((el) => (
