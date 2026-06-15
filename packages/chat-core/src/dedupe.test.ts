@@ -154,5 +154,66 @@ const T0 = 1_700_000_000_000;
   eq(matchedIds, ["opt-1"], "sub-second floored echo within skew → matched");
 }
 
+// 13. A stray leaked prefix on the echoed line (e.g. "YT" glued onto the first
+//     word from a focus-leaked keystroke) still clears the bubble via fuzzy
+//     similarity instead of leaving a stuck dim duplicate.
+{
+  const real = "cannot scroll inside the input make it bigger and move the timer";
+  const leaked = "YT" + real; // "YTcannot scroll ..." — first token diverges
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echo("opt-1", leaked, T0)],
+    [user("a-0", real, T0 + 500)],
+  );
+  eq(matchedIds, ["opt-1"], "leaked-prefix echo clears via similarity");
+  eq(pendingIds, [], "leaked-prefix echo leaves no duplicate pending");
+}
+
+// 14. Optimistic bubbles carry the raw attachment path appended to the text;
+//     the real echo renders the file as a chip (path stripped). They must still
+//     match so the image message does not duplicate.
+{
+  const text = "each time I press record this happens please fix";
+  const optimistic = `${text} /Users/me/.codeterm/uploads/2b9df9f1-shot.png /Users/me/.codeterm/uploads/2faa7ab5-shot.png`;
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echo("opt-1", optimistic, T0)],
+    [user("a-0", text, T0 + 500)],
+  );
+  eq(matchedIds, ["opt-1"], "text+attachment echo clears against chip-rendered echo");
+  eq(pendingIds, [], "text+attachment echo leaves no duplicate pending");
+}
+
+// 15. Short message + attachment path: meaningful text is identical once paths
+//     are stripped, so it matches even though there are too few shared tokens
+//     for the looser similarity threshold.
+{
+  const { matchedIds } = matchedOptimisticEchoes(
+    [echo("opt-1", "fix this /Users/me/.codeterm/uploads/x.png", T0)],
+    [user("a-0", "fix this", T0 + 300)],
+  );
+  eq(matchedIds, ["opt-1"], "short text+attachment matches by stripped-path equality");
+}
+
+// 16. Fuzzy matching must NOT collapse two genuinely different short messages
+//     that merely share a couple of words.
+{
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echo("opt-1", "yes do it", T0)],
+    [user("a-0", "yes do that", T0 + 300)],
+  );
+  eq(matchedIds, [], "different short messages do not fuzzy-match");
+  eq(pendingIds, ["opt-1"], "distinct short message stays pending");
+}
+
+// 17. A stale older message must not fuzzy-clear a fresh bubble (time guard).
+{
+  const text = "cannot scroll inside the input make it bigger please";
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echo("opt-1", "YT" + text, T0)],
+    [user("old-0", text, T0 - 60_000)],
+  );
+  eq(matchedIds, [], "stale similar message does not fuzzy-clear fresh bubble");
+  eq(pendingIds, ["opt-1"], "fresh bubble stays pending despite similar history");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
