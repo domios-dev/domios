@@ -46,17 +46,22 @@ run_wave() {
 
 DOCKER="docker run --rm -v $LWORK:/work -v /tmp/ct-cargo-registry:/usr/local/cargo/registry -v $BM/scripts/build-linux.sh:/build-linux.sh -w /work"
 
+# The mac engine builds the GUI/CLI from THIS checkout; a fresh CI checkout has no
+# node_modules, so install once up front (linux/windows engines install inside themselves).
+echo "### pnpm install (mac engine, $REPO)"
+( cd "$REPO" && { corepack enable >/dev/null 2>&1 || true; }; pnpm install )
+
 # arm64 wave
 run_wave arm64 \
   "$HELPERS/mac-bundle.sh $VER arm64 $ART" \
   "$DOCKER codeterm-build-linux-arm64 bash /build-linux.sh $TAG deb,appimage; cp $LWORK/out/*arm64.deb $ART/ 2>/dev/null" \
-  "OUT=$ART $BM/scripts/build-windows.sh $TAG aarch64"
+  "OUT=$ART bash $BM/scripts/build-windows.sh $TAG aarch64"
 
 # x86_64 wave
 run_wave x86_64 \
   "$HELPERS/mac-bundle.sh $VER x86_64 $ART" \
   "$DOCKER codeterm-build-linux-x64 bash /build-linux.sh $TAG deb; cp $LWORK/out/*amd64.deb $ART/ 2>/dev/null" \
-  "OUT=$ART $BM/scripts/build-windows.sh $TAG x86_64"
+  "OUT=$ART bash $BM/scripts/build-windows.sh $TAG x86_64"
 
 # Collect mac DMGs into the artifacts dir (mac-bundle leaves them in target/).
 cp -f "$REPO/src-tauri/target/release/bundle/dmg/CodeTerm_${VER}_aarch64.dmg" "$ART/" 2>/dev/null || true
