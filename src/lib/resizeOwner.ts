@@ -1,4 +1,5 @@
 import { invoke } from "./bridge";
+import { uid } from "./uid";
 import { IS_WEB } from "./webApi";
 
 const CLIENT_ID_KEY = "codeterm.client_id.v1";
@@ -18,7 +19,7 @@ export function getResizeClientId(): string {
   try {
     const existing = window.localStorage.getItem(CLIENT_ID_KEY);
     if (existing?.startsWith(prefix)) return existing;
-    const next = prefix + crypto.randomUUID();
+    const next = prefix + uid();
     window.localStorage.setItem(CLIENT_ID_KEY, next);
     return next;
   } catch {
