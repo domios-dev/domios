@@ -62,15 +62,17 @@ export function GraphView({
     [rows, headSha],
   );
   const headCommit = headSha ? commitBySha.get(headSha) : null;
+  const showWorkdirRow = (dirty || !!branch) && !!headRow;
 
   return (
     <div className="absolute inset-0 overflow-auto">
-      {dirty && headRow && (
+      {showWorkdirRow && headRow && (
         <WorkdirRow
           railWidth={railWidth}
           rowH={rowH}
           col={headRow.col}
           branch={branch}
+          dirty={!!dirty}
           headRefs={headCommit?.refs ?? []}
           selected={selectedSha === WORKDIR_SHA}
           onSelect={() => onSelect(WORKDIR_SHA)}
@@ -89,7 +91,7 @@ export function GraphView({
             selected={row.sha === selectedSha}
             onSelect={onSelect}
             childRowOf={byIndex}
-            forceIncoming={dirty && row.sha === headSha}
+            forceIncoming={showWorkdirRow && row.sha === headSha}
           />
         );
       })}
@@ -244,6 +246,7 @@ function WorkdirRow({
   rowH,
   col,
   branch,
+  dirty,
   headRefs,
   selected,
   onSelect,
@@ -252,6 +255,7 @@ function WorkdirRow({
   rowH: number;
   col: number;
   branch?: string | null;
+  dirty: boolean;
   headRefs: GitRef[];
   selected: boolean;
   onSelect: () => void;
@@ -292,7 +296,9 @@ function WorkdirRow({
         {refs.map((ref) => (
           <RefChip key={`${ref.kind}-${ref.name}`} refItem={ref} />
         ))}
-        <span className="ct-git-subject ct-git-workdir-label">Uncommitted changes</span>
+        <span className="ct-git-subject ct-git-workdir-label">
+          {dirty ? "Uncommitted changes" : "Working tree clean"}
+        </span>
       </div>
     </div>
   );
