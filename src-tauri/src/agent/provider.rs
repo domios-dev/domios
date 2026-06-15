@@ -430,7 +430,8 @@ pub struct ProviderDescriptor {
     #[serde(default)]
     pub supports_chat_ui: bool,
     /// Trust status of the bundle backing this provider. `system` =
-    /// shipped by CodeTerm, hash matched the build-time table.
+    /// shipped by CodeTerm, hash matched the build-time table, or was
+    /// installed from the official codeterm-core system channel.
     /// `unverified` = same id as a system plugin but the bundle on
     /// disk has a different hash (user-modified or tampered).
     /// `third_party` = plugin id not in the system table.

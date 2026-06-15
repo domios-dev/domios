@@ -1,6 +1,6 @@
 {
   "name": "codeterm",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -15,7 +15,11 @@
     "test:pw:golden": "playwright test -c tests/playwright --project=golden",
     "test:pw:full": "playwright test -c tests/playwright --project=full",
     "test:pw:lint": "node tests/playwright/helpers/check-tags.mjs",
-    "lint": "biome check ."
+    "lint": "biome check .",
+    "sync:versions": "node scripts/sync-plugin-versions.mjs",
+    "check:versions": "node scripts/sync-plugin-versions.mjs --check",
+    "sync:plugin-versions": "node scripts/sync-plugin-versions.mjs",
+    "check:plugin-versions": "node scripts/sync-plugin-versions.mjs --check"
   },
   "keywords": [],
   "author": "",
