@@ -77,6 +77,27 @@ fn test_create_tab_invalid_workspace() {
     assert!(result.is_err());
 }
 
+#[test]
+fn test_create_tab_generates_unique_titles() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+
+    for _ in 0..20 {
+        state.create_tab(&ws_id).unwrap();
+    }
+
+    let ws = state.get_workspace(&ws_id).unwrap();
+    let mut titles = std::collections::HashSet::new();
+    for tab in &ws.tabs {
+        assert_ne!(tab.title, "Terminal");
+        assert!(
+            titles.insert(tab.title.as_str()),
+            "duplicate tab title: {}",
+            tab.title
+        );
+    }
+}
+
 // split_pane removed: each tab owns one pane.
 // Regressions are covered by close_tab-focused tests below.
 

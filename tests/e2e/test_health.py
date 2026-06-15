@@ -3,17 +3,17 @@
 from helpers import CodeTermAPI
 
 
-def test_health(api: CodeTermAPI):
+def test_health(api_only: CodeTermAPI):
     """GET /api/health returns status ok."""
-    data = api.get("/api/health")
+    data = api_only.get("/api/health")
     assert data["status"] == "ok"
     assert "version" in data
     assert data["name"] == "CodeTerm"
 
 
-def test_identify(api: CodeTermAPI):
+def test_identify(api_only: CodeTermAPI):
     """GET /api/identify returns version, platform, features."""
-    data = api.get("/api/identify")
+    data = api_only.get("/api/identify")
     assert data["name"] == "CodeTerm"
     assert "version" in data
     assert "platform" in data

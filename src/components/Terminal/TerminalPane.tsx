@@ -110,12 +110,12 @@ export function TerminalPane({
   const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
   const terminalOwnsLivePty = !IS_WEB || terminalVisible;
   const resizeClientId = useMemo(() => getResizeClientId(), []);
-  const claimTerminalOwnership = useCallback(() => {
-    if (!terminalOwnsLivePty) return;
+  const claimTerminalOwnership = useCallback((force = false) => {
+    if (!terminalOwnsLivePty && !force) return;
     const term = termRef.current;
     const ptyIdNow = connectedPtyRef.current ?? ptyId ?? null;
     if (!term || !ptyIdNow || term.cols <= 0 || term.rows <= 0) return;
-    void claimResizeOwner(paneId, ptyIdNow, resizeClientId, term.cols, term.rows)
+    void claimResizeOwner(paneId, ptyIdNow, resizeClientId, term.cols, term.rows, force)
       .then(() => invoke("resize_pty", {
         ptyId: ptyIdNow,
         cols: term.cols,
@@ -177,11 +177,11 @@ export function TerminalPane({
   const SHEET_HEADER = "2.5rem";
   const SHEET_FOOTER = "3.75rem";
 
-  useEffect(() => {
-    if (uiMode !== "chat") {
-      void invoke("chat_stop", { paneId }).catch(() => {});
-    }
-  }, [paneId, uiMode]);
+  // chat_start/chat_stop are owned exclusively by useChatSession's mount/
+  // unmount (PaneSessionChat is mounted iff uiMode === "chat"). A second
+  // chat_stop here used to double-decrement the tailer refcount under
+  // StrictMode/HMR churn, shutting the live tailer down while chat was still
+  // mounted — sent bubbles then never got their real echo. Keep it 1:1.
 
   useEffect(() => {
     if (isFocused && terminalOwnsLivePty) {
@@ -348,7 +348,7 @@ export function TerminalPane({
 
   const handleClick = useCallback(() => {
     onFocus?.(paneId);
-    claimTerminalOwnership();
+    claimTerminalOwnership(true);
     termRef.current?.focus();
   }, [onFocus, paneId, termRef, claimTerminalOwnership]);
 
@@ -399,6 +399,7 @@ export function TerminalPane({
     : hasSplits && isFocused
       ? "var(--ct-muted-fg, #8b949e)"
       : "transparent";
+  const terminalBackground = theme?.background ?? "transparent";
   const terminalKeyBar = <TerminalKeyBar onSendKey={writePty} className="w-full" />;
 
   // --- Render ---
@@ -411,7 +412,7 @@ export function TerminalPane({
         borderTop: hasSplits ? `1px solid ${topAccent}` : "none",
         outline: "none",
         boxShadow: "none",
-        background: "#000",
+        background: terminalBackground,
         transition: bellFlash ? "border-color 0.1s ease-in" : "border-color 0.15s ease-out",
       }}
       onMouseDown={handleClick}
@@ -477,7 +478,7 @@ export function TerminalPane({
             : "none",
           borderTop: mobileSheet ? "none" : undefined,
           borderBottom: mobileSheet ? "none" : undefined,
-          background: "#000",
+          background: terminalBackground,
           visibility: terminalVisible ? "visible" : "hidden",
           pointerEvents: terminalVisible ? "auto" : "none",
           zIndex: terminalFallbackOpen ? 4 : uiMode === "terminal" ? 1 : 0,
@@ -498,7 +499,7 @@ export function TerminalPane({
               : fallbackChat || showTerminalKeyBar ? 8 : 0,
             opacity: shell.overlayVisible ? 0 : 1,
             transition: "opacity 0.3s ease-in",
-            background: "#000",
+            background: terminalBackground,
           }}
           onClick={() => termRef.current?.focus()}
         >
@@ -510,7 +511,7 @@ export function TerminalPane({
             style={{
               paddingBottom: "var(--ct-composer-bottom-padding, 0.5rem)",
               borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 24%, transparent)",
-              background: "#000",
+              background: terminalBackground,
             }}
           >
             {terminalKeyBar}
@@ -545,12 +546,20 @@ export function TerminalPane({
             }}
             onOpenTerminalFallback={() => {
               setTerminalFallbackOpen(true);
-              requestAnimationFrame(() => termRef.current?.focus());
+              requestAnimationFrame(() => {
+                claimTerminalOwnership(true);
+                termRef.current?.focus();
+              });
             }}
             onToggleTerminalFallback={() => {
               setTerminalFallbackOpen((open) => {
                 const next = !open;
-                if (next) requestAnimationFrame(() => termRef.current?.focus());
+                if (next) {
+                  requestAnimationFrame(() => {
+                    claimTerminalOwnership(true);
+                    termRef.current?.focus();
+                  });
+                }
                 return next;
               });
             }}

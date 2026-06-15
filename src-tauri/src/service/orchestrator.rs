@@ -179,7 +179,7 @@ impl SpawnAgentParams {
                     .collect()
             }),
             cwd: json_str(params, "cwd"),
-            title: json_str(params, "title"),
+            title: super::spawn_title::normalize_agent_title(json_str(params, "title")),
             role: json_str(params, "role"),
             parent_pane_id: json_str(params, "parent_pane_id")
                 .or_else(|| json_str(params, "parent")),
@@ -252,9 +252,10 @@ impl ServiceContext {
     /// Variant of `spawn_agent_sync` with a readiness oneshot for echo+submit verification.
     pub fn spawn_agent_sync_with_ready(
         &self,
-        params: SpawnAgentParams,
+        mut params: SpawnAgentParams,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
+        params.title = super::spawn_title::normalize_agent_title(params.title.take());
         let role = params.role.clone();
         let agent = params
             .agent
@@ -283,12 +284,16 @@ impl ServiceContext {
         mut params: SpawnAgentParams,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
+        params.title = super::spawn_title::normalize_agent_title(params.title.take());
         let default_provider = crate::config::default_agent_provider();
-        let agent_cmd = params.agent.as_deref().unwrap_or(&default_provider);
+        let agent_cmd = params
+            .agent
+            .clone()
+            .unwrap_or_else(|| default_provider.clone());
         // Validate against the registry — reject unknown provider ids upfront.
         if self
             .agent_registry
-            .with_provider(agent_cmd, |_| ())
+            .with_provider(&agent_cmd, |_| ())
             .is_none()
         {
             let available = self.agent_registry.provider_ids().join(", ");
@@ -297,11 +302,27 @@ impl ServiceContext {
                 agent_cmd, available
             ));
         }
+        let cli_warning =
+            crate::service::spawn::provider_cli_install_warning(&self.agent_registry, &agent_cmd)?;
+        if let Some(ref warning) = cli_warning {
+            log::warn!("[spawn] {}", warning);
+        }
+        params.model = crate::service::spawn::resolve_fresh_agent_model(
+            &self.agent_registry,
+            &agent_cmd,
+            params.model.take(),
+            params.resume_session_id.as_deref(),
+        );
+        crate::service::spawn::validate_agent_model(
+            &self.agent_registry,
+            &agent_cmd,
+            params.model.as_deref(),
+        )?;
         let title = params
             .title
-            .as_deref()
-            .or(params.agent_name.as_deref())
-            .unwrap_or(agent_cmd);
+            .clone()
+            .or_else(|| params.agent_name.clone())
+            .unwrap_or_else(|| agent_cmd.clone());
 
         // 1. Find workspace — lock once, resolve everything
         let (ws_id, ws_cwd) = {
@@ -320,7 +341,13 @@ impl ServiceContext {
         };
 
         // Resolve cwd: inherit from workspace if not specified, warn if different
-        let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
+        let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
+        let warning = match (cwd_warning, cli_warning) {
+            (Some(a), Some(b)) => Some(format!("{}\n{}", a, b)),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        };
         params.cwd = resolved_cwd;
 
         let default_chat_enabled = self
@@ -333,7 +360,7 @@ impl ServiceContext {
             default_chat_enabled,
             crate::service::spawn::PaneVisibility::Visible,
             self.agent_registry
-                .with_provider(agent_cmd, |p| p.supports_chat_ui())
+                .with_provider(&agent_cmd, |p| p.supports_chat_ui())
                 .unwrap_or(false),
         );
 
@@ -397,7 +424,7 @@ impl ServiceContext {
         }
 
         // 4. Rename pane immediately (metadata only)
-        self.rename_pane(&pane_id, title)?;
+        self.rename_pane(&pane_id, &title)?;
 
         // Pin agent_type before launch so detect_from_output can start session-id polling.
         // Without this tag, restarts can lose session_id and resume fails silently.
@@ -406,7 +433,7 @@ impl ServiceContext {
         // 4c. Pin agent_session_id for resume up-front: we know the id from the user's request, so don't wait for detect_session_id polling.
         let launch_session_id = if params.resume_session_id.is_none() {
             self.agent_registry
-                .with_provider(agent_cmd, |p| p.session_id_injection())
+                .with_provider(&agent_cmd, |p| p.session_id_injection())
                 .filter(|mode| !matches!(mode, crate::agent::provider::SessionIdInjection::None))
                 .map(|_| uuid::Uuid::new_v4().to_string())
         } else {
@@ -430,7 +457,7 @@ impl ServiceContext {
             _ => t.clone(),
         });
         let launch_cmd = build_agent_command(
-            agent_cmd,
+            &agent_cmd,
             &params,
             bg_task.as_deref(),
             launch_session_id.as_deref(),
@@ -442,7 +469,7 @@ impl ServiceContext {
             tab_id.clone(),
             ws_id.clone(),
             launch_cmd,
-            agent_cmd.to_string(),
+            agent_cmd.clone(),
             bg_task,
             ready_tx,
         );
@@ -451,8 +478,8 @@ impl ServiceContext {
             pane_id,
             tab_id,
             pty_id: String::new(), // PTY not yet assigned — happens async
-            agent: agent_cmd.to_string(),
-            title: title.to_string(),
+            agent: agent_cmd,
+            title,
             role: params.role,
             warning,
         })
@@ -731,260 +758,4 @@ pub(crate) fn build_agent_command(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::shell::ShellSyntax;
-
-    fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
-        SpawnAgentParams {
-            agent: Some(agent.to_string()),
-            task: task.map(|t| t.to_string()),
-            agent_name: None,
-            args: None,
-            cwd: None,
-            title: None,
-            role: None,
-            parent_pane_id: None,
-            can_spawn: None,
-            workspace_id: None,
-            force_tab: None,
-            report_target_pane_id: None,
-            skip_permissions: None,
-            spawned_by_pane_id: None,
-            model: None,
-            resume_session_id: None,
-            activate: None,
-        }
-    }
-
-    fn test_registry() -> AgentRegistry {
-        let reg = AgentRegistry::new();
-        reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-        reg
-    }
-
-    #[test]
-    fn test_build_claude_with_task() {
-        let reg = test_registry();
-        let params = make_params("claude", Some("count files"));
-        let cmd = build_agent_command("claude", &params, Some("count files"), None, &reg);
-        assert!(cmd.contains("--dangerously-skip-permissions"));
-        assert!(cmd.contains(".ct-task-"), "task via temp file");
-        if cfg!(target_os = "windows") {
-            assert!(cmd.contains("Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue;"));
-            assert!(cmd.contains("(Get-Content"));
-        } else {
-            assert!(cmd.contains("unset CLAUDECODE &&"));
-            assert!(cmd.contains("$(cat /tmp/"));
-        }
-    }
-
-    #[test]
-    fn test_build_claude_no_task() {
-        let reg = test_registry();
-        let params = make_params("claude", None);
-        let cmd = build_agent_command("claude", &params, None, None, &reg);
-        if cfg!(target_os = "windows") {
-            assert!(cmd.starts_with("Remove-Item Env:CLAUDECODE"));
-            assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
-            assert!(cmd.ends_with(" claude --dangerously-skip-permissions"));
-        } else {
-            assert_eq!(
-                cmd,
-                "unset CLAUDECODE && claude --dangerously-skip-permissions"
-            );
-        }
-    }
-
-    #[test]
-    fn test_build_claude_with_agent_name() {
-        let reg = test_registry();
-        let mut params = make_params("claude", Some("review code"));
-        params.agent_name = Some("architect".to_string());
-        let cmd = build_agent_command("claude", &params, None, None, &reg);
-        assert!(cmd.contains("--agent 'architect'"));
-    }
-
-    #[test]
-    fn test_build_other_agent() {
-        let reg = test_registry();
-        let mut params = make_params("aider", None);
-        params.args = Some(vec!["--model".to_string(), "gpt-4".to_string()]);
-        let cmd = build_agent_command("aider", &params, None, None, &reg);
-        assert_eq!(cmd, "aider --model gpt-4");
-        assert!(!cmd.contains("CLAUDECODE"));
-    }
-
-    #[test]
-    fn test_shell_quote() {
-        assert_eq!(ShellSyntax::quote("hello"), "'hello'");
-        assert_eq!(
-            ShellSyntax::quote("count *.tsx files"),
-            "'count *.tsx files'"
-        );
-        if cfg!(target_os = "windows") {
-            assert_eq!(ShellSyntax::quote("it's"), "'it''s'");
-        } else {
-            assert_eq!(ShellSyntax::quote("it's"), "'it'\\''s'");
-        }
-    }
-
-    // ── 4. build_agent_command with special chars ──
-
-    #[test]
-    fn test_build_claude_task_with_newlines() {
-        let reg = test_registry();
-        let params = make_params("claude", Some("line1\nline2\nline3"));
-        let cmd = build_agent_command("claude", &params, Some("line1\nline2\nline3"), None, &reg);
-        // Task goes through temp file, so newlines are preserved in the file
-        assert!(
-            cmd.contains(".ct-task-"),
-            "task with newlines still uses temp file"
-        );
-        assert!(cmd.contains("--dangerously-skip-permissions"));
-    }
-
-    #[test]
-    fn test_build_claude_task_with_single_quotes() {
-        let reg = test_registry();
-        let task = "count files that don't match '*.rs'";
-        let params = make_params("claude", Some(task));
-        let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
-        // Task is written to a temp file, so quotes don't break the command
-        assert!(cmd.contains(".ct-task-"));
-    }
-
-    #[test]
-    fn test_build_claude_task_with_double_quotes() {
-        let reg = test_registry();
-        let task = r#"find files matching "*.rs""#;
-        let params = make_params("claude", Some(task));
-        let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
-        assert!(cmd.contains(".ct-task-"));
-    }
-
-    #[test]
-    fn test_build_claude_task_with_shell_special_chars() {
-        let reg = test_registry();
-        let task = "echo $HOME && ls | grep foo; rm -rf /tmp/test";
-        let params = make_params("claude", Some(task));
-        let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
-        // Should not contain raw special chars in the command itself — they're in the temp file
-        assert!(cmd.contains(".ct-task-"));
-        assert!(
-            !cmd.contains("$HOME"),
-            "shell vars should be in temp file, not in command"
-        );
-    }
-
-    #[test]
-    fn test_build_claude_task_temp_file_created() {
-        let reg = test_registry();
-        let task = "test task content";
-        let params = make_params("claude", Some(task));
-        let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
-        // Extract the temp file path from the command and verify it was written
-        if cfg!(not(target_os = "windows")) {
-            // Command looks like: ... "$(cat /tmp/.ct-task-XXXXXXXX)"
-            let start = cmd.find("/tmp/.ct-task-").unwrap();
-            let end = cmd[start..].find(')').unwrap() + start;
-            let path = &cmd[start..end];
-            let content = std::fs::read_to_string(path).unwrap();
-            assert_eq!(content, task, "temp file should contain the task verbatim");
-            // Cleanup
-            let _ = std::fs::remove_file(path);
-        }
-    }
-
-    #[test]
-    fn test_build_claude_with_extra_args() {
-        let reg = test_registry();
-        let mut params = make_params("claude", None);
-        params.args = Some(vec!["--verbose".to_string(), "--no-cache".to_string()]);
-        let cmd = build_agent_command("claude", &params, None, None, &reg);
-        assert!(cmd.contains("--verbose"));
-        assert!(cmd.contains("--no-cache"));
-        assert!(cmd.ends_with("--verbose --no-cache"));
-    }
-
-    #[test]
-    fn test_build_with_model_uses_provider_specific_flag() {
-        // claude → `--model X`, codex/opencode → `-m X`. The CLI flag is provider-agnostic; the right syntax comes from `model_launch_args`.
-        let reg = AgentRegistry::new();
-        reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-        reg.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
-        reg.register_provider(Box::new(
-            crate::plugin::agent_opencode::OpenCodeProvider::new(),
-        ));
-
-        let mut p = make_params("claude", None);
-        p.model = Some("opus".into());
-        let cmd = build_agent_command("claude", &p, None, None, &reg);
-        assert!(
-            cmd.contains("--model opus"),
-            "claude expected --model X: {}",
-            cmd
-        );
-
-        let mut p = make_params("codex", None);
-        p.model = Some("gpt-5.4-mini".into());
-        let cmd = build_agent_command("codex", &p, None, None, &reg);
-        assert!(
-            cmd.contains("-m gpt-5.4-mini"),
-            "codex expected -m X: {}",
-            cmd
-        );
-
-        let mut p = make_params("opencode", None);
-        p.model = Some("github-copilot/claude-haiku-4.5".into());
-        let cmd = build_agent_command("opencode", &p, None, None, &reg);
-        assert!(
-            cmd.contains("-m github-copilot/claude-haiku-4.5"),
-            "opencode expected -m X: {}",
-            cmd
-        );
-    }
-
-    #[test]
-    fn test_build_with_resume_session_id_uses_provider_resume_form() {
-        let reg = AgentRegistry::new();
-        reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-        reg.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
-        reg.register_provider(Box::new(
-            crate::plugin::agent_opencode::OpenCodeProvider::new(),
-        ));
-
-        let mut p = make_params("claude", None);
-        p.resume_session_id = Some("abc-123".into());
-        let cmd = build_agent_command("claude", &p, None, None, &reg);
-        assert!(
-            cmd.contains("--resume") && cmd.contains("abc-123"),
-            "claude resume: {}",
-            cmd
-        );
-
-        let mut p = make_params("codex", None);
-        p.resume_session_id = Some("019df64f-d798-78c3-967a-d5deeb4896d9".into());
-        let cmd = build_agent_command("codex", &p, None, None, &reg);
-        assert!(
-            cmd.starts_with("codex resume"),
-            "codex resume must start `codex resume`: {}",
-            cmd
-        );
-        assert!(
-            cmd.contains("019df64f-d798-78c3-967a-d5deeb4896d9"),
-            "codex resume must include uuid: {}",
-            cmd
-        );
-    }
-
-    #[test]
-    fn test_build_non_claude_ignores_task_in_command() {
-        let reg = test_registry();
-        // For non-claude agents, build_agent_command does NOT embed the task
-        let params = make_params("aider", Some("review this code"));
-        let cmd = build_agent_command("aider", &params, Some("review this code"), None, &reg);
-        // Non-claude: task is NOT added to the command (it's sent separately via PTY) The function just puts agent_cmd + args
-        assert_eq!(cmd, "aider");
-    }
-}
+mod tests;

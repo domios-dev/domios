@@ -665,16 +665,16 @@ pattern. Nothing that talks to 7685 survives.
 
 **Problem.** Five runners, five invocations, no aggregate: `./build.sh test` (Rust),
 `./build.sh e2e` (pytest), `pnpm test:pw` (Playwright), `pnpm test:plugins`
-(provider tests), `tests/webdriver` (manual `npm test`), TS unit tests run via bare
-`npx tsx` and aren't in any script. Nobody — human or agent — can answer "is everything
-green?" with one command.
+(provider tests), and TS unit tests run via bare `npx tsx` and aren't in any script.
+Nobody — human or agent — can answer "is everything green?" with one command.
 
 **Task.** Add `test:all` to build.sh: runs Rust unit → TS unit (add a proper
 `test:unit` script using vitest for `src/**/*.test.ts` + `packages/`) → plugin tests →
 pytest e2e (only if dev is up — probe `/api/health` on 7686, skip with a loud SKIPPED
-otherwise) → Playwright `@smoke` only (same dev-up condition). Print a per-layer
-summary table and exit non-zero if any executed layer failed. Layers that need real
-LLM calls are excluded from `test:all` by design (see testing-process.md taxonomy).
+otherwise) → Playwright `@smoke` only (same dev-up condition). The old
+`tests/webdriver`/WDIO layer has been removed. Print a per-layer summary table and
+exit non-zero if any executed layer failed. Layers that need real LLM calls are
+excluded from `test:all` by design (see testing-process.md taxonomy).
 
 **Acceptance.** `./build.sh test:all` on a clean checkout with dev down: unit layers
 run, integration layers SKIP loudly, exit reflects unit results. With dev up: all
@@ -1260,10 +1260,12 @@ Tracked here so nothing silently drops; dispatch after the merge, briefs on dema
 | MESH-COV / MEM-COV | Deepen mesh + mem e2e beyond the current core smokes (relay edges, graph-repair surfaces). | held |
 | TTL-CLOCK | TTL watchdog xfail → real test on injectable debug clock. | held |
 | D11 | Vitest migration of remaining legacy TS tests. | held |
-| CI-ON-EIGHT | Mesh-CI: macOS native + Linux Docker on Eight (M5), Windows on BLACKSTAR, triggered via codeterm, posting gh commit statuses — restores the rust/lint coverage removed from hosted CI. | program |
+| CI-ON-EIGHT | Mesh-CI: macOS native + Linux + Windows-ARM64 VM rig on Eight (M5; live WIP in its "Testing plan" pane — QEMU Win11 unattended install running 2026-06-12), plus BLACKSTAR native Windows; triggered via codeterm over mesh, posting gh commit statuses. Three integration points: (1) PR gate — push → 3-platform run → commit status; (2) pre-release gate in the github-release skill before tag/build; (3) on-demand cross-platform repro (e.g. the spawn+send daemon crash). Restores the coverage removed from hosted CI. | program |
 | LLM-RERUN | Re-run the LLM e2e tranche when provider limits reset. | held |
 | SUITE-SPLIT | Split the hierarchy mega-suite; biome/clippy ratchet drains; file-size allowlist drain to zero. | held |
 | R1 | (see WS-G above) claude.json concurrent-corruption research. | held |
+| RESUME-SKIP-SIGNAL | Stale/never-materialized sid → restore silently starts a fresh session, no UI hint or notification; user caught it only by eyeballing (2026-06-12, rm-claude-1). Add a pane badge + notification on resume-skip. | new |
+| SEND-VERIFY-GAP | Verified-send returns ok yet the provider never records the input. Two live instances on 2026-06-12: matrix claude pane (send ok, JSONL never materialized) and a prod worker spawn whose --task left only mojibake in the codex composer. Strengthen agent-pane send verification against provider-store materialization (the matrix pre-kill gate is the prototype) or document the weaker guarantee honestly. | new |
 
 ## Dispatch order (arbiter cheat-sheet)
 
@@ -1289,4 +1291,4 @@ Sonnet ×27 · Opus ×10 · GPT-5.5 ×3 · Codex/Spark ×5 · Haiku — cheap ve
 S-effort doc tasks throughout. GPT-5.5 tasks remain gated on G1 (AGENTS.md) so Codex
 workers get the hard rules. See [agent-team.md](agent-team.md) for the rubric.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

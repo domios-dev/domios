@@ -1,10 +1,12 @@
 pub mod agent;
 pub mod bridge;
 pub mod cron;
+pub mod delayed;
 pub mod docs;
 pub mod dream;
 pub mod graph_mutate;
 pub mod install;
+pub mod local_io;
 pub mod manifest;
 pub mod mem;
 pub mod mem_secret;

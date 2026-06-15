@@ -77,23 +77,10 @@ pub fn mesh_relay_cmd(
     token: &Option<String>,
     target: &str,
     action: &str,
-    payload: &str,
     pane: &str,
     json_mode: bool,
 ) {
     let (method, path, body) = match action {
-        "exec" | "send" => {
-            let source =
-                std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
-            (
-                "POST",
-                format!(
-                    "/api/panes/{}/send",
-                    if pane.is_empty() { "general" } else { pane }
-                ),
-                serde_json::json!({"text": payload, "enter": true, "source_pane": source}),
-            )
-        }
         "output" => (
             "GET",
             format!(

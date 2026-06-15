@@ -1,5 +1,7 @@
 use super::*;
 use crate::service::ServiceContext;
+use std::path::PathBuf;
+use std::time::Duration;
 
 #[test]
 fn invalid_role_lead_is_rejected() {
@@ -27,6 +29,137 @@ fn agent_spec(provider: &str) -> SpawnPaneSpec {
     }
 }
 
+struct ModelProvider {
+    id: &'static str,
+    models: Vec<crate::agent::provider::ModelInfo>,
+    default_model: Option<String>,
+    cli_binary: Option<&'static str>,
+    install_command: Option<&'static str>,
+}
+
+impl ModelProvider {
+    fn new(id: &'static str, model_ids: &[&str]) -> Self {
+        Self {
+            id,
+            models: model_ids
+                .iter()
+                .map(|id| crate::agent::provider::ModelInfo {
+                    id: (*id).into(),
+                    display_name: (*id).into(),
+                    description: None,
+                })
+                .collect(),
+            default_model: model_ids.first().map(|id| (*id).to_string()),
+            cli_binary: None,
+            install_command: None,
+        }
+    }
+
+    fn with_cli(mut self, binary: &'static str, install_command: &'static str) -> Self {
+        self.cli_binary = Some(binary);
+        self.install_command = Some(install_command);
+        self
+    }
+}
+
+impl crate::agent::provider::AgentProvider for ModelProvider {
+    fn id(&self) -> &str {
+        self.id
+    }
+
+    fn display_name(&self) -> &str {
+        self.id
+    }
+
+    fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
+        self.id.into()
+    }
+
+    fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
+        crate::agent::provider::ReadinessStrategy::FixedDelay {
+            duration: Duration::ZERO,
+        }
+    }
+
+    fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
+        crate::agent::provider::TaskDelivery::PtyInput
+    }
+
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+
+    fn detect_from_output(&self, _: &str) -> bool {
+        false
+    }
+
+    fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+        None
+    }
+
+    fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+        None
+    }
+
+    fn detect_launched_session_id(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+    ) -> Option<String> {
+        if let Some(sid) = injected_session_id {
+            if self.session_exists(cwd, sid) {
+                return Some(sid.to_string());
+            }
+        }
+        self.detect_session_id(cwd, exclude, max_age)
+    }
+
+    fn detect_started_session(
+        &self,
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+        injected_session_id: Option<&str>,
+        screen_text: Option<&str>,
+    ) -> Option<String> {
+        self.detect_started_session_with_markers(
+            cwd,
+            exclude,
+            max_age,
+            injected_session_id,
+            screen_text,
+        )
+    }
+
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+
+    fn available_models(&self) -> Vec<crate::agent::provider::ModelInfo> {
+        self.models.clone()
+    }
+
+    fn default_model(&self) -> Option<String> {
+        self.default_model.clone()
+    }
+
+    fn cli_binary(&self) -> Option<&str> {
+        self.cli_binary
+    }
+
+    fn install_command(&self, _: &str) -> Option<String> {
+        self.install_command.map(str::to_string)
+    }
+}
+
+fn registry_with(provider: ModelProvider) -> crate::agent::registry::AgentRegistry {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(provider));
+    registry
+}
+
 #[test]
 fn default_visibility_is_visible() {
     let spec = SpawnPaneSpec::default();
@@ -37,6 +170,134 @@ fn default_visibility_is_visible() {
 fn default_command_is_shell() {
     let spec = SpawnPaneSpec::default();
     assert!(matches!(spec.command, PaneCommand::Shell));
+}
+
+#[test]
+fn validate_agent_model_accepts_advertised_id() {
+    let registry = registry_with(ModelProvider::new(
+        "opencode",
+        &["anthropic/claude-sonnet-4-6", "opencode/big-pickle"],
+    ));
+
+    assert!(validate_agent_model(&registry, "opencode", Some("opencode/big-pickle")).is_ok());
+    assert!(
+        validate_agent_model(&registry, "opencode", Some("anthropic/claude-sonnet-4-6")).is_ok()
+    );
+}
+
+#[test]
+fn validate_agent_model_rejects_bogus_id() {
+    let registry = registry_with(ModelProvider::new("opencode", &["opencode/big-pickle"]));
+
+    let err = validate_agent_model(&registry, "opencode", Some("does-not-exist")).unwrap_err();
+    assert!(err.contains("does-not-exist"));
+    assert!(err.contains("codeterm agent models opencode"));
+}
+
+#[test]
+fn validate_agent_model_accepts_claude_alias() {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+
+    assert!(validate_agent_model(&registry, "claude", Some("opus")).is_ok());
+}
+
+#[test]
+fn validate_agent_model_suggests_unique_prefixed_suffix() {
+    let registry = registry_with(ModelProvider::new(
+        "opencode",
+        &["opencode/big-pickle", "opencode/ring-2.6-1t"],
+    ));
+
+    let err = validate_agent_model(&registry, "opencode", Some("big-pickle")).unwrap_err();
+    assert!(err.contains("Did you mean 'opencode/big-pickle'?"));
+    assert!(err.contains("codeterm agent models opencode"));
+}
+
+#[test]
+fn validate_agent_model_passes_through_non_enumerable_provider() {
+    let registry = registry_with(ModelProvider::new("dynamic", &[]));
+
+    assert!(validate_agent_model(&registry, "dynamic", Some("anything-goes")).is_ok());
+}
+
+#[test]
+fn provider_cli_availability_passes_without_cli_dependency() {
+    let registry = registry_with(ModelProvider::new("embedded-provider", &[]));
+
+    assert_eq!(
+        provider_cli_install_warning(&registry, "embedded-provider").unwrap(),
+        None
+    );
+}
+
+#[test]
+fn provider_cli_availability_warns_on_missing_binary_with_install_hint() {
+    let registry = registry_with(ModelProvider::new("missing-cli", &[]).with_cli(
+        "codeterm-definitely-missing-provider-cli",
+        "install missing-cli",
+    ));
+
+    let warning = provider_cli_install_warning(&registry, "missing-cli")
+        .unwrap()
+        .unwrap();
+    assert!(warning.contains("Provider not installed"));
+    assert!(warning.contains("codeterm-definitely-missing-provider-cli"));
+    assert!(warning.contains("install missing-cli"));
+}
+
+#[test]
+fn provider_cli_availability_rejects_invalid_binary_name() {
+    let registry =
+        registry_with(ModelProvider::new("bad-cli", &[]).with_cli("bad cli", "install bad-cli"));
+
+    let err = provider_cli_install_warning(&registry, "bad-cli").unwrap_err();
+    assert!(err.contains("invalid CLI binary"));
+}
+
+#[test]
+fn fresh_agent_model_uses_provider_default_when_missing() {
+    let registry = registry_with(ModelProvider::new(
+        "model-test-default",
+        &["model-a", "model-b"],
+    ));
+
+    assert_eq!(
+        resolve_fresh_agent_model(&registry, "model-test-default", None, None).as_deref(),
+        Some("model-a")
+    );
+}
+
+#[test]
+fn fresh_agent_model_keeps_explicit_model() {
+    let registry = registry_with(ModelProvider::new(
+        "model-test-explicit",
+        &["model-a", "model-b"],
+    ));
+
+    assert_eq!(
+        resolve_fresh_agent_model(
+            &registry,
+            "model-test-explicit",
+            Some(" model-b ".into()),
+            None
+        )
+        .as_deref(),
+        Some("model-b")
+    );
+}
+
+#[test]
+fn resume_agent_model_does_not_inject_default() {
+    let registry = registry_with(ModelProvider::new(
+        "model-test-resume",
+        &["model-a", "model-b"],
+    ));
+
+    assert_eq!(
+        resolve_fresh_agent_model(&registry, "model-test-resume", None, Some("sid-1")),
+        None
+    );
 }
 
 #[test]

@@ -11,6 +11,7 @@ use crate::notification::store::NotificationStore;
 use crate::notification::NotifState;
 use crate::pty::manager::{OutputBuffer, PtyManager};
 use crate::pty::screen_state::ScreenState;
+use crate::service::spawn::{should_default_agent_pane_to_chat, PaneVisibility};
 use crate::session::store::SessionStore;
 use crate::session::SessionState;
 use crate::{
@@ -78,6 +79,8 @@ pub(crate) fn init_states() -> AppStates {
         phase: update::UpdatePhase::Idle,
         last_error: None,
         phase_changed_at: None,
+        downloaded_bytes: 0,
+        download_total_bytes: None,
     }));
 
     // Try to restore last session, fallback to default workspace
@@ -127,7 +130,11 @@ pub(crate) fn init_states() -> AppStates {
     if general_config.enabled {
         service::general_agent::ensure_directories();
         service::general_agent::generate_instructions(&general_config.agent_provider, None);
-        service::general_agent::ensure_general_workspace(&mut mux_state_inner);
+        let default_chat_view = default_chat_view_for_general_agent(
+            config_state.lock().ui.default_new_agent_pane_chat,
+            &general_config.agent_provider,
+        );
+        service::general_agent::ensure_general_workspace(&mut mux_state_inner, default_chat_view);
     }
 
     let mux_state: MuxState = Arc::new(Mutex::new(mux_state_inner));
@@ -147,5 +154,43 @@ pub(crate) fn init_states() -> AppStates {
         mesh: mesh_state,
         keepawake: keepawake::new_state(),
         resize_owner,
+    }
+}
+
+fn default_chat_view_for_general_agent(default_enabled: bool, provider_id: &str) -> bool {
+    should_default_agent_pane_to_chat(
+        default_enabled,
+        PaneVisibility::Visible,
+        bundled_agent_provider_supports_chat_ui(provider_id),
+    )
+}
+
+fn bundled_agent_provider_supports_chat_ui(provider_id: &str) -> bool {
+    let registry = agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+    registry.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
+    registry.register_provider(Box::new(
+        crate::plugin::agent_opencode::OpenCodeProvider::new(),
+    ));
+    registry
+        .with_provider(provider_id, |provider| provider.supports_chat_ui())
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn general_agent_chat_default_on_capable_provider_sets_chat_view() {
+        assert!(super::default_chat_view_for_general_agent(true, "claude"));
+    }
+
+    #[test]
+    fn general_agent_chat_default_off_capable_provider_stays_terminal() {
+        assert!(!super::default_chat_view_for_general_agent(false, "claude"));
+    }
+
+    #[test]
+    fn general_agent_chat_default_on_unknown_provider_stays_terminal() {
+        assert!(!super::default_chat_view_for_general_agent(true, "unknown"));
     }
 }

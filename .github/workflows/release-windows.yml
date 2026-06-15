@@ -10,7 +10,8 @@ name: release-windows
 # Disable: set repo Variable RELEASE_WINDOWS_ENABLED=false in
 # Settings -> Secrets and variables -> Actions -> Variables.
 #
-# Required secrets: TAURI_SIGNING_PRIVATE_KEY.
+# Required secrets: TAURI_SIGNING_PRIVATE_KEY, PACKAGE_REPOS_TOKEN.
+# PACKAGE_REPOS_TOKEN must have contents:write for rollacode/codeterm-releases.
 # Optional secret:  TAURI_KEY_PASSWORD (only if the signing key is
 # encrypted — it evaluates to empty when unset).
 
@@ -81,7 +82,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.22.0'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -117,7 +118,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
-          REPO: ${{ github.repository }}
+          SOURCE_REPO: ${{ github.repository }}
+          MANIFEST_REPO: rollacode/codeterm-releases
           PLATFORM_KEY: windows-x86_64
         shell: bash
         run: |
@@ -127,20 +129,24 @@ jobs:
           find "$BUNDLE_ROOT" -maxdepth 3 -type f | sort || true
           echo "::endgroup::"
           UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*.nsis.zip.sig' 2>/dev/null | head -n1)
-          [ -n "$UPDATER_SIG" ] || { echo "::error::No NSIS signature under $BUNDLE_ROOT/nsis"; exit 1; }
+          if [ -z "$UPDATER_SIG" ]; then
+            UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*-setup.exe.sig' 2>/dev/null | head -n1)
+          fi
+          [ -n "$UPDATER_SIG" ] || { echo "::error::No NSIS updater signature under $BUNDLE_ROOT/nsis"; exit 1; }
           UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
           [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
 
-          # The .nsis.zip + .sig are not uploaded by tauri-action, so push
-          # them ourselves — the updater URL must resolve to a real asset.
-          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$REPO"
+          # With createUpdaterArtifacts=true, Tauri v2 reuses the NSIS .exe
+          # as the updater bundle; v1Compatible builds emit .nsis.zip.
+          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$SOURCE_REPO"
 
           OUT="updater-${TARGET}.json"
+          REPO="$MANIFEST_REPO" \
           UPDATER_BUNDLE="$UPDATER_BUNDLE" \
           UPDATER_SIG="$UPDATER_SIG" \
           OUT="$OUT" \
             python3 .github/workflows/build-updater-fragment.py
-          gh release upload "$TAG" "$OUT" --clobber --repo "$REPO"
+          gh release upload "$TAG" "$OUT" --clobber --repo "$SOURCE_REPO"
 
       - name: Refresh merged channel manifest
         env:
@@ -182,7 +188,10 @@ jobs:
           set -euo pipefail
           BUNDLE_ROOT="src-tauri/target/${TARGET}/release/bundle"
           UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*.nsis.zip.sig' 2>/dev/null | head -n1)
-          [ -n "$UPDATER_SIG" ] || { echo "::error::No NSIS signature under $BUNDLE_ROOT/nsis"; exit 1; }
+          if [ -z "$UPDATER_SIG" ]; then
+            UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*-setup.exe.sig' 2>/dev/null | head -n1)
+          fi
+          [ -n "$UPDATER_SIG" ] || { echo "::error::No NSIS updater signature under $BUNDLE_ROOT/nsis"; exit 1; }
           UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
           [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
 
@@ -190,13 +199,18 @@ jobs:
           # Each platform workflow may run this step in any order; first one
           # wins, the rest just upload assets to the existing release.
           if ! gh release view "$TAG" --repo "$MIRROR_REPO" >/dev/null 2>&1; then
-            EXTRA_FLAGS=()
-            if [ "$PRERELEASE" = "true" ]; then EXTRA_FLAGS+=(--prerelease); fi
-            gh release create "$TAG" \
-              --repo "$MIRROR_REPO" \
-              --title "CodeTerm $TAG" \
-              --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes." \
-              "${EXTRA_FLAGS[@]}"
+            if [ "$PRERELEASE" = "true" ]; then
+              gh release create "$TAG" \
+                --repo "$MIRROR_REPO" \
+                --title "CodeTerm $TAG" \
+                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes." \
+                --prerelease
+            else
+              gh release create "$TAG" \
+                --repo "$MIRROR_REPO" \
+                --title "CodeTerm $TAG" \
+                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
+            fi
           fi
 
           gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" "$MANIFEST" \

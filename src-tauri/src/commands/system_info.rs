@@ -49,12 +49,8 @@ pub fn get_network_info(
     // duplicating the probe logic (which lacked IP validation, the GUI-bridge fallback, and a timeout).
     let tailscale_ip = mesh.lock().tailscale_ip.clone();
     let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
-    let tailscale_https_url = if crate::mesh::discovery::tailscale_serve_https_enabled() {
-        tailscale_dns.as_ref().map(|dns| format!("https://{}", dns))
-    } else {
-        None
-    };
     let port = state.lock().api.port;
+    let tailscale_https_url = crate::mesh::tailscale_serve_https_url(port);
     Ok(serde_json::json!({
         "local_ip": local_ip,
         "tailscale_ip": tailscale_ip,
@@ -64,6 +60,37 @@ pub fn get_network_info(
         "tailscale_url": tailscale_ip.as_ref().map(|ip| format!("http://{}:{}", ip, port)),
         "tailscale_https_url": tailscale_https_url,
     }))
+}
+
+/// Read-only Tailscale Serve status for the Web Access panel — drives which
+/// affordance to show (install hint / enable button / already-active + disable).
+#[tauri::command]
+pub fn get_serve_status(
+    state: tauri::State<'_, crate::config::ConfigState>,
+) -> crate::mesh::ServeStatus {
+    let port = state.lock().api.port;
+    crate::mesh::probe_serve_status(port)
+}
+
+/// Consent-gated: stand up `tailscale serve` HTTPS → this daemon. The UI MUST
+/// have shown the exact commands and required a second confirming click before
+/// invoking this. Idempotent + defends against clobbering a sibling CodeTerm.
+#[tauri::command]
+pub fn enable_web_access(
+    state: tauri::State<'_, crate::config::ConfigState>,
+    https_port: Option<u16>,
+) -> crate::mesh::ServeResult {
+    let port = state.lock().api.port;
+    crate::mesh::enable_web_serve(port, https_port)
+}
+
+/// Tear down the Serve HTTPS listener that proxies to this daemon.
+#[tauri::command]
+pub fn disable_web_access(
+    state: tauri::State<'_, crate::config::ConfigState>,
+) -> crate::mesh::ServeResult {
+    let port = state.lock().api.port;
+    crate::mesh::disable_web_serve(port)
 }
 
 /// Cleanly restart the CodeTerm process. Used by the Settings UI after the user
@@ -186,12 +213,13 @@ pub fn suggest_install_pwsh(
 /// state: "loaded" — WebGL addon attached successfully
 ///        "context_lost" — GPU context dropped (xterm will fall back)
 ///        "failed" — WebGL addon constructor threw
-///        "skipped_macos" / "skipped_test_mode" — deliberate DOM renderer
+///        "skipped_macos" / "skipped_windows" / "skipped_test_mode" — deliberate DOM renderer
 #[tauri::command]
 pub fn report_webgl_status(state: String, detail: Option<String>) {
     match state.as_str() {
         "loaded" => log::info!("[webgl] addon loaded"),
         "skipped_macos" => log::info!("[webgl] skipped on macOS — DOM renderer active"),
+        "skipped_windows" => log::info!("[webgl] skipped on Windows — DOM renderer active"),
         "skipped_test_mode" => log::info!("[webgl] skipped in test mode"),
         "context_lost" => log::warn!("[webgl] GPU context lost — DOM fallback engaged"),
         "failed" => log::warn!(

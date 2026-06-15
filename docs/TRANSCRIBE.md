@@ -92,7 +92,7 @@ Until native support lands, dictation is an external driver you run. Recipe:
    `/transcribe`; read `text`. Collapse whisper's internal line breaks to spaces
    (`re.sub(r"\s+", " ", text)`) so auto-submit works.
 4. **Inject into a pane** — two ways:
-   - CLI: `codeterm send-text "<text>" --pane <id>` (auto-submits)
+   - CLI: `codeterm send "<text>" --pane <id>` (auto-submits)
    - HTTP: `POST /api/panes/<pane_id>/send` with `Authorization: Bearer
      <service_token>` (register via `codeterm service add`, token is scoped to
      that endpoint). Good for a daemon with no shell.
@@ -151,6 +151,6 @@ natural **Process-tier plugin** — the plugin process owns mic capture + the
   pane-input API (`begin/partial/commit/cancel`) the plugin streams partials into.
 
 So: to add a new STT backend, implement `/transcribe` and point a URL at it.
-To drive dictation today, run an external driver and inject via `send-text` or
+To drive dictation today, run an external driver and inject via `codeterm send` or
 the pane send API. To do it *right*, build it as a Process-tier plugin on the
 existing plugin contract. Either way — don't put the model in the binary.

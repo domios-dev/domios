@@ -24,7 +24,7 @@ EMBED_BUNDLE="src-tauri/bundled-embed/codeterm-embed-${triple}${EXE_EXT}"
 # --- 1. CLI ---
 touch cli/src/main.rs
 cargo build --release --manifest-path cli/Cargo.toml
-node scripts/bundle-cli.js
+CODETERM_DEV=1 node scripts/bundle-cli.js
 
 # --- 2. embed stub (always — guarantees the file exists for tauri_build) ---
 node scripts/prepare-embed-stub.js

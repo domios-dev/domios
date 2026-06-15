@@ -51,7 +51,7 @@ Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
 
 ## Git Hooks
 
-Custom git hooks live in `.githooks/` and are automatically wired via `git config core.hooksPath` by every `./build.sh` invocation. The pre-push hook runs `cargo check` on both the main crate and CLI to catch compile errors before pushing to avoid wasting CI minutes.
+Custom git hooks live in `.githooks/` and are automatically wired via `git config core.hooksPath` by every `./build.sh` invocation. The pre-push hook prepares the embed sidecar stub, then runs `cargo check`, `cargo fmt --check`, and `cargo clippy` on the main crate and CLI. On Windows it uses an isolated Cargo target directory so it does not collide with a running dev daemon that already owns `src-tauri/target`.
 
 ## macOS Code Signing
 
@@ -227,4 +227,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 1 -->
+<!-- revision: 3 -->

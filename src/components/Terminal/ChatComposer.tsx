@@ -1,20 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Paperclip, Terminal, X } from "lucide-react";
+import { Clock3, Paperclip, Terminal, X } from "lucide-react";
 import { ComposerActions } from "./ComposerActions";
-import { invoke } from "../../lib/bridge";
+import { invoke, listen } from "../../lib/bridge";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
+import {
+  createDelayedMessage,
+  deleteDelayedMessage,
+  listDelayedMessages,
+  sendDelayedMessageNow,
+  updateDelayedMessage,
+  type DelayedMessage,
+} from "./delayedSend";
+import { DelayedSendQueuePanel, DelayedSendSchedulePanel } from "./DelayedSendPanel";
 import {
   filterSlashCommands,
   type SlashCommandSuggestion,
 } from "../../lib/slashCommands";
 import type { ModelInfo, PendingPrompt, ProviderDescriptor } from "../../lib/types";
+import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 
 const COMPOSER_MIN_HEIGHT = 20;
 const COMPOSER_SINGLE_LINE_THRESHOLD = 28;
 const COMPOSER_MAX_HEIGHT = 150;
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
+// Shown the instant a voice note is sent — transcription (cold Whisper can take
+// several seconds) then morphs this bubble into the transcript, or an error.
+const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
+const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
 const CLI_FALLBACK_COMMANDS = new Set([
   "/usage",
   "/config",
@@ -79,14 +93,20 @@ function ComposerBubbleRow({
   onToggleTerminalFallback,
   terminalActive,
   pendingPrompt,
+  queuedCount,
+  failedCount,
+  onOpenDelayedQueue,
 }: {
   attachments: string[];
   onRemove: (path: string) => void;
   onToggleTerminalFallback?: () => void;
   terminalActive: boolean;
   pendingPrompt?: PendingPrompt | null;
+  queuedCount: number;
+  failedCount: number;
+  onOpenDelayedQueue: () => void;
 }) {
-  if (attachments.length === 0 && !onToggleTerminalFallback) return null;
+  if (attachments.length === 0 && !onToggleTerminalFallback && queuedCount === 0 && failedCount === 0) return null;
   const visible = attachments.slice(0, 4);
   const overflow = attachments.length - visible.length;
   return (
@@ -128,6 +148,28 @@ function ComposerBubbleRow({
               waiting
             </span>
           )}
+        </button>
+      )}
+      {(queuedCount > 0 || failedCount > 0) && (
+        <button
+          type="button"
+          data-testid="delayed-send-bubble"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onOpenDelayedQueue}
+          className="inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs font-mono hover:brightness-110"
+          style={{
+            background: failedCount > 0
+              ? "color-mix(in srgb, var(--ct-red, #f85149) 12%, transparent)"
+              : "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, transparent)",
+            borderColor: failedCount > 0
+              ? "color-mix(in srgb, var(--ct-red, #f85149) 34%, transparent)"
+              : "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)",
+            color: failedCount > 0 ? "var(--ct-red, #f85149)" : "var(--ct-muted-fg)",
+          }}
+          title="Queued messages"
+        >
+          <Clock3 size={12} />
+          <span>{queuedCount > 0 ? `${queuedCount} queued` : `${failedCount} failed`}</span>
         </button>
       )}
       {visible.map((p) => (
@@ -204,6 +246,7 @@ export function ChatComposer({
   clearAttachments,
   handlePasteEvent,
   addOptimistic,
+  updateOptimistic,
   showComposerError,
   onOpenTerminalFallback,
   onToggleTerminalFallback,
@@ -218,7 +261,8 @@ export function ChatComposer({
   removeAttachment: (path: string) => void;
   clearAttachments: () => void;
   handlePasteEvent: (event: ClipboardEvent) => void | Promise<void>;
-  addOptimistic: (content: string) => void;
+  addOptimistic: (content: string) => string;
+  updateOptimistic: (id: string, content: string) => void;
   showComposerError: (message: string) => void;
   onOpenTerminalFallback?: () => void;
   onToggleTerminalFallback?: () => void;
@@ -233,10 +277,35 @@ export function ChatComposer({
   const touchMode = useTouchOptimizedUi();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
+  const [delayedMessages, setDelayedMessages] = useState<DelayedMessage[]>([]);
+  const [delayedQueueOpen, setDelayedQueueOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [delayedBusyId, setDelayedBusyId] = useState<string | null>(null);
+  const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [modelSuggestionDismissedFor, setModelSuggestionDismissedFor] = useState<string | null>(null);
+  const firstLine = input.split("\n")[0] || "";
+  const modelCommandQuery = useMemo(() => {
+    const match = firstLine.match(/^\/model\s+([^\n]*)$/i);
+    return match ? match[1].trim().toLowerCase() : null;
+  }, [firstLine]);
+  const filteredModelOptions = useMemo(() => {
+    if (modelCommandQuery === null) return [];
+    if (!providerDescriptor?.model_switch_format) return [];
+    const needle = modelCommandQuery;
+    if (!needle) return modelOptions;
+    return modelOptions.filter((model) => {
+      const haystack = `${model.id} ${model.display_name} ${model.description ?? ""}`.toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [modelCommandQuery, modelOptions, providerDescriptor?.model_switch_format]);
+  const modelSuggestionOpen = modelCommandQuery !== null
+    && filteredModelOptions.length > 0
+    && !modelPickerOpen
+    && modelSuggestionDismissedFor !== firstLine;
 
   const suggestions = useMemo(
-    () => filterSlashCommands(input.split("\n")[0] || ""),
-    [input],
+    () => filterSlashCommands(firstLine),
+    [firstLine],
   );
 
   const refocusComposer = useCallback(() => {
@@ -264,10 +333,25 @@ export function ChatComposer({
   }, [input]);
 
   useEffect(() => {
-    const firstLine = input.split("\n")[0] || "";
-    setPickerOpen(!modelPickerOpen && firstLine.startsWith("/") && suggestions.length > 0);
+    if (modelSuggestionDismissedFor && modelSuggestionDismissedFor !== firstLine) {
+      setModelSuggestionDismissedFor(null);
+    }
+  }, [firstLine, modelSuggestionDismissedFor]);
+
+  useEffect(() => {
+    setPickerOpen(
+      !modelPickerOpen
+        && !modelSuggestionOpen
+        && firstLine.startsWith("/")
+        && suggestions.length > 0,
+    );
     setPickerHighlight(0);
-  }, [input, modelPickerOpen, suggestions.length]);
+  }, [firstLine, modelPickerOpen, modelSuggestionOpen, suggestions.length]);
+
+  useEffect(() => {
+    if (!modelSuggestionOpen) return;
+    setModelHighlight((h) => Math.min(Math.max(h, 0), filteredModelOptions.length - 1));
+  }, [filteredModelOptions.length, modelSuggestionOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -297,6 +381,39 @@ export function ChatComposer({
     const id = setTimeout(() => textareaRef.current?.focus(), 0);
     return () => clearTimeout(id);
   }, []);
+
+  const refreshDelayedMessages = useCallback(async () => {
+    try {
+      setDelayedMessages(await listDelayedMessages(paneId));
+    } catch {
+      setDelayedMessages([]);
+    }
+  }, [paneId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const messages = await listDelayedMessages(paneId);
+        if (!cancelled) setDelayedMessages(messages);
+      } catch {
+        if (!cancelled) setDelayedMessages([]);
+      }
+    };
+    void refresh();
+    const interval = window.setInterval(refresh, 3_000);
+    let unlisten: (() => void) | null = null;
+    void listen<{ paneId?: string }>("delayed-send-changed", (e) => {
+      if (!e.payload?.paneId || e.payload.paneId === paneId) void refresh();
+    }).then((fn) => {
+      unlisten = fn;
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      unlisten?.();
+    };
+  }, [paneId]);
 
   function pickSuggestion(cmd: SlashCommandSuggestion) {
     const lines = input.split("\n");
@@ -337,7 +454,16 @@ export function ChatComposer({
     [providerDescriptor, refocusComposer, sendRawToPty, setInput, showComposerError],
   );
 
-  async function send(extraAttachments: string[] = []) {
+  function completeModelDraft(model: ModelInfo) {
+    const lines = input.split("\n");
+    lines[0] = `/model ${model.id}`;
+    setInput(lines.join("\n"));
+    setPickerOpen(false);
+    setModelPickerOpen(false);
+    refocusComposer();
+  }
+
+  function buildDraft(extraAttachments: string[] = []) {
     const text = input.trim();
     const cleanExtraAttachments = extraAttachments
       .map((p) => p.trim())
@@ -347,23 +473,62 @@ export function ChatComposer({
       if (!allAttachments.includes(p)) allAttachments.push(p);
     }
     if (!text && allAttachments.length === 0) return;
-    const nowTs = Date.now();
-    const dupKey = `${text} ${allAttachments.join("|")}`;
-    if (dupKey === lastSendRef.current.text && nowTs - lastSendRef.current.at < 500) return;
-    lastSendRef.current = { text: dupKey, at: nowTs };
+    return { text, allAttachments };
+  }
+
+  async function composeDraft(text: string, allAttachments: string[]) {
+    let transcribeFailed = false;
     const pathParts = await Promise.all(
-      allAttachments.map(async (p) =>
-        AUDIO_ATTACHMENT_RE.test(p)
-          ? await invoke<string>("transcribe_voice_attachment", { path: p }).catch(
-              () => quotePathForPaste(p),
-            )
-          : quotePathForPaste(p),
-      ),
+      allAttachments.map(async (p) => {
+        if (!AUDIO_ATTACHMENT_RE.test(p)) return quotePathForPaste(p);
+        try {
+          return await invoke<string>("transcribe_voice_attachment", { path: p });
+        } catch {
+          transcribeFailed = true;
+          return quotePathForPaste(p);
+        }
+      }),
     );
     const pathLines = pathParts.join(" ");
     const composed = text && pathLines
       ? `${text} ${pathLines}`
       : text || pathLines;
+    return { composed, transcribeFailed };
+  }
+
+  async function send(extraAttachments: string[] = []) {
+    const draft = buildDraft(extraAttachments);
+    if (!draft) return;
+    const { text, allAttachments } = draft;
+    const nowTs = Date.now();
+    const dupKey = `${text} ${allAttachments.join("|")}`;
+    if (dupKey === lastSendRef.current.text && nowTs - lastSendRef.current.at < 500) return;
+    lastSendRef.current = { text: dupKey, at: nowTs };
+    // Voice notes: show the bubble immediately so the user sees progress during
+    // the (possibly multi-second, cold-Whisper) transcription gap, then morph it
+    // into the transcript — instead of staring at silence until the text lands.
+    const hasAudio = allAttachments.some((p) => AUDIO_ATTACHMENT_RE.test(p));
+    const placeholderId = hasAudio ? addOptimistic(VOICE_TRANSCRIBING_PLACEHOLDER) : null;
+    const { composed, transcribeFailed } = await composeDraft(text, allAttachments);
+    if (placeholderId && transcribeFailed) {
+      updateOptimistic(placeholderId, VOICE_TRANSCRIBE_ERROR);
+      setInput("");
+      clearAttachments();
+      refocusComposer();
+      return;
+    }
+    if (
+      allAttachments.length === 0
+      && modelCommandQuery !== null
+      && providerDescriptor?.model_switch_format
+      && filteredModelOptions.length > 0
+    ) {
+      const model = filteredModelOptions[Math.min(modelHighlight, filteredModelOptions.length - 1)];
+      if (model) {
+        await chooseModel(model);
+        return;
+      }
+    }
     if (allAttachments.length === 0 && composed.trim() === "/model") {
       setInput("");
       if (modelOptions.length === 0 || !providerDescriptor?.model_switch_format) {
@@ -381,14 +546,18 @@ export function ChatComposer({
       refocusComposer();
       return;
     }
-    addOptimistic(composed);
+    if (placeholderId) {
+      updateOptimistic(placeholderId, composed);
+    } else {
+      addOptimistic(composed);
+    }
     setInput("");
     clearAttachments();
     refocusComposer();
     try {
       const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
+      if (!currentPtyId) throw new Error("Pane has no PTY");
       if (fallbackCommand) {
-        if (!currentPtyId) throw new Error("Pane has no PTY");
         onOpenTerminalFallback?.();
         await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
       } else {
@@ -401,6 +570,51 @@ export function ChatComposer({
     }
   }
 
+  async function scheduleDraft(scheduledAtMs: number) {
+    const draft = buildDraft();
+    if (!draft) return;
+    setScheduleBusy(true);
+    try {
+      const { composed, transcribeFailed } = await composeDraft(draft.text, draft.allAttachments);
+      if (transcribeFailed) {
+        showComposerError(VOICE_TRANSCRIBE_ERROR);
+        return;
+      }
+      if (draft.allAttachments.length === 0 && composed.trim() === "/model") {
+        showComposerError("Model picker cannot be scheduled.");
+        return;
+      }
+      await createDelayedMessage(paneId, composed, scheduledAtMs);
+      setInput("");
+      clearAttachments();
+      setScheduleOpen(false);
+      setDelayedQueueOpen(true);
+      await refreshDelayedMessages();
+    } catch (e) {
+      showComposerError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setScheduleBusy(false);
+      refocusComposer();
+    }
+  }
+
+  async function withDelayedBusy(id: string, op: () => Promise<void>) {
+    setDelayedBusyId(id);
+    try {
+      await op();
+      await refreshDelayedMessages();
+    } catch (e) {
+      showComposerError(e instanceof Error ? e.message : String(e));
+      await refreshDelayedMessages();
+    } finally {
+      setDelayedBusyId(null);
+      refocusComposer();
+    }
+  }
+
+  const queuedCount = delayedMessages.filter((msg) => msg.state !== "failed").length;
+  const failedCount = delayedMessages.filter((msg) => msg.state === "failed").length;
+
   return (
     <div
       className="shrink-0 p-2 border-t"
@@ -410,6 +624,35 @@ export function ChatComposer({
         paddingBottom: "var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)))",
       }}
     >
+      {scheduleOpen && (
+        <DelayedSendSchedulePanel
+          busy={scheduleBusy}
+          onClose={() => {
+            setScheduleOpen(false);
+            refocusComposer();
+          }}
+          onConfirm={(scheduledAtMs) => void scheduleDraft(scheduledAtMs)}
+        />
+      )}
+      {delayedQueueOpen && (
+        <DelayedSendQueuePanel
+          messages={delayedMessages}
+          busyId={delayedBusyId}
+          onClose={() => {
+            setDelayedQueueOpen(false);
+            refocusComposer();
+          }}
+          onDelete={(id) => void withDelayedBusy(id, async () => {
+            await deleteDelayedMessage(id);
+          })}
+          onSendNow={(id) => void withDelayedBusy(id, async () => {
+            await sendDelayedMessageNow(id);
+          })}
+          onUpdate={(id, patch) => void withDelayedBusy(id, async () => {
+            await updateDelayedMessage(id, patch);
+          })}
+        />
+      )}
       {modelPickerOpen && (
         <div
           className="mb-2 rounded-md border p-2 shadow-lg"
@@ -471,11 +714,21 @@ export function ChatComposer({
         onToggleTerminalFallback={onToggleTerminalFallback}
         terminalActive={terminalHasAttention}
         pendingPrompt={pendingPrompt}
+        queuedCount={queuedCount}
+        failedCount={failedCount}
+        onOpenDelayedQueue={() => {
+          setDelayedQueueOpen((v) => !v);
+          setScheduleOpen(false);
+        }}
       />
       <div data-testid="composer-row" className="relative">
         <ComposerActions
           onAttach={addAttachments}
           onSend={() => void send()}
+          onSchedule={() => {
+            setScheduleOpen((v) => !v);
+            setDelayedQueueOpen(false);
+          }}
           onSendWithAttachments={(paths) => void send(paths)}
           onError={showComposerError}
           sendDisabled={!input.trim() && attachments.length === 0}
@@ -485,6 +738,13 @@ export function ChatComposer({
             suggestions={pickerOpen ? suggestions : []}
             highlighted={pickerHighlight}
             onPick={pickSuggestion}
+          />
+          <ModelSuggestionPicker
+            models={modelSuggestionOpen ? filteredModelOptions : []}
+            highlighted={modelHighlight}
+            defaultModel={providerDescriptor?.default_model}
+            onHighlight={setModelHighlight}
+            onPick={(model) => void chooseModel(model)}
           />
           <textarea
             data-testid="chat-composer"
@@ -517,6 +777,35 @@ export function ChatComposer({
                 if (e.key === "Escape") {
                   e.preventDefault();
                   setModelPickerOpen(false);
+                  return;
+                }
+              }
+              if (modelSuggestionOpen) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setModelHighlight((h) => Math.min(h + 1, filteredModelOptions.length - 1));
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setModelHighlight((h) => Math.max(h - 1, 0));
+                  return;
+                }
+                if (e.key === "Tab") {
+                  e.preventDefault();
+                  const model = filteredModelOptions[modelHighlight];
+                  if (model) completeModelDraft(model);
+                  return;
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  const model = filteredModelOptions[modelHighlight];
+                  if (model) void chooseModel(model);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setModelSuggestionDismissedFor(firstLine);
                   return;
                 }
               }

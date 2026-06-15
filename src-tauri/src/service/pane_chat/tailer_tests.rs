@@ -169,6 +169,60 @@ fn tailer_streams_new_messages_as_file_grows() {
 }
 
 #[test]
+fn tailer_repopulates_when_session_file_appears_late() {
+    // Bug A (#25 / W3): a fresh agent doesn't create <id>.jsonl until its FIRST
+    // completed turn — which can be many seconds out (slow first turn, model
+    // spin-up). The tailer must NOT permanently give up while the file is
+    // missing; it has to keep watching so the chat populates the moment the
+    // file finally appears. Regression guard for the "No messages yet on a
+    // working agent" bug.
+    if !workspace_plugins_root().join("provider-claude").exists() {
+        return;
+    }
+    let tmp = TempDir::new().unwrap();
+    let cwd = "/proj/late-file";
+    let sid = "sess-late-001";
+    let proj_dir = tmp.path().join("-proj-late-file");
+    std::fs::create_dir_all(&proj_dir).unwrap();
+    let jsonl = proj_dir.join(format!("{sid}.jsonl"));
+    // The session file does NOT exist yet — claude hasn't completed turn 1.
+
+    let registry = registry_with_claude_at(tmp.path());
+    let sink = Arc::new(Collector {
+        msgs: Mutex::new(vec![]),
+    });
+    let handle = spawn_tailer(
+        TailConfig {
+            pane_id: "p-late".into(),
+            provider_id: "claude".into(),
+            cwd: cwd.into(),
+            session_id: sid.into(),
+            start_offset: 0,
+            poll_interval: Duration::from_millis(50),
+        },
+        registry,
+        sink.clone() as Arc<dyn DeltaSink>,
+    );
+
+    // Sleep well past the old missing-file give-up threshold (>10 polls ×
+    // 50ms = 500ms). On the buggy code the tailer thread has already exited.
+    std::thread::sleep(Duration::from_millis(900));
+
+    // Now claude finishes turn 1 and the JSONL appears.
+    std::fs::write(
+        &jsonl,
+        "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n",
+    )
+    .unwrap();
+
+    assert!(
+        wait_until(3000, || sink.msgs.lock().len() >= 1),
+        "tailer must keep watching and populate once the session file appears (no permanent give-up)"
+    );
+    handle.shutdown();
+}
+
+#[test]
 fn tailer_skips_when_provider_returns_no_jsonl_path() {
     // Register a noop provider that doesn't implement session_jsonl_path. The tailer thread should bail out cleanly without panicking.
     use crate::agent::provider::{

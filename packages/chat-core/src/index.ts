@@ -5,16 +5,18 @@ export type {
   ProviderChatAdapter,
   ChatOrigin,
   SlashCommand,
+  InteractiveElement,
+  InteractiveQuestion,
+  InteractiveOption,
 } from "./types";
 export {
   chatMessageFingerprint,
   normalizeChatText,
   type FingerprintableChatMessage,
 } from "./normalize";
-export {
-  dedupeRecentUserMessages,
-  matchesRecentUserMessage,
-} from "./dedupe";
+export { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
+export { mergeTimelineMessages } from "./timeline";
+export { lastSessionResetIndex, trimAfterSessionReset } from "./sessionReset";
 export {
   MARKER_OPEN,
   MARKER_CLOSE,

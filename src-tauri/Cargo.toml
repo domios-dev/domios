@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "1.3.2"
+version = "1.4.4"
 edition = "2021"
 default-run = "codeterm"
 
@@ -17,7 +17,6 @@ tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
-tauri-plugin-webdriver = { version = "0.2", optional = true }
 portable-pty = { path = "pty-fork" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -76,8 +75,7 @@ crash-context = "0.6"
 minidump-writer = "0.10"
 
 [features]
-default = ["embeddings", "secrets-keyring"]
-webdriver = ["tauri-plugin-webdriver"]
+default = ["embeddings"]
 # annembed (UMAP graph layout) is macOS-only: its LAPACK backend is the
 # Accelerate framework; Windows/Linux have no provider wired and fail at
 # link time. Declared in the macOS target section below.

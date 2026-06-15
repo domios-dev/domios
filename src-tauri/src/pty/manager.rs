@@ -35,6 +35,7 @@ pub fn take_spawn_time(pty_id: &str) -> Option<SpawnMark> {
 /// A PTY session — stores the pair, reader, writer, child.
 pub struct PtySession {
     pub pair: StdMutex<PtyPair>,
+    pub size: StdMutex<(u16, u16)>,
     pub reader: StdMutex<Option<Box<dyn Read + Send>>>,
     pub write_queue: WriteQueue,
     pub child: StdMutex<Box<dyn portable_pty::Child + Send + Sync>>,
@@ -43,6 +44,26 @@ pub struct PtySession {
     /// Bounded to prevent memory leaks when frontend isn't consuming (hidden tabs).
     pub backend_reader_tx: StdMutex<Option<tokio::sync::mpsc::Sender<Vec<u8>>>>,
     pub backend_reader_rx: StdMutex<Option<tokio::sync::mpsc::Receiver<Vec<u8>>>>,
+}
+
+impl PtySession {
+    pub fn resize(&self, cols: u16, rows: u16) -> Result<bool, String> {
+        let mut size = self.size.lock().map_err(|e| e.to_string())?;
+        if *size == (cols, rows) {
+            return Ok(false);
+        }
+        let pair = self.pair.lock().map_err(|e| e.to_string())?;
+        pair.master
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| format!("Resize failed: {}", e))?;
+        *size = (cols, rows);
+        Ok(true)
+    }
 }
 
 /// Ring buffer storing last N bytes of PTY output per pane.
@@ -275,6 +296,7 @@ pub fn build_session(
 
     let session = Arc::new(PtySession {
         pair: StdMutex::new(pair),
+        size: StdMutex::new((cols, rows)),
         reader: StdMutex::new(Some(reader)),
         write_queue,
         child: StdMutex::new(child),
@@ -356,15 +378,7 @@ impl PtyManager {
             .sessions
             .get(pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
-        let pair = session.pair.lock().map_err(|e| e.to_string())?;
-        pair.master
-            .resize(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| format!("Resize failed: {}", e))?;
+        let _ = session.resize(cols, rows)?;
         Ok(())
     }
 

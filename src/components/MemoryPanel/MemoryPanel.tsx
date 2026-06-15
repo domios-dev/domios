@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { List, Network, RefreshCw } from "lucide-react";
-import { MemoryCanvas } from "./MemoryCanvas";
 import { MemorySnapshotCanvas } from "./MemorySnapshotCanvas";
 import { MemoryListTab } from "./MemoryListTab";
 import { MemoryActivityTab } from "./MemoryActivityTab";
@@ -46,26 +45,14 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
   const [inspectView, setInspectView] = useState<"graph" | "list">("graph");
   const {
     nodes,
-    edges,
-    loading,
-    error,
-    stats,
     updateNode,
     removeNode,
   } = useGraphData(api);
   const snapshot = useSnapshotGraph(api);
-  const useSnapshot = snapshot.status !== "unavailable";
   const { pulses } = useActivityPulses(api);
   const [selectedId, setSelectedId] = useState<string | null>(
     initialState?.selectedId ?? null,
   );
-
-  // Physics starts disabled — show force layout result instantly
-  const [physicsEnabled, setPhysicsEnabled] = useState(false);
-  useEffect(() => {
-    const timer = setTimeout(() => setPhysicsEnabled(true), 1500);
-    return () => clearTimeout(timer);
-  }, []);
 
   const [memStats, setMemStats] = useState<MemStats | null>(null);
 
@@ -122,11 +109,16 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
       else if (e.key === "4") { e.preventDefault(); setActiveTab("settings"); }
       else if (e.key === "f" || e.key === "F") { if (activeTab === "inspect" && inspectView === "graph") { e.preventDefault(); fitRef.current(); } }
       else if (e.key === "0") { if (activeTab === "inspect" && inspectView === "graph") { e.preventDefault(); recenterRef.current(); } }
-      else if (e.key === "p" || e.key === "P") { if (activeTab === "inspect" && inspectView === "graph") { e.preventDefault(); setPhysicsEnabled((v) => !v); } }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose, activeTab, inspectView]);
+
+  const snapshotError =
+    snapshot.error ??
+    (snapshot.status === "unavailable" ? "Memory snapshot is unavailable." : null);
+  const showSnapshotEmpty =
+    snapshot.status === "ready" && snapshot.index != null && snapshot.index.byId.size === 0;
 
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
@@ -138,8 +130,8 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
         <div className="flex items-center gap-3 mr-4 shrink-0">
           <strong>Memory</strong>
           <span className="text-[11px] opacity-70 max-sm:hidden">
-            {(useSnapshot && snapshot.stats ? snapshot.stats.node_count : stats.node_count)} nodes &middot;{" "}
-            {(useSnapshot && snapshot.stats ? snapshot.stats.edge_count : stats.edge_count)} edges
+            {snapshot.stats?.node_count ?? 0} nodes &middot;{" "}
+            {snapshot.stats?.edge_count ?? 0} edges
           </span>
           {memStats && memStats.total_vectors < memStats.total_items && (
             <span className="text-[11px] text-[var(--ct-yellow)] flex items-center gap-1">
@@ -182,20 +174,22 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           />
         )}
         {activeTab === "inspect" && inspectView === "graph" &&
-          (useSnapshot ? snapshot.status === "loading" : loading) && (
+          snapshot.status === "loading" && !snapshot.index && (
           <div className="absolute inset-0 flex items-center justify-center">
             <span className={UI_TEXT.meta}>Loading memory graph...</span>
           </div>
         )}
-        {activeTab === "inspect" && inspectView === "graph" &&
-          (useSnapshot ? snapshot.error : error) && (
+        {activeTab === "inspect" && inspectView === "graph" && snapshotError && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-2 rounded bg-[var(--ct-red)] text-white text-xs">
-            {useSnapshot ? snapshot.error : error}
+            {snapshotError}
           </div>
         )}
-        {/* Snapshot mode: default render path. Positions come from the backend
-            layout; LOD is handled inside MemorySnapshotCanvas. */}
-        {useSnapshot && snapshot.index && (
+        {activeTab === "inspect" && inspectView === "graph" && showSnapshotEmpty && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className={UI_TEXT.meta}>No memory graph data yet.</span>
+          </div>
+        )}
+        {snapshot.index && !showSnapshotEmpty && (
           <div
             className={
               activeTab === "inspect" && inspectView === "graph"
@@ -215,31 +209,6 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
             />
           </div>
         )}
-        {/* Legacy physics fallback — only when the snapshot endpoint is absent. */}
-        {!useSnapshot && !loading && !error && (
-          <div
-            className={
-              activeTab === "inspect" && inspectView === "graph"
-                ? "absolute inset-0"
-                : "absolute inset-0 invisible pointer-events-none"
-            }
-            aria-hidden={!(activeTab === "inspect" && inspectView === "graph")}
-          >
-            <MemoryCanvas
-              api={api}
-              nodes={nodes}
-              edges={edges}
-              pulses={pulses}
-              updateNode={updateNode}
-              removeNode={removeNode}
-              registerFit={registerFit}
-              registerRecenter={registerRecenter}
-              selectedIdOverride={selectedId}
-              onSelectedIdChange={setSelectedId}
-              physicsEnabled={physicsEnabled}
-            />
-          </div>
-        )}
         {activeTab === "inspect" && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5">
             <button
@@ -250,7 +219,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
               {inspectView === "graph" ? <List size={12} /> : <Network size={12} />}
               {inspectView === "graph" ? "List" : "Graph"}
             </button>
-            {inspectView === "graph" && useSnapshot && (
+            {inspectView === "graph" && (
               <button
                 type="button"
                 title="Drop cached layout and refetch"

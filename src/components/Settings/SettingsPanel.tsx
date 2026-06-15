@@ -118,7 +118,6 @@ export function SettingsPanel({
 
   const [localConfig, setLocalConfig] = useState<AppConfig>(config);
   const [themes, setThemes] = useState<string[]>([]);
-  const [configPath, setConfigPath] = useState<string>("");
   const [themesDir, setThemesDir] = useState<string>("");
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
   const chatUiDefault = localConfig.ui?.default_new_agent_pane_chat ?? false;
@@ -135,7 +134,6 @@ export function SettingsPanel({
 
   useEffect(() => {
     refreshThemes();
-    invoke<string>("get_config_path").then(setConfigPath).catch(() => {});
     invoke<string>("get_themes_dir").then(setThemesDir).catch(() => {});
     invoke<boolean>("get_autostart_enabled")
       .then(setAutostartEnabled)
@@ -534,13 +532,9 @@ export function SettingsPanel({
 
                 <SettingsCard icon={<Info size={16} />} title="Info">
                   <InfoRow label="Version" value={__APP_VERSION__} />
-                  <InfoRow label="Platform" value={navigator.platform} />
-                  <InfoRow label="Config" value={configPath || "loading..."} mono />
                 </SettingsCard>
 
                 <UpdateSection />
-
-
 
                 <SettingsCard icon={<ExternalLink size={16} />} title="Created by">
                   <div className="text-xs text-[var(--ct-fg)]">Andrey Kovalev</div>
@@ -551,9 +545,6 @@ export function SettingsPanel({
                   </div>
                 </SettingsCard>
 
-                <div className="text-center pt-2">
-                  <span className="text-xs text-[var(--ct-muted)]">Let&apos;s build something great :)</span>
-                </div>
               </SettingsPage>
             )}
           </div>

@@ -92,10 +92,10 @@ CASES = [
 
 
 @pytest.mark.parametrize("label,builder", CASES, ids=[c[0] for c in CASES])
-def test_inject_verify_contract(api: CodeTermAPI, fresh_pane: str, label, builder) -> None:
+def test_inject_verify_contract(api: CodeTermAPI, shared_eager_pane: str, label, builder) -> None:
     text, marker = builder()
 
-    resp = api.send_text(fresh_pane, text=text, enter=True)
+    resp = api.send_text(shared_eager_pane, text=text, enter=True)
 
     # 1. Public send is fire-and-forget: no verified/echo/submit response fields.
     assert resp == {"ok": True}, f"{label}: public send response changed: {resp}"
@@ -106,7 +106,7 @@ def test_inject_verify_contract(api: CodeTermAPI, fresh_pane: str, label, builde
     output = ""
     prompt_after_marker = False
     while time.monotonic() < deadline:
-        data = api.get_output(fresh_pane, strip_ansi_flag=True)
+        data = api.get_output(shared_eager_pane, strip_ansi_flag=True)
         output = data.get("output", "")
         if marker in output:
             tail = output.rsplit(marker, 1)[-1]
@@ -126,28 +126,28 @@ def test_inject_verify_contract(api: CodeTermAPI, fresh_pane: str, label, builde
     )
 
 
-def test_short_payload_execution_is_observable(api: CodeTermAPI, fresh_pane: str) -> None:
+def test_short_payload_execution_is_observable(api: CodeTermAPI, shared_eager_pane: str) -> None:
     """A clean short send returns the public ok contract and is observable in output."""
     marker, left, right = _split_marker("verifyok_")
     text = shell_cmd(f"echo '{left}''{right}'", f"Write-Output ('{left}' + '{right}')")
-    resp = api.send_text(fresh_pane, text=text, enter=True)
+    resp = api.send_text(shared_eager_pane, text=text, enter=True)
 
     assert resp == {"ok": True}, resp
-    output = api.wait_for_output(fresh_pane, pattern=marker, timeout=6)
+    output = api.wait_for_output(shared_eager_pane, pattern=marker, timeout=6)
     assert marker in output
 
 
-def test_send_without_enter_still_ok(api: CodeTermAPI, fresh_pane: str) -> None:
+def test_send_without_enter_still_ok(api: CodeTermAPI, shared_eager_pane: str) -> None:
     """``enter=False`` accepts the paste but does not execute until Enter arrives."""
     marker, left, right = _split_marker("noenter_")
     text = shell_cmd(f"echo '{left}''{right}'", f"Write-Output ('{left}' + '{right}')")
-    resp = api.send_text(fresh_pane, text=text, enter=False)
+    resp = api.send_text(shared_eager_pane, text=text, enter=False)
     assert resp == {"ok": True}, resp
 
     deadline = time.monotonic() + 2.0
     output = ""
     while time.monotonic() < deadline:
-        output = api.get_output(fresh_pane, strip_ansi_flag=True).get("output", "")
+        output = api.get_output(shared_eager_pane, strip_ansi_flag=True).get("output", "")
         assert marker not in output, (
             f"enter=false unexpectedly executed command; marker={marker!r} "
             f"tail={output[-400:]!r}"
@@ -155,9 +155,9 @@ def test_send_without_enter_still_ok(api: CodeTermAPI, fresh_pane: str) -> None:
         time.sleep(0.2)
 
     submit_resp = api.post(
-        f"/api/panes/{fresh_pane}/send",
+        f"/api/panes/{shared_eager_pane}/send",
         json={"text": "", "enter": True, "raw": True},
     )
     assert submit_resp == {"ok": True}, submit_resp
-    output = api.wait_for_output(fresh_pane, pattern=marker, timeout=6)
+    output = api.wait_for_output(shared_eager_pane, pattern=marker, timeout=6)
     assert marker in output

@@ -5,19 +5,21 @@ and the CLI's `--model` flag.
 
 ## Architecture
 
-Each agent provider plugin owns its model list. Two layers:
+Each agent provider plugin owns its model list. Provider lists can be live
+when the upstream CLI exposes a stable catalog command. Two layers:
 
 ```
 ┌─────────────────────────────────────────────────┐
 │   user override at <data_dir>/models/<id>.toml  │   ← edit this
 ├─────────────────────────────────────────────────┤
-│   plugin built-ins (ships with CodeTerm)        │   ← updates with each release
+│   provider list (live CLI or shipped fallback)  │   ← provider-owned source
 └─────────────────────────────────────────────────┘
 ```
 
-The two layers **merge** by default — see [Merge vs replace](#merge-vs-replace)
-below. The whole point is to let you add custom entries without locking
-yourself out of upstream model updates.
+Static provider catalogs **merge** by default — see [Merge vs replace](#merge-vs-replace)
+below. Dynamic providers such as Codex/OpenCode treat an override file as an
+explicit pinned list, so they do not mix local overrides with a live account-
+dependent catalog.
 
 Where `<data_dir>` is:
 - Prod: `~/.codeterm/`
@@ -217,18 +219,18 @@ description = "Fastest for quick answers."
 Empty file or syntax error → CodeTerm logs a warning and falls back to built-ins.
 Picker never goes empty.
 
-## Built-in lists
+## Provider Lists
 
-Source of truth (these update with each CodeTerm release):
+Source of truth:
 
-| Provider | Source file |
+| Provider | Source |
 |----------|-------------|
-| `claude` | `src-tauri/src/plugin/agent_claude/provider/schemas.rs` → `builtin_models()` |
-| `codex`  | `src-tauri/src/plugin/agent_codex/provider.rs` → `builtin_models()` |
-| `opencode` | `src-tauri/src/plugin/agent_opencode/models.rs` → `fallback_models()` (OpenCode dynamically polls `opencode models` first; this list is the last-resort fallback) |
+| `claude` | `src-tauri/src/plugin/agent_claude/provider/schemas.rs` → `builtin_models()` fallback. Claude Code currently exposes model aliases in the TUI/help text, but no stable machine-readable catalog command. |
+| `codex`  | `codex debug models` at runtime, cached for 5 minutes; fallback is `src-tauri/src/plugin/agent_codex/models.rs` → `fallback_models()`. |
+| `opencode` | `opencode models` at runtime, cached for 5 minutes; fallback is `src-tauri/src/plugin/agent_opencode/models.rs` → `fallback_models()`. |
 
-If upstream Claude / Codex / OpenCode ships a new model and CodeTerm hasn't cut
-a release yet, drop a `<provider>.toml` here to update without waiting.
+If upstream ships a new model and the provider has no stable live catalog path
+yet, drop a `<provider>.toml` here to update without waiting.
 
 ## Adding a new agent provider plugin
 
@@ -280,18 +282,18 @@ automatically.
 
 ### When the plugin does dynamic model discovery
 
-OpenCode polls `opencode models` at runtime because what's available depends
-on which provider the user is authed into. The catalog supports this:
+Codex and OpenCode poll their CLI catalogs at runtime because availability can
+depend on the installed CLI version and account. The catalog supports this:
 
 ```rust
 fn available_models(&self) -> Vec<ModelInfo> {
     // 1. User override wins outright.
-    if let Some(o) = crate::agent::model_catalog::try_override("opencode") {
+    if let Some(o) = crate::agent::model_catalog::try_override("codex") {
         return o;
     }
     // 2. Dynamic CLI fetch.
-    if let Some(cached) = cached_opencode_models() { return cached; }
-    fetch_opencode_models().unwrap_or_else(|_| fallback_models())
+    if let Some(cached) = cached_codex_models() { return cached; }
+    fetch_codex_models().unwrap_or_else(|_| fallback_models())
 }
 ```
 
@@ -310,6 +312,6 @@ codeterm agent providers --json | jq '.providers[] | {id, default_model, models:
 ## See also
 
 - `~/.codeterm/models/README.md` — short user-facing pointer (auto-installed)
-- `src-tauri/src/agent/model_catalog.rs` — implementation
+- `src-tauri/src/agent/model_catalog.rs` — override/catalog implementation
 - `docs/contributing/architecture.md` — plugin architecture overview
-<!-- revision: 2 -->
+<!-- revision: 3 -->

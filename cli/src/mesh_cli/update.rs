@@ -1,4 +1,4 @@
-//! Two-step `update --apply` over mesh: force-check (populates the peer's
+//! Two-step `update install --auto` over mesh: force-check (populates the peer's
 //! `last_check` cache), then install if an update is available. The install
 //! endpoint requires a prior check call.
 
@@ -7,54 +7,30 @@ use crate::UpdateAction;
 
 use super::relay::{relay_call, resolve_peer_url};
 
-/// Resolve update flag shortcuts (--check, --apply, --channel) to a concrete UpdateAction.
-/// Same logic as the local CLI dispatch in main.rs.
+/// Resolve update subcommands and top-level update options to a concrete UpdateAction.
 pub(crate) fn resolve_update_action(
     action: Option<&UpdateAction>,
-    check: bool,
-    apply: bool,
-    channel: Option<String>,
     manifest_url: Option<String>,
     after_update: Option<String>,
 ) -> UpdateAction {
-    if let Some(ch) = channel {
-        UpdateAction::Channel {
-            channel: if ch.is_empty() { None } else { Some(ch) },
-        }
-    } else if apply {
-        UpdateAction::Install {
-            auto: true,
-            manifest_url,
-            from_file: None,
-            continue_prompt: None,
-            continue_pane: None,
-            after_update,
-        }
-    } else if check {
-        UpdateAction::Check { force: false }
-    } else {
-        match action {
-            Some(UpdateAction::Check { force }) => UpdateAction::Check { force: *force },
-            Some(UpdateAction::Install {
-                auto,
-                manifest_url,
-                from_file,
-                continue_prompt,
-                continue_pane,
-                after_update,
-            }) => UpdateAction::Install {
-                auto: *auto,
-                manifest_url: manifest_url.clone(),
-                from_file: from_file.clone(),
-                continue_prompt: continue_prompt.clone(),
-                continue_pane: continue_pane.clone(),
-                after_update: after_update.clone(),
-            },
-            Some(UpdateAction::Channel { channel }) => UpdateAction::Channel {
-                channel: channel.clone(),
-            },
-            None => UpdateAction::Check { force: false },
-        }
+    match action {
+        Some(UpdateAction::Check { force }) => UpdateAction::Check { force: *force },
+        Some(UpdateAction::Install {
+            auto,
+            manifest_url: action_manifest_url,
+            from_file,
+            continue_prompt,
+            continue_pane,
+            after_update: action_after_update,
+        }) => UpdateAction::Install {
+            auto: *auto,
+            manifest_url: action_manifest_url.clone().or(manifest_url),
+            from_file: from_file.clone(),
+            continue_prompt: continue_prompt.clone(),
+            continue_pane: continue_pane.clone(),
+            after_update: action_after_update.clone().or(after_update),
+        },
+        None => UpdateAction::Check { force: false },
     }
 }
 

@@ -399,6 +399,7 @@ if echo "$shell_out" | grep -q "MARKER_SHELL_BEFORE_KILL"; then
 else
   echo "  FAIL shell-with-text missing MARKER_SHELL_BEFORE_KILL"
   echo "$shell_out" | tail -5
+  exit 1
 fi
 
 claude_out=$(dc get-output --pane $P_CT --lines 30 2>&1)
@@ -407,6 +408,7 @@ if echo "$claude_out" | grep -q "PINEAPPLEMARKER"; then
 else
   echo "  FAIL claude-with-text response missing PINEAPPLEMARKER (claude may not have responded yet)"
   echo "$claude_out" | tail -8
+  exit 1
 fi
 
 echo "== wait extra 10s for autosave"

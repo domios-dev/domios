@@ -36,12 +36,15 @@ function deliveredStatus(result?: string): CardStatus | undefined {
 
 type TemplateFn = (inv: CodetermInvocation, result?: string, resolve?: PaneNameResolver) => RenderedCard;
 
-const sendTextTemplate: TemplateFn = (inv, result, resolve) => ({
-  icon: "→",
-  title: sentTitle(inv, resolve),
-  detail: inv.positionals[0],
-  status: deliveredStatus(result),
-});
+const sendTextTemplate: TemplateFn = (inv, result, resolve) => {
+  const mesh = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
+  return {
+    icon: mesh ? "🛰" : "→",
+    title: mesh ? `${sentTitle(inv, resolve)} @ ${mesh}` : sentTitle(inv, resolve),
+    detail: inv.positionals[0],
+    status: deliveredStatus(result),
+  };
+};
 
 const TEMPLATES: Record<string, TemplateFn> = {
   send: sendTextTemplate,
@@ -66,7 +69,6 @@ const TEMPLATES: Record<string, TemplateFn> = {
     const name = ref ? resolve?.(ref) : undefined;
     return { icon: "→", title: `Focused ${name ?? `pane ${ref ?? pane(inv, resolve)}`}` };
   },
-  "mesh send": (inv) => ({ icon: "🛰", title: `Mesh → ${inv.positionals[0] ?? ""}`, detail: inv.positionals[1] }),
   "cron create": (inv) => ({ icon: "⏰", title: `Scheduled ${inv.positionals[0] ?? "job"}` }),
   "keepawake start": () => ({ icon: "☕", title: "Keep-awake started" }),
 };

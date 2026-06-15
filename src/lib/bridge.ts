@@ -42,6 +42,10 @@ const HTTP_MAP: Record<string, Mapper> = {
   // PATCH: the route has no POST; the handler merges top-level keys, so the full config object works as a partial.
   update_config: (a) => webJson("PATCH", "/api/config", a.config),
   get_network_info: () => webJson("GET", "/api/network"),
+  get_serve_status: () => webJson("GET", "/api/network/serve/status"),
+  enable_web_access: (a) =>
+    webJson("POST", "/api/network/serve/enable", { https_port: a.https_port }),
+  disable_web_access: () => webJson("POST", "/api/network/serve/disable"),
 
   // ── multiplexer ──
   mux_get_state: () => webJson("GET", "/api/mux/state"),
@@ -132,6 +136,22 @@ const HTTP_MAP: Record<string, Mapper> = {
       text: a.text,
       enter: true,
     }),
+  delayed_send_list: (a) =>
+    webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/delayed-messages`),
+  delayed_send_create: (a) =>
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/delayed-messages`, {
+      text: a.text,
+      scheduledAtMs: a.scheduledAtMs,
+    }),
+  delayed_send_update: (a) =>
+    webJson("PATCH", `/api/delayed-messages/${enc(s(a, "id"))}`, {
+      text: a.text,
+      scheduledAtMs: a.scheduledAtMs,
+    }),
+  delayed_send_delete: (a) =>
+    webJson("DELETE", `/api/delayed-messages/${enc(s(a, "id"))}`),
+  delayed_send_send_now: (a) =>
+    webJson("POST", `/api/delayed-messages/${enc(s(a, "id"))}/send-now`),
   transcribe_voice_attachment: async (a) => {
     const resp = await webJson<{ line?: string }>("POST", "/api/transcribe-voice", {
       path: s(a, "path"),
@@ -206,6 +226,7 @@ const HTTP_MAP: Record<string, Mapper> = {
       client_id: a.clientId,
       cols: a.cols,
       rows: a.rows,
+      force: a.force === true,
     }),
 
   // ── keepawake (sidebar toggle in web) ──
@@ -233,6 +254,33 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", "/api/fs/mkdir", { parent: a.parent, name: a.name }),
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
   save_session: () => webJson("POST", "/api/session/save"),
+  usage_latest: (a) => {
+    const accountId = a.accountId ?? a.account_id;
+    return webJson(
+      "GET",
+      `/api/usage/latest?provider=${enc(s(a, "provider"))}${accountId ? `&account_id=${enc(String(accountId))}` : ""}`,
+    );
+  },
+  usage_history: (a) => {
+    const accountId = a.accountId ?? a.account_id;
+    const limit = a.limit == null ? "" : `&limit=${enc(String(a.limit))}`;
+    return webJson(
+      "GET",
+      `/api/usage/history?provider=${enc(s(a, "provider"))}&since=${enc(String(a.since))}${limit}${accountId ? `&account_id=${enc(String(accountId))}` : ""}`,
+    );
+  },
+  usage_projection: (a) => {
+    const accountId = a.accountId ?? a.account_id;
+    return webJson(
+      "GET",
+      `/api/usage/projection?provider=${enc(s(a, "provider"))}${accountId ? `&account_id=${enc(String(accountId))}` : ""}`,
+    );
+  },
+  usage_refresh: (a) =>
+    webJson("POST", "/api/usage/refresh", {
+      provider: s(a, "provider"),
+      account_id: a.accountId ?? a.account_id ?? null,
+    }),
 };
 
 /** Browser-meaningless commands → canned results, no network. */
@@ -248,7 +296,6 @@ const CANNED: Record<string, unknown> = {
   get_themes_dir: "",
   get_config_path: "",
   mux_update_pane_cwd: null,
-  usage_refresh: null,
   open_folder: null,
   // Closing a browser tab / unmounting a web terminal must never kill the shared server-side PTY other clients may be attached to.
   kill_pty: null,

@@ -68,3 +68,23 @@ fn raw_text_preserved() {
     let snap = parser.parse(FIXTURE).expect("fixture parses");
     assert_eq!(snap.raw_text, FIXTURE);
 }
+
+#[test]
+fn parses_weekly_reset_without_month_day() {
+    let parser = ClaudeTuiUsageParser::new();
+    let raw = "Current session 100% usedResets 3:30pm (Europe/Kiev)\n\
+               Current week (all models) 64% usedResets 4 PM (Europe/Kiev)";
+    let snap = parser.parse(raw).expect("usage parses");
+    assert_eq!(snap.weekly_pct, Some(64.0));
+    assert!(snap.weekly_resets_at_ms.is_some());
+}
+
+#[test]
+fn parses_weekly_reset_from_current_claude_format() {
+    let parser = ClaudeTuiUsageParser::new();
+    let raw = "Current session 100% usedResets 3:39pm (Europe/Kiev)\n\
+               Current week (all models) 64% usedResets Jun 14, 7:59pm (Europe/Kiev)";
+    let snap = parser.parse(raw).expect("usage parses");
+    assert_eq!(snap.weekly_pct, Some(64.0));
+    assert!(snap.weekly_resets_at_ms.is_some());
+}

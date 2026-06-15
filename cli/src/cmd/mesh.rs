@@ -148,21 +148,11 @@ pub fn handle_mesh(json: bool, action: MeshAction) {
                 }
             }
         }
-        MeshAction::Exec {
-            target,
-            command,
-            pane,
-        } => {
-            mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "exec", &command, &pane, json);
-        }
-        MeshAction::Send { target, text, pane } => {
-            mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "send", &text, &pane, json);
-        }
         MeshAction::Output { target, pane } => {
-            mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "output", "", &pane, json);
+            mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "output", &pane, json);
         }
         MeshAction::Panes { target } => {
-            mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "panes", "", "", json);
+            mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "panes", "", json);
         }
         MeshAction::Connect { instance_id } => {
             let body = serde_json::json!({"instance_id": instance_id});

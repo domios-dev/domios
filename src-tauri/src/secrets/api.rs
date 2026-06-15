@@ -146,10 +146,10 @@ pub async fn logout(
 }
 
 /// Re-run the active backend's `init` — for Bitwarden this attempts an
-/// auto-unlock using the master password persisted in the OS keychain on
-/// the previous successful login. No-op for backends without persisted
-/// creds. Used by the CLI `mem secret unlock` (no-password form) and by
-/// the UI when it wants to re-sync session state without prompting.
+/// auto-unlock using the master password persisted in the local `.secrets`
+/// store on the previous successful login. No-op for backends without
+/// persisted creds. Used by the CLI `mem secret unlock` (no-password form)
+/// and by the UI when it wants to re-sync session state without prompting.
 pub async fn auto_unlock(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -171,7 +171,7 @@ pub async fn auto_unlock(
 }
 
 /// Pull latest from the remote vault. No-op for backends with no remote
-/// (Local OS-keychain, Mock). Bitwarden runs `bw sync`.
+/// (Local file store, Mock). Bitwarden runs `bw sync`.
 pub async fn sync(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -392,8 +392,8 @@ pub struct SwitchBackendBody {
 
 /// Atomic backend swap. Persists the choice to config IMMEDIATELY (no
 /// "Save" step) and reconstructs the active store. The previous backend's
-/// in-process state is dropped — but persisted creds (e.g. Bitwarden
-/// session in OS keychain) are kept so switching back is seamless.
+/// in-process state is dropped, but persisted creds (e.g. Bitwarden session
+/// in `.secrets`) are kept so switching back is seamless.
 pub async fn switch_backend(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

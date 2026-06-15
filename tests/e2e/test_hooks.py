@@ -8,28 +8,28 @@ from helpers import CodeTermAPI, inject_screen_text, unique_name
 class TestHookEndpoints:
     """Test hook API endpoints (called by agent hooks like Claude Code)."""
 
-    def test_hook_permission(self, api, fresh_pane):
+    def test_hook_permission(self, api_only, api_pane):
         """POST /hook/permission should not crash."""
-        result = api.post(f"/api/panes/{fresh_pane}/hook/permission")
+        result = api_only.post(f"/api/panes/{api_pane}/hook/permission")
         assert result.get("ok") is True
 
-    def test_hook_stop(self, api, fresh_pane):
+    def test_hook_stop(self, api_only, api_pane):
         """POST /hook/stop should not crash."""
-        result = api.post(f"/api/panes/{fresh_pane}/hook/stop")
+        result = api_only.post(f"/api/panes/{api_pane}/hook/stop")
         assert result.get("ok") is True
 
-    def test_respond_clears_prompt(self, api, fresh_pane):
+    def test_respond_clears_prompt(self, api_only, api_pane):
         """Responding should clear pending_prompt."""
-        api.post(f"/api/panes/{fresh_pane}/hook/permission")
+        api_only.post(f"/api/panes/{api_pane}/hook/permission")
         time.sleep(0.5)
-        api.post(f"/api/panes/{fresh_pane}/prompt/respond", json={"value": "1"})
+        api_only.post(f"/api/panes/{api_pane}/prompt/respond", json={"value": "1"})
         time.sleep(0.5)
-        pane = next(p for p in api.list_panes() if p["id"] == fresh_pane)
+        pane = next(p for p in api_only.list_panes() if p["id"] == api_pane)
         assert pane.get("pending_prompt") is None
 
-    def test_no_prompt_initially(self, api, fresh_pane):
+    def test_no_prompt_initially(self, api_only, api_pane):
         """Fresh pane should have no pending_prompt."""
-        pane = next(p for p in api.list_panes() if p["id"] == fresh_pane)
+        pane = next(p for p in api_only.list_panes() if p["id"] == api_pane)
         assert pane.get("pending_prompt") is None
 
     def test_hook_parses_prompt_from_buffer(self, api, fresh_pane):
@@ -115,16 +115,16 @@ class TestPromptParsingAccuracy:
             assert not any("thing" in l.lower() for l in labels), \
                 f"Should NOT parse answer as prompt: {labels}"
 
-    def test_explicit_body_overrides_buffer(self, api, fresh_pane):
+    def test_explicit_body_overrides_buffer(self, api_only, api_pane):
         """Explicit body in hook/permission sets prompt directly, ignoring buffer."""
         # Send explicit prompt via body — should set prompt regardless of buffer content
-        api.post(f"/api/panes/{fresh_pane}/hook/permission", json={
+        api_only.post(f"/api/panes/{api_pane}/hook/permission", json={
             "question": "Allow Bash?",
             "options": [{"label": "Yes", "value": "1"}, {"label": "No", "value": "3"}]
         })
         time.sleep(2)
 
-        pane = next(p for p in api.list_panes() if p["id"] == fresh_pane)
+        pane = next(p for p in api_only.list_panes() if p["id"] == api_pane)
         prompt = pane.get("pending_prompt")
         assert prompt is not None, "explicit body should set pending_prompt"
         assert prompt["question"] == "Allow Bash?"
@@ -184,8 +184,8 @@ class TestFullPromptApprovalFlow:
         # Create workspace with 2 panes
         ws = api.create_workspace(unique_name("e2e-ws"))
         ws_id = ws["id"]
-        tab1 = api.create_tab(ws_id)
-        tab2 = api.create_tab(ws_id)
+        tab1 = api.create_tab(ws_id, eager=True)
+        tab2 = api.create_tab(ws_id, eager=True)
         p1, p2 = tab1["pane_id"], tab2["pane_id"]
         api.wait_for_pty(p1, timeout=15)
         api.wait_for_pty(p2, timeout=15)

@@ -59,6 +59,8 @@ const embedBundle = join(
 
 touch("cli/src/main.rs");
 run(cargo, ["build", "--release", "--manifest-path", "cli/Cargo.toml"]);
+// Dev bundling: ad-hoc sign the CLI, never require a Developer ID identity.
+process.env.CODETERM_DEV = "1";
 run(node, ["scripts/bundle-cli.js"]);
 run(node, ["scripts/prepare-embed-stub.js"]);
 

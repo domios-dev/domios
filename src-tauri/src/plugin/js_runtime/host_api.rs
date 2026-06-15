@@ -27,6 +27,13 @@
 //! root, `envGet` blocked for secret-looking names. Per-permission grants
 //! (`permissions.fs.read` in `plugin.json`) can refine this later.
 
+/// Version of the plugin/host contract this build implements. Third-party
+/// drop-ins must declare a matching `hostApi` in their manifest or they are
+/// skipped at load (`loader::validate_conformance`) instead of being registered
+/// against an interface they don't conform to (#16). Bump on any
+/// breaking change to the host surface or the `AgentProvider` capability set.
+pub const HOST_API_VERSION: u32 = 1;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

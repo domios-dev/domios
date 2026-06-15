@@ -21,9 +21,18 @@ $repo = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptArgs = @("-lc", "./build.sh $($BuildArgs -join ' ')")
 
 function Invoke-CdpReload {
-  param([int]$TimeoutSeconds = 30)
+  param([int]$TimeoutSeconds = 90)
   $target_url = "http://127.0.0.1:1420/"
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+
+  while ((Get-Date) -lt $deadline) {
+    try {
+      Invoke-WebRequest -Uri $target_url -UseBasicParsing -TimeoutSec 2 | Out-Null
+      break
+    } catch {
+      Start-Sleep -Milliseconds 300
+    }
+  }
 
   while ((Get-Date) -lt $deadline) {
     try {
@@ -88,16 +97,22 @@ function Invoke-CdpReload {
       $hasRoot = $parts.Count -gt 1 -and $parts[1] -eq "1"
 
       if (-not $currentUrl.StartsWith($target_url) -or -not $hasRoot) {
-        $navId = 2
         if (-not $currentUrl.StartsWith($target_url)) {
+          $navId = 2
           Send-CdpMessage -WebSocket $ws -Id $navId -Json ('{"id":' + $navId + ',"method":"Page.navigate","params":{"url":"' + $target_url + '"}}')
-          $navId++
-          Start-Sleep -Milliseconds 700
+          $null = Receive-CdpResponse -WebSocket $ws -RequestId $navId
+          $ws.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'ok', [Threading.CancellationToken]::None).GetAwaiter().GetResult() | Out-Null
+          Start-Sleep -Milliseconds 900
+          continue
         }
 
         if (-not $hasRoot) {
-          $reloadId = $navId
+          $reloadId = 3
           Send-CdpMessage -WebSocket $ws -Id $reloadId -Json ('{"id":' + $reloadId + ',"method":"Page.reload","params":{"ignoreCache":true}}')
+          $null = Receive-CdpResponse -WebSocket $ws -RequestId $reloadId
+          $ws.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'ok', [Threading.CancellationToken]::None).GetAwaiter().GetResult() | Out-Null
+          Start-Sleep -Milliseconds 900
+          continue
         }
       } else {
         $ws.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'ok', [Threading.CancellationToken]::None).GetAwaiter().GetResult() | Out-Null

@@ -16,6 +16,8 @@ interface GraphViewProps {
   loadingMore: boolean;
   onLoadMore: () => void;
   dirty?: boolean;
+  headSha?: string | null;
+  branch?: string | null;
   touch?: boolean;
 }
 
@@ -27,6 +29,8 @@ export function GraphView({
   loadingMore,
   onLoadMore,
   dirty,
+  headSha,
+  branch,
   touch,
 }: GraphViewProps) {
   const rowH = touch ? ROW_H_TOUCH : ROW_H_DESKTOP;
@@ -53,13 +57,21 @@ export function GraphView({
     for (const c of commits) m.set(c.sha, c);
     return m;
   }, [commits]);
+  const headRow = useMemo(
+    () => rows.find((r) => r.sha === headSha) ?? rows[0],
+    [rows, headSha],
+  );
+  const headCommit = headSha ? commitBySha.get(headSha) : null;
 
   return (
     <div className="absolute inset-0 overflow-auto">
-      {dirty && (
+      {dirty && headRow && (
         <WorkdirRow
           railWidth={railWidth}
           rowH={rowH}
+          col={headRow.col}
+          branch={branch}
+          headRefs={headCommit?.refs ?? []}
           selected={selectedSha === WORKDIR_SHA}
           onSelect={() => onSelect(WORKDIR_SHA)}
         />
@@ -77,6 +89,7 @@ export function GraphView({
             selected={row.sha === selectedSha}
             onSelect={onSelect}
             childRowOf={byIndex}
+            forceIncoming={dirty && row.sha === headSha}
           />
         );
       })}
@@ -109,6 +122,7 @@ interface GraphRowViewProps {
   selected: boolean;
   onSelect: (sha: string) => void;
   childRowOf: Map<string, number>;
+  forceIncoming?: boolean;
 }
 
 function GraphRowView({
@@ -119,6 +133,7 @@ function GraphRowView({
   rowH,
   selected,
   onSelect,
+  forceIncoming,
 }: GraphRowViewProps) {
   // Lanes occupied AFTER this row routes its parents — what the next row sees.
   const lanesAfter = nextRow ? nextRow.lanesBefore : [];
@@ -165,7 +180,7 @@ function GraphRowView({
           />
         ))}
         {/* incoming rail from top into this commit's lane */}
-        {row.lanesBefore[row.col] != null && (
+        {(forceIncoming || row.lanesBefore[row.col] != null) && (
           <line
             x1={dotX}
             y1={0}
@@ -227,16 +242,23 @@ function GraphRowView({
 function WorkdirRow({
   railWidth,
   rowH,
+  col,
+  branch,
+  headRefs,
   selected,
   onSelect,
 }: {
   railWidth: number;
   rowH: number;
+  col: number;
+  branch?: string | null;
+  headRefs: GitRef[];
   selected: boolean;
   onSelect: () => void;
 }) {
-  const dotX = laneX(0);
+  const dotX = laneX(col);
   const midY = rowH / 2;
+  const refs = workdirRefs(branch, headRefs);
   return (
     <div
       className={`ct-git-row ct-git-row--workdir${selected ? " is-selected" : ""}`}
@@ -249,13 +271,38 @@ function WorkdirRow({
         height={rowH}
         style={{ flex: `0 0 ${railWidth}px` }}
       >
-        <circle cx={dotX} cy={midY} r={DOT_R} fill="var(--ct-yellow, #fbbf24)" />
+        <line
+          x1={dotX}
+          y1={midY}
+          x2={dotX}
+          y2={rowH}
+          stroke={laneColorVar(col)}
+          strokeWidth={1.5}
+        />
+        <circle
+          cx={dotX}
+          cy={midY}
+          r={DOT_R}
+          fill="var(--ct-bg, #0d1117)"
+          stroke={laneColorVar(col)}
+          strokeWidth={1.8}
+        />
       </svg>
       <div className="ct-git-meta">
+        {refs.map((ref) => (
+          <RefChip key={`${ref.kind}-${ref.name}`} refItem={ref} />
+        ))}
         <span className="ct-git-subject ct-git-workdir-label">Uncommitted changes</span>
       </div>
     </div>
   );
+}
+
+function workdirRefs(branch: string | null | undefined, headRefs: GitRef[]): GitRef[] {
+  const refs: GitRef[] = [];
+  if (branch) refs.push({ kind: "branch", name: branch });
+  if (headRefs.some((ref) => ref.kind === "head")) refs.push({ kind: "head", name: "HEAD" });
+  return refs;
 }
 
 function RefChip({ refItem }: { refItem: GitRef }) {

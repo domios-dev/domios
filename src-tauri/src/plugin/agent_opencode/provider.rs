@@ -11,8 +11,11 @@ use crate::agent::provider::{
 use crate::plugin::common::is_codeterm_injection;
 use crate::shell::ShellSyntax;
 
+#[path = "labels.rs"]
+mod labels;
 #[path = "models.rs"]
 mod models;
+use labels::opencode_short_label;
 #[cfg(test)]
 use models::prettify_model_id;
 use models::{
@@ -20,12 +23,6 @@ use models::{
 };
 
 /// OpenCode (sst/opencode) agent provider.
-///
-/// Session storage layout (XDG_DATA_HOME, defaults to ~/.local/share):
-///   ~/.local/share/opencode/storage/session/<projectID>/<sessionID>.json   (metadata)
-///   ~/.local/share/opencode/storage/message/<sessionID>/<messageID>.json   (per-message header)
-///   ~/.local/share/opencode/storage/part/<messageID>/<partID>.json         (text parts)
-///   ~/.local/share/opencode/storage/project/<projectID>.json               (project worktree)
 ///
 /// projectID is opaque (sha1 of cwd in current opencode), but we don't have
 /// to recompute it: the per-session JSON carries the authoritative `directory`
@@ -40,7 +37,7 @@ impl OpenCodeProvider {
             "opencode",
             crate::agent::model_catalog::RegisteredDefaults {
                 models: fallback_models(),
-                default: Some("anthropic/claude-opus-4-7".into()),
+                default: Some("opencode/big-pickle".into()),
             },
         );
         Self
@@ -79,114 +76,21 @@ impl OpenCodeProvider {
         }
     }
 
-    /// Query the sqlite store for the most recent non-archived session
-    /// rooted at `cwd`, skipping ids in `exclude`. `max_age` filters by
-    /// `time_updated` (epoch ms in the schema). Returns Some(session_id)
-    /// or None when nothing matches / db missing.
-    fn db_latest_session(
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-    ) -> Option<String> {
-        let path = Self::db_path()?;
-        // Read-only — opencode is the writer; we just observe.
-        let conn = rusqlite::Connection::open_with_flags(
-            &path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .ok()?;
-        // Prefer SQL, but fallback to legacy filesystem if schema is missing.
-        // Match by both slash styles and prefer `time_created` ordering.
-        let cwd_fwd = cwd.replace('\\', "/");
-        let cwd_bwd = cwd.replace('/', "\\");
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, time_created FROM session \
-                 WHERE (directory = ?1 OR directory = ?2) AND time_archived IS NULL \
-                 ORDER BY time_created DESC LIMIT 50",
-            )
-            .ok()?;
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-        let cutoff_ms = max_age.map(|d| now_ms - d.as_millis() as i64);
-        let rows = stmt
-            .query_map(rusqlite::params![cwd_fwd, cwd_bwd], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })
-            .ok()?;
-        for row in rows.flatten() {
-            let (id, created_ms) = row;
-            if exclude.contains(&id) {
-                continue;
-            }
-            if let Some(cut) = cutoff_ms {
-                if created_ms < cut {
-                    continue;
-                }
-            }
-            return Some(id);
-        }
-        None
-    }
-
-    /// Session id whose latest assistant message is most recent for `cwd`.
-    /// Used by `detect_active_session` to roll a stale pane onto the new
-    /// session opencode spawned after a `/model` swap.
-    fn db_newest_session_for_cwd(cwd: &str) -> Option<String> {
-        let path = Self::db_path()?;
-        let conn = rusqlite::Connection::open_with_flags(
-            &path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .ok()?;
-        let cwd_fwd = cwd.replace('\\', "/");
-        let cwd_bwd = cwd.replace('/', "\\");
-        let mut stmt = conn
-            .prepare(
-                "SELECT m.session_id FROM message m \
-             JOIN session s ON s.id = m.session_id \
-             WHERE (s.directory = ?1 OR s.directory = ?2) AND s.time_archived IS NULL \
-             ORDER BY m.time_created DESC LIMIT 1",
-            )
-            .ok()?;
-        stmt.query_row(rusqlite::params![cwd_fwd, cwd_bwd], |row| {
-            row.get::<_, String>(0)
-        })
-        .ok()
-    }
-
     /// modelID of the most recent assistant message for this pane's session.
-    /// Falls back to a cwd-wide scan when the specific session has no
-    /// assistant messages yet — that happens right after a `/model` swap
-    /// where opencode spawns a brand-new session row, but the focused-pane
-    /// poller hasn't yet swapped the pane's cached session_id over.
-    fn db_latest_assistant_model(cwd: &str, session_id: &str) -> Option<String> {
+    fn db_latest_assistant_model(session_id: &str) -> Option<String> {
         let path = Self::db_path()?;
         let conn = rusqlite::Connection::open_with_flags(
             &path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
         .ok()?;
-        if !session_id.is_empty() {
-            if let Some(model) = Self::scan_messages(
-                &conn,
-                "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-                rusqlite::params![session_id],
-            ) {
-                return Some(model);
-            }
+        if session_id.is_empty() {
+            return None;
         }
-        let cwd_fwd = cwd.replace('\\', "/");
-        let cwd_bwd = cwd.replace('/', "\\");
         Self::scan_messages(
             &conn,
-            "SELECT m.data FROM message m \
-             JOIN session s ON s.id = m.session_id \
-             WHERE (s.directory = ?1 OR s.directory = ?2) \
-             ORDER BY m.time_created DESC LIMIT 50",
-            rusqlite::params![cwd_fwd, cwd_bwd],
+            "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+            rusqlite::params![session_id],
         )
     }
 
@@ -482,19 +386,13 @@ impl AgentProvider for OpenCodeProvider {
             .unwrap_or(false)
     }
 
-    fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
-        let id = Self::db_latest_assistant_model(cwd, session_id)?;
+    fn detect_session_model(&self, _cwd: &str, session_id: &str) -> Option<String> {
+        let id = Self::db_latest_assistant_model(session_id)?;
         Some(opencode_short_label(&id))
     }
 
-    fn detect_active_session(&self, cwd: &str, current_sid: &str) -> Option<String> {
-        // `/model` can point to a newer session; prefer that one.
-        let latest = Self::db_newest_session_for_cwd(cwd)?;
-        if latest == current_sid {
-            None
-        } else {
-            Some(latest)
-        }
+    fn detect_active_session(&self, _cwd: &str, _current_sid: &str) -> Option<String> {
+        None
     }
 
     fn read_usage(&self, _cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
@@ -696,82 +594,18 @@ impl AgentProvider for OpenCodeProvider {
 
     fn detect_session_id(
         &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
+        _cwd: &str,
+        _exclude: &[String],
+        _max_age: Option<Duration>,
     ) -> Option<String> {
-        // Modern installs store sessions in `opencode.db`; query it first.
-        // Filesystem walk is fallback only when db data is absent.
-        if let Some(id) = Self::db_latest_session(cwd, exclude, max_age) {
-            return Some(id);
-        }
-
-        let root = Self::sessions_root()?;
-        if !root.exists() {
-            return None;
-        }
-
-        let now = std::time::SystemTime::now();
-        let recency_limit = max_age.unwrap_or_else(|| Duration::from_secs(300));
-        let mut candidates: Vec<(String, std::time::SystemTime)> = Vec::new();
-
-        let Ok(project_dirs) = std::fs::read_dir(&root) else {
-            return None;
-        };
-        for entry in project_dirs.filter_map(|e| e.ok()) {
-            let Ok(ft) = entry.file_type() else { continue };
-            if !ft.is_dir() {
-                continue;
-            }
-            let Ok(files) = std::fs::read_dir(entry.path()) else {
-                continue;
-            };
-            for f in files.filter_map(|e| e.ok()) {
-                let path = f.path();
-                let name = match path.file_name().and_then(|s| s.to_str()) {
-                    Some(n) => n.to_string(),
-                    None => continue,
-                };
-                if !name.starts_with("ses_") || !name.ends_with(".json") {
-                    continue;
-                }
-                let session_id = name.trim_end_matches(".json").to_string();
-                if exclude.contains(&session_id) {
-                    continue;
-                }
-
-                let info = match read_session_info(&path) {
-                    Some(i) => i,
-                    None => continue,
-                };
-                // Keep only sessions with matching cwd.
-                if info.directory.as_deref() != Some(cwd) {
-                    continue;
-                }
-
-                let Ok(meta) = path.metadata() else { continue };
-                let Ok(modified) = meta.modified() else {
-                    continue;
-                };
-                if let Ok(age) = now.duration_since(modified) {
-                    if age > recency_limit {
-                        continue;
-                    }
-                }
-                let sort_key = meta.created().unwrap_or(modified);
-                candidates.push((session_id, sort_key));
-            }
-        }
-
-        candidates.sort_by(|a, b| b.1.cmp(&a.1));
-        candidates.first().map(|(id, _)| id.clone())
+        None
     }
 
     fn detect_launched_session_id(
         &self,
         cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
+        _exclude: &[String],
+        _max_age: Option<Duration>,
         injected_session_id: Option<&str>,
     ) -> Option<String> {
         if let Some(session_id) = injected_session_id {
@@ -779,24 +613,20 @@ impl AgentProvider for OpenCodeProvider {
                 return Some(session_id.to_string());
             }
         }
-        self.detect_session_id(cwd, exclude, max_age)
+        None
     }
 
     fn detect_started_session(
         &self,
         cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
+        _exclude: &[String],
+        _max_age: Option<Duration>,
         injected_session_id: Option<&str>,
-        screen_text: Option<&str>,
+        _screen_text: Option<&str>,
     ) -> Option<String> {
-        self.detect_started_session_with_markers(
-            cwd,
-            exclude,
-            max_age,
-            injected_session_id,
-            screen_text,
-        )
+        injected_session_id
+            .filter(|session_id| self.session_exists(cwd, session_id))
+            .map(ToOwned::to_owned)
     }
 
     fn build_resume_command(&self, session_id: &str, _skip_permissions: bool) -> Option<String> {
@@ -810,7 +640,23 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn has_hooks(&self) -> bool {
-        false
+        true
+    }
+
+    fn check_integration(&self) -> serde_json::Value {
+        super::integration::check_integration()
+    }
+
+    fn install_integration(&self, api_port: u16) -> Result<(), String> {
+        super::integration::install_integration(api_port)
+    }
+
+    fn uninstall_integration(&self) -> Result<(), String> {
+        super::integration::uninstall_integration()
+    }
+
+    fn ensure_integration_on_startup(&self, api_port: u16) {
+        super::integration::ensure_integration_on_startup(api_port);
     }
 
     fn status_bar_rows(&self) -> u16 {
@@ -887,7 +733,7 @@ impl AgentProvider for OpenCodeProvider {
         match platform {
             // macOS/Linux: use upstream script (`curl ... | bash`).
             "macos" | "linux" => Some("curl -fsSL https://opencode.ai/install | bash".into()),
-            // Windows: use npm package path; upstream PowerShell installer is removed.
+            // Windows: upstream docs list Chocolatey, Scoop, npm, Mise and Docker. NPM is the least opinionated single-command default.
             "windows" => Some("npm install -g opencode-ai".into()),
             _ => None,
         }
@@ -914,7 +760,7 @@ impl AgentProvider for OpenCodeProvider {
 
     fn default_model(&self) -> Option<String> {
         crate::agent::model_catalog::try_override_default("opencode")
-            .or_else(|| Some("anthropic/claude-opus-4-7".into()))
+            .or_else(|| self.available_models().first().map(|m| m.id.clone()))
     }
 
     fn preserves_context_on_resume(&self) -> bool {
@@ -938,7 +784,7 @@ impl AgentProvider for OpenCodeProvider {
                 description: None,
                 fields: vec![SettingField::Info {
                     title: None,
-                    body: "**CLI:** `opencode` — install with `npm i -g opencode-ai` or `curl -fsSL https://opencode.ai/install | bash`\n\n**Auth:** run `opencode providers login` to connect Anthropic, OpenAI, GitHub Copilot, etc.".into(),
+                    body: "**CLI:** `opencode` — macOS/Linux: `curl -fsSL https://opencode.ai/install | bash`; Windows: `npm install -g opencode-ai` (Chocolatey/Scoop also work)\n\n**Auth:** run `opencode providers login` to connect Anthropic, OpenAI, GitHub Copilot, etc.".into(),
                     level: NoteLevel::Info,
                 }],
             },
@@ -951,33 +797,6 @@ impl AgentProvider for OpenCodeProvider {
 // Internal helpers.
 
 /// Collapse common model family names for compact tab badges.
-fn opencode_short_label(model_id: &str) -> String {
-    let m = model_id.to_ascii_lowercase();
-    for fam in [
-        "opus", "sonnet", "haiku", "codex", "gemini", "gpt", "deepseek", "qwen", "llama",
-        "mistral", "grok",
-    ] {
-        if m.contains(fam) {
-            return capitalize_family(fam);
-        }
-    }
-    // Keep up to two segments for opencode-zen labels.
-    let trimmed: String = model_id.split('-').take(2).collect::<Vec<_>>().join("-");
-    if trimmed.len() <= 14 {
-        trimmed
-    } else {
-        model_id.split('-').next().unwrap_or(model_id).to_string()
-    }
-}
-
-fn capitalize_family(s: &str) -> String {
-    let mut chars = s.chars();
-    match chars.next() {
-        Some(c) => c.to_ascii_uppercase().to_string() + &chars.as_str().to_ascii_lowercase(),
-        None => String::new(),
-    }
-}
-
 /// Resolve the XDG data directory the same way opencode does:
 ///   $XDG_DATA_HOME or fallback to $HOME/.local/share
 fn data_dir() -> Option<PathBuf> {

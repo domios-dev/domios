@@ -24,26 +24,6 @@ pub enum MeshAction {
     Status,
     /// List all peers (paired + discovered)
     Peers,
-    /// Execute a command on a remote mesh peer
-    Exec {
-        /// Target peer name or instance ID
-        target: String,
-        /// Command to execute
-        command: String,
-        /// Target pane on remote instance (default: general)
-        #[arg(long, default_value = "general")]
-        pane: String,
-    },
-    /// Send text to a pane on a remote mesh peer
-    Send {
-        /// Target peer name or instance ID
-        target: String,
-        /// Text to send
-        text: String,
-        /// Target pane on remote instance (default: general)
-        #[arg(long, default_value = "general")]
-        pane: String,
-    },
     /// Get output from a pane on a remote mesh peer
     Output {
         /// Target peer name or instance ID
@@ -143,7 +123,7 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
                 eprintln!("Error: mesh management commands are local-only and cannot be relayed via --mesh");
                 std::process::exit(1);
             }
-            _ => {} // Status, Peers, Exec, Send, Output, Panes, Refresh, Announce — relayable
+            _ => {} // Status, Peers, Output, Panes, Refresh, Announce — relayable
         }
     }
 
@@ -156,30 +136,24 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         }
     };
 
-    // `update --apply` is a two-step flow: force-check then install.
+    // `update install --auto` is a two-step flow: force-check then install.
     if let Commands::Update {
         action,
-        check,
-        apply,
-        channel,
         manifest_url,
         after_update,
     } = &cli.command
     {
         let resolved = update::resolve_update_action(
             action.as_ref(),
-            *check,
-            *apply,
-            channel.clone(),
             manifest_url.clone(),
             after_update.clone(),
         );
         if let UpdateAction::Install {
             auto: true,
             manifest_url,
-            from_file: _,
-            continue_prompt: _,
-            continue_pane: _,
+            from_file: None,
+            continue_prompt: None,
+            continue_pane: None,
             after_update,
         } = &resolved
         {
@@ -246,6 +220,14 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         eprintln!("Error: {}", path);
         std::process::exit(2);
     }
+    // Resolve the source agent's label/model locally so the remote can render
+    // `label@PEER` — the source pane is foreign to the peer and unresolvable
+    // there. Best-effort: on any failure the relay falls back to the peer name.
+    let body = if matches!(cli.command, Commands::SendText { .. }) {
+        body.map(|b| enrich_send_body_with_local_source(&http, &base, &token, b))
+    } else {
+        body
+    };
     relay::mesh_relay_generic(
         &http,
         &base,
@@ -256,4 +238,74 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         body.as_deref(),
         cli.json,
     );
+}
+
+/// Look up the local source pane's display label + agent model and inject them
+/// into a `send` body as `source_label` / `source_model`. The peer applies the
+/// canonical CtxPrefix with these (its own mux can't resolve a foreign pane id).
+fn enrich_send_body_with_local_source(
+    http: &reqwest::blocking::Client,
+    base: &str,
+    token: &Option<String>,
+    body: String,
+) -> String {
+    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&body) else {
+        return body;
+    };
+    let Some(src) = v
+        .get("source_pane")
+        .and_then(|x| x.as_str())
+        .map(str::to_string)
+    else {
+        return body;
+    };
+    if src.is_empty() || src == "unknown" {
+        return body;
+    }
+    let panes = http
+        .get(format!("{}/api/panes", base))
+        .header(
+            "Authorization",
+            format!("Bearer {}", token.as_deref().unwrap_or("")),
+        )
+        .send()
+        .ok()
+        .and_then(|r| r.json::<serde_json::Value>().ok());
+    let Some(arr) = panes.as_ref().and_then(|p| p.as_array()) else {
+        return body;
+    };
+    let Some(pane) = arr.iter().find(|p| {
+        p.get("id")
+            .and_then(|x| x.as_str())
+            .is_some_and(|id| id == src || id.starts_with(&src))
+    }) else {
+        return body;
+    };
+    let title = pane
+        .get("title")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim();
+    let tab_title = pane
+        .get("tab_title")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim();
+    // Mirror display_label_for_pane: tab title wins only when it differs.
+    let label = if !tab_title.is_empty() && tab_title != title {
+        tab_title
+    } else {
+        title
+    };
+    if !label.is_empty() {
+        v["source_label"] = serde_json::json!(label);
+    }
+    if let Some(model) = pane
+        .get("agent_session_model")
+        .and_then(|x| x.as_str())
+        .filter(|m| !m.is_empty())
+    {
+        v["source_model"] = serde_json::json!(model);
+    }
+    v.to_string()
 }

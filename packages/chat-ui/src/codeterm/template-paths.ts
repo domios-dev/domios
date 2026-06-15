@@ -3,7 +3,6 @@
 // renamed/removed command.
 export const TEMPLATE_PATHS: string[][] = [
   ["send"],
-  ["send-text"],
   ["agent", "spawn"],
   ["agent", "report"],
   ["agent", "providers"],
@@ -12,7 +11,6 @@ export const TEMPLATE_PATHS: string[][] = [
   ["mem", "get"],
   ["workspace", "create"],
   ["pane", "focus"],
-  ["mesh", "send"],
   ["cron", "create"],
   ["keepawake", "start"],
 ];

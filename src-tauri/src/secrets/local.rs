@@ -23,7 +23,7 @@ impl SecretBackendFactory for LocalFactory {
         "Local secret storage"
     }
     fn description(&self) -> &'static str {
-        "Persisted in the OS keychain (macOS Keychain / libsecret / Windows Credential Manager). Offline, no external service."
+        "Persisted locally in ~/.codeterm/.secrets with user-only file permissions. Offline, no external service."
     }
     fn build(&self, _cfg: &serde_json::Value) -> Box<dyn SecretStore> {
         Box::new(LocalStore::detect_and_build())
@@ -167,14 +167,14 @@ pub struct LocalStore {
     keychain: Keychain,
     index: Box<dyn IndexStorage>,
     next_id: AtomicUsize,
-    /// Set when the keychain probe at construction time failed. CRUD calls
+    /// Set when the local file backend construction failed. CRUD calls
     /// short-circuit to `Backend { message: <reason> }` so the user sees a
     /// clear error in Settings instead of mysteriously empty results.
     unavailable_reason: Option<String>,
 }
 
 impl LocalStore {
-    /// Production constructor: real OS keychain + real on-disk index.
+    /// Production constructor: local file-backed secret store + real on-disk index.
     pub fn detect_and_build() -> Self {
         let keychain = Keychain::new(KEYCHAIN_SERVICE);
         let index: Box<dyn IndexStorage> =
@@ -183,7 +183,7 @@ impl LocalStore {
             None
         } else {
             Some(format!(
-                "OS keychain unavailable: {} — secrets cannot be persisted",
+                "local secret file unavailable: {} — secrets cannot be persisted",
                 keychain.availability_reason().unwrap_or("unknown reason")
             ))
         };
@@ -259,8 +259,7 @@ impl SecretStore for LocalStore {
                 reason: reason.clone(),
             };
         }
-        // Probe by attempting to load the index and reach the OS keychain.
-        let endpoint = Some(format!("os-keychain:{}", KEYCHAIN_SERVICE));
+        let endpoint = Some("file:~/.codeterm/.secrets".to_string());
         match self.index.load() {
             Ok(_) => StoreStatus::Unlocked {
                 user: hostname_label(),
@@ -272,15 +271,14 @@ impl SecretStore for LocalStore {
     }
 
     async fn unlock(&self, _creds: UnlockCredentials) -> Result<(), SecretError> {
-        // Local backend has no separate unlock — the OS keychain is unlocked by the user's login session. We treat unlock as a probe: if the index
-        // loads and the keychain is reachable, we're good.
+        // Local backend has no separate unlock. Treat unlock as a file/index probe.
         self.require_available()?;
         let _ = self.index.load()?;
         Ok(())
     }
 
     async fn lock(&self) -> Result<(), SecretError> {
-        // Nothing to seal — entries are gated by the OS keychain itself. We could clear an in-memory cache here in the future.
+        // Nothing to seal. We could clear an in-memory cache here in the future.
         self.require_available()?;
         Ok(())
     }

@@ -2,9 +2,10 @@
 //!
 //! Each agent provider can have an optional "integration" — hooks /
 //! callbacks / settings it needs to push events back into CodeTerm.
-//! Claude installs JSON entries into `~/.claude/settings.json`. Codex
-//! and Opencode are observed entirely through PTY parsing and need no
-//! integration at all (trait defaults give them `status: "ok"`).
+//! Claude installs JSON entries into `~/.claude/settings.json`, Codex
+//! installs `~/.codex/hooks.json`, and OpenCode installs a small plugin in
+//! its config directory. Providers without integrations no-op via trait
+//! defaults.
 //!
 //! These tauri commands are thin dispatchers that route through the
 //! `AgentRegistry` to the right provider implementation. Adding a new
@@ -80,7 +81,7 @@ pub fn install_provider_rule(
 
 /// Called once at startup. Iterates every registered provider and gives
 /// it a chance to auto-install its CodeTerm integration if missing.
-/// Providers without an integration (Codex, Opencode) just no-op.
+/// Providers without an integration just no-op.
 pub fn ensure_integrations_for_all(registry: &crate::agent::registry::AgentRegistry) {
     let port = default_api_port();
     let ids = registry.provider_ids();

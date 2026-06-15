@@ -26,17 +26,30 @@ fs.copyFileSync(src, dest);
 console.log(`CLI bundled: ${src} -> ${dest}`);
 
 if (isMacOS) {
-  const identity =
-    process.env.APPLE_SIGNING_IDENTITY ||
-    "Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)";
-  try {
-    execSync(
-      `codesign --force --options runtime --timestamp --sign "${identity}" "${dest}"`,
-      { stdio: "inherit" }
-    );
-    console.log("CLI binary signed for notarization");
-  } catch (e) {
-    console.error("Failed to codesign CLI binary:", e.message);
-    process.exit(1);
+  // Dev never needs a Developer ID / notarization signature — that matters
+  // only for distributed release builds. Requiring a signing identity for dev
+  // breaks `build.sh dev` on any machine without the cert in its keychain.
+  // Ad-hoc sign instead (Apple Silicon wants at least an ad-hoc signature to
+  // run), and never let a signing hiccup abort the dev launch.
+  if (process.env.CODETERM_DEV === "1") {
+    try {
+      execSync(`codesign --force --sign - "${dest}"`, { stdio: "inherit" });
+    } catch (e) {
+      console.warn("Ad-hoc codesign failed (continuing for dev):", e.message);
+    }
+  } else {
+    const identity =
+      process.env.APPLE_SIGNING_IDENTITY ||
+      "Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)";
+    try {
+      execSync(
+        `codesign --force --options runtime --timestamp --sign "${identity}" "${dest}"`,
+        { stdio: "inherit" }
+      );
+      console.log("CLI binary signed for notarization");
+    } catch (e) {
+      console.error("Failed to codesign CLI binary:", e.message);
+      process.exit(1);
+    }
   }
 }

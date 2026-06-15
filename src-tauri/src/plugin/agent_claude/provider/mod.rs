@@ -7,6 +7,7 @@
 
 mod detection;
 mod integration;
+mod interactive;
 mod launch;
 mod schemas;
 mod sessions;
@@ -34,7 +35,7 @@ impl ClaudeProvider {
             "claude",
             crate::agent::model_catalog::RegisteredDefaults {
                 models: schemas::builtin_models(),
-                default: Some("sonnet".into()),
+                default: Some("opus".into()),
             },
         );
         Self
@@ -72,6 +73,13 @@ impl AgentProvider for ClaudeProvider {
 
     fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
         sessions::parse_session_messages(file_path)
+    }
+
+    fn parse_interactive_events(
+        &self,
+        msg: &crate::agent::chat_types::RichMessage,
+    ) -> Vec<crate::agent::chat_types::InteractiveElement> {
+        interactive::parse_interactive_events(msg)
     }
 
     fn readiness_strategy(&self) -> ReadinessStrategy {
@@ -436,7 +444,7 @@ mod tests {
         assert_eq!(desc.id, "claude");
         assert_eq!(desc.display_name, "Claude Code");
         assert_eq!(desc.icon_hint.as_deref(), Some("✳"));
-        assert_eq!(desc.default_model.as_deref(), Some("sonnet"));
+        assert_eq!(desc.default_model.as_deref(), Some("opus"));
         assert!(desc.preserves_context_on_resume);
         assert!(desc.supports_lazy_skills);
         assert!(desc.has_hooks);
