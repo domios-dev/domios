@@ -170,9 +170,19 @@ pub async fn create_tab(
     } else {
         None
     };
+    let title = state
+        .svc
+        .mux
+        .lock()
+        .get_workspace(&workspace_id)
+        .and_then(|ws| ws.tabs.iter().find(|tab| tab.id == tab_id))
+        .map(|tab| tab.title.clone())
+        .unwrap_or_else(|| "Tab".to_string());
     Ok(Json(serde_json::json!({
-        "tab_id": tab_id,
+        "id": tab_id.clone(),
+        "title": title,
         "pane_id": pane_id,
+        "tab_id": tab_id,
         "pty_id": pty_id
     })))
 }

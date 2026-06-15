@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use rand::seq::SliceRandom;
 
 const ADJECTIVES: &[&str] = &[
@@ -152,6 +154,34 @@ pub fn generate_tab_name() -> String {
     capitalize(name)
 }
 
+pub fn generate_unique_tab_name<'a>(existing: impl IntoIterator<Item = &'a str>) -> String {
+    let occupied: HashSet<&str> = existing.into_iter().collect();
+    let pool_size = NOTABLES.len() + ADJECTIVES.len();
+
+    for _ in 0..pool_size.saturating_mul(2).max(1) {
+        let candidate = generate_tab_name();
+        if !occupied.contains(candidate.as_str()) {
+            return candidate;
+        }
+    }
+
+    for name in NOTABLES.iter().chain(ADJECTIVES) {
+        let candidate = capitalize(name);
+        if !occupied.contains(candidate.as_str()) {
+            return candidate;
+        }
+    }
+
+    let mut index = 2;
+    loop {
+        let candidate = format!("Tab {}", index);
+        if !occupied.contains(candidate.as_str()) {
+            return candidate;
+        }
+        index += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +201,19 @@ mod tests {
     fn lists_are_nonempty() {
         assert!(!ADJECTIVES.is_empty());
         assert!(!NOTABLES.is_empty());
+    }
+
+    #[test]
+    fn unique_name_avoids_existing_tab_titles() {
+        let occupied: Vec<String> = NOTABLES
+            .iter()
+            .take(NOTABLES.len() - 1)
+            .map(|name| capitalize(name))
+            .collect();
+        let available = capitalize(NOTABLES.last().unwrap());
+
+        let generated = generate_unique_tab_name(occupied.iter().map(String::as_str));
+
+        assert_eq!(generated, available);
     }
 }
