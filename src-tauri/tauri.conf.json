@@ -46,6 +46,7 @@
     ],
     "macOS": {
       "infoPlist": "Info.plist",
+      "entitlements": "Entitlements.plist",
       "minimumSystemVersion": "10.15"
     },
     "windows": {
