@@ -1,0 +1,35 @@
+# Baked Linux x86_64 cross-builder (runs on an arm64 Docker host; rustc native arm64,
+# target code linked for x86_64 via multiarch system libs — NO emulation, NO hand sysroot).
+# This is the approach that actually works for the webkit2gtk GUI app: install the amd64
+# -dev libs into the real system (multiarch) so the cross-linker hits genuine
+# /usr/lib/x86_64-linux-gnu + real /lib64/ld-linux + /lib symlinks (no usrmerge whack-a-mole).
+#
+#   docker build -t codeterm-build-linux-x64 -f Dockerfile.linux-x64 .
+#
+FROM rust:1-trixie
+ENV DEBIAN_FRONTEND=noninteractive
+RUN dpkg --add-architecture amd64 && apt-get update -qq \
+ && apt-get install -y -qq crossbuild-essential-amd64 curl wget file git pkg-config \
+ && apt-get install -y -o Dpkg::Options::=--force-overwrite -o Dpkg::Options::=--force-conflicts \
+      libwebkit2gtk-4.1-dev:amd64 libgtk-3-dev:amd64 libssl-dev:amd64 \
+      libayatana-appindicator3-dev:amd64 librsvg2-dev:amd64 libxdo-dev:amd64 \
+ && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+ && apt-get install -y nodejs && corepack enable
+RUN rustup toolchain install 1.95.0 --profile minimal && rustup default 1.95.0 \
+ && rustup target add x86_64-unknown-linux-gnu --toolchain 1.95.0
+ENV RUSTUP_TOOLCHAIN=1.95.0 \
+    CARGO_BUILD_TARGET=x86_64-unknown-linux-gnu \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
+    CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc \
+    CXX_x86_64_unknown_linux_gnu=x86_64-linux-gnu-g++ \
+    AR_x86_64_unknown_linux_gnu=x86_64-linux-gnu-ar \
+    PKG_CONFIG_ALLOW_CROSS=1 \
+    PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig \
+    OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu \
+    OPENSSL_INCLUDE_DIR=/usr/include \
+    CARGO_PROFILE_RELEASE_DEBUG=0 \
+    CARGO_BUILD_JOBS=6
+# NOTE: x86_64 AppImage cannot be produced on an arm64 host (linuxdeploy-x86_64 is an
+# x86_64 binary that can't run here). Build --bundles deb for x86_64; AppImage only on a
+# real x86_64 host or for arm64 natively.
