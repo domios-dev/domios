@@ -1,6 +1,6 @@
 {
   "id": "opencode",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "minCodeterm": "1.0.0",
   "displayName": "OpenCode",
   "binaryName": "opencode",
