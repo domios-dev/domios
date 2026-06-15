@@ -58,6 +58,10 @@ run_wave x86_64 \
   "$DOCKER codeterm-build-linux-x64 bash /build-linux.sh $TAG deb; cp $LWORK/out/*amd64.deb $ART/ 2>/dev/null" \
   "OUT=$ART $BM/scripts/build-windows.sh $TAG x86_64"
 
+# Collect mac DMGs into the artifacts dir (mac-bundle leaves them in target/).
+cp -f "$REPO/src-tauri/target/release/bundle/dmg/CodeTerm_${VER}_aarch64.dmg" "$ART/" 2>/dev/null || true
+cp -f "$REPO/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/CodeTerm_${VER}_x64.dmg" "$ART/" 2>/dev/null || true
+
 # Sign Windows installers with the minisign updater key (key stays on the Mac).
 for exe in "$ART"/CodeTerm_${VER}_*-setup.exe; do
   [ -f "$exe" ] && ( cd "$REPO" && set -a; . ~/.claude/.secrets/apple-notary.env; set +a; pnpm tauri signer sign "$exe" )
