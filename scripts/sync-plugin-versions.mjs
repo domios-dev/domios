@@ -18,6 +18,13 @@ if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
 
 const providers = ["claude", "codex", "opencode"];
 const workspacePackages = ["packages/chat-core", "packages/chat-ui"];
+
+updateJsonVersion(rootPackagePath);
+updateJsonVersion(path.join(repoRoot, "src-tauri", "tauri.conf.json"));
+
+updateTomlPackageVersion(path.join(repoRoot, "src-tauri", "Cargo.toml"));
+updateTomlPackageVersion(path.join(repoRoot, "cli", "Cargo.toml"));
+
 for (const id of providers) {
   updateJson(path.join(repoRoot, "plugins", `provider-${id}`, "plugin.json"), (json) => {
     json.version = version;
@@ -58,18 +65,58 @@ if (check) {
   console.log(`Synced CodeTerm workspace versions to ${version}`);
 }
 
+function updateTomlPackageVersion(file) {
+  updateText(file, (text) => {
+    const next = text.replace(
+      /(^\[package\][\s\S]*?^version\s*=\s*")[^"]+(")/m,
+      (_match, prefix, suffix) => `${prefix}${version}${suffix}`,
+    );
+    if (next === text && !text.includes(`version = "${version}"`)) {
+      throw new Error(`Could not find [package] version in ${path.relative(repoRoot, file)}`);
+    }
+    return next;
+  });
+}
+
+function updateJsonVersion(file) {
+  updateText(file, (text) => {
+    const next = text.replace(
+      /("version"\s*:\s*")[^"]+(")/,
+      (_match, prefix, suffix) => `${prefix}${version}${suffix}`,
+    );
+    if (next === text && !text.includes(`"version": "${version}"`)) {
+      throw new Error(`Could not find version field in ${path.relative(repoRoot, file)}`);
+    }
+    return next;
+  });
+}
+
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
 function updateJson(file, mutate) {
-  const json = mutate(readJson(file));
-  const next = `${JSON.stringify(json, null, 2)}\n`;
+  updateText(file, (current) => {
+    const json = mutate(JSON.parse(current));
+    return withOriginalEol(`${JSON.stringify(json, null, 2)}\n`, current);
+  });
+}
+
+function updateText(file, mutate) {
   const current = fs.readFileSync(file, "utf8");
-  if (current !== next) {
+  const next = mutate(current);
+  if (normalizeEol(current) !== normalizeEol(next)) {
     changed.push(file);
     if (!check) {
       fs.writeFileSync(file, next);
     }
   }
+}
+
+function withOriginalEol(text, original) {
+  return original.includes("\r\n") ? text.replace(/\n/g, "\r\n") : text;
+}
+
+function normalizeEol(text) {
+  return text.replace(/\r\n/g, "\n");
 }
