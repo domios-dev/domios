@@ -108,11 +108,10 @@ pub fn restart_general_agent(
     Ok(())
 }
 
-/// Probe PATH for a CLI binary. Used by the per-provider Installation card
-/// in Settings → Agents to render the install/missing badge. Returns
-/// `Ok(true)` when the binary is found, `Ok(false)` when missing — never
-/// errors. Frontend treats either result as authoritative; transient PATH
-/// changes are handled by re-fetching when the user reopens the panel.
+/// Probe for a CLI binary. Used by the per-provider Installation card in
+/// Settings → Agents to render the install/missing badge. Checks the process
+/// PATH plus platform fallback dirs because GUI apps often inherit a minimal
+/// PATH. Returns `Ok(true)` when the binary is found, `Ok(false)` when missing.
 #[tauri::command]
 pub fn check_cli_installed(binary: String) -> Result<bool, String> {
     Ok(crate::service::spawn::cli_binary_on_path(&binary))

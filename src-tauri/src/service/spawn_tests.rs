@@ -225,20 +225,25 @@ fn validate_agent_model_passes_through_non_enumerable_provider() {
 fn provider_cli_availability_passes_without_cli_dependency() {
     let registry = registry_with(ModelProvider::new("embedded-provider", &[]));
 
-    assert!(ensure_provider_cli_available(&registry, "embedded-provider").is_ok());
+    assert_eq!(
+        provider_cli_install_warning(&registry, "embedded-provider").unwrap(),
+        None
+    );
 }
 
 #[test]
-fn provider_cli_availability_rejects_missing_binary_with_install_hint() {
+fn provider_cli_availability_warns_on_missing_binary_with_install_hint() {
     let registry = registry_with(ModelProvider::new("missing-cli", &[]).with_cli(
         "codeterm-definitely-missing-provider-cli",
         "install missing-cli",
     ));
 
-    let err = ensure_provider_cli_available(&registry, "missing-cli").unwrap_err();
-    assert!(err.contains("Provider not installed"));
-    assert!(err.contains("codeterm-definitely-missing-provider-cli"));
-    assert!(err.contains("install missing-cli"));
+    let warning = provider_cli_install_warning(&registry, "missing-cli")
+        .unwrap()
+        .unwrap();
+    assert!(warning.contains("Provider not installed"));
+    assert!(warning.contains("codeterm-definitely-missing-provider-cli"));
+    assert!(warning.contains("install missing-cli"));
 }
 
 #[test]
@@ -246,7 +251,7 @@ fn provider_cli_availability_rejects_invalid_binary_name() {
     let registry =
         registry_with(ModelProvider::new("bad-cli", &[]).with_cli("bad cli", "install bad-cli"));
 
-    let err = ensure_provider_cli_available(&registry, "bad-cli").unwrap_err();
+    let err = provider_cli_install_warning(&registry, "bad-cli").unwrap_err();
     assert!(err.contains("invalid CLI binary"));
 }
 

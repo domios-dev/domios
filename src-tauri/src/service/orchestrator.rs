@@ -302,7 +302,11 @@ impl ServiceContext {
                 agent_cmd, available
             ));
         }
-        crate::service::spawn::ensure_provider_cli_available(&self.agent_registry, &agent_cmd)?;
+        let cli_warning =
+            crate::service::spawn::provider_cli_install_warning(&self.agent_registry, &agent_cmd)?;
+        if let Some(ref warning) = cli_warning {
+            log::warn!("[spawn] {}", warning);
+        }
         params.model = crate::service::spawn::resolve_fresh_agent_model(
             &self.agent_registry,
             &agent_cmd,
@@ -337,7 +341,13 @@ impl ServiceContext {
         };
 
         // Resolve cwd: inherit from workspace if not specified, warn if different
-        let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
+        let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
+        let warning = match (cwd_warning, cli_warning) {
+            (Some(a), Some(b)) => Some(format!("{}\n{}", a, b)),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        };
         params.cwd = resolved_cwd;
 
         let default_chat_enabled = self

@@ -75,7 +75,7 @@ crash-context = "0.6"
 minidump-writer = "0.10"
 
 [features]
-default = ["embeddings", "secrets-keyring"]
+default = ["embeddings"]
 # annembed (UMAP graph layout) is macOS-only: its LAPACK backend is the
 # Accelerate framework; Windows/Linux have no provider wired and fail at
 # link time. Declared in the macOS target section below.

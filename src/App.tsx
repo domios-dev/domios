@@ -606,7 +606,7 @@ function AppInner() {
           aria-hidden
           className="fixed inset-x-0 top-0 z-40 pointer-events-none"
           style={{
-            height: "calc(var(--ct-safe-top, 0px) + 1.75rem)",
+            height: "var(--ct-safe-top, 0px)",
             background:
               "linear-gradient(to bottom, var(--ct-bg) 0%, color-mix(in srgb, var(--ct-bg) 72%, transparent) 55%, transparent 100%)",
             backdropFilter: "blur(4px)",
