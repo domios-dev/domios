@@ -90,6 +90,20 @@ export interface ServeSetupPlan {
   canEnable: boolean;
 }
 
+/** Pre-filled prompt for the "Set up with AI" agent: installs Tailscale (if
+ * missing) and configures Serve so the web UI gets a clean HTTPS link. */
+export function serveSetupTask(status: ServeStatus | null, apiPort: number): string {
+  const installed = status?.installed ? "yes" : "no";
+  const platform = status?.platform || "unknown";
+  return [
+    "Set up Tailscale Serve so I can open this CodeTerm over HTTPS from my phone.",
+    `Context: tailscale installed = ${installed}, platform = ${platform}, CodeTerm API port = ${apiPort}.`,
+    "If Tailscale isn't installed, install it and run `tailscale up` so I'm logged into my tailnet.",
+    `Then expose this daemon: \`tailscale serve --bg --https=443 http://127.0.0.1:${apiPort}\` (on macOS provision the cert first with \`tailscale cert <my-magicdns-name>\`).`,
+    "Finally verify the HTTPS URL actually responds, then reply with the clean link I can scan.",
+  ].join(" ");
+}
+
 /** Sibling CodeTerm API port (prod 7685 ↔ dev 7686). Mirrors the backend. */
 function siblingCodetermPort(port: number): number | null {
   if (port === 7685) return 7686;

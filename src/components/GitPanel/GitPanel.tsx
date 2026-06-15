@@ -29,6 +29,7 @@ import { useDragRatio } from "./useDragRatio";
 import { UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
 
 const PAGE = 300;
+const AUTO_REFRESH_MS = 10_000;
 
 // Narrow drill-down levels: 1 commits → 2 files → 3 diff (DiffModal fullscreen).
 type NarrowLevel = 1 | 2 | 3;
@@ -51,6 +52,8 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
   const [notRepo, setNotRepo] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [split, setSplit] = useState(false);
@@ -93,8 +96,12 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
       try {
         const g = await fetchGraph(api, activeCwd, PAGE, 0, signal);
         setGraph(g);
-        setSelectedSha(g.dirty ? WORKDIR_SHA : (g.commits[0]?.sha ?? null));
-        setSelectedPath(null);
+        setSelectedSha((cur) => {
+          if (cur === WORKDIR_SHA && (g.branch || g.dirty)) return cur;
+          if (cur && g.commits.some((commit) => commit.sha === cur)) return cur;
+          return g.branch || g.dirty ? WORKDIR_SHA : (g.commits[0]?.sha ?? null);
+        });
+        setNextRefreshAt(Date.now() + AUTO_REFRESH_MS);
       } catch (e) {
         if (e instanceof NotARepoError) setNotRepo(true);
         else if ((e as Error).name !== "AbortError") setError(String((e as Error).message ?? e));
@@ -108,9 +115,22 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
   useEffect(() => {
     const ctrl = new AbortController();
     setGraph(null);
+    setSelectedPath(null);
     void load(ctrl.signal);
     return () => ctrl.abort();
   }, [load]);
+
+  useEffect(() => {
+    if (!activeCwd) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [activeCwd]);
+
+  useEffect(() => {
+    if (!activeCwd || nextRefreshAt == null || loading) return;
+    if (now < nextRefreshAt) return;
+    void load();
+  }, [activeCwd, load, loading, nextRefreshAt, now]);
 
   // Map drill level when crossing into narrow: file → 3, commit → 2, else 1.
   useEffect(() => {
@@ -167,8 +187,11 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
     try {
       const g = await fetchGraph(api, activeCwd, PAGE, 0);
       setGraph(g);
+      setNextRefreshAt(Date.now() + AUTO_REFRESH_MS);
       if (!g.dirty) {
-        setSelectedSha((cur) => (cur === WORKDIR_SHA ? (g.commits[0]?.sha ?? null) : cur));
+        setSelectedSha((cur) =>
+          cur === WORKDIR_SHA && !g.branch ? (g.commits[0]?.sha ?? null) : cur,
+        );
         setSelectedPath(null);
       }
     } catch {
@@ -206,6 +229,8 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
   const backTitle = narrow && level === 3 ? "Files" : narrow && level === 2 ? "Commits" : null;
   // Split mode is meaningless on the narrow fullscreen diff — force unified there.
   const effectiveSplit = narrow ? false : split;
+  const refreshCountdown =
+    nextRefreshAt == null ? 10 : Math.max(0, Math.ceil((nextRefreshAt - now) / 1000));
 
   return (
     <div
@@ -237,6 +262,11 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
         {graph?.dirty && (
           <span className="text-[11px] text-[var(--ct-yellow)] shrink-0">uncommitted changes</span>
         )}
+        <BranchDelta
+          base={graph?.branch_base ?? null}
+          added={graph?.branch_added ?? null}
+          deleted={graph?.branch_deleted ?? null}
+        />
         <span className="text-[11px] opacity-60 truncate min-w-0 flex-1" title={activeCwd ?? ""}>
           {activeCwd}
         </span>
@@ -253,10 +283,11 @@ export function GitPanel({ api, cwd, onClose }: GitPanelProps) {
         <button
           type="button"
           onClick={() => void load()}
-          title="Refresh"
-          className={`${UI_BUTTON.icon} ${UI_BUTTON.sm} shrink-0`}
+          title={`Refresh now. Auto-refresh in ${refreshCountdown}s`}
+          className={`${UI_BUTTON.ghost} ${UI_BUTTON.sm} ct-git-refresh-pill shrink-0`}
         >
           <RefreshCw size={14} />
+          <span>{loading && graph ? "…" : `${refreshCountdown}s`}</span>
         </button>
         <button
           type="button"
@@ -649,6 +680,29 @@ function FilesWithDiff({
         />
       )}
     </div>
+  );
+}
+
+// Net line delta of the branch vs its fork point from the default branch (working tree included).
+function BranchDelta({
+  base,
+  added,
+  deleted,
+}: {
+  base: string | null;
+  added: number | null;
+  deleted: number | null;
+}) {
+  if (added == null || deleted == null || (added === 0 && deleted === 0)) return null;
+  const fmt = (n: number) => n.toLocaleString();
+  return (
+    <span
+      className="ct-git-delta shrink-0"
+      title={`Lines changed on this branch vs ${base ?? "base"} (working tree included)`}
+    >
+      <span className="ct-git-delta-add">+{fmt(added)}</span>
+      <span className="ct-git-delta-del">−{fmt(deleted)}</span>
+    </span>
   );
 }
 

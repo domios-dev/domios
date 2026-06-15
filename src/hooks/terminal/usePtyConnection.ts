@@ -4,6 +4,7 @@ import type { FitAddon } from "@xterm/addon-fit";
 import { invoke, IS_WEB, resetWebPtyTail } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
+import { uid } from "../../lib/uid";
 
 export interface UsePtyConnectionOptions {
   termRef: React.MutableRefObject<Terminal | null>;
@@ -71,7 +72,7 @@ export function usePtyConnection({
     let disposed = false;
 
     const setupAndConnect = async () => {
-      const predictedId = ptyId || crypto.randomUUID();
+      const predictedId = ptyId || uid();
       connectedPtyRef.current = predictedId;
 
       // Replay full ANSI history on mount so scrollback survives remounts.

@@ -115,6 +115,12 @@ pub(crate) struct GraphResponse {
     head_sha: Option<String>,
     branch: Option<String>,
     dirty: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch_base: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch_added: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch_deleted: Option<u64>,
 }
 
 /// Classify a single decoration token from `%D` (`--decorate=full`).
@@ -261,12 +267,66 @@ pub async fn git_graph(
         .map(|o| !o.stdout.is_empty())
         .unwrap_or(false);
 
+    let (branch_base, branch_added, branch_deleted) = match branch_line_stats(&q.cwd).await {
+        Some((base, added, deleted)) => (Some(base), Some(added), Some(deleted)),
+        None => (None, None, None),
+    };
+
     Ok(Json(GraphResponse {
         commits,
         head_sha,
         branch,
         dirty,
+        branch_base,
+        branch_added,
+        branch_deleted,
     }))
+}
+
+/// Line delta of the current branch against its default-branch fork point, working tree included.
+/// Returns (base_label, added, deleted); None when no base branch resolves (detached, fresh repo).
+async fn branch_line_stats(cwd: &str) -> Option<(String, u64, u64)> {
+    let base = resolve_base_ref(cwd).await?;
+    let merge_base = run_git(cwd, &["merge-base", "HEAD", &base])
+        .await
+        .ok()
+        .filter(|o| o.status_ok)
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())?;
+    let out = run_git(cwd, &["diff", "--numstat", &merge_base])
+        .await
+        .ok()
+        .filter(|o| o.status_ok)?;
+    let (added, deleted) = parse_numstat(&out.stdout)
+        .iter()
+        .fold((0u64, 0u64), |(a, d), f| {
+            (a + f.added.unwrap_or(0), d + f.deleted.unwrap_or(0))
+        });
+    let label = base.rsplit('/').next().unwrap_or(&base).to_string();
+    Some((label, added, deleted))
+}
+
+/// Pick a base to diff the current branch against: origin's default branch, then common fallbacks.
+async fn resolve_base_ref(cwd: &str) -> Option<String> {
+    if let Some(def) = run_git(cwd, &["rev-parse", "--abbrev-ref", "origin/HEAD"])
+        .await
+        .ok()
+        .filter(|o| o.status_ok)
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| s.starts_with("origin/"))
+    {
+        return Some(def);
+    }
+    for cand in ["origin/master", "origin/main", "master", "main"] {
+        if run_git(cwd, &["rev-parse", "--verify", "--quiet", cand])
+            .await
+            .map(|o| o.status_ok)
+            .unwrap_or(false)
+        {
+            return Some(cand.to_string());
+        }
+    }
+    None
 }
 
 #[derive(Deserialize)]

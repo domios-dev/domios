@@ -10,6 +10,13 @@ import type { NormalizedChatMessage } from "./types";
  *  identical line from earlier in the conversation. */
 const ECHO_SKEW_MS = 2_000;
 
+/** Fuzzy fallback: clears an echo whose real counterpart diverged slightly —
+ *  a leaked stray prefix, or the raw attachment path that the optimistic bubble
+ *  carries but the real echo renders as a chip. Thresholds are deliberately
+ *  high so genuinely different messages never collapse. */
+const FUZZY_DICE_THRESHOLD = 0.6;
+const FUZZY_MIN_SHARED_TOKENS = 3;
+
 /** An optimistic, locally-echoed user bubble awaiting its real counterpart. */
 export interface OptimisticEcho {
   id: string;
@@ -57,6 +64,35 @@ function coverageTokens(content: string): CoverageToken[] {
 
 function tokenNeedle(content: string): string[] {
   return normalizeChatText(content).toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+function isPathLikeToken(token: string): boolean {
+  const bare = token.replace(/^['"`]+|['"`]+$/g, "");
+  return /^(\/|~\/|\.\.?\/|[a-z]:[\\/])/i.test(bare);
+}
+
+// Tokens that carry meaning for matching — attachment paths are dropped so a
+// bubble's appended raw path never blocks a match against its chip-rendered echo.
+function meaningfulTokens(content: string): string[] {
+  return normalizeChatText(content)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((token) => token.length > 0 && !isPathLikeToken(token));
+}
+
+function diceSimilarity(a: string[], b: string[]): { dice: number; shared: number } {
+  if (a.length === 0 || b.length === 0) return { dice: 0, shared: 0 };
+  const counts = new Map<string, number>();
+  for (const token of a) counts.set(token, (counts.get(token) ?? 0) + 1);
+  let shared = 0;
+  for (const token of b) {
+    const remaining = counts.get(token) ?? 0;
+    if (remaining > 0) {
+      shared++;
+      counts.set(token, remaining - 1);
+    }
+  }
+  return { dice: (2 * shared) / (a.length + b.length), shared };
 }
 
 function consumeTokenSequence(tokens: CoverageToken[], needle: string[]): boolean {
@@ -122,7 +158,9 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
       exactMatched.add(echo.id);
     }
   }
+  const coverageClaimed = new Set<number>();
   const coverage = parsedUsers.map((message, index) => ({
+    index,
     tokens: consumed[index] ? [] : coverageTokens(message.content),
     timestamp: timestampMs(message.timestamp),
   }));
@@ -136,13 +174,49 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
       }
       if (consumeTokenSequence(candidate.tokens, wanted)) {
         coveredMatched.add(echo.id);
+        coverageClaimed.add(candidate.index);
         break;
       }
     }
   }
+  // Fuzzy fallback for echoes that diverged from their real counterpart by a
+  // stray leaked prefix or an attachment path. Runs last so exact and coverage
+  // claims win; only touches parsed turns neither pass already consumed.
+  const fuzzyMatched = new Set<string>();
+  for (const echo of optimistic) {
+    if (exactMatched.has(echo.id) || coveredMatched.has(echo.id)) continue;
+    if (parseMarker(echo.content)) continue;
+    const echoTokens = meaningfulTokens(echo.content);
+    if (echoTokens.length === 0) continue;
+    const echoText = echoTokens.join(" ");
+    let hit = -1;
+    let bestDice = FUZZY_DICE_THRESHOLD;
+    for (let i = 0; i < parsedUsers.length; i++) {
+      if (consumed[i] || coverageClaimed.has(i)) continue;
+      const candidate = parsedUsers[i];
+      if (candidate.type !== "user" || parseMarker(candidate.content)) continue;
+      const ts = timestampMs(candidate.timestamp);
+      if (ts != null && ts < echo.sentAtMs - ECHO_SKEW_MS) continue;
+      const candidateTokens = meaningfulTokens(candidate.content);
+      if (candidateTokens.length === 0) continue;
+      if (candidateTokens.join(" ") === echoText) {
+        hit = i;
+        break;
+      }
+      const { dice, shared } = diceSimilarity(echoTokens, candidateTokens);
+      if (shared >= FUZZY_MIN_SHARED_TOKENS && dice > bestDice) {
+        bestDice = dice;
+        hit = i;
+      }
+    }
+    if (hit >= 0) {
+      consumed[hit] = true;
+      fuzzyMatched.add(echo.id);
+    }
+  }
   const matchedIds: string[] = [];
   for (const echo of optimistic) {
-    if (exactMatched.has(echo.id) || coveredMatched.has(echo.id)) {
+    if (exactMatched.has(echo.id) || coveredMatched.has(echo.id) || fuzzyMatched.has(echo.id)) {
       matchedIds.push(echo.id);
     } else {
       pendingIds.push(echo.id);
