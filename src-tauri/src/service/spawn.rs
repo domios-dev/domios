@@ -7,6 +7,8 @@ use super::orchestrator::{build_agent_command, launch_agent_in_background, Spawn
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
+pub(crate) use super::spawn_cli::{cli_binary_on_path, provider_cli_install_warning};
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnPaneSpec {
     #[serde(default)]
@@ -84,69 +86,13 @@ fn default_true() -> bool {
     true
 }
 
-fn valid_cli_binary(binary: &str) -> bool {
-    !binary.is_empty()
-        && !binary.chars().any(|c| {
-            matches!(
-                c,
-                '/' | '\\' | ' ' | ';' | '|' | '&' | '$' | '`' | '<' | '>' | '\n'
-            )
-        })
-}
-
-pub(crate) fn cli_binary_on_path(binary: &str) -> bool {
-    if !valid_cli_binary(binary) {
-        return false;
+fn merge_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(format!("{}\n{}", a, b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
     }
-    let cmd_name = if cfg!(target_os = "windows") {
-        "where"
-    } else {
-        "which"
-    };
-    let mut cmd = std::process::Command::new(cmd_name);
-    cmd.arg(binary);
-    crate::process_util::no_window_std(&mut cmd);
-    matches!(cmd.output(), Ok(out) if out.status.success() && !out.stdout.is_empty())
-}
-
-pub(crate) fn ensure_provider_cli_available(
-    registry: &AgentRegistry,
-    provider_id: &str,
-) -> Result<(), String> {
-    let Some((display_name, cli_binary, install_command)) =
-        registry.with_provider(provider_id, |p| {
-            (
-                p.display_name().to_string(),
-                p.cli_binary().map(str::to_string),
-                p.install_command(crate::agent::provider::current_platform_tag()),
-            )
-        })
-    else {
-        let available = registry.provider_ids().join(", ");
-        return Err(format!(
-            "Unknown agent provider: '{}'. Available: [{}]",
-            provider_id, available
-        ));
-    };
-    let Some(binary) = cli_binary else {
-        return Ok(());
-    };
-    if !valid_cli_binary(&binary) {
-        return Err(format!(
-            "Provider '{}' declares invalid CLI binary '{}'",
-            provider_id, binary
-        ));
-    }
-    if cli_binary_on_path(&binary) {
-        return Ok(());
-    }
-    let install_hint = install_command
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "No install command is available for this platform.".to_string());
-    Err(format!(
-        "Provider not installed: {} requires CLI `{}` on PATH. Install command: {}",
-        display_name, binary, install_hint
-    ))
 }
 
 pub(crate) fn should_default_agent_pane_to_chat(
@@ -363,7 +309,10 @@ impl ServiceContext {
                 agent_cmd, available
             ));
         }
-        ensure_provider_cli_available(&self.agent_registry, &agent_cmd)?;
+        let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent_cmd)?;
+        if let Some(ref warning) = cli_warning {
+            log::warn!("[spawn] {}", warning);
+        }
         let launch_model = resolve_fresh_agent_model(
             &self.agent_registry,
             &agent_cmd,
@@ -393,7 +342,8 @@ impl ServiceContext {
             (id, cwd)
         };
 
-        let (resolved_cwd, warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
+        let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
+        let warning = merge_warnings(cwd_warning, cli_warning);
 
         let default_chat_enabled = self
             .app_handle
@@ -725,7 +675,10 @@ impl ServiceContext {
                 agent.provider, available
             ));
         }
-        ensure_provider_cli_available(&self.agent_registry, &agent.provider)?;
+        let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent.provider)?;
+        if let Some(ref warning) = cli_warning {
+            log::warn!("[spawn.hidden] {}", warning);
+        }
         let launch_model = resolve_fresh_agent_model(
             &self.agent_registry,
             &agent.provider,
@@ -946,7 +899,7 @@ impl ServiceContext {
             pty_id: Some(pty_id),
             workspace_id: ws_id,
             worker_id: agent.worker_id.clone(),
-            warning: None,
+            warning: cli_warning,
         })
     }
 }

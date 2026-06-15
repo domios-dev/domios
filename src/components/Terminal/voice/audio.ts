@@ -7,10 +7,13 @@ export const MIN_VOICE_BYTES = 5 * 1024;
 
 export function pickAudioMime(): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
-  // iOS Safari records mp4/aac; everything else does webm/opus.
-  return ["audio/ogg;codecs=opus", "audio/ogg", "audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) =>
-    MediaRecorder.isTypeSupported(m),
-  );
+  const appleNative =
+    !IS_WEB &&
+    /\b(Macintosh|Mac OS X|iPhone|iPad|iPod)\b/i.test(navigator.userAgent);
+  const candidates = appleNative
+    ? ["audio/mp4", "audio/aac", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg"]
+    : ["audio/ogg;codecs=opus", "audio/ogg", "audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"];
+  return candidates.find((m) => MediaRecorder.isTypeSupported(m));
 }
 
 export function audioExt(mime: string): string {

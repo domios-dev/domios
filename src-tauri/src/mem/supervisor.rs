@@ -511,25 +511,29 @@ mod tests {
     }
 
     /// Cross-crate sanity check: the CLI source still contains the literal
-    /// `#[clap(name = "run-worker")]` attribute and accepts the three kind
-    /// strings in its doc comment. clap's `#[clap(name = ...)]` requires a
-    /// literal so we can't share a const directly — this string-search keeps
-    /// the two halves wired together at `cargo test --lib` time without
-    /// needing the CLI binary to be built first.
+    /// `#[clap(name = "run-worker")]` attribute and accepts every supervisor
+    /// kind. clap's `#[clap(name = ...)]` requires a literal so we can't share
+    /// a const directly — this string-search keeps the two halves wired
+    /// together at `cargo test --lib` time without needing the CLI binary to be
+    /// built first.
     #[test]
     fn cli_source_still_declares_run_worker() {
-        // Clap derives live in cli/src/args/mem.rs (extracted in PR 99f4948 / a624ae7); dispatch logic + kind strings still live in cli/src/main.rs.
         let args_src = include_str!("../../../cli/src/args/mem.rs");
         assert!(
             args_src.contains(r#"#[clap(name = "run-worker")]"#),
             "cli/src/args/mem.rs no longer declares `#[clap(name = \"run-worker\")]` — \
              supervisor.rs spawns this exact subcommand. Fix one or the other."
         );
-        let cli_src = include_str!("../../../cli/src/main.rs");
-        for kind in [KIND_DREAMING_LIGHT, KIND_DREAMING_DEEP, KIND_LIBRARIAN_ONCE] {
+        let worker_src = include_str!("../../../cli/src/cmd/worker.rs");
+        for kind in [
+            KIND_DREAMING_LIGHT,
+            KIND_DREAMING_DEEP,
+            KIND_DREAMING_NORMALIZE,
+            KIND_LIBRARIAN_ONCE,
+        ] {
             assert!(
-                cli_src.contains(&format!("\"{}\"", kind)),
-                "cli/src/main.rs no longer references kind {:?} — supervisor.rs spawns it.",
+                worker_src.contains(&format!("\"{}\"", kind)),
+                "cli/src/cmd/worker.rs no longer references kind {:?} — supervisor.rs spawns it.",
                 kind
             );
         }
