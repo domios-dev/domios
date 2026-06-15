@@ -73,10 +73,21 @@ pub struct UpdateState {
     pub phase: UpdatePhase,
     pub last_error: Option<String>,
     pub phase_changed_at: Option<std::time::Instant>,
+    pub downloaded_bytes: u64,
+    pub download_total_bytes: Option<u64>,
 }
 
 impl UpdateState {
     pub fn set_phase(&mut self, phase: UpdatePhase) {
+        match phase {
+            UpdatePhase::Checking | UpdatePhase::Downloading => self.reset_download_progress(),
+            UpdatePhase::Applying | UpdatePhase::Success => {
+                if let Some(total) = self.download_total_bytes {
+                    self.downloaded_bytes = total;
+                }
+            }
+            UpdatePhase::Idle | UpdatePhase::Error => {}
+        }
         self.phase = phase;
         self.phase_changed_at = Some(std::time::Instant::now());
     }
@@ -89,6 +100,25 @@ impl UpdateState {
 
     pub fn clear_error(&mut self) {
         self.last_error = None;
+    }
+
+    pub fn record_download_chunk(&mut self, chunk_len: u64, total: Option<u64>) {
+        self.phase = UpdatePhase::Downloading;
+        if self.phase_changed_at.is_none() {
+            self.phase_changed_at = Some(std::time::Instant::now());
+        }
+        if total.is_some() {
+            self.download_total_bytes = total;
+        }
+        self.downloaded_bytes = self.downloaded_bytes.saturating_add(chunk_len);
+        if let Some(total) = self.download_total_bytes {
+            self.downloaded_bytes = self.downloaded_bytes.min(total);
+        }
+    }
+
+    fn reset_download_progress(&mut self) {
+        self.downloaded_bytes = 0;
+        self.download_total_bytes = None;
     }
 }
 
@@ -105,6 +135,8 @@ mod state_tests {
             phase: UpdatePhase::Idle,
             last_error: None,
             phase_changed_at: None,
+            downloaded_bytes: 0,
+            download_total_bytes: None,
         }
     }
 
@@ -138,6 +170,25 @@ mod state_tests {
     fn phase_serializes_snake_case() {
         let v = serde_json::to_string(&UpdatePhase::Downloading).unwrap();
         assert_eq!(v, "\"downloading\"");
+    }
+
+    #[test]
+    fn download_progress_accumulates_and_caps_at_total() {
+        let mut s = empty_state();
+        s.set_phase(UpdatePhase::Downloading);
+        s.record_download_chunk(40, Some(100));
+        s.record_download_chunk(80, Some(100));
+        assert_eq!(s.downloaded_bytes, 100);
+        assert_eq!(s.download_total_bytes, Some(100));
+    }
+
+    #[test]
+    fn applying_marks_download_complete_when_total_is_known() {
+        let mut s = empty_state();
+        s.set_phase(UpdatePhase::Downloading);
+        s.record_download_chunk(40, Some(100));
+        s.set_phase(UpdatePhase::Applying);
+        assert_eq!(s.downloaded_bytes, 100);
     }
 }
 

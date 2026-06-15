@@ -5,6 +5,7 @@
 //! session file layout, TUI noise, slash commands) lives in this module —
 //! core never references Codex directly.
 
+pub mod integration;
 pub mod provider;
 pub mod status_tui;
 pub mod usage;
@@ -120,7 +121,7 @@ mod tests {
         assert_eq!(codex.compact_command(), Some("/compact"));
         assert_eq!(codex.exit_command(), Some("/exit"));
         assert!(!codex.supports_lazy_skills());
-        assert!(!codex.has_hooks());
+        assert!(codex.has_hooks());
         assert_eq!(codex.status_bar_rows(), 1);
     }
 }

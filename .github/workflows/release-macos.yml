@@ -13,7 +13,8 @@ name: release-macos
 #
 # Required secrets:
 #   TAURI_SIGNING_PRIVATE_KEY, APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
-#   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID, APPLE_SIGNING_IDENTITY.
+#   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID, PACKAGE_REPOS_TOKEN.
+# PACKAGE_REPOS_TOKEN must have contents:write for rollacode/codeterm-releases.
 # Optional secret: TAURI_KEY_PASSWORD (only if the signing key is encrypted).
 
 "on":
@@ -38,7 +39,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-13
+          - os: macos-15-intel
             target: x86_64-apple-darwin
           - os: macos-14
             target: aarch64-apple-darwin
@@ -89,7 +90,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.22.0'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -123,6 +124,18 @@ jobs:
           p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
           p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
+      - name: Resolve Apple signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          security find-identity -v -p codesigning
+          identity="$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ { print $2; exit }')"
+          if [ -z "$identity" ]; then
+            echo "::error::No Developer ID Application identity found after certificate import"
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+
       - name: Build, sign, and upload release assets
         uses: tauri-apps/tauri-action@v0
         env:
@@ -133,7 +146,6 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -153,8 +165,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
-          REPO: ${{ github.repository }}
+          SOURCE_REPO: ${{ github.repository }}
+          MANIFEST_REPO: rollacode/codeterm-releases
           PLATFORM_KEY: ${{ matrix.target == 'aarch64-apple-darwin' && 'darwin-aarch64' || 'darwin-x86_64' }}
+          MAC_ARCH_SUFFIX: ${{ matrix.target == 'aarch64-apple-darwin' && 'aarch64' || 'x64' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -166,15 +180,20 @@ jobs:
           [ -n "$UPDATER_SIG" ] || { echo "::error::No .app.tar.gz signature under $BUNDLE_ROOT/macos"; exit 1; }
           UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
           [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
+          RELEASE_BUNDLE="$BUNDLE_ROOT/macos/CodeTerm_${MAC_ARCH_SUFFIX}.app.tar.gz"
+          RELEASE_SIG="$RELEASE_BUNDLE.sig"
+          cp "$UPDATER_BUNDLE" "$RELEASE_BUNDLE"
+          cp "$UPDATER_SIG" "$RELEASE_SIG"
 
-          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$REPO"
+          gh release upload "$TAG" "$RELEASE_BUNDLE" "$RELEASE_SIG" --clobber --repo "$SOURCE_REPO"
 
           OUT="updater-${{ matrix.target }}.json"
-          UPDATER_BUNDLE="$UPDATER_BUNDLE" \
-          UPDATER_SIG="$UPDATER_SIG" \
+          REPO="$MANIFEST_REPO" \
+          UPDATER_BUNDLE="$RELEASE_BUNDLE" \
+          UPDATER_SIG="$RELEASE_SIG" \
           OUT="$OUT" \
             python3 .github/workflows/build-updater-fragment.py
-          gh release upload "$TAG" "$OUT" --clobber --repo "$REPO"
+          gh release upload "$TAG" "$OUT" --clobber --repo "$SOURCE_REPO"
 
       - name: Refresh merged channel manifest
         env:
@@ -211,6 +230,7 @@ jobs:
           MANIFEST: ${{ steps.channel.outputs.manifest }}
           PRERELEASE: ${{ steps.channel.outputs.prerelease }}
           MIRROR_REPO: rollacode/codeterm-releases
+          MAC_ARCH_SUFFIX: ${{ matrix.target == 'aarch64-apple-darwin' && 'aarch64' || 'x64' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -219,19 +239,28 @@ jobs:
           [ -n "$UPDATER_SIG" ] || { echo "::error::No .app.tar.gz signature under $BUNDLE_ROOT/macos"; exit 1; }
           UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
           [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
+          RELEASE_BUNDLE="$BUNDLE_ROOT/macos/CodeTerm_${MAC_ARCH_SUFFIX}.app.tar.gz"
+          RELEASE_SIG="$RELEASE_BUNDLE.sig"
+          cp "$UPDATER_BUNDLE" "$RELEASE_BUNDLE"
+          cp "$UPDATER_SIG" "$RELEASE_SIG"
 
           # Idempotent: create the release in the mirror only if missing.
           # Each platform workflow may run this step in any order; first one
           # wins, the rest just upload assets to the existing release.
           if ! gh release view "$TAG" --repo "$MIRROR_REPO" >/dev/null 2>&1; then
-            EXTRA_FLAGS=()
-            if [ "$PRERELEASE" = "true" ]; then EXTRA_FLAGS+=(--prerelease); fi
-            gh release create "$TAG" \
-              --repo "$MIRROR_REPO" \
-              --title "CodeTerm $TAG" \
-              --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes." \
-              "${EXTRA_FLAGS[@]}"
+            if [ "$PRERELEASE" = "true" ]; then
+              gh release create "$TAG" \
+                --repo "$MIRROR_REPO" \
+                --title "CodeTerm $TAG" \
+                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes." \
+                --prerelease
+            else
+              gh release create "$TAG" \
+                --repo "$MIRROR_REPO" \
+                --title "CodeTerm $TAG" \
+                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
+            fi
           fi
 
-          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" "$MANIFEST" \
+          gh release upload "$TAG" "$RELEASE_BUNDLE" "$RELEASE_SIG" "$MANIFEST" \
             --clobber --repo "$MIRROR_REPO"

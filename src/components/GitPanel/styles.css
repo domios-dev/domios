@@ -124,6 +124,51 @@
   border-color: color-mix(in srgb, var(--ct-red, #f87171) 60%, transparent);
   background: color-mix(in srgb, var(--ct-red, #f87171) 12%, transparent);
 }
+.ct-git-stage-checkbox {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--ct-green, #34d399);
+  cursor: pointer;
+}
+.ct-git-stage-checkbox:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.ct-git-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 99px;
+  border: 1.5px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 35%, transparent);
+  border-top-color: var(--ct-yellow, #fbbf24);
+  animation: ct-git-spin 700ms linear infinite;
+}
+@keyframes ct-git-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ct-git-loading-badge {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--ct-fg, #c9d1d9) 12%, transparent);
+  background: color-mix(in srgb, var(--ct-bg, #0d1117) 86%, transparent);
+  -webkit-backdrop-filter: blur(8px) saturate(130%);
+  backdrop-filter: blur(8px) saturate(130%);
+  color: var(--ct-muted-fg, #8b949e);
+  font-size: 11px;
+  pointer-events: none;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
 
 /* ---------- ref chips ---------- */
 .ct-git-chip {
@@ -200,13 +245,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ct-git-bubble .dirty {
-  width: 5px;
-  height: 5px;
-  border-radius: 99px;
-  background: var(--ct-yellow, #fbbf24);
-  box-shadow: 0 0 5px color-mix(in srgb, var(--ct-yellow, #fbbf24) 60%, transparent);
-}
 
 /* ---------- diff text selection ---------- */
 .ct-git-diff,
@@ -216,6 +254,58 @@
 }
 .ct-git-diff {
   font-size: 12px;
+}
+
+/* ---------- commit dialog ---------- */
+.ct-git-commit-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(72px, calc(48px + var(--ct-safe-top, 0px))) 20px 20px;
+  background: rgba(0, 0, 0, 0.42);
+  -webkit-backdrop-filter: blur(3px) saturate(120%);
+  backdrop-filter: blur(3px) saturate(120%);
+  animation: ct-git-modal-fade 140ms ease-out;
+}
+.ct-git-commit-dialog {
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--ct-fg, #c9d1d9) 14%, transparent);
+  background: var(--ct-bg, #0d1117);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
+  animation: ct-git-modal-in 140ms ease-out;
+}
+.ct-git-commit-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.ct-git-commit-head > div {
+  flex: 1 1 auto;
+}
+.ct-git-commit-textarea {
+  width: 100%;
+  min-height: 112px;
+  resize: vertical;
+  padding: 8px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--ct-border, #30363d);
+  background: color-mix(in srgb, var(--ct-fg, #c9d1d9) 4%, transparent);
+  color: var(--ct-fg, #c9d1d9);
+  font-family: var(--ct-font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  outline: none;
+}
+.ct-git-commit-textarea:focus {
+  border-color: color-mix(in srgb, var(--ct-accent, #6366f1) 65%, var(--ct-border, #30363d));
 }
 
 /* ---------- draggable dividers (both axes) ---------- */

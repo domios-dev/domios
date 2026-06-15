@@ -1,10 +1,18 @@
 //! Map local CLI commands to relay `(method, path, body)` calls for peer dispatch.
 //! Update this match when new `super::Commands` variants are added.
 
-use crate::{Commands, ServiceAction, UpdateAction};
+use crate::{
+    cmd::{delayed::parse_schedule, send_text::resolve_send_text_input},
+    Commands, ServiceAction, UpdateAction,
+};
 
 use super::update::resolve_update_action;
 use super::{parse_ip_port, MeshAction, MeshPeerAction};
+
+mod actions;
+
+pub(crate) use actions::send_text_to_api;
+use actions::{delayed_create_to_api, mem_to_api, now_ms};
 
 /// Sentinel `method` returned by [`cli_command_to_api`] for commands that have
 /// no meaningful remote form (PTY scrollback, local subprocess, on-disk skill
@@ -14,30 +22,29 @@ use super::{parse_ip_port, MeshAction, MeshPeerAction};
 /// agree on one token.
 pub const UNSUPPORTED_OVER_MESH: &str = "UNSUPPORTED";
 
+fn unsupported(reason: &str) -> (String, String, Option<String>) {
+    (UNSUPPORTED_OVER_MESH.into(), reason.into(), None)
+}
+
 /// Map a CLI command to its corresponding API call.
 pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
     match cmd {
         // `web link` is local-only: token must be generated on the same machine.
-        Commands::Web { .. } => (
-            UNSUPPORTED_OVER_MESH.into(),
-            "web link is local-only — each peer's link needs that peer's own token; run it there"
-                .into(),
-            None,
+        Commands::Web { .. } => unsupported(
+            "web link is local-only — each peer's link needs that peer's own token; run it there",
         ),
         // `plugin` manages local on-disk plugin folders — no remote form.
-        Commands::Plugin { .. } => (
-            UNSUPPORTED_OVER_MESH.into(),
-            "plugin management is local-only — run it on the target machine".into(),
-            None,
-        ),
+        Commands::Plugin { .. } => {
+            unsupported("plugin management is local-only — run it on the target machine")
+        }
         // `cli-manifest` introspects the local clap binary — no remote form.
-        Commands::CliManifest { .. } => (
-            UNSUPPORTED_OVER_MESH.into(),
-            "cli-manifest is local-only — it dumps this binary's own command tree".into(),
-            None,
-        ),
+        Commands::CliManifest { .. } => {
+            unsupported("cli-manifest is local-only — it dumps this binary's own command tree")
+        }
         Commands::Identify => ("GET".into(), "/api/identify".into(), None),
-        Commands::Capabilities => ("GET".into(), "/api/identify".into(), None),
+        Commands::Capabilities => {
+            unsupported("capabilities is socket-only; run it on the target machine")
+        }
         Commands::GetOutput { pane, lines } => {
             let p = pane.as_deref().unwrap_or("general");
             (
@@ -50,39 +57,92 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             text,
             pane,
             from_file,
-            from_stdin,
+            stdin: use_stdin,
+            actions,
+            delay,
+            at,
         } => {
-            let p = pane.as_deref().unwrap_or("general");
-            let source =
-                std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
-            let body_text = if *from_stdin {
-                use std::io::Read;
-                let mut buf = String::new();
-                if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
-                    eprintln!("Error: failed to read --from-stdin: {}", e);
-                    std::process::exit(1);
-                }
-                buf
-            } else if let Some(path) = from_file.as_ref() {
-                std::fs::read_to_string(path).unwrap_or_else(|_| text.clone())
+            let mut stdin = std::io::stdin();
+            if delay.is_some() || at.is_some() {
+                delayed_create_to_api(text, pane, from_file, *use_stdin, delay, at, &mut stdin)
             } else {
-                text.clone()
-            };
-            if body_text.trim().is_empty() {
-                eprintln!("Error: send-text payload is empty (mesh path)");
-                eprintln!(
-                    "hint: --from-stdin via heredoc may have dropped under your shell wrapper;"
-                );
-                eprintln!("      try --from-file <path> with a real tempfile.");
-                std::process::exit(2);
+                send_text_to_api(text, pane, from_file, *use_stdin, actions, &mut stdin)
             }
-            let body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
-            (
-                "POST".into(),
-                format!("/api/panes/{}/send", p),
-                Some(body.to_string()),
-            )
         }
+        Commands::Delayed { action } => match action {
+            crate::DelayedAction::List { pane } => {
+                let p = pane.as_deref().unwrap_or("general");
+                (
+                    "GET".into(),
+                    format!("/api/panes/{}/delayed-messages", p),
+                    None,
+                )
+            }
+            crate::DelayedAction::Create {
+                text,
+                pane,
+                delay,
+                at,
+                from_file,
+                stdin: use_stdin,
+            } => {
+                let mut stdin = std::io::stdin();
+                delayed_create_to_api(text, pane, from_file, *use_stdin, delay, at, &mut stdin)
+            }
+            crate::DelayedAction::Edit {
+                id,
+                text,
+                delay,
+                at,
+                from_file,
+                stdin: use_stdin,
+            } => {
+                let mut body = serde_json::Map::new();
+                if text.is_some() || from_file.is_some() || *use_stdin {
+                    match resolve_send_text_input(
+                        text.clone(),
+                        from_file.clone(),
+                        *use_stdin,
+                        &mut std::io::stdin(),
+                    ) {
+                        Ok((text, _)) => {
+                            body.insert("text".into(), serde_json::json!(text));
+                        }
+                        Err(e) => return unsupported(&format!("delayed edit input error: {}", e)),
+                    }
+                }
+                if delay.is_some() || at.is_some() {
+                    match parse_schedule(delay.clone(), at.clone(), now_ms()) {
+                        Ok(ms) => {
+                            body.insert("scheduledAtMs".into(), serde_json::json!(ms));
+                        }
+                        Err(e) => {
+                            return unsupported(&format!("delayed edit schedule error: {}", e))
+                        }
+                    }
+                }
+                if body.is_empty() {
+                    return unsupported(
+                        "delayed edit needs --text/--from-file/--stdin and/or --delay/--at",
+                    );
+                }
+                (
+                    "PATCH".into(),
+                    format!("/api/delayed-messages/{}", id),
+                    Some(serde_json::Value::Object(body).to_string()),
+                )
+            }
+            crate::DelayedAction::Delete { id } => (
+                "DELETE".into(),
+                format!("/api/delayed-messages/{}", id),
+                None,
+            ),
+            crate::DelayedAction::SendNow { id } => (
+                "POST".into(),
+                format!("/api/delayed-messages/{}/send-now", id),
+                None,
+            ),
+        },
         Commands::Notify { title, body, level } => (
             "POST".into(),
             "/api/notifications".into(),
@@ -115,7 +175,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 workspace,
                 cwd,
                 title,
-                cmd: _,
+                cmd,
                 eager,
             } => {
                 let mut body = serde_json::json!({});
@@ -127,6 +187,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(t) = title {
                     body["title"] = serde_json::Value::String(t.clone());
+                }
+                if let Some(c) = cmd {
+                    body["cmd"] = serde_json::Value::String(c.clone());
                 }
                 if *eager {
                     body["eager"] = serde_json::Value::Bool(true);
@@ -256,11 +319,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 let q = if *pop { "?pop=true" } else { "" };
                 ("GET".into(), format!("/api/pasteboard/{}{}", id, q), None)
             }
-            crate::PasteAction::Pop { id } => (
-                "GET".into(),
-                format!("/api/pasteboard/{}?pop=true", id),
-                None,
-            ),
             crate::PasteAction::List => ("GET".into(), "/api/pasteboard".into(), None),
             crate::PasteAction::Rm { id } => {
                 ("DELETE".into(), format!("/api/pasteboard/{}", id), None)
@@ -393,20 +451,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         },
         Commands::Update {
             action,
-            check,
-            apply,
-            channel,
             manifest_url,
             after_update,
         } => {
-            let resolved = resolve_update_action(
-                action.as_ref(),
-                *check,
-                *apply,
-                channel.clone(),
-                manifest_url.clone(),
-                after_update.clone(),
-            );
+            let resolved =
+                resolve_update_action(action.as_ref(), manifest_url.clone(), after_update.clone());
             match resolved {
                 UpdateAction::Check { force } => {
                     let path = if force {
@@ -419,11 +468,14 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 UpdateAction::Install {
                     auto,
                     manifest_url,
-                    from_file: _,
-                    continue_prompt: _,
-                    continue_pane: _,
+                    from_file,
+                    continue_prompt,
+                    continue_pane,
                     after_update,
                 } => {
+                    if from_file.is_some() || continue_prompt.is_some() || continue_pane.is_some() {
+                        return unsupported("update install --from-file/--continue-prompt/--continue-pane are local-only; run on the target machine");
+                    }
                     let mut qs = String::new();
                     if auto {
                         qs.push_str("?method=auto");
@@ -446,14 +498,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     }
                     ("POST".into(), format!("/api/update/install{}", qs), None)
                 }
-                UpdateAction::Channel { channel } => match channel {
-                    None => ("GET".into(), "/api/update/channel".into(), None),
-                    Some(name) => (
-                        "POST".into(),
-                        "/api/update/channel".into(),
-                        Some(serde_json::json!({"channel": name}).to_string()),
-                    ),
-                },
             }
         }
         Commands::Mesh { action } => match action {
@@ -807,309 +851,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Debug { .. } => {
             eprintln!("Error: `debug` is local-only — refusing to crash a remote peer via --mesh");
             std::process::exit(2);
-        }
-    }
-}
-
-fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
-    use crate::{MemAction, MemGraphAction};
-    use serde_json::json;
-
-    let enc = urlencoding::encode;
-    match action {
-        MemAction::Search { query, kind, area, scope, limit, .. } => {
-            let mut path = format!("/api/mem/search?q={}&limit={}", enc(query), limit);
-            if let Some(k) = kind { path.push_str(&format!("&kind={}", enc(k))); }
-            if let Some(a) = area { path.push_str(&format!("&area={}", enc(a))); }
-            if let Some(s) = scope { path.push_str(&format!("&scope={}", enc(s))); }
-            ("GET".into(), path, None)
-        }
-        MemAction::Get { id } => ("GET".into(), format!("/api/mem/items/{}", enc(id)), None),
-        MemAction::Delete { id } => ("DELETE".into(), format!("/api/mem/items/{}", enc(id)), None),
-        MemAction::Forget { area } => ("DELETE".into(), format!("/api/mem/forget/{}", enc(area)), None),
-        MemAction::History { id } => ("GET".into(), format!("/api/mem/items/{}/history", enc(id)), None),
-        MemAction::Taxonomy { workspace } => {
-            let path = match workspace {
-                Some(w) => format!("/api/mem/taxonomy?workspace={}", enc(w)),
-                None => "/api/mem/taxonomy".into(),
-            };
-            ("GET".into(), path, None)
-        }
-        MemAction::Tail { limit, .. } => {
-            ("GET".into(), format!("/api/mem/tail?limit={}", limit), None)
-        }
-        // --changed-by is local-only; mesh relay strips per-call headers
-        MemAction::Update { id, title, summary, area, tags, body, importance, changed_by: _ } => {
-            let mut payload = serde_json::Map::new();
-            if let Some(v) = title { payload.insert("title".into(), json!(v)); }
-            if let Some(v) = summary { payload.insert("summary".into(), json!(v)); }
-            if let Some(v) = area { payload.insert("area".into(), json!(v)); }
-            if let Some(v) = tags { payload.insert("tags".into(), json!(v)); }
-            if let Some(v) = body { payload.insert("body".into(), json!(v)); }
-            if let Some(v) = importance { payload.insert("importance".into(), json!(v)); }
-            ("PATCH".into(), format!("/api/mem/items/{}", enc(id)),
-                Some(serde_json::Value::Object(payload).to_string()))
-        }
-        MemAction::Save { kind, title, body, summary, tags, area, importance, scope, workspace, pin, source_path, replace, skip_extract } => {
-            let mut payload = json!({"kind": kind, "importance": importance});
-            if let Some(v) = title { payload["title"] = json!(v); }
-            if let Some(v) = body { payload["body"] = json!(v); }
-            if let Some(v) = summary { payload["summary"] = json!(v); }
-            if let Some(v) = tags { payload["tags"] = json!(v); }
-            if let Some(v) = area { payload["area"] = json!(v); }
-            let resolved_scope = match (workspace, scope) {
-                (Some(ws), _) => {
-                    let ws = ws.trim();
-                    if ws.is_empty() {
-                        eprintln!("Error: --workspace requires a non-empty id");
-                        std::process::exit(1);
-                    }
-                    Some(format!("workspace:{ws}"))
-                }
-                (None, Some(s)) => Some(s.clone()),
-                (None, None) => None,
-            };
-            if let Some(v) = resolved_scope { payload["scope"] = json!(v); }
-            if let Some(v) = source_path { payload["source_path"] = json!(v); }
-            if *replace { payload["replace"] = json!(true); }
-            if *skip_extract { payload["skip_extract"] = json!(true); }
-            if *pin { payload["pinned"] = json!(true); }
-            ("POST".into(), "/api/mem/items".into(), Some(payload.to_string()))
-        }
-        MemAction::WakeUp { budget, l0_only, no_l0, explain, workspace } => {
-            let mut path = String::from("/api/mem/wake-up");
-            let mut sep = '?';
-            if let Some(b) = budget { path.push(sep); sep = '&'; path.push_str(&format!("budget={}", b)); }
-            if *l0_only { path.push(sep); sep = '&'; path.push_str("l0_only=true"); }
-            if *no_l0 { path.push(sep); sep = '&'; path.push_str("no_l0=true"); }
-            if *explain { path.push(sep); sep = '&'; path.push_str("explain=true"); }
-            if let Some(w) = workspace {
-                path.push(sep); let _ = sep;
-                path.push_str(&format!("workspace={}", enc(w)));
-            }
-            ("GET".into(), path, None)
-        }
-        MemAction::ExtractPending { limit } => {
-            ("POST".into(), format!("/api/mem/extract-pending?limit={}", limit), None)
-        }
-        MemAction::Stats => ("GET".into(), "/api/mem/stats".into(), None),
-        MemAction::Learn { text, kind, tags, error, feature } => {
-            let resolved_text = text.clone().or_else(|| error.clone()).or_else(|| feature.clone()).unwrap_or_default();
-            let resolved_kind = kind.clone()
-                .or_else(|| if error.is_some() { Some("error".into()) } else { None })
-                .or_else(|| if feature.is_some() { Some("feature".into()) } else { None })
-                .unwrap_or_else(|| "insight".into());
-            let mut payload = json!({"text": resolved_text, "kind": resolved_kind});
-            if let Some(v) = tags { payload["tags"] = json!(v); }
-            ("POST".into(), "/api/mem/learn".into(), Some(payload.to_string()))
-        }
-        MemAction::LearnList => {
-            ("GET".into(), "/api/mem/search?kind=learning&limit=50".into(), None)
-        }
-        MemAction::LearnPromote { id } => {
-            ("POST".into(), format!("/api/mem/promote/{}", enc(id)), None)
-        }
-        MemAction::Sync { path } => {
-            let url = match path {
-                Some(p) => format!("/api/mem/sync?path={}", enc(p)),
-                None => "/api/mem/sync".into(),
-            };
-            ("POST".into(), url, None)
-        }
-        MemAction::Dream { action } => {
-            use crate::MemDreamAction;
-            match action {
-                MemDreamAction::Run { phase } => (
-                    "POST".into(),
-                    format!("/api/mem/dream?phase={}", enc(phase)),
-                    None,
-                ),
-                // apply/diary are local-only DB paths; fallback to /stats for JSON shape.
-                MemDreamAction::Apply { .. } | MemDreamAction::Diary { .. } => {
-                    ("GET".into(), "/api/mem/stats".into(), None)
-                }
-            }
-        }
-        MemAction::Graph { action } => match action {
-            MemGraphAction::Create { id, entity_type, props, scope } => {
-                let props_val: serde_json::Value = serde_json::from_str(props).unwrap_or(json!({}));
-                let mut payload = json!({"id": id, "type": entity_type, "properties": props_val});
-                if let Some(s) = scope { payload["scope"] = json!(s); }
-                ("POST".into(), "/api/mem/graph/entities".into(), Some(payload.to_string()))
-            }
-            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope, reason } => {
-                let mut payload = json!({"from": from, "rel": rel, "to": to, "confidence": confidence});
-                if let Some(v) = valid_from { payload["valid_from"] = json!(v); }
-                if let Some(v) = valid_to { payload["valid_to"] = json!(v); }
-                if let Some(v) = scope { payload["scope"] = json!(v); }
-                if let Some(v) = reason { payload["reason"] = json!(v); }
-                ("POST".into(), "/api/mem/graph/relate".into(), Some(payload.to_string()))
-            }
-            MemGraphAction::Related { id, rel, as_of, include_invalidated } => {
-                let mut path = format!("/api/mem/graph/related?id={}", enc(id));
-                if let Some(r) = rel { path.push_str(&format!("&rel={}", enc(r))); }
-                if let Some(a) = as_of { path.push_str(&format!("&as_of={}", enc(a))); }
-                if *include_invalidated { path.push_str("&include_invalidated=true"); }
-                ("GET".into(), path, None)
-            }
-            MemGraphAction::Invalidate { from, rel, to, ended } => {
-                let mut payload = json!({"from": from, "rel": rel, "to": to});
-                if let Some(e) = ended { payload["ended"] = json!(e); }
-                ("POST".into(), "/api/mem/graph/invalidate".into(), Some(payload.to_string()))
-            }
-            MemGraphAction::Timeline { entity, include_invalidated } => {
-                let mut path = format!("/api/mem/graph/timeline?entity={}", enc(entity));
-                if *include_invalidated { path.push_str("&include_invalidated=true"); }
-                ("GET".into(), path, None)
-            }
-            MemGraphAction::Traverse { from, hops, max_nodes, as_of, include_invalidated } => {
-                let mut path = format!("/api/mem/graph/traverse?from={}&hops={}&max_nodes={}", enc(from), hops, max_nodes);
-                if let Some(a) = as_of { path.push_str(&format!("&as_of={}", enc(a))); }
-                if *include_invalidated { path.push_str("&include_invalidated=true"); }
-                ("GET".into(), path, None)
-            }
-            MemGraphAction::Path { from, to, max_hops, include_invalidated } => {
-                let mut path = format!("/api/mem/graph/path?from={}&to={}&max_hops={}", enc(from), enc(to), max_hops);
-                if *include_invalidated { path.push_str("&include_invalidated=true"); }
-                ("GET".into(), path, None)
-            }
-            MemGraphAction::Tunnels { include_invalidated } => {
-                let path = if *include_invalidated {
-                    "/api/mem/graph/tunnels?include_invalidated=true".to_string()
-                } else {
-                    "/api/mem/graph/tunnels".to_string()
-                };
-                ("GET".into(), path, None)
-            }
-            MemGraphAction::Alias { .. } => ("POST".into(), "/api/mem/graph/alias".into(), None),
-            MemGraphAction::FindDuplicateRelations { group_by, limit } => {
-                let group_by_vec: Vec<&str> = group_by.split(',').map(|s| s.trim()).collect();
-                let payload = json!({"group_by": group_by_vec, "limit": limit});
-                ("POST".into(), "/api/mem/graph/repair/find-relations".into(), Some(payload.to_string()))
-            }
-            MemGraphAction::DeleteRelations { rowids, actor } => {
-                let rowids_vec: Vec<i64> = rowids.split(',')
-                    .filter_map(|s| s.trim().parse::<i64>().ok())
-                    .collect();
-                let payload = json!({"rowids": rowids_vec, "actor": actor});
-                ("POST".into(), "/api/mem/graph/repair/delete-relations".into(), Some(payload.to_string()))
-            }
-            MemGraphAction::MergeRelations { keep, merge, actor } => {
-                let merge_vec: Vec<i64> = merge.split(',')
-                    .filter_map(|s| s.trim().parse::<i64>().ok())
-                    .collect();
-                let payload = json!({"keep": keep, "merge": merge_vec, "actor": actor});
-                ("POST".into(), "/api/mem/graph/repair/merge-relations".into(), Some(payload.to_string()))
-            }
-            MemGraphAction::FindDuplicateEntities { strategy, threshold, entity_type, limit } => {
-                let strategy_value = match strategy.as_str() {
-                    "alias-chain" | "alias_chain" => json!({"kind": "alias_chain"}),
-                    "vector" => {
-                        let mut v = json!({"kind": "vector", "threshold": threshold});
-                        if let Some(et) = entity_type.clone() {
-                            v["entity_type"] = serde_json::Value::String(et);
-                        }
-                        v
-                    }
-                    _ => json!({"kind": "exact_name"}),
-                };
-                let payload = json!({"strategy": strategy_value, "limit": limit});
-                ("POST".into(), "/api/mem/graph/repair/find-entities".into(), Some(payload.to_string()))
-            }
-            MemGraphAction::AugmentEntity { id, patch, actor } => {
-                let patch_val: serde_json::Value = serde_json::from_str(patch).unwrap_or(json!({}));
-                let payload = json!({"id": id, "patch": patch_val, "actor": actor});
-                ("POST".into(), "/api/mem/graph/repair/augment-entity".into(), Some(payload.to_string()))
-            }
-            MemGraphAction::RepairOrphanVectors { dry_run, actor } => {
-                let payload = json!({"dry_run": dry_run, "actor": actor});
-                ("POST".into(), "/api/mem/graph/repair/orphan-vectors".into(), Some(payload.to_string()))
-            }
-            MemGraphAction::RepairOrphanBlobs { dry_run, actor } => {
-                let payload = json!({"dry_run": dry_run, "actor": actor});
-                ("POST".into(), "/api/mem/graph/repair/orphan-blobs".into(), Some(payload.to_string()))
-            }
-            MemGraphAction::DeleteEntity { id, force, purge_history, actor } => {
-                let payload = json!({"id": id, "force": force, "purge_history": purge_history, "actor": actor});
-                ("POST".into(), "/api/mem/graph/repair/delete-entity".into(), Some(payload.to_string()))
-            }
-            // Graph mutations are local-only; unknown relay use falls back to /stats.
-            MemGraphAction::Route { .. }
-            | MemGraphAction::PurgeInvalidated { .. }
-            | MemGraphAction::ReviveBroken { .. }
-            | MemGraphAction::IntroduceTopic { .. }
-            | MemGraphAction::Hubs { .. }
-            | MemGraphAction::Islands { .. }
-            | MemGraphAction::Orphans { .. }
-            | MemGraphAction::Get { .. } => {
-                ("GET".into(), "/api/mem/stats".into(), None)
-            }
-        },
-        // Local-only subcommands (PTY/subprocess/folders/keychain) never relay.
-        // Return explicit errors; `Secret` is rejected upstream.
-        MemAction::Flush { .. }
-        | MemAction::RunWorker { .. }
-        | MemAction::Skill { .. }
-        | MemAction::Worker { .. }
-        | MemAction::Secret { .. } => (
-            UNSUPPORTED_OVER_MESH.into(),
-            "this mem subcommand is local-only (flush / run-worker / skill / worker / secret) and cannot run over --mesh".into(),
-            None,
-        ),
-        MemAction::Reembed { scope } => (
-            "POST".into(),
-            format!("/api/mem/reembed?scope={}", enc(scope)),
-            None,
-        ),
-        MemAction::Calibration { action } => {
-            use crate::MemCalibrationAction;
-            match action {
-                MemCalibrationAction::Log { since, limit, count } => {
-                    let mut path = String::from("/api/mem/calibration/log");
-                    let mut sep = '?';
-                    if let Some(s) = since {
-                        path.push(sep);
-                        sep = '&';
-                        path.push_str(&format!("since={}", enc(s)));
-                    }
-                    if let Some(l) = limit {
-                        path.push(sep);
-                        sep = '&';
-                        path.push_str(&format!("limit={}", l));
-                    }
-                    if *count {
-                        path.push(sep);
-                        let _ = sep;
-                        path.push_str("count=true");
-                    }
-                    ("GET".into(), path, None)
-                }
-                MemCalibrationAction::Sweep { force } => {
-                    let path = if *force {
-                        "/api/mem/calibration/sweep?force=true".to_string()
-                    } else {
-                        "/api/mem/calibration/sweep".to_string()
-                    };
-                    ("POST".into(), path, None)
-                }
-            }
-        }
-        MemAction::Pin { id } => (
-            "PATCH".into(),
-            format!("/api/mem/items/{}", enc(id)),
-            Some(json!({"pinned": true}).to_string()),
-        ),
-        MemAction::Unpin { id } => (
-            "PATCH".into(),
-            format!("/api/mem/items/{}", enc(id)),
-            Some(json!({"pinned": false}).to_string()),
-        ),
-        MemAction::Pinned { limit } => {
-            let path = match limit {
-                Some(n) => format!("/api/mem/pinned?limit={}", n),
-                None => "/api/mem/pinned".into(),
-            };
-            ("GET".into(), path, None)
         }
     }
 }

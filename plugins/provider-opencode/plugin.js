@@ -1,5 +1,7 @@
 // OpenCode (sst/opencode) provider: detect, slash commands, schema.
 
+var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v2";
+var CODETERM_OPENCODE_PLUGIN_FILE = "codeterm-session-binding.js";
 var TITLE_RE = /opencode/i;
 // Two-part fingerprint: opencode mention + TUI/prompt signal to avoid false positives.
 var OUTPUT_MARKERS = ["opencode", "OpenCode", "OpenCode Zen"];
@@ -145,28 +147,99 @@ module.exports.default = {
     return parts.join(" ");
   },
 
-  // Detect sessions via `opencode.db` using cwd and most recent row first.
-
   detectSessionId: function (cwd, exclude, maxAgeMs) {
-    var db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
-    var rows = host.fs.sqliteQuery(
-      db,
-      "SELECT id, time_created FROM session " +
-        "WHERE (directory = ?1 OR directory = ?2) AND time_archived IS NULL " +
-        "ORDER BY time_created DESC LIMIT 50",
-      [cwd.replace(/\\/g, "/"), cwd.replace(/\//g, "\\")]
-    );
-    var nowMs = host.unixNowMs();
-    var cutoff = maxAgeMs > 0 ? nowMs - maxAgeMs : null;
-    var excluded = exclude || [];
-    for (var i = 0; i < rows.length; i++) {
-      var id = rows[i].id;
-      if (excluded.indexOf(id) !== -1) continue;
-      if (cutoff !== null && rows[i].time_created < cutoff) continue;
-      return id;
-    }
     return null;
+  },
+
+  checkIntegration: function () {
+    var cfg = opencodeConfigPath();
+    var plugin = opencodeBindingPluginPath();
+    var pluginExists = !!plugin && host.fs.fileExists(plugin);
+    var pluginCurrent = pluginExists &&
+      String(host.fs.readFile(plugin) || "").indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1;
+    if (!cfg || !host.fs.fileExists(cfg)) {
+      return {
+        config_file_exists: false,
+        plugin_file_exists: pluginExists,
+        plugin_file_current: pluginCurrent,
+        plugin_installed: false,
+      };
+    }
+    var json = host.fs.readJson(cfg);
+    if (!json) {
+      return {
+        config_file_exists: true,
+        plugin_file_exists: pluginExists,
+        plugin_file_current: pluginCurrent,
+        plugin_installed: false,
+      };
+    }
+    var target = opencodePluginEntry();
+    var entries = json.plugin;
+    var installed = Array.isArray(entries) && entries.some(function (entry) {
+      return opencodePluginEntryMatches(entry, target);
+    });
+    return {
+      config_file_exists: true,
+      plugin_file_exists: pluginExists,
+      plugin_file_current: pluginCurrent,
+      plugin_installed: installed,
+    };
+  },
+
+  installIntegration: function (apiPort) {
+    var cfg = opencodeConfigPath();
+    var plugin = opencodeBindingPluginPath();
+    var target = opencodePluginEntry();
+    if (!cfg || !plugin || !target) return { ok: false, error: "could not resolve opencode config path" };
+
+    var json = host.fs.fileExists(cfg)
+      ? (host.fs.readJson(cfg) || { "$schema": "https://opencode.ai/config.json" })
+      : { "$schema": "https://opencode.ai/config.json" };
+    if (!json || typeof json !== "object" || Array.isArray(json)) {
+      return { ok: false, error: "opencode.json root must be an object" };
+    }
+    if (!Array.isArray(json.plugin)) json.plugin = [];
+    json.plugin = json.plugin.filter(function (entry) {
+      return !opencodePluginEntryMatches(entry, target);
+    });
+    json.plugin.push(target);
+
+    if (!host.fs.writeFile(plugin, opencodeBindingPluginSource(apiPort | 0))) {
+      return { ok: false, error: "writeFile failed for " + plugin };
+    }
+    if (!host.fs.writeJson(cfg, json)) {
+      return { ok: false, error: "writeJson failed for " + cfg };
+    }
+    host.log("info", "[opencode-plugin] session binding plugin installed at " + plugin);
+    return { ok: true };
+  },
+
+  uninstallIntegration: function () {
+    var cfg = opencodeConfigPath();
+    var plugin = opencodeBindingPluginPath();
+    var target = opencodePluginEntry();
+    if (cfg && host.fs.fileExists(cfg)) {
+      var json = host.fs.readJson(cfg);
+      if (json && typeof json === "object" && Array.isArray(json.plugin)) {
+        json.plugin = json.plugin.filter(function (entry) {
+          return !opencodePluginEntryMatches(entry, target);
+        });
+        if (!host.fs.writeJson(cfg, json)) {
+          return { ok: false, error: "writeJson failed for " + cfg };
+        }
+      }
+    }
+    if (plugin && host.fs.fileExists(plugin) && !host.fs.removeFile(plugin)) {
+      return { ok: false, error: "removeFile failed for " + plugin };
+    }
+    return { ok: true };
+  },
+
+  ensureIntegrationOnStartup: function (apiPort) {
+    var status = this.checkIntegration();
+    if (status && status.plugin_installed && status.plugin_file_exists && status.plugin_file_current) return { ok: true };
+    return this.installIntegration(apiPort);
   },
 
   sessionExists: function (_cwd, sessionId) {
@@ -196,17 +269,7 @@ module.exports.default = {
   },
 
   detectActiveSession: function (cwd, _currentSid) {
-    var db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
-    var rows = host.fs.sqliteQuery(
-      db,
-      "SELECT m.session_id AS session_id FROM message m " +
-        "JOIN session s ON s.id = m.session_id " +
-        "WHERE (s.directory = ?1 OR s.directory = ?2) AND s.time_archived IS NULL " +
-        "ORDER BY m.time_created DESC LIMIT 1",
-      [cwd.replace(/\\/g, "/"), cwd.replace(/\//g, "\\")]
-    );
-    return rows.length > 0 ? rows[0].session_id : null;
+    return null;
   },
 
   detectSessionModel: function (cwd, sessionId) {
@@ -297,6 +360,147 @@ function opencodeDbPath() {
   if (!base) return null;
   var sep = host.platform() === "windows" ? "\\" : "/";
   return base + sep + "opencode" + sep + "opencode.db";
+}
+
+function opencodeConfigDir() {
+  var override = host.envGet("OPENCODE_CONFIG_DIR");
+  if (override) return override;
+  return host.expandHome("~/.config/opencode");
+}
+
+function opencodeConfigPath() {
+  var dir = opencodeConfigDir();
+  if (!dir) return null;
+  var sep = host.platform() === "windows" ? "\\" : "/";
+  return dir + sep + "opencode.json";
+}
+
+function opencodeBindingPluginPath() {
+  var dir = opencodeConfigDir();
+  if (!dir) return null;
+  var sep = host.platform() === "windows" ? "\\" : "/";
+  return dir + sep + CODETERM_OPENCODE_PLUGIN_FILE;
+}
+
+function opencodePluginEntry() {
+  var path = opencodeBindingPluginPath();
+  return path ? path.replace(/\\/g, "/") : null;
+}
+
+function opencodePluginEntryMatches(entry, target) {
+  if (!target) return false;
+  var value = null;
+  if (typeof entry === "string") value = entry;
+  else if (Array.isArray(entry) && typeof entry[0] === "string") value = entry[0];
+  if (!value) return false;
+  return value.replace(/\\/g, "/") === target;
+}
+
+function opencodeBindingPluginSource(apiPort) {
+  return [
+    "// " + CODETERM_OPENCODE_PLUGIN_MARKER,
+    "const PROVIDER_ID = \"opencode\";",
+    "const FALLBACK_PORT = \"" + String(apiPort || 7686) + "\";",
+    "",
+    "function endpoint() {",
+    "  const pane = process.env.CODETERM_PANE_ID;",
+    "  if (!pane) return null;",
+    "  const base =",
+    "    process.env.CODETERM_API_URL ||",
+    "    `http://127.0.0.1:${process.env.CODETERM_API_PORT || FALLBACK_PORT}`;",
+    "  return `${base}/api/panes/${encodeURIComponent(pane)}/hook/session_start`;",
+    "}",
+    "",
+    "function normalizeSessionID(value) {",
+    "  return typeof value === \"string\" && value.startsWith(\"ses_\") ? value : null;",
+    "}",
+    "",
+    "function firstSessionID(...values) {",
+    "  for (const value of values) {",
+    "    const sessionID = normalizeSessionID(value);",
+    "    if (sessionID) return sessionID;",
+    "  }",
+    "  return null;",
+    "}",
+    "",
+    "async function report(sessionID, source, directory) {",
+    "  sessionID = normalizeSessionID(sessionID);",
+    "  if (!sessionID) return;",
+    "  const url = endpoint();",
+    "  if (!url) return;",
+    "  const headers = {",
+    "    \"content-type\": \"application/json\",",
+    "    \"x-codeterm-agent-provider\": PROVIDER_ID,",
+    "  };",
+    "  if (process.env.CODETERM_API_TOKEN) {",
+    "    headers.authorization = `Bearer ${process.env.CODETERM_API_TOKEN}`;",
+    "  }",
+    "  await fetch(url, {",
+    "    method: \"POST\",",
+    "    headers,",
+    "    body: JSON.stringify({",
+    "      provider_id: PROVIDER_ID,",
+    "      session_id: sessionID,",
+    "      source,",
+    "      cwd: directory || process.cwd(),",
+    "    }),",
+    "  }).catch(() => {});",
+    "}",
+    "",
+    "function eventSessionID(event) {",
+    "  const p = event?.properties || {};",
+    "  return firstSessionID(",
+    "    p.sessionID,",
+    "    p.session_id,",
+    "    p.session?.id,",
+    "    p.info?.sessionID,",
+    "    p.info?.session_id,",
+    "    p.message?.sessionID,",
+    "    p.message?.session_id,",
+    "    p.part?.sessionID,",
+    "    p.part?.session_id,",
+    "    event?.sessionID,",
+    "    event?.session_id,",
+    "    p.info?.id",
+    "  );",
+    "}",
+    "",
+    "function eventDirectory(event, fallback) {",
+    "  return (",
+    "    event?.properties?.info?.directory ||",
+    "    event?.properties?.session?.directory ||",
+    "    event?.properties?.directory ||",
+    "    fallback",
+    "  );",
+    "}",
+    "",
+    "export default async function CodeTermSessionBindingPlugin({ directory }) {",
+    "  return {",
+    "    async event({ event }) {",
+    "      if (",
+    "        event?.type === \"session.created\" ||",
+    "        event?.type === \"session.updated\" ||",
+    "        event?.type === \"tui.session.select\" ||",
+    "        event?.type === \"message.updated\" ||",
+    "        event?.type === \"message.part.updated\"",
+    "      ) {",
+    "        await report(eventSessionID(event), event.type, eventDirectory(event, directory));",
+    "      }",
+    "    },",
+    "    async \"chat.message\"(input) {",
+    "      await report(input?.sessionID, \"chat.message\", directory);",
+    "    },",
+    "    async \"tool.execute.before\"(input) {",
+    "      await report(input?.sessionID, \"tool.execute.before\", directory);",
+    "    },",
+    "    async \"shell.env\"(input, output) {",
+    "      await report(input?.sessionID, \"shell.env\", input?.cwd || directory);",
+    "      return output;",
+    "    },",
+    "  };",
+    "}",
+    "",
+  ].join("\n");
 }
 
 function scanMessagesForModel(db, sql, params) {

@@ -5,6 +5,9 @@ use std::collections::HashMap;
 use super::ServiceContext;
 use serde::Deserialize;
 
+const SHELL_BACKEND_COLS: u16 = 120;
+const SEND_AGENT_BACKEND_COLS: u16 = 240;
+
 /// Build the byte sequence written to a freshly-attached pty to launch a
 /// shell-level command (agent spawn, mem worker spawn, anything that goes
 /// through bash/cmd to start a process). On Unix we write the launch_cmd
@@ -366,7 +369,11 @@ impl ServiceContext {
         }
 
         let env_vars = self.pane_env(&resolved);
-        let cols = if agent_type.is_some() { 9999 } else { 120 };
+        let cols = if agent_type.is_some() {
+            SEND_AGENT_BACKEND_COLS
+        } else {
+            SHELL_BACKEND_COLS
+        };
         let t0 = std::time::Instant::now();
         let built = crate::pty::manager::build_session(None, cwd.clone(), cols, 40, env_vars)?;
         let (pty_id, _) = self.pty.lock().register_session(None, built);
@@ -442,12 +449,30 @@ impl ServiceContext {
     /// interactive TUI input paths (`send_text_*`), which still use bracketed
     /// paste because Claude / Codex TUIs require it.
     pub fn send_shell_spawn(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
+        self.await_shell_ready(pty_id);
         let bytes = build_spawn_dispatch(cmd).map_err(|e| e.to_string())?;
         self.pty
             .lock()
             .write(pty_id, &bytes)
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    /// Windows ConPTY: writing a launch command before the shell prompt is
+    /// rendered races the first byte — it can be dropped or duplicated, yielding
+    /// a mangled command line (e.g. `c codex`, which PowerShell rejects with
+    /// CommandNotFoundException). Block (bounded) until the prompt appears so
+    /// PSReadLine's bracketed-paste handler is armed before the write. Native
+    /// PTYs on macOS/Linux don't exhibit this race, so this is a no-op there.
+    fn await_shell_ready(&self, pty_id: &str) {
+        #[cfg(windows)]
+        poll_shell_prompt(
+            &self.screen_state,
+            pty_id,
+            std::time::Duration::from_secs(10),
+        );
+        #[cfg(not(windows))]
+        let _ = pty_id;
     }
 
     fn await_pty_link_blocking(
@@ -536,7 +561,9 @@ impl ServiceContext {
         };
         let started = std::time::Instant::now();
         let tail_rows: usize = 8;
-        super::inject_safety::refuse_if_unsafe_prompt(&self.screen_state, pty_id)?;
+        // #22: notify (never block) — an unsafe-prompt detection must not lock
+        // the user out of sending; a stale/resolved menu used to hard-refuse here.
+        super::inject_safety::notify_if_unsafe_prompt(&self.screen_state, pty_id);
 
         if opts.require_prompt_first {
             let ready = poll_shell_prompt(&self.screen_state, pty_id, opts.prompt_timeout);
@@ -551,18 +578,25 @@ impl ServiceContext {
 
         self.feed_input_parser(pty_id, text, enter);
 
-        let paste = if cfg!(windows) {
-            format!("\x1b[200~ {}\x1b[201~", text)
+        // Empty text is a bare submit (e.g. `codeterm send --submit` to unstick a
+        // paste already sitting in the composer): skip the bracketed paste so we
+        // don't inject a stray space on Windows — just press Enter below.
+        let bytes_written = if text.is_empty() {
+            0
         } else {
-            format!("\x1b[200~{}\x1b[201~", text)
+            let paste = if cfg!(windows) {
+                format!("\x1b[200~ {}\x1b[201~", text)
+            } else {
+                format!("\x1b[200~{}\x1b[201~", text)
+            };
+            self.pty
+                .lock()
+                .write(pty_id, paste.as_bytes())
+                .map_err(|_| InjectionError::PtyClosed {
+                    pty_id: pty_id.to_string(),
+                })?;
+            paste.len()
         };
-        self.pty
-            .lock()
-            .write(pty_id, paste.as_bytes())
-            .map_err(|_| InjectionError::PtyClosed {
-                pty_id: pty_id.to_string(),
-            })?;
-        let bytes_written = paste.len();
 
         // Echo verify: informational only. Timeout means we couldn't confirm, not that the paste failed. PtyUnknown is the only real failure here and surfaces as PtyClosed.
         let echo_observed = if opts.verify_echo {
@@ -589,6 +623,30 @@ impl ServiceContext {
         } else {
             false
         };
+
+        // #155: a TUI composer must finish ingesting the bracketed paste before
+        // the submit Enter — a `\r` sent mid-ingest is swallowed as part of the
+        // paste, leaving a long message typed-but-unsent. When we didn't already
+        // wait on echo, block (bounded, suffix/placeholder-aware) until the paste
+        // appears in the composer so the Enter lands as a real submit. Scoped to
+        // TuiInputDrained providers (codex/claude); shell sends (ShellPrompt) and
+        // bare submits (empty text) are unaffected.
+        if enter
+            && !text.is_empty()
+            && !opts.verify_echo
+            && matches!(
+                &submit_strategy,
+                VerifySubmitStrategy::TuiInputDrained { .. }
+            )
+        {
+            let _ = wait_for_echo(
+                &self.screen_state,
+                pty_id,
+                text,
+                opts.echo_timeout.max(std::time::Duration::from_secs(2)),
+                tail_rows,
+            );
+        }
 
         // Enter ALWAYS fires when the caller asked for it. This is the load-bearing line — no early-return above this point can skip it unless the PTY is already gone.
         let submit_observed = if enter {
@@ -686,6 +744,10 @@ impl ServiceContext {
         };
 
         let started = std::time::Instant::now();
+
+        // Gate on shell-prompt readiness before writing — see `await_shell_ready`
+        // (Windows ConPTY first-byte race → mangled launch like `c codex`).
+        self.await_shell_ready(pty_id);
 
         self.feed_input_parser(pty_id, cmd, true);
 
@@ -917,169 +979,4 @@ pub struct SendBatchItem {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // ── Helper: captures the enter-append logic from send_text / send_text_batch ── This mirrors the exact logic in ServiceContext::send_text
-    fn apply_enter(text: &str, enter: bool) -> String {
-        if enter && !text.ends_with('\r') && !text.ends_with('\n') {
-            format!("{}\r", text)
-        } else {
-            text.to_string()
-        }
-    }
-
-    // ── 1. send_text enter logic ──
-
-    #[test]
-    fn enter_true_appends_cr_when_missing() {
-        assert_eq!(apply_enter("ls -la", true), "ls -la\r");
-    }
-
-    #[test]
-    fn enter_true_no_double_cr() {
-        // Text already ends with \r — should NOT append another
-        assert_eq!(apply_enter("ls -la\r", true), "ls -la\r");
-    }
-
-    #[test]
-    fn enter_false_passthrough() {
-        assert_eq!(apply_enter("partial text", false), "partial text");
-    }
-
-    #[test]
-    fn enter_false_preserves_trailing_cr() {
-        assert_eq!(apply_enter("text\r", false), "text\r");
-    }
-
-    #[test]
-    fn empty_text_enter_true_sends_just_cr() {
-        assert_eq!(apply_enter("", true), "\r");
-    }
-
-    #[test]
-    fn empty_text_enter_false_sends_nothing() {
-        assert_eq!(apply_enter("", false), "");
-    }
-
-    #[test]
-    fn enter_true_text_ending_newline() {
-        // Text ending with \n already has a line terminator — no \r appended.
-        assert_eq!(apply_enter("echo hello\n", true), "echo hello\n");
-    }
-
-    #[test]
-    fn text_with_embedded_cr_but_not_trailing() {
-        assert_eq!(apply_enter("line1\rline2", true), "line1\rline2\r");
-    }
-
-    #[test]
-    fn multiline_text_enter_true() {
-        assert_eq!(apply_enter("line1\nline2", true), "line1\nline2\r");
-    }
-
-    // ── Windows spawn-dispatch: sacrificial leading space ──
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_spawn_dispatch_prepends_sacrificial_space() {
-        let bytes = build_spawn_dispatch("Remove-Item Env:CLAUDECODE; claude").unwrap();
-        let s = String::from_utf8(bytes).unwrap();
-        // Opener, then a space the PSReadLine first-byte race can eat without
-        // corrupting the command, then the command intact, then closer + CR.
-        assert_eq!(s, "\x1b[200~ Remove-Item Env:CLAUDECODE; claude\x1b[201~\r");
-        // If the first content byte is dropped, what survives still starts with
-        // the real command — never `emove-Item`.
-        let after_opener = &s["\x1b[200~".len()..];
-        assert!(after_opener.starts_with(' '));
-        assert!(after_opener[1..].starts_with("Remove-Item"));
-    }
-
-    // ── SendBatchItem deserialization ──
-
-    #[test]
-    fn batch_item_enter_defaults_false() {
-        // SendBatchItem uses #[serde(default)] which defaults bool to false
-        let json = r#"{"text": "hello"}"#;
-        let item: SendBatchItem = serde_json::from_str(json).unwrap();
-        assert_eq!(item.text, "hello");
-        assert_eq!(
-            item.enter, false,
-            "SendBatchItem.enter defaults to false (serde default)"
-        );
-        assert!(item.delay_ms.is_none());
-    }
-
-    #[test]
-    fn batch_item_enter_explicit_true() {
-        let json = r#"{"text": "cmd", "enter": true, "delay_ms": 100}"#;
-        let item: SendBatchItem = serde_json::from_str(json).unwrap();
-        assert!(item.enter);
-        assert_eq!(item.delay_ms, Some(100));
-    }
-
-    #[test]
-    fn batch_item_enter_explicit_false() {
-        let json = r#"{"text": "partial", "enter": false}"#;
-        let item: SendBatchItem = serde_json::from_str(json).unwrap();
-        assert!(!item.enter);
-    }
-
-    // ── screen_has_shell_prompt ──
-
-    use crate::pty::screen_state::screen_has_shell_prompt;
-
-    #[test]
-    fn prompt_bash_dollar() {
-        assert!(screen_has_shell_prompt("user@host:~$ "));
-    }
-
-    #[test]
-    fn prompt_bash_dollar_no_trailing_space() {
-        assert!(screen_has_shell_prompt("user@host:~$"));
-    }
-
-    #[test]
-    fn prompt_zsh_percent() {
-        assert!(screen_has_shell_prompt("user@host % "));
-    }
-
-    #[test]
-    fn prompt_powershell() {
-        assert!(screen_has_shell_prompt("PS C:\\Users\\User> "));
-    }
-
-    #[test]
-    fn prompt_powershell_no_trailing_space() {
-        assert!(screen_has_shell_prompt("PS C:\\Users\\User>"));
-    }
-
-    #[test]
-    fn prompt_generic_angle() {
-        assert!(screen_has_shell_prompt("prompt> "));
-    }
-
-    #[test]
-    fn prompt_last_nonempty_line() {
-        let screen = "some output\nmore output\nuser@host:~$ \n\n";
-        assert!(screen_has_shell_prompt(screen));
-    }
-
-    #[test]
-    fn no_prompt_in_file_content() {
-        let screen = "Reading file.txt:\ncontains PS data and > markers\nstill loading...";
-        assert!(!screen_has_shell_prompt(screen));
-    }
-
-    #[test]
-    fn no_prompt_empty_screen() {
-        assert!(!screen_has_shell_prompt(""));
-        assert!(!screen_has_shell_prompt("\n\n\n"));
-    }
-
-    #[test]
-    fn no_false_positive_mid_line_dollar() {
-        let screen = "echo $HOME is /home/user\nprocessing...";
-        assert!(!screen_has_shell_prompt(screen));
-    }
-}
+mod tests;

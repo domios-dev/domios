@@ -107,6 +107,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     listen<{ pane_id: string; status: PaneStatus }>(
       "pane-status-changed",
       (event) => {
+        if (!event.payload) return;
         dispatch({
           type: "UPDATE_PANE_STATUS",
           paneId: event.payload.pane_id,
@@ -301,7 +302,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       // Web UI delegates full agent spawn to the daemon.
       if (IS_WEB) {
-        const spawned = await webJson<{ pane_id: string }>("POST", "/api/agents/spawn", {
+        await webJson<{ pane_id: string }>("POST", "/api/agents/spawn", {
           agent: agentId,
           workspace_id: workspaceId,
           cwd,
@@ -311,6 +312,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         refreshFromBackend();
         return;
       }
+      const cmd = await invoke<string>("build_agent_launch_command", { agentId, skipPermissions });
       invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId, activate: true });
@@ -320,10 +322,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       }
       // Set `agent_type` early so detect_from_output can save session IDs.
       invoke("mux_set_pane_agent_type", { paneId: tabInfo.pane_id, agentType: agentId }).catch(() => {});
+      await loadDefaultNewAgentPaneChat().catch(() => false);
       if (shouldDefaultNewAgentPaneToChat(agentId)) {
         invoke("mux_set_chat_view", { paneId: tabInfo.pane_id, enabled: true }).catch(() => {});
       }
-      const cmd = await invoke<string>("build_agent_launch_command", { agentId, skipPermissions });
       setPendingCommand(tabInfo.pane_id, cmd);
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
@@ -331,6 +333,22 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       invoke("mux_set_focused_pane", { paneId: tabInfo.pane_id }).catch(() => {});
       refreshFromBackend();
     } catch (e) {
+      const message = e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
+      const providerMissing = message.includes("Provider not installed:");
+      dispatch({
+        type: "ADD_NOTIFICATION",
+        notification: {
+          id: uid(),
+          pane_id: null,
+          workspace_id: workspaceId,
+          title: providerMissing ? "Provider not installed" : `Failed to spawn ${agentId}`,
+          body: message,
+          level: "Error",
+          timestamp: Date.now(),
+          read: false,
+          sticky: providerMissing,
+        },
+      });
       console.error(`Failed to spawn ${agentId} tab:`, e);
     }
   }, [refreshFromBackend]);

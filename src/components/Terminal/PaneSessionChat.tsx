@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble } from "@codeterm/chat-ui";
+import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer } from "../../store/multiplexer";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -90,7 +91,39 @@ export function PaneSessionChat({
     hiddenMessageCount,
     loadOlder,
     addOptimistic,
+    updateOptimistic,
   } = useChatSession({ paneId, agentSessionId, onError });
+
+  const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
+
+  // Route an interactive-widget answer back to the agent through the SAME send
+  // path the composer uses: write_pty_string with raw=false → backend bracket
+  // paste + delayed CR, which handles the TUI-menu / long-message no-auto-submit
+  // case (#155). We echo the answer optimistically so it appears as a user turn.
+  const handleAnswerInteractive = useCallback<InteractiveAnswerHandler>(
+    async (text, element) => {
+      const answer = text.trim();
+      if (!answer) return;
+      if (!currentPtyId) {
+        showComposerError("Pane has no PTY");
+        throw new Error("Pane has no PTY");
+      }
+      setAnsweredInteractiveIds((prev) => new Set(prev).add(element.id));
+      addOptimistic(answer);
+      try {
+        await invoke("write_pty_string", { ptyId: currentPtyId, data: answer + "\r", raw: false });
+      } catch (e) {
+        setAnsweredInteractiveIds((prev) => {
+          const next = new Set(prev);
+          next.delete(element.id);
+          return next;
+        });
+        showComposerError(e instanceof Error ? e.message : String(e));
+        throw e;
+      }
+    },
+    [currentPtyId, addOptimistic, showComposerError],
+  );
 
   const {
     attachments,
@@ -258,12 +291,14 @@ export function PaneSessionChat({
               data-testid="chat-message"
               data-message-role={msg.type}
               style={isPending ? { opacity: 0.55 } : undefined}
-              title={isPending ? "sending… (echo expected within 60s)" : undefined}
+              title={isPending ? "sending… (clears when the agent echoes it back)" : undefined}
             >
               <MessageBubble
                 message={msg}
                 origin={origin}
                 resolvePaneName={resolvePaneName}
+                onAnswerInteractive={handleAnswerInteractive}
+                answeredInteractiveIds={answeredInteractiveIds}
                 originAvatar={
                   origin?.kind === "pane" && originProviderId
                     ? <OriginProviderAvatar providerId={originProviderId} />
@@ -287,6 +322,7 @@ export function PaneSessionChat({
         clearAttachments={clearAttachments}
         handlePasteEvent={handlePasteEvent}
         addOptimistic={addOptimistic}
+        updateOptimistic={updateOptimistic}
         showComposerError={showComposerError}
         onOpenTerminalFallback={onOpenTerminalFallback}
         onToggleTerminalFallback={onToggleTerminalFallback}

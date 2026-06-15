@@ -124,6 +124,10 @@ const DEFAULT_CONFIG: AppConfig = {
   },
 };
 
+function configEquals(a: AppConfig, b: AppConfig): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function useConfig() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
@@ -156,7 +160,7 @@ export function useConfig() {
 
     listen<AppConfig>("config-changed", (event) => {
       if (!cancelled) {
-        setConfig(event.payload);
+        setConfig((prev) => (configEquals(prev, event.payload) ? prev : event.payload));
       }
     }).then((fn) => {
       if (cancelled) {

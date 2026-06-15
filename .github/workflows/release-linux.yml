@@ -15,7 +15,8 @@ name: release-linux
 # Disable: set repo Variable RELEASE_LINUX_ENABLED=false in
 # Settings -> Secrets and variables -> Actions -> Variables.
 #
-# Required secrets: TAURI_SIGNING_PRIVATE_KEY.
+# Required secrets: TAURI_SIGNING_PRIVATE_KEY, PACKAGE_REPOS_TOKEN.
+# PACKAGE_REPOS_TOKEN must have contents:write for rollacode/codeterm-releases.
 # Optional secret:  TAURI_KEY_PASSWORD (only if the signing key is
 # encrypted — it evaluates to empty when unset).
 
@@ -98,7 +99,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.22.0'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -133,7 +134,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
-          REPO: ${{ github.repository }}
+          SOURCE_REPO: ${{ github.repository }}
+          MANIFEST_REPO: rollacode/codeterm-releases
           PLATFORM_KEY: linux-x86_64
         shell: bash
         run: |
@@ -153,14 +155,15 @@ jobs:
           UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
           [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
 
-          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$REPO"
+          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$SOURCE_REPO"
 
           OUT="updater-${TARGET}.json"
+          REPO="$MANIFEST_REPO" \
           UPDATER_BUNDLE="$UPDATER_BUNDLE" \
           UPDATER_SIG="$UPDATER_SIG" \
           OUT="$OUT" \
             python3 .github/workflows/build-updater-fragment.py
-          gh release upload "$TAG" "$OUT" --clobber --repo "$REPO"
+          gh release upload "$TAG" "$OUT" --clobber --repo "$SOURCE_REPO"
 
       - name: Refresh merged channel manifest
         env:
@@ -213,13 +216,18 @@ jobs:
           # Each platform workflow may run this step in any order; first one
           # wins, the rest just upload assets to the existing release.
           if ! gh release view "$TAG" --repo "$MIRROR_REPO" >/dev/null 2>&1; then
-            EXTRA_FLAGS=()
-            if [ "$PRERELEASE" = "true" ]; then EXTRA_FLAGS+=(--prerelease); fi
-            gh release create "$TAG" \
-              --repo "$MIRROR_REPO" \
-              --title "CodeTerm $TAG" \
-              --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes." \
-              "${EXTRA_FLAGS[@]}"
+            if [ "$PRERELEASE" = "true" ]; then
+              gh release create "$TAG" \
+                --repo "$MIRROR_REPO" \
+                --title "CodeTerm $TAG" \
+                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes." \
+                --prerelease
+            else
+              gh release create "$TAG" \
+                --repo "$MIRROR_REPO" \
+                --title "CodeTerm $TAG" \
+                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
+            fi
           fi
 
           gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" "$MANIFEST" \

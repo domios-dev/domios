@@ -177,12 +177,12 @@ pnpm install
 ./build.sh check        # cargo check only (~2s incremental)
 ./build.sh test         # Rust unit tests
 ./build.sh e2e          # E2E tests against dev (port 7686)
-./build.sh webdriver    # dev with WebDriver enabled (UI tests)
+pnpm test:pw:smoke      # Playwright/CDP UI smoke against dev
 ./build.sh clean        # clean build cache
 ./build.sh kill         # stop dev instance (safe, prod on 7685 untouched)
 ```
 
-> **Windows:** `build.sh` auto-loads the MSVC environment. To load it into your current shell instead, run `source build.sh env`.
+> **Windows:** from PowerShell, use `.\build.ps1 ...`; it selects Git Bash directly. Avoid plain `bash` from PowerShell because it may resolve to WSL (`C:\Windows\System32\bash.exe`). To load MSVC env inside Git Bash, run `source build.sh env`.
 >
 > **Dev vs prod isolation:** dev runs on port `7686` with data dir `~/.codeterm-dev/`; prod runs on `7685` with `~/.codeterm/`. Both can run side-by-side. The CLI auto-routes to dev when invoked from inside a dev pane and to prod otherwise.
 

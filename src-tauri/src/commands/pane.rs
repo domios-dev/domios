@@ -135,7 +135,7 @@ pub fn read_session_jsonl(
     tail_bytes: Option<u64>,
 ) -> Result<String, String> {
     // 1. Get agent_session_id, agent_type, and cwd from pane
-    let (mut session_id, cwd, agent_type) = {
+    let (session_id, cwd, agent_type) = {
         let m = mux.lock();
         let pane = m
             .get_pane(&pane_id)
@@ -304,7 +304,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             })
             .unwrap_or_default();
         let cursor = delta.cursor.clone();
-        if !svc.chat_registry.acquire(&pane_id) {
+        if !svc.chat_registry.acquire(&pane_id, &session_id) {
             let sink =
                 crate::service::pane_chat::structured_sink::make_sink(svc.app_handle.clone());
             let handle = crate::service::pane_chat::spawn_structured_poller(
@@ -314,12 +314,13 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                     cwd: cwd.clone(),
                     session_id: session_id.clone(),
                     start_cursor: cursor.clone(),
-                    poll_interval: std::time::Duration::from_millis(500),
+                    poll_interval: crate::service::pane_chat::live_chat_poll_interval(),
                 },
                 svc.agent_registry.clone(),
                 sink,
             );
-            svc.chat_registry.insert(pane_id.clone(), handle);
+            svc.chat_registry
+                .insert(pane_id.clone(), session_id.clone(), handle);
         }
         return Ok(ChatStartResult {
             text: String::new(),
@@ -354,7 +355,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     // Multiple webviews can attach to the same pane. The tailer is per pane, but subscriptions are per client; share the existing worker when one
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
-    if !svc.chat_registry.acquire(&pane_id) {
+    if !svc.chat_registry.acquire(&pane_id, &session_id) {
         let sink = crate::service::pane_chat::structured_sink::make_flatten_sink(
             svc.app_handle.clone(),
             msg_count,
@@ -366,12 +367,13 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                 cwd: cwd.clone(),
                 session_id: session_id.clone(),
                 start_offset: total,
-                poll_interval: std::time::Duration::from_millis(500),
+                poll_interval: crate::service::pane_chat::live_chat_poll_interval(),
             },
             svc.agent_registry.clone(),
             sink,
         );
-        svc.chat_registry.insert(pane_id.clone(), handle);
+        svc.chat_registry
+            .insert(pane_id.clone(), session_id.clone(), handle);
     }
     let tailer_ms = tailer_started.elapsed().as_millis();
     let total_ms = started.elapsed().as_millis();

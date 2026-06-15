@@ -69,9 +69,6 @@ fn poll_update_status(http: &reqwest::blocking::Client, base_url: &str) {
 pub fn handle_update(
     json: bool,
     action: Option<UpdateAction>,
-    check: bool,
-    apply: bool,
-    channel: Option<String>,
     manifest_url: Option<String>,
     after_update: Option<String>,
 ) {
@@ -84,24 +81,24 @@ pub fn handle_update(
         }
     };
 
-    let resolved = if let Some(ch) = channel {
-        Some(UpdateAction::Channel {
-            channel: if ch.is_empty() { None } else { Some(ch) },
-        })
-    } else if apply {
-        Some(UpdateAction::Install {
-            auto: true,
-            manifest_url: manifest_url.clone(),
-            from_file: None,
-            continue_prompt: None,
-            continue_pane: None,
-            after_update: after_update.clone(),
-        })
-    } else if check {
-        Some(UpdateAction::Check { force: false })
-    } else {
-        action
-    };
+    let resolved = action.map(|action| match action {
+        UpdateAction::Install {
+            auto,
+            manifest_url: action_manifest_url,
+            from_file,
+            continue_prompt,
+            continue_pane,
+            after_update: action_after_update,
+        } => UpdateAction::Install {
+            auto,
+            manifest_url: action_manifest_url.or(manifest_url),
+            from_file,
+            continue_prompt,
+            continue_pane,
+            after_update: action_after_update.or(after_update),
+        },
+        other => other,
+    });
 
     match resolved.unwrap_or(UpdateAction::Check { force: false }) {
         UpdateAction::Check { force } => {
@@ -216,39 +213,6 @@ pub fn handle_update(
                             poll_update_status(&http, &base_url);
                         }
                         _ => println!("{}", body),
-                    }
-                }
-                Ok(resp) => {
-                    eprintln!("Error: {}", resp.status());
-                    std::process::exit(1);
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        }
-        UpdateAction::Channel { channel } => {
-            let url = format!("{}/api/update/channel", base_url);
-            let result = match channel {
-                None => http.get(&url).send(),
-                Some(name) => http
-                    .post(&url)
-                    .json(&serde_json::json!({ "channel": name }))
-                    .send(),
-            };
-            match result {
-                Ok(resp) if resp.status().is_success() => {
-                    let body: serde_json::Value = resp.json().unwrap_or_default();
-                    if json {
-                        println!(
-                            "{}",
-                            serde_json::to_string_pretty(&body).unwrap_or_default()
-                        );
-                    } else if let Some(c) = body["channel"].as_str() {
-                        println!("Channel: {}", c);
-                    } else {
-                        println!("{}", body);
                     }
                 }
                 Ok(resp) => {

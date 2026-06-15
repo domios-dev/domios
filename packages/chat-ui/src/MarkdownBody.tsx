@@ -403,7 +403,9 @@ export function FileIcon({ className = "" }: { className?: string }) {
 
 /** Extract filename from path. */
 export function fileName(path: string): string {
-  const parts = path.split("/").filter(Boolean);
+  // Split on both separators — Windows upload paths use backslashes, so a
+  // `/`-only split returned the entire C:\…\file.webm path (clipped the bubble).
+  const parts = path.split(/[/\\]/).filter(Boolean);
   return parts[parts.length - 1] || path;
 }
 
@@ -439,12 +441,14 @@ export function VoiceCard({ v }: { v: ParsedVoice }) {
   return (
     <div className="flex flex-col gap-1">
       <div
-        className="inline-flex items-center gap-1.5 text-[11px]"
+        className="flex flex-wrap items-center gap-1.5 text-[11px] min-w-0 max-w-full"
         style={{ color: "var(--ct-muted-fg)" }}
       >
-        <Mic size={13} strokeWidth={2} />
-        <span className="opacity-80 font-medium">Voice</span>
-        {v.fileName && <span className="opacity-40 font-mono">{v.fileName}</span>}
+        <Mic size={13} strokeWidth={2} className="shrink-0" />
+        <span className="opacity-80 font-medium shrink-0">Voice</span>
+        {v.fileName && (
+          <span className="opacity-40 font-mono min-w-0 break-all [overflow-wrap:anywhere]">{v.fileName}</span>
+        )}
       </div>
       {v.transcript ? (
         <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{v.transcript}</pre>

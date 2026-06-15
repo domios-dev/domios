@@ -266,7 +266,7 @@ pub trait SecretStore: Send + Sync {
     async fn unlock(&self, creds: UnlockCredentials) -> Result<(), SecretError>;
 
     /// Drop the in-process session. Persisted creds (e.g. session token in
-    /// OS keychain) are kept so the user can `unlock` again without retyping.
+    /// `.secrets`) are kept so the user can `unlock` again without retyping.
     async fn lock(&self) -> Result<(), SecretError>;
 
     /// Drop the session AND any persisted creds. Equivalent to "sign out".

@@ -85,17 +85,10 @@
               "positional": false,
               "value_name": "PARENT",
               "default": null,
-              "help": "Parent pane ID (orchestrator or lead)",
+              "help": "Parent pane ID (orchestrator)",
               "aliases": []
             }
           ],
-          "subcommands": []
-        },
-        {
-          "name": "list",
-          "about": "List agent panes and the hierarchy (same view as `pane list --agents`)",
-          "aliases": [],
-          "args": [],
           "subcommands": []
         },
         {
@@ -203,7 +196,7 @@
         },
         {
           "name": "restart",
-          "about": "Restart agent (gracefully /exit + auto-resume to pick up settings or recover)",
+          "about": "Restart agent (graceful exit; resumes only when the pane has a valid session)",
           "aliases": [],
           "args": [
             {
@@ -235,7 +228,7 @@
         },
         {
           "name": "set-orchestrator",
-          "about": "Mark a pane as orchestrator (top-level, can spawn leads/workers)",
+          "about": "Mark a pane as orchestrator (top-level, can spawn workers)",
           "aliases": [],
           "args": [
             {
@@ -986,6 +979,178 @@
               "value_name": "KIND",
               "default": null,
               "help": "Kind of crash to trigger",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "delayed",
+      "about": "Manage delayed Chat UI sends",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "create",
+          "about": "Queue a delayed message",
+          "aliases": [],
+          "args": [
+            {
+              "name": "at",
+              "positional": false,
+              "value_name": "AT",
+              "default": null,
+              "help": "Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM",
+              "aliases": []
+            },
+            {
+              "name": "delay",
+              "positional": false,
+              "value_name": "DELAY",
+              "default": null,
+              "help": "Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes",
+              "aliases": []
+            },
+            {
+              "name": "from_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read text from a file instead of the positional arg",
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "aliases": []
+            },
+            {
+              "name": "stdin",
+              "positional": false,
+              "value_name": "STDIN",
+              "default": null,
+              "help": "Read text from stdin",
+              "aliases": [
+                "from-stdin"
+              ]
+            },
+            {
+              "name": "text",
+              "positional": true,
+              "value_name": "TEXT",
+              "default": null,
+              "help": "Text to queue (positional, or omit and use --from-file/--stdin)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "delete",
+          "about": "Delete a delayed message",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Delayed message ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "edit",
+          "about": "Edit a queued or failed delayed message",
+          "aliases": [],
+          "args": [
+            {
+              "name": "at",
+              "positional": false,
+              "value_name": "AT",
+              "default": null,
+              "help": "Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM",
+              "aliases": []
+            },
+            {
+              "name": "delay",
+              "positional": false,
+              "value_name": "DELAY",
+              "default": null,
+              "help": "Relative delay from now: 45s, 10m, 1h30m, 2d. Bare number means minutes",
+              "aliases": []
+            },
+            {
+              "name": "from_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read replacement text from a file",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Delayed message ID",
+              "aliases": []
+            },
+            {
+              "name": "stdin",
+              "positional": false,
+              "value_name": "STDIN",
+              "default": null,
+              "help": "Read replacement text from stdin",
+              "aliases": [
+                "from-stdin"
+              ]
+            },
+            {
+              "name": "text",
+              "positional": false,
+              "value_name": "TEXT",
+              "default": null,
+              "help": "Replacement text",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List delayed messages for a pane",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "send-now",
+          "about": "Send a delayed message immediately",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Delayed message ID",
               "aliases": []
             }
           ],
@@ -3243,38 +3408,6 @@
           "subcommands": []
         },
         {
-          "name": "exec",
-          "about": "Execute a command on a remote mesh peer",
-          "aliases": [],
-          "args": [
-            {
-              "name": "command",
-              "positional": true,
-              "value_name": "COMMAND",
-              "default": null,
-              "help": "Command to execute",
-              "aliases": []
-            },
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": "general",
-              "help": "Target pane on remote instance (default: general)",
-              "aliases": []
-            },
-            {
-              "name": "target",
-              "positional": true,
-              "value_name": "TARGET",
-              "default": null,
-              "help": "Target peer name or instance ID",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
           "name": "offline",
           "about": "Go offline: stop pinging peers, stop announcing, stop refreshing local addresses (which keeps Tailscale alive). The daemon stays up; peers will time out our presence on their side. Local-only command",
           "aliases": [],
@@ -3385,38 +3518,6 @@
               "value_name": "REQUEST_ID",
               "default": null,
               "help": "Request ID of the pending pairing request",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "send",
-          "about": "Send text to a pane on a remote mesh peer",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": "general",
-              "help": "Target pane on remote instance (default: general)",
-              "aliases": []
-            },
-            {
-              "name": "target",
-              "positional": true,
-              "value_name": "TARGET",
-              "default": null,
-              "help": "Target peer name or instance ID",
-              "aliases": []
-            },
-            {
-              "name": "text",
-              "positional": true,
-              "value_name": "TEXT",
-              "default": null,
-              "help": "Text to send",
               "aliases": []
             }
           ],
@@ -3630,7 +3731,7 @@
         },
         {
           "name": "list",
-          "about": "List all panes as a workspace-grouped tree. `--agents` filters to agent panes only (replaces the old `agent list`)",
+          "about": "List all panes as a workspace-grouped tree. `--agents` filters to agent panes only",
           "aliases": [],
           "args": [
             {
@@ -3801,22 +3902,6 @@
           "about": "List local (or --mesh <peer>) pastes — id, size, ttl_remaining",
           "aliases": [],
           "args": [],
-          "subcommands": []
-        },
-        {
-          "name": "pop",
-          "about": "Get + delete in one call. Sugar for `paste get <id> --pop`",
-          "aliases": [],
-          "args": [
-            {
-              "name": "id",
-              "positional": true,
-              "value_name": "ID",
-              "default": null,
-              "help": "Paste id",
-              "aliases": []
-            }
-          ],
           "subcommands": []
         },
         {
@@ -4102,24 +4187,38 @@
     {
       "name": "send",
       "about": "Send text to a pane (default: current pane)",
-      "aliases": [
-        "send-text"
-      ],
+      "aliases": [],
       "args": [
+        {
+          "name": "actions",
+          "positional": false,
+          "value_name": "ACTIONS",
+          "default": null,
+          "help": "Terminal actions to run after optional text, comma-separated. Examples: enter, esc, up, down, left, right, tab, backspace, ctrl-c, delay:250ms. With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it",
+          "aliases": []
+        },
+        {
+          "name": "at",
+          "positional": false,
+          "value_name": "AT",
+          "default": null,
+          "help": "Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM",
+          "aliases": []
+        },
+        {
+          "name": "delay",
+          "positional": false,
+          "value_name": "DELAY",
+          "default": null,
+          "help": "Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes",
+          "aliases": []
+        },
         {
           "name": "from_file",
           "positional": false,
           "value_name": "PATH",
           "default": null,
           "help": "Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting",
-          "aliases": []
-        },
-        {
-          "name": "from_stdin",
-          "positional": false,
-          "value_name": "FROM_STDIN",
-          "default": null,
-          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --from-stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
           "aliases": []
         },
         {
@@ -4131,11 +4230,21 @@
           "aliases": []
         },
         {
+          "name": "stdin",
+          "positional": false,
+          "value_name": "STDIN",
+          "default": null,
+          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
+          "aliases": [
+            "from-stdin"
+          ]
+        },
+        {
           "name": "text",
           "positional": true,
           "value_name": "TEXT",
-          "default": "",
-          "help": "Text to send (positional, or omit and use --from-file/--from-stdin)",
+          "default": null,
+          "help": "Text to send (positional, or omit and use --from-file/--stdin)",
           "aliases": []
         }
       ],
@@ -4687,55 +4796,15 @@
           "aliases": []
         },
         {
-          "name": "apply",
-          "positional": false,
-          "value_name": "APPLY",
-          "default": null,
-          "help": "Shortcut for `update install --auto`",
-          "aliases": []
-        },
-        {
-          "name": "channel",
-          "positional": false,
-          "value_name": "CHANNEL",
-          "default": null,
-          "help": "Shortcut for `update channel [name]`. Pass without value to print current channel",
-          "aliases": []
-        },
-        {
-          "name": "check",
-          "positional": false,
-          "value_name": "CHECK",
-          "default": null,
-          "help": "Shortcut for `update check`",
-          "aliases": []
-        },
-        {
           "name": "manifest_url",
           "positional": false,
           "value_name": "MANIFEST_URL",
           "default": null,
-          "help": "Override manifest URL when paired with --apply (or `install --auto`). Backend must be built with `dev-updater-allowlocal` for non-https URLs",
+          "help": "Override manifest URL when paired with `install --auto`. Backend must be built with `dev-updater-allowlocal` for non-https URLs",
           "aliases": []
         }
       ],
       "subcommands": [
-        {
-          "name": "channel",
-          "about": "Get or set the update channel (stable, rc, nightly)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "channel",
-              "positional": true,
-              "value_name": "CHANNEL",
-              "default": null,
-              "help": "New channel value. Omit to print current channel",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
         {
           "name": "check",
           "about": "Check for available updates",
@@ -4906,7 +4975,15 @@
               "positional": false,
               "value_name": "HOST",
               "default": null,
-              "help": "Host override (default: Tailscale IP > LAN IP > 127.0.0.1)",
+              "help": "Host override (default: Tailscale Serve HTTPS > Tailscale IP > LAN IP > 127.0.0.1)",
+              "aliases": []
+            },
+            {
+              "name": "peer",
+              "positional": false,
+              "value_name": "PEER",
+              "default": null,
+              "help": "Build a link for a paired mesh PEER (by instance name) instead of this machine: resolves the peer's host (prefers its HTTPS tailscale-serve FQDN) and mints the peer's web token. Overrides --host/--port",
               "aliases": []
             },
             {
@@ -4954,7 +5031,7 @@
         },
         {
           "name": "create",
-          "about": "Create a new workspace",
+          "about": "Create a new workspace. With --cwd, reuses an existing workspace at that cwd",
           "aliases": [],
           "args": [
             {

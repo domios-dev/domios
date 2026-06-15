@@ -14,29 +14,28 @@ never from `develop`, never from an untagged tree.
 | Repo | Role |
 |---|---|
 | `rollacode/codeterm` | private source. Releases here are archival only — the GUI updater can't read private-repo assets anonymously. |
-| `rollacode/codeterm-releases` | public mirror: artifacts + signed `latest.json`. `tauri.conf.json`'s updater endpoint points here. **Without the mirror, in-app `update --apply` 404s.** |
+| `rollacode/codeterm-releases` | public mirror: artifacts + signed `latest.json`. `tauri.conf.json`'s updater endpoint points here. **Without the mirror, in-app `update install --auto` 404s.** |
 
 ## The flow
 
-1. **Bump version on `develop`** (one commit). Three files must agree:
-   `src-tauri/Cargo.toml` (`version = "X.Y.Z"`), `src-tauri/tauri.conf.json`,
-   `package.json`. Run `./build.sh check` to refresh `Cargo.lock`, then `grep`
-   all three — a missed `sed` isn't caught until a builder bakes the stale
-   version into the installer filename. Commit `release: vX.Y.Z`, push.
+1. **Bump version on `develop`** (one commit). Run
+   `npm run sync:versions -- X.Y.Z`, then `./build.sh check` to refresh
+   `Cargo.lock`, then `npm run check:versions`. The script is the single version
+   sync point for root package metadata, Tauri config, Rust packages, provider
+   plugins, `plugins/channel.json`, and shared packages. Commit `release:
+   vX.Y.Z`, push.
 2. **Merge `develop` → `master`** via a GitHub PR (merge commit), then locally
    `git checkout master && git pull && git tag -a vX.Y.Z -m "…" && git push --tags`.
 3. **Draft the GitHub release** (`gh release create vX.Y.Z --draft`).
 4. **Checkout the tag** (`git checkout vX.Y.Z` → detached HEAD). All builds run
    from this tree.
-5. **macOS** (on a Mac): build → codesign (`Developer ID Application`) →
-   notarize+staple → pack+minisign the updater bundle, for **both** arm64 and
-   x86_64. Upload DMGs to the private repo; sign them, build `latest.json`, and
-   mirror artifacts + manifest to the public repo.
-6. **Windows** (on a paired mesh peer — **BLACKSTAR** is primary): dispatch
-   `scripts/win-release.sh vX.Y.Z`. It checks out the tag, installs, bundles the
-   NSIS `.exe` + `.nsis.zip`, signs, and uploads to both repos. The agent's final
-   `codeterm agent report` line is machine-parseable: `WINDOWS_READY=X.Y.Z sig=…`
-   on success, `BLOCKED step=…` on failure.
+5. **CI builds on tag push**: `release-macos`, `release-windows`, and
+   `release-linux` build from the tag, upload private source artifacts, produce
+   updater fragments whose URLs point at `rollacode/codeterm-releases`, and
+   mirror public assets + merged `latest.json`.
+6. **Manual builder fallback**: if a platform workflow is down, use the skill's
+   Mac/Windows mesh instructions. If the source artifacts exist but mirror upload
+   failed, use the skill's manual mirror fallback instead of rebuilding.
 7. **Publish** the release (un-draft) and verify the updater endpoint serves the
    new `latest.json`.
 8. **Sync `master` → `develop`** and return to `develop`.
@@ -44,14 +43,10 @@ never from `develop`, never from an untagged tree.
 
 ## Gotchas that have cost real build time
 
-- **Windows updater bundle must be STORED-compressed, not DEFLATE.** Export
-  `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`) **before** `./build.sh build`, or
-  the bundler skips the `.nsis.zip` and the fallback ships a DEFLATE zip that
-  `tauri-updater` rejects with *"Compression method not supported"*. Verify bytes
-  8–9 of the local file header are `00 00`: `od -A x -t x1 -N 10 *_x64-setup.nsis.zip`.
-  (`08 00` = DEFLATE = broken.) `win-bundle.sh` checks this and exits `BLOCKED:`.
-- **Windows zip fallback** must use `python zipfile.ZIP_STORED` — never
-  `Compress-Archive` (always DEFLATE).
+- **Windows updater artifact is the NSIS `.exe` in Tauri v2 mode.** This repo
+  uses `bundle.createUpdaterArtifacts = true`; `.nsis.zip` belongs to the old
+  `"v1Compatible"` mode. Do not make the manifest point at `.nsis.zip` unless
+  the config is intentionally changed.
 - **macOS notarize** needs a *real* `Developer ID Application` signature with the
   hardened-runtime flag (`flags=0x10000`) — `build-mac.sh` sanity-checks this
   before submitting, so you don't discover an ad-hoc signature 30 min into
@@ -62,6 +57,26 @@ never from `develop`, never from an untagged tree.
   sign` fails with *"Unknown command"*.
 - **Verify version parity before tagging** (step 1) — the cheapest place to catch
   a mismatch; the most expensive is a finished build with the wrong filename.
+- **macOS Intel CI must use `macos-15-intel`, not `macos-13`.** GitHub retired
+  `macos-13` in December 2025; x86 jobs on that label can sit queued forever.
+- **`PACKAGE_REPOS_TOKEN` must have `contents:write` on
+  `rollacode/codeterm-releases`.** The source release can upload with
+  `GITHUB_TOKEN`, but the public updater mirror is a different repo and fails
+  with HTTP 403 when this token is missing or scoped only to the source repo.
+- **macOS updater URLs must be arch-specific.** Never point both
+  `darwin-aarch64` and `darwin-x86_64` at generic `CodeTerm.app.tar.gz`; the
+  second macOS job can clobber that asset. Use `CodeTerm_aarch64.app.tar.gz`
+  and `CodeTerm_x64.app.tar.gz`.
+- **`latest.json` URLs must point at `rollacode/codeterm-releases`, not the
+  private source repo.** The updater runs anonymously, so private source URLs
+  fail even when the public mirror exists.
+- **Tauri v2 updater artifact names follow `createUpdaterArtifacts`.** With our
+  current `true` setting, Linux uses `.AppImage` and Windows uses NSIS `.exe`.
+  `.AppImage.tar.gz` / `.nsis.zip` are for `"v1Compatible"` only.
+- **If source release assets are valid but mirror failed**, download from
+  `rollacode/codeterm`, regenerate `latest.json` with public
+  `rollacode/codeterm-releases` URLs, upload to the mirror with `--clobber`, and
+  only then publish the private source release.
 
 ## Secrets (per builder machine)
 
@@ -71,4 +86,4 @@ notary credentials are backed up in mem — the skill lists the exact ids and
 restore paths. A builder without the minisign key produces artifacts the updater
 can't verify.
 
-<!-- revision: 1 -->
+<!-- revision: 7 -->

@@ -149,7 +149,9 @@ dev_wait_ready() {
 dev_start_bg() {
   (
     cd "$EVAL_LIB_REPO_ROOT" || exit 1
-    "${BASH:-bash}" build.sh dev > /dev/null 2>&1 < /dev/null &
+    local log_dir="$HOME/.codeterm-dev/logs"
+    mkdir -p "$log_dir"
+    "${BASH:-bash}" build.sh dev > "$log_dir/codeterm-stdout.log" 2> "$log_dir/codeterm-stderr.log" < /dev/null &
     disown "$!" 2>/dev/null || true
   )
 }

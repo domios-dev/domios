@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::update::apply::{check_and_apply, ApplyOptions};
-use crate::update::{Channel, UpdatePhase};
+use crate::update::UpdatePhase;
 
 #[derive(Deserialize)]
 pub struct CheckUpdateQuery {
@@ -68,6 +68,13 @@ pub async fn update_status(
 
     let us = state.update_state.lock();
     let elapsed_secs = us.phase_changed_at.map(|t| t.elapsed().as_secs());
+    let download_progress = us.download_total_bytes.and_then(|total| {
+        if total == 0 {
+            None
+        } else {
+            Some((us.downloaded_bytes as f64 / total as f64).min(1.0))
+        }
+    });
     let body = serde_json::json!({
         "phase": us.phase.to_string(),
         "last_error": us.last_error.clone(),
@@ -77,6 +84,9 @@ pub async fn update_status(
         "latest_known": us.last_check.as_ref().map(|i| i.latest_version.clone()),
         "update_available": us.last_check.as_ref().map(|i| i.update_available).unwrap_or(false),
         "phase_age_secs": elapsed_secs,
+        "downloaded_bytes": us.downloaded_bytes,
+        "download_total_bytes": us.download_total_bytes,
+        "download_progress": download_progress,
     });
     Ok(Json(body))
 }
@@ -202,31 +212,15 @@ pub async fn get_channel(
 
 #[derive(Deserialize)]
 pub struct SetChannelBody {
+    #[allow(dead_code)]
     pub channel: String,
 }
 
 pub async fn set_channel(
-    AxumState(state): AxumState<AppState>,
+    AxumState(_state): AxumState<AppState>,
     headers: HeaderMap,
-    Json(body): Json<SetChannelBody>,
+    Json(_body): Json<SetChannelBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-
-    let parsed: Channel = body
-        .channel
-        .parse()
-        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid channel"))?;
-
-    {
-        let mut cfg = state.config.lock();
-        cfg.updater.channel = parsed;
-        if let Err(e) = crate::config::save_config_pub(&cfg) {
-            log::warn!("[updater] failed to persist channel: {}", e);
-        }
-    }
-    state.update_state.lock().channel = parsed;
-
-    Ok(Json(
-        serde_json::json!({ "ok": true, "channel": parsed.to_string() }),
-    ))
+    check_auth(&_state, &headers)?;
+    Err((StatusCode::CONFLICT, "update channel switching is disabled"))
 }

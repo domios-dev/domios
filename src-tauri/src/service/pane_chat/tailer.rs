@@ -40,6 +40,18 @@ impl TailerHandle {
         self.offset.load(Ordering::Acquire)
     }
 
+    /// True while the polling thread is still running. A tailer can die on its
+    /// own (session file vanished for >10 polls, provider path went None) yet
+    /// stay registered — the registry uses this to detect such a corpse and
+    /// respawn a fresh tailer instead of handing back a dead stream.
+    pub fn is_alive(&self) -> bool {
+        self.join
+            .lock()
+            .as_ref()
+            .map(|j| !j.is_finished())
+            .unwrap_or(false)
+    }
+
     /// Signal the worker thread to exit and join. Idempotent. Drops
     /// the handle by consumption.
     pub fn shutdown(self) {
@@ -99,7 +111,6 @@ pub fn spawn_tailer(
     let stop = stop_flag.clone();
     let off = offset.clone();
     let join = thread::spawn(move || {
-        let mut missing_streak = 0u32;
         let mut cached_path: Option<PathBuf> = None;
         while !stop.load(Ordering::Acquire) {
             // Re-resolve the JSONL path each iteration. Cheap (plugin call + string concat) and lets the plugin transparently handle session-file
@@ -139,19 +150,27 @@ pub fn spawn_tailer(
                 // tailer. Today the session_id is fixed at spawn.
             }
             if !path.exists() {
-                missing_streak += 1;
-                if missing_streak > 10 {
-                    log::info!("[pane_chat] giving up on {:?} (10 polls missing)", path);
-                    return;
-                }
+                // The session JSONL may not exist YET: a fresh agent creates it
+                // only on its first completed turn (seconds out on a slow first
+                // turn / model spin-up). Keep watching — never permanently give
+                // up — so the chat populates the moment the file appears. The
+                // registry's stop flag (chat_stop / handle drop) bounds this
+                // thread's lifetime, so a session that never materializes does
+                // not spin forever. (Was: gave up after 10 missing polls → "No
+                // messages yet" forever even after claude wrote the file.)
                 thread::sleep(cfg.poll_interval);
                 continue;
             }
-            missing_streak = 0;
             let from = off.load(Ordering::Acquire);
             // I4: parse_session_delta is fault-tolerant — it advances offset past chunks the plugin couldn't handle, so we never busy-loop on broken bytes.
             let delta = registry
-                .with_provider(&cfg.provider_id, |p| p.parse_session_delta(&path, from))
+                .with_provider(&cfg.provider_id, |p| {
+                    let mut delta = p.parse_session_delta(&path, from);
+                    for m in &mut delta.messages {
+                        crate::service::pane_chat::enrich_interactive(m, p);
+                    }
+                    delta
+                })
                 .unwrap_or_else(|| crate::agent::chat_types::SessionDelta {
                     new_offset: from,
                     messages: vec![],

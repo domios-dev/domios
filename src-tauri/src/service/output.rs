@@ -170,14 +170,18 @@ impl ServiceContext {
                     None
                 };
 
-                let decision = {
-                    let mut detector = self.prompt_detector.lock();
+                let parsed = clean_text.as_deref().and_then(|text| {
                     let agent_type_clone = at.clone();
-                    let registry = &self.agent_registry;
-                    detector.evaluate_pty_output(pid, check_screen, clean_text.as_deref(), |text| {
-                        registry.parse_prompt(&agent_type_clone, text)
+                    crate::agent::prompt::parse_prompt_safely(|| {
+                        self.agent_registry.parse_prompt(&agent_type_clone, text)
                     })
-                };
+                });
+                let decision = self.prompt_detector.lock().evaluate_pty_output_parsed(
+                    pid,
+                    check_screen,
+                    clean_text.is_some(),
+                    parsed,
+                );
 
                 self.apply_prompt_decision_with_screen(&decision, clean_text.as_deref());
 

@@ -341,7 +341,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
         if let Some(mut rx) = rx_opt {
             let result = rx.recv().await;
             match result {
-                Some(data) => {
+                Some(mut data) => {
                     if let Some(mark) = crate::pty::manager::take_spawn_time(&pty_id) {
                         log::info!(
                             "[pty-first-byte] pty={} elapsed={}ms bytes={} (via backend channel)",
@@ -350,6 +350,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                             data.len()
                         );
                     }
+                    coalesce_backend_chunks(&mut rx, &mut data).await;
                     *session.backend_reader_rx.lock().unwrap() = Some(rx);
                     return Ok(data);
                 }
@@ -468,6 +469,22 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                 }
             }
             Err(e)
+        }
+    }
+}
+
+async fn coalesce_backend_chunks(
+    rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>,
+    data: &mut Vec<u8>,
+) {
+    const COALESCE_WAIT: std::time::Duration = std::time::Duration::from_millis(8);
+    const COALESCE_CAP: usize = 64 * 1024;
+
+    tokio::time::sleep(COALESCE_WAIT).await;
+    while data.len() < COALESCE_CAP {
+        match rx.try_recv() {
+            Ok(mut next) => data.append(&mut next),
+            Err(_) => break,
         }
     }
 }
@@ -609,10 +626,16 @@ pub async fn claim_resize_owner(
     client_id: String,
     cols: u16,
     rows: u16,
+    force: Option<bool>,
 ) -> Result<crate::resize_owner::ResizeOwner, String> {
-    let owner = resize_owner
-        .lock()
-        .claim(pane_id, pty_id, client_id, cols, rows);
+    let owner = resize_owner.lock().claim(
+        pane_id,
+        pty_id,
+        client_id,
+        cols,
+        rows,
+        force.unwrap_or(false),
+    );
     events.publish(crate::api::events::SystemEvent::Generic {
         event_type: "pty-resize-owner-changed".to_string(),
         data: serde_json::to_value(&owner).unwrap_or_default(),
@@ -634,15 +657,7 @@ pub fn resize_pty_core(
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
 
-    let pair = session.pair.lock().unwrap();
-    pair.master
-        .resize(portable_pty::PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|e| format!("Resize failed: {}", e))?;
+    let _ = session.resize(cols, rows)?;
     Ok(())
 }
 

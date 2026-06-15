@@ -5,7 +5,10 @@ use super::{general_dir, GENERAL_ALIAS, GENERAL_PANE_TITLE, GENERAL_WORKSPACE_NA
 /// Ensure General workspace + pane exist in MultiplexerState.
 /// Called BEFORE mux is wrapped in Arc<Mutex<>> — no locking needed.
 /// This avoids the deadlock that occurs when creating workspace from a background thread.
-pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::MultiplexerState) {
+pub fn ensure_general_workspace(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    default_chat_view: bool,
+) {
     let general_cwd = general_dir().to_string_lossy().to_string();
 
     // Check by protected flag — the only reliable marker
@@ -46,6 +49,9 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
             }
             if let Some(pane) = mux.get_pane_mut(&pid) {
                 pane.protected = true;
+                if default_chat_view && !pane.chat_view {
+                    pane.chat_view = true;
+                }
             }
             mux.register_alias(GENERAL_ALIAS, &pid);
             mux.register_alias(MAIN_ALIAS, &pid);
@@ -75,6 +81,7 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
                 pane.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
                 pane.can_spawn = true;
                 pane.cwd = Some(general_cwd);
+                pane.chat_view = default_chat_view;
             }
             mux.register_alias(GENERAL_ALIAS, &pane_id);
             mux.register_alias(MAIN_ALIAS, &pane_id);
@@ -90,5 +97,60 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
         Err(e) => {
             log::error!("[general-agent] Failed to create General tab: {}", e);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::general_agent::{GENERAL_PANE_TITLE, GENERAL_WORKSPACE_NAME};
+
+    fn general_pane_chat_view(mux: &MultiplexerState) -> bool {
+        let ws = mux
+            .list_workspaces()
+            .iter()
+            .find(|ws| ws.name == GENERAL_WORKSPACE_NAME)
+            .expect("general workspace")
+            .clone();
+        let pane_id = ws.pane_ids.first().expect("general pane");
+        mux.get_pane(pane_id).expect("pane").chat_view
+    }
+
+    #[test]
+    fn general_workspace_created_with_default_chat_enabled_sets_chat_view() {
+        let mut mux = MultiplexerState::empty();
+
+        super::ensure_general_workspace(&mut mux, true);
+
+        assert!(general_pane_chat_view(&mux));
+    }
+
+    #[test]
+    fn general_workspace_created_with_default_chat_disabled_stays_terminal() {
+        let mut mux = MultiplexerState::empty();
+
+        super::ensure_general_workspace(&mut mux, false);
+
+        assert!(!general_pane_chat_view(&mux));
+    }
+
+    #[test]
+    fn general_workspace_repair_applies_default_to_existing_main_pane() {
+        let (mut mux, _) = MultiplexerState::new();
+        let ws_id = mux.list_workspaces()[0].id.clone();
+        mux.set_workspace_protected(&ws_id, true);
+
+        super::ensure_general_workspace(&mut mux, true);
+
+        let ws = mux
+            .list_workspaces()
+            .iter()
+            .find(|ws| ws.name == GENERAL_WORKSPACE_NAME)
+            .expect("general workspace")
+            .clone();
+        let pane_id = ws.pane_ids.first().expect("general pane");
+        let pane = mux.get_pane(pane_id).expect("pane");
+        assert_eq!(pane.title, GENERAL_PANE_TITLE);
+        assert!(pane.chat_view);
     }
 }

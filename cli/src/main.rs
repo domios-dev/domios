@@ -7,43 +7,11 @@ use cmd::print::{handle_result, print_human, print_object};
 use clap::Parser;
 use client::{discover_socket, SocketClient};
 
-fn strip_ansi(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            // Skip ESC sequences: ESC [ ... final_byte
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                while let Some(&nc) = chars.peek() {
-                    chars.next();
-                    if nc.is_ascii_alphabetic() || nc == '~' || nc == 'h' || nc == 'l' {
-                        break;
-                    }
-                }
-            } else if chars.peek() == Some(&']') {
-                // OSC sequence: ESC ] ... BEL or ST
-                chars.next();
-                while let Some(&nc) = chars.peek() {
-                    chars.next();
-                    if nc == '\x07' {
-                        break;
-                    }
-                    if nc == '\x1b' {
-                        chars.next();
-                        break;
-                    }
-                }
-            }
-        } else if c == '\r' {
-            // Skip carriage return
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
 pub use mesh_cli::{MeshAction, MeshPeerAction};
+
+pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
+    cmd::local_io::resolve_pane(client, id)
+}
 
 /// Determine the CodeTerm data directory.
 /// Dev instances use `~/.codeterm-dev/`, prod uses `~/.codeterm/`.
@@ -187,6 +155,7 @@ mod args;
 pub use args::agent::AgentAction;
 pub use args::cli::{Cli, Commands};
 pub use args::cron::CronAction;
+pub use args::delayed::DelayedAction;
 pub use args::mem::{
     MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
     MemSkillAction, MemWorkerAction,
@@ -207,39 +176,6 @@ pub use args::usage::UsageAction;
 /// When running inside CodeTerm, $CODETERM_PANE_ID is set automatically by the PTY.
 /// This ensures commands like `pane split` always target the caller's pane,
 /// not whatever pane the user happens to have focused.
-pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
-    // 1. Explicit --pane/--id arg
-    if let Some(id) = id {
-        return id;
-    }
-    // 2. $CODETERM_PANE_ID env var (set by CodeTerm PTY for each shell)
-    if let Ok(env_id) = std::env::var("CODETERM_PANE_ID") {
-        if !env_id.is_empty() {
-            return env_id;
-        }
-    }
-    // 3. Fallback: ask server for focused pane
-    match client.call("pane.list", None) {
-        Ok(value) => {
-            if let Some(arr) = value.as_array() {
-                let pane = arr
-                    .iter()
-                    .find(|p| p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
-                    .or_else(|| arr.first());
-                if let Some(id) = pane.and_then(|p| p.get("id").and_then(|v| v.as_str())) {
-                    return id.to_string();
-                }
-            }
-            eprintln!("Error: no panes found");
-            std::process::exit(1);
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    }
-}
-
 fn main() {
     let cli = Cli::try_parse_from(std::env::args()).unwrap_or_else(|e| e.exit());
 
@@ -353,7 +289,7 @@ fn main() {
     }
 
     // `mem run-worker` opens knowledge.db directly via --db-path and never talks to the daemon socket — short-circuit before discover_socket so a
-    // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update --apply restarts the binary) doesn't make the worker exit 1 before it can do any work.
+    // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update install --auto restarts the binary) doesn't make the worker exit 1 before it can do any work.
     if let Commands::Mem {
         action: MemAction::RunWorker {
             ref kind,
@@ -440,75 +376,12 @@ fn main() {
 
         Commands::Capabilities => client.call("system.capabilities", None),
 
-        Commands::Workspace { action } => match action {
-            WorkspaceAction::List => client.call("workspace.list", None),
-            WorkspaceAction::Current => {
-                let result = client.call("workspace.list", None);
-                match result {
-                    Ok(value) => {
-                        if let Some(arr) = value.as_array() {
-                            let id = arr
-                                .iter()
-                                .find(|w| {
-                                    w.get("focused").and_then(|v| v.as_bool()).unwrap_or(false)
-                                })
-                                .or_else(|| arr.first())
-                                .and_then(|w| w.get("id").and_then(|v| v.as_str()));
-                            if let Some(id) = id {
-                                println!("{}", id);
-                            }
-                        }
-                        return;
-                    }
-                    Err(e) => {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    }
-                }
+        Commands::Workspace { action } => {
+            match cmd::local_io::handle_workspace_action(&mut client, action, cli.json) {
+                Some(result) => result,
+                None => return,
             }
-            WorkspaceAction::Create { name, cwd } => {
-                let mut params = serde_json::json!({ "name": name });
-                if let Some(cwd) = cwd {
-                    params["cwd"] = serde_json::json!(cwd);
-                }
-                match client.call("workspace.create", Some(params)) {
-                    Ok(val) if val.get("existing").and_then(|v| v.as_bool()) == Some(true) => {
-                        let ws_name = val.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-                        let ws_id = val.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                        if cli.json {
-                            println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                        } else {
-                            println!(
-                                "workspace with this cwd already exists: {} ({})",
-                                ws_name, ws_id
-                            );
-                        }
-                        return;
-                    }
-                    result => result,
-                }
-            }
-            WorkspaceAction::Focus { id } => client.call(
-                "workspace.focus",
-                Some(serde_json::json!({ "workspace_id": id })),
-            ),
-            WorkspaceAction::Rename { id, name } => client.call(
-                "workspace.rename",
-                Some(serde_json::json!({ "workspace_id": id, "name": name })),
-            ),
-            WorkspaceAction::Close { id } => client.call(
-                "workspace.close",
-                Some(serde_json::json!({ "workspace_id": id })),
-            ),
-            WorkspaceAction::MoveTab { tab_id, from, to } => client.call(
-                "workspace.move_tab",
-                Some(serde_json::json!({
-                    "tab_id": tab_id,
-                    "from_workspace_id": from,
-                    "to_workspace_id": to
-                })),
-            ),
-        },
+        }
 
         Commands::Pane { action } => {
             cmd::pane::handle_pane(&mut client, cli.json, action);
@@ -526,44 +399,35 @@ fn main() {
         }
 
         Commands::GetOutput { pane, lines } => {
-            let pane_id = resolve_pane(&mut client, pane);
-            let max_bytes = (lines as u64) * 80;
-            let result = client.call(
-                "pane.get_output",
-                Some(serde_json::json!({ "pane_id": pane_id, "max_bytes": max_bytes })),
-            );
-            match result {
-                Ok(value) => {
-                    if let Some(output) = value.get("output").and_then(|v| v.as_str()) {
-                        if cli.json {
-                            println!("{}", serde_json::to_string_pretty(&value).unwrap());
-                        } else {
-                            print!("{}", strip_ansi(output));
-                        }
-                    }
-                    return;
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            cmd::local_io::handle_get_output(&mut client, pane, lines, cli.json);
+            return;
         }
 
         Commands::SendText {
             pane,
             text,
             from_file,
-            from_stdin,
+            stdin,
+            actions,
+            delay,
+            at,
         } => {
-            cmd::send_text::handle_send_text(
+            cmd::local_io::handle_send_text(
                 &mut client,
                 cli.json,
                 pane,
                 text,
                 from_file,
-                from_stdin,
+                stdin,
+                actions,
+                delay,
+                at,
             );
+            return;
+        }
+
+        Commands::Delayed { action } => {
+            cmd::delayed::handle_delayed(&mut client, cli.json, action);
             return;
         }
 
@@ -751,21 +615,10 @@ fn main() {
 
         Commands::Update {
             action,
-            check,
-            apply,
-            channel,
             manifest_url,
             after_update,
         } => {
-            cmd::update::handle_update(
-                cli.json,
-                action,
-                check,
-                apply,
-                channel,
-                manifest_url,
-                after_update,
-            );
+            cmd::update::handle_update(cli.json, action, manifest_url, after_update);
             return;
         }
 
@@ -852,190 +705,10 @@ fn main() {
 }
 
 #[cfg(test)]
-mod subcommand_contract_tests {
-    use super::*;
-    use clap::CommandFactory;
-    use std::sync::{Mutex, OnceLock};
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    fn restore_env(key: &str, value: Option<String>) {
-        match value {
-            Some(v) => std::env::set_var(key, v),
-            None => std::env::remove_var(key),
-        }
-    }
-
-    fn mem_subcommand() -> clap::Command {
-        Cli::command()
-            .find_subcommand("mem")
-            .expect("Cli must expose `mem` subcommand")
-            .clone()
-    }
-
-    #[test]
-    fn mem_run_worker_subcommand_exists() {
-        let mem = mem_subcommand();
-        let run_worker = mem
-            .find_subcommand("run-worker")
-            .expect("`mem run-worker` MUST exist — supervisor.rs spawns it");
-
-        let kind_arg = run_worker
-            .get_arguments()
-            .find(|a| a.get_id() == "kind")
-            .expect("`mem run-worker` MUST take a positional <kind> arg");
-        assert!(
-            kind_arg.is_required_set(),
-            "<kind> must stay required so supervisor.rs args[2] is meaningful"
-        );
-
-        let db_path = run_worker
-            .get_arguments()
-            .find(|a| a.get_id() == "db_path")
-            .expect("`mem run-worker` MUST take --db-path");
-        let long = db_path
-            .get_long()
-            .expect("--db-path must remain a long flag");
-        assert_eq!(
-            long, "db-path",
-            "supervisor.rs hardcodes `--db-path`; renaming this flag breaks the daemon at runtime"
-        );
-    }
-
-    #[test]
-    fn mem_run_worker_accepts_all_kinds() {
-        for kind in [
-            "dreaming-light",
-            "dreaming-deep",
-            "dreaming-normalize",
-            "librarian-once",
-        ] {
-            let res = Cli::try_parse_from([
-                "codeterm",
-                "mem",
-                "run-worker",
-                kind,
-                "--db-path",
-                "/tmp/x.db",
-            ]);
-            assert!(
-                res.is_ok(),
-                "`mem run-worker {}` MUST parse cleanly — supervisor.rs sends this exact arg list ({:?})",
-                kind,
-                res.err()
-            );
-        }
-    }
-
-    fn parse_plugin(args: &[&str]) -> PluginAction {
-        let mut argv = vec!["codeterm", "plugin"];
-        argv.extend_from_slice(args);
-        match Cli::try_parse_from(argv)
-            .expect("plugin args parse")
-            .command
-        {
-            Commands::Plugin { action } => action,
-            _ => panic!("expected plugin command"),
-        }
-    }
-
-    #[test]
-    fn plugin_subcommands_parse() {
-        match parse_plugin(&[
-            "install",
-            "--from-dir",
-            "./provider-demo",
-            "--id-override",
-            "demo",
-        ]) {
-            PluginAction::Install {
-                from_dir,
-                id_override,
-                ..
-            } => {
-                assert_eq!(from_dir.as_deref(), Some("./provider-demo"));
-                assert_eq!(id_override.as_deref(), Some("demo"));
-            }
-            _ => panic!("expected plugin install"),
-        }
-
-        // --json is a global flag (lives on Cli, not the action).
-        let cli = Cli::try_parse_from(["codeterm", "plugin", "list", "--json"])
-            .expect("plugin list --json parses");
-        assert!(cli.json);
-        assert!(matches!(
-            cli.command,
-            Commands::Plugin {
-                action: PluginAction::List
-            }
-        ));
-
-        assert!(matches!(
-            parse_plugin(&["update-system", "codex"]),
-            PluginAction::UpdateSystem { id: Some(id) } if id == "codex"
-        ));
-        // Legacy alias must keep working.
-        assert!(matches!(
-            parse_plugin(&["system-update", "codex"]),
-            PluginAction::UpdateSystem { id: Some(id) } if id == "codex"
-        ));
-
-        match parse_plugin(&[
-            "channel",
-            "add",
-            "https://example.invalid/channel.git",
-            "--name",
-            "example",
-        ]) {
-            PluginAction::Channel {
-                command: PluginChannelAction::Add { url, name },
-            } => {
-                assert_eq!(url, "https://example.invalid/channel.git");
-                assert_eq!(name.as_deref(), Some("example"));
-            }
-            _ => panic!("expected plugin channel add"),
-        }
-
-        assert!(matches!(
-            parse_plugin(&["channel", "diff", "example"]),
-            PluginAction::Channel { command: PluginChannelAction::Diff { name: Some(name) } }
-                if name == "example"
-        ));
-
-        assert!(matches!(
-            parse_plugin(&["channel", "remove", "codeterm-core", "--force"]),
-            PluginAction::Channel {
-                command: PluginChannelAction::Remove { name, force: true }
-            } if name == "codeterm-core"
-        ));
-    }
-
-    #[test]
-    fn data_root_uses_absolute_env_override() {
-        let _guard = env_lock().lock().unwrap();
-        let prev = std::env::var("CODETERM_DATA_DIR").ok();
-        let root =
-            std::env::temp_dir().join(format!("codeterm-data-root-{}", uuid::Uuid::new_v4()));
-        std::env::set_var("CODETERM_DATA_DIR", &root);
-        assert_eq!(data_root(), root);
-        restore_env("CODETERM_DATA_DIR", prev);
-    }
-
-    #[test]
-    fn data_root_ignores_relative_env_override() {
-        let _guard = env_lock().lock().unwrap();
-        let prev = std::env::var("CODETERM_DATA_DIR").ok();
-        std::env::set_var("CODETERM_DATA_DIR", "relative-data");
-        assert!(data_root().ends_with(data_dir_name()));
-        restore_env("CODETERM_DATA_DIR", prev);
-    }
-
-    #[test]
-    fn top_level_docs_parse() {
-        let parsed = Cli::try_parse_from(["codeterm", "docs"]).expect("docs parses");
-        assert!(matches!(parsed.command, Commands::Docs { .. }));
-    }
+fn test_env_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
 }
+
+#[cfg(test)]
+mod subcommand_contract_tests;

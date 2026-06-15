@@ -788,7 +788,7 @@ function usageParseBlock(text, marker, isWeekly, nowMs) {
   if (isNaN(pct)) pct = null;
   var timeRaw = (caps[2] || "").trim();
   var resetsMs = isWeekly
-    ? usageParseMonthDayClock(timeRaw, nowMs)
+    ? usageParseWeeklyReset(timeRaw, nowMs)
     : usageParseTodayClock(timeRaw, nowMs);
   return { pct: pct, resetsMs: resetsMs };
 }
@@ -823,6 +823,12 @@ function usageParseTodayClock(s, nowMs) {
   return cand.getTime();
 }
 
+function usageParseWeeklyReset(s, nowMs) {
+  return usageParseMonthDayClock(s, nowMs)
+    ?? usageParseRelativeDayClock(s, nowMs)
+    ?? usageParseTodayClock(s, nowMs);
+}
+
 var USAGE_MONTHS = {
   jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3,
   may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7,
@@ -831,20 +837,71 @@ var USAGE_MONTHS = {
 };
 
 function usageParseMonthDayClock(s, nowMs) {
-  var parts = String(s || "").trim().toLowerCase().split(/\s+/);
-  if (parts.length < 4) return null;
+  var parts = usageCleanParts(s);
+  while (parts.length > 0 && usageIsWeekday(parts[0])) parts.shift();
+  if (parts.length < 3) return null;
   var month = USAGE_MONTHS[parts[0]];
   if (month === undefined) return null;
-  var day = parseInt(parts[1], 10);
-  if (isNaN(day)) return null;
-  if (parts[2] !== "at") return null;
-  var t = usageParseHMmAmPm(parts.slice(3).join(" "));
+  var day = usageParseDayToken(parts[1]);
+  if (day === null) return null;
+  var idx = 2;
+  var explicitYear = null;
+  if (/^\d{4}$/.test(parts[idx] || "")) {
+    explicitYear = parseInt(parts[idx], 10);
+    idx++;
+  }
+  if (parts[idx] === "at") idx++;
+  var t = usageParseHMmAmPm(parts.slice(idx).join(" "));
   if (!t) return null;
   var hour24 = (t.hh % 12) + (t.pm ? 12 : 0);
   var now = new Date(nowMs);
-  var cand = new Date(now.getFullYear(), month, day, hour24, t.mm, 0, 0);
-  if (cand.getTime() < nowMs) {
-    cand = new Date(now.getFullYear() + 1, month, day, hour24, t.mm, 0, 0);
+  var year = explicitYear ?? now.getFullYear();
+  var cand = new Date(year, month, day, hour24, t.mm, 0, 0);
+  if (explicitYear === null && cand.getTime() < nowMs) {
+    cand = new Date(year + 1, month, day, hour24, t.mm, 0, 0);
   }
   return cand.getTime();
+}
+
+function usageParseRelativeDayClock(s, nowMs) {
+  var parts = usageCleanParts(s);
+  var first = parts[0];
+  var offsetDays;
+  if (first === "today" || first === "tonight") offsetDays = 0;
+  else if (first === "tomorrow") offsetDays = 1;
+  else return null;
+  var idx = 1;
+  if (parts[idx] === "at") idx++;
+  var t = usageParseHMmAmPm(parts.slice(idx).join(" "));
+  if (!t) return null;
+  var hour24 = (t.hh % 12) + (t.pm ? 12 : 0);
+  var now = new Date(nowMs);
+  return new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + offsetDays,
+    hour24,
+    t.mm,
+    0,
+    0,
+  ).getTime();
+}
+
+function usageCleanParts(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/,/g, " ")
+    .split(/\s+/)
+    .map(function (p) { return p.replace(/[.;]+$/g, ""); })
+    .filter(Boolean);
+}
+
+function usageParseDayToken(s) {
+  var n = parseInt(String(s || "").replace(/(?:st|nd|rd|th)$/i, ""), 10);
+  return Number.isFinite(n) && n >= 1 && n <= 31 ? n : null;
+}
+
+function usageIsWeekday(s) {
+  return /^(mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday)$/.test(s);
 }

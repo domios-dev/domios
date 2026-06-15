@@ -51,7 +51,6 @@ All commands go through `build.sh`. Safe on Windows: never kills production Code
 ./build.sh cli              # rebuild CLI only → ~/.codeterm/bin/ (no dev restart)
 ./build.sh kill             # safe kill of dev only
 ./build.sh e2e              # E2E tests against running dev
-./build.sh webdriver        # dev with WebDriver for UI tests
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 ```
 
@@ -66,8 +65,13 @@ If `build` (git commit hash) differs from `git rev-parse HEAD`, the old build is
 Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-dev/logs/codeterm.log`.
 
 Full testing guide (3 layers, remote E2E, fixtures): `docs/TESTING.md`.
+UI automation/debugging uses Playwright over WebView2 CDP only; operational docs live in `tests/playwright/README.md`.
 
 **Cargo tests on Windows — never lose 10 min to a hang:**
+- From PowerShell, run repo commands through `.\build.ps1 ...`; it selects Git
+  Bash directly. Do not call plain `bash` from PowerShell because that can hit
+  `C:\Windows\System32\bash.exe` / WSL and fail on machines without a WSL distro.
+  If you need Bash explicitly, call `C:\Program Files\Git\bin\bash.exe`.
 - Run via **PowerShell foreground**, NOT Bash. Bash auto-backgrounds long commands; shell wrapper exits, cargo runs orphan and holds `target/debug/.cargo-lock`, every next `cargo test` then waits forever on that lock. PowerShell tool keeps cargo in the foreground so the timeout actually fires.
 - Always narrow first (`cargo test plugin::js_runtime::hot_reload`, not the whole `--lib`) and cap timeout at **90s**. If it hangs past 60s, that's almost always a deadlock in **your own code** (parking_lot is non-reentrant — never call `.lock()` on a Mutex while a previous guard on it is still alive on this thread), not a "linker is slow" infra problem. Incremental cargo on a warm cache compiles and links in seconds.
 - Stuck cargo? `Get-Process cargo,rustc,link | Stop-Process -Force` + delete `target/debug/.cargo-lock` + re-run. Always.
@@ -111,6 +115,7 @@ recall quality, agent routing) are verified with bench scripts under
 - `evals/mem-recall/` — mem search engine quality (Recall@K / MRR / latency)
 - `evals/dreaming/` — REM-phase prompt (Stage A.1 hub decomposition, Stage A.2 island bridging)
 - `evals/session-restore/` — kill+restart preserves workspace/pane/agent_type metadata; UI-mount step manual
+- `evals/restore-matrix/` — one-workspace provider restore matrix: N panes per provider (claude/codex/opencode), pre-kill marker materialization gate in the provider store, hard restart, API sid identity + Playwright UI-visible marker oracle (`RM_PROVIDERS`/`RM_PER_PROVIDER`/`RM_MATERIALIZE_TIMEOUT` tunable)
 
 Also present, experimental/historical: `evals/dreamer-repair/` (mem graph repair smoke test), `evals/seeds/`, `evals/v1_1_23_e2e/`.
 
@@ -211,6 +216,18 @@ SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structu
 ## Architecture (agent providers, detection)
 
 Agent integration is abstracted via providers (`src-tauri/src/agent/`, `src/components/ChatView/parser.ts`). Currently: Claude. Architecture-ready: Codex, Aider, Goose. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`docs/contributing/architecture.md`**.
+
+### Plugin & capability discipline (enforce on every provider change)
+
+The provider/plugin boundary is the project's load-bearing seam. It stays clean only if every change crossing it pays the same tax. Non-negotiable when you add or extend a provider capability (a new `AgentProvider` trait method, a new host-API function, a new detection source):
+
+1. **Core asks capabilities, never identities.** Branch on `supports_chat_ui()` / `available_models()` / a new capability fn — never on a hardcoded provider-id list or display string. If you're matching `"codex"` / `"opencode"` in core code, you've leaked the boundary.
+2. **Native + JS parity in lockstep.** Any trait method a JS drop-in can implement MUST gain a case in `parity_test.rs` proving the native and JS paths agree on shared fixtures. A capability without a parity test will silently drift on drop-ins.
+3. **Detection keys off the pane's OWN session.** Provider detection (model, session, status) reads only the record belonging to this pane's claimed session id — never "latest global" / "newest for cwd". Unknown → return null (honest) over a guess (contaminating). This is a real bug class we've shipped.
+4. **Audit the host-API surface when it grows.** Every new host function a drop-in can call is a new confinement hole — justify it against the FS/sqlite/env sandbox, and remember QuickJS lacks bindings the native runtime has (a missing `console` once aborted parsing silently).
+5. **Keep core provider plugin metadata in lockstep.** Until provider plugins split into their own release stream, their versions mirror the CodeTerm app version. After bumping `package.json`, run `npm run sync:versions` and verify with `npm run check:versions`; this syncs provider manifests/packages, internal `packages/*` package versions, and `plugins/channel.json`. Official `codeterm-core` channel installs are trusted system plugins, startup repairs same-version embedded hash drift, and newer channel versions must not be downgraded.
+
+Full rationale + the boundary map: **`docs/contributing/architecture.md`**.
 
 ## Mem self-repair primitives (Dreamer interface)
 

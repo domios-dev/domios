@@ -5,7 +5,7 @@ use crate::resolve_pane;
 /// Detect content that's almost certainly the result of bash command-substitution
 /// eating the agent's intended text — e.g. unquoted `mesh peers` inside a
 /// double-quoted argv string causes bash to execute `mesh peers` and splice the
-/// resulting "command not found" stderr into the payload before send-text sees
+/// resulting "command not found" stderr into the payload before send sees
 /// any of it.
 pub fn guard_against_shell_mangle(text: &str) -> Result<(), String> {
     const SUSPICIOUS: &[&str] = &[
@@ -18,7 +18,7 @@ pub fn guard_against_shell_mangle(text: &str) -> Result<(), String> {
     for needle in SUSPICIOUS {
         if scrubbed.contains(needle) {
             return Err(format!(
-                "send-text payload looks shell-mangled (matched marker: {:?})",
+                "send payload looks shell-mangled (matched marker: {:?})",
                 needle
             ));
         }
@@ -89,46 +89,65 @@ pub fn handle_send_text(
     client: &mut SocketClient,
     json: bool,
     pane: Option<String>,
-    text: String,
+    text: Option<String>,
     from_file: Option<String>,
     from_stdin: bool,
+    actions: Option<String>,
+    delay: Option<String>,
+    at: Option<String>,
 ) {
-    let (resolved_text, source) = if from_stdin {
-        use std::io::Read;
-        let mut buf = String::new();
-        if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
-            eprintln!("Error: failed to read --from-stdin: {}", e);
-            std::process::exit(1);
+    if delay.is_some() || at.is_some() {
+        if actions.is_some() {
+            eprintln!("Error: --actions cannot be queued with --delay/--at");
+            std::process::exit(2);
         }
-        (buf, "--from-stdin")
-    } else if let Some(path) = from_file {
-        match std::fs::read_to_string(&path) {
-            Ok(s) => (s, "--from-file"),
+        crate::cmd::delayed::queue_from_send(
+            client, json, pane, text, from_file, from_stdin, delay, at,
+        );
+        return;
+    }
+    let mut stdin = std::io::stdin();
+    let (resolved_text, source) =
+        match resolve_send_text_input(text, from_file, from_stdin, &mut stdin) {
+            Ok(value) => value,
             Err(e) => {
-                eprintln!("Error: failed to read --from-file {}: {}", path, e);
+                eprintln!("Error: {}", e);
                 std::process::exit(1);
             }
-        }
-    } else {
-        (text, "positional")
-    };
-    // Reject empty payloads loudly. Silent zero-byte sends were the bug behind several "mesh sent but recipient saw empty" reports.
-    if resolved_text.trim().is_empty() {
-        eprintln!("Error: send-text payload is empty (source: {})", source);
-        eprintln!("hint: if using --from-stdin, ensure the heredoc actually delivered content;");
+        };
+    let is_empty = resolved_text.trim().is_empty();
+    let parsed_actions = actions
+        .as_deref()
+        .map(parse_actions_spec)
+        .transpose()
+        .unwrap_or_else(|e| {
+            eprintln!("Error: {}", e);
+            std::process::exit(2);
+        });
+    if is_empty && parsed_actions.is_none() {
+        eprintln!("Error: send payload is empty (source: {})", source);
+        eprintln!("hint: if using --stdin, ensure the heredoc actually delivered content;");
         eprintln!("      if --from-file, verify the path exists and isn't 0 bytes;");
         eprintln!("      if positional, your shell may have eaten the content.");
+        eprintln!("      to send a bare Enter, pass --actions enter.");
         std::process::exit(2);
     }
-    if let Err(msg) = guard_against_shell_mangle(&resolved_text) {
-        eprintln!("Error: {}", msg);
-        eprintln!(
-            "hint: your shell expanded a command-substitution before codeterm-CLI received it."
-        );
-        eprintln!("      Use --from-file <path> or --from-stdin <<'EOF' ... EOF for content with backticks/$/code.");
-        std::process::exit(2);
+    if !is_empty {
+        if let Err(msg) = guard_against_shell_mangle(&resolved_text) {
+            eprintln!("Error: {}", msg);
+            eprintln!(
+                "hint: your shell expanded a command-substitution before codeterm-CLI received it."
+            );
+            eprintln!("      Use --from-file <path> or --from-stdin <<'EOF' ... EOF for content with backticks/$/code.");
+            std::process::exit(2);
+        }
     }
     let pane_id = resolve_pane(client, pane);
+    if let Some(actions) = parsed_actions {
+        let result = send_actions_via_http(json, &pane_id, &resolved_text, actions);
+        handle_send_text_result(json, result);
+        return;
+    }
     let mut params = serde_json::json!({
         "pane_id": pane_id,
         "text": resolved_text,
@@ -144,9 +163,251 @@ pub fn handle_send_text(
     handle_send_text_result(json, result);
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SendActionSpec {
+    Key(String),
+    Delay(u64),
+}
+
+pub fn parse_actions_spec(spec: &str) -> Result<Vec<SendActionSpec>, String> {
+    let tokens = split_action_tokens(spec);
+    if tokens.is_empty() {
+        return Err("--actions is empty".into());
+    }
+    let mut out = Vec::new();
+    for token in tokens {
+        let (base, repeat) = parse_repeat(&token)?;
+        let action = parse_action_token(base)?;
+        match action {
+            SendActionSpec::Delay(_) if repeat != 1 => {
+                return Err("delay actions cannot be repeated with *N".into());
+            }
+            SendActionSpec::Delay(ms) => out.push(SendActionSpec::Delay(ms)),
+            SendActionSpec::Key(key) => {
+                for _ in 0..repeat {
+                    out.push(SendActionSpec::Key(key.clone()));
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+pub fn actions_to_json(actions: &[SendActionSpec]) -> serde_json::Value {
+    serde_json::Value::Array(
+        actions
+            .iter()
+            .map(|action| match action {
+                SendActionSpec::Key(key) => serde_json::json!({"type": "key", "key": key}),
+                SendActionSpec::Delay(ms) => serde_json::json!({"type": "delay", "ms": ms}),
+            })
+            .collect(),
+    )
+}
+
+fn split_action_tokens(spec: &str) -> Vec<String> {
+    let raw: Vec<&str> = if spec.contains(',') {
+        spec.split(',').collect()
+    } else {
+        spec.split_whitespace().collect()
+    };
+    raw.into_iter()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn parse_repeat(token: &str) -> Result<(&str, u32), String> {
+    let Some((base, repeat)) = token.rsplit_once('*') else {
+        return Ok((token, 1));
+    };
+    let repeat = repeat
+        .parse::<u32>()
+        .map_err(|_| format!("invalid action repeat: {}", token))?;
+    if repeat == 0 || repeat > 100 {
+        return Err("action repeat must be between 1 and 100".into());
+    }
+    let base = base.trim();
+    if base.is_empty() {
+        return Err(format!("invalid action repeat: {}", token));
+    }
+    Ok((base, repeat))
+}
+
+fn parse_action_token(token: &str) -> Result<SendActionSpec, String> {
+    let lower = token.trim().to_ascii_lowercase();
+    if let Some(value) = lower
+        .strip_prefix("delay:")
+        .or_else(|| lower.strip_prefix("delay="))
+        .or_else(|| lower.strip_prefix("wait:"))
+        .or_else(|| lower.strip_prefix("wait="))
+        .or_else(|| lower.strip_prefix("sleep:"))
+        .or_else(|| lower.strip_prefix("sleep="))
+    {
+        return parse_action_delay(value).map(SendActionSpec::Delay);
+    }
+    if lower.as_bytes().first().is_some_and(|b| b.is_ascii_digit())
+        && (lower.ends_with("ms") || lower.ends_with('s'))
+    {
+        return parse_action_delay(&lower).map(SendActionSpec::Delay);
+    }
+    let key = canonical_key_name(&lower)?;
+    Ok(SendActionSpec::Key(key))
+}
+
+fn parse_action_delay(value: &str) -> Result<u64, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err("delay action is empty".into());
+    }
+    if let Some(ms) = trimmed.strip_suffix("ms") {
+        return ms
+            .parse::<u64>()
+            .map_err(|_| format!("invalid delay action: {}", value));
+    }
+    if let Some(sec) = trimmed.strip_suffix('s') {
+        let seconds = sec
+            .parse::<u64>()
+            .map_err(|_| format!("invalid delay action: {}", value))?;
+        return Ok(seconds.saturating_mul(1000));
+    }
+    trimmed
+        .parse::<u64>()
+        .map_err(|_| format!("invalid delay action: {}", value))
+}
+
+fn canonical_key_name(key: &str) -> Result<String, String> {
+    let normalized = key.replace('_', "-");
+    let mapped = match normalized.as_str() {
+        "enter" | "return" => "enter",
+        "esc" | "escape" => "esc",
+        "tab" => "tab",
+        "backspace" | "bs" => "backspace",
+        "delete" | "del" => "delete",
+        "up" | "arrow-up" => "up",
+        "down" | "arrow-down" => "down",
+        "left" | "arrow-left" => "left",
+        "right" | "arrow-right" => "right",
+        "home" => "home",
+        "end" => "end",
+        "pageup" | "page-up" | "pgup" => "pageup",
+        "pagedown" | "page-down" | "pgdn" => "pagedown",
+        "space" => "space",
+        other if parse_ctrl_key(other).is_some() => other,
+        _ => {
+            return Err(format!(
+                "unknown action key '{}'; use enter, esc, tab, backspace, delete, arrows, home/end, pageup/pagedown, space, ctrl-c",
+                key
+            ))
+        }
+    };
+    Ok(mapped.to_string())
+}
+
+#[cfg(test)]
+fn key_action_bytes(key: &str) -> Option<Vec<u8>> {
+    let normalized = key.replace('_', "-").to_ascii_lowercase();
+    match normalized.as_str() {
+        "enter" | "return" => Some(b"\r".to_vec()),
+        "esc" | "escape" => Some(b"\x1b".to_vec()),
+        "tab" => Some(b"\t".to_vec()),
+        "backspace" | "bs" => Some(vec![0x7f]),
+        "delete" | "del" => Some(b"\x1b[3~".to_vec()),
+        "up" | "arrow-up" => Some(b"\x1b[A".to_vec()),
+        "down" | "arrow-down" => Some(b"\x1b[B".to_vec()),
+        "right" | "arrow-right" => Some(b"\x1b[C".to_vec()),
+        "left" | "arrow-left" => Some(b"\x1b[D".to_vec()),
+        "home" => Some(b"\x1b[H".to_vec()),
+        "end" => Some(b"\x1b[F".to_vec()),
+        "pageup" | "page-up" | "pgup" => Some(b"\x1b[5~".to_vec()),
+        "pagedown" | "page-down" | "pgdn" => Some(b"\x1b[6~".to_vec()),
+        "space" => Some(b" ".to_vec()),
+        other => parse_ctrl_key(other).map(|b| vec![b]),
+    }
+}
+
+fn parse_ctrl_key(value: &str) -> Option<u8> {
+    let key = value
+        .strip_prefix("ctrl-")
+        .or_else(|| value.strip_prefix("control-"))
+        .or_else(|| value.strip_prefix("c-"))?;
+    if key.len() != 1 {
+        return None;
+    }
+    let b = key.as_bytes()[0].to_ascii_lowercase();
+    if b.is_ascii_lowercase() {
+        Some(b - b'a' + 1)
+    } else if b == b'[' {
+        Some(0x1b)
+    } else {
+        None
+    }
+}
+
+fn send_actions_via_http(
+    _json: bool,
+    pane_id: &str,
+    text: &str,
+    actions: Vec<SendActionSpec>,
+) -> Result<serde_json::Value, String> {
+    let (base, token) = crate::read_api_config();
+    let http = crate::build_http(&token).map_err(|e| e.to_string())?;
+    let mut body = serde_json::json!({
+        "actions": actions_to_json(&actions),
+    });
+    if !text.is_empty() {
+        body["text"] = serde_json::json!(text);
+    }
+    if let Ok(my_pane) = std::env::var("CODETERM_PANE_ID") {
+        if !my_pane.is_empty() && my_pane != pane_id {
+            body["source_pane"] = serde_json::json!(my_pane);
+        }
+    }
+    let resp = http
+        .post(format!("{}/api/panes/{}/send", base, pane_id))
+        .json(&body)
+        .send()
+        .map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let text = resp.text().unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!("HTTP {}: {}", status, text.trim()));
+    }
+    if text.trim().is_empty() {
+        return Ok(serde_json::json!({"ok": true}));
+    }
+    let value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    Ok(value)
+}
+
+pub fn resolve_send_text_input<R: std::io::Read>(
+    text: Option<String>,
+    from_file: Option<String>,
+    from_stdin: bool,
+    stdin: &mut R,
+) -> Result<(String, &'static str), String> {
+    if from_stdin {
+        let mut buf = String::new();
+        stdin
+            .read_to_string(&mut buf)
+            .map_err(|e| format!("failed to read --stdin: {}", e))?;
+        return Ok((buf, "--stdin"));
+    }
+    if let Some(path) = from_file {
+        return std::fs::read_to_string(&path)
+            .map(|s| (s, "--from-file"))
+            .map_err(|e| format!("failed to read --from-file {}: {}", path, e));
+    }
+    Ok((text.unwrap_or_default(), "positional"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{analyze_send_text_response, guard_against_shell_mangle, SendTextOutcome};
+    use super::{
+        analyze_send_text_response, guard_against_shell_mangle, key_action_bytes,
+        parse_actions_spec, resolve_send_text_input, SendActionSpec, SendTextOutcome,
+    };
 
     #[test]
     fn ok_response_is_success() {
@@ -220,5 +481,44 @@ mod tests {
     fn guard_with_multiple_fences_strips_only_inside() {
         let payload = "outside ok\n```\n: command not found\n```\nbetween\n```\nbash: line 1: x\n```\ntrailing";
         assert!(guard_against_shell_mangle(payload).is_ok());
+    }
+
+    #[test]
+    fn stdin_resolution_preserves_quotes_and_trailing_newline() {
+        let input = "it's got 'quotes' and \"doubles\"\nsecond line\n";
+        let mut stdin = input.as_bytes();
+        let (text, source) = resolve_send_text_input(None, None, true, &mut stdin).unwrap();
+        assert_eq!(source, "--stdin");
+        assert_eq!(text, input);
+    }
+
+    #[test]
+    fn action_parser_accepts_keys_delays_and_repeats() {
+        let parsed = parse_actions_spec("esc,delay:200ms,down*3,enter").unwrap();
+        assert_eq!(
+            parsed,
+            vec![
+                SendActionSpec::Key("esc".into()),
+                SendActionSpec::Delay(200),
+                SendActionSpec::Key("down".into()),
+                SendActionSpec::Key("down".into()),
+                SendActionSpec::Key("down".into()),
+                SendActionSpec::Key("enter".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn action_parser_accepts_ctrl_keys() {
+        assert_eq!(key_action_bytes("ctrl-c").unwrap(), vec![3]);
+        assert_eq!(
+            parse_actions_spec("ctrl-c").unwrap(),
+            vec![SendActionSpec::Key("ctrl-c".into())]
+        );
+    }
+
+    #[test]
+    fn action_parser_rejects_unknown_keys() {
+        assert!(parse_actions_spec("launch-missiles").is_err());
     }
 }

@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -30,11 +30,7 @@ Compact agent context (sends /compact to Claude)
 Link a pane as worker under a parent
 
 - `--pane` — Pane ID to link (default: current focused pane)
-- `--parent` — Parent pane ID (orchestrator or lead)
-
-#### `codeterm agent list`
-
-List agent panes and the hierarchy (same view as `pane list --agents`)
+- `--parent` — Parent pane ID (orchestrator)
 
 #### `codeterm agent model`
 
@@ -70,7 +66,7 @@ Read reports (for orchestrator panes)
 
 #### `codeterm agent restart`
 
-Restart agent (gracefully /exit + auto-resume to pick up settings or recover)
+Restart agent (graceful exit; resumes only when the pane has a valid session)
 
 - `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
 - `--grace_secs` — Wait this long for graceful exit before force-killing (seconds)
@@ -78,7 +74,7 @@ Restart agent (gracefully /exit + auto-resume to pick up settings or recover)
 
 #### `codeterm agent set-orchestrator`
 
-Mark a pane as orchestrator (top-level, can spawn leads/workers)
+Mark a pane as orchestrator (top-level, can spawn workers)
 
 - `--pane` — Pane ID (default: current focused pane)
 
@@ -268,6 +264,50 @@ Internal diagnostics — verify crash reporter, etc. Dev-only; hidden from --hel
 Trigger a synthetic crash to verify the crash-reporter writes files. Daemon dies (segv/abort) or just records a panic report (panic). Only available in dev builds
 
 - `--kind` — Kind of crash to trigger
+
+#### `codeterm delayed`
+
+Manage delayed Chat UI sends
+
+#### `codeterm delayed create`
+
+Queue a delayed message
+
+- `--at` — Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--delay` — Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes
+- `--from_file` — Read text from a file instead of the positional arg
+- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--stdin` — Read text from stdin
+- `<text>` — Text to queue (positional, or omit and use --from-file/--stdin)
+
+#### `codeterm delayed delete`
+
+Delete a delayed message
+
+- `<id>` — Delayed message ID
+
+#### `codeterm delayed edit`
+
+Edit a queued or failed delayed message
+
+- `--at` — Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--delay` — Relative delay from now: 45s, 10m, 1h30m, 2d. Bare number means minutes
+- `--from_file` — Read replacement text from a file
+- `<id>` — Delayed message ID
+- `--stdin` — Read replacement text from stdin
+- `--text` — Replacement text
+
+#### `codeterm delayed list`
+
+List delayed messages for a pane
+
+- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+
+#### `codeterm delayed send-now`
+
+Send a delayed message immediately
+
+- `<id>` — Delayed message ID
 
 #### `codeterm docs`
 
@@ -902,14 +942,6 @@ Disconnect (unpair) from a paired peer
 
 Trigger mesh discovery scan (list discovered peers)
 
-#### `codeterm mesh exec`
-
-Execute a command on a remote mesh peer
-
-- `<command>` — Command to execute
-- `--pane` — Target pane on remote instance (default: general)
-- `<target>` — Target peer name or instance ID
-
 #### `codeterm mesh offline`
 
 Go offline: stop pinging peers, stop announcing, stop refreshing local addresses (which keeps Tailscale alive). The daemon stays up; peers will time out our presence on their side. Local-only command
@@ -955,14 +987,6 @@ Re-detect local addresses (Tailscale + LAN) and announce them to all paired peer
 Reject and block an incoming pairing request
 
 - `<request_id>` — Request ID of the pending pairing request
-
-#### `codeterm mesh send`
-
-Send text to a pane on a remote mesh peer
-
-- `--pane` — Target pane on remote instance (default: general)
-- `<target>` — Target peer name or instance ID
-- `<text>` — Text to send
 
 #### `codeterm mesh status`
 
@@ -1036,7 +1060,7 @@ Get visible terminal text of a pane (what the user sees)
 
 #### `codeterm pane list`
 
-List all panes as a workspace-grouped tree. `--agents` filters to agent panes only (replaces the old `agent list`)
+List all panes as a workspace-grouped tree. `--agents` filters to agent panes only
 
 - `--agents` — Show only panes running an agent (have an agent_type)
 
@@ -1089,12 +1113,6 @@ Print a paste body to stdout. Does NOT delete unless --pop or the paste was crea
 #### `codeterm paste list`
 
 List local (or --mesh <peer>) pastes — id, size, ttl_remaining
-
-#### `codeterm paste pop`
-
-Get + delete in one call. Sugar for `paste get <id> --pop`
-
-- `<id>` — Paste id
 
 #### `codeterm paste put`
 
@@ -1187,12 +1205,13 @@ Update bundled system provider plugins from the official plugin channel
 
 Send text to a pane (default: current pane)
 
-Aliases: send-text
-
+- `--actions` — Terminal actions to run after optional text, comma-separated. Examples: enter, esc, up, down, left, right, tab, backspace, ctrl-c, delay:250ms. With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
+- `--at` — Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes
 - `--from_file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
-- `--from_stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --from-stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
 - `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-- `<text>` — Text to send (positional, or omit and use --from-file/--from-stdin)
+- `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
+- `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 
 #### `codeterm service`
 
@@ -1342,16 +1361,7 @@ Save a custom theme from a TOML file
 Check for updates and manage CodeTerm version
 
 - `--after_update` — Message to inject into the General Agent pane after the new daemon boots. Useful for remote-triggered updates ("run the update and then verify health") — GA reads it as user input post-restart
-- `--apply` — Shortcut for `update install --auto`
-- `--channel` — Shortcut for `update channel [name]`. Pass without value to print current channel
-- `--check` — Shortcut for `update check`
-- `--manifest_url` — Override manifest URL when paired with --apply (or `install --auto`). Backend must be built with `dev-updater-allowlocal` for non-https URLs
-
-#### `codeterm update channel`
-
-Get or set the update channel (stable, rc, nightly)
-
-- `<channel>` — New channel value. Omit to print current channel
+- `--manifest_url` — Override manifest URL when paired with `install --auto`. Backend must be built with `dev-updater-allowlocal` for non-https URLs
 
 #### `codeterm update check`
 
@@ -1403,7 +1413,8 @@ Web mirror helpers (share links, etc.)
 
 Print a ready-to-open /web URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead)
 
-- `--host` — Host override (default: Tailscale IP > LAN IP > 127.0.0.1)
+- `--host` — Host override (default: Tailscale Serve HTTPS > Tailscale IP > LAN IP > 127.0.0.1)
+- `--peer` — Build a link for a paired mesh PEER (by instance name) instead of this machine: resolves the peer's host (prefers its HTTPS tailscale-serve FQDN) and mints the peer's web token. Overrides --host/--port
 - `--port` — Port override (default: this daemon's API port)
 - `--query` — Emit ?token= instead of #token= — easier to type, but query strings reach server/proxy logs; the fragment never does
 
@@ -1419,7 +1430,7 @@ Close/delete a workspace
 
 #### `codeterm workspace create`
 
-Create a new workspace
+Create a new workspace. With --cwd, reuses an existing workspace at that cwd
 
 - `--cwd` — Working directory — agents spawned with --workspace inherit this as their CWD
 - `<name>` — Workspace name
