@@ -129,12 +129,15 @@ jobs:
           find "$BUNDLE_ROOT" -maxdepth 3 -type f | sort || true
           echo "::endgroup::"
           UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*.nsis.zip.sig' 2>/dev/null | head -n1)
-          [ -n "$UPDATER_SIG" ] || { echo "::error::No NSIS signature under $BUNDLE_ROOT/nsis"; exit 1; }
+          if [ -z "$UPDATER_SIG" ]; then
+            UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*-setup.exe.sig' 2>/dev/null | head -n1)
+          fi
+          [ -n "$UPDATER_SIG" ] || { echo "::error::No NSIS updater signature under $BUNDLE_ROOT/nsis"; exit 1; }
           UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
           [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
 
-          # The .nsis.zip + .sig are not uploaded by tauri-action, so push
-          # them ourselves — the updater URL must resolve to a real asset.
+          # With createUpdaterArtifacts=true, Tauri v2 reuses the NSIS .exe
+          # as the updater bundle; v1Compatible builds emit .nsis.zip.
           gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$SOURCE_REPO"
 
           OUT="updater-${TARGET}.json"
@@ -185,7 +188,10 @@ jobs:
           set -euo pipefail
           BUNDLE_ROOT="src-tauri/target/${TARGET}/release/bundle"
           UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*.nsis.zip.sig' 2>/dev/null | head -n1)
-          [ -n "$UPDATER_SIG" ] || { echo "::error::No NSIS signature under $BUNDLE_ROOT/nsis"; exit 1; }
+          if [ -z "$UPDATER_SIG" ]; then
+            UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*-setup.exe.sig' 2>/dev/null | head -n1)
+          fi
+          [ -n "$UPDATER_SIG" ] || { echo "::error::No NSIS updater signature under $BUNDLE_ROOT/nsis"; exit 1; }
           UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
           [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
 

@@ -3,7 +3,8 @@ name: release-manifest-validate
 # Asserts that the public auto-update manifest (latest.json hosted on the
 # rollacode/codeterm-releases mirror) declares the right artifact extensions
 # per platform. Tauri's updater silently fails if it gets a .dmg / .msi where
-# it expects an updater bundle (.app.tar.gz / .nsis.zip / .AppImage.tar.gz),
+# it expects an updater bundle (.app.tar.gz / .exe / .AppImage for our
+# current Tauri v2 `createUpdaterArtifacts=true` configuration),
 # so this guard catches a broken manifest before users try to update.
 #
 # Triggers:
@@ -49,13 +50,13 @@ jobs:
             echo "::error::manifest missing windows-x86_64 entry"
             fail=1
           else
-            echo "$windows" | grep -qE '\.nsis\.zip(\?|$)' || { echo "::error::windows url missing .nsis.zip: $windows"; fail=1; }
+            echo "$windows" | grep -qE '\.exe(\?|$)' || { echo "::error::windows url missing .exe: $windows"; fail=1; }
           fi
           if [ -z "$linux" ]; then
             echo "::error::manifest missing linux-x86_64 entry"
             fail=1
           else
-            echo "$linux" | grep -qE '\.AppImage\.tar\.gz(\?|$)' || { echo "::error::linux url missing .AppImage.tar.gz: $linux"; fail=1; }
+            echo "$linux" | grep -qE '\.AppImage(\?|$)' || { echo "::error::linux url missing .AppImage: $linux"; fail=1; }
           fi
 
           if [ "$fail" -ne 0 ]; then exit 1; fi
