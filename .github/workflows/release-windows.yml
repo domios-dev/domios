@@ -10,7 +10,8 @@ name: release-windows
 # Disable: set repo Variable RELEASE_WINDOWS_ENABLED=false in
 # Settings -> Secrets and variables -> Actions -> Variables.
 #
-# Required secrets: TAURI_SIGNING_PRIVATE_KEY.
+# Required secrets: TAURI_SIGNING_PRIVATE_KEY, PACKAGE_REPOS_TOKEN.
+# PACKAGE_REPOS_TOKEN must have contents:write for rollacode/codeterm-releases.
 # Optional secret:  TAURI_KEY_PASSWORD (only if the signing key is
 # encrypted — it evaluates to empty when unset).
 

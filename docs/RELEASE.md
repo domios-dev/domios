@@ -62,6 +62,12 @@ never from `develop`, never from an untagged tree.
   sign` fails with *"Unknown command"*.
 - **Verify version parity before tagging** (step 1) — the cheapest place to catch
   a mismatch; the most expensive is a finished build with the wrong filename.
+- **macOS Intel CI must use `macos-15-intel`, not `macos-13`.** GitHub retired
+  `macos-13` in December 2025; x86 jobs on that label can sit queued forever.
+- **`PACKAGE_REPOS_TOKEN` must have `contents:write` on
+  `rollacode/codeterm-releases`.** The source release can upload with
+  `GITHUB_TOKEN`, but the public updater mirror is a different repo and fails
+  with HTTP 403 when this token is missing or scoped only to the source repo.
 
 ## Secrets (per builder machine)
 
@@ -71,4 +77,4 @@ notary credentials are backed up in mem — the skill lists the exact ids and
 restore paths. A builder without the minisign key produces artifacts the updater
 can't verify.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
