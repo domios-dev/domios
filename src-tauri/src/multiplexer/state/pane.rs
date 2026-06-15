@@ -250,6 +250,26 @@ mod display_label_tests {
     }
 
     #[test]
+    fn auto_generated_tab_name_survives_pane_label_with_provider_id() {
+        // Regression: a new agent pane was labelled with the provider id ("claude") and that leaked into the tab title, so every fresh tab read "claude"
+        // instead of its unique auto-generated name. Labelling only the pane must leave the generated tab name intact.
+        let (mut state, _root) = MultiplexerState::new();
+        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
+        let (_tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+        let generated = state.find_tab_for_pane(&pane_id).and_then(|tid| {
+            state.workspaces[0]
+                .tabs
+                .iter()
+                .find(|t| t.id == tid)
+                .map(|t| t.title.clone())
+        });
+        let generated = generated.unwrap();
+        assert_ne!(generated, "claude");
+        state.rename_pane(&pane_id, "claude").unwrap();
+        assert_eq!(state.display_label_for_pane(&pane_id), generated);
+    }
+
+    #[test]
     fn display_label_falls_back_to_short_id_when_everything_empty() {
         let (mut state, pane_id) = MultiplexerState::new();
         state.rename_pane(&pane_id, "").unwrap();
