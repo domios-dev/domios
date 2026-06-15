@@ -20,6 +20,23 @@ fn opencode_auto_approve_flags() {
 }
 
 #[test]
+fn opencode_install_commands_match_supported_platforms() {
+    let p = OpenCodeProvider::new();
+    assert_eq!(
+        p.install_command("macos").as_deref(),
+        Some("curl -fsSL https://opencode.ai/install | bash")
+    );
+    assert_eq!(
+        p.install_command("linux").as_deref(),
+        Some("curl -fsSL https://opencode.ai/install | bash")
+    );
+    assert_eq!(
+        p.install_command("windows").as_deref(),
+        Some("npm install -g opencode-ai")
+    );
+}
+
+#[test]
 fn opencode_detect_from_title() {
     let p = OpenCodeProvider::new();
     assert!(p.detect_from_title("opencode"));

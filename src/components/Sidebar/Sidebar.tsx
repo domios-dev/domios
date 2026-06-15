@@ -5,6 +5,7 @@ import { IS_WEB } from "../../lib/webApi";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import { KeepAwakeTray } from "../Titlebar/KeepAwakeTray";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
+import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
 import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
@@ -14,6 +15,7 @@ import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
+import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
 
@@ -73,7 +75,6 @@ export function Sidebar({
     closeTab,
     setActiveTab,
     setTabTitle,
-    spawnClaudeTab,
     spawnAgentTab,
   } = useMultiplexer();
   // When mainView leaves the workspace (Memory / Settings open), suppress the "active" highlight on the current workspace + tab so the sidebar
@@ -96,6 +97,12 @@ export function Sidebar({
   const [claudeRememberChoice, setClaudeRememberChoice] = useState(() => {
     try { return localStorage.getItem("codeterm-claude-remember") === "true"; } catch { return false; }
   });
+  const { providers } = useAgentProviders();
+  const agentsConfig = config?.agents;
+  const visibleProviders = useMemo(
+    () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
+    [providers, agentsConfig],
+  );
 
   const handleAgentSpawn = useCallback(async (
     agentId: string,
@@ -564,23 +571,32 @@ export function Sidebar({
                               })
                               .map((tab, index) => renderTab(tab, index, 0));
                           })()}
-                          {/* Add tab button */}
-                          <button
-                            onClick={async () => {
-                              try {
-                                const cfg = await invoke<{ agent: { resume_skip_permissions: boolean } }>("get_config");
-                                const skip = cfg.agent.resume_skip_permissions;
-                                spawnClaudeTab(ws.id, skip, ws.cwd ?? undefined);
-                              } catch {
-                                spawnClaudeTab(ws.id, false, ws.cwd ?? undefined);
-                              }
-                            }}
-                            className="flex items-center gap-2 mx-2 mt-1 mb-0.5 px-5 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
-                            title="New Claude session in this workspace"
-                          >
-                            <Plus size={10} strokeWidth={1.5} />
-                            <span className="text-[11px]">New session</span>
-                          </button>
+                          {/* Add agent session button */}
+                          {(() => {
+                            const newSessionItems: DropdownMenuItem[] = visibleProviders.map((provider) => ({
+                              label: `New ${provider.display_name} Session`,
+                              icon: <AgentIcon providerId={provider.id} className="text-[12px]" />,
+                              onClick: () => handleAgentSpawn(provider.id, ws.id, ws.cwd ?? null),
+                            }));
+                            const trigger = (
+                              <button
+                                disabled={newSessionItems.length === 0}
+                                className="flex items-center gap-2 mx-2 mt-1 mb-0.5 px-5 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+                                title={newSessionItems.length === 0 ? "No visible agent providers" : "New session in this workspace"}
+                              >
+                                <Plus size={10} strokeWidth={1.5} />
+                                <span className="text-[11px]">New session</span>
+                              </button>
+                            );
+                            return newSessionItems.length === 0 ? (
+                              trigger
+                            ) : (
+                              <DropdownMenu
+                                items={newSessionItems}
+                                trigger={trigger}
+                              />
+                            );
+                          })()}
                         </>
                       </div>
                     </div>

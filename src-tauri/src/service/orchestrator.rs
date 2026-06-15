@@ -302,6 +302,7 @@ impl ServiceContext {
                 agent_cmd, available
             ));
         }
+        crate::service::spawn::ensure_provider_cli_available(&self.agent_registry, &agent_cmd)?;
         params.model = crate::service::spawn::resolve_fresh_agent_model(
             &self.agent_registry,
             &agent_cmd,

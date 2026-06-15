@@ -733,7 +733,7 @@ impl AgentProvider for OpenCodeProvider {
         match platform {
             // macOS/Linux: use upstream script (`curl ... | bash`).
             "macos" | "linux" => Some("curl -fsSL https://opencode.ai/install | bash".into()),
-            // Windows: use npm package path; upstream PowerShell installer is removed.
+            // Windows: upstream docs list Chocolatey, Scoop, npm, Mise and Docker. NPM is the least opinionated single-command default.
             "windows" => Some("npm install -g opencode-ai".into()),
             _ => None,
         }
@@ -784,7 +784,7 @@ impl AgentProvider for OpenCodeProvider {
                 description: None,
                 fields: vec![SettingField::Info {
                     title: None,
-                    body: "**CLI:** `opencode` — install with `npm i -g opencode-ai` or `curl -fsSL https://opencode.ai/install | bash`\n\n**Auth:** run `opencode providers login` to connect Anthropic, OpenAI, GitHub Copilot, etc.".into(),
+                    body: "**CLI:** `opencode` — macOS/Linux: `curl -fsSL https://opencode.ai/install | bash`; Windows: `npm install -g opencode-ai` (Chocolatey/Scoop also work)\n\n**Auth:** run `opencode providers login` to connect Anthropic, OpenAI, GitHub Copilot, etc.".into(),
                     level: NoteLevel::Info,
                 }],
             },

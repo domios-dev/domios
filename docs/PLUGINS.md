@@ -241,13 +241,23 @@ them.
   `~/.codeterm/plugins/<id>/`. The extract is **upgrade-aware**: a CodeTerm app
   upgrade re-writes a provider only when the bundled `version` is strictly newer
   than what is installed, so it never downgrades a channel update that is already
-  ahead. (Skipped under `CODETERM_DEV=1` — dev keeps workspace sources
-  authoritative and relies on the virtual rows below.)
+  ahead. Same-version hash drift is repaired from the embedded copy so stale
+  local system plugins do not survive a fixed app build. (Skipped under
+  `CODETERM_DEV=1` — dev keeps workspace sources authoritative and relies on the
+  virtual rows below.)
 - **The core marketplace.** The `codeterm-core` channel
   (`DEFAULT_SYSTEM_CHANNEL_URL`, overridable via
   `CODETERM_SYSTEM_PLUGIN_CHANNEL_URL`) lets providers update **without
   reinstalling CodeTerm**: `codeterm plugin update <id>` / `update-system`
-  git-pulls the channel subtree and replaces the bundle in place.
+  git-pulls the channel subtree and replaces the bundle in place. Bundles
+  installed from this official system channel stay trusted at runtime even when
+  their hash is not in the current binary's embedded hash table.
+- **Version sync while providers are core.** Until provider plugins split into
+  their own release stream, the three core provider versions mirror the
+  CodeTerm app version. After bumping the root `package.json` version, run
+  `npm run sync:versions`; `npm run check:versions` verifies
+  `plugins/provider-*/plugin.json`, provider `package.json`, the internal
+  `packages/*` package versions, and `plugins/channel.json` agree.
 - **Virtual rows.** `plugin list` always emits the three provider ids
   (`system: true`, `removable: false`); when one is not on disk it is shown as a
   `state: "bundled"` virtual row. `plugin channel list` always emits
@@ -284,3 +294,5 @@ The chat tail pipeline supports two session-source shapes:
 Any DB-backed provider pluginizes its chat by implementing those two trait
 methods in Rust (a JS plugin can't open the store) — no change to the JSONL
 path.
+
+<!-- revision: 3 -->
