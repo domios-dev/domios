@@ -118,7 +118,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
-          REPO: ${{ github.repository }}
+          SOURCE_REPO: ${{ github.repository }}
+          MANIFEST_REPO: rollacode/codeterm-releases
           PLATFORM_KEY: windows-x86_64
         shell: bash
         run: |
@@ -134,14 +135,15 @@ jobs:
 
           # The .nsis.zip + .sig are not uploaded by tauri-action, so push
           # them ourselves — the updater URL must resolve to a real asset.
-          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$REPO"
+          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$SOURCE_REPO"
 
           OUT="updater-${TARGET}.json"
+          REPO="$MANIFEST_REPO" \
           UPDATER_BUNDLE="$UPDATER_BUNDLE" \
           UPDATER_SIG="$UPDATER_SIG" \
           OUT="$OUT" \
             python3 .github/workflows/build-updater-fragment.py
-          gh release upload "$TAG" "$OUT" --clobber --repo "$REPO"
+          gh release upload "$TAG" "$OUT" --clobber --repo "$SOURCE_REPO"
 
       - name: Refresh merged channel manifest
         env:
