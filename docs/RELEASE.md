@@ -72,6 +72,9 @@ never from `develop`, never from an untagged tree.
   `darwin-aarch64` and `darwin-x86_64` at generic `CodeTerm.app.tar.gz`; the
   second macOS job can clobber that asset. Use `CodeTerm_aarch64.app.tar.gz`
   and `CodeTerm_x64.app.tar.gz`.
+- **`latest.json` URLs must point at `rollacode/codeterm-releases`, not the
+  private source repo.** The updater runs anonymously, so private source URLs
+  fail even when the public mirror exists.
 
 ## Secrets (per builder machine)
 
@@ -81,4 +84,4 @@ notary credentials are backed up in mem — the skill lists the exact ids and
 restore paths. A builder without the minisign key produces artifacts the updater
 can't verify.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

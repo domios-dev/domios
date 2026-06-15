@@ -165,7 +165,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
-          REPO: ${{ github.repository }}
+          SOURCE_REPO: ${{ github.repository }}
+          MANIFEST_REPO: rollacode/codeterm-releases
           PLATFORM_KEY: ${{ matrix.target == 'aarch64-apple-darwin' && 'darwin-aarch64' || 'darwin-x86_64' }}
           MAC_ARCH_SUFFIX: ${{ matrix.target == 'aarch64-apple-darwin' && 'aarch64' || 'x64' }}
         shell: bash
@@ -184,14 +185,15 @@ jobs:
           cp "$UPDATER_BUNDLE" "$RELEASE_BUNDLE"
           cp "$UPDATER_SIG" "$RELEASE_SIG"
 
-          gh release upload "$TAG" "$RELEASE_BUNDLE" "$RELEASE_SIG" --clobber --repo "$REPO"
+          gh release upload "$TAG" "$RELEASE_BUNDLE" "$RELEASE_SIG" --clobber --repo "$SOURCE_REPO"
 
           OUT="updater-${{ matrix.target }}.json"
+          REPO="$MANIFEST_REPO" \
           UPDATER_BUNDLE="$RELEASE_BUNDLE" \
           UPDATER_SIG="$RELEASE_SIG" \
           OUT="$OUT" \
             python3 .github/workflows/build-updater-fragment.py
-          gh release upload "$TAG" "$OUT" --clobber --repo "$REPO"
+          gh release upload "$TAG" "$OUT" --clobber --repo "$SOURCE_REPO"
 
       - name: Refresh merged channel manifest
         env:
