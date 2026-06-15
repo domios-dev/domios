@@ -59,16 +59,10 @@ jobs:
         env:
           WIN_SSH: test@127.0.0.1
           WIN_PORT: '2222'
-          # SSHPASS comes from the runner environment (not stored in the repo).
+          SSHPASS: ${{ secrets.WIN_VM_SSHPASS }}
         run: |
           .codeterm/build-machine/scripts/build-all.sh "${{ steps.ver.outputs.tag }}"
 
-      - name: Publish (private archive + public mirror + latest.json)
+      - name: Publish (private archive + public mirror + signed latest.json)
         run: |
-          # Mac + Windows + Linux artifacts are now in /tmp/codeterm-${{ steps.ver.outputs.ver }}-artifacts.
-          # Reuse the github-release skill's publish flow (upload to rollacode/codeterm,
-          # mirror + signed latest.json to rollacode/codeterm-releases, --latest).
-          echo "::notice::artifacts built — publishing via github-release flow"
-          bash .codeterm/skills/github-release/scripts/release-status.sh "${{ steps.ver.outputs.ver }}" || true
-          # NOTE: wire the actual upload/mirror/latest.json step here (see docs/build_machine_setup.md
-          # 'Release pipeline'). Kept explicit so a bad tag can't auto-propagate before review.
+          .codeterm/build-machine/scripts/publish-release.sh "${{ steps.ver.outputs.ver }}"
