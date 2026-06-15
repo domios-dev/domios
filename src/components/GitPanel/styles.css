@@ -84,6 +84,18 @@
   color: var(--ct-yellow, #fbbf24);
 }
 
+.ct-git-refresh-pill {
+  gap: 5px;
+  border-radius: 99px;
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.ct-git-refresh-pill span {
+  min-width: 20px;
+  font-size: 10px;
+  text-align: right;
+}
+
 /* ---------- workdir file status badges ---------- */
 .ct-git-status-badge {
   flex: 0 0 auto;
@@ -244,6 +256,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.ct-git-bubble-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.ct-git-bubble-stats .add {
+  color: var(--ct-green, #3fb950);
+}
+.ct-git-bubble-stats .del {
+  color: var(--ct-red, #f85149);
 }
 
 /* ---------- diff text selection ---------- */
