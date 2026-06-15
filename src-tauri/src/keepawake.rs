@@ -577,8 +577,16 @@ mod platform {
                 };
 
                 if let Some(mut c) = child_for_thread.lock().take() {
-                    let _ = c.kill();
+                    // SIGTERM (not Child::kill, which is SIGKILL) so the wrapper's trap runs and
+                    // reaps its caffeinate. SIGKILL bypasses the trap, orphaning caffeinate to PID 1
+                    // — the leak behind "multiple caffeinates / machine never sleeps after off".
+                    let _ = terminate_pid(c.id());
                     let _ = c.wait();
+                }
+                // Safety net: kill the caffeinate directly too, in case the wrapper trap was missed
+                // (pid-file race) or it had already been reparented away from the wrapper.
+                if let Some(pid) = caffeinate_pid {
+                    let _ = terminate_pid(pid);
                 }
                 unregister_child(child_pid);
                 if let Some(pid) = caffeinate_pid {
@@ -591,10 +599,14 @@ mod platform {
             })
             .map(|_| ())
             .map_err(|e| {
-                // Thread spawn failed after caffeinate was already running — reap it here so we don't orphan the child process.
+                // Thread spawn failed after caffeinate was already running — reap it here so we don't orphan the child process. SIGTERM (not SIGKILL) so
+                // the wrapper trap reaps its caffeinate; then kill the caffeinate directly as a safety net.
                 if let Some(mut c) = child_slot.lock().take() {
-                    let _ = c.kill();
+                    let _ = terminate_pid(c.id());
                     let _ = c.wait();
+                }
+                if let Some(pid) = caffeinate_pid {
+                    let _ = terminate_pid(pid);
                 }
                 unregister_child(child_pid);
                 if let Some(pid) = caffeinate_pid {
