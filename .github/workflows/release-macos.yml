@@ -13,7 +13,7 @@ name: release-macos
 #
 # Required secrets:
 #   TAURI_SIGNING_PRIVATE_KEY, APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
-#   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID, APPLE_SIGNING_IDENTITY.
+#   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID.
 # Optional secret: TAURI_KEY_PASSWORD (only if the signing key is encrypted).
 
 "on":
@@ -89,7 +89,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.22.0'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -123,6 +123,18 @@ jobs:
           p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
           p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
+      - name: Resolve Apple signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          security find-identity -v -p codesigning
+          identity="$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ { print $2; exit }')"
+          if [ -z "$identity" ]; then
+            echo "::error::No Developer ID Application identity found after certificate import"
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+
       - name: Build, sign, and upload release assets
         uses: tauri-apps/tauri-action@v0
         env:
@@ -133,7 +145,6 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
