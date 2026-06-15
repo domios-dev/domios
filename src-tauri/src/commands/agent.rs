@@ -12,9 +12,8 @@ pub struct InstallPaneResult {
 
 /// Spawn a fresh tab in the active workspace and queue the provider's
 /// install command into it. The install command comes from the provider
-/// plugin's `install_command(platform)` — opencode would receive
-/// `npm install -g opencode-ai`, claude `npm install -g @anthropic-ai/claude-code`,
-/// etc. The Install card on the per-provider settings screen calls this.
+/// plugin's `install_command(platform)`. The Install card on the
+/// per-provider settings screen calls this.
 #[tauri::command]
 pub fn install_provider_in_pane(
     svc: State<'_, ServiceState>,
@@ -116,45 +115,5 @@ pub fn restart_general_agent(
 /// changes are handled by re-fetching when the user reopens the panel.
 #[tauri::command]
 pub fn check_cli_installed(binary: String) -> Result<bool, String> {
-    if binary.is_empty() {
-        return Ok(false);
-    }
-    // Reject anything that looks like a shell metacharacter — `binary` comes from a frontend-supplied provider id and we don't want it interpreted
-    // as a path traversal or compound command.
-    if binary.chars().any(|c| {
-        matches!(
-            c,
-            '/' | '\\' | ' ' | ';' | '|' | '&' | '$' | '`' | '<' | '>' | '\n'
-        )
-    }) {
-        return Ok(false);
-    }
-    let cmd_name = if cfg!(target_os = "windows") {
-        "where"
-    } else {
-        "which"
-    };
-    let mut cmd = std::process::Command::new(cmd_name);
-    cmd.arg(&binary);
-    crate::process_util::no_window_std(&mut cmd);
-    let output = cmd.output();
-    let on_path = matches!(output, Ok(ref out) if out.status.success() && !out.stdout.is_empty());
-    if on_path {
-        return Ok(true);
-    }
-
-    // Windows can store some CLIs only in WSL; check `wsl which <binary>` in that case.
-    // If WSL is unavailable, keep the card's "not installed" state authoritative.
-    #[cfg(target_os = "windows")]
-    {
-        let mut wsl = std::process::Command::new("wsl");
-        wsl.args(["which", &binary]);
-        crate::process_util::no_window_std(&mut wsl);
-        if let Ok(out) = wsl.output() {
-            if out.status.success() && !out.stdout.is_empty() {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
+    Ok(crate::service::spawn::cli_binary_on_path(&binary))
 }

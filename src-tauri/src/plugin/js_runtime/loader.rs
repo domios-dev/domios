@@ -216,6 +216,12 @@ fn compute_trust(id: &str, bundle_dir: &Path) -> crate::agent::provider::Provide
     match bundle_hash::hash_bundle(bundle_dir) {
         Ok(actual) if actual == expected => ProviderTrust::System,
         Ok(actual) => {
+            if is_official_system_channel_install(id, bundle_dir) {
+                log::info!(
+                    "[plugin/{id}] hash differs from embedded table but install record is official system channel — marking system"
+                );
+                return ProviderTrust::System;
+            }
             log::warn!(
                 "[plugin/{id}] hash mismatch: expected {expected:?}, got {actual:?} — marking unverified"
             );
@@ -226,6 +232,26 @@ fn compute_trust(id: &str, bundle_dir: &Path) -> crate::agent::provider::Provide
             ProviderTrust::Unverified
         }
     }
+}
+
+fn is_official_system_channel_install(id: &str, bundle_dir: &Path) -> bool {
+    const SYSTEM_CHANNEL_NAME: &str = "codeterm-core";
+    let Ok(text) = std::fs::read_to_string(bundle_dir.join(".codeterm-install.json")) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return false;
+    };
+    if value.get("id").and_then(|v| v.as_str()) != Some(id) {
+        return false;
+    }
+    let Some(source) = value.get("source") else {
+        return false;
+    };
+    let expected_path = format!("provider-{id}");
+    source.get("kind").and_then(|v| v.as_str()) == Some("system_channel")
+        && source.get("channel").and_then(|v| v.as_str()) == Some(SYSTEM_CHANNEL_NAME)
+        && source.get("path").and_then(|v| v.as_str()) == Some(expected_path.as_str())
 }
 
 /// Standard discovery roots for a running CodeTerm instance. Order
@@ -309,6 +335,21 @@ mod tests {
                     "verifySubmit": {{ "kind": "none" }}
                 }},
                 "entry": "plugin.js"
+            }}"#
+        )
+    }
+
+    fn system_channel_install_record(id: &str) -> String {
+        format!(
+            r#"{{
+                "id": "{id}",
+                "version": "999.0.0",
+                "source": {{
+                    "kind": "system_channel",
+                    "channel": "codeterm-core",
+                    "path": "provider-{id}"
+                }},
+                "installed_at": "2026-06-15T00:00:00Z"
             }}"#
         )
     }
@@ -515,7 +556,24 @@ mod tests {
             assert_eq!(p.trust(), ProviderTrust::Unverified, "case 2");
         }
 
-        // Case 3: CODETERM_DEV=1 forces ThirdParty even for system id.
+        // Case 3: system id with custom content from the official system channel stays trusted.
+        if let Some((sys_id, _)) = crate::plugin::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+            let root = tempfile::tempdir().unwrap();
+            let dir = root.path().join(*sys_id);
+            write(&dir.join("plugin.json"), &min_manifest(sys_id));
+            write(
+                &dir.join("plugin.js"),
+                "module.exports.default = { channel_update: true };",
+            );
+            write(
+                &dir.join(".codeterm-install.json"),
+                &system_channel_install_record(sys_id),
+            );
+            let p = load_one(&dir.join("plugin.json")).unwrap();
+            assert_eq!(p.trust(), ProviderTrust::System, "case 3");
+        }
+
+        // Case 4: CODETERM_DEV=1 forces ThirdParty even for system id.
         unsafe { std::env::set_var("CODETERM_DEV", "1") };
         if let Some((sys_id, _)) = crate::plugin::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
             let root = tempfile::tempdir().unwrap();
@@ -523,7 +581,7 @@ mod tests {
             write(&dir.join("plugin.json"), &min_manifest(sys_id));
             write(&dir.join("plugin.js"), "module.exports.default = {};");
             let p = load_one(&dir.join("plugin.json")).unwrap();
-            assert_eq!(p.trust(), ProviderTrust::ThirdParty, "case 3");
+            assert_eq!(p.trust(), ProviderTrust::ThirdParty, "case 4");
         }
 
         unsafe {
