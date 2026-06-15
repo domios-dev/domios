@@ -1,14 +1,8 @@
-//! Thin wrapper over the `keyring` crate. Centralizes the OS-keychain
-//! contact surface so the Bitwarden adapter (and future adapters) don't
-//! sprinkle `keyring::Entry::new(...)` calls everywhere.
-//!
-//! Behavior matrix:
-//! - macOS / Windows: native keychain available; `is_available()` returns true.
-//! - Linux with libsecret + Secret Service: same.
-//! - Linux without libsecret: `is_available()` returns false. Adapters
-//!   should switch to in-process-only ("transient") mode rather than
-//!   falling back to plaintext on disk.
-//! - Build without the `secrets-keyring` feature: same as headless-Linux.
+//! File-backed secret persistence. Kept behind the historical `Keychain` type
+//! name so callers do not know whether the bytes are stored in an OS vault or
+//! in CodeTerm's own local file. The production backend is intentionally a
+//! single `~/.codeterm/.secrets` JSON file with 0600 permissions; OS keychains
+//! are avoided because signed macOS app updates can re-prompt on startup.
 
 use std::sync::Arc;
 
@@ -40,15 +34,12 @@ type Shadow = Arc<Mutex<std::collections::HashMap<String, String>>>;
 
 #[derive(Clone)]
 enum Backend {
-    /// OS keychain via the `keyring` crate.
-    #[cfg(feature = "secrets-keyring")]
-    Os { service: String },
-    /// Plain JSON file at `<data_dir>/keychain/<service>.json`,
-    /// permissions 0600. Used in dev builds (where every rebuild changes
-    /// the binary signature and macOS prompts on every keychain access)
-    /// and on platforms where the OS keychain is unavailable. The bytes
-    /// are still secret-grade; the only protection is filesystem perms.
-    File { path: std::path::PathBuf },
+    /// Plain JSON file at `<data_dir>/.secrets`, permissions 0600. Account
+    /// names are namespaced by service inside the shared file.
+    File {
+        path: std::path::PathBuf,
+        service: String,
+    },
     /// Pure in-memory — used in tests when the caller has decided
     /// persistence is not wanted.
     InMemory { reason: String },
@@ -62,50 +53,14 @@ pub struct Keychain {
 }
 
 impl Keychain {
-    /// Build the OS-backed keychain. Probes by writing then deleting a
-    /// canary entry; if the probe fails we fall through to in-memory mode
-    /// and report the underlying reason via `availability_reason()`.
+    /// Build the local file-backed store. This never probes or touches an OS
+    /// keychain, so app startup cannot trigger macOS Keychain prompts.
     pub fn new(service: &str) -> Self {
-        Self::new_inner(service)
-    }
-
-    #[cfg(all(feature = "secrets-keyring", not(debug_assertions)))]
-    fn new_inner(service: &str) -> Self {
-        let probe = service.to_string();
-        let shadow: Shadow = Arc::new(Mutex::new(std::collections::HashMap::new()));
-        match Self::probe(&probe) {
-            Ok(()) => Self {
-                backend: Backend::Os { service: probe },
-                shadow,
-                available: true,
-            },
-            Err(e) => {
-                log::warn!(
-                    "[secrets/keychain] OS keychain unavailable ({}): falling back to file storage",
-                    e
-                );
-                Self::file_inner(service)
-            }
-        }
-    }
-
-    /// In dev builds we always use file storage. Each `cargo build` produces
-    /// a new binary signature, which macOS treats as a brand-new app and
-    /// prompts for keychain access on every read — completely unusable for
-    /// iterative work. File storage at `~/.codeterm-dev/keychain/<service>.json`
-    /// (mode 0600) gives the same persistence with zero prompts.
-    #[cfg(all(feature = "secrets-keyring", debug_assertions))]
-    fn new_inner(service: &str) -> Self {
-        Self::file_inner(service)
-    }
-
-    #[cfg(not(feature = "secrets-keyring"))]
-    fn new_inner(service: &str) -> Self {
         Self::file_inner(service)
     }
 
     fn file_inner(service: &str) -> Self {
-        let dir = crate::paths::data_dir().join("keychain");
+        let dir = crate::paths::data_dir();
         if let Err(e) = std::fs::create_dir_all(&dir) {
             log::warn!(
                 "[secrets/keychain] failed to create file backend dir {}: {} — falling back to in-memory",
@@ -120,9 +75,13 @@ impl Keychain {
                 available: false,
             };
         }
-        let path = dir.join(format!("{}.json", sanitize_service(service)));
+        let path = dir.join(".secrets");
+        migrate_legacy_file_backend(service, &path);
         Self {
-            backend: Backend::File { path },
+            backend: Backend::File {
+                path,
+                service: service.to_string(),
+            },
             shadow: Arc::new(Mutex::new(std::collections::HashMap::new())),
             available: true,
         }
@@ -147,8 +106,6 @@ impl Keychain {
     pub fn availability_reason(&self) -> Option<&str> {
         match &self.backend {
             Backend::InMemory { reason } => Some(reason.as_str()),
-            #[cfg(feature = "secrets-keyring")]
-            Backend::Os { .. } => None,
             Backend::File { .. } => None,
         }
     }
@@ -158,12 +115,9 @@ impl Keychain {
             .lock()
             .insert(account.to_string(), value.to_string());
         match &self.backend {
-            #[cfg(feature = "secrets-keyring")]
-            Backend::Os { service } => {
-                let entry = keyring::Entry::new(service, account).map_err(map_kr_err)?;
-                entry.set_password(value).map_err(map_kr_err)
+            Backend::File { path, service } => {
+                write_file_entry(path, &storage_account(service, account), Some(value))
             }
-            Backend::File { path } => write_file_entry(path, account, Some(value)),
             Backend::InMemory { .. } => Ok(()),
         }
     }
@@ -173,15 +127,8 @@ impl Keychain {
             return Ok(v);
         }
         match &self.backend {
-            #[cfg(feature = "secrets-keyring")]
-            Backend::Os { service } => {
-                let entry = keyring::Entry::new(service, account).map_err(map_kr_err)?;
-                let v = entry.get_password().map_err(map_kr_err)?;
-                self.shadow.lock().insert(account.to_string(), v.clone());
-                Ok(v)
-            }
-            Backend::File { path } => {
-                let v = read_file_entry(path, account)?;
+            Backend::File { path, service } => {
+                let v = read_file_entry(path, &storage_account(service, account))?;
                 self.shadow.lock().insert(account.to_string(), v.clone());
                 Ok(v)
             }
@@ -192,27 +139,11 @@ impl Keychain {
     pub fn delete(&self, account: &str) -> Result<(), KeychainError> {
         self.shadow.lock().remove(account);
         match &self.backend {
-            #[cfg(feature = "secrets-keyring")]
-            Backend::Os { service } => {
-                let entry = keyring::Entry::new(service, account).map_err(map_kr_err)?;
-                match entry.delete_credential() {
-                    Ok(()) => Ok(()),
-                    Err(keyring::Error::NoEntry) => Ok(()),
-                    Err(e) => Err(map_kr_err(e)),
-                }
+            Backend::File { path, service } => {
+                write_file_entry(path, &storage_account(service, account), None)
             }
-            Backend::File { path } => write_file_entry(path, account, None),
             Backend::InMemory { .. } => Ok(()),
         }
-    }
-
-    #[cfg(feature = "secrets-keyring")]
-    fn probe(service: &str) -> Result<(), KeychainError> {
-        let canary_account = "__codeterm_probe__";
-        let entry = keyring::Entry::new(service, canary_account).map_err(map_kr_err)?;
-        entry.set_password("ok").map_err(map_kr_err)?;
-        let _ = entry.delete_credential();
-        Ok(())
     }
 }
 
@@ -296,7 +227,41 @@ fn restrict_file_permissions(path: &std::path::Path) {
     }
 }
 
-/// Make a service name safe to use as a filename — strip path separators
+fn storage_account(service: &str, account: &str) -> String {
+    format!("{}:{}", sanitize_service(service), account)
+}
+
+fn migrate_legacy_file_backend(service: &str, new_path: &std::path::Path) {
+    let old_path = crate::paths::data_dir()
+        .join("keychain")
+        .join(format!("{}.json", sanitize_service(service)));
+    if !old_path.exists() {
+        return;
+    }
+    let raw = match std::fs::read_to_string(&old_path) {
+        Ok(s) if !s.trim().is_empty() => s,
+        _ => return,
+    };
+    let map: std::collections::HashMap<String, String> = match serde_json::from_str(&raw) {
+        Ok(map) => map,
+        Err(e) => {
+            log::warn!(
+                "[secrets/keychain] failed to parse legacy {}: {}",
+                old_path.display(),
+                e
+            );
+            return;
+        }
+    };
+    for (account, value) in map {
+        let namespaced = storage_account(service, &account);
+        if read_file_entry(new_path, &namespaced).is_err() {
+            let _ = write_file_entry(new_path, &namespaced, Some(&value));
+        }
+    }
+}
+
+/// Make a service name safe to use as a key namespace — strip path separators
 /// and the few characters Windows reserves.
 fn sanitize_service(s: &str) -> String {
     s.chars()
@@ -305,18 +270,6 @@ fn sanitize_service(s: &str) -> String {
             other => other,
         })
         .collect()
-}
-
-#[cfg(feature = "secrets-keyring")]
-fn map_kr_err(e: keyring::Error) -> KeychainError {
-    use keyring::Error;
-    match e {
-        Error::NoEntry => KeychainError::NotFound,
-        Error::PlatformFailure(inner) => KeychainError::Unavailable(inner.to_string()),
-        Error::NoStorageAccess(inner) => KeychainError::Unavailable(inner.to_string()),
-        Error::Ambiguous(_) => KeychainError::Other("ambiguous keychain match".into()),
-        other => KeychainError::Other(other.to_string()),
-    }
 }
 
 #[cfg(test)]
