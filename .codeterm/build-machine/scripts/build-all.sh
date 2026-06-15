@@ -44,7 +44,7 @@ run_wave() {
   echo "### WAVE $label done (rc=$rc)"
 }
 
-DOCKER="docker run --rm -v $LWORK:/work -v /tmp/ct-cargo-registry:/usr/local/cargo/registry -v $BM/scripts/build-linux.sh:/build-linux.sh -w /work"
+DOCKER="docker run --rm -v $LWORK:/work -v /tmp/ct-cargo-registry:/usr/local/cargo/registry -v $BM/scripts/build-linux.sh:/build-linux.sh -e CARGO_BUILD_JOBS=2 -w /work"
 
 # The mac engine builds the GUI/CLI from THIS checkout; a fresh CI checkout has no
 # node_modules, so install once up front (linux/windows engines install inside themselves).
