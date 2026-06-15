@@ -24,9 +24,9 @@ pub struct BitwardenStore {
 }
 
 impl BitwardenStore {
-    /// Production constructor: detect `bw`, build the OS keychain, restore
-    /// any persisted session token. Falls back to an "Unavailable" store
-    /// when `bw` is missing — every call returns `SecretError::Backend`.
+    /// Production constructor: detect `bw`, build the local secret store, and
+    /// restore any persisted session token. Falls back to an "Unavailable"
+    /// store when `bw` is missing — every call returns `SecretError::Backend`.
     pub fn detect_and_build() -> Self {
         Self::detect_and_build_with_server(DEFAULT_BW_SERVER.to_string())
     }
@@ -93,9 +93,9 @@ impl BitwardenStore {
         }
     }
 
-    /// Try to restore an unlocked session from the persisted master-password
-    /// file. Called once at construction. Silent failures — falls back to
-    /// JIT auto-unlock on the next operation via [`try_unlock_from_file`].
+    /// Try to restore an unlocked session from the persisted master password.
+    /// Called once at construction. Silent failures fall back to JIT auto-unlock
+    /// on the next operation via [`try_unlock_from_file`].
     pub async fn auto_unlock_from_keychain(&self) {
         if self.unavailable_reason.is_some() {
             return;
@@ -151,17 +151,13 @@ impl BitwardenStore {
         resp.into_data()
     }
 
-    /// JIT auto-unlock: read ~/.codeterm/secrets/bitwarden-master.env on every
-    /// locked op so the agent never has to see/think about unlock.
+    /// JIT auto-unlock: read the stored master password on every locked op so
+    /// the agent never has to see/think about unlock.
     pub(super) async fn try_unlock_from_file(&self) {
         if self.unavailable_reason.is_some() {
             return;
         }
-        let path = match super::master_password_file_path() {
-            Some(p) => p,
-            None => return,
-        };
-        let master = match super::read_master_password_file(&path) {
+        let master = match super::read_master_password_file() {
             Some(s) if !s.is_empty() => s,
             _ => return,
         };
@@ -174,11 +170,7 @@ impl BitwardenStore {
             api_key_client_secret: None,
         };
         if let Err(e) = self.unlock(creds).await {
-            log::warn!(
-                "[secrets/bw] JIT unlock from {} failed: {}",
-                path.display(),
-                e
-            );
+            log::warn!("[secrets/bw] JIT unlock from stored master failed: {}", e);
         }
     }
 

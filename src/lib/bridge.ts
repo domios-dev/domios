@@ -254,6 +254,33 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", "/api/fs/mkdir", { parent: a.parent, name: a.name }),
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
   save_session: () => webJson("POST", "/api/session/save"),
+  usage_latest: (a) => {
+    const accountId = a.accountId ?? a.account_id;
+    return webJson(
+      "GET",
+      `/api/usage/latest?provider=${enc(s(a, "provider"))}${accountId ? `&account_id=${enc(String(accountId))}` : ""}`,
+    );
+  },
+  usage_history: (a) => {
+    const accountId = a.accountId ?? a.account_id;
+    const limit = a.limit == null ? "" : `&limit=${enc(String(a.limit))}`;
+    return webJson(
+      "GET",
+      `/api/usage/history?provider=${enc(s(a, "provider"))}&since=${enc(String(a.since))}${limit}${accountId ? `&account_id=${enc(String(accountId))}` : ""}`,
+    );
+  },
+  usage_projection: (a) => {
+    const accountId = a.accountId ?? a.account_id;
+    return webJson(
+      "GET",
+      `/api/usage/projection?provider=${enc(s(a, "provider"))}${accountId ? `&account_id=${enc(String(accountId))}` : ""}`,
+    );
+  },
+  usage_refresh: (a) =>
+    webJson("POST", "/api/usage/refresh", {
+      provider: s(a, "provider"),
+      account_id: a.accountId ?? a.account_id ?? null,
+    }),
 };
 
 /** Browser-meaningless commands → canned results, no network. */
@@ -269,7 +296,6 @@ const CANNED: Record<string, unknown> = {
   get_themes_dir: "",
   get_config_path: "",
   mux_update_pane_cwd: null,
-  usage_refresh: null,
   open_folder: null,
   // Closing a browser tab / unmounting a web terminal must never kill the shared server-side PTY other clients may be attached to.
   kill_pty: null,
