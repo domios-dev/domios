@@ -21,6 +21,7 @@ interface TabContentProps {
   terminalConfig?: TerminalConfigSettings;
   usageEnabledByProvider?: Record<string, boolean>;
   gitInfo?: GitInfo | null;
+  onRefreshGitInfo?: () => void;
   onOpenGit?: (repoRoot: string) => void;
   api?: ApiConfig;
   workspaceCwd?: string | null;
@@ -36,6 +37,7 @@ export function TabContent({
   terminalConfig,
   usageEnabledByProvider,
   gitInfo,
+  onRefreshGitInfo,
   onOpenGit,
   api,
   workspaceCwd,
@@ -68,6 +70,7 @@ export function TabContent({
           info={gitInfo ?? null}
           cwd={pane.cwd ?? workspaceCwd ?? null}
           api={api}
+          onRefresh={onRefreshGitInfo}
           onClick={onOpenGit}
         />
       )}

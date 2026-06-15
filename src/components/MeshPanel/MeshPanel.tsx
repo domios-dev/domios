@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import QRCode from "qrcode";
-import { Check, ChevronUp, ChevronDown, Copy, ExternalLink, RefreshCw, X } from "lucide-react";
+import { Check, ChevronUp, ChevronDown, Copy, ExternalLink, Info, Loader2, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
+import { IS_WEB, webJson } from "../../lib/webApi";
 import logoUrl from "../../assets/logo.png";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab, Service } from "./types";
@@ -14,7 +15,14 @@ import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { tabClass, UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
-import { buildWebAccessUrls, webLinkWithToken, serveHint } from "../../lib/webAccess";
+import {
+  buildWebAccessUrls,
+  planServeSetup,
+  serveSetupTask,
+  webLinkWithToken,
+  type ServeSetupPlan,
+  type ServeStatus,
+} from "../../lib/webAccess";
 
 const TABS: MeshTab[] = ["map", "activity", "network"];
 
@@ -109,30 +117,103 @@ function buildWebUiTarget(config: AppConfig, network: NetworkInfo | null): WebUi
   };
 }
 
+interface ServeResult {
+  ok: boolean;
+  code: string;
+  https_url?: string | null;
+  warning?: string | null;
+}
+
 function WebUiModal({
   config,
   onClose,
+  onExitMesh,
 }: {
   config: AppConfig;
   onClose: () => void;
+  onExitMesh: () => void;
 }) {
   const [target, setTarget] = useState<WebUiTarget>(() => buildWebUiTarget(config, null));
   const link = target.link;
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState<"link" | "token" | null>(null);
+  const [serve, setServe] = useState<ServeStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [setupMsg, setSetupMsg] = useState<string | null>(null);
+  const [showInfo, setShowInfo] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const network = await invoke<NetworkInfo>("get_network_info").catch(() => null);
+      const [network, status] = await Promise.all([
+        invoke<NetworkInfo>("get_network_info").catch(() => null),
+        invoke<ServeStatus>("get_serve_status").catch(() => null),
+      ]);
       if (cancelled) return;
       setTarget(buildWebUiTarget(config, network));
+      setServe(status);
     }
     void load();
     return () => {
       cancelled = true;
     };
   }, [config]);
+
+  const plan: ServeSetupPlan | null = serve
+    ? planServeSetup(serve, target.port, serve.platform ?? "")
+    : null;
+
+  // Tailscale installed → flip on Serve natively in one tap; QR re-resolves to the https endpoint.
+  const runEnable = useCallback(async () => {
+    setBusy(true);
+    setSetupMsg(null);
+    try {
+      const res = await invoke<ServeResult>("enable_web_access", {});
+      if (res.ok) {
+        const [network, status] = await Promise.all([
+          invoke<NetworkInfo>("get_network_info").catch(() => null),
+          invoke<ServeStatus>("get_serve_status").catch(() => null),
+        ]);
+        setTarget(buildWebUiTarget(config, network));
+        setServe(status);
+        setSetupMsg(res.warning ?? "HTTPS enabled via Tailscale.");
+      } else {
+        setSetupMsg(`Couldn't enable automatically (${res.code}). Try "Set up with AI".`);
+      }
+    } catch (e) {
+      setSetupMsg(`Enable failed: ${String(e)}. Try "Set up with AI".`);
+    } finally {
+      setBusy(false);
+    }
+  }, [config]);
+
+  // Not installed (or native enable failed) → spawn a Claude pane pre-loaded with the setup task and jump into it.
+  const spawnSetupChat = useCallback(async () => {
+    const body = {
+      agent: "claude",
+      title: "Set up Web Access",
+      task: serveSetupTask(serve, target.port),
+      activate: true,
+    };
+    try {
+      if (IS_WEB) {
+        await webJson("POST", "/api/agents/spawn", body);
+      } else {
+        const host = config.api.host === "0.0.0.0" ? "127.0.0.1" : config.api.host;
+        await fetch(`http://${host}:${config.api.port}/api/agents/spawn`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(config.api.token ? { Authorization: `Bearer ${config.api.token}` } : {}),
+          },
+          body: JSON.stringify(body),
+        });
+      }
+      onExitMesh();
+    } catch (e) {
+      setSetupMsg(`Couldn't open setup chat: ${String(e)}`);
+    }
+  }, [serve, target.port, config, onExitMesh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -244,13 +325,87 @@ function WebUiModal({
             </button>
           </div>
 
-          {target.usingFallback && (
-            <p
-              data-testid="web-ui-serve-hint"
-              className={`${UI_TEXT.metaMuted} w-full text-left leading-snug`}
+          {!target.usingFallback && (
+            <div
+              data-testid="web-ui-https-active"
+              className="flex w-full items-center gap-1.5 text-[11px] text-[var(--ct-green,#3fb950)]"
             >
-              {serveHint(target.port)}
-            </p>
+              <ShieldCheck size={13} className="shrink-0" />
+              <span className="truncate">Secure HTTPS link via Tailscale Serve.</span>
+            </div>
+          )}
+
+          {target.usingFallback && (
+            <div className="w-full space-y-2" data-testid="web-ui-setup">
+              <div className="flex items-start gap-1.5 text-[11px] text-[var(--ct-yellow,#d29922)] leading-snug">
+                <Info size={13} className="mt-px shrink-0" />
+                <span>
+                  This is a raw <span className="font-mono">http://</span> address — phones can't
+                  use the microphone on it and it isn't encrypted. Set up Tailscale for a clean
+                  HTTPS link.
+                </span>
+              </div>
+
+              {plan?.state === "can-enable" && (
+                <button
+                  type="button"
+                  data-testid="web-ui-enable-https"
+                  onClick={() => void runEnable()}
+                  disabled={busy}
+                  className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} w-full gap-1.5 disabled:opacity-50`}
+                >
+                  {busy ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                  {busy ? "Enabling HTTPS…" : "Enable HTTPS (Tailscale Serve)"}
+                </button>
+              )}
+
+              {plan?.state !== "can-enable" && (
+                <button
+                  type="button"
+                  data-testid="web-ui-setup-ai"
+                  onClick={() => void spawnSetupChat()}
+                  className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} w-full gap-1.5`}
+                >
+                  <Sparkles size={14} />
+                  Set up with AI
+                </button>
+              )}
+
+              {plan?.state === "can-enable" && (
+                <button
+                  type="button"
+                  data-testid="web-ui-setup-ai-alt"
+                  onClick={() => void spawnSetupChat()}
+                  className={`${UI_BUTTON.ghost} ${UI_BUTTON.sm} w-full gap-1.5`}
+                >
+                  <Sparkles size={13} />
+                  Trouble? Set up with AI instead
+                </button>
+              )}
+
+              {setupMsg && (
+                <p data-testid="web-ui-setup-msg" className={`${UI_TEXT.metaMuted} leading-snug`}>
+                  {setupMsg}
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowInfo((v) => !v)}
+                className={`${UI_TEXT.metaMuted} flex items-center gap-1 hover:text-[var(--ct-fg)]`}
+              >
+                <Info size={11} />
+                What is Tailscale &amp; Serve?
+              </button>
+              {showInfo && (
+                <p className={`${UI_TEXT.metaMuted} leading-snug`}>
+                  Tailscale is a private mesh VPN that links your own devices. "Serve" publishes
+                  this CodeTerm over HTTPS at a stable <span className="font-mono">*.ts.net</span>{" "}
+                  address, so your phone gets a secure, mic-capable link with no port juggling. Free
+                  for personal use — <span className="font-mono">tailscale.com</span>.
+                </p>
+              )}
+            </div>
           )}
 
           <div className="grid w-full grid-cols-2 gap-2">
@@ -460,7 +615,16 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
           onClose={() => setDrawerState(null)}
           onActionDone={() => setRefreshKey((k) => k + 1)}
         />
-        {webUiOpen && <WebUiModal config={config} onClose={() => setWebUiOpen(false)} />}
+        {webUiOpen && (
+          <WebUiModal
+            config={config}
+            onClose={() => setWebUiOpen(false)}
+            onExitMesh={() => {
+              setWebUiOpen(false);
+              onClose();
+            }}
+          />
+        )}
       </div>
     </div>
   );

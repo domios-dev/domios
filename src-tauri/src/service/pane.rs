@@ -46,6 +46,14 @@ impl ServiceContext {
         Ok(())
     }
 
+    /// Label only the pane, leaving the tab's (auto-generated, unique) name untouched.
+    pub fn set_pane_title(&self, pane_id: &str, title: &str) -> Result<(), String> {
+        self.mux.lock().rename_pane(pane_id, title)?;
+        self.emit_pane_title_pinned(pane_id, title);
+        self.emit_state_changed();
+        Ok(())
+    }
+
     pub fn focus_pane(&self, pane_id: &str) -> Result<(), String> {
         self.mux.lock().set_focused_pane(pane_id)?;
         self.emit_pane_focus_changed(pane_id);
