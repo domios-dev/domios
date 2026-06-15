@@ -190,13 +190,18 @@ jobs:
           # Each platform workflow may run this step in any order; first one
           # wins, the rest just upload assets to the existing release.
           if ! gh release view "$TAG" --repo "$MIRROR_REPO" >/dev/null 2>&1; then
-            EXTRA_FLAGS=()
-            if [ "$PRERELEASE" = "true" ]; then EXTRA_FLAGS+=(--prerelease); fi
-            gh release create "$TAG" \
-              --repo "$MIRROR_REPO" \
-              --title "CodeTerm $TAG" \
-              --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes." \
-              "${EXTRA_FLAGS[@]}"
+            if [ "$PRERELEASE" = "true" ]; then
+              gh release create "$TAG" \
+                --repo "$MIRROR_REPO" \
+                --title "CodeTerm $TAG" \
+                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes." \
+                --prerelease
+            else
+              gh release create "$TAG" \
+                --repo "$MIRROR_REPO" \
+                --title "CodeTerm $TAG" \
+                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
+            fi
           fi
 
           gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" "$MANIFEST" \
