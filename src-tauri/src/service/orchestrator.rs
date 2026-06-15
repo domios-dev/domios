@@ -318,6 +318,16 @@ impl ServiceContext {
             &agent_cmd,
             params.model.as_deref(),
         )?;
+        let title_explicit = params
+            .title
+            .as_deref()
+            .map(|t| !t.trim().is_empty())
+            .unwrap_or(false)
+            || params
+                .agent_name
+                .as_deref()
+                .map(|t| !t.trim().is_empty())
+                .unwrap_or(false);
         let title = params
             .title
             .clone()
@@ -423,8 +433,13 @@ impl ServiceContext {
             }
         }
 
-        // 4. Rename pane immediately (metadata only)
-        self.rename_pane(&pane_id, &title)?;
+        // 4. Rename pane immediately (metadata only). Explicit title → sync the tab label too; otherwise keep the unique auto-generated tab name and
+        // only label the pane with the provider id (mirrors the CLI spawn path).
+        if title_explicit {
+            self.rename_pane(&pane_id, &title)?;
+        } else {
+            self.set_pane_title(&pane_id, &title)?;
+        }
 
         // Pin agent_type before launch so detect_from_output can start session-id polling.
         // Without this tag, restarts can lose session_id and resume fails silently.
