@@ -580,6 +580,10 @@ pub(crate) fn launch_agent_in_background(
                     std::collections::HashMap::new();
                 env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
                 env_vars.insert(
+                    "CODETERM_SESSION_BINDING_NONCE".into(),
+                    svc.ensure_session_binding_nonce(&pane_id),
+                );
+                env_vars.insert(
                     "CODETERM_SOCKET_PATH".into(),
                     crate::socket::server::socket_display_path(),
                 );

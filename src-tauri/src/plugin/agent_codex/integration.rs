@@ -103,7 +103,9 @@ pub fn check_integration() -> Json {
     } else {
         true
     };
-    let installed = session_start_hook && windows_hook_ready;
+    // Treat a hook lacking the binding-nonce header as outdated so startup reinstalls it.
+    let has_nonce = content.contains("CODETERM_SESSION_BINDING_NONCE");
+    let installed = session_start_hook && windows_hook_ready && has_nonce;
 
     serde_json::json!({
         "hooks_file_exists": true,
@@ -141,7 +143,7 @@ pub fn install_integration(api_port: u16) -> Result<(), String> {
 
     let null_dev = crate::shell::ShellSyntax::NULL_DEV;
     let command = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{api_port}}}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' -H \"Authorization: Bearer ${{CODETERM_API_TOKEN}}\" --data-binary @- > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{api_port}}}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' -H \"X-CodeTerm-Binding-Nonce: ${{CODETERM_SESSION_BINDING_NONCE}}\" -H \"Authorization: Bearer ${{CODETERM_API_TOKEN}}\" --data-binary @- > {null_dev} 2>&1 || true"
     );
     let command_windows = format!(
         "powershell -NoProfile -ExecutionPolicy Bypass -File \"{}\"",
@@ -198,6 +200,9 @@ $base = if ($env:CODETERM_API_URL) {{ $env:CODETERM_API_URL.TrimEnd("/") }} else
 $headers = @{{
   "Content-Type" = "application/json"
   "X-CodeTerm-Agent-Provider" = "codex"
+}}
+if ($env:CODETERM_SESSION_BINDING_NONCE) {{
+  $headers["X-CodeTerm-Binding-Nonce"] = $env:CODETERM_SESSION_BINDING_NONCE
 }}
 if ($env:CODETERM_API_TOKEN) {{
   $headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"

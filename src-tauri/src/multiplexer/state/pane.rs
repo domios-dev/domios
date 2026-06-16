@@ -17,6 +17,7 @@ impl MultiplexerState {
             agent_session_id: None,
             agent_session_name: None,
             agent_session_model: None,
+            session_binding_nonce: None,
             role: None,
             parent_pane_id: None,
             can_spawn: false,
