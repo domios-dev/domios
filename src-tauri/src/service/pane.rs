@@ -277,13 +277,18 @@ impl ServiceContext {
                 .and_then(|p| p.agent_session_id.clone())
         };
         let Some(sid) = sid else { return };
-        let model = self
+        // A failed detection (None) must not clobber a known model — restore seeds it from the snapshot and the session file may not name the model yet.
+        let Some(model) = self
             .agent_registry
             .with_provider(agent_id, |p| p.detect_session_model(&cwd, &sid))
-            .flatten();
-        if model == current_model {
+            .flatten()
+        else {
+            return;
+        };
+        if Some(&model) == current_model.as_ref() {
             return;
         }
+        let model = Some(model);
         let mut mux = self.mux.lock();
         if let Some(p) = mux.get_pane_mut(pane_id) {
             if p.agent_type.as_deref() == Some(agent_id) {

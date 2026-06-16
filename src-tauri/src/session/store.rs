@@ -73,6 +73,10 @@ pub enum SplitNodeSnapshot {
         /// behaviour instead of silently dropping back to prompting.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         auto_approve: bool,
+        /// Model family on the live session. Persisted so resume re-applies it
+        /// instead of dropping the pane to the provider default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_session_model: Option<String>,
     },
     Split {
         orientation: String,
