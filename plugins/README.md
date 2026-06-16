@@ -350,7 +350,7 @@ session files are the source of truth for "does our parser still work?"
 
 Nightly CI will run real CLIs in a container, capture JSONL, and diff
 against last-known-good snapshots. Plugin can ship a new version only
-when its own CI is green. Plan: `docs/plans/relay/20-provider-plugins-ts.md` §8.
+when its own CI is green.
 
 ## Hot reload in dev
 
