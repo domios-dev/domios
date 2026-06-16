@@ -108,6 +108,7 @@ impl MultiplexerState {
             protected: false,
             connected_services: vec![],
             agent_set_at: None,
+            exit_suspected_at: None,
             agent_booting: false,
             hidden: false,
             show_in_tabbar: true,

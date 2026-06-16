@@ -88,6 +88,11 @@ pub struct Pane {
     /// Timestamp when agent_type was set — grace period for idle-poll exit detection.
     #[serde(skip, default)]
     pub agent_set_at: Option<std::time::Instant>,
+    /// When the output-based exit heuristic first suspected the agent left (no
+    /// markers + shell prompt). Debounces a one-frame transient (e.g. a WebView
+    /// reload/resize redraw) from clearing a still-running agent.
+    #[serde(skip, default)]
+    pub exit_suspected_at: Option<std::time::Instant>,
     /// True while launch_agent boots the agent TUI in this pane. A booting
     /// TUI silently swallows bracket-paste input, so sends wait this out.
     /// Runtime-only: never persisted (a restart clears any stale true).
