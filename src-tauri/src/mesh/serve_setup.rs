@@ -76,7 +76,78 @@ fn format_serve_url(host: &str, port: u16) -> String {
 }
 
 fn serve_status_json() -> Option<serde_json::Value> {
+    // macOS: the App Store / GUI Tailscale exposes its LocalAPI over loopback TCP
+    // with a `sameuserproof-<port>-<proof>` file in its Group Container (the CLI's
+    // own auth path). The GUI CLI shim needs an Aqua session the daemon doesn't
+    // have and fails (exit 0 + "GUI failed to start"), so read serve-config from
+    // the LocalAPI directly — works from any process. Fall back to the CLI.
+    #[cfg(target_os = "macos")]
+    if let Some(val) = serve_config_via_localapi() {
+        return Some(val);
+    }
     run_tailscale_json(&["serve", "status", "--json"], PROBE_TIMEOUT)
+}
+
+/// Read `serve-config` from the macOS sandboxed Tailscale LocalAPI: discover the
+/// `sameuserproof-<port>-<proof>` token file, then a Basic-auth GET (blank user,
+/// proof as password) to `http://127.0.0.1:<port>/localapi/v0/serve-config`.
+#[cfg(target_os = "macos")]
+fn serve_config_via_localapi() -> Option<serde_json::Value> {
+    let gc = dirs::home_dir()?.join("Library/Group Containers");
+    for dir in std::fs::read_dir(&gc).ok()?.flatten() {
+        if !dir
+            .file_name()
+            .to_string_lossy()
+            .ends_with("group.io.tailscale.ipn.macos")
+        {
+            continue;
+        }
+        for f in std::fs::read_dir(dir.path()).ok()?.flatten() {
+            let name = f.file_name();
+            let name = name.to_string_lossy();
+            let Some(rest) = name.strip_prefix("sameuserproof-") else {
+                continue;
+            };
+            let Some((port, proof)) = rest.split_once('-') else {
+                continue;
+            };
+            let Ok(port) = port.parse::<u16>() else {
+                continue;
+            };
+            if let Some(val) = localapi_serve_config(port, proof) {
+                return Some(val);
+            }
+        }
+    }
+    None
+}
+
+/// Minimal raw-HTTP GET against the loopback LocalAPI (avoids a reqwest blocking
+/// client panicking when called from inside the async mesh loop).
+#[cfg(target_os = "macos")]
+fn localapi_serve_config(port: u16, proof: &str) -> Option<serde_json::Value> {
+    use base64::Engine;
+    use std::io::{Read, Write};
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = std::net::TcpStream::connect_timeout(&addr, PROBE_TIMEOUT).ok()?;
+    stream.set_read_timeout(Some(PROBE_TIMEOUT)).ok()?;
+    stream.set_write_timeout(Some(PROBE_TIMEOUT)).ok()?;
+    let cred = base64::engine::general_purpose::STANDARD.encode(format!(":{proof}"));
+    let req = format!(
+        "GET /localapi/v0/serve-config HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Basic {cred}\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(req.as_bytes()).ok()?;
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf);
+    let (head, body) = text.split_once("\r\n\r\n")?;
+    if !head.starts_with("HTTP/1.1 200") && !head.starts_with("HTTP/1.0 200") {
+        return None;
+    }
+    // Slice the JSON object out of the body — robust to chunked framing.
+    let start = body.find('{')?;
+    let end = body.rfind('}')?;
+    serde_json::from_str(body.get(start..=end)?).ok()
 }
 
 /// Find the HTTPS-terminating Serve listener whose root `/` handler proxies to
