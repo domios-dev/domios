@@ -86,7 +86,6 @@ TASK: ...
 - **All sub-agents are Workers.** For a big job, decompose it yourself and spawn several Workers as siblings (e.g. "refactor the whole frontend state layer" → 4 frontend-dev Workers, each a scoped sub-task). There is no intermediate level — the tree is exactly one deep (Orchestrator → Workers).
 
 **Rule of thumb:** spawn via `codeterm agent spawn` when the task touches >3 files, needs its own filesystem/PTY context, or the user benefits from watching it run. Otherwise use the built-in Agent tool.
-Model-routing rubric for this team is documented in [docs/review-2026-06/agent-team.md](../review-2026-06/agent-team.md).
 
 ### Reporting back
 
