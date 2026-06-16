@@ -467,6 +467,12 @@ impl ServiceContext {
                 _ => preamble_wrapped,
             }
         });
+        // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
+        let role_suffixed_task =
+            role_suffixed_task.map(|t| match self.spawn_task_prefix(&pane_id) {
+                Some(pfx) => format!("{}{}", pfx, t),
+                None => t,
+            });
 
         let mut legacy_params = spec.to_agent_params()?;
         legacy_params.model = launch_model;
