@@ -20,7 +20,10 @@ case "$ARCH" in
   aarch64|arm64)  TRIPLE=aarch64-pc-windows-msvc; LABEL=arm64 ;;
   *) echo "bad arch $ARCH" >&2; exit 2 ;;
 esac
-SSH="sshpass -e ssh -p $WIN_PORT -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 -o ServerAliveCountMax=1000 -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 $WIN_SSH"
+# ConnectTimeout bounds ONLY connection establishment (not the established session), so it is safe
+# on the long build SSH yet makes the readiness probe fail fast instead of hanging ~75s on a VM
+# whose guest sshd isn't up yet — the stability-gate loop timing depends on a quick probe.
+SSH="sshpass -e ssh -p $WIN_PORT -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=1000 -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 $WIN_SSH"
 SCP="sshpass -e scp -P $WIN_PORT -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no"
 
 OUT="${OUT:-/tmp/codeterm-${TAG}-mirror}"; mkdir -p "$OUT"
