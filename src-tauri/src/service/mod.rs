@@ -104,8 +104,14 @@ pub struct ServiceContext {
     /// Per-pane JSONL chat tailers — populated when a pane enters UI mode.
     pub chat_registry: Arc<crate::service::pane_chat::ChatRegistry>,
     pub delayed_send: crate::delayed_send::DelayedSendQueue,
-    /// Active secret-store backend (mock in Phase 1; bitwarden lands in Phase 2).
+    /// Active secret-store backend. Built-ins via factory; plugin backends
+    /// (e.g. Bitwarden) come from `secret_registry`.
     pub secrets: crate::secrets::SecretStoreState,
+    /// Registry of plugin-contributed secret backends, keyed by id.
+    pub secret_registry: Arc<crate::secrets::SecretRegistry>,
+    /// Registry of transcribers (built-in HTTP engine + any Transcriber plugin).
+    /// Voice notes resolve the active transcriber here by id.
+    pub transcribe_registry: Arc<crate::transcribe::TranscribeRegistry>,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,

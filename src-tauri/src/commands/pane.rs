@@ -413,9 +413,22 @@ pub async fn chat_stop(svc: tauri::State<'_, ServiceState>, pane_id: String) -> 
 /// (via the configured transcriber daemon) and wrap it in the same
 /// `-=-codeterm:voice ...-=-` marker shape the Telegram bridge uses.
 #[tauri::command]
-pub async fn transcribe_voice_attachment(path: String) -> Result<String, String> {
-    let cfg = crate::config::load_config().integrations.voice_transcribe;
-    Ok(crate::bridge::voice_transcribe::format_attachment_line(&path, "voice", None, &cfg).await)
+pub async fn transcribe_voice_attachment(
+    svc: tauri::State<'_, ServiceState>,
+    path: String,
+) -> Result<String, String> {
+    let active = crate::config::load_config()
+        .integrations
+        .voice_transcribe
+        .active;
+    Ok(crate::bridge::voice_transcribe::format_attachment_line(
+        &path,
+        "voice",
+        None,
+        &svc.transcribe_registry,
+        &active,
+    )
+    .await)
 }
 
 #[derive(serde::Serialize)]

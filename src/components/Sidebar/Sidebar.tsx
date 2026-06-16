@@ -51,8 +51,9 @@ interface SidebarProps {
   onOpenSettings?: () => void;
   onOpenMemory?: () => void;
   onOpenMesh?: () => void;
+  onOpenExtensions?: () => void;
   onNavigateToTab?: () => void;
-  mainView?: "workspace" | "settings" | "memory" | "mesh" | "git";
+  mainView?: "workspace" | "settings" | "memory" | "mesh" | "git" | "extensions";
   config?: AppConfig;
 }
 
@@ -60,6 +61,7 @@ export function Sidebar({
   onOpenSettings,
   onOpenMemory,
   onOpenMesh,
+  onOpenExtensions,
   onNavigateToTab,
   mainView = "workspace",
   config,
@@ -373,13 +375,30 @@ export function Sidebar({
                   </div>
                 </div>
               )}
-              {/* Panes header with action icons */}
+              {/* Presence header — live online/offline signal (was the static "Panes" label). */}
               <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
-                {!isCompact && (
-                  <span className="text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] truncate">
-                    Panes
-                  </span>
-                )}
+                {!isCompact && (() => {
+                  const online =
+                    (config as { mesh?: { enabled?: boolean } } | undefined)?.mesh?.enabled ?? false;
+                  return (
+                    <span
+                      className="flex items-center gap-1.5 truncate"
+                      title={online ? "Mesh: online — visible to peers" : "Mesh: offline"}
+                    >
+                      <span
+                        className="inline-block w-2 h-2 rounded-full shrink-0"
+                        style={
+                          online
+                            ? { background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.55)" }
+                            : { background: "transparent", border: "1.5px solid var(--ct-muted)" }
+                        }
+                      />
+                      <span className="text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] truncate">
+                        {online ? "Online" : "Offline"}
+                      </span>
+                    </span>
+                  );
+                })()}
                 <div className="flex items-center gap-1">
                   {/* New workspace */}
                   <button
@@ -686,6 +705,24 @@ export function Sidebar({
                   {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Mesh</span>}
                 </button>
               )}
+              <button
+                data-testid="nav-extensions"
+                onClick={onOpenExtensions}
+                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                  mainView === "extensions"
+                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                    : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                }`}
+                title="Extensions"
+              >
+                <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                  <rect x="3" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="3" width="7" height="7" rx="1" />
+                  <rect x="3" y="14" width="7" height="7" rx="1" />
+                  <rect x="14" y="14" width="7" height="7" rx="1" />
+                </svg>
+                {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Extensions</span>}
+              </button>
               <button
                 data-testid="nav-settings"
                 onClick={onOpenSettings}

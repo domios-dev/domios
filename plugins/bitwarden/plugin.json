@@ -1,0 +1,27 @@
+{
+  "id": "bitwarden",
+  "version": "0.1.0",
+  "minCodeterm": "1.0.0",
+  "hostApi": 2,
+  "displayName": "Bitwarden",
+  "iconHint": "\ud83d\udd10",
+  "iconColor": "var(--ct-accent)",
+  "entry": "plugin.js",
+  "capabilities": {
+    "secretBackend": true
+  },
+  "permissions": {
+    "subprocess": {
+      "allow": [
+        "bw"
+      ]
+    },
+    "network": {
+      "allow": [
+        "vault.bitwarden.com"
+      ]
+    },
+    "secrets": true
+  },
+  "settingsSchema": "settings.schema.json"
+}

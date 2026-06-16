@@ -19,11 +19,19 @@
 //! string work plugins do.
 
 mod host_api;
+mod host_exec;
+mod host_net;
+mod host_secret;
 pub mod hot_reload;
 pub mod loader;
 pub mod manifest;
 mod provider;
+mod secret_backend;
+mod transcriber;
 mod vm;
+
+pub use secret_backend::JsSecretBackend;
+pub use transcriber::JsTranscriber;
 
 #[cfg(test)]
 mod parity_test;

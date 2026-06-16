@@ -7,7 +7,7 @@ use parking_lot::Mutex;
 use serde::Deserialize;
 use tokio::sync::RwLock;
 
-use crate::secrets::keychain::Keychain;
+use crate::secrets::secret_file::SecretFile;
 use crate::secrets::{SecretError, SecretStore, SecretString};
 
 use super::exec::{BwExec, BwRunCtx, NoopBwExec};
@@ -16,7 +16,7 @@ use super::{BW_KEYRING_LOGIN_EMAIL, BW_KEYRING_SERVICE, BW_KEYRING_SESSION, DEFA
 
 pub struct BitwardenStore {
     pub(super) exec: Arc<dyn BwExec>,
-    pub(super) keychain: Keychain,
+    pub(super) keychain: SecretFile,
     pub(super) session: RwLock<Option<SecretString>>,
     pub(super) unavailable_reason: Option<String>,
     pub(super) user: Mutex<Option<String>>,
@@ -34,7 +34,7 @@ impl BitwardenStore {
     pub fn detect_and_build_with_server(server_url: String) -> Self {
         match SubprocessBwExec::detect() {
             Some(exec) => {
-                let keychain = Keychain::new(BW_KEYRING_SERVICE);
+                let keychain = SecretFile::new(BW_KEYRING_SERVICE);
                 Self::new_with_server(Arc::new(exec), keychain, server_url)
             }
             None => Self::new_unavailable(
@@ -44,11 +44,11 @@ impl BitwardenStore {
         }
     }
 
-    pub fn new(exec: Arc<dyn BwExec>, keychain: Keychain) -> Self {
+    pub fn new(exec: Arc<dyn BwExec>, keychain: SecretFile) -> Self {
         Self::new_with_server(exec, keychain, DEFAULT_BW_SERVER.to_string())
     }
 
-    pub fn new_with_server(exec: Arc<dyn BwExec>, keychain: Keychain, server_url: String) -> Self {
+    pub fn new_with_server(exec: Arc<dyn BwExec>, keychain: SecretFile, server_url: String) -> Self {
         let session = keychain
             .get(BW_KEYRING_SESSION)
             .ok()
@@ -66,7 +66,7 @@ impl BitwardenStore {
     pub fn new_unavailable(reason: impl Into<String>) -> Self {
         Self {
             exec: Arc::new(NoopBwExec),
-            keychain: Keychain::in_memory("bw not available"),
+            keychain: SecretFile::in_memory("bw not available"),
             session: RwLock::new(None),
             unavailable_reason: Some(reason.into()),
             user: Mutex::new(None),

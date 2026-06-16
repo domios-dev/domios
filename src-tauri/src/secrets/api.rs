@@ -435,7 +435,8 @@ pub async fn switch_backend(
 
     // Build the new backend, run init, then atomically swap. Init failures are surfaced — the caller asked to switch and deserves to know whether the new backend is actually usable.
     let cfg = crate::config::load_config();
-    let new_store = crate::secrets::build_active_store(&cfg.integrations.secrets);
+    let new_store =
+        crate::secrets::build_active_store(&cfg.integrations.secrets, &state.svc.secret_registry);
     if let Err(e) = new_store.init().await {
         log::warn!("[secrets] init on swap to '{}' failed: {}", body.backend, e);
     }

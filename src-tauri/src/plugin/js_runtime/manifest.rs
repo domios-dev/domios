@@ -49,7 +49,9 @@ pub struct PluginManifest {
     #[serde(default)]
     pub cli_binary: Option<String>,
 
-    // Spawn semantics
+    // Spawn semantics. Required for agent providers; capability-only plugins
+    // (transcriber, secret backend) leave it defaulted.
+    #[serde(default)]
     pub spawn: SpawnConfig,
 
     // Optional features (most providers leave these omitted)
@@ -82,6 +84,19 @@ pub struct PluginManifest {
     #[serde(default)]
     pub permissions: PermissionsConfig,
 
+    /// Which core capability traits this plugin implements. Absent → treated as
+    /// an agent provider (back-compat for every existing bundled plugin, which
+    /// predates this field). A plugin that declares any capability gets exactly
+    /// the ones it lists.
+    #[serde(default = "default_capabilities")]
+    pub capabilities: Capabilities,
+
+    /// Path (relative to the plugin dir) to a `SettingField[]` JSON schema that
+    /// the Extensions UI renders as the plugin's settings panel, writing values
+    /// into `config.plugins.<id>`. Optional.
+    #[serde(default)]
+    pub settings_schema: Option<String>,
+
     // Path of plugin.js relative to the manifest, defaults to "dist/plugin.js".
     #[serde(default = "default_entry")]
     pub entry: String,
@@ -94,6 +109,45 @@ pub struct PluginManifest {
 
 fn default_entry() -> String {
     "dist/plugin.js".to_string()
+}
+
+/// Manifests without a `capabilities` block are agent providers (every plugin
+/// shipped before capabilities existed).
+fn default_capabilities() -> Capabilities {
+    Capabilities {
+        agent_provider: true,
+        secret_backend: false,
+        transcriber: false,
+    }
+}
+
+/// The core capability traits a plugin can implement. Drives which adapters the
+/// loader builds (`JsProvider` / `JsSecretBackend` / `JsTranscriber`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Capabilities {
+    #[serde(default)]
+    pub agent_provider: bool,
+    #[serde(default)]
+    pub secret_backend: bool,
+    #[serde(default)]
+    pub transcriber: bool,
+}
+
+/// Hosts/origins a plugin may reach via `host.fetch`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct NetworkPermission {
+    #[serde(default)]
+    pub allow: Vec<String>,
+}
+
+/// Binaries a plugin may run via `host.exec`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct SubprocessPermission {
+    #[serde(default)]
+    pub allow: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -364,6 +418,15 @@ pub struct PermissionsConfig {
     pub transport_events: Vec<String>,
     #[serde(default)]
     pub send_text: bool,
+    /// `host.fetch` host allowlist.
+    #[serde(default)]
+    pub network: NetworkPermission,
+    /// `host.exec` binary allowlist.
+    #[serde(default)]
+    pub subprocess: SubprocessPermission,
+    /// Whether the plugin may use its per-plugin secret bucket (`host.secret*`).
+    #[serde(default)]
+    pub secrets: bool,
 }
 
 impl PluginManifest {

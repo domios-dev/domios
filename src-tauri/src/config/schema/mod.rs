@@ -20,6 +20,11 @@ pub struct AppConfig {
     /// the `agents.<id>.*` paths.
     #[serde(default)]
     pub agents: HashMap<String, ProviderConfig>,
+    /// Per-plugin settings, keyed by plugin id. A generic JSON bag because each
+    /// plugin defines its own settings schema (rendered by SchemaRenderer); the
+    /// plugin reads its own blob via `host.settingsJson()`.
+    #[serde(default)]
+    pub plugins: HashMap<String, serde_json::Value>,
     #[serde(default)]
     pub general_agent: GeneralAgentConfig,
     #[serde(default)]
@@ -46,6 +51,7 @@ impl Default for AppConfig {
             agent: AgentConfig::default(),
             api: ApiConfig::default(),
             agents: HashMap::new(),
+            plugins: HashMap::new(),
             general_agent: GeneralAgentConfig::default(),
             memory: MemoryConfig::default(),
             integrations: IntegrationsConfig::default(),
@@ -592,6 +598,14 @@ pub struct VoiceTranscribeConfig {
     pub fallback_raw_on_error: bool,
     #[serde(default = "default_voice_health_ttl_secs")]
     pub health_check_ttl_secs: u64,
+    /// Id of the active transcriber in the registry. Defaults to the built-in
+    /// HTTP engine (`builtin-http`); a Transcriber plugin sets this to its own id.
+    #[serde(default = "default_transcribe_active")]
+    pub active: String,
+}
+
+fn default_transcribe_active() -> String {
+    "builtin-http".to_string()
 }
 
 impl Default for VoiceTranscribeConfig {
@@ -603,6 +617,7 @@ impl Default for VoiceTranscribeConfig {
             language: String::new(),
             fallback_raw_on_error: default_voice_fallback_raw(),
             health_check_ttl_secs: default_voice_health_ttl_secs(),
+            active: default_transcribe_active(),
         }
     }
 }

@@ -143,11 +143,9 @@ fn compute_sandbox(
 
     // Dev is a trusted developer environment AND it force-marks every plugin
     // ThirdParty (so live edits don't trip the hash verifier) — confining there
-    // would wrongly sandbox the dev-edited bundled plugins. Skip.
-    if std::env::var("CODETERM_DEV").as_deref() == Ok("1") {
-        return PluginSandbox::unrestricted();
-    }
-
+    // would wrongly sandbox the dev-edited bundled plugins. System = hash-verified
+    // bundled; never confine those. Only confine an unverified user drop-in.
+    let dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");
     let user_plugins = crate::paths::data_dir().join("plugins");
     let is_user_dropin = std::fs::canonicalize(bundle_dir)
         .ok()
@@ -155,21 +153,37 @@ fn compute_sandbox(
         .map(|(b, u)| b.starts_with(&u))
         .unwrap_or_else(|| bundle_dir.starts_with(&user_plugins));
 
-    // System = hash-verified bundled (incl. the copy bootstrapped into the user
-    // dir); never confine those. Only confine an unverified drop-in.
-    if matches!(trust, ProviderTrust::System) || !is_user_dropin {
-        return PluginSandbox::unrestricted();
-    }
-
-    // Confined: read its own dir + declared session root; write its own dir + temp.
-    let mut read_roots = vec![bundle_dir.to_path_buf(), std::env::temp_dir()];
-    if let Some(sessions) = manifest.sessions.as_ref() {
-        if let Some(root) = PluginManifest::expand_home(&sessions.root_dir) {
-            read_roots.push(root);
+    let base = if dev || matches!(trust, ProviderTrust::System) || !is_user_dropin {
+        PluginSandbox::unrestricted()
+    } else {
+        // Confined: read its own dir + declared session root; write its own dir + temp.
+        let mut read_roots = vec![bundle_dir.to_path_buf(), std::env::temp_dir()];
+        if let Some(sessions) = manifest.sessions.as_ref() {
+            if let Some(root) = PluginManifest::expand_home(&sessions.root_dir) {
+                read_roots.push(root);
+            }
         }
-    }
-    let write_roots = vec![bundle_dir.to_path_buf(), std::env::temp_dir()];
-    PluginSandbox::restricted(read_roots, write_roots)
+        let write_roots = vec![bundle_dir.to_path_buf(), std::env::temp_dir()];
+        PluginSandbox::restricted(read_roots, write_roots)
+    };
+
+    // The plugin's user-configured settings blob (config.plugins.<id>), delivered
+    // to the VM via host.settingsJson(). Read at load; a reload picks up edits.
+    let settings_json = crate::config::load_config()
+        .plugins
+        .get(&manifest.id)
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "null".to_string());
+
+    // Stamp identity (for the per-plugin secret bucket) + host_api v2 allowlists
+    // onto every path, including unrestricted/dev.
+    base.with_identity_and_perms(
+        &manifest.id,
+        manifest.permissions.subprocess.allow.clone(),
+        manifest.permissions.network.allow.clone(),
+        manifest.permissions.secrets,
+    )
+    .with_settings(settings_json)
 }
 
 /// Gate a third-party drop-in against the host contract before it loads.
@@ -294,6 +308,87 @@ mod tests {
                 "entry": "plugin.js"
             }}"#
         )
+    }
+
+    fn cap_manifest(id: &str, version: &str, host_api: u32) -> String {
+        // Capability-only plugin (transcriber): no spawn block, declares its capability.
+        format!(
+            r#"{{
+                "id": "{id}",
+                "version": "{version}",
+                "displayName": "{id} Test",
+                "hostApi": {host_api},
+                "entry": "plugin.js",
+                "capabilities": {{ "transcriber": true }}
+            }}"#
+        )
+    }
+
+    /// Validates the install→update→work→compat-gate lifecycle for a capability
+    /// plugin: a new version replaces the old, the capability still resolves and
+    /// runs the new behaviour, and an incompatible version is gated (daemon
+    /// survives). This is the loader-level core of the plugin-update flow.
+    #[tokio::test]
+    async fn capability_plugin_version_update_and_compat_gate() {
+        use crate::plugin::js_runtime::host_api::HOST_API_VERSION;
+        use crate::plugin::js_runtime::JsTranscriber;
+        use crate::transcribe::Transcriber;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+        let dir = root.join("transcriber");
+
+        // --- install v0.1.0 ---
+        write(&dir.join("plugin.json"), &cap_manifest("transcriber", "0.1.0", HOST_API_VERSION));
+        write(
+            &dir.join("plugin.js"),
+            r#"module.exports.default = { transcribe() { return { text: "v0.1.0" }; } }"#,
+        );
+        let (providers, _) = scan_roots(&[root.clone()]);
+        let p = providers
+            .iter()
+            .find(|p| p.manifest().id == "transcriber")
+            .expect("v0.1.0 loaded");
+        assert_eq!(p.manifest().version, "0.1.0");
+        assert!(p.manifest().capabilities.transcriber);
+        let t = JsTranscriber::new(p.vm().clone(), "transcriber");
+        assert_eq!(t.transcribe(Path::new("/a"), "").await.unwrap().text, "v0.1.0");
+
+        // --- update to v0.1.1 with changed behaviour ---
+        write(&dir.join("plugin.json"), &cap_manifest("transcriber", "0.1.1", HOST_API_VERSION));
+        write(
+            &dir.join("plugin.js"),
+            r#"module.exports.default = { transcribe() { return { text: "v0.1.1-updated" }; } }"#,
+        );
+        let (providers2, _) = scan_roots(&[root.clone()]);
+        let p2 = providers2
+            .iter()
+            .find(|p| p.manifest().id == "transcriber")
+            .expect("v0.1.1 loaded");
+        assert_eq!(p2.manifest().version, "0.1.1", "version bumped");
+        assert!(p2.manifest().capabilities.transcriber, "capability survives update");
+        let t2 = JsTranscriber::new(p2.vm().clone(), "transcriber");
+        assert_eq!(
+            t2.transcribe(Path::new("/a"), "").await.unwrap().text,
+            "v0.1.1-updated",
+            "the updated version's behaviour is active"
+        );
+
+        // --- compat gate: incompatible hostApi is skipped, daemon survives ---
+        let bad = root.join("badplug");
+        write(&bad.join("plugin.json"), &cap_manifest("badplug", "1.0.0", 999));
+        write(&bad.join("plugin.js"), "module.exports.default = {};");
+        let (providers3, report3) = scan_roots(&[root.clone()]);
+        assert!(
+            !providers3.iter().any(|p| p.manifest().id == "badplug"),
+            "incompatible plugin must not load"
+        );
+        assert!(
+            report3
+                .iter()
+                .any(|o| matches!(o, LoadOutcome::Skipped { .. })),
+            "incompatible load is recorded as Skipped"
+        );
     }
 
     fn legacy_manifest_without_host_api(id: &str) -> String {
