@@ -13,7 +13,7 @@ import { MeshPresenceTray } from "./MeshPresenceTray";
 interface TitlebarProps {
   onToggleSidebar?: () => void;
   onNewTab?: () => void;
-  theme?: ThemeConfig;
+  theme: ThemeConfig;
   onOpenSettingsAbout?: () => void;
 }
 
