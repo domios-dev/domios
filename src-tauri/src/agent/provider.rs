@@ -522,63 +522,6 @@ pub trait AgentProvider: Send + Sync {
         max_age: Option<Duration>,
     ) -> Option<String>;
 
-    /// Detect a session that belongs to this launch attempt.
-    ///
-    /// `max_age` is interpreted as "younger than now - max_age". Callers pass
-    /// launch age so stale sessions in the same cwd are ignored.
-    /// `injected_session_id` is an optional pre-generated id used by providers
-    /// that support session-id injection.
-    fn detect_launched_session_id(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-    ) -> Option<String>;
-
-    /// Detect that a provider session for this launch is actually active.
-    ///
-    /// `screen_text` can be passed when available to avoid false-positive
-    /// attachment to stale filesystem sessions. For providers with explicit or
-    /// seeded session IDs this is usually `Some(session_id) == session_id`.
-    /// Implementations should return the same sid contract as
-    /// `detect_launched_session_id`.
-    fn detect_started_session(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-        screen_text: Option<&str>,
-    ) -> Option<String>;
-
-    /// Common startup detector used by providers that should only claim a
-    /// filesystem-detected session after seeing provider output markers.
-    fn detect_started_session_with_markers(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-        screen_text: Option<&str>,
-    ) -> Option<String> {
-        let Some(sid) = self.detect_launched_session_id(cwd, exclude, max_age, injected_session_id)
-        else {
-            return None;
-        };
-
-        if injected_session_id.is_some() {
-            return Some(sid);
-        }
-
-        match screen_text {
-            Some(text) if text.trim().is_empty() => Some(sid),
-            Some(text) if self.detect_from_output(text) => Some(sid),
-            Some(_) => None,
-            None => Some(sid),
-        }
-    }
-
     /// Whether a session id still has a backing file (JSONL / session store / whatever
     /// the provider keeps). Default implementation is `session_file_path(...).exists()`.
     /// Providers without file-based session storage override this.
@@ -589,8 +532,7 @@ pub trait AgentProvider: Send + Sync {
     }
 
     /// Session creation time, for providers whose sessions have no per-session
-    /// file (sqlite-backed, e.g. opencode) so the launch-window birth-time guard
-    /// in `detect_launched_session_id` can still reject pre-launch sessions.
+    /// file (sqlite-backed, e.g. opencode).
     /// Default `None` — file-based providers rely on filesystem timestamps.
     fn session_created_at(&self, _cwd: &str, _session_id: &str) -> Option<std::time::SystemTime> {
         None

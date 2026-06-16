@@ -303,42 +303,6 @@ fn codex_fresh_detection_does_not_guess_newest_same_cwd_rollout() {
     }
     let p = CodexProvider::new();
     assert_eq!(p.detect_session_id(cwd, &[], None), None);
-    assert_eq!(
-        p.detect_launched_session_id(cwd, &[], Some(std::time::Duration::from_secs(300)), None),
-        None
-    );
-    assert_eq!(
-        p.detect_started_session(
-            cwd,
-            &[],
-            Some(std::time::Duration::from_secs(300)),
-            None,
-            Some("OpenAI Codex\nSession ID: 019ebbbb-0000-7000-8000-000000000101"),
-        )
-        .as_deref(),
-        Some(sid_a)
-    );
-    assert_eq!(
-        p.detect_started_session(
-            cwd,
-            &[sid_a.to_string()],
-            Some(std::time::Duration::from_secs(300)),
-            None,
-            Some("OpenAI Codex\nSession ID: 019ebbbb-0000-7000-8000-000000000101"),
-        ),
-        None
-    );
-    assert_eq!(
-        p.detect_started_session(
-            cwd,
-            &[sid_a.to_string()],
-            Some(std::time::Duration::from_secs(300)),
-            None,
-            Some("OpenAI Codex\nSession ID: 019ebbbb-0000-7000-8000-000000000202"),
-        )
-        .as_deref(),
-        Some(sid_b)
-    );
     unsafe {
         match prev {
             Some(value) => std::env::set_var("CODETERM_CODEX_SESSIONS_ROOT", value),

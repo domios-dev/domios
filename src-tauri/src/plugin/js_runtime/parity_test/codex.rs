@@ -259,15 +259,6 @@ fn codex_rollout_walk_via_plugin() {
     assert_eq!(by_id[uuid_b].project_path.as_deref(), Some("/other/dir"));
 
     assert_eq!(provider.detect_session_id("/proj/foo", &[], None), None);
-    assert_eq!(
-        provider.detect_launched_session_id(
-            "/proj/foo",
-            &[],
-            Some(std::time::Duration::from_secs(300)),
-            None,
-        ),
-        None
-    );
     assert_eq!(provider.detect_active_session("/proj/foo", uuid_a), None);
 
     // sessionFilePath resolves UUID → on-disk rollout path.
@@ -291,24 +282,6 @@ fn codex_session_detection_does_not_guess_newest_cwd_parity() {
     let (n, j) = pair();
     assert_eq!(n.detect_session_id("/same/cwd", &[], None), None);
     assert_eq!(j.detect_session_id("/same/cwd", &[], None), None);
-    assert_eq!(
-        n.detect_launched_session_id(
-            "/same/cwd",
-            &[],
-            Some(std::time::Duration::from_secs(30)),
-            None,
-        ),
-        None
-    );
-    assert_eq!(
-        j.detect_launched_session_id(
-            "/same/cwd",
-            &[],
-            Some(std::time::Duration::from_secs(30)),
-            None,
-        ),
-        None
-    );
     assert_eq!(n.detect_active_session("/same/cwd", "sid-a"), None);
     assert_eq!(j.detect_active_session("/same/cwd", "sid-a"), None);
 }

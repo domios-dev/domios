@@ -568,7 +568,6 @@ fn opencode_detect_session_id_requires_provider_report() {
     }
     let p = OpenCodeProvider::new();
     assert_eq!(p.detect_session_id(cwd, &[], None), None);
-    assert_eq!(p.detect_launched_session_id(cwd, &[], None, None), None);
     unsafe {
         match prev {
             Some(value) => std::env::set_var("XDG_DATA_HOME", value),

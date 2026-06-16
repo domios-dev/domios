@@ -145,25 +145,6 @@ mod tests {
         fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
             None
         }
-        fn detect_launched_session_id(
-            &self,
-            _: &str,
-            _: &[String],
-            _: Option<Duration>,
-            _: Option<&str>,
-        ) -> Option<String> {
-            None
-        }
-        fn detect_started_session(
-            &self,
-            _: &str,
-            _: &[String],
-            _: Option<Duration>,
-            _: Option<&str>,
-            _: Option<&str>,
-        ) -> Option<String> {
-            None
-        }
         fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
             None
         }
