@@ -23,7 +23,7 @@ pasted into Main's PowerShell and executed as a command → CommandNotFound.
 **Hypothesis:** report delivery to the parent pane does not gate on "recipient is a
 live agent". Shell recipients must get NO marker (or report must refuse shell targets).
 - [ ] Find report delivery path (`codeterm agent report` → REST → parent pane inject)
-- [ ] Confirm whether it reuses the send-text shell-vs-agent guard
+- [ ] Confirm whether it reuses the send shell-vs-agent guard
 - [ ] Fix: shell/non-agent recipient → no marker prefix (mirror send_text behaviour),
       or drop the report into chat-only channel, never the PTY of a bare shell
 - [ ] Regression test for it

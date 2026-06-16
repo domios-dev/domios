@@ -5,7 +5,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK A6 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK A6 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -48,5 +48,5 @@ grep -n "hooksPath" build.sh docs/BUILD.md                # both present
 
 ## Report
 ```
-codeterm send-text "TASK A6 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <hook duration, content notes>" --pane 5c64a651
+codeterm send "TASK A6 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <hook duration, content notes>" --pane 5c64a651
 ```

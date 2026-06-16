@@ -8,7 +8,7 @@ Restore correctness is proven by a focused eval: ONE workspace, 5 panes per syst
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK RESTORE-MATRIX-V2 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK RESTORE-MATRIX-V2 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run these FIRST; if output differs, report BLOCKED "evidence stale")
@@ -55,5 +55,5 @@ bash build.sh kill                            # leave no dev running; prod 7685 
 
 ## Report
 ```
-codeterm send-text "TASK RESTORE-MATRIX-V2 STATUS ... CHANGED: ... VERIFIED: <per-pane table: pane/provider/marker/sid before-after/PASS-FAIL-SKIP+reason> NOTES: ..." --pane 5c64a651
+codeterm send "TASK RESTORE-MATRIX-V2 STATUS ... CHANGED: ... VERIFIED: <per-pane table: pane/provider/marker/sid before-after/PASS-FAIL-SKIP+reason> NOTES: ..." --pane 5c64a651
 ```

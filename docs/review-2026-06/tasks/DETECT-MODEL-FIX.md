@@ -8,7 +8,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK DETECT-MODEL-FIX ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK DETECT-MODEL-FIX ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run these FIRST; if output differs, report BLOCKED "evidence stale")
@@ -42,5 +42,5 @@ Live re-probe (PROD, one disposable workspace under C:/Temp, same method as befo
 
 ## Report
 ```
-codeterm send-text "TASK DETECT-MODEL-FIX STATUS ... ROOT CAUSE: ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK DETECT-MODEL-FIX STATUS ... ROOT CAUSE: ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

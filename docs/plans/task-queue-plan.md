@@ -58,7 +58,7 @@ Claude lanes stay parked.
 | TQ-40 | E2E pack: full lifecycle vs eager shell panes (non-llm); visibility negatives; restart persistence; one Playwright smoke: envelope→accept→report cards render in both panes' ChatUI | codex | M |
 | TQ-41 | One llm-tier e2e: real claude worker accepts + reports through the envelope (deliberate run only) | codex | S |
 | TQ-42 | Docs: API.md rows (check-api-docs gate enforces), codeterm skill section (B10 source + sync), CLAUDE.md one-paragraph + AGENTS.md regen, TESTING.md runbook row | codex | S |
-| TQ-43 | Dogfood gate: the arbiter (me) runs ONE real wave of any follow-up work entirely through `codeterm task` instead of send-text — exit criterion for v1.5.0: zero protocol violations the queue failed to catch | arbiter | — |
+| TQ-43 | Dogfood gate: the arbiter (me) runs ONE real wave of any follow-up work entirely through `codeterm task` instead of send — exit criterion for v1.5.0: zero protocol violations the queue failed to catch | arbiter | — |
 
 ## Wave 5 — phase 2 (separate milestone, do not start until v1.5.0 ships)
 

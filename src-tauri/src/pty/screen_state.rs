@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn claude_tui_input_cursor_is_recognized() {
-        // Issue #72: idle Claude TUI shows `❯` (U+276F) as the input cursor. `send-text --verify` was timing out with PromptNeverReady because the
+        // Issue #72: idle Claude TUI shows `❯` (U+276F) as the input cursor. `send --verify` was timing out with PromptNeverReady because the
         // matcher only knew POSIX/Windows shell markers.
         assert!(screen_has_shell_prompt("❯ "));
         assert!(screen_has_shell_prompt("❯"));

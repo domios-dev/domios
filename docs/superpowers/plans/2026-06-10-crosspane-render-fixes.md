@@ -53,16 +53,16 @@ Keep the existing no-leading-space cases green.
 
 **Root cause:** the chat renders `codeterm send` as a branded card via
 `packages/chat-ui/src/codeterm/templates.ts`. The template that prints
-`Sent to pane <pane>` is keyed **`"send-text"`** (line 28-34):
+`Sent to pane <pane>` is keyed **`"send"`** (line 28-34):
 ```ts
-"send-text": (inv, result) => ({ icon:"→", title:`Sent to pane ${pane(inv)}`, … }),
+"send": (inv, result) => ({ icon:"→", title:`Sent to pane ${pane(inv)}`, … }),
 ```
-But the CLI command was renamed `send-text` → `send` (alias kept). `renderTemplate`
+But the CLI command was renamed `send` → `send` (alias kept). `renderTemplate`
 looks the template up by the subcommand path (`"send"`), which no longer matches
-`"send-text"`, so `codeterm send … --pane X` falls through to the generic render
+`"send"`, so `codeterm send … --pane X` falls through to the generic render
 — "CodeTerm send ✓ delivered" with no recipient.
 
-**Fix:** key the template on `"send"` and keep `"send-text"` as an alias so both
+**Fix:** key the template on `"send"` and keep `"send"` as an alias so both
 forms render the recipient. In `templates.ts`:
 ```ts
 const sendTemplate: TemplateFn = (inv, result) => ({
@@ -73,7 +73,7 @@ const sendTemplate: TemplateFn = (inv, result) => ({
 });
 const TEMPLATES: Record<string, TemplateFn> = {
   "send": sendTemplate,
-  "send-text": sendTemplate,
+  "send": sendTemplate,
   …
 };
 ```
@@ -101,8 +101,8 @@ assert `renderTemplate(recognize('codeterm send "hi" --pane Keats')).title ===
 - Task A tests: `packages/chat-core/src/markers.test.ts:1-31` (leading-space marker parse +
   payload-preservation check).
 - Task B: `packages/chat-ui/src/codeterm/templates.ts:28-37` add reusable
-  `sendTextTemplate` and register it under keys `send` and `send-text`.
+  `sendTextTemplate` and register it under keys `send` and `send`.
 - Task B tests: `packages/chat-ui/src/codeterm/recognize.test.ts:40-46` assert renamed
   `send` path still renders `Sent to pane <pane>`.
 - Task B manifest coverage: `packages/chat-ui/src/codeterm/template-paths.ts:4-6` add
-  `["send"]` alongside `["send-text"]` so manifest assertion includes canonical path.
+  `["send"]` alongside `["send"]` so manifest assertion includes canonical path.

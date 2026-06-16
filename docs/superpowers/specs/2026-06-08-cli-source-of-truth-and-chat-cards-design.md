@@ -71,7 +71,7 @@ packages/chat-ui/src/codeterm/
   return `null` — we won't misrepresent a compound command; it stays raw Bash.
 - Return `{ binary, path: string[], flags: Record<string,string|true>,
   positionals: string[], raw }` where `path` is the subcommand chain
-  (e.g. `["agent","spawn"]`, `["send-text"]`).
+  (e.g. `["agent","spawn"]`, `["send"]`).
 
 ### `templates.ts`
 
@@ -86,7 +86,7 @@ interface CardTemplate {
 }
 ```
 
-Templated families (per approved scope): `send-text`; `agent`
+Templated families (per approved scope): `send`; `agent`
 (spawn/report/list/model/restart/…); `mem` (save/search/get); `workspace` +
 `pane`; `mesh`/`cron`/`keepawake`. **Fallback** (any other `codeterm …`): brand +
 `path.join(" ")` as the title + raw args as detail. Every branch is still

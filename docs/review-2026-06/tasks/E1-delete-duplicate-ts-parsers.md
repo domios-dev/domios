@@ -6,7 +6,7 @@ docs/superpowers/plans/2026-06-10-chat-parsing-dry-consolidation.md (Phase 3)
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK E1 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK E1 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -51,5 +51,5 @@ pane smoke (cross-pane spec, smoke project only); if dev is down, skip — note 
 
 ## Report
 ```
-codeterm send-text "TASK E1 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK E1 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

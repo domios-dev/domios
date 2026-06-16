@@ -8,7 +8,7 @@
 
 ## Step 0 — confirm receipt
 ```
-codeterm send-text "TASK SHRINK-CLI-MAIN ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK SHRINK-CLI-MAIN ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run FIRST; report BLOCKED if stale)
@@ -32,5 +32,5 @@ cargo test --manifest-path cli/Cargo.toml                       # must: 141 pass
 
 ## Report
 ```
-codeterm send-text "TASK SHRINK-CLI-MAIN STATUS ... CHANGED: <files incl new> main.rs <N> lines VERIFIED: ... " --pane 5c64a651
+codeterm send "TASK SHRINK-CLI-MAIN STATUS ... CHANGED: <files incl new> main.rs <N> lines VERIFIED: ... " --pane 5c64a651
 ```

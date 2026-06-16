@@ -141,7 +141,7 @@ mod tests {
     fn manifest_has_core_commands() {
         let m = build();
         let names: Vec<&str> = m.subcommands.iter().map(|c| c.name.as_str()).collect();
-        for expected in ["send-text", "agent", "mem", "pane", "cli-manifest"] {
+        for expected in ["send", "agent", "mem", "pane", "cli-manifest"] {
             assert!(names.contains(&expected), "missing top-level command: {expected}");
         }
     }
@@ -731,16 +731,16 @@ function eq(actual: unknown, expected: unknown, name: string) {
 }
 function ok(c: boolean, name: string) { eq(c, true, name); }
 
-const inv = recognize('codeterm send-text --pane bda0e267 "Понял, буду"');
-eq(inv?.path, ["send-text"], "send-text path");
-eq(inv?.flags.pane, "bda0e267", "send-text --pane flag");
-eq(inv?.positionals, ["Понял, буду"], "send-text positional payload");
+const inv = recognize('codeterm send --pane bda0e267 "Понял, буду"');
+eq(inv?.path, ["send"], "send path");
+eq(inv?.flags.pane, "bda0e267", "send --pane flag");
+eq(inv?.positionals, ["Понял, буду"], "send positional payload");
 
 eq(recognize('codeterm agent spawn claude --task "go"')?.path, ["agent", "spawn"], "agent spawn path");
 eq(recognize("CODETERM_API_PORT=7686 codeterm pane list")?.path, ["pane", "list"], "env-prefix stripped");
 ok(recognize("~/.codeterm/bin/codeterm mem search foo") !== null, "abs path binary recognized");
 ok(recognize("ls -la") === null, "non-codeterm → null");
-ok(recognize('echo hi | codeterm send-text "x"') === null, "buried after pipe → null");
+ok(recognize('echo hi | codeterm send "x"') === null, "buried after pipe → null");
 ok(recognize("codeterm-dev pane list") !== null, "codeterm-dev recognized");
 
 console.log(`\n${passed} passed, ${failed} failed`);
@@ -844,12 +844,12 @@ export function recognize(command: string): CodetermInvocation | null {
 }
 ```
 
-Note: the depth cap (3) over-captures positionals into `path` (e.g. `send-text "text"` → path `["send-text","text"]`). Task 10's templates resolve the longest known path; Task 11's manifest test guards real command paths. To keep `recognize` honest, Task 11 trims `path` against the manifest — but for the card it's enough that the FIRST path segment is the command. Keep `path[0]` as the command key; later segments are advisory.
+Note: the depth cap (3) over-captures positionals into `path` (e.g. `send "text"` → path `["send","text"]`). Task 10's templates resolve the longest known path; Task 11's manifest test guards real command paths. To keep `recognize` honest, Task 11 trims `path` against the manifest — but for the card it's enough that the FIRST path segment is the command. Keep `path[0]` as the command key; later segments are advisory.
 
 - [ ] **Step 4: Run the test**
 
 Run: `npx tsx packages/chat-ui/src/codeterm/recognize.test.ts`
-Expected: the `send-text positional payload` case currently FAILS because `"Понял, буду"` lands in `path`, not `positionals`.
+Expected: the `send positional payload` case currently FAILS because `"Понял, буду"` lands in `path`, not `positionals`.
 
 - [ ] **Step 5: Fix path/positional split using a known-commands hint**
 
@@ -904,8 +904,8 @@ Append to `recognize.test.ts`:
 ```ts
 import { renderTemplate } from "./templates";
 
-const sent = recognize('codeterm send-text --pane bda0e267 "hi there"')!;
-eq(renderTemplate(sent).title, "Sent to pane bda0e267", "send-text title");
+const sent = recognize('codeterm send --pane bda0e267 "hi there"')!;
+eq(renderTemplate(sent).title, "Sent to pane bda0e267", "send title");
 
 const spawn = recognize('codeterm agent spawn claude --task "do x" --workspace ws1')!;
 eq(renderTemplate(spawn).title, "Spawned claude", "agent spawn title");
@@ -928,7 +928,7 @@ Create `packages/chat-ui/src/codeterm/template-paths.ts`:
 // asserts each exists in docs/cli-manifest.json so a template can't point at a
 // renamed/removed command.
 export const TEMPLATE_PATHS: string[][] = [
-  ["send-text"],
+  ["send"],
   ["agent", "spawn"],
   ["agent", "report"],
   ["agent", "list"],
@@ -974,7 +974,7 @@ function deliveredStatus(result?: string): CardStatus | undefined {
 type TemplateFn = (inv: CodetermInvocation, result?: string) => RenderedCard;
 
 const TEMPLATES: Record<string, TemplateFn> = {
-  "send-text": (inv, result) => ({
+  "send": (inv, result) => ({
     icon: "→",
     title: `Sent to pane ${pane(inv)}`,
     detail: inv.positionals[0],
@@ -1189,7 +1189,7 @@ Expected: existing suites still green (the chat-ui test is wired in Task 14).
 
 - [ ] **Step 4: Live smoke (dev)**
 
-Restart dev: `./build.sh kill && ./build.sh dev --wait`. In a chat pane where an agent ran `codeterm send-text …`, confirm the card renders (brand + "Sent to pane X" + ✓ delivered) and expands to the raw command + result.
+Restart dev: `./build.sh kill && ./build.sh dev --wait`. In a chat pane where an agent ran `codeterm send …`, confirm the card renders (brand + "Sent to pane X" + ✓ delivered) and expands to the raw command + result.
 
 - [ ] **Step 5: Commit**
 

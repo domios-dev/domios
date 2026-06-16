@@ -8,7 +8,7 @@ No projection of the CLI surface still teaches deleted commands, and docs/API.md
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK DOCS-SYNC-POST-PURGE ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK DOCS-SYNC-POST-PURGE ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run these FIRST; if output differs, report BLOCKED "evidence stale")
@@ -36,5 +36,5 @@ codeterm mem search "codeterm skill"                              # must: return
 
 ## Report
 ```
-codeterm send-text "TASK DOCS-SYNC-POST-PURGE STATUS ... CHANGED(repo): ... CHANGED(skill folder): ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK DOCS-SYNC-POST-PURGE STATUS ... CHANGED(repo): ... CHANGED(skill folder): ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

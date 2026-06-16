@@ -5,7 +5,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK B5 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK B5 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -52,5 +52,5 @@ grep -n "general-agent-future" docs/PLANS.md            # 1 hit
 
 ## Report
 ```
-codeterm send-text "TASK B5 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <KEEP/FIX/FICTION counts>" --pane 5c64a651
+codeterm send "TASK B5 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <KEEP/FIX/FICTION counts>" --pane 5c64a651
 ```

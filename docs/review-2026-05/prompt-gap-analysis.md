@@ -42,7 +42,7 @@ Severity: **BUG** (wrong, will fail) · **CONTRADICTION** (two sources disagree)
 
 | ID | File:line | Type | Finding | Fix |
 |----|-----------|------|---------|-----|
-| **G1** | `codeterm_rule.md:26` | **BUG** | `codeterm send-text PANE_ID "command"` — wrong arg order. CLI is `SendText { text (positional), --pane }`, so the pane id is parsed as the *text* and the command is dropped. (`codeterm_cli.md:25` and `codeterm_rule.md:39` already use the correct form.) | `codeterm send-text "command" --pane PANE_ID` |
+| **G1** | `codeterm_rule.md:26` | **BUG** | `codeterm send PANE_ID "command"` — wrong arg order. CLI is `SendText { text (positional), --pane }`, so the pane id is parsed as the *text* and the command is dropped. (`codeterm_cli.md:25` and `codeterm_rule.md:39` already use the correct form.) | `codeterm send "command" --pane PANE_ID` |
 | **G2** | `codeterm_rule.md:74` | **CONTRADICTION / BUG** | "Default backend is Bitwarden (uses the `bw` CLI)." The real default is **`local`** (OS keychain) — `config/schema/mod.rs:520` `default_secrets_backend()` → `"local"`. `general_agent.md:52` says "Local OS keychain by default" (correct). So `codeterm_rule.md` is wrong AND disagrees with the GA prompt. | Reword to: default backend is `local` (OS keychain); Bitwarden/Vaultwarden when configured. |
 | **G3** | `codeterm_cli.md` ↔ `docs/API.md` ↔ `docs/SKILLS.md` | **DUP** | CLI command syntax lives in 3 places. This is the drift that left stale `agent hierarchy` / `Lead` refs when commands changed (fixed this session). `docs/contributing/prompts.md:99` already forbids duplicating CLI syntax between prompt and skill. | Make `codeterm_cli.md` the single source; have `docs/SKILLS.md` / `docs/API.md` CLI sections point to it instead of re-listing. |
 | **G5** | `codeterm_cli.md:47` | **DEAD** | "use `batch` if you want to fire several at once" — there is **no `codeterm batch` CLI command**. Batch is REST (`POST /api/batch`) + Tauri IPC (`mux_batch`) only. An agent that tries `codeterm batch` fails. | Drop the `batch` mention, or replace with "spawn several siblings in separate `agent spawn` calls". |
@@ -53,7 +53,7 @@ Severity: **BUG** (wrong, will fail) · **CONTRADICTION** (two sources disagree)
 
 ## Verified clean (no gap)
 
-- **`general_agent.md`** — `bridge send`, `send-text --pane --mesh`, `agent restart`, `mem graph relate --valid-from/--valid-to`, `mem save --kind preference --replace`, `pane exec`, `mesh peers`, `agent spawn --workspace --cwd`, `docs {TELEGRAM-SETUP,SECRETS,TEXT-HOOKS,CONFIG}` — all exist and match. Secret-default statement (keychain) is correct.
+- **`general_agent.md`** — `bridge send`, `send --pane --mesh`, `agent restart`, `mem graph relate --valid-from/--valid-to`, `mem save --kind preference --replace`, `pane exec`, `mesh peers`, `agent spawn --workspace --cwd`, `docs {TELEGRAM-SETUP,SECRETS,TEXT-HOOKS,CONFIG}` — all exist and match. Secret-default statement (keychain) is correct.
 - **`dreaming_rem.md`** — every `mem graph` verb (related, timeline, hubs, islands, orphans, route, introduce-topic, relate, invalidate, alias, revive-broken, purge-invalidated) matches `MemGraphAction` 1:1; `mem worker report` OK.
 - **`worker_suffix` / `orchestrator_suffix` / `cron_report_hint`** → `codeterm agent report "..."` — matches `AgentAction::Report`.
 - **`cron_complete_suffix`** → `cron complete --run-id {} --summary` — matches `CronAction::Complete`; `{}` filled by `prompts.rs`.
@@ -65,7 +65,7 @@ Severity: **BUG** (wrong, will fail) · **CONTRADICTION** (two sources disagree)
 
 ## Remediation status
 
-- ✅ **G1** — fixed (`codeterm_rule.md:26`, correct `send-text "text" --pane ID`).
+- ✅ **G1** — fixed (`codeterm_rule.md:26`, correct `send "text" --pane ID`).
 - ✅ **G2** — fixed (`codeterm_rule.md:74` now states `local` keychain default, matching code + GA prompt).
 - ✅ **G5** — fixed (`codeterm_cli.md:47` dead `batch` reference removed).
 - ✅ **G6** — fixed (`codeterm_cli.md` now has a `usage` block; closes the "agents can't see token spend" gap).

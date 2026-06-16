@@ -8,7 +8,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK CHATUI-DEFAULT-FIX ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK CHATUI-DEFAULT-FIX ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run these FIRST; if output differs, report BLOCKED "evidence stale")
@@ -45,5 +45,5 @@ bash build.sh kill                                              # leave no dev r
 
 ## Report
 ```
-codeterm send-text "TASK CHATUI-DEFAULT-FIX STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK CHATUI-DEFAULT-FIX STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

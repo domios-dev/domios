@@ -5,7 +5,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK B1 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK B1 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -47,5 +47,5 @@ grep -c "lead_suffix" .claude/skills/prompt-evaluator/SKILL.md    # must: 0
 
 ## Report
 ```
-codeterm send-text "TASK B1 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <straggler list>" --pane 5c64a651
+codeterm send "TASK B1 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <straggler list>" --pane 5c64a651
 ```

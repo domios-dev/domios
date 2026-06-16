@@ -342,7 +342,7 @@ ROG-specific gotchas (still relevant if you fall back to ROG):
 - gh authed as `rollacode (keyring)` should be valid; `r0llac0de (work)` is the work fallback and has push access too.
 
 Alternative paths (debugging tactics, not normal flow):
-- Send to an existing General Agent pane via `codeterm --mesh BLACKSTAR send-text --pane <general> --from-file <msg.txt>` to bypass `agent spawn` argv-split bugs.
+- Send to an existing General Agent pane via `codeterm --mesh BLACKSTAR send --pane <general> --from-file <msg.txt>` to bypass `agent spawn` argv-split bugs.
 - Open a parallel shell pane on the builder with `pane new --workspace` for tactical interventions while the agent runs the long compile.
 
 ### 9. Publish release + verify
@@ -451,7 +451,7 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 | Windows: `sqlite-sys` cc-rs → "malloc.h not found" | `build.sh`'s `SDK_VER` (10.0.22621.0) ≠ installed Windows Kit | check `ls "/c/Program Files (x86)/Windows Kits/10/Include"` then `export SDK_VER=<found-version>` (e.g. 10.0.26100.0 on ROG) |
 | `gh release upload ...` → "no matches found" on Windows | MSYS git-bash + stale cd + relative paths | `cd` back to repo root before upload, or use absolute paths |
 | `git rev-parse v$VER` returns a SHA that doesn't appear in `git log` | annotated tag (`-a`) creates a tag object that points to the commit (one level of indirection) | use `git rev-parse v$VER^{commit}` for the commit SHA, or `gh release view v$VER --json targetCommitish` |
-| `codeterm send-text --mesh PEER --pane ID "..."` does not get a reply | target pane is busy or the receiving agent has not processed the input yet | send-text is fire-and-forget by design; check output later with `codeterm get-output --mesh PEER --pane ID` |
+| `codeterm send --mesh PEER --pane ID "..."` does not get a reply | target pane is busy or the receiving agent has not processed the input yet | send is fire-and-forget by design; check output later with `codeterm get-output --mesh PEER --pane ID` |
 | SSH to BLACKSTAR: `cd /c/…` fails | `bash -lc` runs a login shell that re-homes | use `bash -c` (non-login) |
 | `scp User@blackstar:/c/…` fails | remote shell is cmd.exe, doesn't grok the path | stage the file to `C:\Users\User\` on BLACKSTAR first, then `scp User@blackstar:filename` |
 | Public `curl` of release asset → 404 | repo private, CDN rejects unauthenticated | use `gh release download`, or make repo public |
@@ -563,7 +563,7 @@ codeterm update install \
 2. `taskkill /F /IM codeterm.exe codeterm-embed.exe`.
 3. Runs the NSIS installer with `/S` (silent — no UAC since `installMode=currentUser`).
 4. Launches the freshly installed `codeterm.exe`.
-5. If `--continue-prompt`: polls `/api/health` until 200, then `codeterm send-text --pane <id>` resumes the calling agent.
+5. If `--continue-prompt`: polls `/api/health` until 200, then `codeterm send --pane <id>` resumes the calling agent.
 6. Logs to `%LocalAppData%\codeterm\self-install.log`.
 
 Fallback when CLI itself is broken or version-mismatched — use the standalone PowerShell script:

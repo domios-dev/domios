@@ -41,5 +41,5 @@ ls tests/                                              # must: only dirs + playw
 
 ## Report
 ```
-codeterm send-text "TASK D1 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <the 12-row reference table>" --pane 5c64a651
+codeterm send "TASK D1 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <the 12-row reference table>" --pane 5c64a651
 ```

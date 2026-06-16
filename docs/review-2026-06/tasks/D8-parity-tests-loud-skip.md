@@ -5,7 +5,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK D8 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK D8 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -47,5 +47,5 @@ cargo test plugin::js_runtime::parity              # all pass (plugins present l
 
 ## Report
 ```
-codeterm send-text "TASK D8 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK D8 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

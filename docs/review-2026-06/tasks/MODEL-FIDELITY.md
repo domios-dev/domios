@@ -9,7 +9,7 @@ For every provider, `codeterm agent spawn <provider> --model <m>` boots exactly 
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK MODEL-FIDELITY ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK MODEL-FIDELITY ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run these FIRST; if output differs, report BLOCKED "evidence stale")
@@ -41,5 +41,5 @@ dev:7686 is OWNED by the restore-matrix lane — do not touch it. All live probe
 
 ## Report
 ```
-codeterm send-text "TASK MODEL-FIDELITY STATUS ... TABLE: <requested -> built cmd -> detected, MATCH/MISMATCH per row> NEGATIVES: ... DISCOVERABILITY: ... CHANGED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK MODEL-FIDELITY STATUS ... TABLE: <requested -> built cmd -> detected, MATCH/MISMATCH per row> NEGATIVES: ... DISCOVERABILITY: ... CHANGED: ... NOTES: ..." --pane 5c64a651
 ```

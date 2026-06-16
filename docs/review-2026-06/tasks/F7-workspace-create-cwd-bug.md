@@ -5,7 +5,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK F7 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK F7 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -53,5 +53,5 @@ cargo test workspace                   # incl. anything new
 
 ## Report
 ```
-codeterm send-text "TASK F7 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK F7 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

@@ -14,7 +14,7 @@ Root cause named (thread + stack), fixed, regression-tested; the restore-matrix 
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK DAEMON-CRASH-SEND ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK DAEMON-CRASH-SEND ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Environment
@@ -35,5 +35,5 @@ dev:7686 is YOURS for this task (matrix lane is blocked/paused on you). Never 76
 
 ## Report
 ```
-codeterm send-text "TASK DAEMON-CRASH-SEND STATUS ... THREAD/SIGNATURE: ... ROOT CAUSE: ... CHANGED: ... VERIFIED: <3-run survival evidence> NOTES: ..." --pane 5c64a651
+codeterm send "TASK DAEMON-CRASH-SEND STATUS ... THREAD/SIGNATURE: ... ROOT CAUSE: ... CHANGED: ... VERIFIED: <3-run survival evidence> NOTES: ..." --pane 5c64a651
 ```

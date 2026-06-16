@@ -5,7 +5,7 @@ Status: PROPOSED · Author: Lamarr (arbiter session 2026-06-11/12) · Phase targ
 ## Why (every requirement below was a live incident, not a hypothesis)
 
 During the 2026-06 stabilization program a single orchestrator ran 7 worker lanes
-for ~30h over raw `send-text`. The protocol that made it work was enforced only by
+for ~30h over raw `send`. The protocol that made it work was enforced only by
 prompt text (`docs/review-2026-06/tasks/README.md`) and the orchestrator's
 attention. Failures observed:
 
@@ -44,7 +44,7 @@ non-terminal states re-arm their watchdogs on boot).
 ## State machine (daemon-enforced)
 
 ```
-Queued ── deliver (send-text w/ task envelope) ──► Delivered
+Queued ── deliver (send w/ task envelope) ──► Delivered
 Delivered ── worker `task accept` ──► Accepted        (watchdog: no accept in
 Delivered ── T_ack expired ──► auto-NUDGE (max 2) ──► Dead + notify requester)
 Accepted ── first heartbeat/progress ──► Working
@@ -55,7 +55,7 @@ any ── requester `task cancel` ──► Dead
 ```
 
 Defaults (config `[tasks]`): `T_ack = 120s`, `T_heartbeat = 1500s`,
-`T_report = 300s`, `max_nudges = 2`. Nudge = templated send-text into the
+`T_report = 300s`, `max_nudges = 2`. Nudge = templated send into the
 assignee pane referencing the task id; Dead = warning notification + board flag.
 States change ONLY via daemon (CLI/REST/socket) — there is no "the orchestrator
 believes" state.
@@ -179,7 +179,7 @@ The approach is taught lazily, three layers from cheapest to deepest:
    Zero prompt cost; always one command away; printed by `task --help` footer.
 2. **One-time orchestration-intent hint.** The daemon detects an orchestration
    burst with zero queue usage — heuristic: the same pane performs its 2nd
-   `agent spawn` or 2nd `send-text` to an agent pane within a session while
+   `agent spawn` or 2nd `send` to an agent pane within a session while
    having 0 created tasks — and injects ONCE per session:
    `You appear to be orchestrating by hand. The task queue gives you ack
    tracking, watchdogs and reports: run codeterm task guide.`

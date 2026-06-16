@@ -5,7 +5,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK D3 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK D3 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -58,5 +58,5 @@ node -e "1"                             # sanity that node runs scripts on this 
 
 ## Report
 ```
-codeterm send-text "TASK D3 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <untagged test list>" --pane 5c64a651
+codeterm send "TASK D3 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <untagged test list>" --pane 5c64a651
 ```

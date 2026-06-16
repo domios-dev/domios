@@ -5,7 +5,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK B10 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK B10 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -59,5 +59,5 @@ diff <source-file> ~/.claude/skills/codeterm/SKILL.md   # must: empty after sync
 
 ## Report
 ```
-codeterm send-text "TASK B10 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <sync mechanism; mismatch table>" --pane 5c64a651
+codeterm send "TASK B10 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <sync mechanism; mismatch table>" --pane 5c64a651
 ```

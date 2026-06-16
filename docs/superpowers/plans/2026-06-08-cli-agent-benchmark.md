@@ -376,7 +376,7 @@ if [ -z "$PANE" ]; then
 fi
 
 sleep 4
-dc send-text "$PROMPT" --pane "$PANE" >/dev/null
+dc send "$PROMPT" --pane "$PANE" >/dev/null
 wait_idle "$PANE" 120 12
 
 read_chat "$PANE" > "$RUNS_DIR/$CASE_ID-$PROVIDER.json"
@@ -752,7 +752,7 @@ git commit -m "test(evals): first cli-agent run + verdict; fix surfaced bugs"
 - [ ] **Step 1: Author remaining case files until coverage is complete**
 
 Create `cases/<family>.yaml` for every family (`pane`, `agent`, `cron`,
-`send-text`, `mesh`, `plugin`, `theme`, `usage`, `sessions`, `config`, `keepawake`,
+`send`, `mesh`, `plugin`, `theme`, `usage`, `sessions`, `config`, `keepawake`,
 `bridge`, `paste`, `web`, `service`, `system`, `docs`, plus `mem` graph/skill/worker
 subtrees). Each leaf command gets ≥1 case in the Task 5 format. Classify each
 `safety: execute | describe-only` per the spec's Safety section (mesh/bridge/
@@ -771,7 +771,7 @@ Run families in batches: `bash evals/cli-agent/run-suite.sh claude,codex,opencod
 - [ ] **Step 4: Final multi-step session per provider**
 
 Author `cases/multistep.yaml` with one chained free-form task per provider
-(create workspace → spawn sub-agent → send-text → mem save → mem search →
+(create workspace → spawn sub-agent → send → mem save → mem search →
 report), run it, judge multi-step reliability + nudge count.
 
 - [ ] **Step 5: Commit the full catalog + final verdicts**

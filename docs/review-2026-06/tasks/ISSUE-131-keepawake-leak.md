@@ -8,7 +8,7 @@ Keepawake child processes (macOS `caffeinate`) never outlive the daemon: a clean
 
 ## Step 0 — confirm receipt
 ```
-codeterm send-text "TASK ISSUE-131 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK ISSUE-131 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run FIRST; report BLOCKED if stale)
@@ -34,5 +34,5 @@ cargo test --manifest-path src-tauri/Cargo.toml <keepawake filters>   # must: pa
 
 ## Report
 ```
-codeterm send-text "TASK ISSUE-131 STATUS ... APPROACH: ... CHANGED: ... VERIFIED: ... MACOS-VERIFY: deferred-to-Air ..." --pane 5c64a651
+codeterm send "TASK ISSUE-131 STATUS ... APPROACH: ... CHANGED: ... VERIFIED: ... MACOS-VERIFY: deferred-to-Air ..." --pane 5c64a651
 ```

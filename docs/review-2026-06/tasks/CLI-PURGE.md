@@ -8,7 +8,7 @@ The CLI surface contains zero known duplicates, zero stale lead/conductor remnan
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK CLI-PURGE ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK CLI-PURGE ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run these FIRST; if output differs, report BLOCKED "evidence stale")
@@ -18,7 +18,7 @@ git grep -n "set-conductor" -- cli/src/args/agent.rs              # expected: al
 ```
 
 ## Arbiter decisions on contested items (final, do not re-litigate)
-- **KEEP** `get-output` and the `send-text` alias — primary muscle-memory surface for every agent prompt, skill doc, and GA. Folding comes later if ever.
+- **KEEP** `get-output` and the `send` alias — primary muscle-memory surface for every agent prompt, skill doc, and GA. Folding comes later if ever.
 - **KEEP** `debug crash` (crash harness) and `bridge restart` as-is.
 - Everything in the DELETE list below is approved for deletion — no deprecation shims, no aliases-to-warnings. Delete means delete.
 
@@ -50,5 +50,5 @@ git grep -n "set-conductor\|paste pop" -- cli/ docs/                # must: empt
 
 ## Report
 ```
-codeterm send-text "TASK CLI-PURGE STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK CLI-PURGE STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

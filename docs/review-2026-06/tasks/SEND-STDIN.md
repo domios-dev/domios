@@ -4,11 +4,11 @@
 **Backlog ref:** arbiter pain, 2026-06-12: long dispatch texts with apostrophes/quotes break PowerShell arg quoting (two live incidents this session: clap "unexpected argument" from a mangled message).
 
 ## Goal
-`codeterm send --stdin --pane ID` (and the `send-text` alias) reads the message body from stdin instead of argv, so arbitrary text (quotes, apostrophes, newlines, unicode) is sendable without shell-escaping gymnastics.
+`codeterm send --stdin --pane ID` (and the `send` alias) reads the message body from stdin instead of argv, so arbitrary text (quotes, apostrophes, newlines, unicode) is sendable without shell-escaping gymnastics.
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK SEND-STDIN ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK SEND-STDIN ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run FIRST; if output differs, report BLOCKED "evidence stale")
@@ -33,5 +33,5 @@ codeterm send --help                                # expected: NO --stdin flag 
 
 ## Report
 ```
-codeterm send-text "TASK SEND-STDIN STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK SEND-STDIN STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

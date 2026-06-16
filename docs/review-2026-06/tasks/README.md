@@ -4,7 +4,7 @@ One file = one task = one executor. The arbiter (Lamarr, pane `5c64a651`) dispat
 by sending a single line to a worker pane:
 
 ```
-codeterm send-text "Execute the task file C:/Developer/codeterm/docs/review-2026-06/tasks/<FILE>.md exactly as written. Do not improvise beyond it." --pane <PANE_ID>
+codeterm send "Execute the task file C:/Developer/codeterm/docs/review-2026-06/tasks/<FILE>.md exactly as written. Do not improvise beyond it." --pane <PANE_ID>
 ```
 
 Spawned (ephemeral) workers get the same line in `--task`.
@@ -18,12 +18,12 @@ Workers go silent on long tasks. These four rules are non-negotiable:
 > turn before the message lands and never pick it up), not a long-running one.
 
 0. **Confirm receipt FIRST.** Before doing anything else, run:
-   `codeterm send-text "TASK <ID> ACCEPTED, starting" --pane 5c64a651`
+   `codeterm send "TASK <ID> ACCEPTED, starting" --pane 5c64a651`
    If you don't know how to use `codeterm`, load the `codeterm` skill or run
    `codeterm --help` — do this BEFORE starting, not when you're done.
 1. **Progress pings on M/L tasks.** After each completed Steps group (or roughly
    every 20–30 minutes of work), send a one-liner:
-   `codeterm send-text "TASK <ID> PROGRESS: step N done, <one fact>" --pane 5c64a651`
+   `codeterm send "TASK <ID> PROGRESS: step N done, <one fact>" --pane 5c64a651`
 2. **The final report is part of the task.** Work without a delivered report =
    work that didn't happen. The LAST action of every task is the Report command.
    Never end your turn after finishing the work but before sending the report.
@@ -68,7 +68,7 @@ Workers go silent on long tasks. These four rules are non-negotiable:
 6. **Report format** — finish by running (fill in, keep the structure):
 
 ```
-codeterm send-text "TASK <ID> STATUS done|blocked|partial. CHANGED: <files or none>. VERIFIED: <command -> result, one per line>. NOTES: <surprises, follow-ups>" --pane 5c64a651
+codeterm send "TASK <ID> STATUS done|blocked|partial. CHANGED: <files or none>. VERIFIED: <command -> result, one per line>. NOTES: <surprises, follow-ups>" --pane 5c64a651
 ```
 
 ## Brief format (see TEMPLATE.md)

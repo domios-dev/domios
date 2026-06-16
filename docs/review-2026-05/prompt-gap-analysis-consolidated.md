@@ -51,7 +51,7 @@ Found-by: **C** = Claude, **X** = Codex/Liskov, **D** = DeepSeek/Bhabha.
 | **F14** | P2 | dreaming reporting | Three report channels (cron `complete`, cron creator `agent report`, hidden `mem worker report`). Document the lifecycle. | (design) | X, D | 🔧 open |
 | **F15** | P3 | `codeterm_cli.md` docs list | `codeterm docs` embeds 11 docs (`cmd/docs.rs`); `MODELS.md`/`PLUGINS.md`/plan docs unreachable via CLI. Probably intentional. | ✓ | X | 🔧 open (minor) |
 | **F16** | P3 | `codeterm_rule.md:61,70` | `echo -n "$V" \|` is bash; on Windows PowerShell `echo` adds a newline. Possible trailing-newline in saved secret. | ? | C | 🔧 open (verify) |
-| **F17** | — | `codeterm_rule.md:26` | `send-text PANE_ID "command"` wrong arg order. | ✓ | C | ✅ fixed |
+| **F17** | — | `codeterm_rule.md:26` | `send PANE_ID "command"` wrong arg order. | ✓ | C | ✅ fixed |
 | **F18** | — | `codeterm_cli.md:47` | "use `batch`" — no `codeterm batch` CLI; REST/IPC only. | ✓ | C | ✅ fixed |
 | **F19** | — | `codeterm_cli.md` | `codeterm usage` (token tracking) never surfaced. | ✓ | C | ✅ fixed (block added) |
 | **F20** | **P1** | `codeterm_cli.md` ↔ `cli/src/{args,cmd}/plugin.rs` | **`codeterm plugin` is entirely undeclared to agents.** `cli/args/plugin.rs` defines `PluginAction { List, Install (id/from-dir/...), Update, UpdateSystem, Remove, Channel{Add/List/Refresh/Remove} }`. `cmd/plugin.rs` is **26 KB** of real implementation. `cli/args/cli.rs:24` after_help even points humans at it ("Plugin management is available via `codeterm plugin --help`") — but agents reading `codeterm_cli.md` see *zero* mentions of "plugin". | ✓ | C (P2) | 🔧 open |
