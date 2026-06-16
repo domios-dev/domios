@@ -55,7 +55,7 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 
 ### AI Agent Integration
 - **Agent detection** — automatically detects Claude Code running in a pane (orange indicator)
-- **Session resume** — saves Claude Code session IDs and resumes them on restart with `--resume`. Stale ids are validated before launch (`session_exists`) so missing JSONLs don't loop. Pre-generated `--session-id` UUIDs keep multiple panes in the same cwd disambiguated. Cross-provider session search/resume is exposed via `codeterm sessions` and `/api/sessions/*` (see [docs/plans/session-tracking.md](docs/plans/session-tracking.md))
+- **Session resume** — saves Claude Code session IDs and resumes them on restart with `--resume`. Stale ids are validated before launch (`session_exists`) so missing JSONLs don't loop. Pre-generated `--session-id` UUIDs keep multiple panes in the same cwd disambiguated. Cross-provider session search/resume is exposed via `codeterm sessions` and `/api/sessions/*`
 - **Permission notifications** — surfaces Claude Code permission requests as desktop notifications
 - **Webhook system** — register webhooks for agent events (permission requests, task completion)
 - **Programmatic control** — agents can create panes, run commands, read output via API

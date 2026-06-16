@@ -459,7 +459,7 @@ There is no per-session config — every registered `AgentProvider` decides wher
 - **Claude:** `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`. The encoded directory name is lossy (drops leading dots, mangles case), so CodeTerm reads the real cwd out of the JSONL content itself when enumerating sessions.
 - **Codex:** `~/.codex/sessions/YYYY/MM/DD/rollout-<iso>-<uuid>.jsonl`. UUID v7 in the filename is used as the session id; first-line `session_meta` carries cwd.
 
-Search and resume from the CLI with `codeterm sessions search|get|resume`. REST endpoints under `/api/sessions/*` mirror the CLI. See `docs/API.md` for the full contract and `docs/plans/session-tracking.md` for the architecture.
+Search and resume from the CLI with `codeterm sessions search|get|resume`. REST endpoints under `/api/sessions/*` mirror the CLI. See `docs/API.md` for the full contract and `docs/contributing/architecture.md` §3 for the binding model.
 
 ## Dev/Prod Isolation
 
@@ -475,4 +475,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->

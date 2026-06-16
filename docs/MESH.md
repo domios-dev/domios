@@ -220,4 +220,4 @@ services/
   smart_add.rs      — heuristic field-mapping suggestions for AddServiceWizard
 ```
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

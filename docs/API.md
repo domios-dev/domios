@@ -714,7 +714,7 @@ Response:
 
 Errors: `404` if the session id isn't found; `400` if the located session has no `project_path` (can't decide cwd); `500` on workspace create / agent spawn failure.
 
-Implementation plan + Codex schema audit live in `docs/plans/session-tracking.md`.
+Session binding model: `docs/contributing/architecture.md` §3 (provider-reported binding).
 
 #### Configuration
 | Method | Path | Body / Query | Description |
@@ -1160,4 +1160,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 62 -->
+<!-- revision: 63 -->
