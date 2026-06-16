@@ -78,9 +78,13 @@ Core code branches on a *capability*, never on a provider id or display string. 
 
 Any `AgentProvider` method a JS drop-in can implement must gain a case in `src-tauri/src/plugin/js_runtime/parity_test.rs` that runs the native and JS paths over the same fixtures and asserts they agree. Without it, a capability that works natively drifts on drop-ins and no test notices — until a user does. A real instance: a JS validation helper used `console.warn`, which has no binding in the daemon's QuickJS, so a `ReferenceError` aborted parsing and the JS path silently returned zero results while native returned correct ones; parity tests caught it once they existed.
 
-### 3. Detection keys off the pane's OWN session
+### 3. Pane→session binding is provider-reported only; reads key off the pane's OWN session
 
-Provider detection (model, session id, status, usage) reads only the record belonging to *this pane's claimed session id*. Never "latest global", "newest message for cwd", or "most recent file in the sessions dir" — those roll one pane onto another pane's session and report a foreign model/status. If the pane has no claimed session yet, return `None` (honest unknown) rather than guessing from a neighbor. This is a bug class we have shipped: codex panes reported a sibling's model, opencode read the globally-latest assistant model instead of the pane's own. The fix is always: scope the read to the pane's session id, drop the fallback.
+**Binding (who owns which session id) is set only from a provider-reported report or an explicit user-preselected launch/resume id — never inferred.** Each provider reports its session id from *inside the running agent process* (claude/codex `SessionStart` hooks, the opencode `@opencode-ai/plugin` event hook), POSTing to `POST /api/panes/:pane_id/hook/session_start`. The report carries the pane id (in the URL, from `CODETERM_PANE_ID`) and a per-launch nonce (`CODETERM_SESSION_BINDING_NONCE`, echoed as the `X-CodeTerm-Binding-Nonce` header). The route (`api/hook_routes.rs::bind_reported_session`) validates the provider matches the pane, rejects a session id already claimed by another pane (atomic, under the mux lock), and rejects a report whose nonce mismatches the pane's launch nonce (a stale/foreign/relaunch claim); an absent nonce is tolerated so a not-yet-reinstalled hook keeps binding. A pane with no report is honestly *pending* — never bound to a guess.
+
+Because the report runs in the pane's own process carrying that pane's id + nonce, a report can only ever bind the pane it came from. Two agents in the *same cwd* therefore each bind their own session — the case filesystem "newest for cwd" detection could never get right. The whole filesystem-guessing detector family (`detect_session_id` as an assigner, `detect_started_session`, `detect_launched_session_id`, the `kick_off_session_detection` retry loop) has been **removed**; `set_agent_session_id` and the hook route are the only paths that write `pane.agent_session_id`. Stress-tested by `evals/binding-matrix/` (mass spawn into same-cwd clusters + `/new` + close/respawn → every pane bound + unique). Full design: `docs/superpowers/specs/2026-06-13-universal-session-binding-design.md` and `2026-06-16-session-binding-final-plan.md`.
+
+**Reads (model, status, usage, transcript) scope to the pane's already-bound session id.** Never "latest global", "newest message for cwd", or "most recent file in the sessions dir" — those roll one pane onto another's session and report a foreign model/status. If the pane is still pending, return `None` (honest unknown), not a neighbor's value. The only surviving detector that may *follow* a session change is `detect_active_session` (provider-reported model-roll, e.g. opencode `/model` swap), and it is guarded against stealing a sibling's id. Filesystem session enumeration (`detect_session_id`) survives only as a read-only feed for the session browser — it must never assign a binding.
 
 ### 4. Audit the host-API surface when it grows
 
@@ -100,4 +104,4 @@ than half of that threshold. Signal kinds, strongest first:
 - layout shapes such as footer lines with multiple segments or prompt-character columns
 - literal copy strings, which are weak signals and never the sole gate
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

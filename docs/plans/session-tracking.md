@@ -1,5 +1,17 @@
 # Session Tracking Plan
 
+> **Status (2026-06-16): superseded by provider-reported binding.** Pane→session
+> binding is now **provider-reported only** for all three providers (claude/codex
+> `SessionStart` hooks + opencode plugin), guarded by a per-launch nonce. The
+> filesystem "newest-for-cwd" / fingerprint detectors described below have been
+> **removed** — `set_agent_session_id` + the `hook/session_start` route are the
+> only writers of `pane.agent_session_id`. Task B3 (content-fingerprint fallback)
+> is now a non-goal: an unbound pane stays honestly *pending* instead of guessing.
+> Authoritative docs: `docs/contributing/architecture.md` §3,
+> `docs/superpowers/specs/2026-06-13-universal-session-binding-design.md`,
+> `docs/superpowers/specs/2026-06-16-session-binding-final-plan.md`. Regression
+> coverage: `evals/binding-matrix/`. The plan below is kept for historical context.
+
 > **Status (2026-04-13):** ~80% done. Tasks A (validate-before-resume), B1 (proactive UUID injection), B2 (session hooks), C (cross-provider search) DONE. Task B3 (fingerprint fallback) intentionally deferred — only needed if non-Claude providers regress.
 
 Fix agent-session lifecycle across all providers: stop retrying stale sessions, detect which session belongs to which pane (even with multiple sessions in one cwd), and let users search past sessions from inside CodeTerm.
