@@ -251,6 +251,11 @@ pub async fn hook_session_start(
         .and_then(|v| v.as_str())
         .or_else(|| header_str(&headers, "x-codeterm-agent-provider"))
         .map(|s| s.to_string());
+    let report_nonce = body
+        .get("binding_nonce")
+        .and_then(|v| v.as_str())
+        .or_else(|| header_str(&headers, "x-codeterm-binding-nonce"))
+        .map(|s| s.to_string());
 
     let Some(sid) = session_id else {
         log::warn!(
@@ -283,6 +288,7 @@ pub async fn hook_session_start(
             &pane_id,
             &provider_id,
             &sid,
+            report_nonce.as_deref(),
         )?
     };
 
@@ -313,12 +319,29 @@ fn bind_reported_session(
     pane_id: &str,
     provider_id: &str,
     sid: &str,
+    report_nonce: Option<&str>,
 ) -> Result<SessionStartClaim, (StatusCode, String)> {
     if registry.with_provider(provider_id, |_| ()).is_none() {
         return Err((
             StatusCode::BAD_REQUEST,
             format!("unknown provider_id '{}'", provider_id),
         ));
+    }
+
+    // A report carrying a nonce that disagrees with the pane's launch nonce is a stale or foreign reporter (relaunch, /new in another process, reused pane id). A missing report nonce is tolerated so not-yet-reinstalled hooks keep binding.
+    if let Some(expected) = mux
+        .get_pane(pane_id)
+        .and_then(|p| p.session_binding_nonce.clone())
+    {
+        if let Some(got) = report_nonce {
+            if got != expected {
+                log::warn!(
+                    "[hook_session_start] rejecting sid {} for pane {} provider={}: binding nonce mismatch",
+                    sid, pane_id, provider_id,
+                );
+                return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
+            }
+        }
     }
 
     let conflict = mux
@@ -462,7 +485,8 @@ mod tests {
         let (mut mux, pane_id) = MultiplexerState::new();
         let registry = registry(&["codex"]);
 
-        let first = bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-a").unwrap();
+        let first =
+            bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-a", None).unwrap();
         assert_eq!(
             first,
             SessionStartClaim {
@@ -472,7 +496,7 @@ mod tests {
         );
 
         let second =
-            bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-b").unwrap();
+            bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-b", None).unwrap();
         assert_eq!(
             second,
             SessionStartClaim {
@@ -486,7 +510,7 @@ mod tests {
         assert!(pane.agent_type_locked);
 
         let unchanged =
-            bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-b").unwrap();
+            bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-b", None).unwrap();
         assert_eq!(
             unchanged,
             SessionStartClaim {
@@ -502,9 +526,11 @@ mod tests {
         let pane_b = mux.create_pane();
         let registry = registry(&["opencode"]);
 
-        bind_reported_session(&mut mux, &registry, &pane_a, "opencode", "ses_shared").unwrap();
-        let err = bind_reported_session(&mut mux, &registry, &pane_b, "opencode", "ses_shared")
-            .unwrap_err();
+        bind_reported_session(&mut mux, &registry, &pane_a, "opencode", "ses_shared", None)
+            .unwrap();
+        let err =
+            bind_reported_session(&mut mux, &registry, &pane_b, "opencode", "ses_shared", None)
+                .unwrap_err();
         assert_eq!(err.0, StatusCode::CONFLICT);
         assert_eq!(
             mux.get_pane(&pane_b).unwrap().agent_session_id.as_deref(),
@@ -517,13 +543,59 @@ mod tests {
         let (mut mux, pane_id) = MultiplexerState::new();
         let registry = registry(&["claude", "codex"]);
 
-        bind_reported_session(&mut mux, &registry, &pane_id, "claude", "sid-a").unwrap();
-        let err =
-            bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-b").unwrap_err();
+        bind_reported_session(&mut mux, &registry, &pane_id, "claude", "sid-a", None).unwrap();
+        let err = bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-b", None)
+            .unwrap_err();
         assert_eq!(err.0, StatusCode::CONFLICT);
         assert_eq!(
             mux.get_pane(&pane_id).unwrap().agent_session_id.as_deref(),
             Some("sid-a")
+        );
+    }
+
+    #[test]
+    fn reported_session_enforces_binding_nonce() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        let registry = registry(&["claude"]);
+        mux.get_pane_mut(&pane_id).unwrap().session_binding_nonce = Some("nonce-1".into());
+
+        // Wrong nonce → rejected, no binding.
+        let err = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "claude",
+            "sid-a",
+            Some("nope"),
+        )
+        .unwrap_err();
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        assert_eq!(
+            mux.get_pane(&pane_id).unwrap().agent_session_id.as_deref(),
+            None
+        );
+
+        // Absent nonce → tolerated (un-upgraded hook).
+        bind_reported_session(&mut mux, &registry, &pane_id, "claude", "sid-a", None).unwrap();
+        assert_eq!(
+            mux.get_pane(&pane_id).unwrap().agent_session_id.as_deref(),
+            Some("sid-a")
+        );
+
+        // Matching nonce → bound.
+        let claim = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "claude",
+            "sid-b",
+            Some("nonce-1"),
+        )
+        .unwrap();
+        assert!(claim.changed);
+        assert_eq!(
+            mux.get_pane(&pane_id).unwrap().agent_session_id.as_deref(),
+            Some("sid-b")
         );
     }
 }

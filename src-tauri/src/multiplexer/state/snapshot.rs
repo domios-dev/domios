@@ -185,6 +185,7 @@ impl MultiplexerState {
                     agent_session_id: restored_session_id,
                     agent_session_name: None,
                     agent_session_model: None,
+                    session_binding_nonce: None,
                     role: parsed_role,
                     parent_pane_id: parent_pane_id.clone(),
                     can_spawn: *can_spawn,

@@ -598,6 +598,10 @@ impl ServiceContext {
         let mut env_vars: HashMap<String, String> = HashMap::new();
         env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
         env_vars.insert(
+            "CODETERM_SESSION_BINDING_NONCE".into(),
+            self.ensure_session_binding_nonce(&pane_id),
+        );
+        env_vars.insert(
             "CODETERM_SOCKET_PATH".into(),
             crate::socket::server::socket_display_path(),
         );
@@ -743,6 +747,10 @@ impl ServiceContext {
 
         let mut env_vars: HashMap<String, String> = HashMap::new();
         env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
+        env_vars.insert(
+            "CODETERM_SESSION_BINDING_NONCE".into(),
+            self.ensure_session_binding_nonce(&pane_id),
+        );
         if let Some(ref wid) = agent.worker_id {
             env_vars.insert("CODETERM_WORKER_ID".into(), wid.clone());
         }

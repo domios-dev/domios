@@ -680,6 +680,21 @@ impl ServiceContext {
         }
     }
 
+    /// Per-launch binding nonce for a pane, generated once and reused. Injected as CODETERM_SESSION_BINDING_NONCE so a provider's session-start report can prove it owns this pane; a report carrying a different nonce is a stale/foreign claim and gets rejected.
+    pub fn ensure_session_binding_nonce(&self, pane_id: &str) -> String {
+        let mut mux = self.mux.lock();
+        if let Some(pane) = mux.get_pane_mut(pane_id) {
+            if let Some(ref n) = pane.session_binding_nonce {
+                return n.clone();
+            }
+            let nonce = uuid::Uuid::new_v4().to_string();
+            pane.session_binding_nonce = Some(nonce.clone());
+            nonce
+        } else {
+            uuid::Uuid::new_v4().to_string()
+        }
+    }
+
     /// Set chat view state on a pane.
     pub fn set_chat_view(&self, pane_id: &str, enabled: bool) {
         if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {

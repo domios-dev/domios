@@ -113,6 +113,9 @@ pub struct Pane {
     /// Current model family on the live session ("Opus"/"Sonnet"/"Haiku").
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_session_model: Option<String>,
+    /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this pane.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub session_binding_nonce: Option<String>,
     /// Orchestration role (orchestrator / lead / worker).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,

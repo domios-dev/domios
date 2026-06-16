@@ -518,10 +518,25 @@ module.exports.default = {
       }
       return false;
     }
+    // SessionStart must also carry the binding-nonce header, else it's a pre-nonce hook to force-upgrade.
+    function sessionStartCurrent() {
+      var arr = json.hooks && json.hooks.SessionStart;
+      if (!Array.isArray(arr)) return false;
+      for (var i = 0; i < arr.length; i++) {
+        var hooks = arr[i] && arr[i].hooks;
+        if (!Array.isArray(hooks)) continue;
+        for (var j = 0; j < hooks.length; j++) {
+          var h = hooks[j];
+          if (h && h._source === CODETERM_HOOK_MARKER && typeof h.command === "string"
+              && h.command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1) return true;
+        }
+      }
+      return false;
+    }
     var n = present("Notification");
     var s = present("Stop");
     var pc = present("PreCompact");
-    var ss = present("SessionStart");
+    var ss = sessionStartCurrent();
     return {
       settings_exists: true,
       hooks_installed: n && s && pc && ss,
@@ -544,6 +559,7 @@ module.exports.default = {
     var nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
     var port = apiPort | 0;
     var authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
+    var nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
     var portExpr = "${CODETERM_API_PORT:-" + port + "}";
 
     var notifyCmd = "curl -s -X POST http://localhost:" + portExpr
@@ -558,7 +574,7 @@ module.exports.default = {
       + nullDev + " 2>&1 || true";
     var sessionStartCmd = "curl -s -X POST http://localhost:" + portExpr
       + "/api/panes/$CODETERM_PANE_ID/hook/session_start "
-      + "-H 'Content-Type: application/json' " + authH + " --data-binary @- > "
+      + "-H 'Content-Type: application/json' " + authH + " " + nonceH + " --data-binary @- > "
       + nullDev + " 2>&1 || true";
 
     function newEntry(matcher, cmd, timeout) {

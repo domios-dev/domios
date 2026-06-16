@@ -264,6 +264,10 @@ impl ServiceContext {
         let mut env_vars = HashMap::new();
         env_vars.insert("CODETERM_PANE_ID".into(), pane_id.to_string());
         env_vars.insert(
+            "CODETERM_SESSION_BINDING_NONCE".into(),
+            self.ensure_session_binding_nonce(pane_id),
+        );
+        env_vars.insert(
             "CODETERM_SOCKET_PATH".into(),
             crate::socket::server::socket_display_path(),
         );

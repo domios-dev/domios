@@ -218,6 +218,9 @@ async function report(sessionID, source, directory) {{
     "content-type": "application/json",
     "x-codeterm-agent-provider": PROVIDER_ID,
   }};
+  if (process.env.CODETERM_SESSION_BINDING_NONCE) {{
+    headers["x-codeterm-binding-nonce"] = process.env.CODETERM_SESSION_BINDING_NONCE;
+  }}
   if (process.env.CODETERM_API_TOKEN) {{
     headers.authorization = `Bearer ${{process.env.CODETERM_API_TOKEN}}`;
   }}
