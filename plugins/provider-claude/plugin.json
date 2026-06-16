@@ -20,7 +20,7 @@
       "timeoutSecs": 15,
       "idleAfterDrainMs": 800
     },
-    "sessionIdInjection": "fresh_and_fork",
+    "sessionIdInjection": "none",
     "statusBarRows": 3,
     "preservesContextOnResume": true,
     "supportsLazySkills": true,
