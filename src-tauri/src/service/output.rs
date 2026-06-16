@@ -100,44 +100,68 @@ impl ServiceContext {
                 if in_grace || locked {
                     agent_type
                 } else {
+                    // Debounce window: a still-running TUI can flash a marker-less,
+                    // shell-prompt-looking frame for an instant (a WebView reload /
+                    // resize redraw). Require the prompt to persist this long before
+                    // declaring the agent gone, so one transient frame can't clear it.
+                    const EXIT_DEBOUNCE_SECS: u64 = 2;
                     let screen = self
                         .screen_state
                         .lock()
                         .get_screen_text(pty_id)
                         .unwrap_or_default();
-                    if !screen.is_empty()
+                    let suspected_exit = !screen.is_empty()
                         && self.agent_registry.detect_from_output(&screen).is_none()
-                    {
-                        // Screen has content but no agent markers — check for shell prompt
-                        if let Some(last_line) = screen.lines().rev().find(|l| !l.trim().is_empty())
-                        {
-                            let t = last_line.trim();
-                            if t.ends_with('>')
-                                || t.ends_with('$')
-                                || t.ends_with('%')
-                                || t.ends_with('#')
-                            {
-                                log::info!(
-                                    "[output] agent exited in pane {} (shell prompt detected)",
-                                    pid
-                                );
-                                self.set_pane_agent_type(pid, None);
-                                self.prompt_detector.lock().clear(pid);
-                                {
-                                    let mut mux = self.mux.lock();
-                                    if let Some(pane) = mux.get_pane_mut(pid) {
-                                        pane.pending_prompt = None;
+                        && screen
+                            .lines()
+                            .rev()
+                            .find(|l| !l.trim().is_empty())
+                            .map(|l| {
+                                let t = l.trim();
+                                t.ends_with('>')
+                                    || t.ends_with('$')
+                                    || t.ends_with('%')
+                                    || t.ends_with('#')
+                            })
+                            .unwrap_or(false);
+                    if suspected_exit {
+                        let confirmed = {
+                            let mut mux = self.mux.lock();
+                            match mux.get_pane_mut(pid) {
+                                Some(pane) => match pane.exit_suspected_at {
+                                    Some(since) => since.elapsed().as_secs() >= EXIT_DEBOUNCE_SECS,
+                                    None => {
+                                        pane.exit_suspected_at = Some(std::time::Instant::now());
+                                        false
                                     }
-                                }
-                                self.emit_state_changed();
-                                None
-                            } else {
-                                agent_type
+                                },
+                                None => false,
                             }
+                        };
+                        if confirmed {
+                            log::info!(
+                                "[output] agent exited in pane {} (shell prompt persisted)",
+                                pid
+                            );
+                            self.set_pane_agent_type(pid, None);
+                            self.prompt_detector.lock().clear(pid);
+                            {
+                                let mut mux = self.mux.lock();
+                                if let Some(pane) = mux.get_pane_mut(pid) {
+                                    pane.pending_prompt = None;
+                                    pane.exit_suspected_at = None;
+                                }
+                            }
+                            self.emit_state_changed();
+                            None
                         } else {
                             agent_type
                         }
                     } else {
+                        // Agent markers present (or no shell prompt) — still alive; clear suspicion.
+                        if let Some(pane) = self.mux.lock().get_pane_mut(pid) {
+                            pane.exit_suspected_at = None;
+                        }
                         agent_type
                     }
                 }
