@@ -50,12 +50,20 @@ wait_vm_stable() {
   return 1
 }
 
-if ! vm_ssh_ok; then
-  echo "Windows VM not reachable on :$WIN_PORT — starting $VM_DIR/vm.sh run (on demand)..."
+# Gate the on-demand start on whether a qemu PROCESS is already running, NOT on SSH readiness.
+# vm.sh run is NOT idempotent: start_tpm pkills the existing swtpm and a second qemu collides on
+# the qcow2 lock. If we started it whenever SSH wasn't answering yet, the build-all pre-warm and
+# this script would double-start while the VM is still cold-booting — killing the first VM's TPM
+# (Win11 then never boots) and spamming "Broken pipe". So: start only if no qemu is up; otherwise
+# just wait for the already-booting (pre-warmed, or prior-wave) VM to become stably reachable.
+if pgrep -f qemu-system-aarch64 >/dev/null 2>&1; then
+  echo "Windows VM process already running (pre-warmed / prior wave) — waiting for stable SSH..."
+elif vm_ssh_ok; then
+  echo "Windows VM answering SSH — confirming it is stable before building..."
+else
+  echo "Windows VM not running — starting $VM_DIR/vm.sh run (on demand)..."
   ( cd "$VM_DIR" && nohup ./vm.sh run >/tmp/win-vm-boot.log 2>&1 & ) 2>/dev/null || true
   echo "waiting for Windows SSH to become STABLE (cold boot can take 1-3 min)..."
-else
-  echo "Windows VM answering — confirming it is stable before building..."
 fi
 wait_vm_stable || { echo "::error::Windows VM did not become stably reachable after wait" >&2; exit 1; }
 
