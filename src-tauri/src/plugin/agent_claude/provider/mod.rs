@@ -64,7 +64,8 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn session_id_injection(&self) -> SessionIdInjection {
-        SessionIdInjection::FreshAndFork
+        // Claude Code 2.1.x writes no transcript for a fresh interactive --session-id launch — let it pick its own id, we detect it after launch.
+        SessionIdInjection::None
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
@@ -397,11 +398,12 @@ mod tests {
     }
 
     #[test]
-    fn test_session_id_injection_supported_for_claude() {
+    fn test_claude_does_not_inject_session_id() {
+        // Claude 2.1.x drops the transcript when --session-id is passed to a fresh interactive launch; we detect the id instead.
         let p = ClaudeProvider::new();
         assert_eq!(
             p.session_id_injection(),
-            crate::agent::provider::SessionIdInjection::FreshAndFork
+            crate::agent::provider::SessionIdInjection::None
         );
     }
 
