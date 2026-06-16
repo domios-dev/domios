@@ -142,7 +142,15 @@ pub async fn spawn_pty(
 
     // Auto-resume pane session after shell is ready.
     if let Some(ref pid) = pane_id {
-        let (session_id, is_protected, pane_cwd, restored_from_snapshot, agent_type) = {
+        let (
+            session_id,
+            is_protected,
+            pane_cwd,
+            restored_from_snapshot,
+            agent_type,
+            auto_approve,
+            pane_model,
+        ) = {
             let m = mux_state.lock();
             let pane = m.get_pane(pid);
             (
@@ -151,6 +159,8 @@ pub async fn spawn_pty(
                 pane.and_then(|p| p.cwd.clone()),
                 pane.map(|p| p.restored_from_snapshot).unwrap_or(false),
                 pane.and_then(|p| p.agent_type.clone()),
+                pane.map(|p| p.auto_approve).unwrap_or(true),
+                pane.and_then(|p| p.agent_session_model.clone()),
             )
         };
         let mut should_fresh_launch =
@@ -189,11 +199,24 @@ pub async fn spawn_pty(
                 let pc = crate::config::provider_config(&provider_id);
                 let _ = config_state; // global lock no longer needed for these fields
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
-                let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
+                // Per-pane intent is the source of truth — honor the pane's own auto_approve, gated by the global resume-skip toggle. Restore must reproduce the pane, not global defaults.
+                let skip_perms = auto_approve && pc.resume_skip_permissions.unwrap_or(true);
                 let resume_cmd = svc
                     .agent_registry
                     .with_provider(&provider_id, |p| {
-                        p.build_resume_command(&session_id, skip_perms)
+                        let base = p.build_resume_command(&session_id, skip_perms)?;
+                        // Preserve the pane's model across restart — bare resume otherwise drops it to the provider default.
+                        match pane_model.as_deref().filter(|m| !m.trim().is_empty()) {
+                            Some(m) => {
+                                let margs = p.model_launch_args(m);
+                                Some(if margs.is_empty() {
+                                    base
+                                } else {
+                                    format!("{} {}", base, margs.join(" "))
+                                })
+                            }
+                            None => Some(base),
+                        }
                     })
                     .flatten();
 
@@ -249,10 +272,16 @@ pub async fn spawn_pty(
             // Restored pane without session falls back to fresh launch.
             svc.clear_pane_restored_flag(pid);
             let pc = crate::config::provider_config(&provider_id);
-            let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
+            let skip_perms = auto_approve && pc.resume_skip_permissions.unwrap_or(true);
             let launch_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
+                let args = pane_model
+                    .as_deref()
+                    .filter(|m| !m.trim().is_empty())
+                    .map(|m| p.model_launch_args(m))
+                    .filter(|a| !a.is_empty());
                 p.build_launch_command(&crate::agent::provider::AgentLaunchParams {
                     skip_permissions: skip_perms,
+                    args,
                     ..Default::default()
                 })
             });
