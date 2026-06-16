@@ -80,8 +80,9 @@ pub fn run() {
     // Initialize all shared states
     let states = startup::init_states();
 
-    // Seed bundled skills to ~/.codeterm/skills/ (sync watcher mirrors to providers)
+    // Seed canonical ~/.codeterm/skills/, then mirror into provider dirs agents load from (#178).
     commands::seed_bundled_skills();
+    commands::mirror_skills_to_providers();
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
