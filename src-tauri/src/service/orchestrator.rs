@@ -665,6 +665,34 @@ pub(crate) fn launch_agent_in_background(
         let is_pty_input = matches!(delivery, TaskDelivery::PtyInput);
         if is_pty_input {
             if let Some(ref task_text) = task {
+                // Tag the spawn task with the spawner's origin prefix via the same canonical path as cross-pane sends, so the receiving agent + chat UI attribute it.
+                let delivered = {
+                    let mux = svc.mux.lock();
+                    let src = mux.get_pane(&pane_id).and_then(|p| {
+                        p.spawned_by_pane_id
+                            .clone()
+                            .or_else(|| p.parent_pane_id.clone())
+                    });
+                    match src {
+                        Some(ref src) => {
+                            let label = mux.display_label_for_pane(src);
+                            let model = mux
+                                .get_pane(src)
+                                .and_then(|p| p.agent_session_model.clone());
+                            crate::service::msg_prefix::delivery_prefix(
+                                true,
+                                src,
+                                &pane_id,
+                                &label,
+                                model.as_deref(),
+                                None,
+                            )
+                            .map(|pfx| format!("{}{}", pfx, task_text))
+                        }
+                        None => None,
+                    }
+                };
+                let task_text: &str = delivered.as_deref().unwrap_or(task_text);
                 let warmup = registry
                     .with_provider(&agent_cmd, |p| p.task_input_warmup())
                     .unwrap_or_default();
