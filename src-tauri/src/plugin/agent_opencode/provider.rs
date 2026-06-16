@@ -601,34 +601,6 @@ impl AgentProvider for OpenCodeProvider {
         None
     }
 
-    fn detect_launched_session_id(
-        &self,
-        cwd: &str,
-        _exclude: &[String],
-        _max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-    ) -> Option<String> {
-        if let Some(session_id) = injected_session_id {
-            if self.session_exists(cwd, session_id) {
-                return Some(session_id.to_string());
-            }
-        }
-        None
-    }
-
-    fn detect_started_session(
-        &self,
-        cwd: &str,
-        _exclude: &[String],
-        _max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-        _screen_text: Option<&str>,
-    ) -> Option<String> {
-        injected_session_id
-            .filter(|session_id| self.session_exists(cwd, session_id))
-            .map(ToOwned::to_owned)
-    }
-
     fn build_resume_command(&self, session_id: &str, _skip_permissions: bool) -> Option<String> {
         // Resume is TUI-only; never forward `--dangerously-skip-permissions`.
         let parts = vec![

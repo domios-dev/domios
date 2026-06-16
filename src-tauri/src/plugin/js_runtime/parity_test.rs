@@ -1380,24 +1380,6 @@ mod opencode {
         let active = provider.detect_active_session("/proj/foo", "");
         assert_eq!(active, None);
 
-        // Regression (#52): a pane that launched THIS instant (age_from_launch
-        // rounds to 0ms) must NOT adopt a pre-existing sibling session. opencode
-        // sessions are sqlite-backed (no per-session file), so the birth-time
-        // guard in detect_launched_session_id was skipped and the focused-poller
-        // stole the most-recent session (here ses_new, ~1s old) for a brand-new
-        // pane. The guard must reject any session created before the launch
-        // window even when max_age rounds to zero.
-        let just_launched = provider.detect_launched_session_id(
-            "/proj/foo",
-            &[],
-            Some(std::time::Duration::ZERO),
-            None,
-        );
-        assert_eq!(
-            just_launched, None,
-            "fresh pane (age≈0) must not adopt a pre-existing session, got {just_launched:?}"
-        );
-
         // Cleanup env so other tests aren't affected.
         unsafe {
             std::env::remove_var("XDG_DATA_HOME");

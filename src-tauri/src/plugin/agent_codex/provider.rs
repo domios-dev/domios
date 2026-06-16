@@ -291,46 +291,6 @@ impl AgentProvider for CodexProvider {
         None
     }
 
-    fn detect_launched_session_id(
-        &self,
-        cwd: &str,
-        _exclude: &[String],
-        _max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-    ) -> Option<String> {
-        if let Some(session_id) = injected_session_id {
-            if self.session_exists(cwd, session_id) {
-                return Some(session_id.to_string());
-            }
-        }
-        None
-    }
-
-    fn detect_started_session(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        _max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-        screen_text: Option<&str>,
-    ) -> Option<String> {
-        if let Some(session_id) = injected_session_id {
-            if self.session_exists(cwd, session_id) {
-                return Some(session_id.to_string());
-            }
-        }
-
-        let sid = screen_text.and_then(extract_visible_session_uuid)?;
-        if exclude.iter().any(|claimed| claimed == &sid) {
-            return None;
-        }
-        if self.session_exists(cwd, &sid) {
-            Some(sid)
-        } else {
-            None
-        }
-    }
-
     fn detect_active_session(&self, _cwd: &str, _current_sid: &str) -> Option<String> {
         None
     }
@@ -507,37 +467,6 @@ fn extract_session_uuid(stem: &str) -> Option<&str> {
     } else {
         None
     }
-}
-
-fn extract_visible_session_uuid(text: &str) -> Option<String> {
-    let lower = text.to_ascii_lowercase();
-    let labels = ["session id", "session_id", "session-id"];
-    for label in labels {
-        let mut start = 0;
-        while let Some(pos) = lower[start..].find(label) {
-            let offset = start + pos + label.len();
-            if let Some(uuid) = first_uuid_like(&text[offset..]) {
-                return Some(uuid.to_string());
-            }
-            start = offset;
-        }
-    }
-    None
-}
-
-fn first_uuid_like(text: &str) -> Option<&str> {
-    text.split(|c: char| !(c.is_ascii_hexdigit() || c == '-'))
-        .find(|&token| is_uuid_like(token))
-}
-
-fn is_uuid_like(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() == 36
-        && [8, 13, 18, 23].iter().all(|i| bytes[*i] == b'-')
-        && bytes
-            .iter()
-            .enumerate()
-            .all(|(i, b)| [8, 13, 18, 23].contains(&i) || b.is_ascii_hexdigit())
 }
 
 /// Find a session file by UUID anywhere in the date-based tree.

@@ -512,62 +512,6 @@ impl AgentProvider for JsProvider {
         candidates.into_iter().next().map(|(id, _)| id)
     }
 
-    fn detect_launched_session_id(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-    ) -> Option<String> {
-        if let Some(session_id) = injected_session_id {
-            if self.session_exists(cwd, session_id) {
-                return Some(session_id.to_string());
-            }
-        }
-        let sid = self.detect_session_id(cwd, exclude, max_age)?;
-        // This detector answers "which session did THIS launch create". A foreign
-        // session in the same cwd (e.g. another codeterm instance's agent in the
-        // same repo) is constantly written, so it passes any mtime recency window
-        // and would steal the latch. A file created before our launch window can
-        // never be ours. Unknown birth time → trust the plugin's own filtering.
-        if let Some(age) = max_age {
-            let window_start = std::time::SystemTime::now() - age;
-            // File-based providers read the JSONL birth time; sqlite-backed ones
-            // (opencode) have no session file, so fall back to the provider's
-            // own creation timestamp. Without this a fresh pane polled the
-            // instant its agent type is set (age≈0) steals the most-recent
-            // pre-existing session in the cwd.
-            let created = self
-                .session_file_path(cwd, &sid)
-                .and_then(|p| std::fs::metadata(p).ok())
-                .and_then(|m| m.created().or_else(|_| m.modified()).ok())
-                .or_else(|| self.session_created_at(cwd, &sid));
-            if let Some(ts) = created {
-                if ts <= window_start {
-                    return None;
-                }
-            }
-        }
-        Some(sid)
-    }
-
-    fn detect_started_session(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-        screen_text: Option<&str>,
-    ) -> Option<String> {
-        self.detect_started_session_with_markers(
-            cwd,
-            exclude,
-            max_age,
-            injected_session_id,
-            screen_text,
-        )
-    }
-
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
         // Plugin can enumerate via sqlite, recursive walk, network call, whatever. Falls back to the manifest-driven single-level listing when the
         // plugin doesn't implement `enumerateSessions`.

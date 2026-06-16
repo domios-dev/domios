@@ -430,41 +430,6 @@ mod tests {
     }
 
     #[test]
-    fn detect_launched_session_binds_injected_id_even_with_a_sibling_present() {
-        // Bug B case (i): a SPAWNED pane carries a unique injected --session-id.
-        // Detection must bind THAT identity-bound id, never a sibling sharing the
-        // cwd — proving injected panes are already safe (guard against regressing
-        // the injected short-circuit into a newest-for-cwd guess).
-        let p = super::super::ClaudeProvider::new();
-        let tmp = tempfile::tempdir().unwrap();
-        let cwd = tmp.path().to_string_lossy().to_string();
-        let injected = "injc1111-2222-4333-8444-555566667777";
-        let sibling = "sibd9999-8888-4777-8666-555544443333";
-        let Some(inj_path) = p.session_file_path(&cwd, injected) else {
-            return;
-        };
-        let Some(dir) = inj_path.parent().map(|d| d.to_path_buf()) else {
-            return;
-        };
-        if std::fs::create_dir_all(&dir).is_err() {
-            return;
-        }
-        let sib_path = dir.join(format!("{sibling}.jsonl"));
-        if std::fs::write(&inj_path, "{}\n").is_err() || std::fs::write(&sib_path, "{}\n").is_err()
-        {
-            return;
-        }
-        assert_eq!(
-            p.detect_launched_session_id(&cwd, &[], None, Some(injected))
-                .as_deref(),
-            Some(injected),
-            "a spawned pane must bind its OWN injected id, never a sibling in the cwd",
-        );
-        let _ = std::fs::remove_file(&inj_path);
-        let _ = std::fs::remove_file(&sib_path);
-    }
-
-    #[test]
     fn detect_session_id_refuses_to_guess_when_ambiguous_in_shared_cwd() {
         // Bug B (#25 / W3): сессии перепутаны. When 2+ agents share a cwd and a
         // pane's session is None (restart/resume), the newest-in-cwd guess hands
