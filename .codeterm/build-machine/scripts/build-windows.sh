@@ -24,6 +24,25 @@ SSH="sshpass -e ssh -p $WIN_PORT -o StrictHostKeyChecking=accept-new -o ServerAl
 SCP="sshpass -e scp -P $WIN_PORT -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no"
 
 OUT="${OUT:-/tmp/codeterm-${TAG}-mirror}"; mkdir -p "$OUT"
+
+# Bring the Windows VM up ON DEMAND — start it if it's not already answering SSH, then wait for
+# it to boot. Lets the whole build machine spin the VM up only when a release actually arrives.
+VM_DIR="$HOME/VMs/codeterm-win11-arm"
+vm_ssh_ok() { $SSH "echo ok" 2>/dev/null | grep -q ok; }
+if ! vm_ssh_ok; then
+  echo "Windows VM not reachable on :$WIN_PORT — starting $VM_DIR/vm.sh run (on demand)..."
+  ( cd "$VM_DIR" && nohup ./vm.sh run >/tmp/win-vm-boot.log 2>&1 & ) 2>/dev/null || true
+  echo "waiting for Windows SSH (cold boot can take 1-3 min)..."
+  vmok=""
+  for i in $(seq 1 90); do
+    sleep 5
+    if vm_ssh_ok; then vmok=1; echo "✅ Windows VM SSH ready (~$((i*5))s)"; break; fi
+  done
+  [ -n "$vmok" ] || { echo "::error::Windows VM did not become reachable after wait" >&2; exit 1; }
+else
+  echo "✅ Windows VM already up"
+fi
+
 $SCP "/tmp/codeterm-${TAG}.bundle" "${WIN_SSH}:codeterm-${TAG}.bundle"
 
 $SSH "powershell -NoProfile -Command -" <<PS
