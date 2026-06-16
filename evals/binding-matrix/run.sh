@@ -42,7 +42,13 @@ TRACK="$OUT/tracked.txt"   # one "pane_id provider ws cwd" per line
 : > "$TRACK"
 
 LOG="$HOME/.codeterm-dev/logs/codeterm.log"
-count_mismatch() { [ -f "$LOG" ] && grep "binding nonce mismatch" "$LOG" 2>/dev/null | wc -l | tr -d ' ' || echo 0; }
+# Note: avoid `grep | wc` — under `set -o pipefail` a zero-match grep exits 1,
+# which both prints the count AND trips a trailing `|| echo 0`, yielding "0\n0".
+count_mismatch() {
+  [ -f "$LOG" ] || { echo 0; return; }
+  local n; n=$(grep -c "binding nonce mismatch" "$LOG" 2>/dev/null || true)
+  echo "${n:-0}"
+}
 MISMATCH_BASELINE="$(count_mismatch)"
 
 PASS=0; FAIL=0
