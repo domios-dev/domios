@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use serde_json::Value;
 
@@ -45,9 +45,9 @@ pub fn list() -> Vec<(&'static str, &'static str, &'static str)> {
     entries
 }
 
-pub fn build_active(backend: &str, providers: &HashMap<String, Value>) -> Box<dyn SecretStore> {
+pub fn build_active(backend: &str, providers: &HashMap<String, Value>) -> Arc<dyn SecretStore> {
     let cfg = providers.get(backend).cloned().unwrap_or(Value::Null);
-    match factory(backend) {
+    let built = match factory(backend) {
         Some(f) => f.build(&cfg),
         None => {
             log::warn!(
@@ -58,7 +58,8 @@ pub fn build_active(backend: &str, providers: &HashMap<String, Value>) -> Box<dy
                 .expect("local factory always registered")
                 .build(&Value::Null)
         }
-    }
+    };
+    Arc::from(built)
 }
 
 #[cfg(test)]

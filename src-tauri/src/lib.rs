@@ -32,6 +32,7 @@ pub mod session;
 pub mod shell;
 mod socket;
 mod startup;
+pub mod transcribe;
 pub mod update;
 pub mod usage;
 
@@ -300,6 +301,18 @@ pub fn run() {
             // Bootstrap plugin system — agent-claude is a bundled native plugin
             agent::model_catalog::ensure_readme_installed();
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
+            // Capability registries — populated below as JS plugins load, then
+            // handed to ServiceContext. Transcribe is seeded with the built-in
+            // HTTP engine so voice notes work with no plugin (zero-regression).
+            let secret_registry = Arc::new(crate::secrets::SecretRegistry::new());
+            let transcribe_registry = Arc::new(crate::transcribe::TranscribeRegistry::new());
+            {
+                let voice = states.config.lock().integrations.voice_transcribe.clone();
+                transcribe_registry.register(
+                    crate::transcribe::http_engine::BUILTIN_HTTP_ID,
+                    Arc::new(crate::transcribe::http_engine::HttpEngine::from_config(&voice)),
+                );
+            }
             let mut plugin_manager = plugin::PluginManager::new();
             plugin_manager.set_agent_registry(agent_registry.clone());
             plugin_manager.set_event_broadcaster(states.event_broadcaster.clone());
@@ -356,6 +369,25 @@ pub fn run() {
                     .expect("agent-opencode plugin activation failed");
             }
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
+
+            // Wire the event bus to plugins: previously `dispatch_event` had no
+            // production caller (dead code). Keep the manager alive in the
+            // subscriber task and fan SystemEvents to active plugins' on_event.
+            // Survives broadcast lag; exits only when the bus closes (shutdown).
+            {
+                let plugin_manager = std::sync::Arc::new(plugin_manager);
+                let pm = plugin_manager.clone();
+                let mut sub = states.event_broadcaster.subscribe();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        match sub.recv().await {
+                            Ok(ev) => pm.dispatch_event(&ev),
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        }
+                    }
+                });
+            }
 
             // Extract embedded providers on first run for offline/dev-limited setups.
             // Skip in CODETERM_DEV=1 so workspace sources stay authoritative.
@@ -423,7 +455,42 @@ pub fn run() {
                     let id = p.id().to_string();
                     let version = p.manifest().version.clone();
                     let trust = p.trust();
-                    log::info!("[js-plugin] {id} trust={:?}", trust);
+                    let caps = p.manifest().capabilities.clone();
+                    log::info!(
+                        "[js-plugin] {id} trust={:?} caps(agent={} secret={} transcribe={})",
+                        trust,
+                        caps.agent_provider,
+                        caps.secret_backend,
+                        caps.transcriber
+                    );
+
+                    // Capability adapters share the plugin's VM. A capability-only
+                    // plugin (agent_provider=false) is NOT registered as an agent.
+                    if caps.transcriber {
+                        transcribe_registry.register(
+                            id.clone(),
+                            Arc::new(plugin::js_runtime::JsTranscriber::new(
+                                p.vm().clone(),
+                                id.clone(),
+                            )),
+                        );
+                        log::info!("[js-plugin] {id} registered as transcriber");
+                    }
+                    if caps.secret_backend {
+                        secret_registry.register(
+                            id.clone(),
+                            Arc::new(plugin::js_runtime::JsSecretBackend::new(
+                                p.vm().clone(),
+                                &id,
+                            )),
+                        );
+                        log::info!("[js-plugin] {id} registered as secret backend");
+                    }
+                    if !caps.agent_provider {
+                        plugin::audit::append_daemon_reloaded(&id, &version);
+                        continue;
+                    }
+
                     if keep_all_native || keep_native.contains(&id) {
                         if !agent_registry.register_provider_if_absent(Box::new(p)) {
                             log::info!(
@@ -527,12 +594,14 @@ pub fn run() {
                     crate::paths::data_dir().join("delayed_send.json"),
                 )
                 .expect("delayed_send init"),
+                secret_registry: secret_registry.clone(),
                 secrets: {
                     let cfg_guard = states.config.lock();
                     let cfg = cfg_guard.integrations.secrets.clone();
                     drop(cfg_guard);
-                    crate::secrets::new_state(&cfg)
+                    crate::secrets::new_state(&cfg, &secret_registry)
                 },
+                transcribe_registry: transcribe_registry.clone(),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(
                     crate::service::store::ServicesStore::open(

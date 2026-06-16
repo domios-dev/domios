@@ -8,6 +8,7 @@ import { NotificationToastContainer } from "./components/Notifications/Notificat
 import { SettingsPanel, type SectionId } from "./components/Settings/SettingsPanel";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
+import { ExtensionsView } from "./components/Extensions/ExtensionsView";
 import { GitPanel } from "./components/GitPanel/GitPanel";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
@@ -125,7 +126,7 @@ function AppInner() {
     transition: "opacity 200ms ease",
   });
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
-  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "git">("workspace");
+  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "git" | "extensions">("workspace");
   const [gitRepoCwd, setGitRepoCwd] = useState<string | null>(null);
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
@@ -134,12 +135,14 @@ function AppInner() {
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
   const [mountedGit, setMountedGit] = useState(false);
+  const [mountedExtensions, setMountedExtensions] = useState(false);
   const [mountedTabIds, setMountedTabIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
     if (mainView === "mesh") setMountedMesh(true);
     if (mainView === "git") setMountedGit(true);
+    if (mainView === "extensions") setMountedExtensions(true);
   }, [mainView]);
   const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
@@ -165,6 +168,13 @@ function AppInner() {
   const openGit = useCallback((repoRoot: string) => {
     setGitRepoCwd(repoRoot);
     setMainView("git");
+  }, []);
+  const setExtensionsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
+    setMainView((cur) => {
+      const wasOpen = cur === "extensions";
+      const open = typeof next === "function" ? next(wasOpen) : next;
+      return open ? "extensions" : "workspace";
+    });
   }, []);
   // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
   const { config, updateConfig, theme } = useConfig();
@@ -598,6 +608,7 @@ function AppInner() {
           onNewTab={handleNewTab}
           theme={stableTheme}
           onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
+          onOpenExtensions={() => { setExtensionsOpen(true); }}
         />
       )}
       {/* Status-bar scrim: content sliding under the notch fogs into the bg color + a soft blur, fading to clear below. */}
@@ -655,6 +666,7 @@ function AppInner() {
                 onOpenSettings={() => { setSettingsOpen(true); closeSidebarOnMobile(); }}
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
                 onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
+                onOpenExtensions={() => { setExtensionsOpen(true); closeSidebarOnMobile(); }}
                 onNavigateToTab={() => { setMainView("workspace"); closeSidebarOnMobile(); }}
                 mainView={mainView}
                 config={config}
@@ -716,6 +728,11 @@ function AppInner() {
                 cwd={gitRepoCwd}
                 onClose={() => setMainView("workspace")}
               />
+            </div>
+          )}
+          {mountedExtensions && (
+            <div className="absolute inset-0" style={viewLayerStyle(mainView === "extensions")}>
+              <ExtensionsView visible={mainView === "extensions"} />
             </div>
           )}
           {state.workspaces.length > 0 ? (

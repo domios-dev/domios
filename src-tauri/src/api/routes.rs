@@ -547,6 +547,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/workers/{id}/log", get(mem_routes::workers_log))
         .route("/api/mem/sync", post(mem_routes::mem_sync))
         .route("/api/mem/sync/status", get(mem_routes::mem_sync_status))
+        .route("/api/plugins/snapshot", get(web_routes::plugin_snapshot))
+        .route("/api/plugins/action", post(web_routes::plugin_action))
         .route("/api/secrets/status", get(crate::secrets::api::status))
         .route("/api/secrets/unlock", post(crate::secrets::api::unlock))
         .route("/api/secrets/lock", post(crate::secrets::api::lock))

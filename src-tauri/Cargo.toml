@@ -64,7 +64,6 @@ ulid = "1"
 async-trait = "0.1"
 zeroize = { version = "1", features = ["zeroize_derive"] }
 which = "7"
-keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native-sync-persistent", "sync-secret-service"], optional = true }
 sqlite-vec = { version = "0.1.9", optional = true }
 fastembed = { version = "5", optional = true }
 ndarray = { version = "0.17", optional = true }
@@ -81,10 +80,6 @@ default = ["embeddings"]
 # link time. Declared in the macOS target section below.
 embeddings = ["dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
 dev-updater-allowlocal = []
-# OS-keychain persistence for the secret-store layer (macOS Security
-# framework, Windows Credential Manager, Linux libsecret). Disable for
-# headless Linux builds without libsecret.
-secrets-keyring = ["dep:keyring"]
 
 # macOS uses the system Accelerate framework for the annembed LAPACK path.
 [target.'cfg(target_os = "macos")'.dependencies]

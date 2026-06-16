@@ -1,0 +1,22 @@
+{
+  "id": "transcriber",
+  "version": "0.1.0",
+  "minCodeterm": "1.0.0",
+  "hostApi": 2,
+  "displayName": "Transcriber",
+  "iconHint": "\ud83c\udf99",
+  "iconColor": "var(--ct-accent)",
+  "entry": "plugin.js",
+  "capabilities": {
+    "transcriber": true
+  },
+  "permissions": {
+    "network": {
+      "allow": [
+        "127.0.0.1:7891"
+      ]
+    },
+    "secrets": true
+  },
+  "settingsSchema": "settings.schema.json"
+}

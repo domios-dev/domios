@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 use serde_json::json;
 
-use crate::secrets::keychain::{Keychain, KeychainError};
+use crate::secrets::secret_file::{SecretFile, SecretFileError};
 use crate::secrets::{
     ListFilter, SaveRequest, SecretError, SecretStore, SecretString, StoreStatus, UnlockCredentials,
 };
@@ -79,7 +79,7 @@ fn build_store(responses: Vec<BwResponse>) -> (Arc<BitwardenStore>, Arc<Scripted
     let mut responses = responses;
     responses.reverse();
     let exec = Arc::new(ScriptedExec::new(responses));
-    let kc = Keychain::in_memory("test");
+    let kc = SecretFile::in_memory("test");
     let store = Arc::new(BitwardenStore::new(exec.clone(), kc));
     (store, exec)
 }
@@ -208,7 +208,7 @@ async fn unlock_api_key_flow_persists_creds() {
         })
         .await
         .unwrap();
-    // Keychain is in-memory; ensure both api creds got persisted.
+    // SecretFile is in-memory; ensure both api creds got persisted.
     assert_eq!(
         store.keychain.get(BW_KEYRING_API_CLIENT_ID).unwrap(),
         "client-id"
@@ -415,7 +415,7 @@ fn is_valid_http_url_rejects_garbage() {
 
 #[tokio::test]
 async fn set_server_url_returns_true_on_change_only() {
-    let store = BitwardenStore::new(Arc::new(NoopBwExec), Keychain::in_memory("t"));
+    let store = BitwardenStore::new(Arc::new(NoopBwExec), SecretFile::in_memory("t"));
     assert!(store.set_server_url("https://example.com".into()));
     assert!(!store.set_server_url("https://example.com".into()));
     assert!(store.set_server_url("https://other.com".into()));
@@ -548,7 +548,7 @@ async fn unlock_forces_logout_when_server_changed() {
 
 #[tokio::test]
 async fn unlock_rejects_invalid_server_url() {
-    let store = BitwardenStore::new(Arc::new(NoopBwExec), Keychain::in_memory("t"));
+    let store = BitwardenStore::new(Arc::new(NoopBwExec), SecretFile::in_memory("t"));
     store.set_server_url("ftp://bad".into());
     let err = store
         .unlock(UnlockCredentials::with_password(SecretString::from("pw")))
@@ -653,10 +653,10 @@ async fn logout_clears_session_and_keyring() {
     assert!(store.session.read().await.is_none());
     assert!(matches!(
         store.keychain.get(BW_KEYRING_SESSION),
-        Err(KeychainError::NotFound)
+        Err(SecretFileError::NotFound)
     ));
     assert!(matches!(
         store.keychain.get(BW_KEYRING_API_CLIENT_ID),
-        Err(KeychainError::NotFound)
+        Err(SecretFileError::NotFound)
     ));
 }

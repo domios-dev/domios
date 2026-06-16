@@ -12,7 +12,7 @@
 pub mod api;
 pub mod bitwarden;
 pub mod factory;
-pub mod keychain;
+pub mod secret_file;
 pub mod local;
 pub mod mock;
 
@@ -319,13 +319,26 @@ pub trait SecretStore: Send + Sync {
 }
 
 /// Shared handle held in `ServiceContext.secrets`. The `RwLock` lets us swap
-/// the inner box atomically when the user changes backend in Settings.
-pub type SecretStoreState = std::sync::Arc<RwLock<Box<dyn SecretStore>>>;
+/// the active store atomically when the user changes backend in Settings. It is
+/// an `Arc<dyn SecretStore>` (not `Box`) so a plugin-contributed instance from
+/// the [`SecretRegistry`] can occupy the slot without being rebuilt (gap G8).
+pub type SecretStoreState = std::sync::Arc<RwLock<std::sync::Arc<dyn SecretStore>>>;
 
-/// Build the active backend from a full config snapshot. Each factory
-/// extracts its own typed slice (`SecretsConfig.bitwarden` etc.) — callers
-/// don't need to know which fields belong to which backend.
-pub fn build_active_store(cfg: &crate::config::schema::SecretsConfig) -> Box<dyn SecretStore> {
+/// Runtime registry of plugin-contributed secret backends, keyed by id. A
+/// plugin (e.g. Bitwarden) registers a ready instance here on activate;
+/// `build_active_store` prefers it over the built-in factory.
+pub type SecretRegistry = crate::plugin::capability::CapabilityRegistry<dyn SecretStore>;
+
+/// Build the active backend from a full config snapshot. Prefers a plugin
+/// instance registered under `cfg.backend`; otherwise builds a built-in via the
+/// factory (which extracts its own typed config slice).
+pub fn build_active_store(
+    cfg: &crate::config::schema::SecretsConfig,
+    registry: &SecretRegistry,
+) -> std::sync::Arc<dyn SecretStore> {
+    if let Some(instance) = registry.get(&cfg.backend) {
+        return instance;
+    }
     let provider_cfg = provider_config_for(cfg);
     factory::build_active(&cfg.backend, &provider_cfg)
 }
@@ -341,9 +354,12 @@ fn provider_config_for(
     map
 }
 
-/// Build the initial `SecretStoreState` from current config.
-pub fn new_state(cfg: &crate::config::schema::SecretsConfig) -> SecretStoreState {
-    std::sync::Arc::new(RwLock::new(build_active_store(cfg)))
+/// Build the initial `SecretStoreState` from current config + plugin registry.
+pub fn new_state(
+    cfg: &crate::config::schema::SecretsConfig,
+    registry: &SecretRegistry,
+) -> SecretStoreState {
+    std::sync::Arc::new(RwLock::new(build_active_store(cfg, registry)))
 }
 
 /// Validate a secret name — used by every adapter to keep behaviour uniform.
@@ -426,24 +442,49 @@ mod tests {
         }
     }
 
+    fn empty_registry() -> SecretRegistry {
+        SecretRegistry::new()
+    }
+
     #[test]
     fn build_active_store_falls_back_to_local_for_unknown_backend() {
-        assert_eq!(build_active_store(&cfg_with("garbage")).id(), "local");
+        assert_eq!(
+            build_active_store(&cfg_with("garbage"), &empty_registry()).id(),
+            "local"
+        );
     }
 
     #[test]
     fn build_active_store_bitwarden_returns_real_adapter() {
-        assert_eq!(build_active_store(&cfg_with("bitwarden")).id(), "bitwarden");
+        assert_eq!(
+            build_active_store(&cfg_with("bitwarden"), &empty_registry()).id(),
+            "bitwarden"
+        );
     }
 
     #[test]
     fn build_active_store_local_is_default() {
-        assert_eq!(build_active_store(&cfg_with("local")).id(), "local");
+        assert_eq!(
+            build_active_store(&cfg_with("local"), &empty_registry()).id(),
+            "local"
+        );
     }
 
     #[test]
     fn build_active_store_mock_still_available_for_tests() {
-        assert_eq!(build_active_store(&cfg_with("mock")).id(), "mock");
+        assert_eq!(
+            build_active_store(&cfg_with("mock"), &empty_registry()).id(),
+            "mock"
+        );
+    }
+
+    #[test]
+    fn build_active_store_prefers_registered_plugin_instance() {
+        let reg = SecretRegistry::new();
+        reg.register("bitwarden", std::sync::Arc::new(mock::MockStore::default()));
+        // Even though a native bitwarden factory exists, the registered instance wins.
+        let store = build_active_store(&cfg_with("bitwarden"), &reg);
+        assert_eq!(store.id(), mock::MockStore::default().id());
     }
 
     struct GetOnlyStore {

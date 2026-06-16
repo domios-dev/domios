@@ -37,6 +37,9 @@ const s = (args: Args, key: string): string => String(args[key] ?? "");
 
 /** Commands with a meaningful HTTP equivalent. */
 const HTTP_MAP: Record<string, Mapper> = {
+  // ── extensions / plugins (web-mirror parity) ──
+  plugin_manager_snapshot: () => webJson("GET", "/api/plugins/snapshot"),
+  plugin_manager_action: (a) => webJson("POST", "/api/plugins/action", a.action),
   // ── config ──
   get_config: () => webJson("GET", "/api/config"),
   // PATCH: the route has no POST; the handler merges top-level keys, so the full config object works as a partial.

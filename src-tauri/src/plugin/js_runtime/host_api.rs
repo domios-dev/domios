@@ -32,7 +32,7 @@
 /// skipped at load (`loader::validate_conformance`) instead of being registered
 /// against an interface they don't conform to (#16). Bump on any
 /// breaking change to the host surface or the `AgentProvider` capability set.
-pub const HOST_API_VERSION: u32 = 1;
+pub const HOST_API_VERSION: u32 = 2;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -55,6 +55,19 @@ pub(super) struct PluginSandbox {
     unrestricted: bool,
     read_roots: Vec<PathBuf>,
     write_roots: Vec<PathBuf>,
+    /// Plugin id — used to namespace the per-plugin secret bucket. Always set by
+    /// the loader (even for unrestricted plugins) so `host.secret*` is isolated.
+    plugin_id: String,
+    /// `host.exec` binary allowlist (host_api v2). Empty unless declared.
+    exec_allow: Vec<String>,
+    /// `host.fetch` host allowlist (host_api v2). Empty unless declared.
+    net_allow: Vec<String>,
+    /// Whether `host.secret*` is permitted.
+    secrets_allowed: bool,
+    /// The plugin's own settings blob (`config.plugins.<id>`), as JSON. Returned
+    /// by `host.settingsJson()` so a plugin reads its user-configured settings
+    /// instead of env hacks. Defaults to `"null"`.
+    settings_json: String,
 }
 
 impl PluginSandbox {
@@ -64,6 +77,11 @@ impl PluginSandbox {
             unrestricted: true,
             read_roots: Vec::new(),
             write_roots: Vec::new(),
+            plugin_id: String::new(),
+            exec_allow: Vec::new(),
+            net_allow: Vec::new(),
+            secrets_allowed: true,
+            settings_json: "null".to_string(),
         }
     }
 
@@ -72,7 +90,66 @@ impl PluginSandbox {
             unrestricted: false,
             read_roots,
             write_roots,
+            plugin_id: String::new(),
+            exec_allow: Vec::new(),
+            net_allow: Vec::new(),
+            secrets_allowed: false,
+            settings_json: "null".to_string(),
         }
+    }
+
+    /// Stamp the plugin identity + declared host_api-v2 permissions onto a base
+    /// sandbox. Unrestricted plugins keep full exec/net/secrets; restricted ones
+    /// get exactly what their manifest declares.
+    pub(super) fn with_identity_and_perms(
+        mut self,
+        plugin_id: &str,
+        exec_allow: Vec<String>,
+        net_allow: Vec<String>,
+        secrets: bool,
+    ) -> Self {
+        self.plugin_id = plugin_id.to_string();
+        self.exec_allow = exec_allow;
+        self.net_allow = net_allow;
+        self.secrets_allowed = self.unrestricted || secrets;
+        self
+    }
+
+    pub(super) fn plugin_id(&self) -> &str {
+        &self.plugin_id
+    }
+
+    /// May the plugin run `bin` via `host.exec`?
+    pub(super) fn can_exec(&self, bin: &str) -> bool {
+        self.unrestricted || self.exec_allow.iter().any(|b| b == bin)
+    }
+
+    /// May the plugin reach `host` (host or `host:port`) via `host.fetch`?
+    pub(super) fn can_reach(&self, host: &str) -> bool {
+        if self.unrestricted {
+            return true;
+        }
+        let host = host.trim();
+        self.net_allow.iter().any(|allowed| {
+            allowed == host
+                // allow `host` to match an `host:port` rule and vice-versa
+                || host.split(':').next() == Some(allowed.as_str())
+                || allowed.split(':').next() == Some(host)
+        })
+    }
+
+    pub(super) fn secrets_allowed(&self) -> bool {
+        self.secrets_allowed
+    }
+
+    /// Attach the plugin's settings blob (`config.plugins.<id>` as JSON).
+    pub(super) fn with_settings(mut self, settings_json: String) -> Self {
+        self.settings_json = settings_json;
+        self
+    }
+
+    pub(super) fn settings_json(&self) -> &str {
+        &self.settings_json
     }
 
     fn path_under(roots: &[PathBuf], path: &str) -> bool {
@@ -281,6 +358,53 @@ pub(super) fn install(
             "error" => log::error!("[plugin] {msg}"),
             _ => log::info!("[plugin] {msg}"),
         }
+    });
+
+    // ── host_api v2: subprocess / network / per-plugin secrets ──────
+    // Each is gated by the manifest permission baked into the sandbox.
+    let sb = sandbox.clone();
+    bind!("settingsJson", move || -> String { sb.settings_json().to_string() });
+
+    let sb = sandbox.clone();
+    bind!("exec", move |opts_json: String| -> String {
+        let bin = super::host_exec::bin_of(&opts_json).unwrap_or_default();
+        if !sb.can_exec(&bin) {
+            log::warn!("[plugin] denied exec({bin}) — not in subprocess.allow");
+            return serde_json::json!({ "error": format!("exec denied: {bin}") }).to_string();
+        }
+        super::host_exec::run(&opts_json)
+    });
+
+    let sb = sandbox.clone();
+    bind!("fetch", move |opts_json: String| -> String {
+        let host = super::host_net::host_of(&opts_json).unwrap_or_default();
+        if !sb.can_reach(&host) {
+            log::warn!("[plugin] denied fetch({host}) — not in network.allow");
+            return serde_json::json!({ "error": format!("fetch denied: {host}") }).to_string();
+        }
+        super::host_net::run(&opts_json)
+    });
+
+    let sb = sandbox.clone();
+    bind!("secretGet", move |name: String| -> Option<String> {
+        if !sb.secrets_allowed() {
+            return None;
+        }
+        super::host_secret::get(sb.plugin_id(), &name)
+    });
+    let sb = sandbox.clone();
+    bind!("secretSet", move |name: String, value: String| -> bool {
+        if !sb.secrets_allowed() {
+            return false;
+        }
+        super::host_secret::set(sb.plugin_id(), &name, &value)
+    });
+    let sb = sandbox.clone();
+    bind!("secretDelete", move |name: String| -> bool {
+        if !sb.secrets_allowed() {
+            return false;
+        }
+        super::host_secret::delete(sb.plugin_id(), &name)
     });
 
     ctx.globals()
@@ -523,6 +647,48 @@ mod tests {
         assert!(!sb.can_env("AWS_SECRET_ACCESS_KEY"));
         assert!(!sb.can_env("ANTHROPIC_API_KEY"));
         assert!(!sb.can_env("GITHUB_PASSWORD"));
+    }
+
+    #[test]
+    fn host_api_v2_gating_by_allowlist() {
+        // Restricted plugin with a narrow grant.
+        let sb = PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms(
+            "myplug",
+            vec!["bw".into()],
+            vec!["127.0.0.1:7891".into()],
+            true,
+        );
+        assert_eq!(sb.plugin_id(), "myplug");
+        // exec: only the allowlisted binary.
+        assert!(sb.can_exec("bw"));
+        assert!(!sb.can_exec("rm"));
+        // fetch: host or host:port both match the rule.
+        assert!(sb.can_reach("127.0.0.1:7891"));
+        assert!(sb.can_reach("127.0.0.1"));
+        assert!(!sb.can_reach("evil.example.com"));
+        assert!(sb.secrets_allowed());
+
+        // Restricted plugin with NO grants → everything denied.
+        let none =
+            PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms("p2", vec![], vec![], false);
+        assert!(!none.can_exec("bw"));
+        assert!(!none.can_reach("127.0.0.1:7891"));
+        assert!(!none.secrets_allowed());
+
+        // Unrestricted (bundled/dev) → everything allowed regardless of lists.
+        let full = PluginSandbox::unrestricted().with_identity_and_perms("sys", vec![], vec![], false);
+        assert!(full.can_exec("anything"));
+        assert!(full.can_reach("anywhere"));
+        assert!(full.secrets_allowed());
+        assert_eq!(full.plugin_id(), "sys");
+    }
+
+    #[test]
+    fn host_settings_json_carries_plugin_config() {
+        let sb = PluginSandbox::unrestricted().with_settings(r#"{"engine":"local"}"#.to_string());
+        assert_eq!(sb.settings_json(), r#"{"engine":"local"}"#);
+        // default is the JSON null literal so JSON.parse() in the plugin succeeds.
+        assert_eq!(PluginSandbox::unrestricted().settings_json(), "null");
     }
 
     #[test]

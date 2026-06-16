@@ -596,11 +596,42 @@ pub async fn transcribe_voice(
     Json(body): Json<TranscribeVoiceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let cfg = crate::config::load_config().integrations.voice_transcribe;
-    let line =
-        crate::bridge::voice_transcribe::format_attachment_line(&body.path, "voice", None, &cfg)
-            .await;
+    let active = crate::config::load_config()
+        .integrations
+        .voice_transcribe
+        .active;
+    let line = crate::bridge::voice_transcribe::format_attachment_line(
+        &body.path,
+        "voice",
+        None,
+        &state.svc.transcribe_registry,
+        &active,
+    )
+    .await;
     Ok(Json(serde_json::json!({ "line": line })))
+}
+
+/// Web-mirror twin of the `plugin_manager_snapshot` Tauri command.
+pub async fn plugin_snapshot(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    crate::commands::plugins::snapshot()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+/// Web-mirror twin of the `plugin_manager_action` Tauri command.
+pub async fn plugin_action(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(action): Json<crate::commands::plugins::PluginManagerAction>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    crate::commands::plugins::run_action(action)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
 pub async fn chat_raw_stop(

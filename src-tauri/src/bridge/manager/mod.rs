@@ -555,26 +555,32 @@ async fn send_media(
 
 /// Build the paste body for an inbound message, transcribing voice
 /// attachments inline when enabled. Pure async — no PTY/lock access.
-pub async fn build_message_body(msg: &InboundMessage, voice_cfg: &VoiceTranscribeConfig) -> String {
+pub async fn build_message_body(
+    msg: &InboundMessage,
+    transcribers: &crate::transcribe::TranscribeRegistry,
+    active_id: &str,
+) -> String {
     let mut parts = Vec::new();
     if !msg.text.is_empty() {
         parts.push(msg.text.clone());
     }
     for att in &msg.attachments {
-        parts.push(format_attachment_line(att, voice_cfg).await);
+        parts.push(format_attachment_line(att, transcribers, active_id).await);
     }
     parts.join("\n")
 }
 
 async fn format_attachment_line(
     att: &InboundAttachment,
-    voice_cfg: &VoiceTranscribeConfig,
+    transcribers: &crate::transcribe::TranscribeRegistry,
+    active_id: &str,
 ) -> String {
     voice_transcribe::format_attachment_line(
         &att.path,
         &att.kind,
         att.filename.as_deref(),
-        voice_cfg,
+        transcribers,
+        active_id,
     )
     .await
 }
@@ -697,7 +703,7 @@ async fn inject_message(
         (pid, at)
     };
 
-    let body = build_message_body(msg, voice_cfg).await;
+    let body = build_message_body(msg, &svc.transcribe_registry, &voice_cfg.active).await;
 
     let body = match run_pre_forward_hook(svc, msg, &pane_id, &body, text_hooks_cfg).await {
         HookOutcome::Forward => body,

@@ -47,8 +47,8 @@ pub(super) const BW_KEYRING_MASTER_PASSWORD: &str = "master_password";
 /// Default Bitwarden server URL — public hosted vault.
 pub const DEFAULT_BW_SERVER: &str = "https://vault.bitwarden.com";
 
-fn master_password_store() -> crate::secrets::keychain::Keychain {
-    crate::secrets::keychain::Keychain::new(BW_KEYRING_SERVICE)
+fn master_password_store() -> crate::secrets::secret_file::SecretFile {
+    crate::secrets::secret_file::SecretFile::new(BW_KEYRING_SERVICE)
 }
 
 /// Legacy plain-file master password path used before v1.4.4. Kept only for

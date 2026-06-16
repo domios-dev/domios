@@ -1,4 +1,4 @@
-//! File-backed secret persistence. Kept behind the historical `Keychain` type
+//! File-backed secret persistence. Kept behind the historical `SecretFile` type
 //! name so callers do not know whether the bytes are stored in an OS vault or
 //! in CodeTerm's own local file. The production backend is intentionally a
 //! single `~/.codeterm/.secrets` JSON file with 0600 permissions; OS keychains
@@ -9,23 +9,23 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 #[derive(Debug, Clone)]
-pub enum KeychainError {
+pub enum SecretFileError {
     Unavailable(String),
     NotFound,
     Other(String),
 }
 
-impl std::fmt::Display for KeychainError {
+impl std::fmt::Display for SecretFileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            KeychainError::Unavailable(reason) => write!(f, "keychain unavailable: {}", reason),
-            KeychainError::NotFound => write!(f, "keychain entry not found"),
-            KeychainError::Other(msg) => write!(f, "keychain error: {}", msg),
+            SecretFileError::Unavailable(reason) => write!(f, "keychain unavailable: {}", reason),
+            SecretFileError::NotFound => write!(f, "keychain entry not found"),
+            SecretFileError::Other(msg) => write!(f, "keychain error: {}", msg),
         }
     }
 }
 
-impl std::error::Error for KeychainError {}
+impl std::error::Error for SecretFileError {}
 
 /// In-memory shadow of stored values. Used both as the only storage for
 /// the in-memory variant and as a write-through cache for the OS-backed
@@ -46,15 +46,15 @@ enum Backend {
 }
 
 #[derive(Clone)]
-pub struct Keychain {
+pub struct SecretFile {
     backend: Backend,
     shadow: Shadow,
     available: bool,
 }
 
-impl Keychain {
+impl SecretFile {
     /// Build the local file-backed store. This never probes or touches an OS
-    /// keychain, so app startup cannot trigger macOS Keychain prompts.
+    /// keychain, so app startup cannot trigger macOS SecretFile prompts.
     pub fn new(service: &str) -> Self {
         Self::file_inner(service)
     }
@@ -110,7 +110,7 @@ impl Keychain {
         }
     }
 
-    pub fn set(&self, account: &str, value: &str) -> Result<(), KeychainError> {
+    pub fn set(&self, account: &str, value: &str) -> Result<(), SecretFileError> {
         self.shadow
             .lock()
             .insert(account.to_string(), value.to_string());
@@ -122,7 +122,7 @@ impl Keychain {
         }
     }
 
-    pub fn get(&self, account: &str) -> Result<String, KeychainError> {
+    pub fn get(&self, account: &str) -> Result<String, SecretFileError> {
         if let Some(v) = self.shadow.lock().get(account).cloned() {
             return Ok(v);
         }
@@ -132,11 +132,11 @@ impl Keychain {
                 self.shadow.lock().insert(account.to_string(), v.clone());
                 Ok(v)
             }
-            Backend::InMemory { .. } => Err(KeychainError::NotFound),
+            Backend::InMemory { .. } => Err(SecretFileError::NotFound),
         }
     }
 
-    pub fn delete(&self, account: &str) -> Result<(), KeychainError> {
+    pub fn delete(&self, account: &str) -> Result<(), SecretFileError> {
         self.shadow.lock().remove(account);
         match &self.backend {
             Backend::File { path, service } => {
@@ -149,12 +149,12 @@ impl Keychain {
 
 /// Read one account from a file-backed keychain. Each service maps to a
 /// JSON object `{<account>: <value>, ...}`.
-fn read_file_entry(path: &std::path::Path, account: &str) -> Result<String, KeychainError> {
+fn read_file_entry(path: &std::path::Path, account: &str) -> Result<String, SecretFileError> {
     let raw = match std::fs::read_to_string(path) {
         Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(KeychainError::NotFound),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(SecretFileError::NotFound),
         Err(e) => {
-            return Err(KeychainError::Other(format!(
+            return Err(SecretFileError::Other(format!(
                 "read {}: {}",
                 path.display(),
                 e
@@ -162,11 +162,11 @@ fn read_file_entry(path: &std::path::Path, account: &str) -> Result<String, Keyc
         }
     };
     if raw.trim().is_empty() {
-        return Err(KeychainError::NotFound);
+        return Err(SecretFileError::NotFound);
     }
     let map: std::collections::HashMap<String, String> = serde_json::from_str(&raw)
-        .map_err(|e| KeychainError::Other(format!("parse {}: {}", path.display(), e)))?;
-    map.get(account).cloned().ok_or(KeychainError::NotFound)
+        .map_err(|e| SecretFileError::Other(format!("parse {}: {}", path.display(), e)))?;
+    map.get(account).cloned().ok_or(SecretFileError::NotFound)
 }
 
 /// Write or remove an account in a file-backed keychain. Atomic rename
@@ -176,10 +176,10 @@ fn write_file_entry(
     path: &std::path::Path,
     account: &str,
     value: Option<&str>,
-) -> Result<(), KeychainError> {
+) -> Result<(), SecretFileError> {
     let mut map: std::collections::HashMap<String, String> = match std::fs::read_to_string(path) {
         Ok(s) if !s.trim().is_empty() => serde_json::from_str(&s)
-            .map_err(|e| KeychainError::Other(format!("parse {}: {}", path.display(), e)))?,
+            .map_err(|e| SecretFileError::Other(format!("parse {}: {}", path.display(), e)))?,
         _ => std::collections::HashMap::new(),
     };
     match value {
@@ -191,13 +191,13 @@ fn write_file_entry(
         }
     }
     let body = serde_json::to_string(&map)
-        .map_err(|e| KeychainError::Other(format!("encode keychain file: {}", e)))?;
+        .map_err(|e| SecretFileError::Other(format!("encode keychain file: {}", e)))?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, body)
-        .map_err(|e| KeychainError::Other(format!("write {}: {}", tmp.display(), e)))?;
+        .map_err(|e| SecretFileError::Other(format!("write {}: {}", tmp.display(), e)))?;
     restrict_file_permissions(&tmp);
     std::fs::rename(&tmp, path)
-        .map_err(|e| KeychainError::Other(format!("rename {}: {}", path.display(), e)))?;
+        .map_err(|e| SecretFileError::Other(format!("rename {}: {}", path.display(), e)))?;
     Ok(())
 }
 
@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn in_memory_round_trip() {
-        let kc = Keychain::in_memory("test");
+        let kc = SecretFile::in_memory("test");
         assert!(!kc.is_available());
         assert_eq!(kc.availability_reason(), Some("test"));
 
@@ -286,7 +286,7 @@ mod tests {
         assert_eq!(kc.get("foo").unwrap(), "bar");
 
         kc.delete("foo").unwrap();
-        assert!(matches!(kc.get("foo"), Err(KeychainError::NotFound)));
+        assert!(matches!(kc.get("foo"), Err(SecretFileError::NotFound)));
 
         // Delete is idempotent.
         kc.delete("foo").unwrap();
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn in_memory_overwrite_is_last_write_wins() {
-        let kc = Keychain::in_memory("test");
+        let kc = SecretFile::in_memory("test");
         kc.set("k", "v1").unwrap();
         kc.set("k", "v2").unwrap();
         assert_eq!(kc.get("k").unwrap(), "v2");

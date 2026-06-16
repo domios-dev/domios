@@ -253,7 +253,18 @@ fn enabled_cfg(url: &str) -> VoiceTranscribeConfig {
         language: String::new(),
         fallback_raw_on_error: true,
         health_check_ttl_secs: 60,
+        active: "builtin-http".into(),
     }
+}
+
+/// Build a transcribe registry holding the built-in HTTP engine from `cfg`.
+fn registry_for(cfg: &VoiceTranscribeConfig) -> crate::transcribe::TranscribeRegistry {
+    let reg = crate::transcribe::TranscribeRegistry::new();
+    reg.register(
+        crate::transcribe::http_engine::BUILTIN_HTTP_ID,
+        std::sync::Arc::new(crate::transcribe::http_engine::HttpEngine::from_config(cfg)),
+    );
+    reg
 }
 
 async fn spawn_transcribe_server(
@@ -292,7 +303,7 @@ async fn body_includes_transcript_and_file_uri() {
     let (addr, stop, handle) = spawn_transcribe_server("привет мир").await;
     let cfg = enabled_cfg(&format!("http://{}", addr));
 
-    let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
+    let body = build_message_body(&voice_msg("/tmp/voice.oga"), &registry_for(&cfg), "builtin-http").await;
     // -=-codeterm:voice file=/tmp/voice.oga-=-привет мир — transcript is the payload.
     assert_eq!(body, "-=-codeterm:voice file=/tmp/voice.oga-=-привет мир");
 
@@ -309,7 +320,7 @@ async fn body_falls_back_to_raw_when_daemon_down() {
     drop(listener);
     let cfg = enabled_cfg(&format!("http://{}", addr));
 
-    let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
+    let body = build_message_body(&voice_msg("/tmp/voice.oga"), &registry_for(&cfg), "builtin-http").await;
     // Daemon down → untranscribed voice marker; the readable note is the payload.
     assert!(
         body.starts_with("-=-codeterm:voice file=/tmp/voice.oga status=untranscribed-=-"),
@@ -317,7 +328,6 @@ async fn body_falls_back_to_raw_when_daemon_down() {
         body
     );
     assert!(body.contains("transcription unavailable"), "body: {}", body);
-    assert!(body.contains("codeterm docs TRANSCRIBE"), "body: {}", body);
 }
 
 #[tokio::test]
@@ -326,19 +336,19 @@ async fn disabled_cfg_notes_missing_transcriber() {
     let mut cfg = enabled_cfg("http://127.0.0.1:1");
     cfg.enabled = false;
 
-    let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
+    let body = build_message_body(&voice_msg("/tmp/voice.oga"), &registry_for(&cfg), "builtin-http").await;
     // Transcription off → untranscribed marker + readable note (with doc pointer).
     assert!(
         body.starts_with("-=-codeterm:voice file=/tmp/voice.oga status=untranscribed-=-"),
         "body: {}",
         body
     );
+    // Engine present but disabled → transcribe errors; note carries the reason.
     assert!(
-        body.contains("no transcriber daemon configured"),
+        body.contains("transcription unavailable"),
         "body: {}",
         body
     );
-    assert!(body.contains("codeterm docs TRANSCRIBE"), "body: {}", body);
 }
 
 #[tokio::test]
@@ -347,7 +357,7 @@ async fn non_voice_attachments_not_transcribed() {
     // Daemon URL points nowhere; if we accidentally hit it, the test fails because we'd see fallback path. With photo kind we never call it.
     let cfg = enabled_cfg("http://127.0.0.1:1");
 
-    let body = build_message_body(&photo_msg("/tmp/pic.jpg"), &cfg).await;
+    let body = build_message_body(&photo_msg("/tmp/pic.jpg"), &registry_for(&cfg), "builtin-http").await;
     assert_eq!(body, "-=-codeterm:photo file=/tmp/pic.jpg name=pic.jpg-=-");
 }
 
@@ -356,7 +366,7 @@ async fn empty_attachment_path_skips_transcription() {
     voice_transcribe::reset_health_cache();
     let cfg = enabled_cfg("http://127.0.0.1:1");
 
-    let body = build_message_body(&voice_msg(""), &cfg).await;
+    let body = build_message_body(&voice_msg(""), &registry_for(&cfg), "builtin-http").await;
     assert_eq!(body, "-=-codeterm:voice file=-=-");
 }
 
@@ -374,7 +384,7 @@ async fn multiple_voice_attachments_each_transcribed() {
         mime_type: Some("audio/ogg".into()),
     });
 
-    let body = build_message_body(&msg, &cfg).await;
+    let body = build_message_body(&msg, &registry_for(&cfg), "builtin-http").await;
     // Two voice markers, each with "ok" as its transcript payload.
     assert_eq!(
         body.matches("-=-codeterm:voice").count(),
@@ -396,7 +406,7 @@ async fn malformed_url_notes_unavailable() {
     let mut cfg = enabled_cfg("not-a-url");
     cfg.daemon_url = "not a url".into();
 
-    let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
+    let body = build_message_body(&voice_msg("/tmp/voice.oga"), &registry_for(&cfg), "builtin-http").await;
     assert!(body.contains("transcription unavailable"), "body: {}", body);
     assert!(body.contains("file=/tmp/voice.oga"), "body: {}", body);
 }
