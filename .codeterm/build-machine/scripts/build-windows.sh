@@ -11,6 +11,7 @@
 # Usage:  build-windows.sh <tag> <arch>   arch: x86_64 | aarch64
 set -euo pipefail
 TAG="${1:?usage: build-windows.sh <tag> <arch>}"
+VER="${TAG#v}"
 ARCH="${2:?arch: x86_64|aarch64}"
 WIN_SSH="${WIN_SSH:-test@127.0.0.1}"
 WIN_PORT="${WIN_PORT:-2222}"
@@ -39,9 +40,9 @@ New-Item -ItemType File -Force src-tauri\bundled-embed\codeterm-embed-${TRIPLE}.
 New-Item -ItemType File -Force src-tauri\bundled-cli\codeterm.exe | Out-Null
 \$env:CARGO_BUILD_TARGET="${TRIPLE}"
 & "C:\Program Files\nodejs\pnpm.cmd" tauri build --target ${TRIPLE} 2>&1 | Out-String
-Get-ChildItem "src-tauri\target\${TRIPLE}\release\bundle\nsis\*${TAG}*-setup.exe" | Select Name,Length | Format-List
+Get-ChildItem "src-tauri\target\${TRIPLE}\release\bundle\nsis\*${VER}*-setup.exe" | Select Name,Length | Format-List
 PS
 
-$SCP "${WIN_SSH}:codeterm/src-tauri/target/${TRIPLE}/release/bundle/nsis/CodeTerm_${TAG}_${LABEL}-setup.exe" "$OUT/" \
-  && echo "WINDOWS_${LABEL}_DONE $OUT/CodeTerm_${TAG}_${LABEL}-setup.exe"
-# Sign on the Mac afterwards:  pnpm tauri signer sign "$OUT/CodeTerm_${TAG}_${LABEL}-setup.exe"
+$SCP "${WIN_SSH}:codeterm/src-tauri/target/${TRIPLE}/release/bundle/nsis/CodeTerm_${VER}_${LABEL}-setup.exe" "$OUT/" \
+  && echo "WINDOWS_${LABEL}_DONE $OUT/CodeTerm_${VER}_${LABEL}-setup.exe"
+# Sign on the Mac afterwards:  pnpm tauri signer sign "$OUT/CodeTerm_${VER}_${LABEL}-setup.exe"
