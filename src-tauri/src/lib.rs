@@ -322,6 +322,7 @@ pub fn run() {
                                 crate::service::sync_watcher::install_bridge_rules_for_all(
                                     &bridge_registry,
                                 );
+                                crate::commands::mirror_skills_to_providers();
                             }
                         }
                     }
