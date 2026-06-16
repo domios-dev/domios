@@ -16,7 +16,7 @@ interface TabContentProps {
   isFocused: boolean;
   onFocusPane: (paneId: string) => void;
   onPtySpawned: (paneId: string, ptyId: string) => void;
-  theme?: ThemeConfig;
+  theme: ThemeConfig;
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
   usageEnabledByProvider?: Record<string, boolean>;
@@ -50,7 +50,7 @@ export function TabContent({
 
   return (
     <PaneWrapper paneId={pane.id}>
-      <div className="relative w-full h-full" style={{ background: theme?.background ?? "transparent" }}>
+      <div className="relative w-full h-full" style={{ background: theme.background }}>
         <TerminalPane
           key={pane.id}
           paneId={pane.id}
