@@ -47,7 +47,7 @@ var TUI_FRAGMENTS = [
 
 var SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/i;
 var SESSION_BARE_RE = /(?:^|\n)\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*(?:$|\n)/m;
-var CLAUDE_SESSION_DELTA_TYPES = { system: true, user: true, assistant: true };
+var CLAUDE_SESSION_DELTA_TYPES = { system: true, user: true, assistant: true, attachment: true };
 
 
 function hasSpinnerGlyph(text) {
@@ -429,6 +429,17 @@ module.exports.default = {
         } else {
           continue;
         }
+      } else if (t === "attachment") {
+        // Input that arrived while the agent was mid-generation is queued by
+        // Claude as a queued_command attachment, not a normal user turn. Surface
+        // it as the inbound user message it is, so a cross-pane send to a busy
+        // pane still shows in chat instead of vanishing.
+        var att = v.attachment;
+        if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
+          continue;
+        }
+        role = "user";
+        blocks.push({ kind: "text", data: { text: att.prompt } });
       } else {
         continue;
       }
@@ -687,6 +698,10 @@ function isValidClaudeSessionDelta(v) {
   if (v.type === "system") {
     var sc = v.content;
     return typeof sc === "string" || Array.isArray(sc);
+  }
+  if (v.type === "attachment") {
+    var a = v.attachment;
+    return !!a && typeof a === "object" && a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0;
   }
   var msg = v.message;
   if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;
