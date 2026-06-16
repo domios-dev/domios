@@ -435,7 +435,7 @@ export function ComposerActions({
                 e.preventDefault();
                 onSchedule();
               }}
-              className={`${btnBase} ml-1 h-8 w-8 shrink-0 rounded-full text-[var(--ct-muted-fg)] transition hover:text-[var(--ct-fg)] hover:brightness-125`}
+              className={`${btnBase} ml-1 mb-0.5 h-8 w-8 shrink-0 self-end rounded-full text-[var(--ct-muted-fg)] transition hover:text-[var(--ct-fg)] hover:brightness-125`}
               style={{
                 background:
                   "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 82%, white 7%)",
@@ -447,7 +447,7 @@ export function ComposerActions({
             </button>
           )}
         </div>
-        {/* mb-1 optically centers the 40px buttons against the 48px single-line input (items-end row). */}
+        {/* mb-1 keeps the send button bottom-aligned with the schedule icon as the input grows. */}
         {!isPreview && (
           <div className="relative mb-1 h-10 w-10 shrink-0">
             {/* Slide-up-to-lock target — purely a visual cue; locking is driven by the pointer leaving the mic. */}

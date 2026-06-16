@@ -84,6 +84,18 @@
   color: var(--ct-yellow, #fbbf24);
 }
 
+.ct-git-refresh-pill {
+  gap: 5px;
+  border-radius: 99px;
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.ct-git-refresh-pill span {
+  min-width: 20px;
+  font-size: 10px;
+  text-align: right;
+}
+
 /* ---------- workdir file status badges ---------- */
 .ct-git-status-badge {
   flex: 0 0 auto;
@@ -244,6 +256,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.ct-git-bubble-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.ct-git-bubble-stats .add {
+  color: var(--ct-green, #3fb950);
+}
+.ct-git-bubble-stats .del {
+  color: var(--ct-red, #f85149);
 }
 
 /* ---------- diff text selection ---------- */
@@ -548,4 +572,24 @@
 }
 .ct-git-repos-item.is-active {
   background: color-mix(in srgb, var(--ct-accent, #6366f1) 16%, transparent);
+}
+.ct-git-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  border: 1px solid color-mix(in srgb, var(--ct-fg, #c9d1d9) 12%, transparent);
+  background: color-mix(in srgb, var(--ct-fg, #c9d1d9) 5%, transparent);
+}
+.ct-git-delta-add {
+  color: var(--ct-green, #3fb950);
+  font-weight: 600;
+}
+.ct-git-delta-del {
+  color: var(--ct-red, #f85149);
+  font-weight: 600;
 }

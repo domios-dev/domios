@@ -213,7 +213,7 @@ function AppInner() {
   const activeTabPaneId =
     gitWs?.tabs.find((t) => t.id === gitWs.active_tab_id)?.pane_id ?? null;
   const gitPaneId = state.focused_pane_id ?? activeTabPaneId;
-  const focusedGitInfo = useGitInfo(gitPaneId);
+  const { info: focusedGitInfo, refresh: refreshFocusedGitInfo } = useGitInfo(gitPaneId);
 
   // When user focuses any pane (via sidebar click, Ctrl+Tab, etc), return to workspace view
   const lastFocusedRef = useRef(state.focused_pane_id);
@@ -767,6 +767,7 @@ function AppInner() {
                   terminalConfig={stableTerminalConfig}
                   usageEnabledByProvider={usageEnabledByProvider}
                   gitInfo={gitPaneId === tab.pane_id ? focusedGitInfo : null}
+                  onRefreshGitInfo={refreshFocusedGitInfo}
                   onOpenGit={openGit}
                   api={stableApiConfig}
                   workspaceCwd={ws.cwd ?? null}
