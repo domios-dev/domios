@@ -28,7 +28,15 @@ SECRETS="$HOME/.claude/.secrets/apple-notary.env"
 set -a; source "$SECRETS"; set +a
 [ -n "${APPLE_SIGNING_IDENTITY:-}" ] || { echo "ERROR: APPLE_SIGNING_IDENTITY not in $SECRETS" >&2; exit 1; }
 
-./build.sh kill
+# Killing the running dev avoids it fighting for the cargo target dir — but ONLY matters for a
+# manual build from the working checkout. Under CI the build runs in the runner's own isolated
+# checkout (separate target dir), so killing dev there just nukes the user's live dev session for
+# nothing. Skip it on CI.
+if [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${ACTIONS_RUNNER_SVC:-}" ] || [ -n "${CODETERM_BUILD_KEEP_DEV:-}" ]; then
+  echo "CI/keep-dev mode — not killing the running dev (isolated checkout)"
+else
+  ./build.sh kill
+fi
 
 if [ "$ARCH" = "arm64" ]; then
   rm -rf src-tauri/target/release/bundle
