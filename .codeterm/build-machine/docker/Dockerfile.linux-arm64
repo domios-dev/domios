@@ -18,5 +18,5 @@ RUN rustup toolchain install 1.95.0 --profile minimal && rustup default 1.95.0
 # AppImage tools need FUSE-less extraction inside containers; jobs/debug tuned for 20GiB Docker.
 ENV APPIMAGE_EXTRACT_AND_RUN=1 \
     CARGO_PROFILE_RELEASE_DEBUG=0 \
-    CARGO_BUILD_JOBS=6 \
+    CARGO_BUILD_JOBS=2 \
     RUSTUP_TOOLCHAIN=1.95.0

@@ -29,7 +29,7 @@ ENV RUSTUP_TOOLCHAIN=1.95.0 \
     OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu \
     OPENSSL_INCLUDE_DIR=/usr/include \
     CARGO_PROFILE_RELEASE_DEBUG=0 \
-    CARGO_BUILD_JOBS=6
+    CARGO_BUILD_JOBS=2
 # NOTE: x86_64 AppImage cannot be produced on an arm64 host (linuxdeploy-x86_64 is an
 # x86_64 binary that can't run here). Build --bundles deb for x86_64; AppImage only on a
 # real x86_64 host or for arm64 natively.
