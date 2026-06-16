@@ -1,0 +1,77 @@
+name: Release (self-hosted build machine)
+
+# Tag-driven release. Push a tag like `release-1.4.5` on master and the self-hosted
+# build machine (this Mac, label `codeterm-builder`) builds all platforms and publishes.
+# Self-hosted runner minutes are free (does NOT consume the Actions quota) — this is the
+# whole point: releases without burning GitHub-hosted minutes.
+on:
+  push:
+    tags:
+      - 'release-*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: [self-hosted, codeterm-builder]
+    timeout-minutes: 180
+    steps:
+      - name: Parse + validate version
+        id: ver
+        run: |
+          RAW="${GITHUB_REF_NAME#release-}"
+          echo "raw=$RAW"
+          if ! echo "$RAW" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag must be release-X.Y.Z (got '$GITHUB_REF_NAME')"; exit 1
+          fi
+          echo "ver=$RAW"   >> "$GITHUB_OUTPUT"
+          echo "tag=v$RAW"  >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repo (full history + tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preflight (toolchain + signing + engines reachable)
+        run: |
+          set -e
+          echo "host: $(uname -msr)"
+          security find-identity -v -p codesigning | grep -q ANDREY && echo "✅ Developer ID present" || { echo "::error::no Developer ID"; exit 1; }
+          test -f "$HOME/.claude/.secrets/apple-notary.env" && echo "✅ notary env" || { echo "::error::missing apple-notary.env"; exit 1; }
+          test -f "$HOME/.tauri/codeterm.key" && echo "✅ minisign key" || { echo "::error::missing minisign key"; exit 1; }
+          docker image inspect codeterm-build-linux-arm64 >/dev/null 2>&1 && echo "✅ docker arm64 image" || echo "::warning::bake codeterm-build-linux-arm64"
+          docker image inspect codeterm-build-linux-x64   >/dev/null 2>&1 && echo "✅ docker x64 image"   || echo "::warning::bake codeterm-build-linux-x64"
+          nc -z 127.0.0.1 2222 && echo "✅ windows VM ssh up" || echo "::warning::windows VM not reachable on :2222"
+          gh auth status 2>&1 | grep -q "Logged in" && echo "✅ gh auth" || { echo "::error::gh not authed"; exit 1; }
+
+      - name: Build the v${{ steps.ver.outputs.ver }} tag exists on origin
+        run: |
+          # The CodeTerm release tags are vX.Y.Z; the trigger tag is release-X.Y.Z.
+          # Ensure the buildable vX.Y.Z tag (bumped + tagged on master) is present.
+          git fetch origin "refs/tags/${{ steps.ver.outputs.tag }}:refs/tags/${{ steps.ver.outputs.tag }}" || true
+          git rev-parse "${{ steps.ver.outputs.tag }}^{commit}" >/dev/null 2>&1 \
+            && echo "✅ ${{ steps.ver.outputs.tag }} present" \
+            || { echo "::error::tag ${{ steps.ver.outputs.tag }} not found — bump+tag the release commit first"; exit 1; }
+
+      - name: Ensure Docker is running (Linux engines)
+        run: |
+          if ! docker info >/dev/null 2>&1; then
+            echo "Docker daemon down — starting Docker Desktop..."
+            open -a Docker || true
+            for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 5; done
+          fi
+          docker info >/dev/null 2>&1 && echo "✅ docker up" || { echo "::error::Docker not available after wait"; exit 1; }
+
+      - name: Build all platforms (3 engines × 2 waves)
+        env:
+          WIN_SSH: test@127.0.0.1
+          WIN_PORT: '2222'
+          SSHPASS: ${{ secrets.WIN_VM_SSHPASS }}
+        run: |
+          .codeterm/build-machine/scripts/build-all.sh "${{ steps.ver.outputs.tag }}"
+
+      - name: Publish (private archive + public mirror + signed latest.json)
+        run: |
+          .codeterm/build-machine/scripts/publish-release.sh "${{ steps.ver.outputs.ver }}"

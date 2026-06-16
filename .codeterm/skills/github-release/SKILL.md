@@ -10,9 +10,66 @@ source: git
 
 # End-to-end CodeTerm release to GitHub
 
-Full pipeline: bump version on develop → merge to master → tag → checkout tag → build signed+notarized macOS (arm64+x86_64) → build Windows via mesh → upload to private repo (source) → mirror artifacts + signed manifest to public repo (so GUI updater works) → update Homebrew cask.
+**Default now = move a tag; the self-hosted build machine does the rest** (see "Default release
+path" right below). The pipeline: bump version → merge to master → tag → build signed+notarized
+macOS (arm64+x86_64) + Linux (arm64+x86_64) + Windows (arm64+x86_64) → upload to private repo
+(source) → mirror artifacts + signed `latest.json` to public repo (so the GUI updater works) →
+(optional) update Homebrew cask. The manual per-platform / multi-machine steps further down are
+the fallback for when the runner is down.
 
 **Golden rule: all builds happen from the tagged commit on master. Never build release artifacts from develop.**
+
+---
+
+## ⚡ Default release path: move a tag (automated, self-hosted CI)
+
+As of v1.4.5 the whole pipeline runs itself on the **self-hosted build machine** (this Mac,
+runner label `codeterm-builder`) via `.github/workflows/release.yml`. **Self-hosted runner
+minutes are free** — this is how we release without burning GitHub-hosted minutes. You do NOT
+build by hand on multiple machines anymore (that's the fallback at the bottom).
+
+**Normal change flow:** open a PR into `master` and merge it (same as any change). Releases are
+cut from `master`.
+
+**To cut a release — bump, tag, then push the trigger tag:**
+
+```bash
+# 1. bump version (PR develop -> master, or direct on master) and tag the build commit
+npm run sync:versions -- X.Y.Z && ./build.sh check && npm run check:versions
+git commit -am "release: vX.Y.Z" && git push origin master
+git tag vX.Y.Z       && git push origin vX.Y.Z          # the buildable tag
+
+# 2. push the trigger tag — this fires the CI release
+git tag release-X.Y.Z && git push origin release-X.Y.Z
+```
+
+Pushing `release-X.Y.Z` triggers the runner, which **fully automatically**:
+1. preflight (Developer ID, notary, minisign key, docker images, VM, gh) →
+2. builds **all 6 platforms** — macOS arm64+x64 (native), Linux arm64+x64 (Docker), Windows
+   arm64+x64 (SSH into the Windows-11-ARM VM) →
+3. **signs** (Developer ID + minisign updater sigs) + **notarizes** the macOS DMGs →
+4. **publishes** to private `rollacode/codeterm` + public mirror `rollacode/codeterm-releases`
+   with a signed `latest.json`, marks `--latest` →
+5. verifies anon updater URLs return 200 and the manifest version is live.
+
+End-to-end ≈ 25–30 min, hands-off. Watch it: `gh run watch --repo rollacode/codeterm`.
+
+**Prereqs for the automated path** (one-time, see `docs/build_machine_setup.md`):
+- self-hosted runner registered + running (`~/actions-runner`; `./svc.sh install` for always-on);
+- Docker images baked: `codeterm-build-linux-arm64`, `codeterm-build-linux-x64`;
+- repo secret `WIN_VM_SSHPASS` (Windows VM password) for the Windows engine;
+- macOS signing/notary + `~/.tauri/codeterm.key` on the build machine (secrets table below).
+
+If a stage fails: `gh run view <id> --log-failed`, fix, re-push the trigger tag (`git tag -f
+release-X.Y.Z && git push -f origin release-X.Y.Z`). The publish step is idempotent (upserts the
+release with `--clobber`) and bails before touching any release if an artifact is missing, so a
+failed run never half-publishes.
+
+> **Everything below this line is the MANUAL FALLBACK** — only for when the runner/CI is down or
+> you're debugging a single platform. The full from-scratch build-machine setup (QEMU Windows VM,
+> Docker cross-compile, signing) lives in **`docs/build_machine_setup.md`**.
+
+---
 
 ## Two-repo layout (since 2026-05-03)
 

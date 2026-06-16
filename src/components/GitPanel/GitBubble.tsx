@@ -8,13 +8,14 @@ interface GitBubbleProps {
   info: GitInfo | null;
   cwd: string | null;
   api: ApiConfig;
+  onRefresh?: () => void;
   onClick: (repoRoot: string) => void;
 }
 
 const GAP = 6;
 const EDGE = 8;
 
-export function GitBubble({ info, cwd, api, onClick }: GitBubbleProps) {
+export function GitBubble({ info, cwd, api, onRefresh, onClick }: GitBubbleProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [rightOffset, setRightOffset] = useState(EDGE);
   // Multi-repo fallback: the pane cwd is a folder of checkouts, not a repo.
@@ -63,6 +64,9 @@ export function GitBubble({ info, cwd, api, onClick }: GitBubbleProps) {
     : childRepos.length === 1
       ? childRepos[0].path
       : cwd!;
+  const stats = isRepo && (info!.added > 0 || info!.deleted > 0)
+    ? { added: info!.added, deleted: info!.deleted }
+    : null;
 
   return (
     <div
@@ -76,11 +80,12 @@ export function GitBubble({ info, cwd, api, onClick }: GitBubbleProps) {
         style={{ right: rightOffset, pointerEvents: "auto" }}
         aria-label={
           isRepo
-            ? `git branch ${label}${info!.is_dirty ? " (dirty)" : ""}`
+            ? `git branch ${label}${stats ? `, +${stats.added} -${stats.deleted}` : ""}`
             : `${childRepos.length} git repositories`
         }
         onClick={(e) => {
           e.stopPropagation();
+          onRefresh?.();
           onClick(target);
         }}
       >
@@ -91,6 +96,12 @@ export function GitBubble({ info, cwd, api, onClick }: GitBubbleProps) {
           <path d="M3 4.6v2.8M3 7.4q0-2.9 6-2.9" />
         </svg>
         <span className="branch">{label}</span>
+        {stats && (
+          <span className="ct-git-bubble-stats">
+            <span className="add">+{stats.added}</span>
+            <span className="del">-{stats.deleted}</span>
+          </span>
+        )}
       </button>
     </div>
   );
