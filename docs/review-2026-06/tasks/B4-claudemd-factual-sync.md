@@ -5,7 +5,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK B4 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK B4 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -57,5 +57,5 @@ ls evals/mem-protocol 2>&1                  # must: No such file
 
 ## Report
 ```
-codeterm send-text "TASK B4 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <experimental-set statuses found; runner.py state>" --pane 5c64a651
+codeterm send "TASK B4 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <experimental-set statuses found; runner.py state>" --pane 5c64a651
 ```

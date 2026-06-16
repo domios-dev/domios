@@ -8,7 +8,7 @@ The token-link web gate has honest non-llm e2e coverage: unauthenticated and bad
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK WEB-COV-FAST ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK WEB-COV-FAST ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run these FIRST; if output differs, report BLOCKED "evidence stale")
@@ -40,5 +40,5 @@ python -m pytest tests/e2e/test_web_gate.py -q        # must: all pass against f
 
 ## Report
 ```
-codeterm send-text "TASK WEB-COV-FAST STATUS ... CHANGED: ... VERIFIED: ... ROUTES COVERED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK WEB-COV-FAST STATUS ... CHANGED: ... VERIFIED: ... ROUTES COVERED: ... NOTES: ..." --pane 5c64a651
 ```

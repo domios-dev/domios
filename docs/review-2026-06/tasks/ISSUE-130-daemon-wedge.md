@@ -8,7 +8,7 @@ A panic in the prompt/hook parser (or any per-request/per-pane worker) can NEVER
 
 ## Step 0 — confirm receipt
 ```
-codeterm send-text "TASK ISSUE-130 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK ISSUE-130 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run FIRST; report BLOCKED if stale)
@@ -34,5 +34,5 @@ cargo test --manifest-path src-tauri/Cargo.toml <narrow filters incl. the new mu
 
 ## Report
 ```
-codeterm send-text "TASK ISSUE-130 STATUS ... PART-A: ... PART-B-ROOT-CAUSE: ... CHANGED: ... VERIFIED: ..." --pane 5c64a651
+codeterm send "TASK ISSUE-130 STATUS ... PART-A: ... PART-B-ROOT-CAUSE: ... CHANGED: ... VERIFIED: ..." --pane 5c64a651
 ```

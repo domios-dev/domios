@@ -82,7 +82,7 @@ impl ServiceContext {
     /// PTY init takes 1-15s after agent_spawn returns (shell spawn fast,
     /// agent spawn waits for orchestrator's background task to spawn +
     /// link the PTY). resolve_pty_id is wrapped in a 15s retry so scripts
-    /// can chain `spawn → send-text` without hitting "no PTY".
+    /// can chain `spawn → send` without hitting "no PTY".
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
         self.ensure_pane_pty_for_send(pane_id)?;
         self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
@@ -840,7 +840,7 @@ impl ServiceContext {
         }
         if let Some(provider_id) = self.input_parser.process(&pane_id, &payload) {
             log::info!(
-                "[input-parser] detected '{}' send-text in pane {} — locking agent_type",
+                "[input-parser] detected '{}' send in pane {} — locking agent_type",
                 provider_id,
                 pane_id,
             );

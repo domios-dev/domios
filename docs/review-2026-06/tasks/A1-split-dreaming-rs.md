@@ -48,5 +48,5 @@ grep -rn "use crate::mem::dreaming" src-tauri/src/ cli/src/ | head   # must: cal
 
 ## Report
 ```
-codeterm send-text "TASK A1 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <seam map + test counts before/after>" --pane 5c64a651
+codeterm send "TASK A1 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <seam map + test counts before/after>" --pane 5c64a651
 ```

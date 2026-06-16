@@ -8,7 +8,7 @@ The chat-UI default applies to the General/Main pane too; the first-run question
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK CHATUI-DEFAULT-V2 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK CHATUI-DEFAULT-V2 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run these FIRST; if output differs, report BLOCKED "evidence stale")
@@ -40,5 +40,5 @@ pnpm test:unit                                                      # must: pass
 
 ## Report
 ```
-codeterm send-text "TASK CHATUI-DEFAULT-V2 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK CHATUI-DEFAULT-V2 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

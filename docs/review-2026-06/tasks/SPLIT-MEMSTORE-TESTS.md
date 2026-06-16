@@ -8,7 +8,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK SPLIT-MEMSTORE-TESTS ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK SPLIT-MEMSTORE-TESTS ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run FIRST; if output differs, report BLOCKED "evidence stale")
@@ -33,5 +33,5 @@ cargo test -p mem-store     # must: same pass count as your Evidence run, 0 fail
 
 ## Report
 ```
-codeterm send-text "TASK SPLIT-MEMSTORE-TESTS STATUS ... CHANGED: <every file incl. new ones> VERIFIED: <paste outputs incl. before/after test counts> NOTES: ..." --pane 5c64a651
+codeterm send "TASK SPLIT-MEMSTORE-TESTS STATUS ... CHANGED: <every file incl. new ones> VERIFIED: <paste outputs incl. before/after test counts> NOTES: ..." --pane 5c64a651
 ```

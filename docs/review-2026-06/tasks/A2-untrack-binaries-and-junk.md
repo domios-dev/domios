@@ -42,5 +42,5 @@ ls NUL cli/NUL .qa-read.py 2>&1                                       # must: al
 
 ## Report
 ```
-codeterm send-text "TASK A2 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK A2 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

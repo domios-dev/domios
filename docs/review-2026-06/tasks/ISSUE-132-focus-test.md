@@ -8,7 +8,7 @@ The test passes honestly — either the `focused` field in `build_pane_list_json
 
 ## Step 0 — confirm receipt
 ```
-codeterm send-text "TASK ISSUE-132 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK ISSUE-132 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run FIRST; report BLOCKED if stale)
@@ -36,5 +36,5 @@ cargo test --manifest-path src-tauri/Cargo.toml pane_list_focused_field   # must
 
 ## Report
 ```
-codeterm send-text "TASK ISSUE-132 STATUS ... DETERMINATION: code-bug|test-bug + evidence ... CHANGED: ... VERIFIED: ..." --pane 5c64a651
+codeterm send "TASK ISSUE-132 STATUS ... DETERMINATION: code-bug|test-bug + evidence ... CHANGED: ... VERIFIED: ..." --pane 5c64a651
 ```

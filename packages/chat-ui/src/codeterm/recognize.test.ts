@@ -20,16 +20,16 @@ function ok(c: boolean, name: string) {
 
 console.log("\n--- recognize ---\n");
 
-const inv = recognize('codeterm send-text --pane bda0e267 "Понял, буду"');
-eq(inv?.path, ["send-text"], "send-text path");
-eq(inv?.flags.pane, "bda0e267", "send-text --pane flag");
-eq(inv?.positionals, ["Понял, буду"], "send-text positional payload");
+const inv = recognize('codeterm send --pane bda0e267 "Понял, буду"');
+eq(inv?.path, ["send"], "send path");
+eq(inv?.flags.pane, "bda0e267", "send --pane flag");
+eq(inv?.positionals, ["Понял, буду"], "send positional payload");
 
 eq(recognize('codeterm agent spawn claude --task "go"')?.path, ["agent", "spawn"], "agent spawn path");
 eq(recognize("CODETERM_API_PORT=7686 codeterm pane list")?.path, ["pane", "list"], "env-prefix stripped");
 ok(recognize("~/.codeterm/bin/codeterm mem search foo") !== null, "abs path binary recognized");
 ok(recognize("ls -la") === null, "non-codeterm → null");
-ok(recognize('echo hi | codeterm send-text "x"') === null, "buried after pipe → null");
+ok(recognize('echo hi | codeterm send "x"') === null, "buried after pipe → null");
 ok(recognize("codeterm-dev pane list") !== null, "codeterm-dev recognized");
 eq(recognize("codeterm cron list --json")?.path, ["cron", "list"], "known depth-2 subcommand");
 eq(recognize("codeterm agent spawn claude")?.positionals, ["claude"], "trailing word stays positional");
@@ -37,9 +37,9 @@ eq(recognize("codeterm agent spawn claude")?.positionals, ["claude"], "trailing 
 console.log("\n--- templates ---\n");
 import { renderTemplate } from "./templates";
 
-const sent = recognize('codeterm send-text --pane bda0e267 "hi there"')!;
-eq(renderTemplate(sent).title, "Sent to pane bda0e267", "send-text title");
-eq(renderTemplate(sent, "OK (sent)").status, { ok: true, label: "delivered" }, "send-text status from result");
+const sent = recognize('codeterm send --pane bda0e267 "hi there"')!;
+eq(renderTemplate(sent).title, "Sent to pane bda0e267", "send title");
+eq(renderTemplate(sent, "OK (sent)").status, { ok: true, label: "delivered" }, "send status from result");
 
 const sendAlias = recognize('codeterm send --pane keats "Привет от send"')!;
 eq(renderTemplate(sendAlias).title, "Sent to pane keats", "send title from renamed command");

@@ -16,7 +16,7 @@ actually runs the right commands — across Claude, Codex, and opencode.
 
 A real-daemon integration benchmark that drives **real agents** in the dev
 console (port 7686) through the same internal mechanisms users rely on
-(`agent spawn` / `send-text` / structured-chat read), exercises every CLI
+(`agent spawn` / `send` / structured-chat read), exercises every CLI
 command via natural-language asks, and uses **the model (Claude, in this
 session) as judge** — reading the parsed chat transcript and scoring how well
 each agent understood and executed. Raises CLI reliability by surfacing
@@ -37,7 +37,7 @@ evals/cli-agent/
   SKILL.md             — the benchmark skill (protocol + rubric + judging guide)
   cases/               — declarative test cases, one file per command family
     workspace.yaml  pane.yaml  agent.yaml  mem.yaml  cron.yaml
-    send-text.yaml  mesh.yaml  plugin.yaml  misc.yaml  ...
+    send.yaml  mesh.yaml  plugin.yaml  misc.yaml  ...
   lib.sh               — harness helpers layered on _lib/lib.sh
   run-case.sh          — drive ONE case for ONE provider → transcript
   run-suite.sh         — iterate cases × {claude,codex,opencode} in parallel
@@ -79,7 +79,7 @@ catalog is data, not prose — kept compact.
 **Drive** (`run-case.sh <case-id> <provider>`):
 1. `dc workspace create "bench-<case>-<provider>" --cwd <throwaway tmp>`.
 2. `dc agent spawn <provider> --workspace <ws> --cwd <tmp> --title <case>`.
-3. Wait for readiness, `dc send-text "<prompt>" --pane <pane>`.
+3. Wait for readiness, `dc send "<prompt>" --pane <pane>`.
 4. Poll the new normalized-chat read (below) until the transcript is idle
    (no new assistant/tool messages for N seconds) or a timeout.
 5. If `followups`, send each only when the agent stalls without success.
@@ -133,7 +133,7 @@ The benchmark must never touch prod-affecting or irreversible state. Per-family
 classification baked into the cases:
 
 - **execute** (run for real in a throwaway dev workspace): workspace, pane,
-  agent (spawn/report/list-ish/model/restart within bench panes), send-text,
+  agent (spawn/report/list-ish/model/restart within bench panes), send,
   mem (save/search/get/update/skill — in dev store), cron (create/list/trigger/
   delete — dev, `--once` far-future or immediately-deleted), keepawake (short
   duration then stop), docs, usage, theme (list/dir), config get, capabilities,
@@ -144,7 +144,7 @@ classification baked into the cases:
   config set, theme apply/delete, plugin install/remove/update (mutates the dev
   plugin set), mem forget/delete of non-bench items, mem graph destructive ops.
 
-`run-case.sh` refuses to `send-text` an execute-prompt for a `describe-only`
+`run-case.sh` refuses to `send` an execute-prompt for a `describe-only`
 case. All workspaces are torn down after each case.
 
 ## evals/ cleanup

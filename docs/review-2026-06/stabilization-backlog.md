@@ -56,7 +56,7 @@ no cargo/pnpm audit anywhere), F6 (plugin.rs split), issue templates folded into
 **Fourth pass (2026-06-11, live prod probe):** the arbiter (Lamarr, pane `5c64a651`,
 Orchestrator inside prod CodeTerm :7685) verified the control handles against the
 running binary. Results: spawn works for all three providers (claude/codex/opencode
-probes round-tripped spawn → task → send-text reply → report), `--model` selection
+probes round-tripped spawn → task → send reply → report), `--model` selection
 works (G3 RESOLVED), invalid roles are silently swallowed (C1 upgraded: `--role Lead`
 → exit 0, stored `role=None`), `workspace create --cwd` has a live bug (new F7), and
 the shipped `codeterm` skill contradicts the binary (new B10). Wave 0 added: finish
@@ -1196,7 +1196,7 @@ model-routing rubric. Remove `.claude/agents/*.md`-era instructions.
 `codeterm agent spawn` supports `--model` as an opaque pass-through, with discovery
 via `codeterm agent providers` / `codeterm agent models <provider>`. Live probe
 against prod: `spawn claude --model haiku`, `spawn codex` (booted gpt-5.5 medium),
-and `spawn opencode` all spawned, executed a task, replied via `send-text`, and
+and `spawn opencode` all spawned, executed a task, replied via `send`, and
 delivered `agent report` to the parent. Available: codex = gpt-5.5 (default) / 5.4 /
 5.4-mini / 5.3-codex / 5.2; claude = opus 4.7 / sonnet 4.6 / haiku 4.5; opencode = 7
 models. The third-pass doubt (CLI.md:41 "interactive picker") applies only to
@@ -1273,8 +1273,8 @@ Live roster (workspace `codeterm`, verified): **Lamarr** `5c64a651` = arbiter
 (Fable, Orchestrator) · **Opus** `232c0b4a` · **Sonnet** `228012ad` · **Haiku**
 `35a191bc` · **Spark** `8b153ef9` (Codex) · **Gpt5.5** `a10ccdbd`. Ephemeral extra
 workers are spawned per task (`spawn … --role Worker --parent 5c64a651 --model …`,
-verified working). Standing panes get tasks via `send-text`; their return path is
-`codeterm send-text "…" --pane 5c64a651` (they are not hierarchy children, so
+verified working). Standing panes get tasks via `send`; their return path is
+`codeterm send "…" --pane 5c64a651` (they are not hierarchy children, so
 `agent report` from them does not route to the arbiter).
 
 | Wave | Tasks | Executor (pane) |

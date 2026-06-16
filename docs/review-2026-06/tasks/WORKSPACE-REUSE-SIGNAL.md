@@ -8,7 +8,7 @@ Reuse is loud: human-readable CLI output states it reused an existing workspace 
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK WORKSPACE-REUSE-SIGNAL ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK WORKSPACE-REUSE-SIGNAL ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run FIRST; if output differs, report BLOCKED "evidence stale")
@@ -28,5 +28,5 @@ git grep -n "existing" -- src-tauri/src/service/workspace.rs    # expected: exis
 
 ## Report
 ```
-codeterm send-text "TASK WORKSPACE-REUSE-SIGNAL STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK WORKSPACE-REUSE-SIGNAL STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

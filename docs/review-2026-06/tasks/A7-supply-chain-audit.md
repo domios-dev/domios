@@ -5,7 +5,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK A7 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK A7 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -49,5 +49,5 @@ python -c "import yaml,sys; yaml.safe_load(open('.github/dependabot.yml')); yaml
 
 ## Report
 ```
-codeterm send-text "TASK A7 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <cargo roots found>" --pane 5c64a651
+codeterm send "TASK A7 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <cargo roots found>" --pane 5c64a651
 ```

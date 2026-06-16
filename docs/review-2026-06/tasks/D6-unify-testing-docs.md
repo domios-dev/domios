@@ -5,7 +5,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK D6 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK D6 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -54,5 +54,5 @@ grep -n "TESTING.md" tests/playwright/README.md     # must: >=1 hit (the link-up
 
 ## Report
 ```
-codeterm send-text "TASK D6 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK D6 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

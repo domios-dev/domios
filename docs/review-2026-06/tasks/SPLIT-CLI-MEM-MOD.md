@@ -8,7 +8,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK SPLIT-CLI-MEM-MOD ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK SPLIT-CLI-MEM-MOD ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run FIRST; if output differs, report BLOCKED "evidence stale")
@@ -34,5 +34,5 @@ cargo test --manifest-path cli/Cargo.toml                      # must: 133+ pass
 
 ## Report
 ```
-codeterm send-text "TASK SPLIT-CLI-MEM-MOD STATUS ... CHANGED: <every file incl. new ones> VERIFIED: <paste outputs> NOTES: ..." --pane 5c64a651
+codeterm send "TASK SPLIT-CLI-MEM-MOD STATUS ... CHANGED: <every file incl. new ones> VERIFIED: <paste outputs> NOTES: ..." --pane 5c64a651
 ```

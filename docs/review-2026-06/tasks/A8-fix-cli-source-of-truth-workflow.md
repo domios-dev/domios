@@ -5,7 +5,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK A8 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK A8 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -51,5 +51,5 @@ gh run list --workflow=cli-source-of-truth.yml --limit 1   # must: pass, or pend
 
 ## Report
 ```
-codeterm send-text "TASK A8 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <did the tests actually run; counts; legit failures if any>" --pane 5c64a651
+codeterm send "TASK A8 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <did the tests actually run; counts; legit failures if any>" --pane 5c64a651
 ```

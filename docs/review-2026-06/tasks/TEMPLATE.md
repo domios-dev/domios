@@ -8,7 +8,7 @@ One sentence. What is true after this task that wasn't before.
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK <ID> ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK <ID> ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run these FIRST; if output differs, report BLOCKED "evidence stale")
@@ -30,5 +30,5 @@ codeterm send-text "TASK <ID> ACCEPTED, starting" --pane 5c64a651
 
 ## Report
 ```
-codeterm send-text "TASK <ID> STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK <ID> STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

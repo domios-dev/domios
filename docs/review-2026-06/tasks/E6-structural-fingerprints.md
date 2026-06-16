@@ -5,7 +5,7 @@
 
 ## Step 0 — confirm receipt
 ```
-codeterm send-text "TASK E6 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK E6 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Design (decided)
@@ -38,5 +38,5 @@ copy strings (weakest — keep as ONE signal each, never the sole gate).
 
 ## Report
 ```
-codeterm send-text "TASK E6 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK E6 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

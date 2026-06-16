@@ -8,7 +8,7 @@ provider appears). Instead: document + parity-test the helpers so drift is caugh
 
 ## Step 0 — confirm receipt
 ```
-codeterm send-text "TASK E2 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK E2 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Steps
@@ -34,5 +34,5 @@ codeterm send-text "TASK E2 ACCEPTED, starting" --pane 5c64a651
 
 ## Report
 ```
-codeterm send-text "TASK E2 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK E2 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

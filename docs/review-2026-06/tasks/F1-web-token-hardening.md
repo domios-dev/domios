@@ -46,5 +46,5 @@ cargo test api::web_routes                            # must: pass, includes the
 
 ## Report
 ```
-codeterm send-text "TASK F1 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK F1 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

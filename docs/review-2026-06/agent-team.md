@@ -105,8 +105,8 @@ Two dispatch modes, both verified against prod:
 
 1. **Standing panes** (workspace `codeterm`): Opus `232c0b4a`, Sonnet `228012ad`,
    Haiku `35a191bc`, Spark `8b153ef9` (Codex), Gpt5.5 `a10ccdbd`. Dispatch:
-   `codeterm send-text "<brief>" --pane <id>`. Return path: they reply with
-   `codeterm send-text "…" --pane 5c64a651` (NOT `agent report` — they aren't
+   `codeterm send "<brief>" --pane <id>`. Return path: they reply with
+   `codeterm send "…" --pane 5c64a651` (NOT `agent report` — they aren't
    hierarchy children of the arbiter, reports won't route).
 2. **Ephemeral workers**: `codeterm agent spawn <provider> --model <m> --role Worker
    --parent 5c64a651 --workspace <ws> --cwd <path> --task "<brief + 'when done run:

@@ -8,11 +8,11 @@ The pytest e2e suite opens a terminal ONLY for tests that type into one, API-sha
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK T-RAT ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK T-RAT ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## CRITICAL COORDINATION RULE
-The restore-matrix lane owns dev:7686 right now (constant kill/restart cycles). You may NOT start a dev daemon or run the e2e suite until I give you a dev window. Steps 1–4 are dev-free (reading + editing). When ready to measure/verify, send: `codeterm send-text "T-RAT requests dev window" --pane 5c64a651` and WAIT for my go.
+The restore-matrix lane owns dev:7686 right now (constant kill/restart cycles). You may NOT start a dev daemon or run the e2e suite until I give you a dev window. Steps 1–4 are dev-free (reading + editing). When ready to measure/verify, send: `codeterm send "T-RAT requests dev window" --pane 5c64a651` and WAIT for my go.
 
 ## Evidence (run these FIRST; if output differs, report BLOCKED "evidence stale")
 ```
@@ -35,5 +35,5 @@ python -m pytest tests/e2e --collect-only -q 2>$null | Select-Object -Last 2   #
 
 ## Report
 ```
-codeterm send-text "TASK T-RAT STATUS ... CHANGED: ... CLASSIFICATION: <N api-only, M needs-pty, K shared-pane> VACUITY: <list> TIMING: before Xs / after Ys VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK T-RAT STATUS ... CHANGED: ... CLASSIFICATION: <N api-only, M needs-pty, K shared-pane> VACUITY: <list> TIMING: before Xs / after Ys VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

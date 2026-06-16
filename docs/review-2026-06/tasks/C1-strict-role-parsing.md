@@ -5,7 +5,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK C1 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK C1 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -50,5 +50,5 @@ cargo test spawn                                      # new test passes
 
 ## Report
 ```
-codeterm send-text "TASK C1 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <where the swallow was>" --pane 5c64a651
+codeterm send "TASK C1 STATUS ... CHANGED: ... VERIFIED: ... NOTES: <where the swallow was>" --pane 5c64a651
 ```

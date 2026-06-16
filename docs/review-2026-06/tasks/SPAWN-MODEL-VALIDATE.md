@@ -8,7 +8,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK SPAWN-MODEL-VALIDATE ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK SPAWN-MODEL-VALIDATE ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run these FIRST; if output differs, report BLOCKED "evidence stale")
@@ -43,5 +43,5 @@ cargo test --manifest-path src-tauri/Cargo.toml <narrow filters>      # must: pa
 
 ## Report
 ```
-codeterm send-text "TASK SPAWN-MODEL-VALIDATE STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK SPAWN-MODEL-VALIDATE STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```

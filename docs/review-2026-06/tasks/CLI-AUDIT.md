@@ -8,7 +8,7 @@ A trustworthy map of the `codeterm` CLI surface: every duplicate/overlapping com
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK CLI-AUDIT ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK CLI-AUDIT ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Evidence (run these FIRST; if output differs, report BLOCKED "evidence stale")
@@ -34,5 +34,5 @@ The report itself is the artifact. Every claim must carry a file:line reference 
 ## Report
 Write the full table + kill-list to /tmp/cli-audit-report.md, then:
 ```
-codeterm send-text "TASK CLI-AUDIT STATUS DONE: report at /tmp/cli-audit-report.md; top findings: <3-5 lines>" --pane 5c64a651
+codeterm send "TASK CLI-AUDIT STATUS DONE: report at /tmp/cli-audit-report.md; top findings: <3-5 lines>" --pane 5c64a651
 ```

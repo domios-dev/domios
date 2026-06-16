@@ -6,7 +6,7 @@
 
 ## Step 0 — confirm receipt (ALWAYS, before anything)
 ```
-codeterm send-text "TASK D9 ACCEPTED, starting" --pane 5c64a651
+codeterm send "TASK D9 ACCEPTED, starting" --pane 5c64a651
 ```
 
 ## Goal
@@ -48,5 +48,5 @@ grep -n "review-checklist" docs/TESTING.md      # must: 1 hit
 
 ## Report
 ```
-codeterm send-text "TASK D9 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
+codeterm send "TASK D9 STATUS ... CHANGED: ... VERIFIED: ... NOTES: ..." --pane 5c64a651
 ```
