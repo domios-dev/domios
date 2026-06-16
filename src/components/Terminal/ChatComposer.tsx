@@ -570,7 +570,7 @@ export function ChatComposer({
     }
   }
 
-  async function scheduleDraft(scheduledAtMs: number) {
+  async function scheduleDraft(scheduledAtMs: number | null) {
     const draft = buildDraft();
     if (!draft) return;
     setScheduleBusy(true);
@@ -615,43 +615,56 @@ export function ChatComposer({
   const queuedCount = delayedMessages.filter((msg) => msg.state !== "failed").length;
   const failedCount = delayedMessages.filter((msg) => msg.state === "failed").length;
 
+  useEffect(() => {
+    if (delayedQueueOpen && delayedMessages.length === 0) {
+      setDelayedQueueOpen(false);
+    }
+  }, [delayedQueueOpen, delayedMessages.length]);
+
   return (
     <div
-      className="shrink-0 p-2 border-t"
+      className="relative shrink-0 p-2 border-t"
       style={{
         borderColor:
           "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
         paddingBottom: "var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)))",
       }}
     >
-      {scheduleOpen && (
-        <DelayedSendSchedulePanel
-          busy={scheduleBusy}
-          onClose={() => {
-            setScheduleOpen(false);
-            refocusComposer();
-          }}
-          onConfirm={(scheduledAtMs) => void scheduleDraft(scheduledAtMs)}
-        />
-      )}
-      {delayedQueueOpen && (
-        <DelayedSendQueuePanel
-          messages={delayedMessages}
-          busyId={delayedBusyId}
-          onClose={() => {
-            setDelayedQueueOpen(false);
-            refocusComposer();
-          }}
-          onDelete={(id) => void withDelayedBusy(id, async () => {
-            await deleteDelayedMessage(id);
-          })}
-          onSendNow={(id) => void withDelayedBusy(id, async () => {
-            await sendDelayedMessageNow(id);
-          })}
-          onUpdate={(id, patch) => void withDelayedBusy(id, async () => {
-            await updateDelayedMessage(id, patch);
-          })}
-        />
+      {(scheduleOpen || delayedQueueOpen) && (
+        <div className="absolute bottom-full left-0 z-30">
+          {scheduleOpen && (
+            <DelayedSendSchedulePanel
+              busy={scheduleBusy}
+              touchMode={touchMode}
+              onClose={() => {
+                setScheduleOpen(false);
+                refocusComposer();
+              }}
+              onConfirm={(scheduledAtMs) => void scheduleDraft(scheduledAtMs)}
+              onStash={() => void scheduleDraft(null)}
+            />
+          )}
+          {delayedQueueOpen && (
+            <DelayedSendQueuePanel
+              messages={delayedMessages}
+              busyId={delayedBusyId}
+              touchMode={touchMode}
+              onClose={() => {
+                setDelayedQueueOpen(false);
+                refocusComposer();
+              }}
+              onDelete={(id) => void withDelayedBusy(id, async () => {
+                await deleteDelayedMessage(id);
+              })}
+              onSendNow={(id) => void withDelayedBusy(id, async () => {
+                await sendDelayedMessageNow(id);
+              })}
+              onUpdate={(id, patch) => void withDelayedBusy(id, async () => {
+                await updateDelayedMessage(id, patch);
+              })}
+            />
+          )}
+        </div>
       )}
       {modelPickerOpen && (
         <div

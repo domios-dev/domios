@@ -11,7 +11,7 @@ use crate::api::routes::{check_auth, resolve_pane, AppState};
 #[serde(rename_all = "camelCase")]
 pub struct CreateDelayedMessageBody {
     text: String,
-    scheduled_at_ms: u64,
+    scheduled_at_ms: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -19,6 +19,7 @@ pub struct CreateDelayedMessageBody {
 pub struct UpdateDelayedMessageBody {
     text: Option<String>,
     scheduled_at_ms: Option<u64>,
+    stash: Option<bool>,
 }
 
 pub async fn list(
@@ -54,8 +55,14 @@ pub async fn update(
     Json(body): Json<UpdateDelayedMessageBody>,
 ) -> Result<Json<crate::delayed_send::DelayedMessageView>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let msg = crate::delayed_send::update_message(&state.svc, id, body.text, body.scheduled_at_ms)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let msg = crate::delayed_send::update_message(
+        &state.svc,
+        id,
+        body.text,
+        body.scheduled_at_ms,
+        body.stash,
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(msg))
 }
 
