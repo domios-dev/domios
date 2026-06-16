@@ -55,6 +55,15 @@ jobs:
             && echo "✅ ${{ steps.ver.outputs.tag }} present" \
             || { echo "::error::tag ${{ steps.ver.outputs.tag }} not found — bump+tag the release commit first"; exit 1; }
 
+      - name: Ensure Docker is running (Linux engines)
+        run: |
+          if ! docker info >/dev/null 2>&1; then
+            echo "Docker daemon down — starting Docker Desktop..."
+            open -a Docker || true
+            for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 5; done
+          fi
+          docker info >/dev/null 2>&1 && echo "✅ docker up" || { echo "::error::Docker not available after wait"; exit 1; }
+
       - name: Build all platforms (3 engines × 2 waves)
         env:
           WIN_SSH: test@127.0.0.1

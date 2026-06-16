@@ -211,11 +211,48 @@ Driven by the `github-release` skill. Summary:
    only when a real x86_64 Linux AppImage exists). Verify anon `HTTP 200` on every updater URL and
    that `codeterm update check` sees the new version.
 
-## Future: self-hosted GitHub Actions runner
+## Tag-driven CI (implemented) + persistence
 
-Register this Mac as a self-hosted runner (repo → Settings → Actions → Runners → New runner), then
-wrap the orchestrator in `.github/workflows/release.yml` so a tag push triggers the matrix — a real
-CI build machine, no agent in the loop. Caveats: the runner executes repo workflows on this machine
-(with access to the keychain, vault, and the VM), so keep the repo private and gate fork-PR runs.
+This is live as of v1.4.5. `.github/workflows/release.yml` runs on the self-hosted runner; pushing
+a `release-X.Y.Z` tag builds+signs+notarizes+publishes all platforms hands-off (see the
+`github-release` skill "Default release path"). Self-hosted runner minutes are free.
 
-<!-- revision: 1 -->
+For the machine to survive reboots / crashes without anyone babysitting a terminal, the three
+engines must each be self-starting:
+
+1. **Runner — launchd service.** Register, then install as a service (auto-start on login +
+   auto-restart on crash):
+   ```bash
+   cd ~/actions-runner
+   TOKEN=$(gh api -X POST repos/rollacode/codeterm/actions/runners/registration-token --jq .token)
+   ./config.sh --url https://github.com/rollacode/codeterm --token "$TOKEN" \
+     --name codeterm-builder --labels codeterm-builder --unattended --replace
+   ./svc.sh install && ./svc.sh start        # launchd LaunchAgent, RunAtLoad=true
+   ```
+   (Runner registration creates a persistent code-execution surface with access to keychain/vault/VM
+   — a human action; keep the repo private and never run fork PRs on it.)
+
+2. **Docker — workflow self-heals it.** The release workflow has an "Ensure Docker is running" step
+   (`open -a Docker` + wait) so a down/just-rebooted Docker is started before the Linux engines.
+   Optionally also enable Docker Desktop → Settings → General → "Start Docker Desktop when you sign
+   in". Docker memory ≥ 11 GiB with `CARGO_BUILD_JOBS=2` (set in the images), or ≥ 20 GiB for `=6`.
+
+3. **Windows VM — NOT auto-started yet.** `~/VMs/codeterm-win11-arm/vm.sh run` is launched manually
+   (foreground qemu). To make it self-healing like the runner, wrap it in a launchd LaunchAgent
+   (`RunAtLoad` + `KeepAlive`) running `vm.sh run` (headless qemu under the user GUI session, HVF
+   works). Until then, after a reboot/crash run `vm.sh run` by hand or the Windows engine fails
+   (preflight will warn `127.0.0.1:2222` unreachable). The repo secret `WIN_VM_SSHPASS` holds the VM
+   password for the Windows engine.
+
+## Redeploying on a fresh Mac (checklist)
+
+1. Clone the repo; `brew install qemu swtpm pnpm node gh docker` (+ Xcode).
+2. Restore secrets from the vault (table above) + import the Developer ID `.p12` into the keychain;
+   `xcrun notarytool store-credentials codeterm ...`.
+3. Build the Windows VM (`~/VMs/codeterm-win11-arm/vm.sh install`, then `run`) — Engine 2 above.
+4. `docker build` the two Linux images — Engine 3 above.
+5. Register + service-install the runner — Engine 1 above.
+6. Set repo secret `WIN_VM_SSHPASS`; `net accounts /lockoutthreshold:0` in the VM (no SSH lockout).
+7. Push a `release-0.0.0`-style test tag to validate plumbing, then a real `release-X.Y.Z`.
+
+<!-- revision: 2 -->
