@@ -471,6 +471,11 @@ impl ServiceContext {
             Some("Orchestrator") => format!("{}{}", t, crate::prompts::ORCHESTRATOR_SUFFIX),
             _ => t.clone(),
         });
+        // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
+        let bg_task = bg_task.map(|t| match self.spawn_task_prefix(&pane_id) {
+            Some(pfx) => format!("{}{}", pfx, t),
+            None => t,
+        });
         let launch_cmd = build_agent_command(
             &agent_cmd,
             &params,
@@ -500,7 +505,7 @@ impl ServiceContext {
         })
     }
 
-    /// Origin prefix for a spawned agent's first task, derived from the target pane's recorded spawner (spawned_by/parent) — same canonical attribution as cross-pane sends. None for raw spawns. Only for PtyInput delivery: inline-flag tasks are CLI argv and a leading `-=-` marker would be parsed as a flag.
+    /// Origin prefix for a spawned agent's first task, derived from the target pane's recorded spawner (spawned_by/parent) — same canonical attribution as cross-pane sends. None for raw spawns (no spawner).
     pub(crate) fn spawn_task_prefix(&self, target_pane: &str) -> Option<String> {
         let mux = self.mux.lock();
         let src = mux.get_pane(target_pane).and_then(|p| {
@@ -690,11 +695,6 @@ pub(crate) fn launch_agent_in_background(
         let is_pty_input = matches!(delivery, TaskDelivery::PtyInput);
         if is_pty_input {
             if let Some(ref task_text) = task {
-                // Typed into the agent's TUI input, so tag it with the spawner's origin prefix (same canonical path as cross-pane sends). inline-flag delivery is skipped — argv can't carry the `-=-` marker.
-                let prefixed = svc
-                    .spawn_task_prefix(&pane_id)
-                    .map(|pfx| format!("{}{}", pfx, task_text));
-                let task_text: &str = prefixed.as_deref().unwrap_or(task_text);
                 let warmup = registry
                     .with_provider(&agent_cmd, |p| p.task_input_warmup())
                     .unwrap_or_default();

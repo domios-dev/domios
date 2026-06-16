@@ -219,12 +219,6 @@ module.exports.default = {
     } else {
       parts.push("claude");
       if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-      if (p.task) {
-        var visiblePath = writeTaskTempFile(p.task);
-        parts.push(win
-          ? "\"$(Get-Content '" + visiblePath + "' -Raw -Encoding UTF8)\""
-          : "\"$(cat " + visiblePath + ")\"");
-      }
     }
 
     if (p.agentName) {
@@ -240,6 +234,16 @@ module.exports.default = {
       // Quote each arg — they reach a shell, and `args` is caller-supplied via
       // the spawn API (a mesh peer with SpawnAgents could inject `; cmd`).
       for (var i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+    }
+    // Visible mode passes the prompt as a positional, last, after `--`: a spawn
+    // task can start with the -=-codeterm:...-=- origin marker, which commander
+    // would otherwise reject as an unknown option.
+    if (!useStdinPipe && p.task) {
+      var visiblePath = writeTaskTempFile(p.task);
+      parts.push("--");
+      parts.push(win
+        ? "\"$(Get-Content '" + visiblePath + "' -Raw -Encoding UTF8)\""
+        : "\"$(cat " + visiblePath + ")\"");
     }
     return parts.join(" ");
   },

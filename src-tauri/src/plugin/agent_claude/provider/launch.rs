@@ -32,9 +32,6 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         if params.skip_permissions {
             parts.push("--dangerously-skip-permissions".to_string());
         }
-        if let Some(ref task) = params.task {
-            parts.push(ShellSyntax::task_file_expr(task));
-        }
     }
 
     if let Some(ref name) = params.agent_name {
@@ -52,6 +49,14 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
 
     if let Some(ref extra) = params.args {
         parts.extend(extra.iter().cloned());
+    }
+
+    // Visible mode passes the prompt as a positional, last, after `--`: a spawn task can start with the `-=-codeterm:...-=-` origin marker, which commander would otherwise reject as an unknown option.
+    if !use_stdin_pipe {
+        if let Some(ref task) = params.task {
+            parts.push("--".to_string());
+            parts.push(ShellSyntax::task_file_expr(task));
+        }
     }
 
     parts.join(" ")
@@ -112,6 +117,15 @@ mod tests {
         assert!(cmd.contains("--dangerously-skip-permissions"));
         assert!(cmd.contains(".ct-task-"), "task via temp file");
         assert!(!cmd.contains(" -p "), "visible mode must not use -p");
+        assert!(
+            cmd.contains(" -- "),
+            "task positional must follow -- separator"
+        );
+        assert!(
+            cmd.find(" -- ").unwrap() < cmd.find(".ct-task-").unwrap(),
+            "-- must precede the task positional: {}",
+            cmd
+        );
     }
 
     #[test]
@@ -215,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_launch_visible_with_args_after_task() {
+    fn test_build_launch_visible_task_positional_after_flags_and_separator() {
         let model_id = crate::agent::models::resolve_model_id("haiku");
         let params = AgentLaunchParams {
             agent_name: None,
@@ -228,6 +242,15 @@ mod tests {
         let cmd = build_launch_command(&params);
         assert!(cmd.contains(".ct-task-"));
         assert!(cmd.contains(&format!("--model {}", model_id)));
+        // Flags first, then `--`, then the task positional last.
+        let model_pos = cmd.find("--model").unwrap();
+        let sep_pos = cmd.find(" -- ").unwrap();
+        let task_pos = cmd.find(".ct-task-").unwrap();
+        assert!(
+            model_pos < sep_pos && sep_pos < task_pos,
+            "order must be flags -> -- -> task: {}",
+            cmd
+        );
     }
 
     #[test]
