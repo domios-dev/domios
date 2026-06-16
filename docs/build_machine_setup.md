@@ -237,12 +237,13 @@ engines must each be self-starting:
    Optionally also enable Docker Desktop → Settings → General → "Start Docker Desktop when you sign
    in". Docker memory ≥ 11 GiB with `CARGO_BUILD_JOBS=2` (set in the images), or ≥ 20 GiB for `=6`.
 
-3. **Windows VM — NOT auto-started yet.** `~/VMs/codeterm-win11-arm/vm.sh run` is launched manually
-   (foreground qemu). To make it self-healing like the runner, wrap it in a launchd LaunchAgent
-   (`RunAtLoad` + `KeepAlive`) running `vm.sh run` (headless qemu under the user GUI session, HVF
-   works). Until then, after a reboot/crash run `vm.sh run` by hand or the Windows engine fails
-   (preflight will warn `127.0.0.1:2222` unreachable). The repo secret `WIN_VM_SSHPASS` holds the VM
-   password for the Windows engine.
+3. **Windows VM — started ON DEMAND by the build.** `scripts/build-windows.sh` checks SSH:2222 and,
+   if the VM is down, runs `~/VMs/codeterm-win11-arm/vm.sh run` (detached) and waits for the guest
+   to boot (cold boot ~1-3 min) before building. So the VM spins up only when a release actually
+   arrives — no always-on VM, no launchd needed. The repo secret `WIN_VM_SSHPASS` holds the VM
+   password. Requirement: lockout disabled in the guest (`net accounts /lockoutthreshold:0`) so the
+   repeated SSH logons during a build don't lock the account. (qemu+HVF runs fine launched from the
+   runner's user GUI session.)
 
 ## Redeploying on a fresh Mac (checklist)
 
