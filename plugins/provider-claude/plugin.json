@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "minCodeterm": "1.0.0",
   "displayName": "Claude Code",
   "binaryName": "claude",
