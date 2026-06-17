@@ -60,3 +60,6 @@ pub trait ChatBackendProvider: Send + Sync {
 
 pub type ChatBackendRegistry = CapabilityRegistry<dyn ChatBackendProvider>;
 pub type ChatBackendRegistryHandle = Arc<ChatBackendRegistry>;
+
+#[cfg(test)]
+mod tests;
