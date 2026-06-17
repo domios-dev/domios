@@ -56,52 +56,55 @@ At integration, bump `packages/plugin-sdk` to `1.4.7`, publish via the
 `publish-plugin-sdk` OIDC workflow (tag `plugin-sdk-v1.4.7`), and pin it in both
 plugin repos.
 
-### 0.3 Branches (one per track; isolated worktrees prevent collisions)
+### 0.3 Branches — 3 repos, 3 workspaces (NO codeterm worktrees)
 
-| Track | Repo | Branch (off) | Worktree path (codeterm-alpha tracks) |
-|---|---|---|---|
-| A — SDK types + seam contract | codeterm-alpha | `pr/chat-sdk-types` (off `plugins-rethink`) | main checkout (A lands first, fast) |
-| C0 — ServiceContext→host_api wiring (prereq, §1.5 F4) | codeterm-alpha | `pr/host-service-ref` (off `plugins-rethink`) | `/Users/kandrey/Developer/wt/host-service-ref` (Phase 1, parallel to A) |
-| B — chatBackend core | codeterm-alpha | `pr/chatbackend-core` (off `plugins-rethink`, after A) | `/Users/kandrey/Developer/wt/chatbackend-core` |
-| C — host-API base | codeterm-alpha | `pr/plugin-compute-base` (off `plugins-rethink`, after A) | `/Users/kandrey/Developer/wt/plugin-compute-base` |
-| D — LM Studio plugin | codeterm-plugins | `feat/lmstudio-chatbackend` (off `main`) | repo checkout |
-| E — chat-preprocessor plugin | codeterm-plugins | `feat/chat-preprocessor` (off `main`) | repo checkout (separate worktree to parallel D) |
-| F — dread NPC mock + game sim | dread-delusion-ai | `feat/codeterm-npc-mock` (off `main`) | repo checkout |
+Parallelism is **across repos**, not across worktrees of one repo. Three projects
+participate → **three CodeTerm workspaces, one per repo.** Inside `codeterm-alpha`
+the host tracks land as **sequential branches off `plugins-rethink`** (they share
+the send-path and depend on each other anyway — see §1.6 R1), in the single repo
+checkout. The two plugin repos work **in parallel** with each other and with the
+host work (developing against the SDK types / a host stub, integrating as host
+capabilities land).
 
-Worktrees are created with the `superpowers:using-git-worktrees` flow (or
-`git worktree add`); they let B and C edit `codeterm-alpha` in parallel without
-stomping each other's working tree.
+| Workspace (repo) | Tracks it carries | Branches (off) |
+|---|---|---|
+| **codeterm-alpha** | A → C0 → B → C → V (sequential; the host critical path) | `pr/chat-sdk-types`, `pr/host-service-ref`, `pr/chatbackend-core`, `pr/plugin-compute-base` (each off `plugins-rethink`, merged in order) |
+| **codeterm-plugins** | D (LM Studio), E (preprocessor) | `feat/lmstudio-chatbackend`, `feat/chat-preprocessor` (off `main`) |
+| **dread-delusion-ai** | F (NPC mock + mock game) | `feat/codeterm-npc-mock` (off `main`) |
+
+Why no worktrees: the codeterm-alpha tracks are a dependency chain (A before
+B/C; C0 before C's host.*; B owns the send seam before C plugs stages — R1), so
+running them in parallel worktrees would only create merge churn. One checkout,
+one branch at a time, merge to `plugins-rethink`, next. Real concurrency comes
+free from the other two repos running at the same time.
 
 ### 0.4 CodeTerm workspaces + agent spawns (the dogfood)
 
-One workspace per active track, working-dir = that track's worktree/repo path; I
-(Orchestrator) spawn exactly one **Worker** agent per workspace, primed with the
-matching mem role-skill, then it implements its Track and `codeterm agent report`s.
+**Three workspaces, one per repo.** Within a workspace, the Orchestrator spawns a
+Worker for the current track (sequential in codeterm-alpha; the plugin workspaces
+each run their track). Workers are primed with the matching mem role-skill,
+implement, then `codeterm agent report`.
 
-**Execution model:** the entire build runs **in CodeTerm, via spawned CodeTerm
-agents, in parallel** (one Worker per Track in its own workspace/worktree). **All
-agents — Workers and Reviewers — run on Opus.** We do **not** economize on model
-tier here; this work is important. Spawn with the Opus model explicitly.
+**Execution model:** the build runs **in CodeTerm, via spawned CodeTerm agents**,
+with the **three repo-workspaces progressing concurrently**. **All agents —
+Workers and Reviewers — run on Opus.** We do **not** economize on model tier here.
 
 ```
-codeterm workspace create "rethink/A-sdk-types"     --cwd /Users/kandrey/Developer/codeterm-alpha
-codeterm workspace create "rethink/C0-host-service" --cwd /Users/kandrey/Developer/wt/host-service-ref
-codeterm workspace create "rethink/B-chatbackend"   --cwd /Users/kandrey/Developer/wt/chatbackend-core
-codeterm workspace create "rethink/C-compute-base"  --cwd /Users/kandrey/Developer/wt/plugin-compute-base
-codeterm workspace create "rethink/D-lmstudio"      --cwd /Users/kandrey/Developer/codeterm-plugins
-codeterm workspace create "rethink/E-preprocessor"  --cwd /Users/kandrey/Developer/codeterm-plugins
-codeterm workspace create "rethink/F-dread"         --cwd /Users/kandrey/Developer/dread-delusion-ai
-codeterm workspace create "rethink/V-verify"        --cwd /Users/kandrey/Developer/codeterm-alpha
+codeterm workspace create "rethink/codeterm"  --cwd /Users/kandrey/Developer/codeterm-alpha
+codeterm workspace create "rethink/plugins"   --cwd /Users/kandrey/Developer/codeterm-plugins
+codeterm workspace create "rethink/dread"     --cwd /Users/kandrey/Developer/dread-delusion-ai
 ```
 
 Spawn pattern (per CLAUDE.md — generic claude agent + role skill + concrete task,
-**Opus**):
+**Opus**). The task always points the worker at this plan + names its Track, so it
+inherits the full common context (see §0.7):
 
 ```
-codeterm agent spawn claude --model opus --workspace "rethink/B-chatbackend" \
+codeterm agent spawn claude --model opus --workspace "rethink/codeterm" \
   --task "codeterm mem get skill_backend_dev_role_rust_src_tauri_for_codeterm — that is your role.
-          Then implement Track B from docs/plans/2026-06-17-plugins-rethink-implementation.md
-          on branch pr/chatbackend-core. TDD, commit per task, then: codeterm agent report."
+          Read docs/plans/2026-06-17-plugins-rethink-implementation.md (whole file: the §0 map,
+          §1.x findings/decisions, and your Track). Implement Track B on branch
+          pr/chatbackend-core. TDD, commit per task, then: codeterm agent report."
 ```
 
 | Track | Worker role (mem skill) | Reviewer (read-only) |
@@ -172,6 +175,33 @@ gates merge on a clean review.
    multi-NPC demo — plus full regression (`./build.sh test`,
    `./node_modules/.bin/tsc --noEmit`, `scripts/plugin-tests.sh all`,
    `./build.sh e2e`). Green here = done.
+
+### 0.7 Common context every worker inherits (the through-line)
+
+A spawned worker has **only** what its task gives it — so every worker is told to
+read this whole file, and must hold this through-line so its context never
+truncates to "just my files":
+
+- **What we're building & why:** plugins can *be* a chat's transport (`chatBackend`)
+  and *drive* our agents; so LM Studio/Groq/clawdbot chats, a message preprocessor,
+  and game-NPC brains are all plugins on one extensible seam — no daemon fork. (§1)
+- **The layering:** L1 `chatBackend` transport + transport-agnostic `send`/`get-output`;
+  L2 host-API base (`chatPreprocessor` stage pipeline, `host.worker/workspace/agent/mem`,
+  `onAgentCommand`, agent-facing surface); L3 consumers (LM Studio / preprocessor /
+  dread NPC). Your Track is one slice; the others exist.
+- **Authoritative decisions live in §1.5–§1.9** (verified findings + resolved
+  concerns). When in doubt, those win over looser prose. Don't re-litigate them.
+- **Non-negotiable discipline (CLAUDE.md):** capability-not-identity (branch on
+  capability presence, never plugin id); native↔JS parity tests; audit each new
+  `host.*` handle; everything additive (the PTY provider path is untouched); files
+  ≤1000 lines, English only, TDD with a commit per task.
+- **Where things are:** the spec is `docs/plans/2026-06-17-plugins-chat-backends-and-compute-base.md`;
+  the F1 pane↔PTY checklist is Appendix B1; your Track's contract + acceptance is
+  in §2+. If your Track needs a type/handle another Track owns, code against the
+  §-defined contract and don't redefine it.
+- **Report up, don't expand sideways:** if your Track turns out to need work that
+  belongs to another, `codeterm agent report` blocked — the Orchestrator splits it.
+  Workers never spawn workers.
 
 ---
 
