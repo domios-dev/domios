@@ -796,13 +796,17 @@ pub async fn plugin_ui(
         r.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(ui_mime(rel)));
         r
     };
-    resp.headers_mut().insert(
-        axum::http::header::X_FRAME_OPTIONS,
-        axum::http::HeaderValue::from_static("SAMEORIGIN"),
-    );
-    // Plugin UIs are rebuilt in place; without this the embedding WebView
-    // (WKWebView) heuristically caches the iframe and serves a stale bundle
-    // after a plugin update — which silently shipped a crashing Git panel.
+    // NB: deliberately NO X-Frame-Options. The app embeds this iframe
+    // cross-origin (desktop shell at tauri://localhost / :1420 framing the
+    // daemon at :7686; web over a Tailscale IP / serve host), so SAMEORIGIN
+    // would block the legitimate embed and blank the panel. Framing is safe
+    // here without it: the iframe is sandbox="allow-scripts" (origin null),
+    // CSP-locked (default-src 'none'; connect-src 'none'), and only loads at
+    // all with a valid api/web token in the query — an attacker who framed it
+    // would get an inert, capability-less document.
+    //
+    // Plugin UIs are rebuilt in place; no-store stops the embedding WebView
+    // (WKWebView) from serving a stale bundle after a plugin update.
     resp.headers_mut().insert(
         axum::http::header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static("no-store, must-revalidate"),
