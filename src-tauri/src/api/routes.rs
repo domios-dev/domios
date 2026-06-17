@@ -8,10 +8,10 @@ use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, co
 
 use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, delayed_send_routes,
-    fs_routes, health_routes, hook_routes, logs_routes, mem_routes, mesh_routes,
-    network_routes, notification_routes, pane_chat_routes, pane_routes, pasteboard_routes,
-    services_routes, session_routes, theme_routes, updater_routes, usage_routes, web_routes,
-    webhook_routes, workspace_routes,
+    fs_routes, health_routes, hook_routes, logs_routes, mem_routes, mesh_routes, network_routes,
+    notification_routes, pane_chat_routes, pane_routes, pasteboard_routes, services_routes,
+    session_routes, theme_routes, updater_routes, usage_routes, web_routes, webhook_routes,
+    workspace_routes,
 };
 
 #[derive(Clone)]

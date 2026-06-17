@@ -144,7 +144,10 @@ impl SecretStore for JsSecretBackend {
     }
 
     async fn list(&self, filter: ListFilter) -> Result<Vec<SecretRef>, SecretError> {
-        self.call::<Vec<SecretRef>>("secretList", &[serde_json::to_value(&filter).unwrap_or(json!({}))])
+        self.call::<Vec<SecretRef>>(
+            "secretList",
+            &[serde_json::to_value(&filter).unwrap_or(json!({}))],
+        )
     }
 
     async fn search(&self, query: &str) -> Result<Vec<SecretRef>, SecretError> {
@@ -224,7 +227,9 @@ mod tests {
 
     #[tokio::test]
     async fn optional_methods_default_when_absent() {
-        let vm = vm_with(r#"module.exports.default = { secretStatus() { return { status: "locked" }; } }"#);
+        let vm = vm_with(
+            r#"module.exports.default = { secretStatus() { return { status: "locked" }; } }"#,
+        );
         let b = JsSecretBackend::new(vm, "test-vault");
         assert!(b.organizations().await.unwrap().is_empty());
         assert!(b.sync().await.is_ok());

@@ -72,7 +72,10 @@ mod tests {
         let ids: Vec<_> = list().iter().map(|(id, _, _)| *id).collect();
         assert!(ids.contains(&"local"));
         assert!(ids.contains(&"mock"));
-        assert!(!ids.contains(&"bitwarden"), "bitwarden is a plugin, not a factory");
+        assert!(
+            !ids.contains(&"bitwarden"),
+            "bitwarden is a plugin, not a factory"
+        );
     }
 
     #[test]

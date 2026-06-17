@@ -18,26 +18,26 @@
 //! because QuickJS evaluations are sub-millisecond for the kind of
 //! string work plugins do.
 
+mod bubble;
+mod glance;
 mod host_api;
 mod host_exec;
 mod host_net;
 mod host_secret;
-mod bubble;
-mod glance;
-mod view;
 pub mod hot_reload;
 pub mod loader;
 pub mod manifest;
 mod provider;
 mod secret_backend;
 mod transcriber;
+mod view;
 mod vm;
 
 pub use bubble::JsBubbleProvider;
 pub use glance::JsGlanceProvider;
 pub use secret_backend::JsSecretBackend;
-pub use view::JsViewProvider;
 pub use transcriber::JsTranscriber;
+pub use view::JsViewProvider;
 
 #[cfg(test)]
 mod parity_test;

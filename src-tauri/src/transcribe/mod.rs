@@ -67,8 +67,11 @@ pub trait Transcriber: Send + Sync {
     fn id(&self) -> &str;
     async fn status(&self) -> TranscriberStatus;
     /// Transcribe an audio file already on disk. `language` is a hint (may be `""`).
-    async fn transcribe(&self, audio_path: &Path, language: &str)
-        -> Result<Transcript, TranscribeError>;
+    async fn transcribe(
+        &self,
+        audio_path: &Path,
+        language: &str,
+    ) -> Result<Transcript, TranscribeError>;
 }
 
 /// Runtime registry of transcribers, keyed by id. Populated at startup with the

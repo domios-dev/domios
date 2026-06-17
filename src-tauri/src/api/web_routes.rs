@@ -766,12 +766,17 @@ pub async fn plugin_ui(
     }
     let dir = crate::view_host::plugin_ui_dir(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no ui for plugin '{id}'")))?;
-    let rel = if path.is_empty() { "index.html" } else { path.as_str() };
+    let rel = if path.is_empty() {
+        "index.html"
+    } else {
+        path.as_str()
+    };
     if rel.contains("..") {
         return Err((StatusCode::BAD_REQUEST, "path traversal".into()));
     }
     let file = dir.join(rel);
-    let bytes = std::fs::read(&file).map_err(|_| (StatusCode::NOT_FOUND, "not found".to_string()))?;
+    let bytes =
+        std::fs::read(&file).map_err(|_| (StatusCode::NOT_FOUND, "not found".to_string()))?;
 
     use axum::http::{header, HeaderValue};
     let mut resp = if rel.ends_with(".html") {
@@ -787,14 +792,18 @@ pub async fn plugin_ui(
              img-src 'self' data:; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'"
         );
         let mut r = axum::response::Response::new(axum::body::Body::from(html));
-        r.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+        r.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        );
         if let Ok(v) = HeaderValue::from_str(&csp) {
             r.headers_mut().insert(header::CONTENT_SECURITY_POLICY, v);
         }
         r
     } else {
         let mut r = axum::response::Response::new(axum::body::Body::from(bytes));
-        r.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(ui_mime(rel)));
+        r.headers_mut()
+            .insert(header::CONTENT_TYPE, HeaderValue::from_static(ui_mime(rel)));
         r
     };
     // NB: deliberately NO X-Frame-Options. The app embeds this iframe

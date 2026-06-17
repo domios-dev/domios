@@ -554,9 +554,12 @@ mod tests {
     }
 
     #[test]
-    fn list_descriptors_with_two_providers() {        let reg = AgentRegistry::new();
+    fn list_descriptors_with_two_providers() {
+        let reg = AgentRegistry::new();
         reg.register_provider(Box::new(ClaudeProvider::new()));
-        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new("codex")));
+        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "codex",
+        )));
         let descs = reg.list_descriptors();
         assert_eq!(descs.len(), 2);
         let ids: std::collections::HashSet<&str> = descs.iter().map(|d| d.id.as_str()).collect();
@@ -565,10 +568,15 @@ mod tests {
     }
 
     #[test]
-    fn restore_dispatch_builds_resume_for_every_provider() {        let reg = AgentRegistry::new();
+    fn restore_dispatch_builds_resume_for_every_provider() {
+        let reg = AgentRegistry::new();
         reg.register_provider(Box::new(ClaudeProvider::new()));
-        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new("codex")));
-        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new("opencode")));
+        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "codex",
+        )));
+        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "opencode",
+        )));
         for (id, sid) in [
             ("claude", "f00fc0dd-be1c-4d43-bb1d-212c923b75c1"),
             ("codex", "019e15cd-1527-7e21-9477-2631a52e499a"),
@@ -589,10 +597,15 @@ mod tests {
 
     #[test]
     fn restore_dispatch_falls_back_to_fresh_launch_when_no_resume() {
-        use crate::agent::provider::AgentLaunchParams;        let reg = AgentRegistry::new();
+        use crate::agent::provider::AgentLaunchParams;
+        let reg = AgentRegistry::new();
         reg.register_provider(Box::new(ClaudeProvider::new()));
-        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new("codex")));
-        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new("opencode")));
+        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "codex",
+        )));
+        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "opencode",
+        )));
         for id in ["claude", "codex", "opencode"] {
             let cmd = reg.with_provider(id, |p| {
                 p.build_launch_command(&AgentLaunchParams {

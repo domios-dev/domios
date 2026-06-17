@@ -112,9 +112,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_text_is_error() {
-        let vm = vm_with(
-            r#"module.exports.default = { transcribe() { return { text: "  " }; } }"#,
-        );
+        let vm = vm_with(r#"module.exports.default = { transcribe() { return { text: "  " }; } }"#);
         let t = JsTranscriber::new(vm, "test");
         assert!(matches!(
             t.transcribe(Path::new("/a.oga"), "").await,
@@ -150,7 +148,10 @@ mod tests {
         let p = super::super::loader::load_one(&mp).expect("load transcriber");
         assert_eq!(p.manifest().id, "transcriber");
         assert!(p.manifest().capabilities.transcriber);
-        assert!(!p.manifest().capabilities.agent_provider, "transcriber-only");
+        assert!(
+            !p.manifest().capabilities.agent_provider,
+            "transcriber-only"
+        );
         assert_eq!(p.manifest().host_api, Some(2));
     }
 
@@ -191,6 +192,9 @@ mod tests {
         let _ = tx.send(());
         let _ = handle.await;
 
-        assert!(matches!(&out, Ok(t) if t.text == "salut le monde"), "got {out:?}");
+        assert!(
+            matches!(&out, Ok(t) if t.text == "salut le monde"),
+            "got {out:?}"
+        );
     }
 }

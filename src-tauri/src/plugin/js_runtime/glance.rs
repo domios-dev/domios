@@ -39,8 +39,12 @@ impl GlanceProvider for JsGlanceProvider {
         if !has_method(&self.vm, "glanceAction") {
             return self.render(ctx).await;
         }
-        call_json::<GlanceView>(&self.vm, "glanceAction", &[Value::String(action.to_string()), ctx])
-            .map_err(|e| GlanceError::Render(format!("{e:?}")))
+        call_json::<GlanceView>(
+            &self.vm,
+            "glanceAction",
+            &[Value::String(action.to_string()), ctx],
+        )
+        .map_err(|e| GlanceError::Render(format!("{e:?}")))
     }
 }
 

@@ -34,7 +34,13 @@ pub async fn plugin_glance(
     action: Option<String>,
     ctx: Option<Value>,
 ) -> Result<Value, String> {
-    glance_render(&svc.glance_registry, &plugin_id, action.as_deref(), ctx.unwrap_or(Value::Null)).await
+    glance_render(
+        &svc.glance_registry,
+        &plugin_id,
+        action.as_deref(),
+        ctx.unwrap_or(Value::Null),
+    )
+    .await
 }
 
 /// Shared by the Tauri command and the web-mirror REST route.
@@ -86,7 +92,13 @@ pub async fn plugin_view_call(
     method: String,
     args: Option<Value>,
 ) -> Result<Value, String> {
-    view_call(&svc.view_registry, &plugin_id, &method, args.unwrap_or(Value::Null)).await
+    view_call(
+        &svc.view_registry,
+        &plugin_id,
+        &method,
+        args.unwrap_or(Value::Null),
+    )
+    .await
 }
 
 /// Shared by the Tauri command and the web-mirror REST route.
@@ -151,10 +163,17 @@ fn scan_plugin_manifests() -> std::collections::HashMap<String, (std::path::Path
 fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
     let caps = m.get("capabilities");
     let agent_provider = match caps {
-        Some(c) => c.get("agentProvider").and_then(|v| v.as_bool()).unwrap_or(false),
+        Some(c) => c
+            .get("agentProvider")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         None => true,
     };
-    let cap_bool = |key: &str| caps.and_then(|c| c.get(key)).and_then(|v| v.as_bool()).unwrap_or(false);
+    let cap_bool = |key: &str| {
+        caps.and_then(|c| c.get(key))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    };
     let cap_obj = serde_json::json!({
         "agent_provider": agent_provider,
         "secret_backend": cap_bool("secretBackend"),
