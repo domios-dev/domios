@@ -27,6 +27,9 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 struct Tracked {
     manifest_mtime: SystemTime,
     entry_mtime: SystemTime,
+    /// mtime of the per-plugin `config.yaml` (§1.7). An edit triggers a reload
+    /// that re-stamps `host.settingsJson` into the VM — live settings reload.
+    config_mtime: SystemTime,
 }
 
 /// The non-agent capability registries the watcher re-registers a (re)loaded
@@ -208,6 +211,7 @@ impl HotReloadRegistry {
                     Tracked {
                         manifest_mtime: mtime_or_epoch(manifest_path),
                         entry_mtime: mtime_or_epoch(&entry_path),
+                        config_mtime: config_mtime_for(manifest_path),
                     },
                 );
                 activated.insert(manifest.id);
@@ -321,23 +325,25 @@ impl HotReloadRegistry {
             return None;
         }
         let entry_mtime = mtime_or_epoch(&entry_path);
+        let config_mtime = config_mtime_for(manifest_path);
 
         // Snapshot prior state without holding the lock across I/O or QuickJS work — parking_lot is non-reentrant, and the VM mutex sits below this one in the lock order.
         let prior = self.state.lock().get(&manifest.id).cloned();
         if let Some(prev) = prior {
             let manifest_changed = prev.manifest_mtime != manifest_mtime;
             let entry_changed = prev.entry_mtime != entry_mtime;
-            if !manifest_changed && !entry_changed {
+            let config_changed = prev.config_mtime != config_mtime;
+            if !manifest_changed && !entry_changed && !config_changed {
                 return Some(manifest.id);
             }
             // Always full-rebuild on any change. In-place `vm.reload` would be faster but adds a second code path that races against any provider call
-            // holding the VM mutex (an idle pane's detect_from_output still runs at PTY-event rate). Throwing the old VM away and constructing a new one is 10-50ms — cheap enough for plugin edits.
+            // holding the VM mutex (an idle pane's detect_from_output still runs at PTY-event rate). Throwing the old VM away and constructing a new one is 10-50ms — cheap enough for plugin edits. A config.yaml edit reloads too so settings re-stamp live (§1.7).
             log::info!(
-                "[plugin-watcher] {} changed (manifest={manifest_changed}, entry={entry_changed}) — reloading",
+                "[plugin-watcher] {} changed (manifest={manifest_changed}, entry={entry_changed}, config={config_changed}) — reloading",
                 manifest.id
             );
         }
-        self.full_load(manifest_path, manifest_mtime, entry_mtime)
+        self.full_load(manifest_path, manifest_mtime, entry_mtime, config_mtime)
     }
 
     fn full_load(
@@ -345,6 +351,7 @@ impl HotReloadRegistry {
         manifest_path: &std::path::Path,
         manifest_mtime: SystemTime,
         entry_mtime: SystemTime,
+        config_mtime: SystemTime,
     ) -> Option<String> {
         match load_one(manifest_path) {
             Ok(mut provider) => {
@@ -361,6 +368,7 @@ impl HotReloadRegistry {
                         Tracked {
                             manifest_mtime,
                             entry_mtime,
+                            config_mtime,
                         },
                     );
                     log::info!(
@@ -393,6 +401,7 @@ impl HotReloadRegistry {
                     Tracked {
                         manifest_mtime,
                         entry_mtime,
+                        config_mtime,
                     },
                 );
                 crate::plugin::audit::append_daemon_reloaded(&id, &version);
@@ -425,6 +434,16 @@ impl HotReloadRegistry {
 fn mtime_or_epoch(p: &std::path::Path) -> SystemTime {
     std::fs::metadata(p)
         .and_then(|m| m.modified())
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+}
+
+/// mtime of the plugin's `config.yaml` sibling, or the epoch when absent — so a
+/// later `config.yaml` create/edit registers as a change and reloads the VM
+/// (live settings reload, §1.7).
+fn config_mtime_for(manifest_path: &std::path::Path) -> SystemTime {
+    manifest_path
+        .parent()
+        .map(|dir| mtime_or_epoch(&super::plugin_config::config_yaml_path(dir)))
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
@@ -777,6 +796,40 @@ mod tests {
         assert!(
             !caps.bubble.contains("bubbler"),
             "capability must be deregistered on uninstall"
+        );
+    }
+
+    #[test]
+    fn config_yaml_edit_triggers_reload_for_live_settings() {
+        // §1.7 live settings reload: editing the per-plugin config.yaml must
+        // reload the VM so host.settingsJson re-stamps. We assert the reload
+        // happens (load_count increments) on a config.yaml change alone.
+        let root = tempfile::tempdir().unwrap();
+        let registry = Arc::new(AgentRegistry::new());
+        let watcher = HotReloadRegistry::new(
+            vec![root.path().to_path_buf()],
+            registry.clone(),
+            test_caps(),
+        );
+        let dir = root.path().join("cfgplugin");
+        write(&dir.join("plugin.json"), &manifest_for("cfgplugin"));
+        write(&dir.join("plugin.js"), &plugin_for("cfgplugin"));
+        write(&dir.join("config.yaml"), "engine: whisper\n");
+        watcher.tick();
+        assert_eq!(watcher.load_count(), 1);
+
+        // No change → no reload.
+        watcher.tick();
+        assert_eq!(watcher.load_count(), 1);
+
+        // Edit config.yaml only → reload (settings re-stamp).
+        std::thread::sleep(Duration::from_millis(1100));
+        write(&dir.join("config.yaml"), "engine: deepgram\n");
+        watcher.tick();
+        assert_eq!(
+            watcher.load_count(),
+            2,
+            "a config.yaml edit must reload the plugin VM"
         );
     }
 

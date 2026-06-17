@@ -1194,6 +1194,20 @@ Remove a channel cache and registry entry
 - `--force` — Allow removing the protected system channel registration
 - `<name>` — 
 
+#### `codeterm plugin config`
+
+Configure a plugin by editing its self-documenting config.yaml (comments preserved, validated against the settings schema). Non-secret fields are written to the YAML; secret fields are reported for routing to the secret store (never written plaintext). Reload is live
+
+- `<id>` — 
+- `--set` — Set a field: --set key=value (repeatable)
+- `--values_json` — Set multiple fields from a JSON object (named --values-json so it does not collide with the global --json output flag)
+
+#### `codeterm plugin get`
+
+Show a plugin's agent-facing config: its self-documenting config.yaml (secret values redacted), settings schema, and installed/configured/ reload state. The agent's discover handle (§1.7)
+
+- `<id>` — 
+
 #### `codeterm plugin install`
 
 Install a plugin by id from channels, or directly from a local folder

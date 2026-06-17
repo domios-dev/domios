@@ -4159,6 +4159,54 @@
           ]
         },
         {
+          "name": "config",
+          "about": "Configure a plugin by editing its self-documenting config.yaml (comments preserved, validated against the settings schema). Non-secret fields are written to the YAML; secret fields are reported for routing to the secret store (never written plaintext). Reload is live",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "set",
+              "positional": false,
+              "value_name": "KEY=VALUE",
+              "default": null,
+              "help": "Set a field: --set key=value (repeatable)",
+              "aliases": []
+            },
+            {
+              "name": "values_json",
+              "positional": false,
+              "value_name": "JSON",
+              "default": null,
+              "help": "Set multiple fields from a JSON object (named --values-json so it does not collide with the global --json output flag)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "get",
+          "about": "Show a plugin's agent-facing config: its self-documenting config.yaml (secret values redacted), settings schema, and installed/configured/ reload state. The agent's discover handle (§1.7)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "install",
           "about": "Install a plugin by id from channels, or directly from a local folder",
           "aliases": [],

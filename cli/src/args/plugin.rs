@@ -35,6 +35,24 @@ pub enum PluginAction {
         #[command(subcommand)]
         command: PluginChannelAction,
     },
+    /// Show a plugin's agent-facing config: its self-documenting config.yaml
+    /// (secret values redacted), settings schema, and installed/configured/
+    /// reload state. The agent's discover handle (§1.7).
+    Get { id: String },
+    /// Configure a plugin by editing its self-documenting config.yaml (comments
+    /// preserved, validated against the settings schema). Non-secret fields are
+    /// written to the YAML; secret fields are reported for routing to the secret
+    /// store (never written plaintext). Reload is live.
+    Config {
+        id: String,
+        /// Set a field: --set key=value (repeatable).
+        #[arg(long = "set", value_name = "KEY=VALUE")]
+        set: Vec<String>,
+        /// Set multiple fields from a JSON object (named --values-json so it does
+        /// not collide with the global --json output flag).
+        #[arg(long = "values-json", value_name = "JSON")]
+        values_json: Option<String>,
+    },
     /// Passthrough to a plugin's `onAgentCommand`: `codeterm plugin <id> <verb>
     /// [args…]`. Routes the reserved `plugin:<id>.<verb>` socket method to the
     /// owning plugin (requires its `agent_commands` grant). Catch-all for any

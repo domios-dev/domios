@@ -31,6 +31,7 @@ mod host_secret;
 pub mod hot_reload;
 pub mod loader;
 pub mod manifest;
+pub mod plugin_config;
 mod provider;
 mod secret_backend;
 mod transcriber;
