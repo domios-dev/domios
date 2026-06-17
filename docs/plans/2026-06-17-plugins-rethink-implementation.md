@@ -506,11 +506,33 @@ user yes → `plugin install transcribe` → `plugin config transcribe --json
 shows configured → "done, voice transcription is on." Secrets (e.g. an API key)
 are prompted and routed to the secret bucket, not the flow above.
 
-**Tasks (Track C):** `codeterm plugin config <id>` (validate + secret-routing) ·
-**live settings reload** (extend the hot-reload watcher) · `get plugin <id>`
-returns schema + redacted current + state · (per-plugin, Tracks D/E/F) ship a
-`settings.schema.json` with secret fields marked, and an agent-doc — **acceptance
-item for every plugin**.
+**Config storage = self-documenting per-plugin YAML (DECISION — user-requested).**
+Plugin config is NOT the `config.plugins.<id>` JSON-bag in `config.toml`; instead
+each plugin gets its **own YAML file** (e.g. `~/.codeterm/plugins/<id>/config.yaml`,
+dev: `~/.codeterm-dev/...`). Rationale: an agent (and a human) configures far more
+easily when the docs live **inline as YAML comments** next to each field — "how to
+set this" sits right beside the value. So:
+- The plugin **ships a commented default `config.yaml`** (every field documented in
+  comments) — this replaces/absorbs `settings.schema.json` as the agent-facing
+  doc + shape. The schema can still exist for validation; the YAML is what the
+  agent reads and edits.
+- `codeterm get plugin <id>` returns that YAML (with current values, secrets
+  redacted); `codeterm plugin config <id>` edits it (validates, preserves
+  comments, routes secret-typed fields to the secret store — never plaintext YAML).
+- **Delivery to the plugin is unchanged:** the host parses the YAML and hands the
+  plugin JSON via `host.settingsJson()` (QuickJS plugins still `JSON.parse` — no
+  plugin-side change). YAML is the *storage/authoring* format only.
+- Live reload watches the YAML file (per §1.7 #4).
+This supersedes the `config.plugins.<id>`/`settings.schema.json` mentions above and
+in §1.10; grant persistence (§1.10) moves to the same per-plugin dir (e.g.
+`grants.yaml` or a `__grants` block) rather than `config.toml`.
+
+**Tasks (Track C):** `codeterm plugin config <id>` (parse/edit the per-plugin YAML,
+comment-preserving, validate + secret-routing) · **live settings reload** (watch
+`<id>/config.yaml`, re-stamp JSON into the VM) · `get plugin <id>` returns the
+documented YAML + redacted current + state · (per-plugin, Tracks D/E/F) ship a
+**commented default `config.yaml`** (secret fields marked) + an agent-doc —
+**acceptance item for every plugin**.
 
 ---
 
