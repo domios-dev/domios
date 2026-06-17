@@ -68,6 +68,34 @@ const PLUGIN_PREAMBLE: &str = r#"
     },
   };
   host.manifest = function () { return parseJson(host.manifestJson()); };
+
+  // ── host compute base ──────────────────────────────────────────────
+  // mem + workspace are SYNCHRONOUS (mem search is sync; workspace ops are
+  // cheap mux ops) — they return their parsed result directly so a sync stage
+  // like chatPreprocess can call them mid-turn. worker + agent genuinely spawn
+  // long-lived agents (job-id/poll, F4) and are typed Promise in the SDK, so
+  // their sync binds are wrapped in resolved Promises here to make the surface
+  // awaitable without a VM event loop.
+  host.mem = {
+    search: function (opts) { return parseJson(host.memSearch(JSON.stringify(opts))) || { hits: [] }; },
+  };
+  host.workspace = {
+    ensure: function (opts) { return parseJson(host.workspaceEnsure(JSON.stringify(opts))); },
+    panes:  function (workspaceId) { return parseJson(host.workspacePanes(workspaceId)) || []; },
+  };
+  host.worker = {
+    start: function (opts) { return Promise.resolve(parseJson(host.workerStart(JSON.stringify(opts)))); },
+    poll:  function (jobId) { return Promise.resolve(parseJson(host.workerPoll(jobId))); },
+  };
+  host.agent = {
+    spawn:  function (workspaceId, opts) { return Promise.resolve(parseJson(host.agentSpawn(workspaceId, JSON.stringify(opts)))); },
+    resume: function (workspaceId, sessionId) { return Promise.resolve(parseJson(host.agentResume(workspaceId, sessionId))); },
+    get:    function (workspaceId, key) { return Promise.resolve(parseJson(host.agentGet(workspaceId, key))); },
+    send:   function (sessionId, text) { return Promise.resolve(parseJson(host.agentSend(sessionId, text))); },
+    poll:   function (ticket) { return Promise.resolve(parseJson(host.agentPoll(ticket))); },
+    reap:   function (sessionId) { host.agentReap(sessionId); return Promise.resolve(); },
+    usage:  function (sessionId) { return Promise.resolve(parseJson(host.agentUsage(sessionId))); },
+  };
 })();
 "#;
 
@@ -577,6 +605,55 @@ mod tests {
         assert_eq!(id.as_deref(), Some("X"));
         let q: String = call_json(&vm, "wrap", &[json!("can't")]).unwrap();
         assert_eq!(q, "'can'\\''t'");
+    }
+
+    #[test]
+    fn preamble_compute_handles_sync_vs_promise() {
+        // The preamble must expose host.mem / host.workspace / host.worker /
+        // host.agent. mem + workspace are SYNCHRONOUS (return their result
+        // directly); worker + agent are Promise-wrapped (awaitable). No service
+        // is bound in from_source, so the underlying sync binds return the
+        // `{ error }` envelope — we assert the SHAPE here, not a live result.
+        let vm = fixture(
+            r#"
+            module.exports.default = {
+                shape() {
+                    var mem = host.mem.search({ query: "q" });
+                    var startP = host.worker.start({ task: "t" });
+                    var sendP = host.agent.send("s", "t");
+                    return {
+                        memIsFn:       typeof host.mem.search === "function",
+                        wsEnsureIsFn:  typeof host.workspace.ensure === "function",
+                        wsPanesIsFn:   typeof host.workspace.panes === "function",
+                        // mem.search is SYNC: a plain object, not a thenable.
+                        memSync:       mem !== null && typeof mem === "object" && mem.then === undefined,
+                        // svc absent -> error envelope flows through synchronously.
+                        memError:      typeof mem.error === "string",
+                        // worker/agent are Promise-wrapped: the call returns a thenable.
+                        workerThenable: typeof startP.then === "function",
+                        agentThenable:  typeof sendP.then === "function",
+                    };
+                }
+            };
+            "#,
+        );
+        let v: serde_json::Value = call_json(&vm, "shape", &[]).unwrap();
+        assert_eq!(v["memIsFn"], true);
+        assert_eq!(v["wsEnsureIsFn"], true);
+        assert_eq!(v["wsPanesIsFn"], true);
+        assert_eq!(v["memSync"], true, "host.mem.search must be synchronous");
+        assert_eq!(
+            v["memError"], true,
+            "svc-absent must surface an error envelope"
+        );
+        assert_eq!(
+            v["workerThenable"], true,
+            "host.worker.start must return a Promise"
+        );
+        assert_eq!(
+            v["agentThenable"], true,
+            "host.agent.send must return a Promise"
+        );
     }
 
     #[test]

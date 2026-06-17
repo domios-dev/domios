@@ -23,6 +23,7 @@ mod chatbackend;
 mod chatpreprocessor;
 mod glance;
 mod host_api;
+mod host_compute;
 mod host_exec;
 mod host_net;
 mod host_secret;

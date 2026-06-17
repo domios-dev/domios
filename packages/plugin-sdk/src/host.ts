@@ -81,9 +81,13 @@ export interface HostPath {
 }
 
 // ── host compute base (host.worker / workspace / agent / mem) ──
-// These bridge the sync VM to async host work via a job-id/poll model (F4): the
-// VM never blocks on an agent turn. They are gated by enforced permissions
-// (`manage_workspaces` / `spawn_agents`).
+// Split by cost (Track C2): worker + agent genuinely spawn long-lived agents,
+// so they bridge the sync VM to async host work via a job-id/poll model (F4)
+// and are typed `Promise` (the VM preamble wraps the sync binds in resolved
+// Promises). mem search + the cheap workspace registry ops are SYNCHRONOUS —
+// the VM has no event loop mid-call, so a sync stage (e.g. chatPreprocess) can
+// call them and use the result directly. They are gated by enforced
+// permissions (`manage_workspaces` / `spawn_agents`).
 
 export interface Backend {
   provider?: string;
@@ -115,9 +119,10 @@ export interface HostWorker {
   poll(jobId: string): Promise<{ done: boolean; report?: string; error?: string }>;
 }
 
+// Synchronous: workspace ensure/list are cheap mux ops, not agent turns.
 export interface HostWorkspace {
-  ensure(opts: { name: string; externalRoot?: string }): Promise<{ workspaceId: string }>;
-  panes(workspaceId: string): Promise<PaneRef[]>;
+  ensure(opts: { name: string; externalRoot?: string }): { workspaceId: string };
+  panes(workspaceId: string): PaneRef[];
 }
 
 // A team of long-lived agent sessions the PLUGIN owns and reaps (R2). spawn starts
@@ -137,11 +142,13 @@ export interface HostAgent {
   usage?(sessionId: string): Promise<UsageSnapshot | null>;
 }
 
+// Synchronous: mem search is sync (mem/manager_search.rs), so a sync stage like
+// chatPreprocess can call it mid-turn and use the hits directly.
 export interface HostMem {
   search(opts: {
     query: string;
     k?: number;
-  }): Promise<{ hits: { id: string; text: string; score: number }[] }>;
+  }): { hits: { id: string; text: string; score: number }[] };
 }
 
 export interface Host {

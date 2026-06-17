@@ -88,9 +88,9 @@ async function exercise() {
   const w = await host.worker.poll(jobId);
   if (w.done) void w.report;
 
-  // workspace: ensure + panes.
-  const { workspaceId } = await host.workspace.ensure({ name: "ws" });
-  const panes: PaneRef[] = await host.workspace.panes(workspaceId);
+  // workspace: ensure + panes — SYNCHRONOUS (cheap mux ops, no agent turn).
+  const { workspaceId } = host.workspace.ensure({ name: "ws" });
+  const panes: PaneRef[] = host.workspace.panes(workspaceId);
   void panes;
 
   // agent: spawn (fresh) / resume (specific) / get (key→session) / send (ticket) / poll / reap / usage.
@@ -114,8 +114,8 @@ async function exercise() {
   void usage;
   await host.agent.reap(sessionId);
 
-  // mem: sync-feel search, returns scored hits.
-  const { hits } = await host.mem.search({ query: "q", k: 5 });
+  // mem: SYNCHRONOUS search (callable mid-turn by a sync stage), scored hits.
+  const { hits } = host.mem.search({ query: "q", k: 5 });
   void hits.map((h) => `${h.id}:${h.text}:${h.score}`);
 }
 void exercise;
