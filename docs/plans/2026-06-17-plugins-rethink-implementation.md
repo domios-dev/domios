@@ -694,3 +694,118 @@ the game mocked.
 before coding:** preprocessor ordering; chatBackend inbound poll-vs-push; session
 depth; `onAgentCommand` routing impl; stage-conflict hard-block-vs-warn +
 match-filter granularity.
+
+---
+
+## Appendix B1 — pane↔PTY decoupling: design + COMPLETE site inventory
+
+> Purpose: remove the F1 fear by knowing *every* place, not "about 10". This is
+> the authoritative checklist for Track B. The fear is uncertainty; this is the
+> certainty. Sweep done by exhaustive grep of `resolve_pty_id`,
+> `ensure_pane_pty_for_send`, the `send_text*` family, dispatch commands,
+> output/screen state, and the frontend.
+
+### B1.1 The design — one seam, not scattered `if`s
+
+1. **Single source of truth:** add `Pane.backing: PaneBacking` —
+   `enum PaneBacking { Pty, ChatBackend { plugin_id: String, session_id: String } }`.
+   A ChatBackend pane has `pty_id: None` **permanently**. One helper
+   `Pane::is_chat_backend()`.
+2. **A `PaneTransport` seam at the pane-I/O boundary.** The few *pane-keyed* entry
+   operations dispatch on backing instead of calling `resolve_pty_id` directly:
+   `send(text, enter)`, `read_transcript(since)`, `resize(cols,rows)` (no-op for
+   chat), `kill`/`close`. Two impls: `PtyTransport` (today's path) and
+   `ChatBackendTransport` (calls `chatbackend_registry`). Entry points call
+   `svc.pane_transport(pane_id)?.send(...)`. **This collapses ~20 scattered
+   branches into one dispatch + two impls — and it *is* the "transport-agnostic"
+   the spec promised.**
+3. **No backend reader at spawn for ChatBackend** → `output_buf`/`screen_state`
+   are never populated for it, so the whole PTY read/parse pipeline
+   (`process_pty_output`, `backend_read_loop`, `ScreenState`) is simply *never
+   entered* — nothing to guard inside it.
+4. **One auto-spawn guard:** make `ensure_pane_pty_for_send` backing-aware — for a
+   ChatBackend pane early-return (and lazily call the plugin's `openSession`),
+   never spawn a shell. Fixing this **one** function neutralizes **all 9** callers.
+5. **Skip `await_pty_link` for ChatBackend** (it polls for a PTY that never links →
+   would hang). Its callers gate on backing.
+6. **Frontend:** `TerminalPane`/`TabContent` branch on backing → render the chat UI
+   (the `PaneSessionChat` path already exists), skip `useXterm`/`usePtyConnection`.
+7. **Completeness guard (the thing that kills the fear):** an executable test that,
+   for a ChatBackend pane, exercises *every* entry op
+   (send/get_output/get_text/stream/resize/kill/close/await_pty_link) and asserts
+   **none spawns a PTY and none errors "no PTY"**; plus a CI grep asserting no NEW
+   `resolve_pty_id` call is added *outside* the transport module. After this, "did
+   we miss a spot?" is answered by a green test, not by worry.
+
+### B1.2 Complete site inventory (every coupling point)
+
+Category key: **[T]** route via `PaneTransport` (entry point) · **[G]** covered by
+the single `ensure_pane_pty_for_send` guard · **[R]** never populated/started for
+ChatBackend (no reader) · **[FE]** frontend branch · **[OK]** already None-safe or
+Agent-only path · **[V]** verify intent in sub-plan.
+
+**`resolve_pty_id` callers (20):**
+
+| Site | Cat | Action |
+|---|---|---|
+| `service/pty_io.rs:86 send_text` (entry) | [T] | dispatch to transport |
+| `service/pty_io.rs:208 send_text_when_ready` (entry) | [T] | dispatch |
+| `service/pty_io.rs:856 send_text_batch` (entry) | [T] | dispatch |
+| `service/pty_io.rs:876 resize` | [T] | no-op for chat |
+| `service/pty_io.rs:886` (read/get) | [T] | transcript |
+| `service/pty_io.rs:350` (inside ensure_pane_pty_for_send) | [G] | the guard |
+| `service/pty_io.rs:489` | [R] | internal, PTY-only after branch |
+| `service/pty_io.rs:815` | [R] | internal, PTY-only |
+| `dispatch/mod.rs:242 cmd_get_output` | [T] | transcript |
+| `dispatch/mod.rs:290 cmd_get_text` | [T] | transcript |
+| `api/pane_routes.rs:316` (send) | [T] | dispatch |
+| `api/pane_routes.rs:489 get_pane_output` | [T] | transcript |
+| `api/pane_routes.rs:644 / :684 stream_pane_output` | [T] | stream chat msgs |
+| `api/pane_routes.rs:182 await_pty_link` | [G] | skip for chat (else hangs) |
+| `api/pane_routes.rs:749` (cleanup) | [OK] | None-safe guard |
+| `bridge/manager/mod.rs:737` (bridge→pane send) | [T] | dispatch (Telegram→chat) |
+| `api/mem_routes/items.rs:730` (attach pane output to mem) | [V] | transcript or skip |
+| `service/spawn.rs:896` (send launch shell cmd) | [OK] | Agent-only; chat never reaches |
+| `service/pane.rs:382` | [R] | internal |
+| `service/pane.rs:512` (close) | [OK] | None-safe |
+
+**`ensure_pane_pty_for_send` callers (9) — ALL covered by guard B1.1#4:**
+`multiplexer/commands.rs:92` · `api/pane_routes.rs:226` (send_text route) ·
+`api/workspace_routes.rs:162` · `service/spawn.rs:546` · `service/pty_io.rs:87`
+(send_text) · `service/pty_io.rs:214` (send_text_when_ready) ·
+`socket/server/workspace.rs:75`. (Plus the def at `pty_io.rs:344`.)
+
+**Dispatch commands (socket/CLI handlers) — each branches on backing:**
+`dispatch/mod.rs:224 cmd_send_text` [T] · `:234 cmd_get_output` [T] ·
+`:285 cmd_get_text` [T] · `:360 cmd_pty_resize` [T no-op] · `:370 cmd_pty_kill` [T no-op].
+
+**`send_text*` family:** pane-keyed entries `send_text:86`, `send_text_when_ready:208`,
+`send_text_batch:856` → [T]. PTY-keyed `send_text_to_pty:506`, `_smart:99`,
+`_verified:550` → [OK] (reached only after resolution, i.e. PTY panes only).
+
+**Output/screen state:** `pty/screen_state.rs get_screen_text:82`, `OutputBuffer`
+(lib.rs:50-57, fed by the backend reader) → [R] never populated for ChatBackend
+(no reader started at spawn).
+
+**Frontend:** `Terminal/TabContent.tsx:51` (passes `pane.pty_id`) ·
+`Terminal/TerminalPane.tsx:11 usePtyConnection / :94 useXterm` → [FE] branch on
+backing, render chat instead. `Terminal/PaneSessionChat.tsx` already drives a
+chat-style pane (reuse/extend). `ChatComposer.tsx:429 write_pty_string` is the web
+send path → routes through the transport once the pane is ChatBackend.
+
+**Spawn:** `PaneCommand::ChatBackend` must NOT call `start_backend_reader`
+(`service/pty_lifecycle.rs:25`) — that's what keeps [R] true.
+
+### B1.3 Track B task order (revised from this inventory)
+
+1. `Pane.backing` enum + `is_chat_backend()` + `PaneCommand::ChatBackend`. Test.
+2. `PaneTransport` trait + `PtyTransport` (wrap today's path, no behavior change —
+   prove parity) + `svc.pane_transport()`. Test PTY unchanged.
+3. `ChatBackendTransport` + `chatbackend_registry` + the js_runtime adapter. Test.
+4. Re-point the **[T]** entry sites at the transport (send/get_output/get_text/
+   stream/resize/kill + dispatch commands + bridge send). Test each.
+5. The **[G]** guard in `ensure_pane_pty_for_send` + skip `await_pty_link`. Test
+   no-auto-spawn.
+6. Spawn path: ChatBackend starts no reader; inbound `poll`→`StructuredSink`. Test.
+7. Frontend **[FE]** branch (render chat, no xterm). Playwright against a stub.
+8. **Completeness test** (B1.1#7) + CI grep guard. Green = fear gone.
