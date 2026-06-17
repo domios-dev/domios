@@ -14,9 +14,28 @@ const DEFAULT_RATIO = 0.5;
 const HARD_LO = 0.15;
 const HARD_HI = 0.85;
 
+// The plugin iframe is sandboxed (allow-scripts, origin null) — touching
+// localStorage throws a SecurityError. Guard every access so persistence
+// silently degrades to in-memory instead of crashing the panel on mount.
+function safeGet(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSet(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    /* sandboxed iframe — no persistence */
+  }
+}
+
 function loadRatio(key: string, fallback: number): number {
   if (typeof window === "undefined") return fallback;
-  const raw = Number(window.localStorage.getItem(key));
+  const raw = Number(safeGet(key));
   return raw > HARD_LO && raw < HARD_HI ? raw : fallback;
 }
 
@@ -62,7 +81,7 @@ export function useDragRatio(
       if (!dragging.current) return;
       dragging.current = false;
       setRatio((r) => {
-        window.localStorage.setItem(storageKey, String(r));
+        safeSet(storageKey, String(r));
         return r;
       });
     };
@@ -76,7 +95,7 @@ export function useDragRatio(
 
   const reset = useCallback(() => {
     setRatio(defaultRatio);
-    window.localStorage.setItem(storageKey, String(defaultRatio));
+    safeSet(storageKey, String(defaultRatio));
   }, [defaultRatio, storageKey]);
 
   return { ratio, onPointerDown, reset };
