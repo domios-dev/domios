@@ -599,3 +599,25 @@ fn chat_default_on_hidden_agent_stays_terminal() {
         true,
     ));
 }
+
+#[test]
+fn chatbackend_pane_command_deserializes() {
+    // The spawn API contract for a chatBackend pane: kind "chat_backend" with a
+    // plugin id and opaque config (B1.3 #1/#6).
+    let json = r#"{"kind":"chat_backend","plugin_id":"lmstudio","config":{"model":"qwen"}}"#;
+    let cmd: PaneCommand = serde_json::from_str(json).unwrap();
+    match cmd {
+        PaneCommand::ChatBackend { plugin_id, config } => {
+            assert_eq!(plugin_id, "lmstudio");
+            assert_eq!(config["model"], "qwen");
+        }
+        _ => panic!("expected ChatBackend variant"),
+    }
+}
+
+#[test]
+fn chatbackend_pane_command_config_defaults_to_null() {
+    let json = r#"{"kind":"chat_backend","plugin_id":"lmstudio"}"#;
+    let cmd: PaneCommand = serde_json::from_str(json).unwrap();
+    assert!(matches!(cmd, PaneCommand::ChatBackend { config, .. } if config.is_null()));
+}
