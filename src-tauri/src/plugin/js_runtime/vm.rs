@@ -664,6 +664,53 @@ mod tests {
     }
 
     #[test]
+    fn host_compute_perms_gate_workspace_and_agent() {
+        // §1.10 P3: host.workspace* requires manage_workspaces; host.agent*
+        // requires spawn_agents. A restricted sandbox without the grant is
+        // denied at the bind; with the grant it passes the gate (svc absent in a
+        // unit test → "host service unavailable", proving the gate was crossed).
+        use crate::plugin::js_runtime::host_api::PluginSandbox;
+        use crate::plugin::js_runtime::manifest::PermissionsConfig;
+        use std::sync::Arc;
+        const SRC: &str = r#"
+            module.exports.default = {
+                ws() { return host.workspaceEnsure("{}"); },
+                ag() { return host.agentSpawn("w", "{}"); }
+            };
+        "#;
+
+        let denied = Arc::new(
+            PluginSandbox::restricted(vec![], vec![])
+                .with_identity_and_perms("p", &PermissionsConfig::default()),
+        );
+        let vm = PluginVm::from_source_sandboxed("p", SRC.to_string(), None, denied).unwrap();
+        let ws: String = call_json(&vm, "ws", &[]).unwrap();
+        assert!(ws.contains("manage_workspaces permission required"), "{ws}");
+        let ag: String = call_json(&vm, "ag", &[]).unwrap();
+        assert!(ag.contains("spawn_agents permission required"), "{ag}");
+
+        let perms = PermissionsConfig {
+            manage_workspaces: true,
+            spawn_agents: true,
+            ..Default::default()
+        };
+        let granted = Arc::new(
+            PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms("p", &perms),
+        );
+        let vm2 = PluginVm::from_source_sandboxed("p", SRC.to_string(), None, granted).unwrap();
+        let ws2: String = call_json(&vm2, "ws", &[]).unwrap();
+        assert!(
+            ws2.contains("host service unavailable"),
+            "granted ws: {ws2}"
+        );
+        let ag2: String = call_json(&vm2, "ag", &[]).unwrap();
+        assert!(
+            ag2.contains("host service unavailable"),
+            "granted ag: {ag2}"
+        );
+    }
+
+    #[test]
     fn reload_swaps_implementation() {
         let vm = fixture(
             r#"

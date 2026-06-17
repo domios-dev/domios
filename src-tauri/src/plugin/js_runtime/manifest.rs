@@ -475,6 +475,14 @@ pub struct PermissionsConfig {
     /// plugin's `onAgentCommand` (the inverse seam — plan §1.5 F5).
     #[serde(default)]
     pub agent_commands: bool,
+    /// Whether the plugin may create/manage workspaces via `host.workspace*`
+    /// (enforced perm — plan §1.10 P3).
+    #[serde(default)]
+    pub manage_workspaces: bool,
+    /// Whether the plugin may spawn/drive our agents via `host.agent*`
+    /// (enforced perm — plan §1.10 P3).
+    #[serde(default)]
+    pub spawn_agents: bool,
 }
 
 impl PluginManifest {

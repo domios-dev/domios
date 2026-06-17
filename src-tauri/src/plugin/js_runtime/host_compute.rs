@@ -494,9 +494,12 @@ pub(super) fn install_handles(
         }
     });
 
-    // ── host.workspace (sync) ──
+    // ── host.workspace (sync) — gated by the `manage_workspaces` grant (§1.10) ──
     let sb = sandbox.clone();
     bind!("workspaceEnsure", move |opts: String| -> String {
+        if !sb.manage_workspaces_allowed() {
+            return err("host.workspace: manage_workspaces permission required");
+        }
         match sb.service() {
             Some(svc) => workspace_ensure(&svc, &opts),
             None => err("host service unavailable"),
@@ -504,17 +507,24 @@ pub(super) fn install_handles(
     });
     let sb = sandbox.clone();
     bind!("workspacePanes", move |workspace_id: String| -> String {
+        if !sb.manage_workspaces_allowed() {
+            return err("host.workspace: manage_workspaces permission required");
+        }
         match sb.service() {
             Some(svc) => workspace_panes(&svc, &workspace_id),
             None => err("host service unavailable"),
         }
     });
 
-    // ── host.agent (async job-id/poll) ──
+    // ── host.agent (async job-id/poll) — gated by the `spawn_agents` grant (§1.10) ──
+    const AGENT_DENIED: &str = "host.agent: spawn_agents permission required";
     let sb = sandbox.clone();
     bind!("agentSpawn", move |workspace_id: String,
                               opts: String|
           -> String {
+        if !sb.spawn_agents_allowed() {
+            return err(AGENT_DENIED);
+        }
         match sb.service() {
             Some(svc) => agent_spawn(&svc, sb.plugin_id(), &workspace_id, &opts),
             None => err("host service unavailable"),
@@ -524,6 +534,9 @@ pub(super) fn install_handles(
     bind!("agentResume", move |_workspace_id: String,
                                session_id: String|
           -> String {
+        if !sb.spawn_agents_allowed() {
+            return err(AGENT_DENIED);
+        }
         match sb.service() {
             Some(_) => agent_resume_json(&session_id),
             None => err("host service unavailable"),
@@ -533,6 +546,9 @@ pub(super) fn install_handles(
     bind!("agentGet", move |_workspace_id: String,
                             _key: String|
           -> String {
+        if !sb.spawn_agents_allowed() {
+            return err(AGENT_DENIED);
+        }
         match sb.service() {
             Some(_) => agent_get_json(),
             None => err("host service unavailable"),
@@ -542,6 +558,9 @@ pub(super) fn install_handles(
     bind!("agentSend", move |session_id: String,
                              text: String|
           -> String {
+        if !sb.spawn_agents_allowed() {
+            return err(AGENT_DENIED);
+        }
         match sb.service() {
             Some(svc) => agent_send(&svc, sb.plugin_id(), &session_id, &text),
             None => err("host service unavailable"),
@@ -549,6 +568,9 @@ pub(super) fn install_handles(
     });
     let sb = sandbox.clone();
     bind!("agentPoll", move |ticket: String| -> String {
+        if !sb.spawn_agents_allowed() {
+            return err(AGENT_DENIED);
+        }
         match sb.service() {
             Some(svc) => agent_poll_json(svc.workers.get(&ticket).as_ref()).to_string(),
             None => err("host service unavailable"),
@@ -556,6 +578,9 @@ pub(super) fn install_handles(
     });
     let sb = sandbox.clone();
     bind!("agentReap", move |session_id: String| -> String {
+        if !sb.spawn_agents_allowed() {
+            return err(AGENT_DENIED);
+        }
         match sb.service() {
             Some(svc) => agent_reap(&svc, &session_id),
             None => err("host service unavailable"),
@@ -563,6 +588,9 @@ pub(super) fn install_handles(
     });
     let sb = sandbox.clone();
     bind!("agentUsage", move |_session_id: String| -> String {
+        if !sb.spawn_agents_allowed() {
+            return err(AGENT_DENIED);
+        }
         match sb.service() {
             Some(_) => agent_usage_json(),
             None => err("host service unavailable"),

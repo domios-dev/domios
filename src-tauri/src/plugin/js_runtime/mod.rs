@@ -23,6 +23,7 @@ mod bubble;
 mod chatbackend;
 mod chatpreprocessor;
 mod glance;
+pub mod grants;
 mod host_api;
 mod host_compute;
 mod host_exec;
