@@ -547,6 +547,103 @@ This pass is the final gate before declaring the work done.
 
 ---
 
+## 1.10 Reviewer corrections (Opus plan review — APPLY, authoritative)
+
+A fresh-eyes Opus review grounded against HEAD. These override looser prose.
+
+**[BLOCKER] chatBackend & chatPreprocessor are JS-only → NO `parity_test.rs`.**
+`parity_test.rs:55` pairs a *native* provider vs JS; there is no native chatBackend/
+chatPreprocessor, so the CLAUDE.md parity rule does not apply. Their acceptance
+oracle is a **`call_json` contract test** that loads a fixture JS plugin via
+`PluginVm::from_source` and asserts the adapter dispatches — mirror
+`js_runtime/transcriber.rs:101-133` (`vm_with`/`call_json`), not `parity_test.rs`.
+(Correct the parity references in Tracks B & C and §10.)
+
+**[BLOCKER] Track B must-compile edits the task list missed:**
+- `service/spawn.rs:188` `spawn_pane_with_ready` is an **exhaustive** `match
+  (&spec.visibility, &spec.command)` over `{Visible,Hidden}×{Agent,Shell}`. Adding
+  `PaneCommand::ChatBackend` makes it non-exhaustive → won't compile until you add
+  `(Visible,ChatBackend)`+`(Hidden,ChatBackend)` arms: register the pane with
+  `pty_id: None`, call `chatbackend_registry.get(plugin_id)?.open_session(...)`,
+  and DO NOT call `start_backend_reader` (B1.1#3).
+- `manifest.rs:141` `Capabilities` has no `chat_backend` field — add
+  `pub chat_backend: bool`. Then add a registration arm at `lib.rs:~524` (after the
+  `caps.view` block, mirroring it):
+  ```rust
+  if caps.chat_backend {
+      chatbackend_registry.register(id.clone(),
+          Arc::new(plugin::js_runtime::JsChatBackend::new(p.vm().clone(), id.clone())));
+  }
+  ```
+  `JsChatBackend` = near-copy of `js_runtime/transcriber.rs` (holds `Arc<PluginVm>`+id,
+  `call_json` dispatch).
+- Registry shape is type aliases over the generic, NOT a hand-rolled map — mirror
+  `bubble/mod.rs:60-61`: `pub type ChatBackendRegistry = CapabilityRegistry<dyn
+  ChatBackendProvider>;` (+ `Handle = Arc<…>`) over `plugin/capability.rs:19`, plus
+  an `#[async_trait] trait ChatBackendProvider: Send+Sync { fn id(&self)->&str; … }`.
+
+**[BLOCKER] Track C host-API signatures (don't guess):**
+- `host.mem.search` maps to `mem/manager_search.rs:101`
+  `search(&self, q: &SearchQuery) -> Result<Vec<SearchHit>, String>` — take a
+  `SearchQuery`, return `SearchHit` (map to `{hits:[{id,text,score}]}`).
+- **C0 carrier:** add `svc: OnceCell<Weak<ServiceContext>>` to `PluginSandbox`
+  (the `bind!` closures already clone `sandbox`), populated in the `lib.rs:460-549`
+  loop where both the VM and `ServiceContext` exist. Late-bind — not a constructor
+  arg (that hits the ordering wall).
+- **Non-blocking bridge:** the job runs OUTSIDE the VM lock. `host.agent.send`
+  enqueues and returns a `jobId` sync; `poll(jobId)` reads
+  `GraphWorkerRegistry::get` (`mem/workers.rs:208`) / `complete` (`:287`). Reuse
+  `worker_pool.acquire` (`workers.rs:404`) + `spawn_pane` (`:449`).
+- **`onAgentCommand` routing:** socket dispatch `socket/server/mod.rs:369` is a
+  CLOSED prefix `match`; add a `"plugin" =>` arm → new `agent_commands::dispatch`
+  (parse `plugin:<id>.<verb>`, check `agent_commands` grant, call the VM's
+  `onAgentCommand`), structurally mirroring `socket/server/agent.rs:55`. **Also**
+  add a passthrough variant to `PluginAction` (`cli/src/args/plugin.rs:4`) +
+  `cmd/plugin/mod.rs:33` so `codeterm plugin <id> <verb>` exists CLI-side.
+- **New perms = a 5-file checklist** (miss one → parses-but-unenforced, the exact
+  bug we're avoiding): add `manage_workspaces`/`spawn_agents`/`agent_commands`
+  `bool` to `PermissionsConfig` (`manifest.rs:441`); enforce in `PluginSandbox`
+  (`host_api.rs:54-202`); stamp in `loader.rs:180-186`; derive in the snapshot
+  (`plugins.rs:228-258`); add labels to `CapabilityChip.tsx` (`manage_workspaces`/
+  `spawn_agents` exist at :58-59; **`agent_commands` is missing — add it**) +
+  `InstallGrantDialog.tsx`.
+- **Grant persistence** is its own sub-task (not a bullet): store at
+  `config.plugins.<id>.__grants` (sibling to how `host.settingsJson` reads
+  `config.plugins.<id>` at `host_api.rs:366`), checked at the host call.
+
+**[BLOCKER] §1.8 has no owner + a prerequisite.** Diagnosis confirmed:
+`hot_reload.rs:179-189` re-registers only agent providers. Assign §1.8 to a Track
+C sub-track (host+CLI) + a frontend slice. **Prerequisite:** the hot-reload struct
+holds only `agent_registry` today — thread the other registry handles (bubble/
+glance/view/secret/transcribe/chatBackend) into it first, then mirror the
+`lib.rs:475-524` cap-arms at `hot_reload.rs:179` (and `unregister` on uninstall via
+`plugin/capability.rs:32-38`).
+
+**[IMPROVE] `lib.rs:460-549` is a SHARED HOT FILE** (C0 carrier + B's reg arm +
+§1.8 threading all touch it) — a second R1-style collision. **C0 lands the
+registry-handle threading + the `OnceCell` carrier first;** B and §1.8 rebase on it.
+
+**[IMPROVE] inbound mapping is a real task:** plugin `NormalizedChatMessage[]` →
+Rust `ChatMsg` (`agent/chat_types.rs:126`, `#[serde(rename_all="camelCase")]`,
+`kind` is `#[serde(rename="type")]`) emitted via `TauriStructuredSink::emit(pane_id,
+Vec<ChatMsg>, Option<String>)` (`structured_sink.rs:27-40`) → event
+`pane-chat-msg-{pane_id}` the frontend already consumes (`useChatSession.ts:109`).
+
+**[IMPROVE] oracles:** `onAgentCommand` has no existing socket-dispatch test — add a
+new integration test (no harness exists to copy). Track F must gate on **≥1
+real-host call** against a dev daemon, not only `host_stub`, or it passes on the
+stub and breaks at integration.
+
+**[NICE] line drift + small maps:** the B1.2 table line numbers have drifted
+(`resolve_pty_id` def is `pty_io.rs:892`; `get_pane_output` is one function — the
+table's `:489` vs F1's `:445` contradict) — treat B1.2 as "re-grep the symbols, the
+**count** is the contract." Web send path is `ChatComposer.tsx:429`/`ChatView.tsx:259`
+/`web_routes.rs:316`, not `ChatView.tsx:176`. SDK `Model.displayName` (camel) →
+Rust `ModelInfo.display_name` (snake, +`description`) when wiring
+`model_catalog::register` (`model_catalog.rs:78`).
+
+---
+
 ## 2. Track A — SDK types + seam contract
 
 **Repo/branch:** codeterm-alpha · `pr/chat-sdk-types`. **Depends on:** nothing.
