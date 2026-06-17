@@ -16,6 +16,10 @@ interface Props {
   onOpenTerminalFallback?: () => void;
   onToggleTerminalFallback?: () => void;
   uiFontScale?: number;
+  /** Pane is backed by a plugin chatBackend (no PTY). Sends route through the
+   *  pane send seam, and PTY-only affordances (terminal fallback, screen poll)
+   *  are suppressed. */
+  chatBackend?: boolean;
 }
 
 function isMicrophonePermissionError(message: string): boolean {
@@ -56,6 +60,7 @@ export function PaneSessionChat({
   onOpenTerminalFallback,
   onToggleTerminalFallback,
   uiFontScale,
+  chatBackend = false,
 }: Props) {
   const touchMode = useTouchOptimizedUi();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -317,6 +322,7 @@ export function PaneSessionChat({
         paneId={paneId}
         paneProvider={paneProvider}
         currentPtyId={currentPtyId}
+        chatBackend={chatBackend}
         pendingPrompt={pendingPrompt}
         terminalHasAttention={terminalHasAttention}
         attachments={attachments}
@@ -327,8 +333,8 @@ export function PaneSessionChat({
         addOptimistic={addOptimistic}
         updateOptimistic={updateOptimistic}
         showComposerError={showComposerError}
-        onOpenTerminalFallback={onOpenTerminalFallback}
-        onToggleTerminalFallback={onToggleTerminalFallback}
+        onOpenTerminalFallback={chatBackend ? undefined : onOpenTerminalFallback}
+        onToggleTerminalFallback={chatBackend ? undefined : onToggleTerminalFallback}
       />
     </div>
   );

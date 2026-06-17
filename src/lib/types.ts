@@ -34,9 +34,17 @@ export interface PendingPrompt {
   options: PromptOption[];
 }
 
+/** What backs a pane's I/O — a PTY (terminal) or a plugin chatBackend. Mirrors
+ *  the Rust `PaneBacking` (serde `tag = "kind"`, snake_case). */
+export type PaneBacking =
+  | { kind: "pty" }
+  | { kind: "chat_backend"; plugin_id: string; session_id: string };
+
 export interface Pane {
   id: string;
   pty_id: string | null;
+  /** Defaults to `{ kind: "pty" }` when absent (pre-field snapshots). */
+  backing?: PaneBacking;
   pane_type: "Terminal";
   title: string;
   cwd: string | null;

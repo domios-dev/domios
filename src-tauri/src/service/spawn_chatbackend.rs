@@ -76,6 +76,27 @@ impl ServiceContext {
             session_id
         );
 
+        // Best-effort: publish the backend's models into the catalog so the
+        // pane model picker can resolve them. Off-thread — listModels may hit a
+        // network backend (e.g. LM Studio) and must never block the spawn.
+        {
+            let svc2 = self.clone();
+            let plugin2 = plugin_id.clone();
+            tokio::task::spawn_blocking(move || {
+                if let Ok(models) = svc2.chatbackend_list_models(&plugin2) {
+                    if !models.is_empty() {
+                        crate::agent::model_catalog::register(
+                            &plugin2,
+                            crate::agent::model_catalog::RegisteredDefaults {
+                                models,
+                                default: None,
+                            },
+                        );
+                    }
+                }
+            });
+        }
+
         // Inbound transcript arrives via poll → StructuredSink (no PTY reader).
         self.spawn_chatbackend_poll_loop(pane_id.clone(), plugin_id, session_id);
 

@@ -207,6 +207,20 @@ pub async fn chat_start(
 /// chat view renders the same in both shells.
 pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
     let started = std::time::Instant::now();
+    // chatBackend pane: it has no agent_type / JSONL session. Its transcript
+    // streams via the spawn poll loop's `pane-chat-msg-{id}` events, so return
+    // an empty, non-pending start — the frontend then attaches its listener and
+    // renders incoming messages (Track B #7).
+    if svc.pane_chat_backing(&pane_id).is_some() {
+        return Ok(ChatStartResult {
+            text: String::new(),
+            start_offset: 0,
+            offset: 0,
+            pending: false,
+            messages: Some(vec![]),
+            cursor: None,
+        });
+    }
     let (provider_id, cwd, mut session_id, mux_ms) = {
         let t = std::time::Instant::now();
         let m = svc.mux.lock();
