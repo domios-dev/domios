@@ -106,6 +106,15 @@ pub struct PluginManifest {
     #[serde(default)]
     pub settings_schema: Option<String>,
 
+    /// The plugin's capability cannot hot-activate — it needs a CodeTerm reload
+    /// to take effect (§1.8). When a plugin declaring this is *installed/enabled
+    /// after daemon start*, the watcher marks it `pending_reload` instead of
+    /// registering its capability live (which wouldn't work). Full daemon start
+    /// activates it normally. Surfaced via `get plugin` / install `--json` and a
+    /// "Reload required" banner in the Extensions UI.
+    #[serde(default)]
+    pub requires_reload: bool,
+
     // Path of plugin.js relative to the manifest, defaults to "dist/plugin.js".
     #[serde(default = "default_entry")]
     pub entry: String,

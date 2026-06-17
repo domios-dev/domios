@@ -107,6 +107,69 @@ mod store_index_tests {
     }
 
     #[test]
+    fn install_reports_reload_required_for_requires_reload_plugin() {
+        with_data_root(|root| {
+            let source = root.join("src-needsreload");
+            std::fs::create_dir_all(&source).unwrap();
+            std::fs::write(
+                source.join("plugin.json"),
+                serde_json::json!({
+                    "id": "needsreload",
+                    "version": "1.0.0",
+                    "displayName": "Needs Reload",
+                    "requiresReload": true,
+                })
+                .to_string(),
+            )
+            .unwrap();
+            std::fs::write(source.join("plugin.js"), "module.exports = {};").unwrap();
+
+            let out = install_command(None, Some(source.display().to_string()), None, None)
+                .expect("install must succeed");
+            assert_eq!(
+                out.get("reload_required").and_then(|v| v.as_bool()),
+                Some(true)
+            );
+            assert!(out
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .contains("reload CodeTerm to activate"));
+        });
+    }
+
+    #[test]
+    fn install_omits_reload_hint_for_normal_plugin() {
+        with_data_root(|root| {
+            let source = root.join("src-normal");
+            std::fs::create_dir_all(&source).unwrap();
+            std::fs::write(
+                source.join("plugin.json"),
+                serde_json::json!({
+                    "id": "normalplugin",
+                    "version": "1.0.0",
+                    "displayName": "Normal",
+                })
+                .to_string(),
+            )
+            .unwrap();
+            std::fs::write(source.join("plugin.js"), "module.exports = {};").unwrap();
+
+            let out = install_command(None, Some(source.display().to_string()), None, None)
+                .expect("install must succeed");
+            assert_eq!(
+                out.get("reload_required").and_then(|v| v.as_bool()),
+                Some(false)
+            );
+            assert!(!out
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .contains("reload CodeTerm"));
+        });
+    }
+
+    #[test]
     fn plugin_storage_roots_follow_code_term_data_dir_override() {
         let _guard = env_lock().lock().unwrap();
         let prev = std::env::var("CODETERM_DATA_DIR").ok();

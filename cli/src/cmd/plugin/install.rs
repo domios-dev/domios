@@ -42,11 +42,16 @@ pub(super) fn install_command(
             &result,
         );
         result?;
+        let reload_required = manifest_requires_reload(&plugin_dir(&install_id));
         return Ok(serde_json::json!({
             "ok": true,
-            "message": format!("Installed plugin '{}' from {}", install_id, source.display()),
+            "message": install_message(
+                &format!("Installed plugin '{}' from {}", install_id, source.display()),
+                reload_required,
+            ),
             "id": install_id,
             "path": plugin_dir(&install_id).display().to_string(),
+            "reload_required": reload_required,
         }));
     }
 
@@ -79,13 +84,30 @@ pub(super) fn install_command(
         &result,
     );
     result?;
+    let reload_required = manifest_requires_reload(&plugin_dir(&id));
     Ok(serde_json::json!({
         "ok": true,
-        "message": format!("Installed plugin '{}' from channel", id),
+        "message": install_message(
+            &format!("Installed plugin '{}' from channel", id),
+            reload_required,
+        ),
         "id": id,
         "path": plugin_dir(&id).display().to_string(),
+        "reload_required": reload_required,
     }))
 }
+
+/// Append the agent-readable "reload to activate" hint when a plugin can't
+/// hot-activate (§1.8), so an agent installing on the user's behalf says so
+/// instead of silently leaving the capability dark.
+fn install_message(base: &str, reload_required: bool) -> String {
+    if reload_required {
+        format!("{base} — reload CodeTerm to activate")
+    } else {
+        base.to_string()
+    }
+}
+
 pub(super) fn remove_installed(id: &str, force: bool) -> Result<serde_json::Value, String> {
     if is_reserved_system_id(id) && !force {
         return Err(format!(
@@ -190,6 +212,14 @@ pub(super) fn manifest_id(dir: &Path) -> Result<String, String> {
 
 pub(super) fn manifest_version(dir: &Path) -> Result<Option<String>, String> {
     Ok(read_plugin_manifest(dir)?.version)
+}
+
+/// Whether the installed plugin declares `requiresReload` (§1.8). Best-effort:
+/// a missing/unparseable manifest reads as `false`.
+pub(super) fn manifest_requires_reload(dir: &Path) -> bool {
+    read_plugin_manifest(dir)
+        .map(|m| m.requires_reload)
+        .unwrap_or(false)
 }
 
 pub(super) fn manifest_hash(dir: &Path) -> Result<String, String> {

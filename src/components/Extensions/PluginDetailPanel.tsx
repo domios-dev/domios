@@ -115,6 +115,24 @@ export function PluginDetailPanel({
         </div>
       </div>
 
+      {entry.pendingReload && (
+        <div
+          role="status"
+          style={{
+            fontSize: 12,
+            color: "var(--ct-warn, #f59e0b)",
+            background: "var(--ct-warn-bg, rgba(245, 158, 11, 0.12))",
+            border: "1px solid var(--ct-warn, #f59e0b)",
+            borderRadius: 8,
+            padding: "8px 12px",
+            marginBottom: 14,
+          }}
+        >
+          Reload required — this plugin is installed but its capability won’t
+          activate until you reload CodeTerm.
+        </div>
+      )}
+
       {action.reason && action.disabled && (
         <div style={{ fontSize: 11.5, color: "#fca5a5", marginBottom: 14 }}>{action.reason}</div>
       )}

@@ -49,7 +49,7 @@ pub use view::JsViewProvider;
 #[cfg(test)]
 mod parity_test;
 
-pub use hot_reload::{CapabilityRegistries, HotReloadRegistry};
+pub use hot_reload::{pending_reload_ids, CapabilityRegistries, HotReloadRegistry};
 pub use loader::{default_roots, load_one, scan_roots, LoadOutcome};
 pub use provider::JsProvider;
 

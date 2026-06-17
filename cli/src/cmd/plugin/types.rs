@@ -66,6 +66,10 @@ pub(super) struct PluginManifest {
     pub(super) display_name: Option<String>,
     #[serde(default, rename = "minCodeterm")]
     pub(super) min_codeterm: Option<String>,
+    /// §1.8: capability can't hot-activate; install/config tell the agent to
+    /// reload CodeTerm to activate.
+    #[serde(default, rename = "requiresReload")]
+    pub(super) requires_reload: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

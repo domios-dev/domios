@@ -31,6 +31,10 @@ export interface InstalledPlugin {
   capabilities?: PluginCapabilities | null;
   granted_permissions?: string[] | null;
   settings_schema?: SettingField[] | null;
+  /** Manifest flag: the capability can't hot-activate (§1.8). */
+  requires_reload?: boolean | null;
+  /** Live signal: installed after daemon start, waiting on a reload to activate. */
+  pending_reload?: boolean | null;
   icon_svg?: string | null;
   icon_color?: string | null;
   icon_hint?: string | null;
