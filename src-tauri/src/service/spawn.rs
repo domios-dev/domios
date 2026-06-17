@@ -39,6 +39,12 @@ pub enum PaneVisibility {
 pub enum PaneCommand {
     Shell,
     Agent(AgentSpawnSpec),
+    /// A pane driven by a plugin's `chatBackend` capability — no PTY, no shell.
+    ChatBackend {
+        plugin_id: String,
+        #[serde(default)]
+        config: serde_json::Value,
+    },
 }
 
 impl Default for PaneCommand {
@@ -151,6 +157,9 @@ impl SpawnPaneSpec {
             PaneCommand::Shell => {
                 return Err("to_agent_params called on Shell spec".into());
             }
+            PaneCommand::ChatBackend { .. } => {
+                return Err("to_agent_params called on ChatBackend spec".into());
+            }
         };
         let args = agent.extra_args.clone();
         Ok(SpawnAgentParams {
@@ -192,6 +201,12 @@ impl ServiceContext {
             (PaneVisibility::Hidden, PaneCommand::Agent(_)) => self.spawn_hidden_agent_impl(spec),
             (PaneVisibility::Visible, PaneCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (PaneVisibility::Hidden, PaneCommand::Shell) => self.spawn_hidden_shell_impl(spec),
+            (PaneVisibility::Visible, PaneCommand::ChatBackend { .. }) => {
+                self.spawn_chatbackend_impl(spec)
+            }
+            (PaneVisibility::Hidden, PaneCommand::ChatBackend { .. }) => {
+                self.spawn_chatbackend_impl(spec)
+            }
         }
     }
 }

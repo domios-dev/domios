@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::{MultiplexerSnapshot, MultiplexerState};
-use crate::multiplexer::types::{Pane, PaneType, Tab, TitleLevel, Workspace};
+use crate::multiplexer::types::{Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace};
 
 fn derive_agent_type_from_title(title: Option<&str>) -> Option<String> {
     let t = title?.to_ascii_lowercase();
@@ -178,6 +178,7 @@ impl MultiplexerState {
                 Pane {
                     id: pane_id.clone(),
                     pty_id: None,
+                    backing: PaneBacking::default(),
                     pane_type: PaneType::Terminal,
                     title: restored_title,
                     cwd: cwd.clone(),

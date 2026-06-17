@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::types::{AgentRole, Pane, PaneType, Tab, TitleLevel, Workspace};
+use super::types::{AgentRole, Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace};
 
 mod alias;
 mod names;
@@ -86,6 +86,7 @@ impl MultiplexerState {
         let pane = Pane {
             id: pane_id.clone(),
             pty_id: None,
+            backing: PaneBacking::default(),
             pane_type: PaneType::Terminal,
             title: "Terminal".to_string(),
             cwd: None,

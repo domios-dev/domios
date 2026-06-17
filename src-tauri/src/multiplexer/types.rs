@@ -65,12 +65,30 @@ pub struct PendingPrompt {
     pub options: Vec<PromptOption>,
 }
 
+/// What backs a pane's I/O. A `Pty` pane runs a terminal; a `ChatBackend` pane is
+/// driven by a plugin's `chatBackend` capability and keeps `pty_id: None`
+/// permanently (no backend reader, no screen state). The single discriminator the
+/// `PaneTransport` seam dispatches on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PaneBacking {
+    #[default]
+    Pty,
+    ChatBackend {
+        plugin_id: String,
+        session_id: String,
+    },
+}
+
 /// A pane represents a single terminal or browser panel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pane {
     pub id: String,
     /// Linked PTY ID, if this pane has a running terminal.
     pub pty_id: Option<String>,
+    /// What backs this pane's I/O (PTY by default, or a plugin chatBackend).
+    #[serde(default)]
+    pub backing: PaneBacking,
     pub pane_type: PaneType,
     pub title: String,
     pub cwd: Option<String>,
@@ -199,10 +217,113 @@ impl Default for TitleLevel {
     }
 }
 
+impl Pane {
+    /// True when this pane is backed by a plugin `chatBackend` rather than a PTY.
+    /// The one helper the I/O seam and frontend branch on instead of probing
+    /// `pty_id`.
+    pub fn is_chat_backend(&self) -> bool {
+        matches!(self.backing, PaneBacking::ChatBackend { .. })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum PaneType {
     #[default]
     Terminal,
     /// Legacy — old snapshots only.
     Browser,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pane_with(id: &str, backing: PaneBacking) -> Pane {
+        Pane {
+            id: id.to_string(),
+            pty_id: None,
+            backing,
+            pane_type: PaneType::Terminal,
+            title: "Terminal".to_string(),
+            cwd: None,
+            url: None,
+            agent_type: None,
+            agent_type_locked: false,
+            agent_session_id: None,
+            agent_session_name: None,
+            agent_session_model: None,
+            session_binding_nonce: None,
+            role: None,
+            parent_pane_id: None,
+            can_spawn: false,
+            depth: 0,
+            report_target_pane_id: None,
+            spawned_by_pane_id: None,
+            title_level: TitleLevel::Default,
+            chat_view: false,
+            pending_prompt: None,
+            auto_approve: false,
+            protected: false,
+            connected_services: vec![],
+            agent_set_at: None,
+            exit_suspected_at: None,
+            agent_booting: false,
+            hidden: false,
+            show_in_tabbar: true,
+            worker_id: None,
+            restored_from_snapshot: false,
+        }
+    }
+
+    #[test]
+    fn pty_pane_is_not_chat_backend() {
+        let p = pane_with("a", PaneBacking::Pty);
+        assert!(!p.is_chat_backend());
+    }
+
+    #[test]
+    fn chat_backend_pane_is_detected() {
+        let p = pane_with(
+            "b",
+            PaneBacking::ChatBackend {
+                plugin_id: "lmstudio".into(),
+                session_id: "s1".into(),
+            },
+        );
+        assert!(p.is_chat_backend());
+    }
+
+    #[test]
+    fn backing_round_trips_on_pane_and_defaults_to_pty() {
+        // A ChatBackend pane survives a serde round-trip.
+        let p = pane_with(
+            "c",
+            PaneBacking::ChatBackend {
+                plugin_id: "lmstudio".into(),
+                session_id: "s1".into(),
+            },
+        );
+        let v = serde_json::to_value(&p).unwrap();
+        let back: Pane = serde_json::from_value(v).unwrap();
+        assert!(back.is_chat_backend());
+        // And a serialized pane with the `backing` key removed (pre-field
+        // snapshot) defaults to Pty.
+        let mut v = serde_json::to_value(&p).unwrap();
+        v.as_object_mut().unwrap().remove("backing");
+        let back: Pane = serde_json::from_value(v).unwrap();
+        assert_eq!(back.backing, PaneBacking::Pty);
+        assert!(!back.is_chat_backend());
+    }
+
+    #[test]
+    fn chat_backing_round_trips_through_serde() {
+        let backing = PaneBacking::ChatBackend {
+            plugin_id: "lmstudio".into(),
+            session_id: "abc".into(),
+        };
+        let v = serde_json::to_value(&backing).unwrap();
+        assert_eq!(v["kind"], "chat_backend");
+        let back: PaneBacking = serde_json::from_value(v).unwrap();
+        assert_eq!(back, backing);
+    }
 }

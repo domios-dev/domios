@@ -1,5 +1,5 @@
 use super::{short_id, MultiplexerState};
-use crate::multiplexer::types::{Pane, PaneType, TitleLevel};
+use crate::multiplexer::types::{Pane, PaneBacking, PaneType, TitleLevel};
 
 impl MultiplexerState {
     /// Create a new terminal pane and register it. Returns the pane ID.
@@ -8,6 +8,7 @@ impl MultiplexerState {
         let pane = Pane {
             id: pane_id.clone(),
             pty_id: None,
+            backing: PaneBacking::default(),
             pane_type: PaneType::Terminal,
             title: "Terminal".to_string(),
             cwd: None,
