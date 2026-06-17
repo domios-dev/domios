@@ -311,23 +311,28 @@ pub async fn send_text(
                 .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
         }
 
-        let pty_id = state
-            .svc
-            .resolve_pty_id(&pane_id)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-        let pty = state.svc.pty.clone();
-        tokio::spawn(async move {
-            if text_was_sent {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            }
-            for (delay, bytes) in writes {
-                if let Some(ms) = delay {
-                    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-                    continue;
+        // Raw terminal key writes are PTY-only; a chatBackend pane has no
+        // terminal, so skip them (the text turn above already routed to the
+        // plugin via send_text_when_ready).
+        if state.svc.pane_chat_backing(&pane_id).is_none() {
+            let pty_id = state
+                .svc
+                .resolve_pty_id(&pane_id)
+                .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+            let pty = state.svc.pty.clone();
+            tokio::spawn(async move {
+                if text_was_sent {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 }
-                let _ = pty.lock().write(&pty_id, &bytes);
-            }
-        });
+                for (delay, bytes) in writes {
+                    if let Some(ms) = delay {
+                        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+                        continue;
+                    }
+                    let _ = pty.lock().write(&pty_id, &bytes);
+                }
+            });
+        }
 
         let preview = if raw_text.is_empty() {
             format!("<actions:{}>", action_preview(&actions))
@@ -641,11 +646,23 @@ pub async fn stream_pane_output(
     (StatusCode, &'static str),
 > {
     check_auth(&state, &headers)?;
-    let pty_id = resolve_pty_id_with_fallback(&state, &raw_pane_id)?;
+    // A chatBackend pane has no PTY output buffer — it streams transcript via the
+    // `pane-chat-msg-{id}` Tauri event (StructuredSink), not this SSE. Keep the
+    // connection alive but emit nothing rather than erroring "no PTY" (B1.2 [T]).
+    let chat = state.svc.pane_chat_backing(&raw_pane_id).is_some();
+    let pty_id = if chat {
+        String::new()
+    } else {
+        resolve_pty_id_with_fallback(&state, &raw_pane_id)?
+    };
 
     let buf = state.svc.output_buf.clone();
     let pid = pty_id.clone();
-    let initial_total = buf.lock().total_written(&pid);
+    let initial_total = if chat {
+        0
+    } else {
+        buf.lock().total_written(&pid)
+    };
     let mut offset: u64 = match query.from {
         Some(n) => n.min(initial_total),
         None => initial_total,
@@ -654,6 +671,9 @@ pub async fn stream_pane_output(
     let stream = async_stream::stream! {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            if chat {
+                continue;
+            }
             let (chunk, new_total) = buf.lock().read_since(&pid, offset);
             if !chunk.is_empty() {
                 offset = new_total;

@@ -127,6 +127,22 @@ impl PaneTransport for PtyTransport<'_> {
 }
 
 impl ServiceContext {
+    /// If `pane_id` (or its alias) is a chatBackend pane, return its
+    /// `(plugin_id, session_id)`; otherwise `None`. The guard the PTY entry
+    /// methods use to short-circuit to the plugin transport before touching a
+    /// PTY.
+    pub(crate) fn pane_chat_backing(&self, pane_id: &str) -> Option<(String, String)> {
+        let mux = self.mux.lock();
+        let resolved = mux.resolve_pane_id(pane_id)?;
+        match mux.get_pane(&resolved)?.backing.clone() {
+            PaneBacking::ChatBackend {
+                plugin_id,
+                session_id,
+            } => Some((plugin_id, session_id)),
+            PaneBacking::Pty => None,
+        }
+    }
+
     /// Send-time outbound stage hook (plan Track B↔C contract). Track B ships it
     /// as identity; Track C extends it with the `chatPreprocessor` stage
     /// pipeline. Called in the send seam before dispatching to transport.

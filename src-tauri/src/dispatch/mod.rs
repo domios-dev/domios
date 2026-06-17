@@ -239,47 +239,12 @@ fn cmd_get_output(
     strip_ansi: bool,
     full: bool,
 ) -> Result<CommandResult, String> {
-    let pty_id = ctx.resolve_pty_id(pane_id)?;
-    let buf = ctx.output_buf.lock();
-    let text = if full {
-        buf.get_full_text(&pty_id).unwrap_or_default()
-    } else {
-        buf.get_text(&pty_id).unwrap_or_default()
-    };
-
-    let start = next_char_boundary(&text, offset.unwrap_or(0));
-    let raw = &text[start..];
-
-    // Apply max_bytes truncation (take last N bytes)
-    let truncated = if let Some(max) = max_bytes {
-        if raw.len() > max {
-            let tail_start = next_char_boundary(raw, raw.len() - max);
-            &raw[tail_start..]
-        } else {
-            raw
-        }
-    } else {
-        raw
-    };
-
-    let output = if strip_ansi {
-        crate::pty::ansi::clean_terminal_output(truncated)
-    } else {
-        truncated.to_string()
-    };
-
-    Ok(CommandResult::Json(serde_json::json!({
-        "output": output,
-        "offset": text.len(),
-    })))
-}
-
-fn next_char_boundary(s: &str, idx: usize) -> usize {
-    let mut i = idx.min(s.len());
-    while i < s.len() && !s.is_char_boundary(i) {
-        i += 1;
-    }
-    i
+    // Routed through the PaneTransport seam: PTY panes read the output buffer,
+    // chatBackend panes return their transcript (B1.2 [T]).
+    let json = ctx
+        .pane_transport(pane_id)?
+        .read_output(offset, max_bytes, strip_ansi, full)?;
+    Ok(CommandResult::Json(json))
 }
 
 fn cmd_get_text(
@@ -287,23 +252,10 @@ fn cmd_get_text(
     pane_id: &str,
     formatted: bool,
 ) -> Result<CommandResult, String> {
-    let pty_id = ctx.resolve_pty_id(pane_id)?;
-    let ss = ctx.screen_state.lock();
-
-    let text = if formatted {
-        let bytes = ss
-            .get_screen_formatted(&pty_id)
-            .ok_or_else(|| "No pane text".to_string())?;
-        String::from_utf8_lossy(&bytes).into_owned()
-    } else {
-        ss.get_screen_text(&pty_id)
-            .unwrap_or_default()
-            .replace('\n', "\r\n")
-    };
-    Ok(CommandResult::Json(serde_json::json!({
-        "text": text,
-        "formatted": formatted,
-    })))
+    // PaneTransport seam: PTY panes read screen text, chatBackend panes return
+    // their transcript (B1.2 [T]).
+    let json = ctx.pane_transport(pane_id)?.read_screen(formatted)?;
+    Ok(CommandResult::Json(json))
 }
 
 fn cmd_pane_close(ctx: &ServiceContext, pane_id: &str) -> Result<CommandResult, String> {
@@ -532,6 +484,7 @@ mod tests {
 
     #[test]
     fn next_char_boundary_handles_multibyte_offsets() {
+        use crate::service::pane_transport::next_char_boundary;
         let s = "abкd";
         assert_eq!(next_char_boundary(s, 3), 4);
         assert_eq!(&s[next_char_boundary(s, 3)..], "d");
