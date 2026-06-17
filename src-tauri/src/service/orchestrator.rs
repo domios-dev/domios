@@ -786,7 +786,6 @@ pub(crate) fn build_agent_command(
             Some(args.clone())
         },
         skip_permissions: params.skip_permissions.unwrap_or(true),
-        headless: false,
         session_id: injected_session_id.map(std::string::ToString::to_string),
     };
     let cmd = registry

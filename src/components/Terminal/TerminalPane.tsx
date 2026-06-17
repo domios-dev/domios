@@ -46,6 +46,7 @@ interface TerminalPaneProps {
   theme: ThemeConfig;
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
+  uiFontScale?: number;
 }
 
 export function TerminalPane({
@@ -58,6 +59,7 @@ export function TerminalPane({
   theme,
   fontConfig,
   terminalConfig,
+  uiFontScale,
 }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fallbackShellRef = useRef<HTMLDivElement>(null);
@@ -551,6 +553,7 @@ export function TerminalPane({
         <div className="absolute inset-0" style={{ zIndex: 2 }}>
           <PaneSessionChat
             paneId={paneId}
+            uiFontScale={uiFontScale}
             onError={() => {
               // Automatic fallback, NOT a user choice: never write the
               // client-mode store here or the pane gets pinned to terminal.

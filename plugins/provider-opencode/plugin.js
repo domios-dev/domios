@@ -123,16 +123,8 @@ module.exports.default = {
   },
 
   buildLaunchCommand: function (params) {
-  // `--dangerously-skip-permissions` is run-only; include only for headless tasks.
     var p = params || {};
     var parts = ["opencode"];
-    if (p.headless && p.task) {
-      parts = ["opencode", "run"];
-      if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-      parts.push("--format");
-      parts.push("json");
-      parts.push(host.shell.quote(p.task));
-    }
     if (p.args && p.args.length > 0) {
       // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
       for (var i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));

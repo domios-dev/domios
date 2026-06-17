@@ -303,18 +303,7 @@ impl AgentProvider for OpenCodeProvider {
 
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         let mut parts: Vec<String> = Vec::new();
-        if params.headless && params.task.is_some() {
-            parts.push("opencode".to_string());
-            parts.push("run".to_string());
-            if params.skip_permissions {
-                parts.push("--dangerously-skip-permissions".to_string());
-            }
-            parts.push("--format".to_string());
-            parts.push("json".to_string());
-            parts.push(ShellSyntax::quote(params.task.as_ref().unwrap()));
-        } else {
-            parts.push("opencode".to_string());
-        }
+        parts.push("opencode".to_string());
         if let Some(ref extra) = params.args {
             parts.extend(extra.iter().cloned());
         }

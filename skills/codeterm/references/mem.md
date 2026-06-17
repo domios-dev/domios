@@ -48,6 +48,8 @@ codeterm mem save --kind learning --area auth \
   "Fixed JWT refresh 401 by adding kid header from JWKS endpoint, Auth0 requires it"
 ```
 
+**Never save a title-only or empty-body item.** An item with no real body (or a body that just restates the title) gets NO vector — it's invisible to semantic search and pure noise in the store. If you can't write at least one substantive sentence in the body, you have nothing worth remembering — don't save it. Capture the connection as a graph relation/entity instead, where a name alone is enough.
+
 For documents on disk:
 
 ```bash

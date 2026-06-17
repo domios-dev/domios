@@ -194,6 +194,7 @@ pub async fn hook_stop(
     Path(raw_pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
+    log::debug!("[hook_stop] fired for pane {}", pane_id);
     let title = state
         .svc
         .mux
@@ -220,6 +221,12 @@ pub async fn hook_stop(
         }
     }
     state.svc.emit_state_changed();
+
+    // Hidden worker/cron runs (now ordinary interactive claude) finish on Stop if they didn't explicitly report. No-op for visible panes / already-reported runs.
+    state
+        .svc
+        .run_watcher
+        .complete_via_stop_hook(&state.svc, &pane_id);
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -292,6 +299,10 @@ pub async fn hook_session_start(
         )?
     };
 
+    // Capture the freshly-bound session onto the hidden run's record (worker / cron) immediately, so a LIVE run is renderable in the read-only chat-ui
+    // while it runs — not only after completion.
+    propagate_run_session(&state, &pane_id, &sid);
+
     if !claim.changed {
         return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
     }
@@ -311,6 +322,44 @@ pub async fn hook_session_start(
 
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers.get(name).and_then(|v| v.to_str().ok())
+}
+
+/// Push the just-bound session id (+cwd) onto whatever hidden run owns this pane
+/// (mem worker or cron run), so the read-only chat-ui can render it live.
+fn propagate_run_session(state: &AppState, pane_id: &str, sid: &str) {
+    use tauri::{Emitter, Manager};
+
+    let (worker_id, cwd) = {
+        let mux = state.svc.mux.lock();
+        let pane = mux.get_pane(pane_id);
+        (
+            pane.and_then(|p| p.worker_id.clone()),
+            pane.and_then(|p| p.cwd.clone()),
+        )
+    };
+
+    if let Some(wid) = worker_id {
+        state
+            .svc
+            .workers
+            .set_run_session(&wid, sid.to_string(), cwd.clone());
+        if let Some(info) = state.svc.workers.get(&wid) {
+            let _ = state.svc.app_handle.emit("graph-worker-progress", &info);
+        }
+    }
+
+    if let Some(cron_state) = state.svc.app_handle.try_state::<crate::CronState>() {
+        let owner = cron_state
+            .lock()
+            .get_pane_owner(pane_id)
+            .map(|(j, r)| (j.to_string(), r.to_string()));
+        if let Some((job_id, run_id)) = owner {
+            cron_state
+                .lock()
+                .set_run_session(&job_id, &run_id, sid, cwd.as_deref());
+            let _ = state.svc.app_handle.emit("cron-state-changed", ());
+        }
+    }
 }
 
 fn bind_reported_session(

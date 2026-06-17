@@ -106,7 +106,6 @@ fn codex_launch_interactive() {
         task: None,
         args: None,
         skip_permissions: false,
-        headless: false,
         session_id: None,
     });
     assert_eq!(cmd, "codex --dangerously-bypass-hook-trust");
@@ -120,7 +119,6 @@ fn codex_launch_interactive_skip_perms() {
         task: None,
         args: None,
         skip_permissions: true,
-        headless: false,
         session_id: None,
     });
     // Codex CLI removed --full-auto; the surviving skip-approvals flag is --dangerously-bypass-approvals-and-sandbox (same one codex exec uses).
@@ -138,7 +136,6 @@ fn codex_launch_with_task_interactive_pane_uses_tui() {
         task: Some("fix the bug".to_string()),
         args: None,
         skip_permissions: true,
-        headless: false,
         session_id: None,
     });
     assert_eq!(
@@ -151,92 +148,6 @@ fn codex_launch_with_task_interactive_pane_uses_tui() {
         p.task_delivery(),
         crate::agent::provider::TaskDelivery::PtyInput
     ));
-}
-
-#[test]
-fn codex_launch_with_task_headless_worker_uses_exec() {
-    let p = CodexProvider::new();
-    let task = "fix the bug";
-    let cmd = p.build_launch_command(&AgentLaunchParams {
-        agent_name: None,
-        task: Some(task.to_string()),
-        args: None,
-        skip_permissions: true,
-        headless: true,
-        session_id: None,
-    });
-    assert!(cmd.contains(
-        "| codex exec --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox"
-    ));
-    assert!(cmd.contains("shell_environment_policy.inherit=all"));
-    assert!(cmd.contains("--skip-git-repo-check"));
-    assert!(cmd.contains(".ct-task-"));
-    assert!(
-        !cmd.contains(task),
-        "task body must stay out of argv: {cmd}"
-    );
-
-    let path = task_file_path_from_launch(&cmd);
-    assert_eq!(read_task_file(&path), task);
-    let _ = std::fs::remove_file(path);
-}
-
-#[test]
-fn codex_headless_cron_task_is_piped_not_shell_quoted() {
-    let p = CodexProvider::new();
-    let task = r#"codeterm notify "Codex cron test fired" --level info --body "Sent test."
-
-You can report progress back to the cron creator by running: codeterm agent report "your message"
-
-IMPORTANT: When you are completely done with this task, you MUST run this exact command as your FINAL action:
-codeterm cron complete --run-id 90295e61-022c-4efc-a308-6c1bcc1ee0a8 --summary "<your concise summary>"
-
-Run:
-codeterm send "[cron-test-codex] fired" --pane 2fc81c5a"#;
-    let cmd = p.build_launch_command(&AgentLaunchParams {
-        agent_name: None,
-        task: Some(task.to_string()),
-        args: Some(vec!["-m".into(), "gpt-5.4-mini".into()]),
-        skip_permissions: true,
-        headless: true,
-        session_id: None,
-    });
-
-    assert!(cmd.contains("| codex exec "));
-    assert!(cmd.contains("-m gpt-5.4-mini"));
-    assert!(
-        !cmd.contains("IMPORTANT:"),
-        "cron suffix leaked into shell argv: {cmd}"
-    );
-    assert!(
-        !cmd.contains("90295e61-022c-4efc-a308-6c1bcc1ee0a8"),
-        "run id leaked into shell argv: {cmd}"
-    );
-    assert!(
-        !cmd.contains("[cron-test-codex] fired"),
-        "cron send text leaked into shell argv: {cmd}"
-    );
-
-    let path = task_file_path_from_launch(&cmd);
-    assert_eq!(read_task_file(&path), task);
-    let _ = std::fs::remove_file(path);
-}
-
-#[test]
-fn codex_launch_headless_without_task_falls_back_to_tui() {
-    let p = CodexProvider::new();
-    let cmd = p.build_launch_command(&AgentLaunchParams {
-        agent_name: None,
-        task: None,
-        args: None,
-        skip_permissions: true,
-        headless: true,
-        session_id: None,
-    });
-    assert_eq!(
-        cmd,
-        "codex --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox"
-    );
 }
 
 #[test]

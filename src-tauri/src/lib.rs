@@ -193,6 +193,7 @@ pub fn run() {
             multiplexer::commands::detect_pane_session_id,
             multiplexer::commands::mux_set_claude_session_id,
             commands::chat_start,
+            commands::session_transcript,
             commands::chat_stop,
             commands::chat_backfill,
             commands::chat_send_text,

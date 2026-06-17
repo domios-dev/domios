@@ -1,4 +1,5 @@
 import type { AgentRole, Pane, PaneStatus } from "../../lib/types";
+import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { TelegramIcon } from "../Icons";
 import { StatusDot } from "./StatusDot";
 
@@ -7,9 +8,10 @@ export const ROLE_ICONS: Record<string, string> = {
   Worker: "⚙",       // ⚙
 };
 
-export function RoleIcon({ role }: { role: AgentRole }) {
+export function RoleIcon({ role, uiFontScale }: { role: AgentRole; uiFontScale?: number }) {
+  const iconText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
   return (
-    <span className="shrink-0 text-[10px] leading-none" title={role}>
+    <span className={`shrink-0 ${iconText} leading-none`} title={role}>
       {ROLE_ICONS[role] || "·"}
     </span>
   );
@@ -43,13 +45,16 @@ export function HierarchyTree({
   depth,
   onJumpToPane,
   reportCounts,
+  uiFontScale,
 }: {
   nodes: HierarchyNodeData[];
   depth: number;
   onJumpToPane: (paneId: string) => void;
   reportCounts: Record<string, number>;
+  uiFontScale?: number;
 }) {
   if (nodes.length === 0) return null;
+  const rowText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   return (
     <div className={depth > 0 ? "ml-3 border-l border-[var(--ct-border)]" : ""}>
       {nodes.map((node) => {
@@ -58,10 +63,10 @@ export function HierarchyTree({
           <div key={node.pane.id}>
             <button
               onClick={() => onJumpToPane(node.pane.id)}
-              className="flex items-center gap-1.5 w-full pl-2 pr-2 py-0.5 text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] transition-colors text-xs truncate"
+              className={`flex items-center gap-1.5 w-full pl-2 pr-2 py-0.5 text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] transition-colors ${rowText} truncate`}
               title={`${node.pane.title} (${node.pane.role})`}
             >
-              {node.pane.role && <RoleIcon role={node.pane.role} />}
+              {node.pane.role && <RoleIcon role={node.pane.role} uiFontScale={uiFontScale} />}
               <span className={`truncate ${node.pane.role === "Orchestrator" ? "font-semibold" : ""}`}>
                 {node.pane.title}
               </span>
@@ -82,6 +87,7 @@ export function HierarchyTree({
               depth={depth + 1}
               onJumpToPane={onJumpToPane}
               reportCounts={reportCounts}
+              uiFontScale={uiFontScale}
             />
           </div>
         );

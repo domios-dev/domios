@@ -15,6 +15,7 @@ interface Props {
   onError?: (msg: string) => void;
   onOpenTerminalFallback?: () => void;
   onToggleTerminalFallback?: () => void;
+  uiFontScale?: number;
 }
 
 function isMicrophonePermissionError(message: string): boolean {
@@ -54,6 +55,7 @@ export function PaneSessionChat({
   onError,
   onOpenTerminalFallback,
   onToggleTerminalFallback,
+  uiFontScale,
 }: Props) {
   const touchMode = useTouchOptimizedUi();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -297,6 +299,7 @@ export function PaneSessionChat({
                 message={msg}
                 origin={origin}
                 resolvePaneName={resolvePaneName}
+                fontScale={uiFontScale}
                 onAnswerInteractive={handleAnswerInteractive}
                 answeredInteractiveIds={answeredInteractiveIds}
                 originAvatar={

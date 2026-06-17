@@ -54,7 +54,6 @@ fn opencode_launch_interactive() {
         task: None,
         args: None,
         skip_permissions: false,
-        headless: false,
         session_id: None,
     });
     assert_eq!(cmd, "opencode");
@@ -69,7 +68,6 @@ fn opencode_launch_interactive_skip_perms_does_not_attach_flag() {
         task: None,
         args: None,
         skip_permissions: true,
-        headless: false,
         session_id: None,
     });
     assert_eq!(cmd, "opencode");
@@ -84,7 +82,6 @@ fn opencode_launch_with_task_interactive_pane_uses_tui() {
         task: Some("fix the bug".to_string()),
         args: None,
         skip_permissions: true,
-        headless: false,
         session_id: None,
     });
     assert_eq!(cmd, "opencode");
@@ -97,37 +94,6 @@ fn opencode_launch_with_task_interactive_pane_uses_tui() {
 }
 
 #[test]
-fn opencode_launch_with_task_headless_worker_uses_run() {
-    let p = OpenCodeProvider::new();
-    let cmd = p.build_launch_command(&AgentLaunchParams {
-        agent_name: None,
-        task: Some("fix the bug".to_string()),
-        args: None,
-        skip_permissions: true,
-        headless: true,
-        session_id: None,
-    });
-    assert!(cmd.starts_with("opencode run"));
-    assert!(cmd.contains("--dangerously-skip-permissions"));
-    assert!(cmd.contains("--format json"));
-    assert!(cmd.contains("fix the bug"));
-}
-
-#[test]
-fn opencode_launch_headless_without_task_falls_back_to_tui() {
-    let p = OpenCodeProvider::new();
-    let cmd = p.build_launch_command(&AgentLaunchParams {
-        agent_name: None,
-        task: None,
-        args: None,
-        skip_permissions: true,
-        headless: true,
-        session_id: None,
-    });
-    assert_eq!(cmd, "opencode");
-}
-
-#[test]
 fn opencode_launch_interactive_with_extra_args() {
     let p = OpenCodeProvider::new();
     let cmd = p.build_launch_command(&AgentLaunchParams {
@@ -135,7 +101,6 @@ fn opencode_launch_interactive_with_extra_args() {
         task: Some("hello".to_string()),
         args: Some(vec!["-m".into(), "anthropic/claude-opus-4-7".into()]),
         skip_permissions: true,
-        headless: false,
         session_id: None,
     });
     assert_eq!(cmd, "opencode -m anthropic/claude-opus-4-7");

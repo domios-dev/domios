@@ -6,32 +6,9 @@ use crate::shell::ShellSyntax;
 pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
     let mut parts: Vec<String> = Vec::new();
     parts.push(ShellSyntax::UNSET_CLAUDECODE.to_string());
-
-    // Headless: stdin-pipe + -p, avoids PowerShell argv splitting on prompt --flags.
-    let use_stdin_pipe = params.headless && params.task.is_some();
-
-    if use_stdin_pipe {
-        let task = params.task.as_ref().unwrap();
-        let (pipe_prefix, _path) = ShellSyntax::task_file_stdin_pipe(task);
-        parts.push(pipe_prefix);
-        parts.push("claude".to_string());
-        if params.skip_permissions {
-            parts.push("--dangerously-skip-permissions".to_string());
-        }
-        // Keep Claude in streaming mode (-p) and allow Bash tools so extraction can call the CLI.
-        // Without stream output + allowedTools, the extraction pipeline can stall.
-        parts.push("-p".to_string());
-        parts.push("--output-format".to_string());
-        parts.push("stream-json".to_string());
-        parts.push("--verbose".to_string());
-        parts.push("--include-partial-messages".to_string());
-        parts.push("--allowedTools".to_string());
-        parts.push("Bash".to_string());
-    } else {
-        parts.push("claude".to_string());
-        if params.skip_permissions {
-            parts.push("--dangerously-skip-permissions".to_string());
-        }
+    parts.push("claude".to_string());
+    if params.skip_permissions {
+        parts.push("--dangerously-skip-permissions".to_string());
     }
 
     if let Some(ref name) = params.agent_name {
@@ -40,23 +17,19 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
     }
 
     // Pre-generated session id (only honored for fresh sessions — `--session-id` is silently ignored by claude when also resuming).
-    if !use_stdin_pipe {
-        if let Some(ref sid) = params.session_id {
-            parts.push("--session-id".to_string());
-            parts.push(ShellSyntax::quote(sid));
-        }
+    if let Some(ref sid) = params.session_id {
+        parts.push("--session-id".to_string());
+        parts.push(ShellSyntax::quote(sid));
     }
 
     if let Some(ref extra) = params.args {
         parts.extend(extra.iter().cloned());
     }
 
-    // Visible mode passes the prompt as a positional, last, after `--`: a spawn task can start with the `-=-codeterm:...-=-` origin marker, which commander would otherwise reject as an unknown option.
-    if !use_stdin_pipe {
-        if let Some(ref task) = params.task {
-            parts.push("--".to_string());
-            parts.push(ShellSyntax::task_file_expr(task));
-        }
+    // Prompt is a positional, last, after `--`: a spawn task can start with the `-=-codeterm:...-=-` origin marker, which commander would otherwise reject as an unknown option.
+    if let Some(ref task) = params.task {
+        parts.push("--".to_string());
+        parts.push(ShellSyntax::task_file_expr(task));
     }
 
     parts.join(" ")
@@ -87,7 +60,6 @@ mod tests {
             task: None,
             args: None,
             skip_permissions: true,
-            headless: false,
             session_id: None,
         };
         let cmd = build_launch_command(&params);
@@ -110,13 +82,12 @@ mod tests {
             task: Some("count files".to_string()),
             args: None,
             skip_permissions: true,
-            headless: false,
             session_id: None,
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains("--dangerously-skip-permissions"));
         assert!(cmd.contains(".ct-task-"), "task via temp file");
-        assert!(!cmd.contains(" -p "), "visible mode must not use -p");
+        assert!(!cmd.contains(" -p"), "no headless -p mode anymore");
         assert!(
             cmd.contains(" -- "),
             "task positional must follow -- separator"
@@ -135,97 +106,11 @@ mod tests {
             task: None,
             args: None,
             skip_permissions: true,
-            headless: false,
             session_id: None,
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains("--agent"));
         assert!(cmd.contains("'architect'"));
-    }
-
-    #[test]
-    fn test_build_launch_headless_uses_stdin_pipe_and_print_mode() {
-        let task = "codeterm mem save --kind fact --area codeterm \"body --flag value\"";
-        let params = AgentLaunchParams {
-            agent_name: None,
-            task: Some(task.to_string()),
-            args: None,
-            skip_permissions: true,
-            headless: true,
-            session_id: None,
-        };
-        let cmd = build_launch_command(&params);
-        if cfg!(target_os = "windows") {
-            assert!(
-                cmd.contains("Get-Content "),
-                "headless must use Get-Content pipe: {}",
-                cmd
-            );
-            assert!(
-                cmd.contains("-Raw -Encoding UTF8 |"),
-                "missing pipe: {}",
-                cmd
-            );
-        } else {
-            assert!(cmd.contains("cat "), "headless must use cat pipe: {}", cmd);
-            assert!(cmd.contains(" |"), "missing pipe: {}", cmd);
-        }
-        assert!(
-            cmd.contains(".ct-task-"),
-            "task file path expected: {}",
-            cmd
-        );
-        assert!(cmd.contains("claude"), "claude bin: {}", cmd);
-        assert!(cmd.contains(" -p"), "headless must add -p: {}", cmd);
-        assert!(
-            cmd.contains("--output-format stream-json"),
-            "headless must request stream-json: {}",
-            cmd
-        );
-        assert!(
-            cmd.contains("--verbose"),
-            "stream-json with -p requires --verbose: {}",
-            cmd
-        );
-        assert!(
-            cmd.contains("--allowedTools Bash"),
-            "headless must allow Bash tool for multi-turn: {}",
-            cmd
-        );
-        assert!(cmd.contains("--dangerously-skip-permissions"));
-        assert!(
-            !cmd.contains("(Get-Content"),
-            "headless must NOT use inline subexpression: {}",
-            cmd
-        );
-        let after_p = cmd.split(" -p").nth(1).unwrap_or("");
-        assert!(
-            !after_p.contains(" --area "),
-            "task body --area must not leak into argv: {}",
-            cmd
-        );
-    }
-
-    #[test]
-    fn test_build_launch_headless_no_task_falls_back_to_legacy() {
-        let params = AgentLaunchParams {
-            agent_name: None,
-            task: None,
-            args: None,
-            skip_permissions: true,
-            headless: true,
-            session_id: None,
-        };
-        let cmd = build_launch_command(&params);
-        assert!(!cmd.contains(" -p"), "no -p without task: {}", cmd);
-        assert!(
-            !cmd.contains("--output-format"),
-            "no stream-json without task: {}",
-            cmd
-        );
-        assert!(!cmd.contains("Get-Content"));
-        assert!(!cmd.contains("cat "));
-        assert!(cmd.contains("claude"));
     }
 
     #[test]
@@ -236,7 +121,6 @@ mod tests {
             task: Some("hello".to_string()),
             args: Some(vec!["--model".into(), model_id.into()]),
             skip_permissions: true,
-            headless: false,
             session_id: None,
         };
         let cmd = build_launch_command(&params);
@@ -254,39 +138,12 @@ mod tests {
     }
 
     #[test]
-    fn test_build_launch_headless_with_extra_args() {
-        let model_id = crate::agent::models::resolve_model_id("haiku");
-        let params = AgentLaunchParams {
-            agent_name: None,
-            task: Some("do thing --kind fact".to_string()),
-            args: Some(vec!["--model".into(), model_id.into()]),
-            skip_permissions: true,
-            headless: true,
-            session_id: None,
-        };
-        let cmd = build_launch_command(&params);
-        assert!(cmd.contains(" -p"));
-        assert!(cmd.contains("--output-format stream-json"));
-        assert!(cmd.contains("--verbose"));
-        assert!(cmd.contains(&format!("--model {}", model_id)));
-        let claude_pos = cmd.find(" claude").expect("claude in cmd");
-        if cfg!(target_os = "windows") {
-            let pipe_pos = cmd.find("Get-Content").expect("pipe in cmd");
-            assert!(pipe_pos < claude_pos);
-        } else {
-            let pipe_pos = cmd.find("cat ").expect("pipe in cmd");
-            assert!(pipe_pos < claude_pos);
-        }
-    }
-
-    #[test]
     fn test_build_launch_command_with_session_id_injection() {
         let params = AgentLaunchParams {
             agent_name: None,
             task: None,
             args: None,
             skip_permissions: true,
-            headless: false,
             session_id: Some("my-pre-generated-uuid".to_string()),
         };
         let cmd = build_launch_command(&params);
@@ -303,23 +160,25 @@ mod tests {
     }
 
     #[test]
-    fn test_headless_does_not_inject_session_id() {
-        // Headless (-p) Claude launches don't take --session-id; we must skip injection rather than emit a flag claude will reject.
+    fn test_session_id_injected_even_with_task() {
+        // Interactive launch always honors --session-id (the old -p path that ignored it is gone).
         let params = AgentLaunchParams {
             agent_name: None,
             task: Some("hello".to_string()),
             args: None,
             skip_permissions: true,
-            headless: true,
-            session_id: Some("should-not-appear".to_string()),
+            session_id: Some("sid-xyz".to_string()),
         };
         let cmd = build_launch_command(&params);
+        assert!(cmd.contains("--session-id"));
+        assert!(cmd.contains("sid-xyz"));
+        let sid_pos = cmd.find("--session-id").unwrap();
+        let sep_pos = cmd.find(" -- ").unwrap();
         assert!(
-            !cmd.contains("--session-id"),
-            "headless launch must not pass --session-id, got: {}",
+            sid_pos < sep_pos,
+            "session-id before task separator: {}",
             cmd
         );
-        assert!(!cmd.contains("should-not-appear"));
     }
 
     #[test]

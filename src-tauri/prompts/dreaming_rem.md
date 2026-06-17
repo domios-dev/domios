@@ -108,6 +108,10 @@ reference material for *what* each step means. The walkthrough shows
 10. Stage C maintenance (classify, promote/archive, revive-broken).
 10b. Stage D calibration sweep (server skips on non-Sunday; run regardless).
         → mem update <diary_id> with CALIBRATION line.
+10c. Stage E vector hygiene — prune bodyless embeddings (see Stage E below).
+        codeterm mem graph prune-thin-vectors --dry-run    # inspect first
+        codeterm mem graph prune-thin-vectors              # then purge
+        → mem update <diary_id> with VECTOR_HYGIENE: <pruned> line.
 11. Build the FINAL <insight> prose now that you've seen everything.
 12. mem update <diary_id> with the final body (insight + completed log).
 13. (telegram notify — conditional on memory.dreaming_telegram_notify config)
@@ -708,6 +712,22 @@ Then format the diary line:
 
 NEVER invent a `skipped=not_sunday` line from memory. If you have no
 fresh log evidence AND no fresh sweep JSON, write `CALIBRATION: pending`.
+
+# STAGE E — Vector hygiene (prune bodyless embeddings)
+
+A good embedding needs a real body. Items with an empty or title-only body
+carry no semantic content — their vector is pure noise that drags down search
+recall. The save path no longer creates these, but older ones linger. Sweep them:
+
+```bash
+codeterm mem graph prune-thin-vectors --dry-run    # lists the thin-body vector ids
+codeterm mem graph prune-thin-vectors              # deletes them (logged to graph_purge_log, reversible)
+```
+
+This ONLY removes vectors whose mem_item body is below the embed threshold. It
+NEVER touches a vector with a real body, and NEVER deletes the mem_item itself —
+the item stays findable via FTS and the graph; it just loses a meaningless vector.
+Record the count: `VECTOR_HYGIENE: pruned=<N>` in the diary `<log>`.
 
 # RULES OF THUMB (apply at every stage)
 

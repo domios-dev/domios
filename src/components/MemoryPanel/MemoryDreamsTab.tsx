@@ -10,6 +10,7 @@ import {
 import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
 import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
+import { RunChatPopup } from "../AgentRun/RunChatPopup";
 import { DreamCard, DreamDetailModal, type DreamDiaryEntry } from "./DreamCard";
 
 interface Props {
@@ -375,9 +376,22 @@ function MemoryDreamsTabImpl({ api }: Props) {
         />
       </section>
 
-      {logWorker && (
-        <AgentRunLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
-      )}
+      {logWorker &&
+        (logWorker.session_id ? (
+          <RunChatPopup
+            title={logWorker.intent.replace(/^dreaming:/, "dream:")}
+            subtitle={[logWorker.agent_provider, logWorker.model].filter(Boolean).join(" / ")}
+            status={logWorker.status}
+            report={logWorker.report}
+            provider={logWorker.agent_provider ?? "claude"}
+            cwd={logWorker.cwd ?? ""}
+            sessionId={logWorker.session_id}
+            live={!["done", "error", "orphaned"].includes(logWorker.status)}
+            onClose={() => setLogWorker(null)}
+          />
+        ) : (
+          <AgentRunLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
+        ))}
       {openDream && (
         <DreamDetailModal entry={openDream} onClose={() => setOpenDream(null)} />
       )}
@@ -468,15 +482,8 @@ function RecentSessionsList({
         onClick={() => onSelect(w)}
         className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-[var(--ct-hover-bg)]/60 border border-[var(--ct-border)] hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
       >
-        <span
-          className="w-1.5 h-1.5 rounded-full shrink-0"
-          style={{
-            background: color,
-            boxShadow: !isDone ? `0 0 8px ${color}` : undefined,
-          }}
-        />
         <span className="text-[10px] uppercase tracking-wider w-[60px] shrink-0" style={{ color }}>
-          {w.status}
+          {isDone ? w.status : "running"}
         </span>
         <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
           {new Date(w.spawned_at).toLocaleString("en-US", {

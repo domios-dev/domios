@@ -17,6 +17,7 @@ import {
   QUICK_PRESETS,
   toLocalInputValue,
 } from "./delayedSend";
+import { FloatingTooltip } from "../shared/FloatingTooltip";
 
 const STASH_COLOR = "#a371f7";
 
@@ -343,16 +344,18 @@ function QueueCard({
           </div>
         </div>
       ) : (
-        <div className="flex items-center gap-2" title={msg.text}>
+        <div className="flex min-w-0 items-center gap-2">
           <span className="shrink-0" style={{ color: meta.color }}>
             {meta.icon}
           </span>
-          <span
-            className="min-w-0 flex-1 truncate text-[13px]"
+          <FloatingTooltip
+            content={msg.text}
+            touchMode={touchMode}
+            className="min-w-0 flex-1 cursor-default truncate text-[13px] outline-none"
             style={{ color: "var(--ct-fg)" }}
           >
             {msg.text}
-          </span>
+          </FloatingTooltip>
           {msg.sessionChanged && (
             <span style={{ color: "var(--ct-yellow, #d29922)" }} title="Session changed since scheduled">
               <TriangleAlert size={13} />

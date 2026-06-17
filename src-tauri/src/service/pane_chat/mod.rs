@@ -452,28 +452,40 @@ pub fn pane_chat_snapshot(
             .ok_or("pane has no session_id yet")?;
         (provider, cwd, sid)
     };
+    session_chat_snapshot(svc, &provider_id, &cwd, &session_id, since)
+}
 
+/// Pane-less twin of [`pane_chat_snapshot`]: parse a session's transcript
+/// straight from `(provider, cwd, session_id)`. Used by the read-only chat-ui
+/// to render closed hidden-worker / cron runs whose pane is already gone.
+pub fn session_chat_snapshot(
+    svc: &crate::service::ServiceContext,
+    provider_id: &str,
+    cwd: &str,
+    session_id: &str,
+    since: usize,
+) -> Result<(Vec<ChatMsg>, usize), String> {
     let structured = svc
         .agent_registry
-        .with_provider(&provider_id, |p| p.uses_structured_chat())
+        .with_provider(provider_id, |p| p.uses_structured_chat())
         .unwrap_or(false);
 
     let all: Vec<ChatMsg> = if structured {
         svc.agent_registry
-            .with_provider(&provider_id, |p| {
-                p.read_structured_chat(&cwd, &session_id, None)
+            .with_provider(provider_id, |p| {
+                p.read_structured_chat(cwd, session_id, None)
             })
             .map(|sc| sc.messages)
             .unwrap_or_default()
     } else {
         let path = svc
             .agent_registry
-            .with_provider(&provider_id, |p| p.session_file_path(&cwd, &session_id))
+            .with_provider(provider_id, |p| p.session_file_path(cwd, session_id))
             .flatten()
             .ok_or("provider has no JSONL and no structured chat")?;
         let delta = svc
             .agent_registry
-            .with_provider(&provider_id, |p| {
+            .with_provider(provider_id, |p| {
                 let mut delta = p.parse_session_delta(&path, 0);
                 for m in &mut delta.messages {
                     enrich_interactive(m, p);

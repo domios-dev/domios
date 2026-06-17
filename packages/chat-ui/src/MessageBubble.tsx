@@ -39,6 +39,7 @@ import {
 import { ToolIcon } from "./toolIcons";
 import { InteractiveElementRenderer } from "./interactive/InteractiveElementRenderer";
 import type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
+import { pickUiFontScaleValue } from "./uiFontScale";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -55,6 +56,7 @@ interface MessageBubbleProps {
   onOriginClick?: () => void;
   /** Resolve a pane id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
   resolvePaneName?: PaneNameResolver;
+  fontScale?: number;
 }
 
 // Kill switch for interactive AskUserQuestion widgets (all providers). Detection
@@ -63,7 +65,7 @@ interface MessageBubbleProps {
 // renders as a plain tool-call pill instead.
 const INTERACTIVE_QUESTIONS_ENABLED = false;
 
-export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds, fontScale }: MessageBubbleProps) {
   // Auto-expand for Write-style tool input (the file body being written) and
   // for Edit/MultiEdit (always show the diff). A bash/grep result must NOT
   // force-expand — it shows a compact inline tail under the pill instead.
@@ -74,10 +76,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
   const renderedContent = useMemo(() => {
     if (message.type === "assistant") {
-      return <RichMarkdown text={message.content} />;
+      return <RichMarkdown text={message.content} fontScale={fontScale} />;
     }
     return null;
-  }, [message.type, message.content]);
+  }, [message.type, message.content, fontScale]);
 
   const handleImageClick = useCallback((att: ImageAttachment) => {
     setViewingImage(att);
@@ -99,6 +101,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   // User message — right-aligned by default; left-aligned with origin header for injected messages
   if (message.type === "user") {
     const attachments = message.attachments;
+    const userText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
 
     // Origin header rendered above the bubble when the message came from a
     // codeterm channel (cross-pane, telegram, mesh) or wraps slash-commands.
@@ -189,7 +192,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
         <div className="min-w-0 max-w-[75%] sm:max-w-[75%]">
           {originHeader}
           <div
-            className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 text-sm select-text cursor-text border ${TEXT_WRAP_CLASS}`}
+            className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 ${userText} select-text cursor-text border ${TEXT_WRAP_CLASS}`}
             style={{
               // The user voice is the ONE filled element in the feed — a clear accent
               // tint so it never blends with tool traces or assistant prose.
@@ -262,10 +265,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
   // Assistant message — left-aligned, NO bubble, clean prose
   if (message.type === "assistant") {
+    const assistantText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
     return (
       <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto">
         <div
-          className={`min-w-0 max-w-full text-sm leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
+          className={`min-w-0 max-w-full ${assistantText} leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
           style={{ color: "var(--ct-fg)" }}
         >
           {renderedContent}
