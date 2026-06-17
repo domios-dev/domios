@@ -4164,11 +4164,27 @@
           "aliases": [],
           "args": [
             {
+              "name": "grant",
+              "positional": false,
+              "value_name": "PERMISSION",
+              "default": null,
+              "help": "Grant a permission, persisted to the plugin's grants.yaml so the decision survives (e.g. --grant spawn_agents). Repeatable. Takes effect on the plugin's next reload",
+              "aliases": []
+            },
+            {
               "name": "id",
               "positional": true,
               "value_name": "ID",
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "revoke",
+              "positional": false,
+              "value_name": "PERMISSION",
+              "default": null,
+              "help": "Revoke a previously granted permission (repeatable)",
               "aliases": []
             },
             {
