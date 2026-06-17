@@ -8,7 +8,6 @@ import { isMac } from "../../lib/keybindings";
 import { UI_BUTTON } from "../shared/design";
 import { UpdateBadge } from "../UpdateBadge";
 import { KeepAwakeTray } from "./KeepAwakeTray";
-import { MeshPresenceTray } from "./MeshPresenceTray";
 import { ExtensionsTray } from "./ExtensionsTray";
 
 interface TitlebarProps {
@@ -73,7 +72,6 @@ export function Titlebar({
       <div className="flex items-center h-full gap-1">
         <UpdateBadge />
         {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
-        <MeshPresenceTray />
         <KeepAwakeTray />
       </div>
 

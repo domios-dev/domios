@@ -10,13 +10,18 @@ import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
-import { Plus } from "lucide-react";
+import { Check, ChevronDown, Plus } from "lucide-react";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
+import {
+  getMeshPresenceMenuItems,
+  getMeshPresenceSummary,
+  type MeshPresence,
+} from "./meshPresenceHeader";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
 
@@ -174,6 +179,7 @@ export function Sidebar({
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
   );
+  const [meshEnabledOverride, setMeshEnabledOverride] = useState<boolean | null>(null);
 
   // Auto-expand only the active workspace when it changes
   useEffect(() => {
@@ -214,6 +220,45 @@ export function Sidebar({
       return next;
     });
   }, [createWorkspace, state.workspaces]);
+
+  useEffect(() => {
+    setMeshEnabledOverride(null);
+  }, [config?.mesh.enabled]);
+
+  const meshPresence: MeshPresence = (meshEnabledOverride ?? config?.mesh.enabled ?? false) ? "online" : "offline";
+  const meshPresenceSummary = getMeshPresenceSummary(meshPresence);
+  const setMeshPresence = useCallback(async (next: MeshPresence) => {
+    if (next === meshPresence) return;
+    const nextEnabled = next === "online";
+    setMeshEnabledOverride(nextEnabled);
+    try {
+      const current = config ?? await invoke<AppConfig>("get_config");
+      await invoke("update_config", {
+        config: { ...current, mesh: { ...current.mesh, enabled: nextEnabled } },
+      });
+    } catch {
+      setMeshEnabledOverride(null);
+    }
+  }, [config, meshPresence]);
+  const meshPresenceItems = useMemo<DropdownMenuItem[]>(
+    () => getMeshPresenceMenuItems(meshPresence).map((item) => ({
+      label: item.label,
+      icon: item.active
+        ? <Check size={12} className="text-[var(--ct-accent)]" />
+        : (
+            <span
+              className="inline-block w-2 h-2 rounded-full"
+              style={
+                item.value === "online"
+                  ? { background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.55)" }
+                  : { background: "transparent", border: "1.5px solid var(--ct-muted)" }
+              }
+            />
+          ),
+      onClick: () => setMeshPresence(item.value),
+    })),
+    [meshPresence, setMeshPresence],
+  );
 
   const toggleExpanded = useCallback((wsId: string) => {
     setExpandedWorkspaces((prev) => {
@@ -383,28 +428,32 @@ export function Sidebar({
               )}
               {/* Presence header — live online/offline signal (was the static "Panes" label). */}
               <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
-                {!isCompact && (() => {
-                  const online =
-                    (config as { mesh?: { enabled?: boolean } } | undefined)?.mesh?.enabled ?? false;
-                  return (
-                    <span
-                      className="flex items-center gap-1.5 truncate"
-                      title={online ? "Mesh: online — visible to peers" : "Mesh: offline"}
-                    >
+                {!isCompact && (
+                  <DropdownMenu
+                    items={meshPresenceItems}
+                    className="min-w-0"
+                    trigger={
+                      <button
+                        type="button"
+                        className="flex min-w-0 items-center gap-1.5 truncate rounded-md px-1.5 py-1 -ml-1.5 text-left transition-colors hover:bg-[var(--ct-hover)]"
+                        title={meshPresenceSummary.title}
+                      >
                       <span
                         className="inline-block w-2 h-2 rounded-full shrink-0"
                         style={
-                          online
+                          meshPresence === "online"
                             ? { background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.55)" }
                             : { background: "transparent", border: "1.5px solid var(--ct-muted)" }
                         }
                       />
                       <span className="text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] truncate">
-                        {online ? "Online" : "Offline"}
+                        {meshPresenceSummary.label}
                       </span>
-                    </span>
-                  );
-                })()}
+                        <ChevronDown size={11} className="shrink-0 text-[var(--ct-muted)]" />
+                      </button>
+                    }
+                  />
+                )}
                 <div className="flex items-center gap-1">
                   {/* New workspace */}
                   <button

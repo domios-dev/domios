@@ -4,6 +4,8 @@
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Git",
+  "description": "Live Git branch and working-tree status in the pane footer, a glance popover, and a full Git view. Reads each pane's repo with the local git binary.",
+  "readme": "README.md",
   "iconColor": "#f05133",
   "entry": "plugin.js",
   "capabilities": {

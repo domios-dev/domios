@@ -26,9 +26,8 @@ import {
   MultiplexerProvider,
   useMultiplexer,
 } from "./store/multiplexer";
-import type { ThemeConfig } from "./lib/types";
 import { matchesBinding, isMac } from "./lib/keybindings";
-import { blendColor, deriveColor } from "./lib/colors";
+import { cacheThemeSnapshot, themeToCSS } from "./lib/themeCss";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { pasteToPane } from "./lib/panePasteRegistry";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
@@ -47,43 +46,6 @@ function useStableJsonValue<T>(value: T): T {
   }
   return ref.current;
 }
-
-/**
- * Derive CSS custom properties from a ThemeConfig so the entire UI
- * can reference them for consistent theming.
- */
-function themeToCSS(theme: ThemeConfig): Record<string, string> {
-  return {
-    "--ct-bg": theme.background,
-    "--ct-fg": theme.foreground,
-    "--ct-cursor": theme.cursor,
-    "--ct-selection": theme.selection,
-    "--ct-sidebar-bg": deriveColor(theme.background, 8),
-    "--ct-titlebar-bg": deriveColor(theme.background, 8),
-    "--ct-border": blendColor(theme.background, theme.bright_black, 0.38),
-    "--ct-hover": deriveColor(theme.background, 14),
-    "--ct-active": deriveColor(theme.background, 22),
-    "--ct-surface": deriveColor(theme.background, 10),
-    "--ct-muted": theme.bright_black,
-    "--ct-muted-fg": blendColor(theme.bright_black, theme.foreground, 0.45),
-    "--ct-accent": theme.blue,
-    "--ct-red": theme.red,
-    "--ct-green": theme.green,
-    "--ct-yellow": theme.yellow,
-    "--ct-orange": theme.red,
-    "--ct-blue": theme.blue,
-    "--ct-magenta": theme.magenta,
-    "--ct-cyan": theme.cyan,
-    "--ct-bright-blue": theme.bright_blue,
-    "--ct-bright-magenta": theme.bright_magenta,
-    "--ct-bright-cyan": theme.bright_cyan,
-    "--ct-bright-green": theme.bright_green,
-    "--ct-bright-yellow": theme.bright_yellow,
-    "--ct-bright-red": theme.bright_red,
-    ...(theme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy" ? { "--ct-glow": theme.green + "99" } : {}),
-  };
-}
-
 
 function AppInner() {
   useAgentProviders();
@@ -590,6 +552,8 @@ function AppInner() {
     for (const [k, v] of Object.entries(themeStyles)) {
       document.documentElement.style.setProperty(k, v);
     }
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", stableTheme.background);
+    cacheThemeSnapshot(stableTheme);
     document.documentElement.style.fontSize = `${stableFontConfig.size + 2}px`;
   }, [stableTheme.background, themeStyles, stableFontConfig.size]);
 

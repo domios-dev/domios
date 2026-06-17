@@ -37,6 +37,15 @@ pub struct PluginManifest {
     #[serde(default)]
     pub host_api: Option<u32>,
 
+    // Documentation surface (shown in the Extensions detail pane). `readme` is a
+    // relative markdown path the snapshot loads into a bounded field.
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub homepage: Option<String>,
+    #[serde(default)]
+    pub readme: Option<String>,
+
     // Identity / UI
     #[serde(default)]
     pub icon_hint: Option<String>,

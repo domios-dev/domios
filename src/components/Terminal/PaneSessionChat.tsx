@@ -221,7 +221,7 @@ export function PaneSessionChat({
       ref={chatRootRef}
       className="w-full h-full flex flex-col relative"
       style={{
-        background: "var(--ct-bg, #0d1117)",
+        background: "color-mix(in srgb, var(--ct-surface, #161b22) 88%, var(--ct-bg, #0d1117) 12%)",
         color: "var(--ct-fg, #c9d1d9)",
       }}
       {...webDropHandlers}

@@ -86,7 +86,7 @@ function App() {
   }, [refresh]);
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: 18, color: "var(--ct-fg, #eee)", background: "var(--ct-bg, #14141c)", minHeight: "100vh" }}>
+    <div style={{ fontFamily: "system-ui, sans-serif", padding: 18, color: "var(--ct-fg, #eee)", background: "var(--ct-bg, #14141c)" }}>
       <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--ct-muted, #9aa)", marginBottom: 8 }}>Server</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
         <input style={inputStyle} value={serverUrl} placeholder="https://vault.bitwarden.com"

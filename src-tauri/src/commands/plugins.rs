@@ -237,7 +237,35 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
                 obj.insert("version".into(), v.clone());
             }
         }
+        // Documentation surface for the detail pane. `description`/`homepage` are
+        // plain manifest strings; `readme` is a relative markdown path (default
+        // README.md) loaded into a bounded `readme_markdown` field so the UI can
+        // render docs without a second round-trip.
+        if let Some(desc) = m.get("description").and_then(|v| v.as_str()) {
+            obj.insert("description".into(), serde_json::json!(desc));
+        }
+        if let Some(hp) = m.get("homepage").and_then(|v| v.as_str()) {
+            obj.insert("homepage".into(), serde_json::json!(hp));
+        }
+        let readme_rel = m
+            .get("readme")
+            .and_then(|v| v.as_str())
+            .unwrap_or("README.md");
+        if let Some(md) = read_bounded_text(&dir.join(readme_rel)) {
+            obj.insert("readme_markdown".into(), serde_json::json!(md));
+        }
     }
+}
+
+/// Read a UTF-8 text file, capped so a runaway README can't bloat the snapshot.
+fn read_bounded_text(path: &std::path::Path) -> Option<String> {
+    const MAX: usize = 64 * 1024;
+    let mut text = std::fs::read_to_string(path).ok()?;
+    if text.len() > MAX {
+        text.truncate(MAX);
+        text.push_str("\n\n… (truncated)");
+    }
+    Some(text)
 }
 
 fn build_snapshot(last_output: Option<Value>) -> Result<Value, String> {
@@ -259,11 +287,18 @@ fn build_snapshot(last_output: Option<Value>) -> Result<Value, String> {
             if seen.contains(id) {
                 continue;
             }
+            // Loaded from the workspace `plugins/` source tree, not data_dir — the
+            // manager can't `remove` it (it would just reload), so it is not
+            // removable, and it's flagged `dev` so the UI marks it as a
+            // workspace/dev plugin rather than a marketplace install. (In prod
+            // these same plugins come from the CLI list as data_dir installs and
+            // ARE removable.)
             let mut entry = serde_json::json!({
                 "id": id,
                 "state": "active",
                 "system": false,
-                "removable": true,
+                "removable": false,
+                "dev": true,
                 "install_path": dir.to_string_lossy(),
             });
             enrich_from_manifest(&mut entry, dir, m);
@@ -277,14 +312,108 @@ fn build_snapshot(last_output: Option<Value>) -> Result<Value, String> {
             "error": e,
         })
     });
+
+    let plugins_arr = plugins
+        .get("plugins")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+    let channels_arr = channels
+        .get("channels")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+    let diff_arr = diff
+        .get("diff")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+
+    let installed_ids: std::collections::HashSet<String> = plugins_arr
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|p| p.get("id").and_then(|v| v.as_str()).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let marketplace = build_marketplace(
+        diff_arr.as_array().map(Vec::as_slice).unwrap_or(&[]),
+        channels_arr.as_array().map(Vec::as_slice).unwrap_or(&[]),
+        &installed_ids,
+    );
+
     let audit = read_audit_events(80);
     Ok(serde_json::json!({
-        "plugins": plugins.get("plugins").cloned().unwrap_or_else(|| serde_json::json!([])),
-        "channels": channels.get("channels").cloned().unwrap_or_else(|| serde_json::json!([])),
-        "diff": diff.get("diff").cloned().unwrap_or_else(|| serde_json::json!([])),
+        "plugins": plugins_arr,
+        "channels": channels_arr,
+        "diff": diff_arr,
+        "marketplace": marketplace,
         "audit": audit,
         "lastOutput": last_output,
     }))
+}
+
+/// Build normalized marketplace rows from the channel diff. Each row keeps its
+/// diff fields (`channel`, `id`, versions, `drift`, `compatible`, …), gains an
+/// honest `installed` flag, and is enriched with the channel-cache manifest
+/// metadata (icon, display name, capabilities, description, readme) so the UI can
+/// show useful detail for plugins that aren't installed yet. Channel metadata is
+/// read from the on-disk channel cache (`channels[*].path`), reusing
+/// `enrich_from_manifest` — the single capability-derivation path.
+fn build_marketplace(
+    diff: &[Value],
+    channels: &[Value],
+    installed_ids: &std::collections::HashSet<String>,
+) -> Vec<Value> {
+    let mut out = Vec::with_capacity(diff.len());
+    for row in diff {
+        let id = row.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+        let channel = row
+            .get("channel")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let mut entry = row.clone();
+        if let Some(obj) = entry.as_object_mut() {
+            obj.insert(
+                "installed".into(),
+                serde_json::json!(installed_ids.contains(id)),
+            );
+        }
+        if let Some((dir, m)) = channel_plugin_manifest(channels, channel, id) {
+            enrich_from_manifest(&mut entry, &dir, &m);
+        }
+        out.push(entry);
+    }
+    out
+}
+
+/// Locate a channel plugin's on-disk dir + parsed manifest from the channel cache.
+/// Reads `<channel.path>/channel.json` to map the plugin id → its relative path.
+fn channel_plugin_manifest(
+    channels: &[Value],
+    channel: &str,
+    id: &str,
+) -> Option<(std::path::PathBuf, Value)> {
+    let channel_path = channels
+        .iter()
+        .find(|c| c.get("name").and_then(|v| v.as_str()) == Some(channel))
+        .and_then(|c| c.get("path").and_then(|v| v.as_str()))
+        .filter(|p| !p.is_empty())?;
+    let root = std::path::PathBuf::from(channel_path);
+    let manifest_text = std::fs::read_to_string(root.join("channel.json")).ok()?;
+    let manifest: Value = serde_json::from_str(&manifest_text).ok()?;
+    let rel = manifest
+        .get("plugins")
+        .and_then(|p| p.as_array())?
+        .iter()
+        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(id))
+        .and_then(|p| {
+            p.get("path")
+                .and_then(|v| v.as_str())
+                .or_else(|| p.get("source").and_then(|v| v.as_str()))
+        })?;
+    let dir = root.join(rel);
+    let plugin_text = std::fs::read_to_string(dir.join("plugin.json")).ok()?;
+    let plugin_manifest: Value = serde_json::from_str(&plugin_text).ok()?;
+    Some((dir, plugin_manifest))
 }
 
 fn plugin_action_args(action: &PluginManagerAction) -> Result<Vec<String>, String> {
@@ -414,5 +543,132 @@ mod tests {
             force: false,
         };
         assert!(plugin_action_args(&action).unwrap_err().contains("url"));
+    }
+
+    #[test]
+    fn remove_action_builds_json_cli_args_with_optional_force() {
+        let base = PluginManagerAction {
+            kind: "remove".into(),
+            plugin_id: Some("demo".into()),
+            channel: None,
+            url: None,
+            name: None,
+            force: false,
+        };
+        assert_eq!(
+            plugin_action_args(&base).unwrap(),
+            vec!["plugin", "remove", "demo", "--json"]
+        );
+        let forced = PluginManagerAction {
+            force: true,
+            ..base
+        };
+        assert_eq!(
+            plugin_action_args(&forced).unwrap(),
+            vec!["plugin", "remove", "demo", "--force", "--json"]
+        );
+    }
+
+    #[test]
+    fn remove_action_requires_plugin_id() {
+        let action = PluginManagerAction {
+            kind: "remove".into(),
+            plugin_id: None,
+            channel: None,
+            url: None,
+            name: None,
+            force: false,
+        };
+        assert!(plugin_action_args(&action)
+            .unwrap_err()
+            .contains("pluginId"));
+    }
+
+    #[test]
+    fn enrich_reads_description_homepage_and_readme() {
+        let dir = std::env::temp_dir().join(format!("ct-enrich-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = serde_json::json!({
+            "id": "demo",
+            "version": "0.2.0",
+            "displayName": "Demo",
+            "description": "Does a demo thing.",
+            "homepage": "https://example.com/demo",
+            "capabilities": { "statusBubble": true },
+        });
+        std::fs::write(dir.join("README.md"), "# Demo\n\nUseful docs here.").unwrap();
+
+        let mut entry = serde_json::json!({ "id": "demo" });
+        enrich_from_manifest(&mut entry, &dir, &manifest);
+
+        assert_eq!(
+            entry["description"],
+            serde_json::json!("Does a demo thing.")
+        );
+        assert_eq!(
+            entry["homepage"],
+            serde_json::json!("https://example.com/demo")
+        );
+        assert!(entry["readme_markdown"]
+            .as_str()
+            .unwrap()
+            .contains("Useful docs here."));
+        assert_eq!(
+            entry["capabilities"]["status_bubble"],
+            serde_json::json!(true)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn marketplace_marks_installed_and_pulls_channel_metadata() {
+        let root = std::env::temp_dir().join(format!("ct-mp-{}", std::process::id()));
+        let plugin_dir = root.join("demo");
+        std::fs::create_dir_all(&plugin_dir).unwrap();
+        std::fs::write(
+            root.join("channel.json"),
+            serde_json::json!({
+                "schemaVersion": 1,
+                "name": "demochan",
+                "plugins": [{ "id": "demo", "path": "demo", "version": "1.0.0" }],
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            plugin_dir.join("plugin.json"),
+            serde_json::json!({
+                "id": "demo",
+                "version": "1.0.0",
+                "displayName": "Demo Plugin",
+                "description": "A marketplace demo.",
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let channels = vec![serde_json::json!({
+            "name": "demochan",
+            "path": root.to_string_lossy(),
+        })];
+        let diff = vec![
+            serde_json::json!({ "channel": "demochan", "id": "demo", "drift": "not_installed", "compatible": true }),
+            serde_json::json!({ "channel": "demochan", "id": "other", "drift": "update_available", "compatible": true }),
+        ];
+        let installed: std::collections::HashSet<String> =
+            ["other".to_string()].into_iter().collect();
+
+        let market = build_marketplace(&diff, &channels, &installed);
+        assert_eq!(market.len(), 2);
+        assert_eq!(market[0]["id"], serde_json::json!("demo"));
+        assert_eq!(market[0]["installed"], serde_json::json!(false));
+        assert_eq!(market[0]["display_name"], serde_json::json!("Demo Plugin"));
+        assert_eq!(
+            market[0]["description"],
+            serde_json::json!("A marketplace demo.")
+        );
+        // Second row isn't in the channel cache → still present, installed flag honest.
+        assert_eq!(market[1]["installed"], serde_json::json!(true));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
