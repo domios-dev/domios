@@ -9,6 +9,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "devDependencies": {
+    "@codeterm/plugin-sdk": "workspace:*"
+  },
   "peerDependencies": {
     "react": "^19.0.0"
   }
