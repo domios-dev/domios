@@ -262,6 +262,16 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
     if let Some(obj) = entry.as_object_mut() {
         obj.insert("capabilities".into(), cap_obj);
         obj.insert("granted_permissions".into(), serde_json::json!(granted));
+        // §1.8: a plugin declaring requiresReload can't hot-activate. The static
+        // flag is the manifest value; the live "is it actually waiting on a
+        // reload right now" signal is `pending_reload`, set by build_snapshot.
+        obj.insert(
+            "requires_reload".into(),
+            serde_json::json!(m
+                .get("requiresReload")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)),
+        );
         if let Some(schema) = settings_schema {
             obj.insert("settings_schema".into(), schema);
         }
@@ -320,6 +330,12 @@ fn read_bounded_text(path: &std::path::Path) -> Option<String> {
 fn build_snapshot(last_output: Option<Value>) -> Result<Value, String> {
     let mut plugins = run_plugin_cli(&["plugin", "list", "--json"])?;
     let manifests = scan_plugin_manifests();
+    // Plugins installed after daemon start that declared requiresReload and so
+    // are waiting on a reload to activate (§1.8) — read from the live watcher.
+    let pending_reload: std::collections::HashSet<String> =
+        crate::plugin::js_runtime::pending_reload_ids()
+            .into_iter()
+            .collect();
     if let Some(arr) = plugins.get_mut("plugins").and_then(|p| p.as_array_mut()) {
         let mut seen = std::collections::HashSet::new();
         for entry in arr.iter_mut() {
@@ -327,6 +343,12 @@ fn build_snapshot(last_output: Option<Value>) -> Result<Value, String> {
                 seen.insert(id.clone());
                 if let Some((dir, m)) = manifests.get(&id) {
                     enrich_from_manifest(entry, dir, m);
+                }
+                if let Some(obj) = entry.as_object_mut() {
+                    obj.insert(
+                        "pending_reload".into(),
+                        serde_json::json!(pending_reload.contains(&id)),
+                    );
                 }
             }
         }

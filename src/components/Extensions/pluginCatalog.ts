@@ -28,6 +28,8 @@ export interface CatalogEntry {
   compatible: boolean;
   blockedReason?: string | null;
   updateAvailable: boolean;
+  /** Installed after daemon start, capability waiting on a reload to activate (§1.8). */
+  pendingReload?: boolean | null;
   capabilities?: PluginCapabilities | null;
   grantedPermissions?: string[] | null;
   settingsSchema?: SettingField[] | null;
@@ -94,6 +96,7 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
     compatible: true,
     blockedReason: null,
     updateAvailable: false,
+    pendingReload: p.pending_reload ?? false,
     capabilities: p.capabilities ?? null,
     grantedPermissions: p.granted_permissions ?? null,
     settingsSchema: p.settings_schema ?? null,
@@ -127,6 +130,7 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     compatible,
     blockedReason: m.blocked_reason ?? null,
     updateAvailable,
+    pendingReload: base?.pendingReload ?? false,
     // Prefer installed-side metadata (loaded from the live install) but fall
     // back to the channel manifest for not-yet-installed plugins.
     capabilities: base?.capabilities ?? m.capabilities ?? null,

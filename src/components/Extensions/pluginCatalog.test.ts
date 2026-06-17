@@ -42,6 +42,18 @@ test("buildCatalog merges installed + marketplace by id", () => {
   assert(ids.join(",") === "bitwarden,claude,future,git,transcriber", `got ${ids.join(",")}`);
 });
 
+test("pending_reload flows from snapshot into catalog entry (§1.8)", () => {
+  const cat = buildCatalog({
+    plugins: [
+      { id: "needsreload", display_name: "Needs Reload", system: false, removable: true, version: "1.0.0", capabilities: { status_bubble: true }, requires_reload: true, pending_reload: true },
+    ],
+    channels: [],
+    diff: [],
+  });
+  const e = cat.find((x) => x.id === "needsreload")!;
+  assert(e.pendingReload === true, "pendingReload must propagate to the catalog entry");
+});
+
 test("installed-only plugin (bitwarden) survives even without a channel entry", () => {
   const cat = buildCatalog(snapshot);
   const bw = cat.find((e) => e.id === "bitwarden");

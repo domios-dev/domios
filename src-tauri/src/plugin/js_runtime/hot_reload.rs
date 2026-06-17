@@ -8,9 +8,9 @@
 //! only enables macos_fsevent. Polling N files at 2s intervals is
 //! trivially cheap for the volumes here (1-10 plugins).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 
 use parking_lot::Mutex;
@@ -29,10 +29,10 @@ struct Tracked {
     entry_mtime: SystemTime,
 }
 
-/// The non-agent capability registries the watcher needs so it can re-register
-/// a (re)loaded plugin's capabilities live — mirroring the startup arms in
-/// `lib.rs` (plan §1.8). C0 only threads these handles in; the actual
-/// re-registration on reload (and `chatBackend`) lands in a later track.
+/// The non-agent capability registries the watcher re-registers a (re)loaded
+/// plugin's capabilities into live — mirroring the startup arms in `lib.rs`
+/// (plan §1.8). The shared `register_plugin`/`deregister_plugin` seam keeps the
+/// startup loop and the hot-reload watcher in lockstep.
 #[derive(Clone)]
 pub struct CapabilityRegistries {
     pub secret: Arc<crate::secrets::SecretRegistry>,
@@ -42,6 +42,91 @@ pub struct CapabilityRegistries {
     pub view: crate::view_host::ViewRegistryHandle,
     pub chatbackend: crate::chatbackend::ChatBackendRegistryHandle,
     pub chat_preprocessor: crate::chatpreprocessor::ChatPreprocessorRegistryHandle,
+    pub agent_command: crate::agent_commands::AgentCommandRegistryHandle,
+}
+
+impl CapabilityRegistries {
+    /// Re-register a (re)loaded plugin's capability adapters live, mirroring the
+    /// startup arms in `lib.rs`. Runs for both agent and capability-only plugins
+    /// — a plugin may be both. `register` replaces any same-id entry, so this is
+    /// also the reload path. (§1.8 P1: install → capability appears, no restart.)
+    pub fn register_plugin(&self, manifest: &PluginManifest, vm: &Arc<super::PluginVm>) {
+        let id = &manifest.id;
+        let caps = &manifest.capabilities;
+        if caps.transcriber {
+            self.transcribe.register(
+                id.clone(),
+                Arc::new(super::JsTranscriber::new(vm.clone(), id.clone())),
+            );
+        }
+        if caps.secret_backend {
+            self.secret.register(
+                id.clone(),
+                Arc::new(super::JsSecretBackend::new(vm.clone(), id)),
+            );
+        }
+        if caps.glance_view {
+            self.glance.register(
+                id.clone(),
+                Arc::new(super::JsGlanceProvider::new(vm.clone(), id.clone())),
+            );
+        }
+        if caps.status_bubble {
+            self.bubble.register(
+                id.clone(),
+                Arc::new(super::JsBubbleProvider::new(vm.clone(), id.clone())),
+            );
+        }
+        if caps.view {
+            self.view.register(
+                id.clone(),
+                Arc::new(super::JsViewProvider::new(vm.clone(), id.clone())),
+            );
+        }
+        if caps.chat_backend {
+            self.chatbackend.register(
+                id.clone(),
+                Arc::new(super::JsChatBackend::new(vm.clone(), id.clone())),
+            );
+        }
+        if caps.chat_preprocessor {
+            self.chat_preprocessor.register(
+                id.clone(),
+                Arc::new(super::JsChatPreprocessor::new(vm.clone(), id.clone())),
+            );
+        }
+        // Inverse seam: register an agent-command handler when the grant is live
+        // in the sandbox (the enforcement source). The dispatch re-checks
+        // `granted()`, so an ungranted handler can never route.
+        if vm.agent_commands_allowed() {
+            self.agent_command.register(
+                id.clone(),
+                Arc::new(super::JsAgentCommandHandler::new(
+                    vm.clone(),
+                    id.clone(),
+                    true,
+                )),
+            );
+        }
+        // Conflict guard (plan §6): warn when the `voice` slot is grabbed by >1
+        // stage. Warn-and-allow.
+        if caps.transcriber || caps.chat_preprocessor {
+            crate::chatpipeline::warn_stage_conflicts(&self.transcribe, &self.chat_preprocessor);
+        }
+    }
+
+    /// Deregister every capability adapter for `id` — uninstall must leave no
+    /// ghost (bubble/view/chatBackend gone). Unregister is idempotent.
+    pub fn deregister_plugin(&self, id: &str) {
+        self.transcribe.unregister(id);
+        self.secret.unregister(id);
+        self.glance.unregister(id);
+        self.bubble.unregister(id);
+        self.view.unregister(id);
+        self.chatbackend.unregister(id);
+        self.chat_preprocessor.unregister(id);
+        self.agent_command.unregister(id);
+    }
 }
 
 /// Live registry of discovered JS plugins. Spawn `start` to begin
@@ -55,8 +140,29 @@ pub struct HotReloadRegistry {
     /// Plugin id → tracked state. Mutex because the watcher mutates
     /// from a background thread.
     state: Mutex<HashMap<String, Tracked>>,
+    /// Plugins that were present (and registered by `lib.rs`) at the full daemon
+    /// start. A `requiresReload` plugin in this set is already active, so a later
+    /// reload of it must NOT be marked pending (§1.8).
+    activated_startup: Mutex<HashSet<String>>,
+    /// Plugins installed/enabled after start that declared `requiresReload` and so
+    /// could not hot-activate — the UI/CLI surface "reload to activate" for these.
+    pending_reload: Mutex<HashSet<String>>,
     #[cfg(test)]
     load_count: std::sync::atomic::AtomicUsize,
+}
+
+/// Process-wide handle to the live watcher, set when `start()` runs. Lets
+/// stateless surfaces (the plugin snapshot command, CLI-routed `get plugin`)
+/// query `pending_reload` without threading the Arc through Tauri state.
+static WATCHER: OnceLock<Arc<HotReloadRegistry>> = OnceLock::new();
+
+/// Plugin ids installed after daemon start that need a reload to activate
+/// (§1.8). Empty before the watcher starts or on a fresh process.
+pub fn pending_reload_ids() -> Vec<String> {
+    WATCHER
+        .get()
+        .map(|w| w.pending_reload_ids())
+        .unwrap_or_default()
 }
 
 impl HotReloadRegistry {
@@ -70,9 +176,49 @@ impl HotReloadRegistry {
             agent_registry,
             caps,
             state: Mutex::new(HashMap::new()),
+            activated_startup: Mutex::new(HashSet::new()),
+            pending_reload: Mutex::new(HashSet::new()),
             #[cfg(test)]
             load_count: std::sync::atomic::AtomicUsize::new(0),
         })
+    }
+
+    /// Record every plugin already present (and registered by `lib.rs`) at full
+    /// daemon start as activated, seeding `state` mtimes so the first real tick
+    /// is a no-op. Call ONCE after startup registration, in place of a warm-up
+    /// `tick()` — re-loading here would double-register and wrongly flag startup
+    /// `requiresReload` plugins as pending.
+    pub fn seed(&self) {
+        let candidates = self.discover_candidates();
+        let mut state = self.state.lock();
+        let mut activated = self.activated_startup.lock();
+        for paths in candidates.values() {
+            for manifest_path in paths.iter().rev() {
+                let Ok(manifest) = PluginManifest::load(manifest_path) else {
+                    continue;
+                };
+                let Some(entry_path) = manifest.entry_path() else {
+                    continue;
+                };
+                if !entry_path.exists() {
+                    continue;
+                }
+                state.insert(
+                    manifest.id.clone(),
+                    Tracked {
+                        manifest_mtime: mtime_or_epoch(manifest_path),
+                        entry_mtime: mtime_or_epoch(&entry_path),
+                    },
+                );
+                activated.insert(manifest.id);
+                break;
+            }
+        }
+    }
+
+    /// Plugin ids installed after start that need a reload to activate (§1.8).
+    pub fn pending_reload_ids(&self) -> Vec<String> {
+        self.pending_reload.lock().iter().cloned().collect()
     }
 
     /// The capability registry handles threaded into the watcher (§1.8).
@@ -83,6 +229,7 @@ impl HotReloadRegistry {
     /// Spawn the background poller. The handle owns itself — no need
     /// for callers to keep it.
     pub fn start(self: &Arc<Self>) {
+        let _ = WATCHER.set(self.clone());
         let me = self.clone();
         std::thread::Builder::new()
             .name("codeterm-plugin-watcher".into())
@@ -116,6 +263,9 @@ impl HotReloadRegistry {
         for id in removed {
             state.remove(&id);
             self.agent_registry.unregister_provider(&id);
+            self.caps.deregister_plugin(&id);
+            self.pending_reload.lock().remove(&id);
+            self.activated_startup.lock().remove(&id);
             log::info!("[plugin-watcher] unregistered {id} (folder removed)");
         }
     }
@@ -200,6 +350,29 @@ impl HotReloadRegistry {
             Ok(mut provider) => {
                 let id = provider.manifest().id.clone();
                 let version = provider.manifest().version.clone();
+                // A `requiresReload` plugin freshly installed after start cannot
+                // hot-activate (§1.8): mark it pending and skip live capability
+                // registration. Already-activated (startup) plugins reload normally.
+                let activated_at_startup = self.activated_startup.lock().contains(&id);
+                if provider.manifest().requires_reload && !activated_at_startup {
+                    self.pending_reload.lock().insert(id.clone());
+                    self.state.lock().insert(
+                        id.clone(),
+                        Tracked {
+                            manifest_mtime,
+                            entry_mtime,
+                        },
+                    );
+                    log::info!(
+                        "[plugin-watcher] {id} declares requiresReload — pending until daemon reload"
+                    );
+                    return Some(id);
+                }
+                // Re-register capability adapters live (§1.8 P1) — bubble/glance/
+                // view/secret/transcribe/chatBackend/chatPreprocessor/agent_commands
+                // — so an installed capability plugin works without a restart.
+                self.caps
+                    .register_plugin(provider.manifest(), provider.vm());
                 // Only AGENT plugins register as providers. A capability-only
                 // plugin (transcriber / secret backend) must NOT pollute the
                 // agent registry — its adapter is registered at startup. Mirrors
@@ -268,6 +441,7 @@ mod tests {
             view: Arc::new(crate::view_host::ViewRegistry::new()),
             chatbackend: Arc::new(crate::chatbackend::ChatBackendRegistry::new()),
             chat_preprocessor: Arc::new(crate::chatpreprocessor::ChatPreprocessorRegistry::new()),
+            agent_command: Arc::new(crate::agent_commands::AgentCommandRegistry::new()),
         }
     }
 
@@ -311,6 +485,102 @@ mod tests {
                 "entry":"plugin.js"
             }}"#
         )
+    }
+
+    /// A capability-only plugin manifest (agent_provider defaults false because a
+    /// `capabilities` block is present). `requires_reload` toggles the §1.8 flag.
+    fn capability_manifest_for(id: &str, cap_field: &str) -> String {
+        capability_manifest_full(id, cap_field, false)
+    }
+
+    fn capability_manifest_full(id: &str, cap_field: &str, requires_reload: bool) -> String {
+        use crate::plugin::js_runtime::host_api::HOST_API_VERSION;
+        format!(
+            r#"{{
+                "id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
+                "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
+                         "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}},
+                "capabilities":{{"{cap_field}":true}},
+                "requiresReload":{requires_reload},
+                "entry":"plugin.js"
+            }}"#
+        )
+    }
+
+    #[test]
+    fn requires_reload_plugin_installed_live_is_pending_not_active() {
+        // §1.8 P1: a plugin declaring requiresReload cannot hot-activate. A fresh
+        // install after daemon start is marked pending_reload and its capability
+        // is NOT registered live — the banner/CLI tell the user to reload.
+        let root = tempfile::tempdir().unwrap();
+        let registry = Arc::new(AgentRegistry::new());
+        let caps = test_caps();
+        let watcher = HotReloadRegistry::new(
+            vec![root.path().to_path_buf()],
+            registry.clone(),
+            caps.clone(),
+        );
+        // No seed() — simulates a fresh install after startup (id not activated
+        // at startup).
+        let dir = root.path().join("needsreload");
+        write(
+            &dir.join("plugin.json"),
+            &capability_manifest_full("needsreload", "statusBubble", true),
+        );
+        write(&dir.join("plugin.js"), "module.exports.default = {};");
+
+        watcher.tick();
+
+        assert!(
+            !caps.bubble.contains("needsreload"),
+            "requiresReload capability must NOT hot-activate"
+        );
+        assert!(
+            watcher
+                .pending_reload_ids()
+                .contains(&"needsreload".to_string()),
+            "fresh requiresReload install must be pending_reload"
+        );
+
+        // Uninstall clears the pending flag.
+        std::fs::remove_dir_all(&dir).unwrap();
+        watcher.tick();
+        assert!(!watcher
+            .pending_reload_ids()
+            .contains(&"needsreload".to_string()));
+    }
+
+    #[test]
+    fn seeded_requires_reload_plugin_is_not_pending() {
+        // A plugin present at startup (seeded as activated) is already active from
+        // the full process start — a later reload must NOT mark it pending.
+        let root = tempfile::tempdir().unwrap();
+        let registry = Arc::new(AgentRegistry::new());
+        let caps = test_caps();
+        let watcher = HotReloadRegistry::new(
+            vec![root.path().to_path_buf()],
+            registry.clone(),
+            caps.clone(),
+        );
+        let dir = root.path().join("startupreload");
+        write(
+            &dir.join("plugin.json"),
+            &capability_manifest_full("startupreload", "statusBubble", true),
+        );
+        write(&dir.join("plugin.js"), "module.exports.default = {};");
+        // Seed: mark as activated-at-startup (lib.rs already registered it).
+        watcher.seed();
+        assert!(!watcher
+            .pending_reload_ids()
+            .contains(&"startupreload".to_string()));
+
+        // Edit triggers a reload — still not pending (it was active at startup).
+        std::thread::sleep(Duration::from_millis(1100));
+        write(&dir.join("plugin.js"), "module.exports.default = { v: 2 };");
+        watcher.tick();
+        assert!(!watcher
+            .pending_reload_ids()
+            .contains(&"startupreload".to_string()));
     }
 
     fn plugin_for(id: &str) -> String {
@@ -449,6 +719,65 @@ mod tests {
         assert!(!registry
             .with_provider("dupe", |p| p.detect_from_title("user cli"))
             .unwrap_or(true));
+    }
+
+    #[test]
+    fn tick_registers_capability_plugin_live_without_restart() {
+        // §1.8 P1: installing a capability-only plugin must re-register its
+        // capability registry live, so e.g. a status bubble appears without a
+        // daemon restart (the git-bubble-dark-until-restart symptom).
+        let root = tempfile::tempdir().unwrap();
+        let registry = Arc::new(AgentRegistry::new());
+        let caps = test_caps();
+        let watcher = HotReloadRegistry::new(
+            vec![root.path().to_path_buf()],
+            registry.clone(),
+            caps.clone(),
+        );
+        let dir = root.path().join("bubbler");
+        write(
+            &dir.join("plugin.json"),
+            &capability_manifest_for("bubbler", "statusBubble"),
+        );
+        write(&dir.join("plugin.js"), "module.exports.default = {};");
+
+        watcher.tick();
+
+        // Capability-only plugin: NOT an agent provider, but its bubble
+        // capability is live in the registry.
+        assert_eq!(registry.provider_count(), 0);
+        assert!(
+            caps.bubble.contains("bubbler"),
+            "status bubble must register live on install"
+        );
+    }
+
+    #[test]
+    fn tick_deregisters_capability_on_folder_removal() {
+        // §1.8 P1: uninstall must deregister the capability — no ghost bubble.
+        let root = tempfile::tempdir().unwrap();
+        let registry = Arc::new(AgentRegistry::new());
+        let caps = test_caps();
+        let watcher = HotReloadRegistry::new(
+            vec![root.path().to_path_buf()],
+            registry.clone(),
+            caps.clone(),
+        );
+        let dir = root.path().join("bubbler");
+        write(
+            &dir.join("plugin.json"),
+            &capability_manifest_for("bubbler", "statusBubble"),
+        );
+        write(&dir.join("plugin.js"), "module.exports.default = {};");
+        watcher.tick();
+        assert!(caps.bubble.contains("bubbler"));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+        watcher.tick();
+        assert!(
+            !caps.bubble.contains("bubbler"),
+            "capability must be deregistered on uninstall"
+        );
     }
 
     #[test]

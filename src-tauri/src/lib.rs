@@ -343,6 +343,19 @@ pub fn run() {
                 Arc::new(crate::chatpreprocessor::ChatPreprocessorRegistry::new());
             let agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle =
                 Arc::new(crate::agent_commands::AgentCommandRegistry::new());
+            // One bundle of capability registry handles, shared by the startup
+            // registration loop AND the hot-reload watcher so both go through the
+            // same `register_plugin` path (§1.8 P1 — no drift between them).
+            let cap_registries = plugin::js_runtime::CapabilityRegistries {
+                secret: secret_registry.clone(),
+                transcribe: transcribe_registry.clone(),
+                glance: glance_registry.clone(),
+                bubble: bubble_registry.clone(),
+                view: view_registry.clone(),
+                chatbackend: chatbackend_registry.clone(),
+                chat_preprocessor: chat_preprocessor_registry.clone(),
+                agent_command: agent_command_registry.clone(),
+            };
             // Plugin VMs collected as they load, so the host `ServiceContext`
             // can be late-bound into each sandbox once it is built below (the
             // VMs exist before `ServiceContext` does — plan §1.5 F4 / C0).
@@ -490,104 +503,8 @@ pub fn run() {
 
                     // Capability adapters share the plugin's VM. A capability-only
                     // plugin (agent_provider=false) is NOT registered as an agent.
-                    if caps.transcriber {
-                        transcribe_registry.register(
-                            id.clone(),
-                            Arc::new(plugin::js_runtime::JsTranscriber::new(
-                                p.vm().clone(),
-                                id.clone(),
-                            )),
-                        );
-                        log::info!("[js-plugin] {id} registered as transcriber");
-                        // Conflict guard (plan §6): flag the `voice` slot grabbed
-                        // by >1 stage. Warn-and-allow.
-                        crate::chatpipeline::warn_stage_conflicts(
-                            &transcribe_registry,
-                            &chat_preprocessor_registry,
-                        );
-                    }
-                    if caps.secret_backend {
-                        secret_registry.register(
-                            id.clone(),
-                            Arc::new(plugin::js_runtime::JsSecretBackend::new(
-                                p.vm().clone(),
-                                &id,
-                            )),
-                        );
-                        log::info!("[js-plugin] {id} registered as secret backend");
-                    }
-                    if caps.glance_view {
-                        glance_registry.register(
-                            id.clone(),
-                            Arc::new(plugin::js_runtime::JsGlanceProvider::new(
-                                p.vm().clone(),
-                                id.clone(),
-                            )),
-                        );
-                        log::info!("[js-plugin] {id} registered as glance view provider");
-                    }
-                    if caps.status_bubble {
-                        bubble_registry.register(
-                            id.clone(),
-                            Arc::new(plugin::js_runtime::JsBubbleProvider::new(
-                                p.vm().clone(),
-                                id.clone(),
-                            )),
-                        );
-                        log::info!("[js-plugin] {id} registered as status bubble provider");
-                    }
-                    if caps.view {
-                        view_registry.register(
-                            id.clone(),
-                            Arc::new(plugin::js_runtime::JsViewProvider::new(
-                                p.vm().clone(),
-                                id.clone(),
-                            )),
-                        );
-                        log::info!("[js-plugin] {id} registered as view provider");
-                    }
-                    if caps.chat_backend {
-                        chatbackend_registry.register(
-                            id.clone(),
-                            Arc::new(plugin::js_runtime::JsChatBackend::new(
-                                p.vm().clone(),
-                                id.clone(),
-                            )),
-                        );
-                        log::info!("[js-plugin] {id} registered as chatBackend provider");
-                    }
-                    if caps.chat_preprocessor {
-                        chat_preprocessor_registry.register(
-                            id.clone(),
-                            Arc::new(plugin::js_runtime::JsChatPreprocessor::new(
-                                p.vm().clone(),
-                                id.clone(),
-                            )),
-                        );
-                        log::info!("[js-plugin] {id} registered as chatPreprocessor stage");
-                        // Conflict guard (plan §6): flag a slot grabbed by >1
-                        // stage. Warn-and-allow — non-overlapping stages chain.
-                        crate::chatpipeline::warn_stage_conflicts(
-                            &transcribe_registry,
-                            &chat_preprocessor_registry,
-                        );
-                    }
-                    // Inverse seam: register an agent-command handler for any
-                    // plugin holding the `agent_commands` grant (read from the
-                    // sandbox — the enforcement source). `granted=true` because
-                    // only granted plugins reach this arm; the dispatch still
-                    // re-checks `granted()` so an ungranted handler can never route.
-                    if p.vm().agent_commands_allowed() {
-                        agent_command_registry.register(
-                            id.clone(),
-                            Arc::new(plugin::js_runtime::JsAgentCommandHandler::new(
-                                p.vm().clone(),
-                                id.clone(),
-                                true,
-                            )),
-                        );
-                        log::info!("[js-plugin] {id} registered as agent_commands handler");
-                    }
+                    // Single seam shared with the hot-reload watcher (§1.8 P1).
+                    cap_registries.register_plugin(p.manifest(), p.vm());
                     if !caps.agent_provider {
                         plugin::audit::append_daemon_reloaded(&id, &version);
                         continue;
@@ -621,18 +538,12 @@ pub fn run() {
                 let watcher = plugin::js_runtime::HotReloadRegistry::new(
                     roots.clone(),
                     agent_registry.clone(),
-                    plugin::js_runtime::CapabilityRegistries {
-                        secret: secret_registry.clone(),
-                        transcribe: transcribe_registry.clone(),
-                        glance: glance_registry.clone(),
-                        bubble: bubble_registry.clone(),
-                        view: view_registry.clone(),
-                        chatbackend: chatbackend_registry.clone(),
-                        chat_preprocessor: chat_preprocessor_registry.clone(),
-                    },
+                    cap_registries.clone(),
                 );
-                // Seed tracked-state for already-registered plugins so the first tick doesn't re-register them.
-                watcher.tick();
+                // Seed tracked-state for already-registered plugins (and mark them
+                // activated-at-startup) so the first tick doesn't re-register them
+                // or mis-flag startup `requiresReload` plugins as pending (§1.8).
+                watcher.seed();
                 watcher.start();
                 log::info!(
                     "[js-plugin] hot-reload watcher started on {} roots",
