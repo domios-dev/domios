@@ -758,13 +758,19 @@ mod tests {
 
         // First-write-wins: a second set is rejected and does not swap the ref.
         let other = Arc::new(FakeService);
-        assert!(!r.set(Arc::downgrade(&other)), "second set must be rejected");
+        assert!(
+            !r.set(Arc::downgrade(&other)),
+            "second set must be rejected"
+        );
         assert!(Arc::ptr_eq(&r.get().unwrap(), &svc));
 
         // Drop every strong owner → the weak ref no longer upgrades.
         drop(resolved);
         drop(svc);
-        assert!(r.get().is_none(), "LateRef must not resolve a dropped target");
+        assert!(
+            r.get().is_none(),
+            "LateRef must not resolve a dropped target"
+        );
     }
 
     #[test]
