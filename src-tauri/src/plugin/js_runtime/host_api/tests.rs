@@ -49,6 +49,7 @@ fn host_api_v2_gating_by_allowlist() {
         vec!["bw".into()],
         vec!["127.0.0.1:7891".into()],
         true,
+        true,
     );
     assert_eq!(sb.plugin_id(), "myplug");
     // exec: only the allowlisted binary.
@@ -59,6 +60,7 @@ fn host_api_v2_gating_by_allowlist() {
     assert!(sb.can_reach("127.0.0.1"));
     assert!(!sb.can_reach("evil.example.com"));
     assert!(sb.secrets_allowed());
+    assert!(sb.agent_commands_allowed());
 
     // Restricted plugin with NO grants → everything denied.
     let none = PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms(
@@ -66,16 +68,20 @@ fn host_api_v2_gating_by_allowlist() {
         vec![],
         vec![],
         false,
+        false,
     );
     assert!(!none.can_exec("bw"));
     assert!(!none.can_reach("127.0.0.1:7891"));
     assert!(!none.secrets_allowed());
+    assert!(!none.agent_commands_allowed());
 
     // Unrestricted (bundled/dev) → everything allowed regardless of lists.
-    let full = PluginSandbox::unrestricted().with_identity_and_perms("sys", vec![], vec![], false);
+    let full =
+        PluginSandbox::unrestricted().with_identity_and_perms("sys", vec![], vec![], false, false);
     assert!(full.can_exec("anything"));
     assert!(full.can_reach("anywhere"));
     assert!(full.secrets_allowed());
+    assert!(full.agent_commands_allowed());
     assert_eq!(full.plugin_id(), "sys");
 }
 

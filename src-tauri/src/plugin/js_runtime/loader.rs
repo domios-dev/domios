@@ -182,6 +182,7 @@ fn compute_sandbox(
         manifest.permissions.subprocess.allow.clone(),
         manifest.permissions.network.allow.clone(),
         manifest.permissions.secrets,
+        manifest.permissions.agent_commands,
     )
     .with_settings(settings_json)
 }

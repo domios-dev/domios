@@ -462,6 +462,10 @@ pub struct PermissionsConfig {
     /// Whether the plugin may use its per-plugin secret bucket (`host.secret*`).
     #[serde(default)]
     pub secrets: bool,
+    /// Whether a spawned agent may route `codeterm plugin <id> <verb>` to this
+    /// plugin's `onAgentCommand` (the inverse seam — plan §1.5 F5).
+    #[serde(default)]
+    pub agent_commands: bool,
 }
 
 impl PluginManifest {

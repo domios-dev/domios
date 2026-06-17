@@ -246,6 +246,12 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         if p.get("sendText").and_then(|v| v.as_bool()).unwrap_or(false) {
             granted.push("send_text");
         }
+        if p.get("agentCommands")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            granted.push("agent_commands");
+        }
     }
     let settings_schema = m
         .get("settingsSchema")

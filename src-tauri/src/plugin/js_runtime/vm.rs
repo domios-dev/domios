@@ -298,6 +298,13 @@ impl PluginVm {
         self.inner.lock().sandbox.set_service(svc)
     }
 
+    /// Whether this plugin holds the `agent_commands` grant (read from the
+    /// sandbox — the enforcement source of truth). Drives registration of the
+    /// inverse-seam handler.
+    pub fn agent_commands_allowed(&self) -> bool {
+        self.inner.lock().sandbox.agent_commands_allowed()
+    }
+
     /// Re-load the plugin from a fresh source string. Used by the
     /// hot-reload path when `plugin.js` changes on disk.
     pub fn reload(&self, new_source: String) -> Result<(), VmError> {
