@@ -21,6 +21,8 @@ pub mod multiplexer;
 mod notification;
 pub mod pasteboard;
 pub mod paths;
+pub mod bubble;
+pub mod glance;
 pub mod plugin;
 pub mod process_util;
 pub mod prompts;
@@ -35,6 +37,8 @@ mod startup;
 pub mod transcribe;
 pub mod update;
 pub mod usage;
+pub mod view;
+pub mod view_host;
 
 use std::sync::Arc;
 
@@ -146,7 +150,6 @@ pub fn run() {
             commands::resize_pty,
             commands::claim_resize_owner,
             commands::kill_pty,
-            commands::get_pane_git_info,
             commands::suggest_install_pwsh,
             commands::get_shell_diagnostics,
             commands::restart_app,
@@ -206,6 +209,9 @@ pub fn run() {
             commands::install_provider_in_pane,
             commands::plugin_manager_snapshot,
             commands::plugin_manager_action,
+            commands::plugin_glance,
+            commands::plugin_bubble,
+            commands::plugin_view_call,
             multiplexer::commands::build_agent_launch_command,
             multiplexer::commands::mux_set_pane_role,
             multiplexer::commands::mux_clear_pane_role,
@@ -300,19 +306,33 @@ pub fn run() {
 
             // Bootstrap plugin system — agent-claude is a bundled native plugin
             agent::model_catalog::ensure_readme_installed();
+            // One-time: carry a pre-existing native Bitwarden setup (server URL +
+            // saved session/master) into the Bitwarden plugin's namespace, then
+            // persist. Native Bitwarden is retired; the plugin inherits the user's
+            // existing login so they don't have to re-unlock.
+            {
+                let mut cfg = states.config.lock();
+                if crate::secrets::migrate_native_bitwarden_to_plugin(&mut cfg) {
+                    let snapshot = cfg.clone();
+                    drop(cfg);
+                    let _ = crate::config::save_config_pub(&snapshot);
+                }
+            }
+
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
             // Capability registries — populated below as JS plugins load, then
             // handed to ServiceContext. Transcribe is seeded with the built-in
             // HTTP engine so voice notes work with no plugin (zero-regression).
             let secret_registry = Arc::new(crate::secrets::SecretRegistry::new());
             let transcribe_registry = Arc::new(crate::transcribe::TranscribeRegistry::new());
-            {
-                let voice = states.config.lock().integrations.voice_transcribe.clone();
-                transcribe_registry.register(
-                    crate::transcribe::http_engine::BUILTIN_HTTP_ID,
-                    Arc::new(crate::transcribe::http_engine::HttpEngine::from_config(&voice)),
-                );
-            }
+            let glance_registry: crate::glance::GlanceRegistryHandle =
+                Arc::new(crate::glance::GlanceRegistry::new());
+            let bubble_registry: crate::bubble::BubbleRegistryHandle =
+                Arc::new(crate::bubble::BubbleRegistry::new());
+            let view_registry: crate::view_host::ViewRegistryHandle =
+                Arc::new(crate::view_host::ViewRegistry::new());
+            // No native transcriber: the bundled `transcriber` plugin registers
+            // itself below (everything-as-plugins). The registry starts empty.
             let mut plugin_manager = plugin::PluginManager::new();
             plugin_manager.set_agent_registry(agent_registry.clone());
             plugin_manager.set_event_broadcaster(states.event_broadcaster.clone());
@@ -350,24 +370,7 @@ pub fn run() {
                 plugin_manager.activate(plugin::agent_claude::PLUGIN_ID)
                     .expect("agent-claude plugin activation failed");
             }
-            {
-                use plugin::agent_codex::AgentCodexPlugin;
-                let manifest = AgentCodexPlugin::manifest();
-                plugin_manager.register(manifest);
-                plugin_manager.attach_native(Box::new(AgentCodexPlugin::new()))
-                    .expect("agent-codex plugin attach failed");
-                plugin_manager.activate(plugin::agent_codex::PLUGIN_ID)
-                    .expect("agent-codex plugin activation failed");
-            }
-            {
-                use plugin::agent_opencode::AgentOpenCodePlugin;
-                let manifest = AgentOpenCodePlugin::manifest();
-                plugin_manager.register(manifest);
-                plugin_manager.attach_native(Box::new(AgentOpenCodePlugin::new()))
-                    .expect("agent-opencode plugin attach failed");
-                plugin_manager.activate(plugin::agent_opencode::PLUGIN_ID)
-                    .expect("agent-opencode plugin activation failed");
-            }
+            // codex + opencode are JS plugins now (no native bundled providers).
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
 
             // Wire the event bus to plugins: previously `dispatch_event` had no
@@ -486,6 +489,36 @@ pub fn run() {
                         );
                         log::info!("[js-plugin] {id} registered as secret backend");
                     }
+                    if caps.glance_view {
+                        glance_registry.register(
+                            id.clone(),
+                            Arc::new(plugin::js_runtime::JsGlanceProvider::new(
+                                p.vm().clone(),
+                                id.clone(),
+                            )),
+                        );
+                        log::info!("[js-plugin] {id} registered as glance view provider");
+                    }
+                    if caps.status_bubble {
+                        bubble_registry.register(
+                            id.clone(),
+                            Arc::new(plugin::js_runtime::JsBubbleProvider::new(
+                                p.vm().clone(),
+                                id.clone(),
+                            )),
+                        );
+                        log::info!("[js-plugin] {id} registered as status bubble provider");
+                    }
+                    if caps.view {
+                        view_registry.register(
+                            id.clone(),
+                            Arc::new(plugin::js_runtime::JsViewProvider::new(
+                                p.vm().clone(),
+                                id.clone(),
+                            )),
+                        );
+                        log::info!("[js-plugin] {id} registered as view provider");
+                    }
                     if !caps.agent_provider {
                         plugin::audit::append_daemon_reloaded(&id, &version);
                         continue;
@@ -602,6 +635,9 @@ pub fn run() {
                     crate::secrets::new_state(&cfg, &secret_registry)
                 },
                 transcribe_registry: transcribe_registry.clone(),
+                glance_registry: glance_registry.clone(),
+                bubble_registry: bubble_registry.clone(),
+                view_registry: view_registry.clone(),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(
                     crate::service::store::ServicesStore::open(

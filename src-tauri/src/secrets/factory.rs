@@ -24,7 +24,6 @@ fn registry() -> &'static HashMap<&'static str, Box<dyn SecretBackendFactory>> {
 fn register_builtins(map: &mut HashMap<&'static str, Box<dyn SecretBackendFactory>>) {
     let factories: Vec<Box<dyn SecretBackendFactory>> = vec![
         Box::new(super::local::LocalFactory),
-        Box::new(super::bitwarden::BitwardenFactory),
         Box::new(super::mock::MockFactory),
     ];
     for f in factories {
@@ -67,18 +66,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_three_builtins() {
+    fn registry_has_native_builtins() {
+        // Native stores only: `local` (file, default) + `mock` (tests).
+        // Bitwarden is a plugin now, not a built-in factory.
         let ids: Vec<_> = list().iter().map(|(id, _, _)| *id).collect();
         assert!(ids.contains(&"local"));
-        assert!(ids.contains(&"bitwarden"));
         assert!(ids.contains(&"mock"));
+        assert!(!ids.contains(&"bitwarden"), "bitwarden is a plugin, not a factory");
     }
 
     #[test]
     fn factory_lookup_returns_some_for_builtins() {
         assert!(factory("local").is_some());
-        assert!(factory("bitwarden").is_some());
         assert!(factory("mock").is_some());
+        assert!(factory("bitwarden").is_none(), "bitwarden is a plugin");
         assert!(factory("does-not-exist").is_none());
     }
 

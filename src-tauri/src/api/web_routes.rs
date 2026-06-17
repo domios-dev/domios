@@ -634,6 +634,175 @@ pub async fn plugin_action(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlanceReq {
+    pub plugin_id: String,
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub ctx: Option<serde_json::Value>,
+}
+
+/// Web-mirror twin of the `plugin_glance` Tauri command.
+pub async fn plugin_glance(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<GlanceReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    crate::commands::plugins::glance_render(
+        &state.svc.glance_registry,
+        &req.plugin_id,
+        req.action.as_deref(),
+        req.ctx.unwrap_or(serde_json::Value::Null),
+    )
+    .await
+    .map(Json)
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BubbleReq {
+    pub plugin_id: String,
+    #[serde(default)]
+    pub ctx: Option<serde_json::Value>,
+}
+
+/// Web-mirror twin of the `plugin_bubble` Tauri command.
+pub async fn plugin_bubble(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<BubbleReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    crate::commands::plugins::bubble_poll(
+        &state.svc.bubble_registry,
+        &req.plugin_id,
+        req.ctx.unwrap_or(serde_json::Value::Null),
+    )
+    .await
+    .map(Json)
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewCallReq {
+    pub plugin_id: String,
+    pub method: String,
+    #[serde(default)]
+    pub args: Option<serde_json::Value>,
+}
+
+/// Web-mirror twin of the `plugin_view_call` Tauri command (the iframe bridge).
+pub async fn plugin_view_call(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<ViewCallReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    crate::commands::plugins::view_call(
+        &state.svc.view_registry,
+        &req.plugin_id,
+        &req.method,
+        req.args.unwrap_or(serde_json::Value::Null),
+    )
+    .await
+    .map(Json)
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+/// The `ct` bridge shim injected (nonce'd) into every plugin iframe. The iframe's
+/// ONLY channel to the host: postMessage to the parent, which runs the
+/// permission-gated `plugin_view_call`. No direct network (CSP `connect-src 'none'`).
+const PLUGIN_BRIDGE_JS: &str = r#"
+(function(){var p={},s=0;
+window.addEventListener('message',function(e){var m=e.data||{};
+ if(m.__ctReply!=null&&p[m.__ctReply]){var d=p[m.__ctReply];delete p[m.__ctReply];
+  m.error?d.reject(new Error(m.error)):d.resolve(m.result);}
+ if(m.__ctTheme!=null){document.documentElement.style.cssText=m.__ctTheme;}});
+window.ct={invoke:function(method,args){var id=++s;return new Promise(function(res,rej){
+  p[id]={resolve:res,reject:rej};parent.postMessage({__ctInvoke:id,method:method,args:args||null},'*');});}};
+parent.postMessage({__ctReady:true},'*');})();
+"#;
+
+#[derive(serde::Deserialize)]
+pub struct PluginUiQuery {
+    pub token: Option<String>,
+}
+
+fn ui_mime(path: &str) -> &'static str {
+    match path.rsplit('.').next() {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("woff2") => "font/woff2",
+        Some("json") => "application/json",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Serves a plugin's iframe UI from `plugins/<id>/ui/*`, injecting the CSP+nonce
+/// and the bridge shim into `index.html`. Static, query-token-gated; the iframe
+/// makes no other requests (CSP `connect-src 'none'`) — all power flows through
+/// the parent's `plugin_view_call`.
+pub async fn plugin_ui(
+    AxumState(state): AxumState<AppState>,
+    axum::extract::Path((id, path)): axum::extract::Path<(String, String)>,
+    Query(q): Query<PluginUiQuery>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let ok = q
+        .token
+        .as_deref()
+        .map(|t| validate_manifest_token(&state, t).unwrap_or(false))
+        .unwrap_or(false);
+    if !ok {
+        return Err((StatusCode::UNAUTHORIZED, "bad or missing token".into()));
+    }
+    let dir = crate::view_host::plugin_ui_dir(&id)
+        .ok_or((StatusCode::NOT_FOUND, format!("no ui for plugin '{id}'")))?;
+    let rel = if path.is_empty() { "index.html" } else { path.as_str() };
+    if rel.contains("..") {
+        return Err((StatusCode::BAD_REQUEST, "path traversal".into()));
+    }
+    let file = dir.join(rel);
+    let bytes = std::fs::read(&file).map_err(|_| (StatusCode::NOT_FOUND, "not found".to_string()))?;
+
+    use axum::http::{header, HeaderValue};
+    let mut resp = if rel.ends_with(".html") {
+        let nonce = uuid::Uuid::new_v4().simple().to_string();
+        let raw = String::from_utf8_lossy(&bytes).replace("__CT_NONCE__", &nonce);
+        let bridge = format!("<script nonce=\"{nonce}\">{PLUGIN_BRIDGE_JS}</script>");
+        let html = match raw.find("<head>") {
+            Some(i) => format!("{}{}{}", &raw[..i + 6], bridge, &raw[i + 6..]),
+            None => format!("{bridge}{raw}"),
+        };
+        let csp = format!(
+            "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}' 'unsafe-inline'; \
+             img-src 'self' data:; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'"
+        );
+        let mut r = axum::response::Response::new(axum::body::Body::from(html));
+        r.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+        if let Ok(v) = HeaderValue::from_str(&csp) {
+            r.headers_mut().insert(header::CONTENT_SECURITY_POLICY, v);
+        }
+        r
+    } else {
+        let mut r = axum::response::Response::new(axum::body::Body::from(bytes));
+        r.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(ui_mime(rel)));
+        r
+    };
+    resp.headers_mut().insert(
+        axum::http::header::X_FRAME_OPTIONS,
+        axum::http::HeaderValue::from_static("SAMEORIGIN"),
+    );
+    Ok(resp)
+}
+
 pub async fn chat_raw_stop(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

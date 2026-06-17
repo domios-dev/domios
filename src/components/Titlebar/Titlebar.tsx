@@ -9,6 +9,7 @@ import { UI_BUTTON } from "../shared/design";
 import { UpdateBadge } from "../UpdateBadge";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { MeshPresenceTray } from "./MeshPresenceTray";
+import { ExtensionsTray } from "./ExtensionsTray";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -71,22 +72,7 @@ export function Titlebar({
 
       <div className="flex items-center h-full gap-1">
         <UpdateBadge />
-        {onOpenExtensions && (
-          <button
-            type="button"
-            data-testid="titlebar-extensions"
-            onClick={onOpenExtensions}
-            title="Extensions"
-            className="flex items-center justify-center w-7 h-7 rounded-md transition-colors hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)]"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="7" height="7" rx="1" />
-              <rect x="14" y="3" width="7" height="7" rx="1" />
-              <rect x="3" y="14" width="7" height="7" rx="1" />
-              <rect x="14" y="14" width="7" height="7" rx="1" />
-            </svg>
-          </button>
-        )}
+        {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
         <MeshPresenceTray />
         <KeepAwakeTray />
       </div>

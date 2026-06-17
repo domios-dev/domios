@@ -373,8 +373,59 @@ function secretInit() {
   return { ok: true };
 }
 
+// Glance: a quick peek at the vault connection — not the unlock form.
+function renderGlance() {
+  var s = secretStatus();
+  var nodes = [];
+  if (s.status === "unlocked") {
+    nodes.push({ kind: "badge", label: "Unlocked", tone: "ok" });
+    nodes.push({ kind: "keyVal", key: "Account", value: s.user || "—" });
+    if (s.endpoint) nodes.push({ kind: "keyVal", key: "Server", value: s.endpoint });
+  } else if (s.status === "locked") {
+    nodes.push({ kind: "badge", label: "Locked", tone: "warn" });
+    nodes.push({ kind: "text", text: "Vault is locked — unlock it in settings.", style: { tone: "muted" } });
+  } else if (s.status === "unavailable") {
+    nodes.push({ kind: "badge", label: "bw not found", tone: "danger" });
+    nodes.push({ kind: "note", body: s.reason || "The Bitwarden CLI isn't available.", level: "error" });
+  } else {
+    nodes.push({ kind: "badge", label: "Not signed in", tone: "danger" });
+    if (s.endpoint) nodes.push({ kind: "keyVal", key: "Server", value: s.endpoint });
+  }
+  nodes.push({ kind: "divider" });
+  nodes.push({ kind: "button", label: "Open settings", action: "settings" });
+  return { title: "Bitwarden", nodes: nodes };
+}
+
+// Bridge entry for the plugin's iframe UI (capability: view). The iframe owns the
+// connection panel (status / unlock / server URL); each call lands here and is
+// routed to the plugin's own secret methods — never to arbitrary exports.
+function viewCall(method, args) {
+  args = args || {};
+  if (method === "status") return secretStatus();
+  if (method === "serverUrl") return { url: serverUrl() };
+  if (method === "setServerUrl") {
+    host.secretSet("server_url", args.url || "");
+    return { ok: true };
+  }
+  if (method === "unlock") {
+    return secretUnlock({
+      masterPassword: args.masterPassword,
+      email: args.email,
+      twoFactorToken: args.twoFactorToken,
+      apiKeyClientId: args.apiKeyClientId,
+      apiKeyClientSecret: args.apiKeyClientSecret,
+    });
+  }
+  if (method === "signout") return secretLogout();
+  if (method === "organizations") return { organizations: secretOrganizations().ok || [] };
+  if (method === "collections") return { collections: secretCollections(args.organization).ok || [] };
+  return { error: "unknown view method: " + method };
+}
+
 module.exports.default = {
   secretStatus: secretStatus,
+  renderGlance: renderGlance,
+  viewCall: viewCall,
   secretUnlock: secretUnlock,
   secretLock: secretLock,
   secretLogout: secretLogout,

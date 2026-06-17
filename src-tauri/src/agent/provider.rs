@@ -311,16 +311,18 @@ pub fn session_resume_section(description: &str, skip_flag: &str) -> SettingFiel
             },
             SettingField::Toggle {
                 key: "resume_skip_permissions".into(),
-                label: format!("Resume with {}", skip_flag),
+                label: "Skip permission prompts when resuming".into(),
                 default: true,
-                description: None,
+                description: Some(format!(
+                    "Relaunches resumed sessions with {skip_flag} so they don't re-ask for tool approvals."
+                )),
             },
             SettingField::When {
                 field: "resume_skip_permissions".into(),
                 equals: serde_json::Value::Bool(true),
                 then: vec![SettingField::Info {
                     title: None,
-                    body: "⚠ Agent will run without asking for tool approvals. Use with caution."
+                    body: "The agent runs without asking before each tool use. Convenient for resume, but it can edit files and run commands unattended."
                         .into(),
                     level: NoteLevel::Warn,
                 }],

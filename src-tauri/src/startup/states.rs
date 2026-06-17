@@ -166,15 +166,10 @@ fn default_chat_view_for_general_agent(default_enabled: bool, provider_id: &str)
 }
 
 fn bundled_agent_provider_supports_chat_ui(provider_id: &str) -> bool {
-    let registry = agent::registry::AgentRegistry::new();
-    registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-    registry.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
-    registry.register_provider(Box::new(
-        crate::plugin::agent_opencode::OpenCodeProvider::new(),
-    ));
-    registry
-        .with_provider(provider_id, |provider| provider.supports_chat_ui())
-        .unwrap_or(false)
+    // Bundled providers' chat-UI support, kept in lockstep with the provider
+    // plugins. Used to default a fresh general-agent pane's view before the
+    // dynamic plugin registry is queryable. (Providers are plugins now.)
+    matches!(provider_id, "claude" | "codex" | "opencode")
 }
 
 #[cfg(test)]

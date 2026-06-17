@@ -8,7 +8,7 @@ use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, co
 
 use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, delayed_send_routes,
-    fs_routes, git_routes, health_routes, hook_routes, logs_routes, mem_routes, mesh_routes,
+    fs_routes, health_routes, hook_routes, logs_routes, mem_routes, mesh_routes,
     network_routes, notification_routes, pane_chat_routes, pane_routes, pasteboard_routes,
     services_routes, session_routes, theme_routes, updater_routes, usage_routes, web_routes,
     webhook_routes, workspace_routes,
@@ -549,6 +549,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/sync/status", get(mem_routes::mem_sync_status))
         .route("/api/plugins/snapshot", get(web_routes::plugin_snapshot))
         .route("/api/plugins/action", post(web_routes::plugin_action))
+        .route("/api/plugins/glance", post(web_routes::plugin_glance))
+        .route("/api/plugins/bubble", post(web_routes::plugin_bubble))
+        .route("/api/plugins/view-call", post(web_routes::plugin_view_call))
+        .route("/api/plugins/{id}/ui/{*path}", get(web_routes::plugin_ui))
         .route("/api/secrets/status", get(crate::secrets::api::status))
         .route("/api/secrets/unlock", post(crate::secrets::api::unlock))
         .route("/api/secrets/lock", post(crate::secrets::api::lock))
@@ -593,29 +597,7 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/logs",
             get(logs_routes::list_logs).delete(logs_routes::delete_logs),
-        )
-        .route("/api/git/graph", get(git_routes::git_graph))
-        .route(
-            "/api/git/commit/{sha}/files",
-            get(git_routes::git_commit_files),
-        )
-        .route(
-            "/api/git/commit/{sha}/diff",
-            get(git_routes::git_commit_diff),
-        )
-        .route("/api/git/workdir-diff", get(git_routes::git_workdir_diff))
-        .route("/api/git/workdir-files", get(git_routes::git_workdir_files))
-        .route("/api/git/revert-file", post(git_routes::git_revert_file))
-        .route("/api/git/stage-file", post(git_routes::git_stage_file))
-        .route("/api/git/unstage-file", post(git_routes::git_unstage_file))
-        .route("/api/git/stage-files", post(git_routes::git_stage_files))
-        .route(
-            "/api/git/unstage-files",
-            post(git_routes::git_unstage_files),
-        )
-        .route("/api/git/commit", post(git_routes::git_commit))
-        .route("/api/git/push", post(git_routes::git_push))
-        .route("/api/git/repos", get(git_routes::git_repos));
+        );
 
     // gzip-scoped snapshot route: 100k-node payloads compress ~4:1. Kept on its
     // own sub-router so compression only runs for this large response.

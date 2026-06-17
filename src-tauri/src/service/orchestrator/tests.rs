@@ -175,13 +175,11 @@ fn test_build_claude_with_extra_args() {
 
 #[test]
 fn test_build_with_model_uses_provider_specific_flag() {
-    // claude → `--model X`, codex/opencode → `-m X`. The CLI flag is provider-agnostic; the right syntax comes from `model_launch_args`.
+    // claude → `--model X`. codex/opencode model-flag syntax is JS-plugin logic now
+    // (covered in plugins/provider-*/tests); here we verify the orchestrator
+    // delegates model selection to the native claude provider.
     let reg = AgentRegistry::new();
     reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-    reg.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
-    reg.register_provider(Box::new(
-        crate::plugin::agent_opencode::OpenCodeProvider::new(),
-    ));
 
     let mut p = make_params("claude", None);
     p.model = Some("opus".into());
@@ -191,34 +189,14 @@ fn test_build_with_model_uses_provider_specific_flag() {
         "claude expected --model X: {}",
         cmd
     );
-
-    let mut p = make_params("codex", None);
-    p.model = Some("gpt-5.4-mini".into());
-    let cmd = build_agent_command("codex", &p, None, None, &reg);
-    assert!(
-        cmd.contains("-m gpt-5.4-mini"),
-        "codex expected -m X: {}",
-        cmd
-    );
-
-    let mut p = make_params("opencode", None);
-    p.model = Some("github-copilot/claude-haiku-4.5".into());
-    let cmd = build_agent_command("opencode", &p, None, None, &reg);
-    assert!(
-        cmd.contains("-m github-copilot/claude-haiku-4.5"),
-        "opencode expected -m X: {}",
-        cmd
-    );
 }
 
 #[test]
 fn test_build_with_resume_session_id_uses_provider_resume_form() {
+    // codex/opencode resume forms are JS-plugin logic now (plugins/provider-*/tests);
+    // here we verify the orchestrator delegates resume to the native claude provider.
     let reg = AgentRegistry::new();
     reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-    reg.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
-    reg.register_provider(Box::new(
-        crate::plugin::agent_opencode::OpenCodeProvider::new(),
-    ));
 
     let mut p = make_params("claude", None);
     p.resume_session_id = Some("abc-123".into());
@@ -226,20 +204,6 @@ fn test_build_with_resume_session_id_uses_provider_resume_form() {
     assert!(
         cmd.contains("--resume") && cmd.contains("abc-123"),
         "claude resume: {}",
-        cmd
-    );
-
-    let mut p = make_params("codex", None);
-    p.resume_session_id = Some("019df64f-d798-78c3-967a-d5deeb4896d9".into());
-    let cmd = build_agent_command("codex", &p, None, None, &reg);
-    assert!(
-        cmd.starts_with("codex resume"),
-        "codex resume must start `codex resume`: {}",
-        cmd
-    );
-    assert!(
-        cmd.contains("019df64f-d798-78c3-967a-d5deeb4896d9"),
-        "codex resume must include uuid: {}",
         cmd
     );
 }

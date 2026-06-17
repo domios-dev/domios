@@ -1,5 +1,8 @@
 import React from "react";
 
+import extensionsSvg from "./svg/extensions.svg?raw";
+import pinSvg from "./svg/pin.svg?raw";
+
 // ── Custom icons (not in Lucide) ─────────────────────────────────────
 
 interface IconProps {
@@ -7,6 +10,26 @@ interface IconProps {
   className?: string;
   style?: React.CSSProperties;
   title?: string;
+}
+
+/** Render a raw .svg file at a fixed pixel size; color inherits via currentColor.
+ * `fill` swaps the source's `fill="none"` for a filled rendering. */
+function RawIcon({
+  raw,
+  size,
+  className,
+  style,
+  fill,
+}: { raw: string; size: number; fill?: boolean } & Omit<IconProps, "size">) {
+  let svg = raw.replace(/<svg/, `<svg width="${size}" height="${size}"`);
+  if (fill) svg = svg.replace('fill="none"', 'fill="currentColor"');
+  return (
+    <span
+      className={className}
+      style={{ display: "inline-flex", lineHeight: 0, ...style }}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
 }
 
 /** Telegram logo */
@@ -166,4 +189,20 @@ export function FolderPlusIcon({ size = 12, className, style }: IconProps) {
       <path d="M8 7v4M6 9h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   );
+}
+
+/** Extensions — 2×2 grid of rounded squares (nav + titlebar entry). */
+/** A single puzzle piece — the "extensions" affordance (matches the browser idiom). */
+export function ExtensionsIcon({ size = 14, className, style }: IconProps) {
+  return <RawIcon raw={extensionsSvg} size={size} className={className} style={style} />;
+}
+
+/** Generic plugin fallback when a plugin ships no icon. Same puzzle piece. */
+export function PuzzleIcon({ size = 18, className, style }: IconProps) {
+  return <RawIcon raw={extensionsSvg} size={size} className={className} style={style} />;
+}
+
+/** Pushpin — pin/unpin a plugin to the titlebar tray. Filled when pinned. */
+export function PinIcon({ size = 14, className, style, filled }: IconProps & { filled?: boolean }) {
+  return <RawIcon raw={pinSvg} size={size} fill={filled} className={className} style={style} />;
 }

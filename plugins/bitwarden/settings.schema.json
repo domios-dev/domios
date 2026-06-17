@@ -1,4 +1,15 @@
 [
-  { "type": "text", "key": "serverUrl", "label": "Server URL", "placeholder": "https://vault.bitwarden.com",
-    "description": "Bitwarden server — cloud or self-hosted." }
+  {
+    "kind": "section",
+    "title": "Server",
+    "fields": [
+      {
+        "kind": "text",
+        "key": "serverUrl",
+        "label": "Server URL",
+        "placeholder": "https://vault.bitwarden.com",
+        "description": "Bitwarden server — cloud or self-hosted."
+      }
+    ]
+  }
 ]

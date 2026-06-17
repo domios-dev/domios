@@ -19,6 +19,14 @@ struct ExecOpts {
     env: HashMap<String, String>,
     #[serde(default)]
     stdin: Option<String>,
+    /// Spawn a long-lived process detached: don't wait for exit, return
+    /// `{code:0, pid}` immediately. Lets a plugin own a daemon (e.g. a transcribe
+    /// server) without blocking the VM. The plugin stops it itself (e.g. `pkill`).
+    #[serde(default)]
+    detach: bool,
+    /// When detached, append stdout+stderr here; otherwise they're discarded.
+    #[serde(default)]
+    log_file: Option<String>,
 }
 
 fn err(msg: &str) -> String {
@@ -35,6 +43,31 @@ pub(super) fn run(opts_json: &str) -> String {
     };
     let resolved =
         which::which(&opts.bin).unwrap_or_else(|_| std::path::PathBuf::from(&opts.bin));
+
+    if opts.detach {
+        let log = |p: &str| std::fs::OpenOptions::new().create(true).append(true).open(p).ok();
+        let (out, errout) = match opts.log_file.as_deref().and_then(log) {
+            Some(f) => match f.try_clone() {
+                Ok(f2) => (Stdio::from(f), Stdio::from(f2)),
+                Err(_) => (Stdio::from(f), Stdio::null()),
+            },
+            None => (Stdio::null(), Stdio::null()),
+        };
+        return match Command::new(&resolved)
+            .args(&opts.args)
+            .envs(&opts.env)
+            .stdin(Stdio::null())
+            .stdout(out)
+            .stderr(errout)
+            .spawn()
+        {
+            // Drop the handle without waiting → the process is detached and keeps
+            // running; the plugin manages its lifetime.
+            Ok(child) => serde_json::json!({ "code": 0, "pid": child.id() }).to_string(),
+            Err(e) => err(&format!("spawn {}: {e}", opts.bin)),
+        };
+    }
+
     let mut child = match Command::new(&resolved)
         .args(&opts.args)
         .envs(&opts.env)

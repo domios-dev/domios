@@ -74,9 +74,9 @@ const SECTIONS: { id: SectionId; label: string; desc: string }[] = [
   { id: "general", label: "General", desc: "Theme, fonts, cursor, keybindings" },
   { id: "tabs", label: "Tabs", desc: "Toggle Memory and Mesh tabs in the sidebar" },
   { id: "agents", label: "Agents", desc: "General Agent, notifications, and per-provider config" },
-  { id: "plugins", label: "Plugins", desc: "Installed bundles, channels, updates, audit events" },
+  // Plugins live in the first-class Extensions surface now (titlebar ⊞ / sidebar).
   { id: "integrations", label: "Integrations", desc: "Telegram, Discord, external bridges" },
-  { id: "secrets", label: "Secrets", desc: "Keychain — pluggable secret store" },
+  // Secret store is managed in the Bitwarden extension now (Extensions surface).
   { id: "logs", label: "Logs", desc: "App diagnostics — live, filterable, scoped" },
   { id: "about", label: "About", desc: "Version, updates, creator" },
 ];

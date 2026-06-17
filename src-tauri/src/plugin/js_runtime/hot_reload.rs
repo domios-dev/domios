@@ -172,10 +172,21 @@ impl HotReloadRegistry {
             Ok(mut provider) => {
                 let id = provider.manifest().id.clone();
                 let version = provider.manifest().version.clone();
-                // Registry handle so the (re)loaded JS provider can delegate
-                // unimplemented capabilities to its native fallback.
-                provider.set_registry(self.agent_registry.clone());
-                self.agent_registry.register_provider(Box::new(provider));
+                // Only AGENT plugins register as providers. A capability-only
+                // plugin (transcriber / secret backend) must NOT pollute the
+                // agent registry — its adapter is registered at startup. Mirrors
+                // the same capability gate in lib.rs (spec §2 invariant).
+                if provider.manifest().capabilities.agent_provider {
+                    // Registry handle so the (re)loaded JS provider can delegate
+                    // unimplemented capabilities to its native fallback.
+                    provider.set_registry(self.agent_registry.clone());
+                    self.agent_registry.register_provider(Box::new(provider));
+                    log::info!("[plugin-watcher] registered {id}");
+                } else {
+                    log::info!(
+                        "[plugin-watcher] {id} is a capability plugin (not an agent) — skipped agent registration"
+                    );
+                }
                 self.state.lock().insert(
                     id.clone(),
                     Tracked {
@@ -183,7 +194,6 @@ impl HotReloadRegistry {
                         entry_mtime,
                     },
                 );
-                log::info!("[plugin-watcher] registered {id}");
                 crate::plugin::audit::append_daemon_reloaded(&id, &version);
                 #[cfg(test)]
                 self.load_count

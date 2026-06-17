@@ -22,6 +22,9 @@ mod host_api;
 mod host_exec;
 mod host_net;
 mod host_secret;
+mod bubble;
+mod glance;
+mod view;
 pub mod hot_reload;
 pub mod loader;
 pub mod manifest;
@@ -30,7 +33,10 @@ mod secret_backend;
 mod transcriber;
 mod vm;
 
+pub use bubble::JsBubbleProvider;
+pub use glance::JsGlanceProvider;
 pub use secret_backend::JsSecretBackend;
+pub use view::JsViewProvider;
 pub use transcriber::JsTranscriber;
 
 #[cfg(test)]

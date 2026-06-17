@@ -8,8 +8,7 @@ import type {
   TerminalConfigSettings,
 } from "../../lib/types";
 import { UsageBubble } from "../Usage/UsageBubble";
-import { GitBubble } from "../GitPanel/GitBubble";
-import type { GitInfo } from "../../hooks/useGitInfo";
+import { PluginBubbles } from "../Extensions/PluginBubbles";
 
 interface TabContentProps {
   pane: Pane | undefined;
@@ -20,9 +19,6 @@ interface TabContentProps {
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
   usageEnabledByProvider?: Record<string, boolean>;
-  gitInfo?: GitInfo | null;
-  onRefreshGitInfo?: () => void;
-  onOpenGit?: (repoRoot: string) => void;
   api?: ApiConfig;
   workspaceCwd?: string | null;
 }
@@ -36,10 +32,6 @@ export function TabContent({
   fontConfig,
   terminalConfig,
   usageEnabledByProvider,
-  gitInfo,
-  onRefreshGitInfo,
-  onOpenGit,
-  api,
   workspaceCwd,
 }: TabContentProps) {
   if (!pane) return null;
@@ -65,21 +57,14 @@ export function TabContent({
         />
       </div>
       {/* Tab chrome, not focus chrome — the tab is only visible when active. */}
-      {onOpenGit && api && (
-        <GitBubble
-          info={gitInfo ?? null}
-          cwd={pane.cwd ?? workspaceCwd ?? null}
-          api={api}
-          onRefresh={onRefreshGitInfo}
-          onClick={onOpenGit}
-        />
-      )}
       {usageProvider && (
         <UsageBubble
           provider={usageProvider}
           trackingEnabled={usageVisible}
         />
       )}
+      {/* Plugin-contributed status pills (Git, …) — next to the usage stats. */}
+      <PluginBubbles cwd={pane.cwd ?? workspaceCwd ?? null} paneId={pane.id} />
     </PaneWrapper>
   );
 }

@@ -15,6 +15,8 @@ case "${1:-all}" in
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/provider-helper-parity.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
+      plugins/bitwarden/plugin.test.cjs
+      plugins/git/plugin.test.cjs
       src/lib/plugins/__tests__/registry.test.ts
       packages/chat-ui/src/codeterm/recognize.test.ts
     )

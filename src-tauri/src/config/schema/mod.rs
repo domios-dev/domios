@@ -598,14 +598,14 @@ pub struct VoiceTranscribeConfig {
     pub fallback_raw_on_error: bool,
     #[serde(default = "default_voice_health_ttl_secs")]
     pub health_check_ttl_secs: u64,
-    /// Id of the active transcriber in the registry. Defaults to the built-in
-    /// HTTP engine (`builtin-http`); a Transcriber plugin sets this to its own id.
+    /// Id of the active transcriber in the registry. Defaults to the bundled
+    /// `transcriber` plugin (no native engine); another plugin sets its own id.
     #[serde(default = "default_transcribe_active")]
     pub active: String,
 }
 
 fn default_transcribe_active() -> String {
-    "builtin-http".to_string()
+    "transcriber".to_string()
 }
 
 impl Default for VoiceTranscribeConfig {

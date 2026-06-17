@@ -118,11 +118,15 @@ fn default_capabilities() -> Capabilities {
         agent_provider: true,
         secret_backend: false,
         transcriber: false,
+        glance_view: false,
+        status_bubble: false,
+        view: false,
     }
 }
 
 /// The core capability traits a plugin can implement. Drives which adapters the
-/// loader builds (`JsProvider` / `JsSecretBackend` / `JsTranscriber`).
+/// loader builds (`JsProvider` / `JsSecretBackend` / `JsTranscriber` /
+/// `JsGlanceProvider` / `JsBubbleProvider`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Capabilities {
@@ -132,6 +136,18 @@ pub struct Capabilities {
     pub secret_backend: bool,
     #[serde(default)]
     pub transcriber: bool,
+    /// Renders a read-only "glance" popover (ViewNode tree) when pinned.
+    #[serde(default)]
+    pub glance_view: bool,
+    /// Contributes a status pill into the pane-footer bubble row.
+    #[serde(default)]
+    pub status_bubble: bool,
+    /// Ships a full HTML/JS/CSS UI (`ui/index.html`), rendered in a sandboxed
+    /// iframe (VS Code/Figma webview model). Talks to the host only through the
+    /// permission-gated `ct.invoke` postMessage bridge → the plugin's QuickJS
+    /// exports. Behind a loud install grant.
+    #[serde(default)]
+    pub view: bool,
 }
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
