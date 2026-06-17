@@ -130,6 +130,7 @@ fn default_capabilities() -> Capabilities {
         glance_view: false,
         status_bubble: false,
         view: false,
+        chat_backend: false,
     }
 }
 
@@ -157,6 +158,10 @@ pub struct Capabilities {
     /// exports. Behind a loud install grant.
     #[serde(default)]
     pub view: bool,
+    /// Drives a non-PTY pane as a full conversational backend (e.g. LM Studio).
+    /// The pane routes send/read through the plugin instead of a terminal.
+    #[serde(default)]
+    pub chat_backend: bool,
 }
 
 /// Hosts/origins a plugin may reach via `host.fetch`.

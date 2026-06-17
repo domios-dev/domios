@@ -4,6 +4,7 @@ pub mod attachments;
 mod autostart;
 pub mod bridge;
 pub mod bubble;
+pub mod chatbackend;
 mod clipboard_files;
 mod commands;
 mod commands_mesh;
@@ -333,6 +334,8 @@ pub fn run() {
                 Arc::new(crate::bubble::BubbleRegistry::new());
             let view_registry: crate::view_host::ViewRegistryHandle =
                 Arc::new(crate::view_host::ViewRegistry::new());
+            let chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle =
+                Arc::new(crate::chatbackend::ChatBackendRegistry::new());
             // Plugin VMs collected as they load, so the host `ServiceContext`
             // can be late-bound into each sandbox once it is built below (the
             // VMs exist before `ServiceContext` does — plan §1.5 F4 / C0).
@@ -530,6 +533,16 @@ pub fn run() {
                         );
                         log::info!("[js-plugin] {id} registered as view provider");
                     }
+                    if caps.chat_backend {
+                        chatbackend_registry.register(
+                            id.clone(),
+                            Arc::new(plugin::js_runtime::JsChatBackend::new(
+                                p.vm().clone(),
+                                id.clone(),
+                            )),
+                        );
+                        log::info!("[js-plugin] {id} registered as chatBackend provider");
+                    }
                     if !caps.agent_provider {
                         plugin::audit::append_daemon_reloaded(&id, &version);
                         continue;
@@ -569,6 +582,7 @@ pub fn run() {
                         glance: glance_registry.clone(),
                         bubble: bubble_registry.clone(),
                         view: view_registry.clone(),
+                        chatbackend: chatbackend_registry.clone(),
                     },
                 );
                 // Seed tracked-state for already-registered plugins so the first tick doesn't re-register them.
@@ -656,6 +670,7 @@ pub fn run() {
                 glance_registry: glance_registry.clone(),
                 bubble_registry: bubble_registry.clone(),
                 view_registry: view_registry.clone(),
+                chatbackend_registry: chatbackend_registry.clone(),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(
                     crate::service::store::ServicesStore::open(
