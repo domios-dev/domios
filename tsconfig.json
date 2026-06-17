@@ -17,6 +17,6 @@
     "noFallthroughCasesInSwitch": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src"],
+  "include": ["src", "packages/plugin-sdk/src", "plugins/git/src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
