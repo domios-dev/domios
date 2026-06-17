@@ -8,12 +8,9 @@
  */
 import { useCallback, useEffect, useRef } from "react";
 import { invoke } from "../../lib/bridge";
+import { daemonHttpBase, daemonAuthToken, type DaemonApiConfig } from "../../lib/webApi";
 
-interface ApiCfg {
-  host?: string | null;
-  port?: number | null;
-  token?: string | null;
-}
+type ApiCfg = DaemonApiConfig;
 
 // Theme tokens pushed into the iframe so plugin UIs match the app.
 const THEME_VARS = [
@@ -53,10 +50,7 @@ export function PluginView({
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const host = api?.host === "0.0.0.0" ? "127.0.0.1" : api?.host ?? "127.0.0.1";
-  const base = `http://${host}:${api?.port ?? 7686}`;
-  const token = encodeURIComponent(api?.token ?? "");
-  const src = `${base}/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html?token=${token}`;
+  const src = `${daemonHttpBase(api)}/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html?token=${encodeURIComponent(daemonAuthToken(api))}`;
 
   const onMessage = useCallback(
     async (e: MessageEvent) => {

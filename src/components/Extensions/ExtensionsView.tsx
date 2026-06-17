@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
+import { daemonHttpBase, daemonAuthToken } from "../../lib/webApi";
 import { CapabilityChip, capabilityLabel } from "./CapabilityChip";
 import { AgentProviderScreen } from "../Settings/AgentsTab";
 import { SchemaRenderer } from "../Settings/SchemaRenderer";
@@ -91,10 +92,10 @@ interface AppConfigShape {
 
 function apiBaseOf(config: AppConfigShape | null): { base: string; headers: Record<string, string> } {
   const api = config?.api;
-  const host = api?.host === "0.0.0.0" ? "127.0.0.1" : api?.host ?? "127.0.0.1";
-  const base = `http://${host}:${api?.port ?? 7686}`;
+  const base = daemonHttpBase(api);
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (api?.token) headers.Authorization = `Bearer ${api.token}`;
+  const token = daemonAuthToken(api);
+  if (token) headers.Authorization = `Bearer ${token}`;
   return { base, headers };
 }
 

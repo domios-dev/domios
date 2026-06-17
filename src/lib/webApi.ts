@@ -63,6 +63,34 @@ export function currentToken(): string | null {
   return tokenFor(apiHost());
 }
 
+/** Local-daemon address shape (the desktop app's `config.api`). */
+export interface DaemonApiConfig {
+  host?: string | null;
+  port?: number | null;
+  token?: string | null;
+}
+
+/**
+ * Canonical HTTP origin of the daemon to reach for plugin assets, iframes, and
+ * any direct fetch — the single source of truth across every access mode.
+ *
+ * Web: the origin the SPA is actually talking to (`apiHost()`), which already
+ * tracks window.location for localhost / LAN-or-Tailscale IP / Tailscale serve
+ * (https, no port) and the peer picker. Desktop (Tauri): the local daemon, since
+ * the app shell runs off a Vite/`tauri://` origin and only the daemon serves the
+ * plugin routes. Never reconstruct from the daemon's bind address (`0.0.0.0`).
+ */
+export function daemonHttpBase(api?: DaemonApiConfig): string {
+  if (IS_WEB) return apiHost();
+  const host = api?.host && api.host !== "0.0.0.0" ? api.host : "127.0.0.1";
+  return `http://${host}:${api?.port ?? 7686}`;
+}
+
+/** Token to authenticate daemon HTTP calls in the current access mode. */
+export function daemonAuthToken(api?: DaemonApiConfig): string {
+  return (IS_WEB ? currentToken() : api?.token) ?? "";
+}
+
 export class WebApiError extends Error {
   constructor(
     public status: number,
