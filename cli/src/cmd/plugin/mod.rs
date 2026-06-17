@@ -1,5 +1,6 @@
 mod audit;
 mod channel;
+mod config;
 mod install;
 mod list;
 mod state;
@@ -43,6 +44,12 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
         PluginAction::UpdateSystem { id } => update_system_command(id),
         PluginAction::Remove { id, force } => remove_installed(&id, force),
         PluginAction::Channel { command } => channel_command(command),
+        PluginAction::Get { id } => config::get_command(&id),
+        PluginAction::Config {
+            id,
+            set,
+            values_json,
+        } => config::config_command(&id, &set, values_json.as_deref()),
         PluginAction::Pass(parts) => pass_command(parts),
     };
 

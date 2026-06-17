@@ -167,13 +167,12 @@ fn compute_sandbox(
         PluginSandbox::restricted(read_roots, write_roots)
     };
 
-    // The plugin's user-configured settings blob (config.plugins.<id>), delivered
-    // to the VM via host.settingsJson(). Read at load; a reload picks up edits.
-    let settings_json = crate::config::load_config()
-        .plugins
-        .get(&manifest.id)
-        .map(|v| v.to_string())
-        .unwrap_or_else(|| "null".to_string());
+    // The plugin's user-configured settings, delivered to the VM via
+    // host.settingsJson(). Per §1.7 storage is the per-plugin `config.yaml`
+    // (parsed YAML → JSON), falling back to the legacy `config.plugins.<id>`
+    // bag. Read at load; a config.yaml edit triggers a hot-reload that re-stamps.
+    let settings_json =
+        crate::plugin::js_runtime::plugin_config::resolve_settings_json(bundle_dir, &manifest.id);
 
     // Stamp identity (for the per-plugin secret bucket) + host_api v2 allowlists
     // onto every path, including unrestricted/dev.
