@@ -116,6 +116,11 @@ pub(super) fn command_failure_fields(
                 Some(name.clone()),
             ),
         },
+        PluginAction::Pass(parts) => (
+            "agent-command-failed".to_string(),
+            parts.first().cloned(),
+            None,
+        ),
     }
 }
 

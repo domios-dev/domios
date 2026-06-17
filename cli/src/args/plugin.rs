@@ -35,6 +35,12 @@ pub enum PluginAction {
         #[command(subcommand)]
         command: PluginChannelAction,
     },
+    /// Passthrough to a plugin's `onAgentCommand`: `codeterm plugin <id> <verb>
+    /// [args…]`. Routes the reserved `plugin:<id>.<verb>` socket method to the
+    /// owning plugin (requires its `agent_commands` grant). Catch-all for any
+    /// first token that isn't one of the built-in subcommands above.
+    #[command(external_subcommand)]
+    Pass(Vec<String>),
 }
 
 #[derive(Clone, Subcommand)]
