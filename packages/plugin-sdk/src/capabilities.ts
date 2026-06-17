@@ -177,12 +177,77 @@ export interface Transcriber {
   transcribeStatus?(): unknown;
 }
 
+// ── chatBackend (non-PTY chat transport; mirrors the ChatBackendProvider trait) ──
+// A plugin that *is* a pane's chat source/transport. The host adapter calls these
+// via call_json (mirror src-tauri/src/plugin/js_runtime/transcriber.rs) and pushes
+// `poll` output into the existing StructuredSink / `pane-chat-msg` path.
+
+// Minimal shared chat shape, mirroring @codeterm/chat-core types.ts
+// NormalizedChatMessage. The host maps it onto Rust ChatMsg (agent/chat_types.rs,
+// where `kind` is `#[serde(rename = "type")]`). Kept minimal on purpose — extra
+// fields are allowed by the consumers but only these three are contractual.
+export interface NormalizedChatMessage {
+  id: string;
+  type: string;
+  content: string;
+}
+
+export interface Model {
+  id: string;
+  // camelCase here; the host maps it to Rust ModelInfo.display_name (snake_case)
+  // when registering via model_catalog::register.
+  displayName: string;
+}
+
+export interface ChatBackend {
+  openSession(ctx: { paneId: string; config: unknown }): { sessionId: string };
+  sendMessage(sessionId: string, text: string): void;
+  poll(
+    sessionId: string,
+    cursor?: string | null,
+  ): { messages: NormalizedChatMessage[]; cursor: string | null; done?: boolean };
+  closeSession(sessionId: string): void;
+  listModels?(): Model[];
+}
+
+// ── chatPreprocessor (compose/send-time outbound stage) ──
+// A stage in the outbound message pipeline. `match` is the slot it grabs; two
+// stages claiming the same slot are flagged as a conflict at install time.
+
+export interface ChatPreprocessor {
+  match: "text";
+  chatPreprocess(ctx: {
+    paneId: string;
+    cwd: string | null;
+    provider: string | null;
+    text: string;
+    turnIndex: number;
+  }): { text: string } | null; // null = passthrough
+}
+
+// ── onAgentCommand (the inverse seam) ──
+// A spawned agent calls `codeterm plugin <id> <verb> …`; the socket dispatch routes
+// `plugin:<id>.<verb>` to the owning plugin's handler (requires the agent_commands grant).
+
+export interface AgentCommandCtx {
+  sessionId: string;
+  verb: string;
+  args: string[];
+}
+
+export interface AgentCommandHandler {
+  onAgentCommand(ctx: AgentCommandCtx): { result: string } | { error: string };
+}
+
 // ── The default-export shape: every capability method optional ──
 
 export interface PluginModule
   extends Partial<AgentProvider>,
     Partial<SecretBackend>,
-    Partial<Transcriber> {
+    Partial<Transcriber>,
+    Partial<ChatBackend>,
+    Partial<ChatPreprocessor>,
+    Partial<AgentCommandHandler> {
   statusBubble?(ctx: PaneContext): StatusBubble | null;
   renderGlance?(ctx: PaneContext): GlanceView;
   viewCall?: ViewCall;
