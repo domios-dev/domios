@@ -216,6 +216,15 @@ of truth and must stay so:
   the app version: after bumping the root `package.json`, run `npm run sync:versions` and
   verify with `npm run check:versions` (covers `plugins/provider-*/plugin.json`,
   `packages/*`, and `plugins/channel.json`).
+- **Marketplace channel (`codeterm-plugins`).** Non-provider capability plugins
+  (`git`, `transcriber`, `bitwarden`) are *not* intrinsic — they live in the separate
+  [rollacode/codeterm-plugins](https://github.com/rollacode/codeterm-plugins) repo,
+  authored in TS against the published `@codeterm/plugin-sdk`. The daemon pre-registers
+  that channel best-effort on the first marketplace snapshot (`plugin channel
+  ensure-default` → `ensure_default_plugin_channel`, register-only: it clones the manifest
+  but installs nothing), so the plugins surface as *available* out of the box without a
+  manual `add-channel`. Nothing is installed by default — the user opts in. Override the
+  source with `CODETERM_PLUGIN_CHANNEL_URL`.
 - **Compatibility gate.** `minCodeterm` in `plugin.json`/`channel.json` is checked on
   install/update against `CODETERM_VERSION`; incompatible versions are refused with a
   reason (the UI shows "needs CodeTerm ≥ X").
@@ -274,4 +283,4 @@ tax (see also `docs/contributing/architecture.md`):
   inherited a parent's `CODETERM_API_PORT` (e.g. prod's 7685 when launched from prod),
   the hook reports to the wrong daemon. Inject env from **config**, not `std::env`.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
