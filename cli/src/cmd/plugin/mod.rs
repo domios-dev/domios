@@ -49,7 +49,9 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
             id,
             set,
             values_json,
-        } => config::config_command(&id, &set, values_json.as_deref()),
+            grant,
+            revoke,
+        } => config::config_command(&id, &set, values_json.as_deref(), &grant, &revoke),
         PluginAction::Pass(parts) => pass_command(parts),
     };
 

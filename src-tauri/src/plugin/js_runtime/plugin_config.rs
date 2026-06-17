@@ -32,18 +32,33 @@ pub fn yaml_to_json(yaml: &str) -> Result<Value, String> {
 /// back to the legacy `config.plugins.<id>` JSON bag so nothing regresses while
 /// plugins migrate. Missing/empty → `"null"`.
 pub fn resolve_settings_json(bundle_dir: &Path, plugin_id: &str) -> String {
-    let yaml_path = config_yaml_path(bundle_dir);
-    if let Ok(text) = std::fs::read_to_string(&yaml_path) {
-        match yaml_to_json(&text) {
+    let yaml_text = std::fs::read_to_string(config_yaml_path(bundle_dir)).ok();
+    resolve_settings_inner(yaml_text.as_deref(), plugin_id, || {
+        crate::config::load_config()
+            .plugins
+            .get(plugin_id)
+            .map(|v| v.to_string())
+    })
+}
+
+/// Pure core of [`resolve_settings_json`] — the YAML text and the legacy lookup
+/// are injected so the precedence/fallback logic is unit-testable without a real
+/// `config.toml`. A YAML that parses to `null` (empty or comments-only) is
+/// treated as *absent* so migration-safety holds: we still fall through to the
+/// legacy `config.plugins.<id>` bag instead of clobbering it with `"null"`.
+fn resolve_settings_inner(
+    yaml_text: Option<&str>,
+    plugin_id: &str,
+    legacy: impl FnOnce() -> Option<String>,
+) -> String {
+    if let Some(text) = yaml_text {
+        match yaml_to_json(text) {
+            Ok(Value::Null) => {} // empty/comments-only → fall through to legacy
             Ok(json) => return json.to_string(),
             Err(e) => log::warn!("[plugin/{plugin_id}] {e} — falling back to config.plugins"),
         }
     }
-    crate::config::load_config()
-        .plugins
-        .get(plugin_id)
-        .map(|v| v.to_string())
-        .unwrap_or_else(|| "null".to_string())
+    legacy().unwrap_or_else(|| "null".to_string())
 }
 
 #[cfg(test)]
@@ -83,5 +98,31 @@ mod tests {
         // No config.yaml and (in test) no matching config.plugins entry → "null".
         let json = resolve_settings_json(dir.path(), "no-such-plugin-xyz");
         assert_eq!(json, "null");
+    }
+
+    #[test]
+    fn real_yaml_wins_and_skips_legacy() {
+        let out = resolve_settings_inner(Some("engine: whisper\n"), "p", || {
+            panic!("legacy must not be consulted when config.yaml has content")
+        });
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["engine"], "whisper");
+    }
+
+    #[test]
+    fn comments_only_config_yaml_falls_through_to_legacy() {
+        // Migration-safety: a comments-only / empty config.yaml parses to null
+        // and must NOT clobber the legacy config.plugins.<id> bag.
+        let legacy = || Some(r#"{"engine":"legacy"}"#.to_string());
+        let out = resolve_settings_inner(Some("# only a comment\n"), "p", legacy);
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            v["engine"], "legacy",
+            "must fall through to legacy, not 'null'"
+        );
+
+        // No legacy entry either → "null".
+        let out2 = resolve_settings_inner(Some("# just a comment\n"), "p", || None);
+        assert_eq!(out2, "null");
     }
 }

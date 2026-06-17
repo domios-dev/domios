@@ -1198,7 +1198,9 @@ Remove a channel cache and registry entry
 
 Configure a plugin by editing its self-documenting config.yaml (comments preserved, validated against the settings schema). Non-secret fields are written to the YAML; secret fields are reported for routing to the secret store (never written plaintext). Reload is live
 
+- `--grant` — Grant a permission, persisted to the plugin's grants.yaml so the decision survives (e.g. --grant spawn_agents). Repeatable. Takes effect on the plugin's next reload
 - `<id>` — 
+- `--revoke` — Revoke a previously granted permission (repeatable)
 - `--set` — Set a field: --set key=value (repeatable)
 - `--values_json` — Set multiple fields from a JSON object (named --values-json so it does not collide with the global --json output flag)
 

@@ -52,6 +52,14 @@ pub enum PluginAction {
         /// not collide with the global --json output flag).
         #[arg(long = "values-json", value_name = "JSON")]
         values_json: Option<String>,
+        /// Grant a permission, persisted to the plugin's grants.yaml so the
+        /// decision survives (e.g. --grant spawn_agents). Repeatable. Takes
+        /// effect on the plugin's next reload.
+        #[arg(long = "grant", value_name = "PERMISSION")]
+        grant: Vec<String>,
+        /// Revoke a previously granted permission (repeatable).
+        #[arg(long = "revoke", value_name = "PERMISSION")]
+        revoke: Vec<String>,
     },
     /// Passthrough to a plugin's `onAgentCommand`: `codeterm plugin <id> <verb>
     /// [args…]`. Routes the reserved `plugin:<id>.<verb>` socket method to the
