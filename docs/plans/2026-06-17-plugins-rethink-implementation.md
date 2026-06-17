@@ -78,19 +78,27 @@ One workspace per active track, working-dir = that track's worktree/repo path; I
 (Orchestrator) spawn exactly one **Worker** agent per workspace, primed with the
 matching mem role-skill, then it implements its Track and `codeterm agent report`s.
 
+**Execution model:** the entire build runs **in CodeTerm, via spawned CodeTerm
+agents, in parallel** (one Worker per Track in its own workspace/worktree). **All
+agents — Workers and Reviewers — run on Opus.** We do **not** economize on model
+tier here; this work is important. Spawn with the Opus model explicitly.
+
 ```
 codeterm workspace create "rethink/A-sdk-types"     --cwd /Users/kandrey/Developer/codeterm-alpha
+codeterm workspace create "rethink/C0-host-service" --cwd /Users/kandrey/Developer/wt/host-service-ref
 codeterm workspace create "rethink/B-chatbackend"   --cwd /Users/kandrey/Developer/wt/chatbackend-core
 codeterm workspace create "rethink/C-compute-base"  --cwd /Users/kandrey/Developer/wt/plugin-compute-base
 codeterm workspace create "rethink/D-lmstudio"      --cwd /Users/kandrey/Developer/codeterm-plugins
 codeterm workspace create "rethink/E-preprocessor"  --cwd /Users/kandrey/Developer/codeterm-plugins
 codeterm workspace create "rethink/F-dread"         --cwd /Users/kandrey/Developer/dread-delusion-ai
+codeterm workspace create "rethink/V-verify"        --cwd /Users/kandrey/Developer/codeterm-alpha
 ```
 
-Spawn pattern (per CLAUDE.md — generic claude agent + role skill + concrete task):
+Spawn pattern (per CLAUDE.md — generic claude agent + role skill + concrete task,
+**Opus**):
 
 ```
-codeterm agent spawn claude --workspace "rethink/B-chatbackend" \
+codeterm agent spawn claude --model opus --workspace "rethink/B-chatbackend" \
   --task "codeterm mem get skill_backend_dev_role_rust_src_tauri_for_codeterm — that is your role.
           Then implement Track B from docs/plans/2026-06-17-plugins-rethink-implementation.md
           on branch pr/chatbackend-core. TDD, commit per task, then: codeterm agent report."
@@ -104,6 +112,8 @@ codeterm agent spawn claude --workspace "rethink/B-chatbackend" \
 | D | frontend-dev / plugin author (TS) | code-reviewer |
 | E | frontend-dev / plugin author (TS) | code-reviewer |
 | F | backend-dev (Python harness) + plugin author (TS) | code-reviewer |
+| C0 | backend-dev (Rust) — ServiceContext→host_api wiring (§1.5 F4) | code-reviewer |
+| V | QA / Playwright (final inspection §1.9) | — (it IS the review) |
 
 Reviewer = a separate `code-reviewer` agent (`mem get
 skill_code_reviewer_role_read_only_review_for_codeterm`) that diffs the track
@@ -153,11 +163,15 @@ gates merge on a clean review.
 4. In `codeterm-plugins`: `feat/lmstudio-chatbackend`, `feat/chat-preprocessor`
    pin `@codeterm/plugin-sdk@^1.4.7` → review → merge to `main`; add to
    `channel.json`.
-5. In `dread-delusion-ai`: `feat/codeterm-npc-mock` → review → merge to `main`.
-6. Final gate on `plugins-rethink`: full regression (`./build.sh test`,
+5. In `dread-delusion-ai`: add `channel.json` + `feat/codeterm-npc-mock` → review
+   → merge to `main`; the channel is installable via `codeterm plugin channel add`.
+6. **Final gate = Track V (§1.9):** a CodeTerm Opus agent drives **Playwright**
+   over a dev daemon from merged `plugins-rethink` and inspects+tests **everything**
+   — plugin **install/uninstall/reload lifecycle** (git bubble appears; §1.8),
+   LM Studio chat via `codeterm send`, preprocessor augmentation, the dread mock
+   multi-NPC demo — plus full regression (`./build.sh test`,
    `./node_modules/.bin/tsc --noEmit`, `scripts/plugin-tests.sh all`,
-   `./build.sh e2e`), then the two live demos (§D.acceptance, §F.acceptance) via
-   `./build.sh dev`.
+   `./build.sh e2e`). Green here = done.
 
 ---
 
@@ -443,6 +457,63 @@ are prompted and routed to the secret bucket, not the flow above.
 returns schema + redacted current + state · (per-plugin, Tracks D/E/F) ship a
 `settings.schema.json` with secret fields marked, and an agent-doc — **acceptance
 item for every plugin**.
+
+---
+
+## 1.8 Plugin lifecycle: install / uninstall / reload contract (REQUIRED)
+
+**Symptom that motivates this:** install the git plugin → the status bubble may
+**not appear** until a restart. Hypothesis (from the known hot-reload caveat in
+`docs/PLUGINS.md`): the watcher hot-reloads **agent-provider** plugins, but the
+other capability registries (`statusBubble`, `glanceView`, `view`, `secretBackend`,
+`transcriber`, and the new `chatBackend`) are populated **at startup** and are
+**not** re-registered on install → the capability is dark until a daemon restart.
+
+**The contract (both halves):**
+
+1. **Make install "just work" where feasible.** Extend the hot-reload path so
+   installing/enabling a plugin **re-registers its capability registries live**
+   (bubble/glance/view/secret/transcribe/chatBackend), not only agent providers.
+   This is the preferred outcome: install git → bubble appears immediately.
+2. **For what genuinely can't hot-activate, DECLARE it.** A manifest flag
+   `requiresReload: true` (or `activation: "hot" | "reload"`) lets a plugin state
+   "my capability needs a CodeTerm reload to take effect." Then:
+   - the Extensions UI shows a **"Reload required"** banner + a reload action after
+     install/config;
+   - `codeterm plugin install`/`config` **prints** `reload codeterm to activate`
+     (machine-readable in `--json`), so an **agent** installing on the user's behalf
+     says "installed — reload CodeTerm to activate" instead of silently leaving it
+     dark;
+   - `codeterm get plugin <id>` reports `pending_reload: true`.
+
+**Uninstall is part of the contract too:** `codeterm plugin remove <id>` must
+**deregister the capability** (bubble/view/chatBackend gone, panes handled) and
+clean settings/secret buckets — not leave a ghost. Same hot-vs-reload rule applies.
+
+**Acceptance (verified, not assumed):** install → capability appears (bubble shows
+/ chat pane works) within the declared activation mode; configure → takes effect
+(live or after the declared reload); uninstall → capability gone + clean. This is
+exercised per-plugin in Tracks D/E/F **and** end-to-end in the final pass (§1.9).
+
+## 1.9 Final verification pass — Playwright inspection of everything (Track V)
+
+A dedicated **last phase**: a CodeTerm worker agent drives **Playwright** over a
+dev daemon built from the merged `plugins-rethink` and **inspects + tests every
+plugin working for real** — the concept being that this, like all the work, runs
+**in CodeTerm via spawned CodeTerm agents in parallel**. Checklist:
+
+- **Lifecycle:** install each plugin → its capability activates (git bubble
+  appears — confirming §1.8 fix or the declared reload), configure via
+  `codeterm plugin config`, uninstall → gone + clean.
+- **LM Studio (Track B/D):** open a chatBackend pane, `codeterm send` a message,
+  see the reply; `codeterm get-output` returns the transcript.
+- **Preprocessor (Track C/E):** a user turn is augmented; toggle off → passthrough.
+- **Dread mock (Track F):** the mock-game multi-NPC chat — 2+ NPCs reply in
+  character, an action fires, the reminder injects after N turns.
+- **No regressions:** `./build.sh test`, `./node_modules/.bin/tsc --noEmit`,
+  `scripts/plugin-tests.sh all`, `./build.sh e2e` all green.
+
+This pass is the final gate before declaring the work done.
 
 ---
 
