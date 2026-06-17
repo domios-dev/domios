@@ -46,14 +46,31 @@ pub struct ServeStatus {
 /// Probe current Tailscale Serve state for `api_port`. Pure read — no mutation.
 pub fn probe_serve_status(api_port: u16) -> ServeStatus {
     let installed = tailscale_binary().is_some();
-    let https_url = tailscale_serve_https_url(api_port);
+    let cfg = serve_status_json();
+    let https_url = cfg
+        .as_ref()
+        .and_then(|v| parse_serve_target(v, api_port))
+        .map(|(host, port)| format_serve_url(&host, port));
+    // The CLI `status --json` returns the GUI-bridge error string (null DNS) when
+    // the daemon can't reach the macOS GUI shim; fall back to the serve-config's
+    // own Web host key so the UI still shows the real `host.ts.net`.
+    let self_dns = super::discovery::tailscale_self_dns_name()
+        .or_else(|| cfg.as_ref().and_then(serve_config_self_dns));
     ServeStatus {
         installed,
         active: https_url.is_some(),
         https_url,
-        self_dns: super::discovery::tailscale_self_dns_name(),
+        self_dns,
         platform: std::env::consts::OS.to_string(),
     }
+}
+
+/// Pull this node's `host.ts.net` from a serve-config's `Web` keys (`host:port`).
+fn serve_config_self_dns(val: &serde_json::Value) -> Option<String> {
+    let web = val.get("Web")?.as_object()?;
+    web.keys()
+        .find_map(|hp| hp.rsplit_once(':').map(|(h, _)| h.to_string()))
+        .filter(|h| h.ends_with(".ts.net"))
 }
 
 /// Returns the HTTPS base URL (e.g. `https://host.ts.net`, or
@@ -76,7 +93,113 @@ fn format_serve_url(host: &str, port: u16) -> String {
 }
 
 fn serve_status_json() -> Option<serde_json::Value> {
+    // macOS: the App Store / GUI Tailscale exposes its LocalAPI over loopback TCP
+    // with a `sameuserproof-<port>-<proof>` file in its Group Container (the CLI's
+    // own auth path). The GUI CLI shim needs an Aqua session the daemon doesn't
+    // have and fails (exit 0 + "GUI failed to start"), so read serve-config from
+    // the LocalAPI directly. In-process works in dev (unsigned), but a signed
+    // hardened `.app` is denied by App-Data protection on Tailscale's container —
+    // so fall back to a responsibility-disclaimed helper. CLI is the last resort.
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(val) = serve_config_via_localapi() {
+            return Some(val);
+        }
+        if let Some(val) = serve_config_via_disclaimed_helper() {
+            return Some(val);
+        }
+    }
     run_tailscale_json(&["serve", "status", "--json"], PROBE_TIMEOUT)
+}
+
+/// Read serve-config from a responsibility-disclaimed `/bin/sh` helper: the
+/// signed `.app` cannot read Tailscale's Group Container in-process (App-Data
+/// protection → silent EPERM), but a disclaimed child runs with CLI-tool
+/// authority and can. The helper locates the `sameuserproof-<port>-<proof>`
+/// token, then curls the LocalAPI — both the protected read and the loopback
+/// fetch happen in the allowed context; we only parse the JSON it prints.
+#[cfg(target_os = "macos")]
+fn serve_config_via_disclaimed_helper() -> Option<serde_json::Value> {
+    let gc = dirs::home_dir()?.join("Library/Group Containers");
+    let gc = gc.to_str()?;
+    if gc.contains('\'') {
+        return None;
+    }
+    let script = format!(
+        "d=$(ls -d '{gc}'/*group.io.tailscale.ipn.macos 2>/dev/null | head -1); \
+         [ -n \"$d\" ] || exit 1; \
+         f=$(ls \"$d\"/sameuserproof-* 2>/dev/null | head -1); \
+         [ -n \"$f\" ] || exit 1; \
+         b=$(basename \"$f\"); rest=${{b#sameuserproof-}}; \
+         port=${{rest%%-*}}; proof=${{rest#*-}}; \
+         exec curl -s -u \":$proof\" \"http://127.0.0.1:$port/localapi/v0/serve-config\""
+    );
+    let out = crate::process_util::disclaimed_capture("/bin/sh", &["-c", &script])?;
+    let start = out.find('{')?;
+    let end = out.rfind('}')?;
+    serde_json::from_str(out.get(start..=end)?).ok()
+}
+
+/// Read `serve-config` from the macOS sandboxed Tailscale LocalAPI: discover the
+/// `sameuserproof-<port>-<proof>` token file, then a Basic-auth GET (blank user,
+/// proof as password) to `http://127.0.0.1:<port>/localapi/v0/serve-config`.
+#[cfg(target_os = "macos")]
+fn serve_config_via_localapi() -> Option<serde_json::Value> {
+    let gc = dirs::home_dir()?.join("Library/Group Containers");
+    for dir in std::fs::read_dir(&gc).ok()?.flatten() {
+        if !dir
+            .file_name()
+            .to_string_lossy()
+            .ends_with("group.io.tailscale.ipn.macos")
+        {
+            continue;
+        }
+        for f in std::fs::read_dir(dir.path()).ok()?.flatten() {
+            let name = f.file_name();
+            let name = name.to_string_lossy();
+            let Some(rest) = name.strip_prefix("sameuserproof-") else {
+                continue;
+            };
+            let Some((port, proof)) = rest.split_once('-') else {
+                continue;
+            };
+            let Ok(port) = port.parse::<u16>() else {
+                continue;
+            };
+            if let Some(val) = localapi_serve_config(port, proof) {
+                return Some(val);
+            }
+        }
+    }
+    None
+}
+
+/// Minimal raw-HTTP GET against the loopback LocalAPI (avoids a reqwest blocking
+/// client panicking when called from inside the async mesh loop).
+#[cfg(target_os = "macos")]
+fn localapi_serve_config(port: u16, proof: &str) -> Option<serde_json::Value> {
+    use base64::Engine;
+    use std::io::{Read, Write};
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = std::net::TcpStream::connect_timeout(&addr, PROBE_TIMEOUT).ok()?;
+    stream.set_read_timeout(Some(PROBE_TIMEOUT)).ok()?;
+    stream.set_write_timeout(Some(PROBE_TIMEOUT)).ok()?;
+    let cred = base64::engine::general_purpose::STANDARD.encode(format!(":{proof}"));
+    let req = format!(
+        "GET /localapi/v0/serve-config HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Basic {cred}\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(req.as_bytes()).ok()?;
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf);
+    let (head, body) = text.split_once("\r\n\r\n")?;
+    if !head.starts_with("HTTP/1.1 200") && !head.starts_with("HTTP/1.0 200") {
+        return None;
+    }
+    // Slice the JSON object out of the body — robust to chunked framing.
+    let start = body.find('{')?;
+    let end = body.rfind('}')?;
+    serde_json::from_str(body.get(start..=end)?).ok()
 }
 
 /// Find the HTTPS-terminating Serve listener whose root `/` handler proxies to
@@ -367,6 +490,16 @@ mod tests {
         assert!(!proxy_targets_local_port("http://127.0.0.1:7686", 7685));
         assert!(!proxy_targets_local_port("http://10.0.0.5:7685", 7685));
         assert!(!proxy_targets_local_port("garbage", 7685));
+    }
+
+    #[test]
+    fn self_dns_from_serve_config_web_key() {
+        let v = serve_json("host.ts.net:443", "443", "http://127.0.0.1:7685");
+        assert_eq!(serve_config_self_dns(&v).as_deref(), Some("host.ts.net"));
+        assert_eq!(serve_config_self_dns(&json!({})), None);
+        // Non-tailnet host keys are ignored.
+        let bad = serve_json("localhost:8080", "8080", "http://127.0.0.1:7685");
+        assert_eq!(serve_config_self_dns(&bad), None);
     }
 
     #[test]

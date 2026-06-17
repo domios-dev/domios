@@ -7,6 +7,17 @@ use std::sync::Arc;
 use super::embeddings;
 use super::MemManager;
 
+/// Minimum trimmed body length worth embedding. Below this the item has no real
+/// content for vector search — only its title/metadata header — so we skip the
+/// vector and let FTS handle it. Keeps the index free of empty/thin nodes.
+pub const MIN_EMBED_BODY_CHARS: usize = 12;
+
+/// Single source of truth for "is this body worth a vector?", shared by the live
+/// save path and the catch-up reindex so they never disagree.
+pub fn body_is_embeddable(body: &str) -> bool {
+    body.trim().chars().count() >= MIN_EMBED_BODY_CHARS
+}
+
 /// Build the embedding input text for an item.
 /// Format: "kind: title [area] #tag1 #tag2\n\nbody" — compact header so
 /// the embedder captures title/kind/area/tags alongside body content.
@@ -35,7 +46,7 @@ fn query_missing_vectors(conn: &rusqlite::Connection) -> Vec<(String, String)> {
     let sql = r#"SELECT m.id, m.kind, m.title, m.area, m.tags_json, COALESCE(m.body_inline, '')
                  FROM mem_items m
                  LEFT JOIN mem_vectors v ON v.mem_id = m.id
-                 WHERE v.mem_id IS NULL AND m.body_inline IS NOT NULL AND LENGTH(m.body_inline) > 10"#;
+                 WHERE v.mem_id IS NULL AND m.body_inline IS NOT NULL AND LENGTH(TRIM(m.body_inline)) >= 12"#;
     let mut out = Vec::new();
     if let Ok(mut stmt) = conn.prepare(sql) {
         if let Ok(rows) = stmt.query_map([], |r| {
@@ -115,4 +126,17 @@ impl MemManager {
 
     #[cfg(not(feature = "embeddings"))]
     pub fn reindex_missing(self: &std::sync::Arc<Self>) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::body_is_embeddable;
+
+    #[test]
+    fn embeddable_requires_real_body() {
+        assert!(!body_is_embeddable(""));
+        assert!(!body_is_embeddable("   \n  "));
+        assert!(!body_is_embeddable("too short"));
+        assert!(body_is_embeddable("a genuinely meaningful body of content"));
+    }
 }

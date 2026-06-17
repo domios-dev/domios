@@ -1,6 +1,6 @@
 # CodeTerm Memory System
 
-<!-- revision: 7 -->
+<!-- revision: 9 -->
 
 Persistent memory for agents. Survives restarts, provider switches
 (Claude ↔ Codex), and CodeTerm upgrades. Agent-agnostic.
@@ -28,7 +28,7 @@ Two stores, two purposes — don't confuse them:
 | **mem** (`~/.codeterm/mem/knowledge.db`) | SQLite + FTS5 + sqlite-vec | "what did the agent learn / decide / save?" | Curated facts, learnings, skills, conversations the agent chose to keep |
 | **sessions** (provider-owned files) | Claude JSONLs / Codex rollouts | "what did we talk about that one time?" | Raw conversation history; on-demand search via `codeterm sessions search`, atomic resume via `codeterm sessions resume` |
 
-Mem is curated and indexed; sessions are raw and provider-owned. The two never share storage. See `docs/API.md` (`/api/sessions/*`) and `docs/plans/session-tracking.md` for the session side.
+Mem is curated and indexed; sessions are raw and provider-owned. The two never share storage. See `docs/API.md` (`/api/sessions/*`) for the session side; binding model in `docs/contributing/architecture.md` §3.
 
 ## Storage layer
 
@@ -152,6 +152,7 @@ The Dreamer cleans historical pollution (duplicate relations, near-duplicate ent
 | `mem graph augment-entity --id E --patch '{"city":"Riga"}'` | PATCH entity properties + re-embed | yes (count=0) |
 | `mem graph delete-entity --id E [--force] [--purge-history]` | Direct entity delete with safety net (errors if active relations and no `--force`). `--purge-history` also drops invalidated relations | yes |
 | `mem graph repair-orphan-vectors [--dry-run]` | Sweep `mem_vectors` rows whose mem_id has no matching entity/mem_item | yes |
+| `mem graph prune-thin-vectors [--dry-run]` | Delete vectors whose mem_item has an empty/title-only body (below the embed threshold) — the bodyless embeddings. Never touches a real-body vector or the item itself | yes |
 | `mem graph repair-orphan-blobs [--dry-run]` | CAS-aware sweep of `sha256_*.txt` blob files no `mem_item.body_blob_path` references | yes |
 
 Whitelist enums (`RelationColumn`, `EntitySimilarityStrategy`) make SQL injection a compile-time impossibility — the Dreamer cannot pass arbitrary WHERE clauses. See `src-tauri/prompts/dreaming_rem.md` Stage A.4 for how the Dreamer chains these.
@@ -377,4 +378,3 @@ Memory Panel UI reads this directly.
 - `src-tauri/src/api/mem_routes.rs` — REST API
 - `src-tauri/prompts/bridge_mem.md` — behavioral protocol
 - `src/components/MemoryPanel/` — UI
-- `docs/plans/references/mempalace.md` — what we adopted from MemPalace

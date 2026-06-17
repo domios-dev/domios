@@ -85,8 +85,9 @@ pub fn run() {
     // Initialize all shared states
     let states = startup::init_states();
 
-    // Seed bundled skills to ~/.codeterm/skills/ (sync watcher mirrors to providers)
+    // Seed canonical ~/.codeterm/skills/, then mirror into provider dirs agents load from (#178).
     commands::seed_bundled_skills();
+    commands::mirror_skills_to_providers();
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -196,6 +197,7 @@ pub fn run() {
             multiplexer::commands::detect_pane_session_id,
             multiplexer::commands::mux_set_claude_session_id,
             commands::chat_start,
+            commands::session_transcript,
             commands::chat_stop,
             commands::chat_backfill,
             commands::chat_send_text,
@@ -354,6 +356,7 @@ pub fn run() {
                                 crate::service::sync_watcher::install_bridge_rules_for_all(
                                     &bridge_registry,
                                 );
+                                crate::commands::mirror_skills_to_providers();
                             }
                         }
                     }

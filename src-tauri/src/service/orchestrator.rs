@@ -471,6 +471,11 @@ impl ServiceContext {
             Some("Orchestrator") => format!("{}{}", t, crate::prompts::ORCHESTRATOR_SUFFIX),
             _ => t.clone(),
         });
+        // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
+        let bg_task = bg_task.map(|t| match self.spawn_task_prefix(&pane_id) {
+            Some(pfx) => format!("{}{}", pfx, t),
+            None => t,
+        });
         let launch_cmd = build_agent_command(
             &agent_cmd,
             &params,
@@ -498,6 +503,31 @@ impl ServiceContext {
             role: params.role,
             warning,
         })
+    }
+
+    /// Origin prefix for a spawned agent's first task, derived from the target pane's recorded spawner (spawned_by/parent) — same canonical attribution as cross-pane sends. None for raw spawns (no spawner).
+    pub(crate) fn spawn_task_prefix(&self, target_pane: &str) -> Option<String> {
+        let mux = self.mux.lock();
+        let src = mux.get_pane(target_pane).and_then(|p| {
+            p.spawned_by_pane_id
+                .clone()
+                .or_else(|| p.parent_pane_id.clone())
+        })?;
+        if src.is_empty() {
+            return None;
+        }
+        let label = mux.display_label_for_pane(&src);
+        let model = mux
+            .get_pane(&src)
+            .and_then(|p| p.agent_session_model.clone());
+        crate::service::msg_prefix::delivery_prefix(
+            true,
+            &src,
+            target_pane,
+            &label,
+            model.as_deref(),
+            None,
+        )
     }
 }
 
@@ -549,6 +579,10 @@ pub(crate) fn launch_agent_in_background(
                 let mut env_vars: std::collections::HashMap<String, String> =
                     std::collections::HashMap::new();
                 env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
+                env_vars.insert(
+                    "CODETERM_SESSION_BINDING_NONCE".into(),
+                    svc.ensure_session_binding_nonce(&pane_id),
+                );
                 env_vars.insert(
                     "CODETERM_SOCKET_PATH".into(),
                     crate::socket::server::socket_display_path(),
@@ -752,7 +786,6 @@ pub(crate) fn build_agent_command(
             Some(args.clone())
         },
         skip_permissions: params.skip_permissions.unwrap_or(true),
-        headless: false,
         session_id: injected_session_id.map(std::string::ToString::to_string),
     };
     let cmd = registry

@@ -15,6 +15,7 @@ use crate::service::ServiceState;
 #[serde(rename_all = "snake_case")]
 pub enum DelayedMessageState {
     Queued,
+    Stashed,
     Sending,
     Failed,
 }
@@ -111,11 +112,15 @@ impl DelayedSendQueue {
         workspace_id: Option<String>,
         session_id_at_create: Option<String>,
         text: String,
-        scheduled_at_ms: u64,
+        scheduled_at_ms: Option<u64>,
     ) -> Result<DelayedMessage, String> {
         if text.trim().is_empty() {
             return Err("Message text is empty".into());
         }
+        let (state, scheduled_at_ms) = match scheduled_at_ms {
+            Some(ms) => (DelayedMessageState::Queued, ms),
+            None => (DelayedMessageState::Stashed, now_ms()),
+        };
         let msg = DelayedMessage {
             id: format!("dmsg-{}", uuid::Uuid::new_v4().simple()),
             pane_id,
@@ -123,7 +128,7 @@ impl DelayedSendQueue {
             text,
             scheduled_at_ms,
             created_at_ms: now_ms(),
-            state: DelayedMessageState::Queued,
+            state,
             error: None,
             session_id_at_create,
         };
@@ -141,6 +146,7 @@ impl DelayedSendQueue {
         id: &str,
         text: Option<String>,
         scheduled_at_ms: Option<u64>,
+        stash: Option<bool>,
     ) -> Result<DelayedMessage, String> {
         let updated = {
             let mut inner = self.inner.lock();
@@ -161,7 +167,14 @@ impl DelayedSendQueue {
             if let Some(scheduled_at_ms) = scheduled_at_ms {
                 msg.scheduled_at_ms = scheduled_at_ms;
             }
-            msg.state = DelayedMessageState::Queued;
+            msg.state = if stash == Some(true) {
+                if scheduled_at_ms.is_none() {
+                    msg.scheduled_at_ms = now_ms();
+                }
+                DelayedMessageState::Stashed
+            } else {
+                DelayedMessageState::Queued
+            };
             msg.error = None;
             let updated = msg.clone();
             sort_messages(&mut inner.messages);
@@ -291,7 +304,7 @@ pub fn create_message(
     svc: &ServiceState,
     pane_id: String,
     text: String,
-    scheduled_at_ms: u64,
+    scheduled_at_ms: Option<u64>,
 ) -> Result<DelayedMessageView, String> {
     let resolved = resolve_pane_id(svc, &pane_id)?;
     let (workspace_id, session_id_at_create) = pane_context(svc, &resolved);
@@ -311,8 +324,9 @@ pub fn update_message(
     id: String,
     text: Option<String>,
     scheduled_at_ms: Option<u64>,
+    stash: Option<bool>,
 ) -> Result<DelayedMessageView, String> {
-    let msg = svc.delayed_send.update(&id, text, scheduled_at_ms)?;
+    let msg = svc.delayed_send.update(&id, text, scheduled_at_ms, stash)?;
     emit_changed(svc, &msg.pane_id);
     Ok(to_view(svc, msg))
 }
@@ -430,8 +444,11 @@ fn write_queue_file(path: &Path, file: &QueueFile) -> Result<(), String> {
 
 fn sort_messages(messages: &mut [DelayedMessage]) {
     messages.sort_by(|a, b| {
-        a.scheduled_at_ms
-            .cmp(&b.scheduled_at_ms)
+        let a_stashed = a.state == DelayedMessageState::Stashed;
+        let b_stashed = b.state == DelayedMessageState::Stashed;
+        a_stashed
+            .cmp(&b_stashed)
+            .then_with(|| a.scheduled_at_ms.cmp(&b.scheduled_at_ms))
             .then_with(|| a.created_at_ms.cmp(&b.created_at_ms))
             .then_with(|| a.id.cmp(&b.id))
     });
@@ -456,7 +473,7 @@ mod tests {
                 Some("ws".into()),
                 Some("sid-1".into()),
                 "hello".into(),
-                100,
+                Some(100),
             )
             .unwrap();
         drop(queue);
@@ -473,10 +490,10 @@ mod tests {
     fn claim_due_uses_schedule_then_creation_order() {
         let (_dir, queue) = queue();
         let second = queue
-            .enqueue("pane".into(), None, None, "second".into(), 100)
+            .enqueue("pane".into(), None, None, "second".into(), Some(100))
             .unwrap();
         let first = queue
-            .enqueue("pane".into(), None, None, "first".into(), 50)
+            .enqueue("pane".into(), None, None, "first".into(), Some(50))
             .unwrap();
         let due = queue.claim_due(100).unwrap();
         assert_eq!(
@@ -493,11 +510,11 @@ mod tests {
     fn failed_message_can_be_updated_back_to_queued() {
         let (_dir, queue) = queue();
         let msg = queue
-            .enqueue("pane".into(), None, None, "old".into(), 100)
+            .enqueue("pane".into(), None, None, "old".into(), Some(100))
             .unwrap();
         queue.mark_failed(&msg.id, "missing pane".into()).unwrap();
         let updated = queue
-            .update(&msg.id, Some("new".into()), Some(200))
+            .update(&msg.id, Some("new".into()), Some(200), None)
             .unwrap();
         assert_eq!(updated.text, "new");
         assert_eq!(updated.scheduled_at_ms, 200);
@@ -506,10 +523,48 @@ mod tests {
     }
 
     #[test]
+    fn stashed_messages_are_never_claimed_by_scheduler() {
+        let (_dir, queue) = queue();
+        let stashed = queue
+            .enqueue("pane".into(), None, None, "park me".into(), None)
+            .unwrap();
+        assert_eq!(stashed.state, DelayedMessageState::Stashed);
+        let due = queue.claim_due(now_ms() + 60_000).unwrap();
+        assert!(due.is_empty());
+        assert_eq!(
+            queue.list(Some("pane"))[0].state,
+            DelayedMessageState::Stashed
+        );
+    }
+
+    #[test]
+    fn stashed_message_reschedules_into_queue() {
+        let (_dir, queue) = queue();
+        let stashed = queue
+            .enqueue("pane".into(), None, None, "later".into(), None)
+            .unwrap();
+        let queued = queue.update(&stashed.id, None, Some(500), None).unwrap();
+        assert_eq!(queued.state, DelayedMessageState::Queued);
+        assert_eq!(queued.scheduled_at_ms, 500);
+    }
+
+    #[test]
+    fn queued_message_can_be_stashed() {
+        let (_dir, queue) = queue();
+        let msg = queue
+            .enqueue("pane".into(), None, None, "hold".into(), Some(500))
+            .unwrap();
+        let stashed = queue.update(&msg.id, None, None, Some(true)).unwrap();
+        assert_eq!(stashed.state, DelayedMessageState::Stashed);
+        let due = queue.claim_due(now_ms() + 60_000).unwrap();
+        assert!(due.is_empty());
+    }
+
+    #[test]
     fn sending_messages_reset_to_queued_on_open() {
         let (dir, queue) = queue();
         let msg = queue
-            .enqueue("pane".into(), None, None, "hello".into(), 100)
+            .enqueue("pane".into(), None, None, "hello".into(), Some(100))
             .unwrap();
         queue.claim_now(&msg.id).unwrap();
         drop(queue);

@@ -3,7 +3,7 @@
 //! When `update --apply --after-update TEXT` runs, the backend writes the
 //! text to a file before triggering the Tauri restart. On next boot this
 //! module picks it up, waits for the General Agent pane to be ready, sends
-//! the text through `send-text` semantics (as if the user typed it), and
+//! the text through `send` semantics (as if the user typed it), and
 //! deletes the file.
 
 use std::path::PathBuf;

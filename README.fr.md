@@ -205,7 +205,7 @@ codeterm workspace create "Project"
 
 # Contrôle du terminal
 codeterm pane list
-codeterm send-text PANE_ID "npm run build"
+codeterm send --pane PANE_ID "npm run build"
 codeterm get-output PANE_ID --lines 50
 
 # Notifications

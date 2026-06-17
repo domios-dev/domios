@@ -245,6 +245,14 @@ pub(crate) fn handle_mem_graph(
                 &payload,
             )
         }
+        MemGraphAction::PruneThinVectors { dry_run, actor } => {
+            let payload = serde_json::json!({"dry_run": dry_run, "actor": actor});
+            mem_post_request(
+                http,
+                &format!("{}/api/mem/graph/repair/prune-thin-vectors", base),
+                &payload,
+            )
+        }
         MemGraphAction::RepairOrphanBlobs { dry_run, actor } => {
             let payload = serde_json::json!({"dry_run": dry_run, "actor": actor});
             mem_post_request(

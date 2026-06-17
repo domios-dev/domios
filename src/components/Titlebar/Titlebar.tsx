@@ -14,7 +14,7 @@ import { ExtensionsTray } from "./ExtensionsTray";
 interface TitlebarProps {
   onToggleSidebar?: () => void;
   onNewTab?: () => void;
-  theme?: ThemeConfig;
+  theme: ThemeConfig;
   onOpenSettingsAbout?: () => void;
   onOpenExtensions?: () => void;
 }

@@ -1,10 +1,11 @@
 import { invoke } from "../../lib/bridge";
 import { useEffect, useState } from "react";
-import type { CronRunInfo } from "../../lib/types";
+import type { CronJob, CronRunInfo } from "../../lib/types";
 import { serviceIdToCronId } from "./types";
 import { describeSchedule, formatFuture, formatTime } from "../../lib/formatters";
 import type { Service } from "./types";
 import { UI_BUTTON, UI_INPUT, UI_PANEL } from "../shared/design";
+import { RunChatPopup } from "../AgentRun/RunChatPopup";
 
 interface Props {
   service: Service;
@@ -16,6 +17,8 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
   const [scheduleInput, setScheduleInput] = useState(service.schedule ?? "");
   const [runs, setRuns] = useState<CronRunInfo[]>([]);
   const [busy, setBusy] = useState(false);
+  const [agent, setAgent] = useState<string>("claude");
+  const [openRun, setOpenRun] = useState<CronRunInfo | null>(null);
   const cronId = serviceIdToCronId(service.id);
   const scheduleInputClass = `${UI_INPUT.full} flex-1 font-mono outline-none border border-[var(--ct-accent)] text-[10px]`;
   const scheduleBtnClass = `${UI_BUTTON.compact} ${UI_BUTTON.base} border-[var(--ct-border)] text-[var(--ct-muted)]`;
@@ -27,6 +30,11 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
     invoke<CronRunInfo[]>("cron_history", { id: cronId })
       .then((r) => {
         if (!cancelled) setRuns(Array.isArray(r) ? r.slice(-5).reverse() : []);
+      })
+      .catch(() => {});
+    invoke<CronJob>("cron_get", { id: cronId })
+      .then((j) => {
+        if (!cancelled && j?.agent) setAgent(j.agent);
       })
       .catch(() => {});
     return () => {
@@ -152,21 +160,42 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
       {runs.length > 0 && (
         <Section label="Recent runs">
           <div className="flex flex-col gap-0.5 max-h-28 overflow-y-auto">
-            {runs.map((run) => (
-              <div key={run.run_id} className="flex items-center gap-2 text-[10px]">
-                <span className={runColor(run.status)}>{runIcon(run.status)}</span>
-                <span className="text-[var(--ct-muted)] flex-1">
-                  {formatTime(run.started_at)}
-                </span>
-                {run.finished_at && (
-                  <span className={runsMetaClass}>
-                    {Math.round((run.finished_at - run.started_at) / 1000)}s
-                  </span>
-                )}
-              </div>
-            ))}
+            {runs.map((run) => {
+              const inspectable = !!run.session_id;
+              return (
+                <button
+                  key={run.run_id}
+                  type="button"
+                  disabled={!inspectable}
+                  onClick={() => inspectable && setOpenRun(run)}
+                  title={inspectable ? "View run transcript" : "No transcript for this run"}
+                  className={`flex items-center gap-2 text-[10px] bg-transparent border-0 p-0 text-left ${inspectable ? "cursor-pointer hover:brightness-125" : "cursor-default opacity-80"}`}
+                >
+                  <span className={runColor(run.status)}>{runIcon(run.status)}</span>
+                  <span className="text-[var(--ct-muted)] flex-1">{formatTime(run.started_at)}</span>
+                  {run.finished_at && (
+                    <span className={runsMetaClass}>
+                      {Math.round((run.finished_at - run.started_at) / 1000)}s
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </Section>
+      )}
+
+      {openRun && openRun.session_id && (
+        <RunChatPopup
+          title={`cron:${service.name}`}
+          subtitle={formatTime(openRun.started_at)}
+          status={openRun.status}
+          provider={agent}
+          cwd={openRun.cwd ?? ""}
+          sessionId={openRun.session_id}
+          live={openRun.status === "Running"}
+          onClose={() => setOpenRun(null)}
+        />
       )}
     </>
   );

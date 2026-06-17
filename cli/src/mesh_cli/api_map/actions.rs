@@ -323,6 +323,10 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
                 let payload = json!({"dry_run": dry_run, "actor": actor});
                 ("POST".into(), "/api/mem/graph/repair/orphan-vectors".into(), Some(payload.to_string()))
             }
+            MemGraphAction::PruneThinVectors { dry_run, actor } => {
+                let payload = json!({"dry_run": dry_run, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/prune-thin-vectors".into(), Some(payload.to_string()))
+            }
             MemGraphAction::RepairOrphanBlobs { dry_run, actor } => {
                 let payload = json!({"dry_run": dry_run, "actor": actor});
                 ("POST".into(), "/api/mem/graph/repair/orphan-blobs".into(), Some(payload.to_string()))

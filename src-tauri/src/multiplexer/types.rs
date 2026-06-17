@@ -88,6 +88,11 @@ pub struct Pane {
     /// Timestamp when agent_type was set — grace period for idle-poll exit detection.
     #[serde(skip, default)]
     pub agent_set_at: Option<std::time::Instant>,
+    /// When the output-based exit heuristic first suspected the agent left (no
+    /// markers + shell prompt). Debounces a one-frame transient (e.g. a WebView
+    /// reload/resize redraw) from clearing a still-running agent.
+    #[serde(skip, default)]
+    pub exit_suspected_at: Option<std::time::Instant>,
     /// True while launch_agent boots the agent TUI in this pane. A booting
     /// TUI silently swallows bracket-paste input, so sends wait this out.
     /// Runtime-only: never persisted (a restart clears any stale true).
@@ -108,6 +113,9 @@ pub struct Pane {
     /// Current model family on the live session ("Opus"/"Sonnet"/"Haiku").
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_session_model: Option<String>,
+    /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this pane.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub session_binding_nonce: Option<String>,
     /// Orchestration role (orchestrator / lead / worker).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,

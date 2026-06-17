@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { IS_WEB, listen } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
@@ -43,9 +43,10 @@ interface TerminalPaneProps {
   hasSplits?: boolean;
   onFocus?: (paneId: string) => void;
   onPtySpawned?: (paneId: string, ptyId: string) => void;
-  theme?: ThemeConfig;
+  theme: ThemeConfig;
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
+  uiFontScale?: number;
 }
 
 export function TerminalPane({
@@ -58,6 +59,7 @@ export function TerminalPane({
   theme,
   fontConfig,
   terminalConfig,
+  uiFontScale,
 }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fallbackShellRef = useRef<HTMLDivElement>(null);
@@ -176,6 +178,13 @@ export function TerminalPane({
   const SHEET_TOP = "calc(var(--ct-safe-top, 0px) + 2.5rem)";
   const SHEET_HEADER = "2.5rem";
   const SHEET_FOOTER = "3.75rem";
+  // Desktop fallback flies out near-fullscreen but keeps margins + shadow so it
+  // reads as a floating overlay above the chat, not an edge-to-edge takeover.
+  const FB_TOP = "calc(var(--ct-safe-top, 0px) + 2.75rem)";
+  const FB_SIDE = 16;
+  const FB_HEADER = "2.5rem";
+  const FB_BOTTOM = "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))";
+  const FB_SHADOW = "0 24px 64px rgba(0,0,0,0.5)";
 
   // chat_start/chat_stop are owned exclusively by useChatSession's mount/
   // unmount (PaneSessionChat is mounted iff uiMode === "chat"). A second
@@ -399,7 +408,7 @@ export function TerminalPane({
     : hasSplits && isFocused
       ? "var(--ct-muted-fg, #8b949e)"
       : "transparent";
-  const terminalBackground = theme?.background ?? "transparent";
+  const terminalBackground = theme.background;
   const terminalKeyBar = <TerminalKeyBar onSendKey={writePty} className="w-full" />;
 
   // --- Render ---
@@ -461,28 +470,33 @@ export function TerminalPane({
             ? undefined
             : mobileSheet
               ? `calc(${SHEET_TOP} + ${SHEET_HEADER})`
-              : fallbackChat ? "auto" : 0,
-          right: showTerminalKeyBar ? undefined : fallbackChat ? (mobileSheet ? 10 : 12) : 0,
+              : fallbackChat ? `calc(${FB_TOP} + ${FB_HEADER})` : 0,
+          right: showTerminalKeyBar ? undefined : fallbackChat ? (mobileSheet ? 10 : FB_SIDE) : 0,
           bottom: showTerminalKeyBar
             ? undefined
             : mobileSheet
               ? `calc(0.75rem + ${SHEET_FOOTER})`
               : fallbackChat
-                ? "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))"
+                ? FB_BOTTOM
                 : 0,
-          left: showTerminalKeyBar ? undefined : fallbackChat ? (mobileSheet ? 10 : 12) : 0,
-          height: !showTerminalKeyBar && fallbackChat && !mobileSheet ? "min(38dvh, 320px)" : undefined,
-          borderRadius: mobileSheet ? 0 : fallbackChat ? 6 : 0,
+          left: showTerminalKeyBar ? undefined : fallbackChat ? (mobileSheet ? 10 : FB_SIDE) : 0,
+          height: undefined,
+          borderRadius: mobileSheet ? 0 : fallbackChat ? "0 0 14px 14px" : 0,
           border: fallbackChat
-            ? "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)"
+            ? "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 26%, transparent)"
             : "none",
-          borderTop: mobileSheet ? "none" : undefined,
+          borderTop: mobileSheet ? "none" : fallbackChat ? "none" : undefined,
           borderBottom: mobileSheet ? "none" : undefined,
+          boxShadow: fallbackChat && !mobileSheet ? FB_SHADOW : undefined,
           background: terminalBackground,
           visibility: terminalVisible ? "visible" : "hidden",
           pointerEvents: terminalVisible ? "auto" : "none",
           zIndex: terminalFallbackOpen ? 4 : uiMode === "terminal" ? 1 : 0,
-          animation: mobileSheet ? "ct-sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1)" : undefined,
+          animation: mobileSheet
+            ? "ct-sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1)"
+            : fallbackChat
+              ? "ct-fb-in 200ms cubic-bezier(0.32, 0.72, 0, 1)"
+              : undefined,
         }}
       >
         {/* Padding lives on this frame, not on the xterm parent: FitAddon sizes
@@ -539,6 +553,7 @@ export function TerminalPane({
         <div className="absolute inset-0" style={{ zIndex: 2 }}>
           <PaneSessionChat
             paneId={paneId}
+            uiFontScale={uiFontScale}
             onError={() => {
               // Automatic fallback, NOT a user choice: never write the
               // client-mode store here or the pane gets pinned to terminal.
@@ -570,29 +585,37 @@ export function TerminalPane({
       {fallbackChat && !mobileSheet && (
         <div ref={fallbackShellRef} className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
           <div
-            className="absolute left-3 right-3 h-7 flex items-center justify-between px-2 rounded-t-md pointer-events-auto"
+            className="absolute flex items-center justify-between px-3 pointer-events-auto"
             style={{
-              bottom:
-                "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem) + min(38dvh, 320px))",
+              top: FB_TOP,
+              left: FB_SIDE,
+              right: FB_SIDE,
+              height: FB_HEADER,
               background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
               color: "var(--ct-fg, #c9d1d9)",
-              border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 26%, transparent)",
               borderBottom: "none",
+              borderRadius: "14px 14px 0 0",
+              boxShadow: FB_SHADOW,
+              animation: "ct-fb-in 200ms cubic-bezier(0.32, 0.72, 0, 1)",
             }}
           >
-            <span className="text-xs font-mono opacity-80">Terminal fallback</span>
+            <span
+              className="flex items-center gap-2 text-[13px] font-semibold tracking-tight"
+              style={{ color: "var(--ct-fg)" }}
+            >
+              <SquareTerminal size={15} style={{ color: "var(--ct-accent, #58a6ff)" }} />
+              Terminal
+            </span>
             <button
               type="button"
-              className="px-2 h-5 rounded text-xs font-mono hover:brightness-125"
-              style={{
-                background: "var(--ct-surface)",
-                color: "var(--ct-muted-fg)",
-                border: "none",
-              }}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_18%,transparent)]"
+              style={{ color: "var(--ct-muted-fg)" }}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setTerminalFallbackOpen(false)}
+              title="Close"
             >
-              Close
+              <X size={15} />
             </button>
           </div>
         </div>

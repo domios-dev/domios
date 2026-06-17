@@ -100,8 +100,13 @@ body {
   box-shadow: none !important;
 }
 
-/* Kill the ugly default border on xterm viewport */
+/* Kill the ugly default border on xterm viewport. The vendor stylesheet hardcodes
+   background-color: #000; the viewport covers the full .xterm box while the canvas
+   is only rows*cellHeight tall, so the FitAddon's sub-row remainder at the bottom
+   exposed that black strip. Drive it from the active theme (--ct-bg == theme.background,
+   same color the xterm canvas paints) so the remainder blends seamlessly. */
 .xterm .xterm-viewport {
+  background-color: var(--ct-bg, #0d1117) !important;
   border: none !important;
   outline: none !important;
   scrollbar-width: none; /* hide native scrollbar — using div-based */
@@ -868,4 +873,8 @@ button,
 @keyframes ct-backdrop-in {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+@keyframes ct-fb-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }

@@ -47,7 +47,7 @@ var TUI_FRAGMENTS = [
 
 var SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/i;
 var SESSION_BARE_RE = /(?:^|\n)\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*(?:$|\n)/m;
-var CLAUDE_SESSION_DELTA_TYPES = { system: true, user: true, assistant: true };
+var CLAUDE_SESSION_DELTA_TYPES = { system: true, user: true, assistant: true, attachment: true };
 
 
 function hasSpinnerGlyph(text) {
@@ -200,39 +200,14 @@ module.exports.default = {
       : "unset CLAUDECODE &&";
     var parts = [unset];
 
-    var useStdinPipe = !!(p.headless && p.task);
-    if (useStdinPipe) {
-      var path = writeTaskTempFile(p.task);
-      var prefix = win
-        ? "Get-Content '" + path + "' -Raw -Encoding UTF8 |"
-        : "cat '" + path + "' |";
-      parts.push(prefix);
-      parts.push("claude");
-      if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-      parts.push("-p");
-      parts.push("--output-format");
-      parts.push("stream-json");
-      parts.push("--verbose");
-      parts.push("--include-partial-messages");
-      parts.push("--allowedTools");
-      parts.push("Bash");
-    } else {
-      parts.push("claude");
-      if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-      if (p.task) {
-        var visiblePath = writeTaskTempFile(p.task);
-        parts.push(win
-          ? "\"$(Get-Content '" + visiblePath + "' -Raw -Encoding UTF8)\""
-          : "\"$(cat " + visiblePath + ")\"");
-      }
-    }
+    parts.push("claude");
+    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
 
     if (p.agentName) {
       parts.push("--agent");
       parts.push(host.shell.quoteFor(p.agentName, host.platform()));
     }
-    // --session-id is ignored in -p mode; emit only for visible launches.
-    if (!useStdinPipe && p.sessionId) {
+    if (p.sessionId) {
       parts.push("--session-id");
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
@@ -240,6 +215,16 @@ module.exports.default = {
       // Quote each arg — they reach a shell, and `args` is caller-supplied via
       // the spawn API (a mesh peer with SpawnAgents could inject `; cmd`).
       for (var i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+    }
+    // Prompt is a positional, last, after `--`: a spawn task can start with the
+    // -=-codeterm:...-=- origin marker, which commander would otherwise reject
+    // as an unknown option.
+    if (p.task) {
+      var visiblePath = writeTaskTempFile(p.task);
+      parts.push("--");
+      parts.push(win
+        ? "\"$(Get-Content '" + visiblePath + "' -Raw -Encoding UTF8)\""
+        : "\"$(cat " + visiblePath + ")\"");
     }
     return parts.join(" ");
   },
@@ -425,6 +410,17 @@ module.exports.default = {
         } else {
           continue;
         }
+      } else if (t === "attachment") {
+        // Input that arrived while the agent was mid-generation is queued by
+        // Claude as a queued_command attachment, not a normal user turn. Surface
+        // it as the inbound user message it is, so a cross-pane send to a busy
+        // pane still shows in chat instead of vanishing.
+        var att = v.attachment;
+        if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
+          continue;
+        }
+        role = "user";
+        blocks.push({ kind: "text", data: { text: att.prompt } });
       } else {
         continue;
       }
@@ -514,10 +510,25 @@ module.exports.default = {
       }
       return false;
     }
+    // SessionStart must also carry the binding-nonce header, else it's a pre-nonce hook to force-upgrade.
+    function sessionStartCurrent() {
+      var arr = json.hooks && json.hooks.SessionStart;
+      if (!Array.isArray(arr)) return false;
+      for (var i = 0; i < arr.length; i++) {
+        var hooks = arr[i] && arr[i].hooks;
+        if (!Array.isArray(hooks)) continue;
+        for (var j = 0; j < hooks.length; j++) {
+          var h = hooks[j];
+          if (h && h._source === CODETERM_HOOK_MARKER && typeof h.command === "string"
+              && h.command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1) return true;
+        }
+      }
+      return false;
+    }
     var n = present("Notification");
     var s = present("Stop");
     var pc = present("PreCompact");
-    var ss = present("SessionStart");
+    var ss = sessionStartCurrent();
     return {
       settings_exists: true,
       hooks_installed: n && s && pc && ss,
@@ -540,6 +551,7 @@ module.exports.default = {
     var nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
     var port = apiPort | 0;
     var authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
+    var nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
     var portExpr = "${CODETERM_API_PORT:-" + port + "}";
 
     var notifyCmd = "curl -s -X POST http://localhost:" + portExpr
@@ -554,7 +566,7 @@ module.exports.default = {
       + nullDev + " 2>&1 || true";
     var sessionStartCmd = "curl -s -X POST http://localhost:" + portExpr
       + "/api/panes/$CODETERM_PANE_ID/hook/session_start "
-      + "-H 'Content-Type: application/json' " + authH + " --data-binary @- > "
+      + "-H 'Content-Type: application/json' " + authH + " " + nonceH + " --data-binary @- > "
       + nullDev + " 2>&1 || true";
 
     function newEntry(matcher, cmd, timeout) {
@@ -667,6 +679,10 @@ function isValidClaudeSessionDelta(v) {
   if (v.type === "system") {
     var sc = v.content;
     return typeof sc === "string" || Array.isArray(sc);
+  }
+  if (v.type === "attachment") {
+    var a = v.attachment;
+    return !!a && typeof a === "object" && a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0;
   }
   var msg = v.message;
   if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;

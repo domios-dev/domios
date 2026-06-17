@@ -123,16 +123,8 @@ module.exports.default = {
   },
 
   buildLaunchCommand: function (params) {
-  // `--dangerously-skip-permissions` is run-only; include only for headless tasks.
     var p = params || {};
     var parts = ["opencode"];
-    if (p.headless && p.task) {
-      parts = ["opencode", "run"];
-      if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-      parts.push("--format");
-      parts.push("json");
-      parts.push(host.shell.quote(p.task));
-    }
     if (p.args && p.args.length > 0) {
       // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
       for (var i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
@@ -155,8 +147,11 @@ module.exports.default = {
     var cfg = opencodeConfigPath();
     var plugin = opencodeBindingPluginPath();
     var pluginExists = !!plugin && host.fs.fileExists(plugin);
+    var pluginBody = pluginExists ? String(host.fs.readFile(plugin) || "") : "";
+    // Require the binding-nonce header too; a pre-nonce plugin file is outdated → reinstall.
     var pluginCurrent = pluginExists &&
-      String(host.fs.readFile(plugin) || "").indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1;
+      pluginBody.indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1 &&
+      pluginBody.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1;
     if (!cfg || !host.fs.fileExists(cfg)) {
       return {
         config_file_exists: false,
@@ -432,6 +427,9 @@ function opencodeBindingPluginSource(apiPort) {
     "    \"content-type\": \"application/json\",",
     "    \"x-codeterm-agent-provider\": PROVIDER_ID,",
     "  };",
+    "  if (process.env.CODETERM_SESSION_BINDING_NONCE) {",
+    "    headers[\"x-codeterm-binding-nonce\"] = process.env.CODETERM_SESSION_BINDING_NONCE;",
+    "  }",
     "  if (process.env.CODETERM_API_TOKEN) {",
     "    headers.authorization = `Bearer ${process.env.CODETERM_API_TOKEN}`;",
     "  }",

@@ -48,7 +48,6 @@ const sendTextTemplate: TemplateFn = (inv, result, resolve) => {
 
 const TEMPLATES: Record<string, TemplateFn> = {
   send: sendTextTemplate,
-  "send-text": sendTextTemplate,
   "agent spawn": (inv) => ({
     icon: "🤖",
     title: `Spawned ${inv.positionals[0] ?? "claude"}`,

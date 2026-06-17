@@ -9,7 +9,7 @@ version: 0.8.0
 **Your scope:** This skill is the CLI reference for project agents. You're working in a specific workspace under the orchestration of the local General Agent. When you need machine-level context (other projects, peers, system state, who-is-the-user), ask the local GA rather than guessing:
 
 ```bash
-codeterm send-text "what projects are open right now?" --pane general
+codeterm send "what projects are open right now?" --pane general
 ```
 
 The response arrives in your terminal.
@@ -42,4 +42,4 @@ Specialized reference docs alongside this skill:
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 47 -->
+<!-- revision: 48 -->

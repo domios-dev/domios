@@ -138,6 +138,8 @@ export interface GraphWorkerInfo {
   log_path?: string | null;
   agent_provider?: string | null;
   model?: string | null;
+  session_id?: string | null;
+  cwd?: string | null;
 }
 
 export interface SpawnWorkerReq {
@@ -158,6 +160,8 @@ export interface CronRunInfo {
   status: CronRunStatus;
   pane_id: string | null;
   tab_id: string | null;
+  session_id?: string | null;
+  cwd?: string | null;
 }
 
 export interface CronJob {

@@ -467,6 +467,12 @@ impl ServiceContext {
                 _ => preamble_wrapped,
             }
         });
+        // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
+        let role_suffixed_task =
+            role_suffixed_task.map(|t| match self.spawn_task_prefix(&pane_id) {
+                Some(pfx) => format!("{}{}", pfx, t),
+                None => t,
+            });
 
         let mut legacy_params = spec.to_agent_params()?;
         legacy_params.model = launch_model;
@@ -591,6 +597,10 @@ impl ServiceContext {
 
         let mut env_vars: HashMap<String, String> = HashMap::new();
         env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
+        env_vars.insert(
+            "CODETERM_SESSION_BINDING_NONCE".into(),
+            self.ensure_session_binding_nonce(&pane_id),
+        );
         env_vars.insert(
             "CODETERM_SOCKET_PATH".into(),
             crate::socket::server::socket_display_path(),
@@ -737,6 +747,10 @@ impl ServiceContext {
 
         let mut env_vars: HashMap<String, String> = HashMap::new();
         env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
+        env_vars.insert(
+            "CODETERM_SESSION_BINDING_NONCE".into(),
+            self.ensure_session_binding_nonce(&pane_id),
+        );
         if let Some(ref wid) = agent.worker_id {
             env_vars.insert("CODETERM_WORKER_ID".into(), wid.clone());
         }
@@ -761,10 +775,10 @@ impl ServiceContext {
             env_vars.insert(k.clone(), v.clone());
         }
 
-        // Wide PTY: ConPTY wrapping at col 120 corrupts claude stream-json mid-line.
+        // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
         let pty_id = {
             let mut pty = self.pty.lock();
-            pty.spawn(None, resolved_cwd, 9999, 40, env_vars)
+            pty.spawn(None, resolved_cwd, 120, 40, env_vars)
                 .map(|(id, _)| id)?
         };
 
@@ -774,8 +788,8 @@ impl ServiceContext {
         self.agent_run_pty_map
             .lock()
             .insert(pane_id.clone(), pty_id.clone());
-        // Register run for auto-complete via stream-json result event / idle / timeout. Cron kind is resolved later (after the cron registry links
-        // pane→run).
+        // Register run for auto-complete via the standard agent rails: `mem worker report` / Stop hook / idle / timeout backstop. Cron kind is resolved
+        // later (after the cron registry links pane→run).
         if let Some(ref worker_id) = agent.worker_id {
             // Dreamer (REM phase) needs a longer timeout than the default worker — hub decomposition + diary + classification all in one session takes a
             // while. Pick by intent: any worker whose intent starts with "dreaming:" gets the dreaming-specific timeout.
@@ -861,6 +875,8 @@ impl ServiceContext {
                 std::time::Duration::from_secs(10),
             );
 
+            // headless:false → ordinary interactive claude, task delivered as a positional after `--` (same launch a visible agent gets). Completion comes
+            // from the standard agent rails, not a stream-json result event.
             let launch_params = crate::agent::provider::AgentLaunchParams {
                 agent_name: None,
                 task: task_for_thread,
@@ -870,7 +886,6 @@ impl ServiceContext {
                     Some(model_args)
                 },
                 skip_permissions: true,
-                headless: true,
                 session_id: None,
             };
             let launch_cmd = svc_outer

@@ -31,6 +31,7 @@ import { matchesBinding, isMac } from "./lib/keybindings";
 import { blendColor, deriveColor } from "./lib/colors";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { pasteToPane } from "./lib/panePasteRegistry";
+import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
 const MemoizedTabContent = memo(TabContent);
@@ -176,6 +177,7 @@ function AppInner() {
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
   const stableApiConfig = useStableJsonValue(config.api);
+  const uiFontScale = fontSizeToUiFontScale(stableFontConfig.size);
 
   // Resolve usage-tracking toggle once per config change so every pane's UsageBubble can read it via prop instead of subscribing to config
   // events on its own (the per-bubble `useConfig` was multiplying invokes by pane count and made the webview unresponsive after many resumes).
@@ -588,7 +590,8 @@ function AppInner() {
     for (const [k, v] of Object.entries(themeStyles)) {
       document.documentElement.style.setProperty(k, v);
     }
-  }, [stableTheme.background, themeStyles]);
+    document.documentElement.style.fontSize = `${stableFontConfig.size + 2}px`;
+  }, [stableTheme.background, themeStyles, stableFontConfig.size]);
 
   return (
     <div
@@ -676,6 +679,7 @@ function AppInner() {
                 onNavigateToTab={() => { setMainView("workspace"); closeSidebarOnMobile(); }}
                 mainView={mainView}
                 config={config}
+                uiFontScale={uiFontScale}
               />
             </div>
           </>
@@ -770,6 +774,7 @@ function AppInner() {
                   usageEnabledByProvider={usageEnabledByProvider}
                   api={stableApiConfig}
                   workspaceCwd={ws.cwd ?? null}
+                  uiFontScale={uiFontScale}
                 />
               </div>
                 );

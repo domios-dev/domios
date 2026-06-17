@@ -56,25 +56,6 @@ impl AgentProvider for NativeStub {
     ) -> Option<String> {
         None
     }
-    fn detect_launched_session_id(
-        &self,
-        _: &str,
-        _: &[String],
-        _: Option<std::time::Duration>,
-        _: Option<&str>,
-    ) -> Option<String> {
-        None
-    }
-    fn detect_started_session(
-        &self,
-        _: &str,
-        _: &[String],
-        _: Option<std::time::Duration>,
-        _: Option<&str>,
-        _: Option<&str>,
-    ) -> Option<String> {
-        None
-    }
 }
 
 /// A JS drop-in whose default export implements NOTHING capability-related,

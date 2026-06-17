@@ -142,7 +142,7 @@ pub async fn spawn_pty(
 
     // Auto-resume pane session after shell is ready.
     if let Some(ref pid) = pane_id {
-        let (session_id, is_protected, pane_cwd, restored_from_snapshot, agent_type) = {
+        let (session_id, is_protected, pane_cwd, restored_from_snapshot, agent_type, pane_model) = {
             let m = mux_state.lock();
             let pane = m.get_pane(pid);
             (
@@ -151,6 +151,7 @@ pub async fn spawn_pty(
                 pane.and_then(|p| p.cwd.clone()),
                 pane.map(|p| p.restored_from_snapshot).unwrap_or(false),
                 pane.and_then(|p| p.agent_type.clone()),
+                pane.and_then(|p| p.agent_session_model.clone()),
             )
         };
         let mut should_fresh_launch =
@@ -189,11 +190,24 @@ pub async fn spawn_pty(
                 let pc = crate::config::provider_config(&provider_id);
                 let _ = config_state; // global lock no longer needed for these fields
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
+                // The global "resume with --dangerously-skip-permissions" toggle is the user's explicit intent for restored agents; per-pane auto_approve is unreliable across spawn paths, so do NOT gate on it.
                 let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
                 let resume_cmd = svc
                     .agent_registry
                     .with_provider(&provider_id, |p| {
-                        p.build_resume_command(&session_id, skip_perms)
+                        let base = p.build_resume_command(&session_id, skip_perms)?;
+                        // Preserve the pane's model across restart — bare resume otherwise drops it to the provider default.
+                        match pane_model.as_deref().filter(|m| !m.trim().is_empty()) {
+                            Some(m) => {
+                                let margs = p.model_launch_args(m);
+                                Some(if margs.is_empty() {
+                                    base
+                                } else {
+                                    format!("{} {}", base, margs.join(" "))
+                                })
+                            }
+                            None => Some(base),
+                        }
                     })
                     .flatten();
 
@@ -251,8 +265,14 @@ pub async fn spawn_pty(
             let pc = crate::config::provider_config(&provider_id);
             let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
             let launch_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
+                let args = pane_model
+                    .as_deref()
+                    .filter(|m| !m.trim().is_empty())
+                    .map(|m| p.model_launch_args(m))
+                    .filter(|a| !a.is_empty());
                 p.build_launch_command(&crate::agent::provider::AgentLaunchParams {
                     skip_permissions: skip_perms,
+                    args,
                     ..Default::default()
                 })
             });

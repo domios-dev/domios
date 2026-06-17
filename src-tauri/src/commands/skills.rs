@@ -113,3 +113,99 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
     }
     Ok(())
 }
+
+/// Mirror canonical `~/.codeterm/skills/` into provider dirs agents load from (#178).
+pub fn mirror_skills_to_providers() {
+    let canonical = crate::paths::data_dir().join("skills");
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+    let targets = [
+        home.join(".claude").join("skills"),
+        home.join(".agents").join("skills"),
+    ];
+
+    let Ok(entries) = std::fs::read_dir(&canonical) else {
+        return;
+    };
+    let skill_dirs: Vec<_> = entries
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .collect();
+
+    for target in &targets {
+        for entry in &skill_dirs {
+            let id = entry.file_name();
+            let dst_dir = target.join(&id);
+            if !should_mirror_skill(&entry.path().join("SKILL.md"), &dst_dir.join("SKILL.md")) {
+                continue;
+            }
+            let _ = std::fs::create_dir_all(&dst_dir);
+            match copy_dir_recursive(&entry.path(), &dst_dir) {
+                Ok(()) => log::info!("[skills] mirrored {:?} -> {}", id, dst_dir.display()),
+                Err(e) => log::warn!(
+                    "[skills] mirror {:?} -> {} failed: {}",
+                    id,
+                    dst_dir.display(),
+                    e
+                ),
+            }
+        }
+    }
+}
+
+/// Copy if provider copy is missing/older, or differs at the same revision. Never downgrades.
+fn should_mirror_skill(src_skill: &std::path::Path, dst_skill: &std::path::Path) -> bool {
+    let Ok(src) = std::fs::read_to_string(src_skill) else {
+        return false;
+    };
+    let Ok(dst) = std::fs::read_to_string(dst_skill) else {
+        return true;
+    };
+    let src_rev = extract_revision(&src);
+    let dst_rev = extract_revision(&dst);
+    if src_rev != dst_rev {
+        return src_rev > dst_rev;
+    }
+    src != dst
+}
+
+#[cfg(test)]
+mod mirror_tests {
+    use super::*;
+
+    fn write_skill(dir: &std::path::Path, body: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("SKILL.md"), body).unwrap();
+    }
+
+    #[test]
+    fn mirror_decision_respects_revision_and_content() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src_dir = tmp.path().join("src");
+        let dst_dir = tmp.path().join("dst");
+        write_skill(&src_dir, "a\n<!-- revision: 5 -->");
+        let src = src_dir.join("SKILL.md");
+        let dst = dst_dir.join("SKILL.md");
+
+        assert!(
+            should_mirror_skill(&src, &dst),
+            "missing provider copy -> mirror"
+        );
+
+        write_skill(&dst_dir, "a\n<!-- revision: 5 -->");
+        assert!(!should_mirror_skill(&src, &dst), "identical -> skip");
+
+        write_skill(&dst_dir, "OLD\n<!-- revision: 5 -->");
+        assert!(
+            should_mirror_skill(&src, &dst),
+            "same rev, changed content -> mirror"
+        );
+
+        write_skill(&dst_dir, "x\n<!-- revision: 9 -->");
+        assert!(
+            !should_mirror_skill(&src, &dst),
+            "provider newer -> never downgrade"
+        );
+    }
+}

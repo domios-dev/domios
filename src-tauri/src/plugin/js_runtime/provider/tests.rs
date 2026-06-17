@@ -110,7 +110,7 @@ fn build_launch_command_passes_params_to_js() {
                     let s = 'demo';
                     if (p.skipPermissions) s += ' --yolo';
                     if (p.task) s += ' --task ' + JSON.stringify(p.task);
-                    if (p.headless) s += ' --headless';
+                    if (p.sessionId) s += ' --session-id ' + p.sessionId;
                     return s;
                 }
             };
@@ -119,11 +119,11 @@ fn build_launch_command_passes_params_to_js() {
     let params = AgentLaunchParams {
         task: Some("hello world".into()),
         skip_permissions: true,
-        headless: true,
+        session_id: Some("sid-1".into()),
         ..Default::default()
     };
     let cmd = p.build_launch_command(&params);
-    assert_eq!(cmd, "demo --yolo --task \"hello world\" --headless");
+    assert_eq!(cmd, "demo --yolo --task \"hello world\" --session-id sid-1");
 }
 
 #[test]
