@@ -42,10 +42,13 @@ When this lands, all of the following are true and are **plugins**:
 3. A **chat-preprocessor** plugin augments every outbound message (mem recall / a
    Groq call / one of our agent workers) before it reaches the agent;
    on/off + backend/model configurable.
-4. A **dread NPC** plugin (separate channel) owns its **own workspace** (rooted
-   in the game folder), spawns a **team** of agent sessions keyed by `npc_id` (a
-   returning player meets an NPC that remembers them), tracks per-session turn
-   stats, and injects a stay-in-character reminder every Nth turn.
+4. An **agent-driven environment** plugin owns its **own workspace**, spawns a
+   **team** of agent sessions by its own rules (keyed so entities are resumable —
+   "remembers you"), **exposes its own verbs to those agents** (the agent calls
+   `codeterm <ns> say "hello"` and the plugin bridges it to an external world),
+   tracks per-entity turn stats, and injects guidance (e.g. a stay-in-character
+   reminder every Nth turn). The Dread Delusion NPC plugin is one instantiation;
+   the pattern is generic (sim/robot/service brains too).
 5. The existing PTY provider path (claude/codex/opencode) is **unchanged** — all
    additions are additive.
 
@@ -144,13 +147,19 @@ manage_workspaces/spawn_agents grant — but at plugin-install level.
 // compute dispatch — backed by the real worker machinery (spawn_pane Hidden + worker_pool)
 host.worker.run({ backend?, task, timeoutMs? }): Promise<{ ok, report?, error? }>;   // one-shot
 
-// own workspace + a TEAM of agent sessions inside it (the dread case)  [permissioned]
+// own workspace + a TEAM of agent sessions inside it  [permissioned]
 host.workspace.ensure({ name, externalRoot? }): Promise<{ workspaceId }>;
 host.workspace.panes(workspaceId): Promise<PaneRef[]>;
-host.agent.spawn(workspaceId, { backend?, task, key? }): Promise<{ sessionId }>;  // key = npc_id
+host.agent.spawn(workspaceId, { backend?, task, key?, commands? }): Promise<{ sessionId }>; // key = e.g. npc_id
 host.agent.get(workspaceId, key): Promise<{ sessionId } | null>;                  // "remembers you"
 host.agent.send(sessionId, text): Promise<{ reply: string }>;
 host.agent.reap(sessionId): Promise<void>;
+
+// the INVERSE direction: the plugin exposes its own verbs to the agents it
+// spawned; the agent invokes `codeterm <ns> <verb> …` (or a tool), CodeTerm
+// routes the call back to the plugin, the plugin acts (bridge to an external
+// world) and returns a result the agent sees. (capability, not host.*)
+onAgentCommand?(ctx: { sessionId, verb, args }): { result: string } | { error: string };
 
 // memory recall (read-only)
 host.mem.search({ query, k? }): Promise<{ hits: { id, text, score }[] }>;
@@ -163,6 +172,19 @@ compute a plugin keeps using the existing `host.fetch` (e.g. a Groq POST);
 one-shot case of `host.agent.spawn`+`send`+`reap`. Under the hood: the same
 `spawn_pane(Hidden, Agent{…})` + `worker_pool` + workspace machinery, exposed.
 
+**Agent-callable plugin handles (the inverse seam).** Driving an agent is only
+half the loop; the other half is letting the agent *act through the plugin*. When
+a plugin spawns an agent it can declare a command namespace + verbs (`commands`
+on `spawn`, also listed in `plugin.json` so the agent's task prompt is told what
+it may call). The spawned agent invokes them the way agents already call us today
+— `codeterm <ns> <verb> <args>` (the agent's CLI is already in its PATH; this is
+a new routed namespace, not raw shell) — and CodeTerm dispatches the call to the
+plugin's `onAgentCommand` handler. The plugin acts (e.g. bridges the call to an
+external process/service over `host.fetch` or its own state) and returns a result
+string the agent sees as the command's output. This makes a plugin a small
+**environment** its agents live in: it provisions them, hands them verbs, and is
+the bridge between what they "do" and the outside world.
+
 > **QuickJS bridge:** the VM is synchronous (`call_json`); these handles are
 > async host-side (spawn panes, await reports). They use the same async-host /
 > sync-VM bridge `host.fetch` already uses (JSON envelope the VM unwraps).
@@ -174,18 +196,36 @@ one-shot case of `host.agent.spawn`+`send`+`reap`. Under the hood: the same
   as `NormalizedChatMessage`; `listModels` feeds the picker. No terminal.
 - **clawdbot "bring your own brain"** — a `chatBackend` proxy to a third-party
   agent system, surfacing its chat in our UI.
-- **chat-preprocessor** (`codeterm-plugins`) — a `chatPreprocessor` stage: per
-  turn, optional `host.mem.search` + optional `host.worker.run`/`host.fetch` to
-  rewrite/expand, returns augmented text. Settings: on/off, backend, model,
-  compose mode.
-- **NPC brain / connector** (`dread-delusion-ai`, separate channel) — a
-  `chatBackend` plugin for the player-facing chat that internally does
-  `host.workspace.ensure` (workspace rooted in the game folder),
-  `host.agent.spawn(key=npc_id)` per NPC, `host.agent.get` for "remembers you",
-  per-session turn stats, and a stay-in-character reminder every Nth turn (by
-  augmenting the sent text). This is the `CODETERM_CONNECTOR.md` scenario realized
-  as a **plugin via host-API**; the fully external scoped-grant connector
-  (`feat/external-connectors`) stays a heavier separate track.
+- **chat-preprocessor** (`codeterm-plugins`) — a `chatPreprocessor` stage,
+  implementable entirely on this base: on each user turn it optionally
+  `host.mem.search`es the message for relevant memories and/or runs a
+  `host.worker.run` (one of our agents) or `host.fetch` (e.g. Groq), then returns
+  the augmented `text`. Per-plugin settings (`config.plugins.<id>`): on/off, which
+  backend (mem-only | worker | external API), model, compose mode (prepend
+  context vs rewrite). Validates: the preprocessor stage + `host.mem` + `host.worker`
+  + per-plugin settings all compose. Nothing game- or vendor-specific.
+
+- **Agent-driven environment / connector pattern** (generalized; the dread game
+  is one instantiation). A plugin that: (1) `host.workspace.ensure`s its own
+  workspace (optionally `externalRoot`, e.g. inside a game folder); (2) spawns
+  agents **by its own rules** via `host.agent.spawn(key=…)` — one per logical
+  entity (an NPC, a role, a task), `host.agent.get(key)` to resume so the entity
+  "remembers"; (3) hands those agents a set of **its own verbs** (`commands` +
+  `onAgentCommand`) so an agent can *act* — `codeterm <ns> say "hello"`, `… look`,
+  `… move` — and the plugin **bridges those calls to an external world** (a game,
+  a service, a simulation) and feeds results back; (4) keeps per-entity state
+  (turn stats) and **injects guidance** by augmenting what it sends (e.g. a
+  stay-in-character reminder every Nth turn). The plugin is thus a small
+  *environment* its agents inhabit and communicate with the outside through.
+  - **Dread Delusion NPCs** (`dread-delusion-ai`, separate channel) is exactly
+    this pattern: workspace rooted in the game folder, an agent per `npc_id`,
+    NPC-facing verbs the agent calls to speak/act in the game, the stay-in-
+    character reminder cadence — the `CODETERM_CONNECTOR.md` scenario realized as
+    a **plugin via host-API**. The fully external scoped-grant connector
+    (`feat/external-connectors`) stays a heavier separate track; the plugin form
+    rides this base. Other instantiations of the same pattern: a sim/robot driver,
+    a service-orchestration brain — anything where agents act in an external world
+    through plugin-defined handles.
 
 ## 6. Data flow
 
@@ -227,6 +267,8 @@ one-shot case of `host.agent.spawn`+`send`+`reap`. Under the hood: the same
   Preprocessor timeout path sends the original text.
 - `host.worker.run` integration: a hidden-pane worker runs a trivial task and its
   report round-trips; `worker_pool` cap respected; `host.agent` resume by `key`.
+- `onAgentCommand` round-trip: a spawned agent invokes a plugin verb, CodeTerm
+  routes it to the handler, and the returned result reaches the agent.
 - Plugin-side (`codeterm-plugins`): LM Studio/preprocessor logic unit-tested via
   `tsx`, like the existing git/bitwarden suites.
 
@@ -262,3 +304,7 @@ umbrella design they share.
    (leaning: design all here, implement incrementally).
 4. **`host.mem` writes** — recall-only now (assumed); NPC "memory" rides
    `host.agent` session persistence + existing mem rather than a plugin write API.
+5. **Agent→plugin verb routing** for `onAgentCommand` — a routed `codeterm <ns>
+   <verb>` CLI namespace the spawned agent calls (assumed; reuses the agent's
+   existing CLI access) vs an injected tool/MCP surface. Also: how the agent is
+   *told* its verbs (task-prompt preamble vs a discovery command).
