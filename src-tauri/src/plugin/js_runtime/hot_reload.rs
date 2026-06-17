@@ -40,6 +40,7 @@ pub struct CapabilityRegistries {
     pub glance: crate::glance::GlanceRegistryHandle,
     pub bubble: crate::bubble::BubbleRegistryHandle,
     pub view: crate::view_host::ViewRegistryHandle,
+    pub chatbackend: crate::chatbackend::ChatBackendRegistryHandle,
 }
 
 /// Live registry of discovered JS plugins. Spawn `start` to begin
@@ -264,6 +265,7 @@ mod tests {
             glance: Arc::new(crate::glance::GlanceRegistry::new()),
             bubble: Arc::new(crate::bubble::BubbleRegistry::new()),
             view: Arc::new(crate::view_host::ViewRegistry::new()),
+            chatbackend: Arc::new(crate::chatbackend::ChatBackendRegistry::new()),
         }
     }
 
@@ -283,6 +285,7 @@ mod tests {
         assert!(Arc::ptr_eq(&held.glance, &caps.glance));
         assert!(Arc::ptr_eq(&held.bubble, &caps.bubble));
         assert!(Arc::ptr_eq(&held.view, &caps.view));
+        assert!(Arc::ptr_eq(&held.chatbackend, &caps.chatbackend));
     }
 
     fn write(path: &std::path::Path, contents: &str) {

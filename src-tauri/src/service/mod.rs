@@ -27,6 +27,8 @@ mod orchestrator;
 mod output;
 mod pane;
 pub mod pane_chat;
+pub mod pane_transport;
+mod pane_transport_chat;
 pub mod pty_io;
 pub mod pty_lifecycle;
 pub mod push;
@@ -122,6 +124,9 @@ pub struct ServiceContext {
     /// Registry of view providers (plugins with `view`). The iframe bridge
     /// (`ct.invoke`) routes here, gated by the plugin's permissions.
     pub view_registry: crate::view_host::ViewRegistryHandle,
+    /// Registry of chatBackend providers (plugins with `chatBackend`). Non-PTY
+    /// panes route their I/O here via the `PaneTransport` seam.
+    pub chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,

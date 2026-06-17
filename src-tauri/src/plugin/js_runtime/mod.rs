@@ -19,6 +19,7 @@
 //! string work plugins do.
 
 mod bubble;
+mod chatbackend;
 mod glance;
 mod host_api;
 mod host_exec;
@@ -34,6 +35,7 @@ mod view;
 mod vm;
 
 pub use bubble::JsBubbleProvider;
+pub use chatbackend::JsChatBackend;
 pub use glance::JsGlanceProvider;
 pub use secret_backend::JsSecretBackend;
 pub use transcriber::JsTranscriber;
