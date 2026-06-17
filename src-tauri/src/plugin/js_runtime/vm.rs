@@ -266,10 +266,7 @@ impl PluginVm {
     /// constructed before `ServiceContext` exists (plan §1.5 F4), so the host
     /// wires this in once the service is built. First write wins; returns
     /// whether this call populated it.
-    pub fn set_service(
-        &self,
-        svc: std::sync::Weak<crate::service::ServiceContext>,
-    ) -> bool {
+    pub fn set_service(&self, svc: std::sync::Weak<crate::service::ServiceContext>) -> bool {
         self.inner.lock().sandbox.set_service(svc)
     }
 
