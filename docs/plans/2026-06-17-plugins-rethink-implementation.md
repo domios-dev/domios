@@ -618,6 +618,14 @@ oracle is a **`call_json` contract test** that loads a fixture JS plugin via
   enqueues and returns a `jobId` sync; `poll(jobId)` reads
   `GraphWorkerRegistry::get` (`mem/workers.rs:208`) / `complete` (`:287`). Reuse
   `worker_pool.acquire` (`workers.rs:404`) + `spawn_pane` (`:449`).
+- **[Track A enrichment] Promise-shaped wrappers in the host preamble.** The SDK
+  types `host.worker/agent/workspace/mem` as `Promise<…>` (so plugin code can
+  `await`), but the QuickJS bind is synchronous (`call_json`). So the JS **host
+  preamble** the loader injects must wrap each of these binds in a resolved
+  `Promise` (the bind itself stays sync + job-id/poll; the wrapper just makes the
+  surface awaitable). Track C owns the preamble change; without it, `await
+  host.agent.send(...)` in a plugin won't typecheck-match the runtime. (Surfaced
+  by the Track A worker — the SDK is type-only, so it can't carry the wrappers.)
 - **`onAgentCommand` routing:** socket dispatch `socket/server/mod.rs:369` is a
   CLOSED prefix `match`; add a `"plugin" =>` arm → new `agent_commands::dispatch`
   (parse `plugin:<id>.<verb>`, check `agent_commands` grant, call the VM's
