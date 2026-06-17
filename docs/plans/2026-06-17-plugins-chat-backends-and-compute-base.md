@@ -49,7 +49,11 @@ When this lands, all of the following are true and are **plugins**:
    tracks per-entity turn stats, and injects guidance (e.g. a stay-in-character
    reminder every Nth turn). The Dread Delusion NPC plugin is one instantiation;
    the pattern is generic (sim/robot/service brains too).
-5. The existing PTY provider path (claude/codex/opencode) is **unchanged** — all
+5. An agent can **discover, install, and configure** any plugin on the user's
+   behalf (`codeterm get plugin <id>` → docs + handles → offer → install +
+   configure). The "no transcriber" voice hint becomes this agent-actionable
+   discovery instead of a human-only "go install it" note.
+6. The existing PTY provider path (claude/codex/opencode) is **unchanged** — all
    additions are additive.
 
 ## 3. Principle
@@ -236,33 +240,81 @@ mix) is pure plugin technique — out of scope for the host.
     a service-orchestration brain — anything where agents act in an external world
     through plugin-defined handles.
 
-## 6. Data flow
+### Cross-cutting — agent-facing plugin surface (MANDATORY for all plugins)
 
-The outbound path is a **phased pipeline of stages**, distinguished by *when*
-they run — because some transforms must produce editable composer content while
-others run transparently at send:
+Plugins are managed **by agents**, not only by humans clicking the Extensions UI.
+So **every** plugin (provider, chatBackend, preprocessor, environment, secret,
+transcriber, …) MUST expose a uniform agent-facing surface — this is a hard
+requirement, not a per-plugin nicety:
 
-- **compose-time stages** (input normalization; result is **editable** before
-  send): e.g. voice→text, image handling. The existing **transcriber** is exactly
-  this — frontend-initiated at the voice attachment (`transcribe_voice_attachment`
-  → `transcribe_registry`), returning a text line the user can edit; the Telegram
-  bridge reuses the same `format_attachment_line`. **This is why it is *not* a
-  send-time hook today.**
-- **send-time stages** (transparent, on the final text): `chatPreprocessor`(s),
-  invoked by the host inside the send seam (`chat_send_text`/`send_text_when_ready`)
-  before the text reaches the transport.
-- **transport:** the built-in PTY path **or** a `chatBackend` plugin.
+1. **Docs the agent can read** — a concise, agent-oriented description: what it
+   is, when to use it, how to install and configure it. Discoverable via a stable
+   command, e.g. `codeterm get plugin <id>` returns the plugin's agent-doc +
+   declared handles + settings schema (whether or not it's installed yet).
+2. **Handles the agent can call** — install (`codeterm plugin install <id>`),
+   configure (write `config.plugins.<id>` against the settings schema), and
+   operate. So an agent can set a plugin up end-to-end on the user's behalf
+   (offer → user confirms → agent installs + configures → done), and **plugins
+   must be agent-configurable**, not UI-only.
 
-So: `compose → [compose-time stages: transcriber, …] → (editable composer) →
-[send-time stages: chatPreprocessor(s)] → transport.send`. A preprocessor is a
-send-time *stage*; the transcriber is a compose-time *stage*; chatBackend is a
-*transport* — one pipeline, three slots (→ converges on C later).
+**Discovery hooks replace dead-end hints.** Where the host today tells a human to
+go install something, it should instead surface an **agent-actionable** pointer.
+Concretely: the voice path's `bridge/voice_transcribe.rs:32` hint ("no
+transcriber installed; install the Transcriber plugin from your channel") becomes
+something like `codeterm get plugin transcribe` — so an agent transcribing for
+the first time learns the plugin exists, offers to install it ("want me to set up
+voice transcription?"), and on yes installs **and configures** it. The transcriber
+is the first example; the requirement is universal.
 
-**Transcriber retrofit (Spec 2):** recast the transcriber as the reference
-compose-time stage of this pipeline (it proves stages handle attachment→text, not
-just text→text), **preserving** its current properties — editable result and the
-Telegram-bridge reuse. Not required to make the preprocessor work; done for a
-single coherent abstraction.
+This is consistent with "CodeTerm bakes nothing into prompts" (§5): the host
+doesn't inject plugin docs into any agent's prompt — it exposes a *discovery
+command + handles*; the agent pulls what it needs, when it needs it.
+
+## 6. Data flow — the outbound message pipeline
+
+**A message is a message.** Sending a voice note is *not* a separate code path —
+it is an outbound message that happens to carry a property (a voice attachment)
+some stage can filter on. The outbound path is therefore **one ordered pipeline
+of stages**; each stage declares a **match filter** (what it grabs) and only acts
+on messages it matches, passing the rest through untouched.
+
+- **Transcriber = a specialized stage** that matches *messages with a voice
+  attachment* and transforms voice→text. It is effectively a "truncated
+  preprocessor": same family, one fixed job. (Today it is the frontend-initiated
+  `transcribe_voice_attachment` → `transcribe_registry`; the bare-message hint
+  lives at `bridge/voice_transcribe.rs:32`.)
+- **Preprocessor = a general stage** that matches *text* and augments it — the
+  more sophisticated, configurable one (mem recall / worker / Groq).
+
+**Ordering follows the chain, and it's why they compose cleanly:** a voice
+message is grabbed by the transcriber (the preprocessor did *not* match it —
+no text yet); the transcriber emits text; *then* the preprocessor matches that
+text and does its thing. So:
+
+```
+message (text | voice | …)
+  → [transcriber stage]  (matches voice → text; result is EDITABLE in composer)
+  → [preprocessor stage] (matches text → augmented text; send-time, transparent)
+  → transport.send  (PTY | chatBackend)
+```
+
+The compose-time/send-time distinction is just *where in the chain* a stage sits:
+the transcriber's output must be editable before send (and the Telegram bridge
+reuses `format_attachment_line`), so it runs at compose-time; the preprocessor
+runs at send-time after the text is final.
+
+**Conflict / race guard (at install).** Two stages whose match filters **overlap
+the same slot** (e.g. two general text-preprocessors) would both grab the same
+message → a race / double-processing. So a stage's match filter is part of its
+manifest, and **on installing a new stage that overlaps an already-installed one,
+CodeTerm warns the user**: "you already have <X> that grabs this; it would run
+twice." Non-overlapping stages are fine — the transcriber (voice) and a text
+preprocessor never collide, they chain. (Open: hard-block vs warn-and-allow.)
+
+**Revisit the transcriber (decided): yes.** It is recast as the reference
+*compose-time stage* of this pipeline — not a bespoke command — proving stages
+handle attachment→text, not just text→text, while **preserving** its editable
+result and Telegram-bridge reuse. Scheduled in Spec 2 (the stage/pipeline spec).
 
 - **Inbound:** `transport (PTY parse | plugin poll) → NormalizedChatMessage →
   ChatView/MessageBubble`.
@@ -340,6 +392,10 @@ umbrella design they share.
    <verb>` CLI namespace the spawned agent calls (decided; reuses the agent's
    existing CLI access) vs an injected tool/MCP surface. Open part is only the
    routing implementation, not the surface.
+6. **Stage conflict handling** — when a newly installed stage's match filter
+   overlaps an existing one, **hard-block** the install vs **warn-and-allow**
+   (assumed: warn-and-allow, let the user decide). Also: how granular the match
+   filter is (message kind: text/voice/image vs a richer predicate).
 
 **Resolved (recorded above, no longer open):**
 - *Verb discovery* — **the plugin's job, not CodeTerm's.** The host bakes nothing
