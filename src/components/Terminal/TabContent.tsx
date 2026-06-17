@@ -1,4 +1,5 @@
 import { TerminalPane } from "./TerminalPane";
+import { PaneSessionChat } from "./PaneSessionChat";
 import { isPaneVisible } from "../MemoryPanel/workerFocusStore";
 import type {
   ApiConfig,
@@ -38,6 +39,19 @@ export function TabContent({
 }: TabContentProps) {
   if (!pane) return null;
   if (!isPaneVisible(pane)) return null;
+
+  // A chatBackend pane has no PTY — render the chat UI directly and never mount
+  // TerminalPane, so its xterm/usePtyConnection hooks never run (Appendix B1.1#6).
+  if (pane.backing?.kind === "chat_backend") {
+    return (
+      <PaneWrapper paneId={pane.id}>
+        <div className="relative w-full h-full" style={{ background: theme.background }}>
+          <PaneSessionChat paneId={pane.id} chatBackend uiFontScale={uiFontScale} />
+        </div>
+        <PluginBubbles cwd={pane.cwd ?? workspaceCwd ?? null} paneId={pane.id} />
+      </PaneWrapper>
+    );
+  }
 
   const usageProvider = pane.agent_type ?? null;
   const usageVisible = !!usageProvider && usageEnabledByProvider?.[usageProvider] === true;

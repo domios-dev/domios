@@ -250,10 +250,14 @@ export function ChatComposer({
   showComposerError,
   onOpenTerminalFallback,
   onToggleTerminalFallback,
+  chatBackend = false,
 }: {
   paneId: string;
   paneProvider: string | null;
   currentPtyId: string | null;
+  /** This pane is backed by a plugin chatBackend (no PTY) — send via the
+   *  pane-level `chat_send_text` instead of writing to a PTY. */
+  chatBackend?: boolean;
   pendingPrompt: PendingPrompt | null;
   terminalHasAttention: boolean;
   attachments: string[];
@@ -555,13 +559,19 @@ export function ChatComposer({
     clearAttachments();
     refocusComposer();
     try {
-      const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
-      if (!currentPtyId) throw new Error("Pane has no PTY");
-      if (fallbackCommand) {
-        onOpenTerminalFallback?.();
-        await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
+      if (chatBackend) {
+        // No PTY — route to the pane send seam, which dispatches to the
+        // plugin's sendMessage (chat_send_text → send_text_when_ready).
+        await invoke("chat_send_text", { paneId, text: composed, enter: true });
       } else {
-        await invoke("write_pty_string", { ptyId: currentPtyId, data: composed + "\r", raw: false });
+        const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
+        if (!currentPtyId) throw new Error("Pane has no PTY");
+        if (fallbackCommand) {
+          onOpenTerminalFallback?.();
+          await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
+        } else {
+          await invoke("write_pty_string", { ptyId: currentPtyId, data: composed + "\r", raw: false });
+        }
       }
     } catch (e) {
       showComposerError(e instanceof Error ? e.message : String(e));
