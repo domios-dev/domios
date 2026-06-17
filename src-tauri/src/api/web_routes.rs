@@ -800,6 +800,13 @@ pub async fn plugin_ui(
         axum::http::header::X_FRAME_OPTIONS,
         axum::http::HeaderValue::from_static("SAMEORIGIN"),
     );
+    // Plugin UIs are rebuilt in place; without this the embedding WebView
+    // (WKWebView) heuristically caches the iframe and serves a stale bundle
+    // after a plugin update — which silently shipped a crashing Git panel.
+    resp.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store, must-revalidate"),
+    );
     Ok(resp)
 }
 
