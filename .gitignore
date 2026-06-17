@@ -22,6 +22,7 @@ src-tauri/bundled-embed-libs/
 .fastembed_cache/
 .superpowers/
 docs/superpowers/
+.DS_Store
 codeterm-cli-macos-*
 .tmp-*.png
 e2e_proof.txt
