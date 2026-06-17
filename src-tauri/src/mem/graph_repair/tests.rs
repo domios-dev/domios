@@ -64,17 +64,25 @@ fn find_duplicate_relations_members_expose_per_rowid_predicate() {
     // runs_on). Grouping by node-pair must surface each member's relation_type so
     // a caller can collapse synonyms (about/applies_to) yet keep the distinct one.
     let conn = fresh_conn();
-    insert_relation(&conn, &rel("topic_x", "about", "machine_y", "2026-01-01T00:00:00Z")).unwrap();
-    insert_relation(&conn, &rel("topic_x", "applies_to", "machine_y", "2026-01-02T00:00:00Z"))
-        .unwrap();
-    insert_relation(&conn, &rel("topic_x", "runs_on", "machine_y", "2026-01-03T00:00:00Z")).unwrap();
-
-    let groups = find_duplicate_relations(
+    insert_relation(
         &conn,
-        &[RelationColumn::FromId, RelationColumn::ToId],
-        100,
+        &rel("topic_x", "about", "machine_y", "2026-01-01T00:00:00Z"),
     )
     .unwrap();
+    insert_relation(
+        &conn,
+        &rel("topic_x", "applies_to", "machine_y", "2026-01-02T00:00:00Z"),
+    )
+    .unwrap();
+    insert_relation(
+        &conn,
+        &rel("topic_x", "runs_on", "machine_y", "2026-01-03T00:00:00Z"),
+    )
+    .unwrap();
+
+    let groups =
+        find_duplicate_relations(&conn, &[RelationColumn::FromId, RelationColumn::ToId], 100)
+            .unwrap();
     assert_eq!(groups.len(), 1);
     let g = &groups[0];
     assert_eq!(g.count, 3);
@@ -1105,16 +1113,31 @@ fn active_rel_types(conn: &Connection, from: &str, to: &str) -> Vec<String> {
 fn collapse_synonym_edges_keeps_one_membership_and_all_distinct() {
     let conn = fresh_conn();
     // Parallel synonyms + a distinct predicate on the same pair.
-    insert_relation(&conn, &rel("topic_x", "about", "machine_y", "2026-01-01T00:00:00Z")).unwrap();
-    insert_relation(&conn, &rel("topic_x", "applies_to", "machine_y", "2026-01-02T00:00:00Z"))
-        .unwrap();
-    insert_relation(&conn, &rel("topic_x", "runs_on", "machine_y", "2026-01-03T00:00:00Z")).unwrap();
+    insert_relation(
+        &conn,
+        &rel("topic_x", "about", "machine_y", "2026-01-01T00:00:00Z"),
+    )
+    .unwrap();
+    insert_relation(
+        &conn,
+        &rel("topic_x", "applies_to", "machine_y", "2026-01-02T00:00:00Z"),
+    )
+    .unwrap();
+    insert_relation(
+        &conn,
+        &rel("topic_x", "runs_on", "machine_y", "2026-01-03T00:00:00Z"),
+    )
+    .unwrap();
     // A different pair with a single membership edge — must be left alone.
     insert_relation(&conn, &rel("a", "about", "b", "2026-01-01T00:00:00Z")).unwrap();
 
     let dry = collapse_synonym_edges(&conn, true, "dreamer").unwrap();
     assert!(dry.dry_run);
-    assert_eq!(dry.orphan_ids.len(), 1, "one redundant membership edge flagged");
+    assert_eq!(
+        dry.orphan_ids.len(),
+        1,
+        "one redundant membership edge flagged"
+    );
 
     let rep = collapse_synonym_edges(&conn, false, "dreamer").unwrap();
     assert_eq!(rep.deleted, 1);
@@ -1151,9 +1174,36 @@ fn prune_dream_hub_edges_drops_backlinks_keeps_anchor() {
         [],
     ).unwrap();
     // Noise backlink into a hub + the legit dreams-anchor link.
-    insert_relation(&conn, &rel("daily_dream_x", "analyzes", "project_aurora", "2026-01-01T00:00:00Z")).unwrap();
-    insert_relation(&conn, &rel("daily_dream_x", "applies_to", "project_aurora", "2026-01-02T00:00:00Z")).unwrap();
-    insert_relation(&conn, &rel("daily_dream_x", "belongs_to", "project_dreams", "2026-01-03T00:00:00Z")).unwrap();
+    insert_relation(
+        &conn,
+        &rel(
+            "daily_dream_x",
+            "analyzes",
+            "project_aurora",
+            "2026-01-01T00:00:00Z",
+        ),
+    )
+    .unwrap();
+    insert_relation(
+        &conn,
+        &rel(
+            "daily_dream_x",
+            "applies_to",
+            "project_aurora",
+            "2026-01-02T00:00:00Z",
+        ),
+    )
+    .unwrap();
+    insert_relation(
+        &conn,
+        &rel(
+            "daily_dream_x",
+            "belongs_to",
+            "project_dreams",
+            "2026-01-03T00:00:00Z",
+        ),
+    )
+    .unwrap();
 
     let rep = prune_dream_hub_edges(&conn, false, "dreamer").unwrap();
     assert_eq!(rep.deleted, 2, "both hub backlinks invalidated");
