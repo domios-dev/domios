@@ -49,7 +49,7 @@ const claudeMessages: NormalizedChatMessage[] = [
       "| Command | Status |",
       "| --- | --- |",
       "| `codeterm pane list` | documented |",
-      "| `codeterm send-text` | documented |",
+      "| `codeterm send` | documented |",
       "",
       "See [CodeTerm docs](https://example.test/claude-docs).",
       "",
@@ -77,11 +77,11 @@ const claudeMessages: NormalizedChatMessage[] = [
     toolName: "Bash",
     toolId: "toolu_claude_1",
     toolInput: {
-      command: "rg \"codeterm send-text\" docs",
+      command: "rg \"codeterm send\" docs",
       description: "Find reporting docs",
     },
-    toolArgs: "rg \"codeterm send-text\" docs",
-    content: "rg \"codeterm send-text\" docs",
+    toolArgs: "rg \"codeterm send\" docs",
+    content: "rg \"codeterm send\" docs",
   },
   {
     id: "claude-tool-result-1",
@@ -99,7 +99,7 @@ const claudeMessages: NormalizedChatMessage[] = [
     toolId: "toolu_claude_2",
     toolInput: {
       file_path: "docs/API.md",
-      content: "## CLI\n\nReport with codeterm send-text.\n",
+      content: "## CLI\n\nReport with codeterm send.\n",
     },
     toolArgs: '{"file_path":"docs/API.md"}',
   },

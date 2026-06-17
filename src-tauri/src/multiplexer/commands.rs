@@ -305,7 +305,6 @@ pub fn build_agent_launch_command(
             Some(model_args)
         },
         skip_permissions,
-        headless: false,
         session_id: None,
     };
     svc.agent_registry

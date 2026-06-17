@@ -18,6 +18,7 @@ import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TelegramIcon, TerminalIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import type { Pane, PaneStatus, Tab } from "../../lib/types";
+import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 
 interface TabItemProps {
   tab: Tab;
@@ -36,6 +37,7 @@ interface TabItemProps {
   isAppearing?: boolean;
   isClosing?: boolean;
   touchMode?: boolean;
+  uiFontScale?: number;
 }
 
 export function TabItem({
@@ -54,6 +56,7 @@ export function TabItem({
   isAppearing,
   isClosing,
   touchMode = false,
+  uiFontScale,
 }: TabItemProps) {
   const agentProvider = getAgentProvider(pane?.agent_type);
   const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
@@ -71,6 +74,8 @@ export function TabItem({
   };
   const [chatView, setChatView] = useState(() => resolveChatView(pane));
   const tabRef = useRef<HTMLDivElement>(null);
+  const tabText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
+  const tabTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
 
   useEffect(() => {
     if (!pane) {
@@ -213,11 +218,11 @@ export function TabItem({
                 setEditing(false);
               }
             }}
-            className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
+            className={`${tabText} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none`}
           />
         ) : (
           <span
-            className={`${touchMode ? "text-[14px]" : "text-xs"} truncate ${isActive ? "font-medium" : ""}`}
+            className={`${touchMode ? tabTouchText : tabText} truncate ${isActive ? "font-medium" : ""}`}
             onDoubleClick={(e) => {
               if (pane?.protected) return; // Main is unrenameable
               e.stopPropagation();

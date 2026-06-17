@@ -342,7 +342,6 @@ pub fn start_general_agent(
             task: None,
             args: None,
             skip_permissions: true,
-            headless: false,
             session_id: pre_session_id,
         };
         match svc

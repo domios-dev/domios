@@ -285,6 +285,9 @@ pub fn build_session(
     }
 
     cmd.env_remove("CLAUDECODE");
+    // Claude 2.1.x treats these as "I'm a sub-session" and writes no transcript — strip so a pane's claude is a real top-level session.
+    cmd.env_remove("CLAUDE_CODE_SESSION_ID");
+    cmd.env_remove("CLAUDE_CODE_CHILD_SESSION");
     cmd.env_remove("NO_COLOR");
 
     let child = pair

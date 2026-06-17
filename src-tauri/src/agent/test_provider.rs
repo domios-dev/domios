@@ -49,23 +49,4 @@ impl AgentProvider for MockProvider {
     fn detect_session_id(&self, _cwd: &str, _exclude: &[String], _max_age: Option<Duration>) -> Option<String> {
         None
     }
-    fn detect_launched_session_id(
-        &self,
-        _cwd: &str,
-        _exclude: &[String],
-        _max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-    ) -> Option<String> {
-        injected_session_id.map(|s| s.to_string())
-    }
-    fn detect_started_session(
-        &self,
-        _cwd: &str,
-        _exclude: &[String],
-        _max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-        _screen_text: Option<&str>,
-    ) -> Option<String> {
-        injected_session_id.map(|s| s.to_string())
-    }
 }

@@ -90,23 +90,10 @@ module.exports.default = {
   buildLaunchCommand: function (params) {
     var p = params || {};
     var parts = [];
-    if (p.headless && p.task) {
-      parts.push("codex");
-      parts.push("exec");
-      parts.push("--dangerously-bypass-hook-trust");
-      if (p.skipPermissions) {
-        parts.push("--dangerously-bypass-approvals-and-sandbox");
-      }
-      parts.push("-c");
-      parts.push("'shell_environment_policy.inherit=all'");
-      parts.push("--skip-git-repo-check");
-      parts.push(host.shell.quote(p.task));
-    } else {
-      parts.push("codex");
-      parts.push("--dangerously-bypass-hook-trust");
-      if (p.skipPermissions) {
-        parts.push("--dangerously-bypass-approvals-and-sandbox");
-      }
+    parts.push("codex");
+    parts.push("--dangerously-bypass-hook-trust");
+    if (p.skipPermissions) {
+      parts.push("--dangerously-bypass-approvals-and-sandbox");
     }
     if (p.args && p.args.length > 0) {
       // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
@@ -242,10 +229,20 @@ module.exports.default = {
       Array.isArray(arr) &&
       arr.some(hasCodetermCodexWindowsCommand)
     );
+    // A hook lacking the binding-nonce header is pre-nonce → not current, so startup reinstalls it.
+    var nonceOk = host.platform() === "windows"
+      ? (!!codexWindowsHookScriptPath() && host.fs.fileExists(codexWindowsHookScriptPath()) &&
+         String(host.fs.readFile(codexWindowsHookScriptPath()) || "").indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1)
+      : (Array.isArray(arr) && arr.some(function (entry) {
+          var hk = entry && entry.hooks;
+          return Array.isArray(hk) && hk.some(function (h) {
+            return h && String(h.command || "").indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1;
+          });
+        }));
     return {
       hooks_file_exists: true,
-      hooks_installed: installed && windowsReady,
-      session_start_hook: installed && windowsReady,
+      hooks_installed: installed && windowsReady && nonceOk,
+      session_start_hook: installed && windowsReady && nonceOk,
     };
   },
 
@@ -264,10 +261,12 @@ module.exports.default = {
     var port = apiPort | 0;
     var portExpr = "${CODETERM_API_PORT:-" + port + "}";
     var authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
+    var nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
     var cmd = "curl -s -X POST http://localhost:" + portExpr
       + "/api/panes/$CODETERM_PANE_ID/hook/session_start "
       + "-H 'Content-Type: application/json' "
       + "-H 'X-CodeTerm-Agent-Provider: codex' "
+      + nonceH + " "
       + authH
       + " --data-binary @- > " + nullDev + " 2>&1 || true";
     var scriptPath = codexWindowsHookScriptPath();
@@ -486,6 +485,9 @@ var codexWindowsHookScript = function (apiPort) {
     "$headers = @{",
     '  "Content-Type" = "application/json"',
     '  "X-CodeTerm-Agent-Provider" = "codex"',
+    "}",
+    "if ($env:CODETERM_SESSION_BINDING_NONCE) {",
+    '  $headers["X-CodeTerm-Binding-Nonce"] = $env:CODETERM_SESSION_BINDING_NONCE',
     "}",
     "if ($env:CODETERM_API_TOKEN) {",
     '  $headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',

@@ -141,6 +141,8 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         status: CronRunStatus::Running,
         pane_id: None,
         tab_id: None,
+        session_id: None,
+        cwd: None,
     };
     {
         let mut store = cron_state.lock();

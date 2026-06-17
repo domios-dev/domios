@@ -48,6 +48,7 @@ impl MultiplexerState {
                 depth: pane.map(|p| p.depth).unwrap_or(0),
                 chat_view: pane.map(|p| p.chat_view),
                 auto_approve: pane.map(|p| p.auto_approve).unwrap_or(false),
+                agent_session_model: pane.and_then(|p| p.agent_session_model.clone()),
             }
         }
 
@@ -131,6 +132,7 @@ impl MultiplexerState {
                 depth,
                 chat_view,
                 auto_approve,
+                agent_session_model,
             } = leaf
             else {
                 return None;
@@ -184,7 +186,8 @@ impl MultiplexerState {
                     agent_type_locked: restored_locked,
                     agent_session_id: restored_session_id,
                     agent_session_name: None,
-                    agent_session_model: None,
+                    agent_session_model: agent_session_model.clone(),
+                    session_binding_nonce: None,
                     role: parsed_role,
                     parent_pane_id: parent_pane_id.clone(),
                     can_spawn: *can_spawn,
@@ -198,6 +201,7 @@ impl MultiplexerState {
                     protected: false,
                     connected_services: vec![],
                     agent_set_at: None,
+                    exit_suspected_at: None,
                     agent_booting: false,
                     hidden: false,
                     show_in_tabbar: true,

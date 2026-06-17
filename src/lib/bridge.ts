@@ -137,6 +137,11 @@ const HTTP_MAP: Record<string, Mapper> = {
       before_offset: a.beforeOffset,
       max_bytes: a.maxBytes,
     }),
+  session_transcript: (a) =>
+    webJson(
+      "GET",
+      `/api/sessions/transcript?provider=${enc(s(a, "provider"))}&cwd=${enc(s(a, "cwd"))}&session_id=${enc(s(a, "sessionId"))}`,
+    ),
   chat_send_text: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/send`, {
       text: a.text,

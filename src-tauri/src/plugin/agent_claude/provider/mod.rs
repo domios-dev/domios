@@ -64,7 +64,8 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn session_id_injection(&self) -> SessionIdInjection {
-        SessionIdInjection::FreshAndFork
+        // Claude Code 2.1.x writes no transcript for a fresh interactive --session-id launch — let it pick its own id, we detect it after launch.
+        SessionIdInjection::None
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
@@ -136,38 +137,6 @@ impl AgentProvider for ClaudeProvider {
         max_age: Option<Duration>,
     ) -> Option<String> {
         sessions::detect_session_id(cwd, exclude, max_age)
-    }
-
-    fn detect_launched_session_id(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-    ) -> Option<String> {
-        if let Some(session_id) = injected_session_id {
-            if self.session_exists(cwd, session_id) {
-                return Some(session_id.to_string());
-            }
-        }
-        sessions::detect_session_id(cwd, exclude, max_age)
-    }
-
-    fn detect_started_session(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-        screen_text: Option<&str>,
-    ) -> Option<String> {
-        self.detect_started_session_with_markers(
-            cwd,
-            exclude,
-            max_age,
-            injected_session_id,
-            screen_text,
-        )
     }
 
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
@@ -397,11 +366,12 @@ mod tests {
     }
 
     #[test]
-    fn test_session_id_injection_supported_for_claude() {
+    fn test_claude_does_not_inject_session_id() {
+        // Claude 2.1.x drops the transcript when --session-id is passed to a fresh interactive launch; we detect the id instead.
         let p = ClaudeProvider::new();
         assert_eq!(
             p.session_id_injection(),
-            crate::agent::provider::SessionIdInjection::FreshAndFork
+            crate::agent::provider::SessionIdInjection::None
         );
     }
 

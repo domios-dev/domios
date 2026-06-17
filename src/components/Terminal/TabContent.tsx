@@ -15,12 +15,13 @@ interface TabContentProps {
   isFocused: boolean;
   onFocusPane: (paneId: string) => void;
   onPtySpawned: (paneId: string, ptyId: string) => void;
-  theme?: ThemeConfig;
+  theme: ThemeConfig;
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
   usageEnabledByProvider?: Record<string, boolean>;
   api?: ApiConfig;
   workspaceCwd?: string | null;
+  uiFontScale?: number;
 }
 
 export function TabContent({
@@ -33,6 +34,7 @@ export function TabContent({
   terminalConfig,
   usageEnabledByProvider,
   workspaceCwd,
+  uiFontScale,
 }: TabContentProps) {
   if (!pane) return null;
   if (!isPaneVisible(pane)) return null;
@@ -42,7 +44,7 @@ export function TabContent({
 
   return (
     <PaneWrapper paneId={pane.id}>
-      <div className="relative w-full h-full" style={{ background: theme?.background ?? "transparent" }}>
+      <div className="relative w-full h-full" style={{ background: theme.background }}>
         <TerminalPane
           key={pane.id}
           paneId={pane.id}
@@ -54,6 +56,7 @@ export function TabContent({
           theme={theme}
           fontConfig={fontConfig}
           terminalConfig={terminalConfig}
+          uiFontScale={uiFontScale}
         />
       </div>
       {/* Tab chrome, not focus chrome — the tab is only visible when active. */}

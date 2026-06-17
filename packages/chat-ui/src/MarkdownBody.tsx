@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import { looksLikeMermaidSource } from "./MermaidBlock";
+import { pickUiFontScaleValue } from "./uiFontScale";
 
 export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
 
@@ -25,19 +26,22 @@ function resolveCodeLanguage(className: string | undefined, children: unknown): 
   return looksLikeMermaidSource(source) ? "mermaid" : null;
 }
 
-export function RichMarkdown({ text }: { text: string }) {
+export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: number }) {
+  const h1Text = pickUiFontScaleValue(fontScale, ["text-sm", "text-base", "text-lg", "text-xl"]);
+  const h2Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
+  const h3Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
         h1: ({ node: _node, ...props }) => (
-          <h1 className="text-base font-bold mt-3 mb-1" style={{ color: "var(--ct-fg)" }} {...props} />
+          <h1 className={`${h1Text} font-bold mt-3 mb-1`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
         h2: ({ node: _node, ...props }) => (
-          <h2 className="text-sm font-semibold mt-2 mb-1" style={{ color: "var(--ct-fg)" }} {...props} />
+          <h2 className={`${h2Text} font-semibold mt-2 mb-1`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
         h3: ({ node: _node, ...props }) => (
-          <h3 className="text-sm font-medium mt-1.5 mb-0.5" style={{ color: "var(--ct-fg)" }} {...props} />
+          <h3 className={`${h3Text} font-medium mt-1.5 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
         p: ({ node: _node, ...props }) => <p className={`my-1 ${TEXT_WRAP_CLASS}`} {...props} />,
         ul: ({ node: _node, ...props }) => <ul className="list-disc ml-5 my-1" {...props} />,

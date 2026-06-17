@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "1.4.5"
+version = "1.4.6"
 edition = "2021"
 default-run = "codeterm"
 
@@ -84,6 +84,7 @@ dev-updater-allowlocal = []
 # macOS uses the system Accelerate framework for the annembed LAPACK path.
 [target.'cfg(target_os = "macos")'.dependencies]
 annembed = { version = "0.1.6", optional = true, default-features = false, features = ["macos-accelerate"] }
+libc = "0.2"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
 objc2-foundation = "0.3"

@@ -433,25 +433,6 @@ mod tests {
         ) -> Option<String> {
             None
         }
-        fn detect_launched_session_id(
-            &self,
-            _: &str,
-            _: &[String],
-            _: Option<std::time::Duration>,
-            _: Option<&str>,
-        ) -> Option<String> {
-            None
-        }
-        fn detect_started_session(
-            &self,
-            _: &str,
-            _: &[String],
-            _: Option<std::time::Duration>,
-            _: Option<&str>,
-            _: Option<&str>,
-        ) -> Option<String> {
-            None
-        }
         fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
             None
         }
@@ -689,36 +670,6 @@ mod tests {
             _: Option<std::time::Duration>,
         ) -> Option<String> {
             None
-        }
-        fn detect_launched_session_id(
-            &self,
-            cwd: &str,
-            exclude: &[String],
-            max_age: Option<std::time::Duration>,
-            injected_session_id: Option<&str>,
-        ) -> Option<String> {
-            if let Some(sid) = injected_session_id {
-                if self.session_exists(cwd, sid) {
-                    return Some(sid.to_string());
-                }
-            }
-            self.detect_session_id(cwd, exclude, max_age)
-        }
-        fn detect_started_session(
-            &self,
-            cwd: &str,
-            exclude: &[String],
-            max_age: Option<std::time::Duration>,
-            injected_session_id: Option<&str>,
-            screen_text: Option<&str>,
-        ) -> Option<String> {
-            self.detect_started_session_with_markers(
-                cwd,
-                exclude,
-                max_age,
-                injected_session_id,
-                screen_text,
-            )
         }
         fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
             None

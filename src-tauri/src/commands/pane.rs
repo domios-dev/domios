@@ -378,6 +378,25 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
 }
 
 #[tauri::command]
+pub fn session_transcript(
+    svc: tauri::State<'_, ServiceState>,
+    provider: String,
+    cwd: String,
+    session_id: String,
+) -> Result<ChatStartResult, String> {
+    let (messages, _total) =
+        crate::service::pane_chat::session_chat_snapshot(&svc, &provider, &cwd, &session_id, 0)?;
+    Ok(ChatStartResult {
+        text: String::new(),
+        start_offset: 0,
+        offset: 0,
+        pending: false,
+        messages: Some(messages),
+        cursor: None,
+    })
+}
+
+#[tauri::command]
 pub async fn chat_stop(svc: tauri::State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
     svc.chat_registry.stop(&pane_id);
     Ok(())

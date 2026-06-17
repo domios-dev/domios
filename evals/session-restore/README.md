@@ -32,7 +32,7 @@ Fixes (PR #54):
   the fresh-launch does NOT race the orchestrator's own launch on a
   freshly spawned pane.
 - `send_text` retries `resolve_pty_id` for up to 15s so scripts can
-  chain `agent spawn → send-text` without hitting a "no PTY" race.
+  chain `agent spawn → send` without hitting a "no PTY" race.
 
 ## Layers tested
 

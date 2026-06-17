@@ -938,6 +938,124 @@ fn repair_orphan_vectors_no_orphans_is_noop() {
     assert_eq!(audits, 0, "no orphans → no audit row");
 }
 
+fn insert_item_inline(conn: &Connection, id: &str, body: &str) {
+    conn.execute(
+        "INSERT INTO mem_items (id, uid, kind, scope, title, body_inline, created_at, updated_at, accessed_at, importance)
+         VALUES (?1, ?1, 'note', 'global', 'title', ?2, '2026-01-01', '2026-01-01', '2026-01-01', 0.0)",
+        rusqlite::params![id, body],
+    )
+    .unwrap();
+}
+
+#[test]
+fn prune_thin_vectors_deletes_only_thin_keeps_thick() {
+    let conn = fresh_conn();
+    conn.execute_batch("CREATE TABLE mem_vectors (mem_id TEXT, embedding BLOB)")
+        .unwrap();
+
+    // Thick: a real, substantive body — its vector is GOOD and must survive.
+    insert_item_inline(
+        &conn,
+        "fact_thick",
+        "A genuinely meaningful body with real content worth searching.",
+    );
+    // Thin: empty and title-only-ish bodies — their vectors are noise.
+    insert_item_inline(&conn, "fact_empty", "");
+    insert_item_inline(&conn, "fact_short", "hi");
+    // Blob-backed: large body lives on disk (body_inline NULL) — never thin.
+    conn.execute(
+        "INSERT INTO mem_items (id, uid, kind, scope, title, body_blob_path, created_at, updated_at, accessed_at, importance)
+         VALUES ('fact_blob','fact_blob','note','global','t','sha256_x.txt','2026-01-01','2026-01-01','2026-01-01',0.0)",
+        [],
+    ).unwrap();
+
+    conn.execute(
+        "INSERT INTO mem_vectors VALUES
+            ('fact_thick', X''),
+            ('fact_thick_chunk_1', X''),
+            ('fact_empty', X''),
+            ('fact_short', X''),
+            ('fact_blob', X'')",
+        [],
+    )
+    .unwrap();
+
+    let dry = prune_thin_vectors(&conn, true, "dreamer").unwrap();
+    assert!(dry.dry_run);
+    assert_eq!(dry.deleted, 0);
+    // Only the two thin items (+none of thick/blob) are flagged.
+    assert_eq!(dry.orphan_ids.len(), 2, "got {:?}", dry.orphan_ids);
+    assert!(dry.orphan_ids.contains(&"fact_empty".to_string()));
+    assert!(dry.orphan_ids.contains(&"fact_short".to_string()));
+    assert!(
+        !dry.orphan_ids.contains(&"fact_thick".to_string()),
+        "thick (good) vector must never be flagged"
+    );
+    assert!(!dry.orphan_ids.contains(&"fact_blob".to_string()));
+
+    let report = prune_thin_vectors(&conn, false, "dreamer").unwrap();
+    assert_eq!(report.deleted, 2);
+
+    let surviving: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT mem_id FROM mem_vectors ORDER BY mem_id")
+            .unwrap();
+        let rows: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        rows
+    };
+    assert_eq!(
+        surviving,
+        vec![
+            "fact_blob".to_string(),
+            "fact_thick".to_string(),
+            "fact_thick_chunk_1".to_string()
+        ],
+        "thick body, its chunk, and the blob-backed vector must all survive"
+    );
+
+    // Items themselves are never deleted — only the vector rows.
+    let item_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM mem_items", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(item_count, 4, "no mem_item deleted by vector pruning");
+
+    let (count, actor): (i64, String) = conn
+        .query_row(
+            "SELECT count, actor FROM graph_purge_log ORDER BY id DESC LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(count, 2);
+    assert_eq!(actor, "dreamer");
+}
+
+#[test]
+fn prune_thin_vectors_noop_when_all_thick() {
+    let conn = fresh_conn();
+    conn.execute_batch("CREATE TABLE mem_vectors (mem_id TEXT, embedding BLOB)")
+        .unwrap();
+    insert_item_inline(
+        &conn,
+        "fact_a",
+        "Plenty of real searchable content lives in this body.",
+    );
+    conn.execute("INSERT INTO mem_vectors VALUES ('fact_a', X'')", [])
+        .unwrap();
+
+    let report = prune_thin_vectors(&conn, false, "dreamer").unwrap();
+    assert_eq!(report.deleted, 0);
+    assert!(report.orphan_ids.is_empty());
+    let remaining: i64 = conn
+        .query_row("SELECT COUNT(*) FROM mem_vectors", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(remaining, 1, "good vector untouched");
+}
+
 #[test]
 fn repair_orphan_blobs_finds_unreferenced_files() {
     let conn = fresh_conn();

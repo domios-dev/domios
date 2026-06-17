@@ -206,7 +206,6 @@ fn build_relaunch_command(
             task: None,
             args: None,
             skip_permissions: auto_approve,
-            headless: false,
             session_id: None,
         })
     })
