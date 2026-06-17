@@ -84,9 +84,10 @@ declare const host: Host;
 
 async function exercise() {
   // worker: non-blocking start → poll (F4), not blocking run.
-  const { jobId } = await host.worker.start({ task: "do it", timeoutMs: 1000 });
+  const { jobId } = await host.worker.start({ task: "do it" });
   const w = await host.worker.poll(jobId);
   if (w.done) void w.report;
+  void w.error;
 
   // workspace: ensure + panes — SYNCHRONOUS (cheap mux ops, no agent turn).
   const { workspaceId } = host.workspace.ensure({ name: "ws" });
@@ -108,6 +109,7 @@ async function exercise() {
   const { ticket } = await host.agent.send(sessionId, "hello");
   const reply = await host.agent.poll(ticket);
   if (reply.done) void reply.reply;
+  void reply.error;
   const usage: UsageSnapshot | null = host.agent.usage
     ? await host.agent.usage(sessionId)
     : null;
