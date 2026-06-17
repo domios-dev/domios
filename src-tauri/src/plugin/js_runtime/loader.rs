@@ -174,16 +174,16 @@ fn compute_sandbox(
     let settings_json =
         crate::plugin::js_runtime::plugin_config::resolve_settings_json(bundle_dir, &manifest.id);
 
+    // Effective perms = manifest request OR the user's persisted grants (§1.10
+    // grant persistence): a user-edited grant/revocation in the per-plugin dir
+    // survives and is what the host actually enforces.
+    let mut perms = manifest.permissions.clone();
+    crate::plugin::js_runtime::grants::apply_persisted(&mut perms, bundle_dir);
+
     // Stamp identity (for the per-plugin secret bucket) + host_api v2 allowlists
     // onto every path, including unrestricted/dev.
-    base.with_identity_and_perms(
-        &manifest.id,
-        manifest.permissions.subprocess.allow.clone(),
-        manifest.permissions.network.allow.clone(),
-        manifest.permissions.secrets,
-        manifest.permissions.agent_commands,
-    )
-    .with_settings(settings_json)
+    base.with_identity_and_perms(&manifest.id, &perms)
+        .with_settings(settings_json)
 }
 
 /// Gate a third-party drop-in against the host contract before it loads.

@@ -43,14 +43,24 @@ fn sandbox_restricted_scopes_fs_and_blocks_secret_env() {
 
 #[test]
 fn host_api_v2_gating_by_allowlist() {
+    use crate::plugin::js_runtime::manifest::{
+        NetworkPermission, PermissionsConfig, SubprocessPermission,
+    };
     // Restricted plugin with a narrow grant.
-    let sb = PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms(
-        "myplug",
-        vec!["bw".into()],
-        vec!["127.0.0.1:7891".into()],
-        true,
-        true,
-    );
+    let perms = PermissionsConfig {
+        subprocess: SubprocessPermission {
+            allow: vec!["bw".into()],
+        },
+        network: NetworkPermission {
+            allow: vec!["127.0.0.1:7891".into()],
+        },
+        secrets: true,
+        agent_commands: true,
+        manage_workspaces: true,
+        spawn_agents: true,
+        ..Default::default()
+    };
+    let sb = PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms("myplug", &perms);
     assert_eq!(sb.plugin_id(), "myplug");
     // exec: only the allowlisted binary.
     assert!(sb.can_exec("bw"));
@@ -61,27 +71,28 @@ fn host_api_v2_gating_by_allowlist() {
     assert!(!sb.can_reach("evil.example.com"));
     assert!(sb.secrets_allowed());
     assert!(sb.agent_commands_allowed());
+    assert!(sb.manage_workspaces_allowed());
+    assert!(sb.spawn_agents_allowed());
 
     // Restricted plugin with NO grants → everything denied.
-    let none = PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms(
-        "p2",
-        vec![],
-        vec![],
-        false,
-        false,
-    );
+    let none = PluginSandbox::restricted(vec![], vec![])
+        .with_identity_and_perms("p2", &PermissionsConfig::default());
     assert!(!none.can_exec("bw"));
     assert!(!none.can_reach("127.0.0.1:7891"));
     assert!(!none.secrets_allowed());
     assert!(!none.agent_commands_allowed());
+    assert!(!none.manage_workspaces_allowed());
+    assert!(!none.spawn_agents_allowed());
 
     // Unrestricted (bundled/dev) → everything allowed regardless of lists.
     let full =
-        PluginSandbox::unrestricted().with_identity_and_perms("sys", vec![], vec![], false, false);
+        PluginSandbox::unrestricted().with_identity_and_perms("sys", &PermissionsConfig::default());
     assert!(full.can_exec("anything"));
     assert!(full.can_reach("anywhere"));
     assert!(full.secrets_allowed());
     assert!(full.agent_commands_allowed());
+    assert!(full.manage_workspaces_allowed());
+    assert!(full.spawn_agents_allowed());
     assert_eq!(full.plugin_id(), "sys");
 }
 

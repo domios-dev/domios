@@ -252,6 +252,18 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         {
             granted.push("agent_commands");
         }
+        if p.get("manageWorkspaces")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            granted.push("manage_workspaces");
+        }
+        if p.get("spawnAgents")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            granted.push("spawn_agents");
+        }
     }
     let settings_schema = m
         .get("settingsSchema")

@@ -96,6 +96,10 @@ pub(super) struct PluginSandbox {
     /// Whether the plugin holds the `agent_commands` grant — gates routing of a
     /// spawned agent's `codeterm plugin <id> <verb>` to its `onAgentCommand`.
     agent_commands_allowed: bool,
+    /// Whether `host.workspace*` is permitted (`manage_workspaces` grant).
+    manage_workspaces_allowed: bool,
+    /// Whether `host.agent*` is permitted (`spawn_agents` grant).
+    spawn_agents_allowed: bool,
     /// The plugin's own settings blob (`config.plugins.<id>`), as JSON. Returned
     /// by `host.settingsJson()` so a plugin reads its user-configured settings
     /// instead of env hacks. Defaults to `"null"`.
@@ -119,6 +123,8 @@ impl PluginSandbox {
             net_allow: Vec::new(),
             secrets_allowed: true,
             agent_commands_allowed: true,
+            manage_workspaces_allowed: true,
+            spawn_agents_allowed: true,
             settings_json: "null".to_string(),
             svc: LateRef::new(),
         }
@@ -134,27 +140,29 @@ impl PluginSandbox {
             net_allow: Vec::new(),
             secrets_allowed: false,
             agent_commands_allowed: false,
+            manage_workspaces_allowed: false,
+            spawn_agents_allowed: false,
             settings_json: "null".to_string(),
             svc: LateRef::new(),
         }
     }
 
-    /// Stamp the plugin identity + declared host_api-v2 permissions onto a base
-    /// sandbox. Unrestricted plugins keep full exec/net/secrets; restricted ones
-    /// get exactly what their manifest declares.
+    /// Stamp the plugin identity + its *effective* permissions onto a base
+    /// sandbox. Unrestricted plugins keep full access; restricted ones get
+    /// exactly what `perms` grants — which the loader computes as the manifest
+    /// request OR the user's persisted grants (§1.10 grant persistence).
     pub(super) fn with_identity_and_perms(
         mut self,
         plugin_id: &str,
-        exec_allow: Vec<String>,
-        net_allow: Vec<String>,
-        secrets: bool,
-        agent_commands: bool,
+        perms: &super::manifest::PermissionsConfig,
     ) -> Self {
         self.plugin_id = plugin_id.to_string();
-        self.exec_allow = exec_allow;
-        self.net_allow = net_allow;
-        self.secrets_allowed = self.unrestricted || secrets;
-        self.agent_commands_allowed = self.unrestricted || agent_commands;
+        self.exec_allow = perms.subprocess.allow.clone();
+        self.net_allow = perms.network.allow.clone();
+        self.secrets_allowed = self.unrestricted || perms.secrets;
+        self.agent_commands_allowed = self.unrestricted || perms.agent_commands;
+        self.manage_workspaces_allowed = self.unrestricted || perms.manage_workspaces;
+        self.spawn_agents_allowed = self.unrestricted || perms.spawn_agents;
         self
     }
 
@@ -188,6 +196,16 @@ impl PluginSandbox {
     /// Whether the plugin holds the `agent_commands` grant (inverse-seam routing).
     pub(super) fn agent_commands_allowed(&self) -> bool {
         self.agent_commands_allowed
+    }
+
+    /// Whether the plugin may create/manage workspaces (`host.workspace*`).
+    pub(super) fn manage_workspaces_allowed(&self) -> bool {
+        self.manage_workspaces_allowed
+    }
+
+    /// Whether the plugin may spawn/drive agents (`host.agent*`).
+    pub(super) fn spawn_agents_allowed(&self) -> bool {
+        self.spawn_agents_allowed
     }
 
     /// Attach the plugin's settings blob (`config.plugins.<id>` as JSON).
