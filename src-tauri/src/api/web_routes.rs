@@ -759,14 +759,6 @@ pub async fn plugin_ui(
     axum::extract::Path((id, path)): axum::extract::Path<(String, String)>,
     Query(q): Query<PluginUiQuery>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
-    let ok = q
-        .token
-        .as_deref()
-        .map(|t| validate_manifest_token(&state, t).unwrap_or(false))
-        .unwrap_or(false);
-    if !ok {
-        return Err((StatusCode::UNAUTHORIZED, "bad or missing token".into()));
-    }
     let dir = crate::view_host::plugin_ui_dir(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no ui for plugin '{id}'")))?;
     let rel = if path.is_empty() {
@@ -776,6 +768,18 @@ pub async fn plugin_ui(
     };
     if rel.contains("..") {
         return Err((StatusCode::BAD_REQUEST, "path traversal".into()));
+    }
+    // Token-gate only the HTML entry (it carries the nonce + bridge); the iframe loads
+    // the content-hashed assets it references via <script src> with no token.
+    if rel.ends_with(".html") {
+        let ok = q
+            .token
+            .as_deref()
+            .map(|t| validate_manifest_token(&state, t).unwrap_or(false))
+            .unwrap_or(false);
+        if !ok {
+            return Err((StatusCode::UNAUTHORIZED, "bad or missing token".into()));
+        }
     }
     let file = dir.join(rel);
     let bytes =
