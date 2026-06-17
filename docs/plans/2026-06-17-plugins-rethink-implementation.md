@@ -656,6 +656,22 @@ oracle is a **`call_json` contract test** that loads a fixture JS plugin via
   surface awaitable). Track C owns the preamble change; without it, `await
   host.agent.send(...)` in a plugin won't typecheck-match the runtime. (Surfaced
   by the Track A worker — the SDK is type-only, so it can't carry the wrappers.)
+- **[DECISION — sync/async host.* split, from Track E] CORRECTS the bullet above.**
+  A send-path stage (`chatPreprocess`) is a **synchronous** VM call — QuickJS has no
+  event loop mid-call, so it cannot `await`. Therefore the split is:
+  - **SYNC binds** (block-then-return; callable directly inside a sync stage):
+    `host.fs`, `host.exec`, `host.fetch`, `host.secret*`, `host.settingsJson`,
+    **and `host.mem.search`** (mem search IS sync at the host —
+    `manager_search.rs`). The SDK must type these **sync** (`host.mem.search`
+    returns its result, NOT `Promise`); the preamble does **NOT** Promise-wrap them.
+  - **ASYNC binds** (job-id/poll; genuinely spawn long-lived agents; the preamble
+    Promise-wraps **only these**): `host.worker`, `host.agent`. Consumed by
+    chatBackend/NPC plugins that run their own async poll loop.
+  - A sync stage wanting worker/agent compute must **block-poll with a bounded
+    timeout** (opt-in, adds send latency) — it cannot truly await an agent turn.
+    The preprocessor's `worker` backend does exactly this.
+  - SDK fix: `host.mem.search` → sync; bump `1.4.8` (Track C2 owns it). Track E's
+    `SyncMem`/`SyncWorker` views become accurate once C2 lands the sync mem bind.
 - **`onAgentCommand` routing:** socket dispatch `socket/server/mod.rs:369` is a
   CLOSED prefix `match`; add a `"plugin" =>` arm → new `agent_commands::dispatch`
   (parse `plugin:<id>.<verb>`, check `agent_commands` grant, call the VM's
