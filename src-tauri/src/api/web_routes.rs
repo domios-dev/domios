@@ -724,7 +724,8 @@ window.addEventListener('message',function(e){var m=e.data||{};
   m.error?d.reject(new Error(m.error)):d.resolve(m.result);}
  if(m.__ctTheme!=null){document.documentElement.style.cssText=m.__ctTheme;}});
 window.ct={invoke:function(method,args){var id=++s;return new Promise(function(res,rej){
-  p[id]={resolve:res,reject:rej};parent.postMessage({__ctInvoke:id,method:method,args:args||null},'*');});}};
+  p[id]={resolve:res,reject:rej};parent.postMessage({__ctInvoke:id,method:method,args:args||null},'*');});},
+ close:function(){parent.postMessage({__ctClose:true},'*');}};
 parent.postMessage({__ctReady:true},'*');})();
 "#;
 

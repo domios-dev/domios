@@ -67,7 +67,7 @@ export const WORKDIR_SHA = "__workdir__";
 
 declare global {
   interface Window {
-    ct?: { invoke(method: string, args?: unknown): Promise<unknown> };
+    ct?: { invoke(method: string, args?: unknown): Promise<unknown>; close?(): void };
   }
 }
 
