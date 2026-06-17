@@ -5,6 +5,8 @@ mod autostart;
 pub mod bridge;
 pub mod bubble;
 pub mod chatbackend;
+pub mod chatpipeline;
+pub mod chatpreprocessor;
 mod clipboard_files;
 mod commands;
 mod commands_mesh;
@@ -336,6 +338,8 @@ pub fn run() {
                 Arc::new(crate::view_host::ViewRegistry::new());
             let chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle =
                 Arc::new(crate::chatbackend::ChatBackendRegistry::new());
+            let chat_preprocessor_registry: crate::chatpreprocessor::ChatPreprocessorRegistryHandle =
+                Arc::new(crate::chatpreprocessor::ChatPreprocessorRegistry::new());
             // Plugin VMs collected as they load, so the host `ServiceContext`
             // can be late-bound into each sandbox once it is built below (the
             // VMs exist before `ServiceContext` does — plan §1.5 F4 / C0).
@@ -492,6 +496,12 @@ pub fn run() {
                             )),
                         );
                         log::info!("[js-plugin] {id} registered as transcriber");
+                        // Conflict guard (plan §6): flag the `voice` slot grabbed
+                        // by >1 stage. Warn-and-allow.
+                        crate::chatpipeline::warn_stage_conflicts(
+                            &transcribe_registry,
+                            &chat_preprocessor_registry,
+                        );
                     }
                     if caps.secret_backend {
                         secret_registry.register(
@@ -543,6 +553,22 @@ pub fn run() {
                         );
                         log::info!("[js-plugin] {id} registered as chatBackend provider");
                     }
+                    if caps.chat_preprocessor {
+                        chat_preprocessor_registry.register(
+                            id.clone(),
+                            Arc::new(plugin::js_runtime::JsChatPreprocessor::new(
+                                p.vm().clone(),
+                                id.clone(),
+                            )),
+                        );
+                        log::info!("[js-plugin] {id} registered as chatPreprocessor stage");
+                        // Conflict guard (plan §6): flag a slot grabbed by >1
+                        // stage. Warn-and-allow — non-overlapping stages chain.
+                        crate::chatpipeline::warn_stage_conflicts(
+                            &transcribe_registry,
+                            &chat_preprocessor_registry,
+                        );
+                    }
                     if !caps.agent_provider {
                         plugin::audit::append_daemon_reloaded(&id, &version);
                         continue;
@@ -583,6 +609,7 @@ pub fn run() {
                         bubble: bubble_registry.clone(),
                         view: view_registry.clone(),
                         chatbackend: chatbackend_registry.clone(),
+                        chat_preprocessor: chat_preprocessor_registry.clone(),
                     },
                 );
                 // Seed tracked-state for already-registered plugins so the first tick doesn't re-register them.
@@ -671,6 +698,7 @@ pub fn run() {
                 bubble_registry: bubble_registry.clone(),
                 view_registry: view_registry.clone(),
                 chatbackend_registry: chatbackend_registry.clone(),
+                chat_preprocessor_registry: chat_preprocessor_registry.clone(),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(
                     crate::service::store::ServicesStore::open(
