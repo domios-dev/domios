@@ -29,11 +29,27 @@ struct Tracked {
     entry_mtime: SystemTime,
 }
 
+/// The non-agent capability registries the watcher needs so it can re-register
+/// a (re)loaded plugin's capabilities live — mirroring the startup arms in
+/// `lib.rs` (plan §1.8). C0 only threads these handles in; the actual
+/// re-registration on reload (and `chatBackend`) lands in a later track.
+#[derive(Clone)]
+pub struct CapabilityRegistries {
+    pub secret: Arc<crate::secrets::SecretRegistry>,
+    pub transcribe: Arc<crate::transcribe::TranscribeRegistry>,
+    pub glance: crate::glance::GlanceRegistryHandle,
+    pub bubble: crate::bubble::BubbleRegistryHandle,
+    pub view: crate::view_host::ViewRegistryHandle,
+}
+
 /// Live registry of discovered JS plugins. Spawn `start` to begin
 /// watching the configured roots.
 pub struct HotReloadRegistry {
     roots: Vec<PathBuf>,
     agent_registry: Arc<AgentRegistry>,
+    /// Capability registry handles, carried so a later track can re-register
+    /// reloaded plugins' capabilities without a daemon restart (§1.8).
+    caps: CapabilityRegistries,
     /// Plugin id → tracked state. Mutex because the watcher mutates
     /// from a background thread.
     state: Mutex<HashMap<String, Tracked>>,
@@ -42,14 +58,24 @@ pub struct HotReloadRegistry {
 }
 
 impl HotReloadRegistry {
-    pub fn new(roots: Vec<PathBuf>, agent_registry: Arc<AgentRegistry>) -> Arc<Self> {
+    pub fn new(
+        roots: Vec<PathBuf>,
+        agent_registry: Arc<AgentRegistry>,
+        caps: CapabilityRegistries,
+    ) -> Arc<Self> {
         Arc::new(Self {
             roots,
             agent_registry,
+            caps,
             state: Mutex::new(HashMap::new()),
             #[cfg(test)]
             load_count: std::sync::atomic::AtomicUsize::new(0),
         })
+    }
+
+    /// The capability registry handles threaded into the watcher (§1.8).
+    pub fn capability_registries(&self) -> &CapabilityRegistries {
+        &self.caps
     }
 
     /// Spawn the background poller. The handle owns itself — no need
@@ -231,6 +257,34 @@ fn mtime_or_epoch(p: &std::path::Path) -> SystemTime {
 mod tests {
     use super::*;
 
+    fn test_caps() -> CapabilityRegistries {
+        CapabilityRegistries {
+            secret: Arc::new(crate::secrets::SecretRegistry::new()),
+            transcribe: Arc::new(crate::transcribe::TranscribeRegistry::new()),
+            glance: Arc::new(crate::glance::GlanceRegistry::new()),
+            bubble: Arc::new(crate::bubble::BubbleRegistry::new()),
+            view: Arc::new(crate::view_host::ViewRegistry::new()),
+        }
+    }
+
+    #[test]
+    fn watcher_holds_threaded_capability_registries() {
+        // C0: the watcher must carry the existing capability registry handles so
+        // a later track can re-register a (re)loaded plugin's non-agent
+        // capabilities live (plan §1.8). Prove the *same* handles are threaded in.
+        let root = tempfile::tempdir().unwrap();
+        let registry = Arc::new(AgentRegistry::new());
+        let caps = test_caps();
+        let watcher =
+            HotReloadRegistry::new(vec![root.path().to_path_buf()], registry, caps.clone());
+        let held = watcher.capability_registries();
+        assert!(Arc::ptr_eq(&held.secret, &caps.secret));
+        assert!(Arc::ptr_eq(&held.transcribe, &caps.transcribe));
+        assert!(Arc::ptr_eq(&held.glance, &caps.glance));
+        assert!(Arc::ptr_eq(&held.bubble, &caps.bubble));
+        assert!(Arc::ptr_eq(&held.view, &caps.view));
+    }
+
     fn write(path: &std::path::Path, contents: &str) {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).unwrap();
@@ -262,7 +316,11 @@ mod tests {
     fn tick_registers_new_plugins_added_after_start() {
         let root = tempfile::tempdir().unwrap();
         let registry = Arc::new(AgentRegistry::new());
-        let watcher = HotReloadRegistry::new(vec![root.path().to_path_buf()], registry.clone());
+        let watcher = HotReloadRegistry::new(
+            vec![root.path().to_path_buf()],
+            registry.clone(),
+            test_caps(),
+        );
         // First tick: empty root, nothing to register.
         watcher.tick();
         assert!(watcher.tracked_ids().is_empty());
@@ -285,7 +343,11 @@ mod tests {
     fn tick_hot_reloads_plugin_js_changes() {
         let root = tempfile::tempdir().unwrap();
         let registry = Arc::new(AgentRegistry::new());
-        let watcher = HotReloadRegistry::new(vec![root.path().to_path_buf()], registry.clone());
+        let watcher = HotReloadRegistry::new(
+            vec![root.path().to_path_buf()],
+            registry.clone(),
+            test_caps(),
+        );
         let dir = root.path().join("bar");
         write(&dir.join("plugin.json"), &manifest_for("bar"));
         write(&dir.join("plugin.js"), &plugin_for("v1"));
@@ -319,6 +381,7 @@ mod tests {
         let watcher = HotReloadRegistry::new(
             vec![workspace.path().to_path_buf(), user.path().to_path_buf()],
             registry.clone(),
+            test_caps(),
         );
 
         let workspace_dir = workspace.path().join("provider-dupe");
@@ -353,6 +416,7 @@ mod tests {
         let watcher = HotReloadRegistry::new(
             vec![workspace.path().to_path_buf(), user.path().to_path_buf()],
             registry.clone(),
+            test_caps(),
         );
 
         let workspace_dir = workspace.path().join("provider-dupe");
@@ -382,7 +446,11 @@ mod tests {
     fn tick_unregisters_plugins_after_folder_removal() {
         let root = tempfile::tempdir().unwrap();
         let registry = Arc::new(AgentRegistry::new());
-        let watcher = HotReloadRegistry::new(vec![root.path().to_path_buf()], registry.clone());
+        let watcher = HotReloadRegistry::new(
+            vec![root.path().to_path_buf()],
+            registry.clone(),
+            test_caps(),
+        );
         let dir = root.path().join("baz");
         write(&dir.join("plugin.json"), &manifest_for("baz"));
         write(&dir.join("plugin.js"), &plugin_for("baz"));

@@ -563,6 +563,13 @@ pub fn run() {
                 let watcher = plugin::js_runtime::HotReloadRegistry::new(
                     roots.clone(),
                     agent_registry.clone(),
+                    plugin::js_runtime::CapabilityRegistries {
+                        secret: secret_registry.clone(),
+                        transcribe: transcribe_registry.clone(),
+                        glance: glance_registry.clone(),
+                        bubble: bubble_registry.clone(),
+                        view: view_registry.clone(),
+                    },
                 );
                 // Seed tracked-state for already-registered plugins so the first tick doesn't re-register them.
                 watcher.tick();
