@@ -8,6 +8,14 @@ impl ServiceContext {
         // iteration; once close_pane drops the entry, future polls would see Provider::None and bail anyway, but explicit stop joins the thread cleanly and frees the JSONL handle.
         self.chat_registry.stop(pane_id);
 
+        // Tear down the plugin chatBackend session BEFORE the pane entry is
+        // dropped — otherwise `pane_chat_backing` can no longer resolve it and
+        // the plugin leaks the session (model/context) until its own reaper.
+        // Best-effort: a failing closeSession must not block pane teardown.
+        if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
+            let _ = self.chatbackend_close(&plugin_id, &session_id);
+        }
+
         let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.lock().close_pane(pane_id)?;
         let post_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
