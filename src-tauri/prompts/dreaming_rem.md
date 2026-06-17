@@ -27,6 +27,18 @@ mutation work.
   subsequent stage to fill in real numbers. If the model is rate-limited
   or exits mid-run, a partial diary is still in mem and the user knows
   what happened. Half a run logged is infinitely better than silence.
+- **DREAM DIARIES NEVER INFLATE HUBS.** A dream diary (`daily_dream_*`,
+  kind=daily, area=_dreams) records its analysis in its BODY, not as graph
+  edges to everything it touched. It must NOT link into project / topic /
+  person / tech hubs via `applies_to`, `works_on`, `about`, `postmortem_for`,
+  `analyzes`, `mentions`, or `discusses` — those backlinks are pure hub noise.
+  NEVER create such an edge (not for your own diary, not for any). To clean the
+  existing ones, use the single bulk primitive once during A.4 — do NOT loop
+  per-edge:
+      codeterm mem graph prune-dream-hub-edges --dry-run --json   # preview
+      codeterm mem graph prune-dream-hub-edges --json             # invalidate all in one pass
+  (It keeps each diary's link to the dreams anchor, `project_dreams`.)
+  A dream diary's ONLY edge is to the dreams anchor, set in the final step.
 
 ## Tools at your disposal
 
@@ -83,39 +95,48 @@ reference material for *what* each step means. The walkthrough shows
 
 ```
 1.  codeterm mem stats                          # situational awareness
-2.  codeterm mem graph hubs --threshold 20      # capture HUBS_RAW
-        → decide+act on each (Stage A.1)
-3.  codeterm mem graph hubs --threshold 20      # capture HUBS_AFTER (verify)
 
-4.  codeterm mem save --kind daily              # SKELETON DIARY — id captured for updates
-        --title "dream: <UTC YYYY-MM-DD HH:MM>" \
-        --tags dream-diary --area _dreams --skip-extract \
-        --summary "WIP: dreaming…" \
-        "<insight></insight><log>STARTED: <UTC>\nHUBS: <pasted HUBS_RAW summary>\n</log>"
+2.  SKELETON DIARY — create it FIRST so a partial run is always logged:
+        codeterm mem save --kind daily --title "dream: <UTC YYYY-MM-DD HH:MM>" \
+          --tags dream-diary --area _dreams --skip-extract --summary "WIP: dreaming…" \
+          "<insight></insight><log>STARTED: <UTC>\n</log>"
     → save the returned id; you'll mem update it after each stage.
 
-5.  codeterm mem graph islands --max-size 6 --limit 50    # capture ISLANDS_RAW
-6.  codeterm mem graph orphans --limit 100                 # capture ORPHANS_RAW
+3.  BULK PRE-CLEAN — run these TWO instant server-side passes BEFORE touching
+    hubs. They invalidate ~all the redundant edges in one SQL each, so most hubs
+    deflate below threshold for free and Stage A.1 has almost nothing left to
+    route by hand. NEVER do this edge-by-edge.
+        codeterm mem graph prune-dream-hub-edges       # dream→hub backlinks → gone
+        codeterm mem graph collapse-synonym-edges      # parallel synonyms → one each
+        → mem update <diary_id> with DREAM_BACKLINKS + PARALLEL_EDGES counts.
+
+4.  codeterm mem graph hubs --threshold 20      # HUBS_RAW (already deflated by step 3)
+        → decompose ONLY what's STILL a hub (Stage A.1). Many are already gone.
+5.  codeterm mem graph hubs --threshold 20      # HUBS_AFTER (verify)
+
+6.  codeterm mem graph islands --max-size 6 --limit 50    # ISLANDS_RAW
+7.  codeterm mem graph orphans --limit 100                 # ORPHANS_RAW
         → bridge / promote / delete (Stage A.2). Cap at 15-20 actions.
-7.  codeterm mem graph islands --max-size 6 --limit 100    # ISLANDS_AFTER
-        codeterm mem graph orphans --limit 1000              # ORPHANS_AFTER
-        → mem update <diary_id> with the new totals.
+        → islands/orphans AFTER, mem update <diary_id>.
 
-8.  Stage A.3 dedup (entity siblings + content duplicates).
-9.  codeterm mem stats                                       # ENTITY_COUNT_AFTER
-        → mem update <diary_id> with DEDUP totals.
+8.  Stage A.3 dedup (entity siblings + content dups) + A.4a exact-dup relations.
+8b. codeterm mem stats                                     # ENTITY_COUNT_AFTER
 
-10. Stage C maintenance (classify, promote/archive, revive-broken).
-10b. Stage D calibration sweep (server skips on non-Sunday; run regardless).
-        → mem update <diary_id> with CALIBRATION line.
-10c. Stage E vector hygiene — prune bodyless embeddings (see Stage E below).
-        codeterm mem graph prune-thin-vectors --dry-run    # inspect first
-        codeterm mem graph prune-thin-vectors              # then purge
-        → mem update <diary_id> with VECTOR_HYGIENE: <pruned> line.
-11. Build the FINAL <insight> prose now that you've seen everything.
-12. mem update <diary_id> with the final body (insight + completed log).
-13. (telegram notify — conditional on memory.dreaming_telegram_notify config)
-14. codeterm mem worker report "Hubs: …. Islands: …. Diary saved."
+9.  Stage E vector hygiene — prune bodyless embeddings:
+        codeterm mem graph prune-thin-vectors --dry-run    # inspect
+        codeterm mem graph prune-thin-vectors              # purge
+        → mem update <diary_id> with VECTOR_HYGIENE: <pruned>.
+9b. Stage C maintenance (classify, promote/archive, revive-broken).
+9c. Stage D calibration sweep → mem update <diary_id> CALIBRATION line.
+
+10. Build the FINAL <insight> prose; mem update <diary_id> with the final body.
+11. SELF-LINK THE DIARY (mandatory — an orphaned diary is a failed run).
+        Link it to the dreams anchor ONLY, never to a project it discussed:
+        codeterm mem graph create --id project_dreams --entity-type Project --scope global   # if missing (404)
+        codeterm mem graph relate --from <diary_id> --rel belongs_to --to project_dreams
+        Verify: codeterm mem graph related --id <diary_id>  → must return ≥1 edge.
+12. (telegram notify — conditional on memory.dreaming_telegram_notify config)
+13. codeterm mem worker report "Hubs: …. Parallel edges: …. Backlinks: …. Diary saved."
 ```
 
 The diary id from step 4 is the anchor for the whole run. If you exit
@@ -436,6 +457,24 @@ Read each group's `rowids` and `sample`. Decide per group:
   the `max(confidence)`. The other rowids are deleted.
 
 - **Unsure (semantics ambiguous)** → SKIP and note in diary. Do NOT guess.
+
+### A.4a2 Collapse parallel synonym edges (ONE bulk call — do NOT loop)
+
+A child often ends up tied to its container by SEVERAL near-synonym predicates
+at once — `about` + `applies_to` + `belongs_to` — three edges where one says it
+all, silently inflating hub degree. There can be 100+ such pairs. NEVER fix them
+one `invalidate` at a time (that's hundreds of slow agent round-trips and blows
+the time budget). Use the single server-side primitive:
+
+    codeterm mem graph collapse-synonym-edges --dry-run --json   # preview count
+    codeterm mem graph collapse-synonym-edges --json             # do it
+
+It keeps exactly ONE membership predicate per node-pair (priority
+`about` > `applies_to` > `belongs_to` > `part_of` > `documented_in`) and
+invalidates the rest in one SQL pass. DISTINCT predicates (`uses`, `runs_on`,
+`owned_by`, `shipped`, `postmortem_for`, …) are never in the set, so they're
+untouched. Soft, audited, reversible. Read `deleted` from the response and log
+`PARALLEL_EDGES: collapsed=<N>` in the diary `<log>`.
 
 ### A.4b Find and resolve duplicate entities
 

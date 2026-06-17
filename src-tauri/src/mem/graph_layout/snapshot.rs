@@ -250,10 +250,21 @@ pub fn build_snapshot(conn: &Connection, cache: &LayoutCache) -> Result<Snapshot
 
     let cluster_edges = aggregate_cluster_edges(conn, &node_cluster)?;
 
+    // The "X nodes · Y edges" header pairs raw nodes with raw edges, so count
+    // actual active relations — not the inter-cluster aggregate (which is far
+    // smaller and made the counter look broken).
+    let edge_count: usize = conn
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE valid_to IS NULL",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0) as usize;
+
     let stats = SnapshotStats {
         node_count: nodes.len(),
         cluster_count: clusters.len(),
-        edge_count: cluster_edges.len(),
+        edge_count,
         vectorized_without_position,
     };
 

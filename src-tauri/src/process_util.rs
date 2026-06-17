@@ -108,3 +108,19 @@ pub fn disclaimed_capture(program: &str, args: &[&str]) -> Option<String> {
         Some(out)
     }
 }
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disclaimed_capture_runs_and_captures_stdout() {
+        let out = disclaimed_capture("/bin/sh", &["-c", "printf '{\"ok\":1}'"]);
+        assert_eq!(out.as_deref(), Some("{\"ok\":1}"));
+    }
+
+    #[test]
+    fn disclaimed_capture_absent_program_is_none() {
+        assert!(disclaimed_capture("/nonexistent/binary", &[]).is_none());
+    }
+}

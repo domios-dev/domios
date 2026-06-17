@@ -492,6 +492,14 @@ pub fn create_router(state: AppState) -> Router {
             post(mem_routes::mem_graph_prune_thin_vectors),
         )
         .route(
+            "/api/mem/graph/repair/collapse-synonym-edges",
+            post(mem_routes::mem_graph_collapse_synonym_edges),
+        )
+        .route(
+            "/api/mem/graph/repair/prune-dream-hub-edges",
+            post(mem_routes::mem_graph_prune_dream_hub_edges),
+        )
+        .route(
             "/api/mem/graph/repair/orphan-blobs",
             post(mem_routes::mem_graph_repair_orphan_blobs),
         )
