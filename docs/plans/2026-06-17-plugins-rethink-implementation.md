@@ -336,6 +336,62 @@ small, self-contained host refactor — can run in Phase 1 alongside Track A). T
 B grows to the F1 branch-checklist (still Phase 2). Track A adopts the F4
 job-id/poll contract and the F2 message/model shapes.
 
+## 1.6 Resolved review concerns (decisions)
+
+**R1 — B↔C both touch the send path → resolved by hook ownership, not by
+serializing the tracks.** B owns every send **entry** edit; at each entry
+(`pane_routes.rs:204`, the dispatch send cmd, `/api/pty/:id/write`) B routes
+through `PaneTransport` **and** calls `run_outbound_stages(pane_id, text)` shipped
+as identity (`|_, t| t`). **C never edits those entry files** — C implements the
+`chatpipeline` module that the hook delegates to and fills the hook body. So the
+only shared line (the hook call) is authored once by B; C's stage work lands in a
+*new* module, and C's `host.*` work is parallel from day one. Order: B lands
+entry+transport+empty-hook first; C connects when the hook exists. Conflict-free.
+
+**R2 — long-lived agent sessions: the PLUGIN owns a small LRU pool (decided).**
+CodeTerm builds **no** session pool. The plugin keeps ~5 live sessions (you won't
+talk to more than 3–4 NPCs at once), measures activity, and **reaps the oldest
+inactive** itself via `host.agent.reap`. It keeps its own `key (npc_id) → sessionId`
+map and re-opens on demand. CodeTerm only provides the handles: `host.agent.spawn`
+(start with a prompt), `host.agent.resume(sessionId)` (start a **specific** stored
+session), `host.agent.get(key)`, `reap`. (Light note: keep plugin-session
+concurrency from starving mem workers — a tiny separate budget; the ~5 cap makes
+this a non-issue in practice.)
+
+**R3 — restore is plugin-driven (decided).** A non-PTY pane's session **is one of
+our agent sessions** — persisted as today (provider JSONL under
+`~/.codeterm/...`, or sqlite for opencode-style). On restart the plugin re-opens
+by stored id (`host.agent.resume`); if the plugin kept no reference, we simply
+don't restore that one — acceptable. **No new CodeTerm restore machinery for
+plugin panes.** (Future, unlikely: a pure non-PTY *chat* CLI agent of our own would
+store chats as JSONL in the global `~/.codeterm` like Claude/Codex, or sqlite like
+opencode — same persistence model, reused.)
+
+**Stats for the reminder cadence:** the plugin counts its own turns (it owns the
+send/recv loop — free); for token/cost it may call optional `host.agent.usage`
+(read-only over the existing `parseUsage`/`UsageSnapshot`). No new stats subsystem.
+
+**R5 — chatBackend security = trust-by-source (decided).** A chatBackend plugin
+sees all chat and can `host.fetch` to its allowlisted host — that risk is governed
+by **where you install it from**: a trusted channel (`codeterm-core` /
+`codeterm-plugins`) is vetted; a third-party/untrusted repo is "at your own risk."
+This reuses the existing system-plugin trust + channel model; no new mechanism.
+The grant dialog should make the chatBackend case explicit ("sees your chat;
+network → <allowlist>"). The network allowlist still bounds *where* it can send.
+
+**R6 — `get-output` contract is UNCHANGED (decided).** Today it returns
+`{ output: <plain text>, offset }` (terminal text, optional ansi-strip,
+incremental `offset`; `dispatch/mod.rs:234`). We do **not** change it — a
+chatBackend pane simply **flattens its transcript to the same plain text + offset**
+(e.g. `"[user] …\n[assistant] …\n"`), so orchestrators/agents parse it exactly as
+today. Zero contract change; the chatBackend transport just conforms.
+
+**R7 — LM Studio testing (decided).** LM Studio's own local server **is** the
+backend; the plugin only *connects* to it (`host.fetch`). So: unit-test the
+plugin's pure logic against a **stubbed `host.fetch`** (cursoring, request shape),
+and run the live demo against the **real local LM Studio server**. No separate mock
+server to build — "just give the ability to connect to LM Studio."
+
 ---
 
 ## 2. Track A — SDK types + seam contract
@@ -391,12 +447,19 @@ workspace: {
   panes(workspaceId: string): Promise<PaneRef[]>;
 };
 agent: {
+  // start a FRESH session with a prompt; key = the plugin's own id (e.g. npc_id)
   spawn(workspaceId: string, opts: { backend?: Backend; task: string; key?: string; commands?: string[] }):
     Promise<{ sessionId: string }>;
-  get(workspaceId: string, key: string): Promise<{ sessionId: string } | null>;
-  send(sessionId: string, text: string): Promise<{ reply: string }>;
+  // start/re-attach a SPECIFIC existing session by id (LRU re-open / restore)
+  resume(workspaceId: string, sessionId: string): Promise<{ sessionId: string } | null>;
+  get(workspaceId: string, key: string): Promise<{ sessionId: string } | null>; // plugin key→session lookup
+  // job-id/poll (F4): send returns a ticket, plugin polls for the reply (never blocks the VM)
+  send(sessionId: string, text: string): Promise<{ ticket: string }>;
+  poll(ticket: string): Promise<{ done: boolean; reply?: string }>;
   reap(sessionId: string): Promise<void>;
+  usage?(sessionId: string): Promise<UsageSnapshot | null>; // optional stats for reminder cadence
 };
+// UsageSnapshot mirrors the host's existing parseUsage output (tokens/cost), read-only.
 mem: { search(opts: { query: string; k?: number }):
   Promise<{ hits: { id: string; text: string; score: number }[] }> };
 // Backend = { provider?: string; model?: string }
