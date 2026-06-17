@@ -30,8 +30,10 @@ pub(super) fn load_session_id(
     let valid = registry
         .with_provider(provider_name, |p| p.session_exists(cwd, &state.session_id))
         .unwrap_or(false);
-    (valid && session_id_is_owned(registry, provider_name, cwd, &state.session_id))
-        .then_some(state.session_id)
+    // We only persist sessions the hook bound to the GA pane, so the durable record
+    // is itself the ownership proof — don't re-gate on bootstrap markers (the filesystem
+    // SCAN in detect_owned_session_id still does, to disambiguate unknown sessions).
+    valid.then_some(state.session_id)
 }
 
 pub(super) fn persist_session_id(provider_name: &str, session_id: &str) {
