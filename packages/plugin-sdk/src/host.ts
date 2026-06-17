@@ -115,7 +115,7 @@ export interface UsageSnapshot {
 // One-shot agent compute. start() enqueues and returns immediately; poll() reads
 // the GraphWorkerRegistry — the VM is never held for the turn.
 export interface HostWorker {
-  start(opts: { backend?: Backend; task: string; timeoutMs?: number }): Promise<{ jobId: string }>;
+  start(opts: { backend?: Backend; task: string }): Promise<{ jobId: string }>;
   poll(jobId: string): Promise<{ done: boolean; report?: string; error?: string }>;
 }
 
@@ -137,7 +137,7 @@ export interface HostAgent {
   resume(workspaceId: string, sessionId: string): Promise<{ sessionId: string } | null>;
   get(workspaceId: string, key: string): Promise<{ sessionId: string } | null>;
   send(sessionId: string, text: string): Promise<{ ticket: string }>;
-  poll(ticket: string): Promise<{ done: boolean; reply?: string }>;
+  poll(ticket: string): Promise<{ done: boolean; reply?: string; error?: string }>;
   reap(sessionId: string): Promise<void>;
   usage?(sessionId: string): Promise<UsageSnapshot | null>;
 }
