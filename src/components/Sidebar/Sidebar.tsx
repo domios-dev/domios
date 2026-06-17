@@ -404,7 +404,7 @@ export function Sidebar({
         className="relative overflow-visible shrink-0 h-full"
         style={{
           width: visibleSidebarWidth,
-          boxShadow: "inset -0.5px 0 0 var(--ct-border-subtle)",
+          boxShadow: "inset -1px 0 0 var(--ct-border-default)",
           transition: sidebarDragging.current ? undefined : "width 180ms cubic-bezier(0.16, 1, 0.3, 1)",
         }}
         >
