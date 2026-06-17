@@ -35,13 +35,43 @@
 pub const HOST_API_VERSION: u32 = 2;
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 
 use rquickjs::function::Func;
 use rquickjs::{CatchResultExt, Ctx};
 
 use super::manifest::PluginManifest;
 use super::vm::VmError;
+use crate::service::ServiceContext;
+
+/// A write-once, weakly-held reference resolved lazily. The plugin VM (and its
+/// `PluginSandbox`) are constructed **before** the host `ServiceContext` exists
+/// (lib.rs ordering — plan §1.5 F4), so the ref can't be a constructor argument:
+/// it is populated after the fact via [`LateRef::set`] and read with
+/// [`LateRef::get`]. `Weak` so a sandbox that outlives daemon teardown can never
+/// pin the service alive.
+pub(super) struct LateRef<T>(OnceLock<Weak<T>>);
+
+impl<T> LateRef<T> {
+    pub(super) fn new() -> Self {
+        Self(OnceLock::new())
+    }
+
+    /// Populate the ref. First write wins (OnceLock); returns whether this call
+    /// set it (`false` if it was already populated).
+    pub(super) fn set(&self, weak: Weak<T>) -> bool {
+        self.0.set(weak).is_ok()
+    }
+
+    /// Resolve to a live `Arc` if the ref was populated and the target is still
+    /// alive; `None` before population or after the target has been dropped.
+    // Read side: consumed by the `host.worker`/`agent`/`mem` handles in a later
+    // track; for C0 it is the carrier only and exercised by tests.
+    #[allow(dead_code)]
+    pub(super) fn get(&self) -> Option<Arc<T>> {
+        self.0.get().and_then(Weak::upgrade)
+    }
+}
 
 /// Filesystem/env policy applied to a plugin's `host.*` calls. Bundled and
 /// in-workspace plugins (ship with the app / the dev repo) are `unrestricted`.
@@ -68,6 +98,11 @@ pub(super) struct PluginSandbox {
     /// by `host.settingsJson()` so a plugin reads its user-configured settings
     /// instead of env hacks. Defaults to `"null"`.
     settings_json: String,
+    /// Late-bound handle to the host `ServiceContext`, populated after service
+    /// init (the VM is built before `ServiceContext` exists — plan §1.5 F4).
+    /// Carrier only at this stage: `host.worker`/`agent`/`mem` handles that read
+    /// it land in a later track.
+    svc: LateRef<ServiceContext>,
 }
 
 impl PluginSandbox {
@@ -82,6 +117,7 @@ impl PluginSandbox {
             net_allow: Vec::new(),
             secrets_allowed: true,
             settings_json: "null".to_string(),
+            svc: LateRef::new(),
         }
     }
 
@@ -95,6 +131,7 @@ impl PluginSandbox {
             net_allow: Vec::new(),
             secrets_allowed: false,
             settings_json: "null".to_string(),
+            svc: LateRef::new(),
         }
     }
 
@@ -150,6 +187,18 @@ impl PluginSandbox {
 
     pub(super) fn settings_json(&self) -> &str {
         &self.settings_json
+    }
+
+    /// Late-bind the host `ServiceContext` (see [`LateRef`]). First write wins.
+    pub(super) fn set_service(&self, svc: Weak<ServiceContext>) -> bool {
+        self.svc.set(svc)
+    }
+
+    /// Resolve the host `ServiceContext`, or `None` if not yet populated / gone.
+    // Read side consumed by the host.worker/agent/mem handles in a later track.
+    #[allow(dead_code)]
+    pub(super) fn service(&self) -> Option<Arc<ServiceContext>> {
+        self.svc.get()
     }
 
     fn path_under(roots: &[PathBuf], path: &str) -> bool {
@@ -688,6 +737,48 @@ mod tests {
         assert!(full.can_reach("anywhere"));
         assert!(full.secrets_allowed());
         assert_eq!(full.plugin_id(), "sys");
+    }
+
+    #[test]
+    fn late_ref_resolves_only_after_population_while_target_lives() {
+        // `LateRef` is the carrier `PluginSandbox.svc` uses. `ServiceContext`
+        // cannot be built in a unit test (needs a `tauri::AppHandle` + ~40
+        // fields), so resolution semantics are proven here against a stand-in
+        // target; `PluginSandbox` delegates verbatim to this type.
+        struct FakeService;
+        let r: LateRef<FakeService> = LateRef::new();
+        // Before population → None.
+        assert!(r.get().is_none(), "unpopulated LateRef must not resolve");
+
+        let svc = Arc::new(FakeService);
+        assert!(r.set(Arc::downgrade(&svc)), "first set must succeed");
+        // After population, target alive → Some, and it is the same Arc.
+        let resolved = r.get().expect("populated LateRef must resolve");
+        assert!(Arc::ptr_eq(&resolved, &svc));
+
+        // First-write-wins: a second set is rejected and does not swap the ref.
+        let other = Arc::new(FakeService);
+        assert!(!r.set(Arc::downgrade(&other)), "second set must be rejected");
+        assert!(Arc::ptr_eq(&r.get().unwrap(), &svc));
+
+        // Drop every strong owner → the weak ref no longer upgrades.
+        drop(resolved);
+        drop(svc);
+        assert!(r.get().is_none(), "LateRef must not resolve a dropped target");
+    }
+
+    #[test]
+    fn sandbox_service_ref_is_late_bound() {
+        // A fresh sandbox has no service ref. `set_service` with a live weak
+        // makes `service()` resolve; this exercises the real `PluginSandbox`
+        // carrier wiring against the real `ServiceContext` type.
+        let sb = PluginSandbox::unrestricted();
+        assert!(sb.service().is_none(), "sandbox starts with no service ref");
+        // A dangling weak (no backing Arc) populates the slot but never resolves.
+        assert!(sb.set_service(Weak::<ServiceContext>::new()));
+        assert!(sb.service().is_none(), "dead weak ref must resolve to None");
+        // Carrier is write-once.
+        assert!(!sb.set_service(Weak::<ServiceContext>::new()));
     }
 
     #[test]

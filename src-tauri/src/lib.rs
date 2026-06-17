@@ -333,6 +333,10 @@ pub fn run() {
                 Arc::new(crate::bubble::BubbleRegistry::new());
             let view_registry: crate::view_host::ViewRegistryHandle =
                 Arc::new(crate::view_host::ViewRegistry::new());
+            // Plugin VMs collected as they load, so the host `ServiceContext`
+            // can be late-bound into each sandbox once it is built below (the
+            // VMs exist before `ServiceContext` does — plan §1.5 F4 / C0).
+            let mut plugin_vms: Vec<Arc<plugin::js_runtime::PluginVm>> = Vec::new();
             // No native transcriber: the bundled `transcriber` plugin registers
             // itself below (everything-as-plugins). The registry starts empty.
             let mut plugin_manager = plugin::PluginManager::new();
@@ -462,6 +466,10 @@ pub fn run() {
                     let version = p.manifest().version.clone();
                     let trust = p.trust();
                     let caps = p.manifest().capabilities.clone();
+                    // Hold a VM handle so the ServiceContext can be late-bound
+                    // into its sandbox after service init (C0). `p` itself is
+                    // moved into a registry further down.
+                    plugin_vms.push(p.vm().clone());
                     log::info!(
                         "[js-plugin] {id} trust={:?} caps(agent={} secret={} transcribe={})",
                         trust,
@@ -555,6 +563,13 @@ pub fn run() {
                 let watcher = plugin::js_runtime::HotReloadRegistry::new(
                     roots.clone(),
                     agent_registry.clone(),
+                    plugin::js_runtime::CapabilityRegistries {
+                        secret: secret_registry.clone(),
+                        transcribe: transcribe_registry.clone(),
+                        glance: glance_registry.clone(),
+                        bubble: bubble_registry.clone(),
+                        view: view_registry.clone(),
+                    },
                 );
                 // Seed tracked-state for already-registered plugins so the first tick doesn't re-register them.
                 watcher.tick();
@@ -657,6 +672,11 @@ pub fn run() {
                 usage_poller: Arc::new(parking_lot::Mutex::new(None)),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
+            // Late-bind the ServiceContext into every loaded plugin's sandbox
+            // (C0). Weak so plugin VMs never keep the service alive past teardown.
+            for vm in &plugin_vms {
+                vm.set_service(Arc::downgrade(&service_state));
+            }
             app.manage(service_state.clone());
             crate::delayed_send::start_scheduler(service_state.clone());
 

@@ -262,6 +262,17 @@ impl PluginVm {
         &self.plugin_id
     }
 
+    /// Late-bind the host `ServiceContext` into this plugin's sandbox. The VM is
+    /// constructed before `ServiceContext` exists (plan §1.5 F4), so the host
+    /// wires this in once the service is built. First write wins; returns
+    /// whether this call populated it.
+    pub fn set_service(
+        &self,
+        svc: std::sync::Weak<crate::service::ServiceContext>,
+    ) -> bool {
+        self.inner.lock().sandbox.set_service(svc)
+    }
+
     /// Re-load the plugin from a fresh source string. Used by the
     /// hot-reload path when `plugin.js` changes on disk.
     pub fn reload(&self, new_source: String) -> Result<(), VmError> {
