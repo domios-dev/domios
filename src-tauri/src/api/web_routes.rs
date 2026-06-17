@@ -818,11 +818,19 @@ pub async fn plugin_ui(
     // all with a valid api/web token in the query — an attacker who framed it
     // would get an inert, capability-less document.
     //
-    // Plugin UIs are rebuilt in place; no-store stops the embedding WebView
-    // (WKWebView) from serving a stale bundle after a plugin update.
+    // Cache policy splits on asset kind. index.html carries the per-load nonce
+    // and is rebuilt in place, so no-store stops the embedding WebView
+    // (WKWebView) from serving a stale shell. Sibling assets are content-hashed
+    // (app-<hash>.js) — the filename changes on every rebuild — so they cache
+    // immutably and forever; a stale bundle can never be served under a fresh name.
+    let cache = if rel.ends_with(".html") {
+        "no-store, must-revalidate"
+    } else {
+        "public, max-age=31536000, immutable"
+    };
     resp.headers_mut().insert(
         axum::http::header::CACHE_CONTROL,
-        axum::http::HeaderValue::from_static("no-store, must-revalidate"),
+        axum::http::HeaderValue::from_static(cache),
     );
     Ok(resp)
 }

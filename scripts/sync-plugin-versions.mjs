@@ -17,7 +17,7 @@ if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
 }
 
 const providers = ["claude", "codex", "opencode"];
-const workspacePackages = ["packages/chat-core", "packages/chat-ui"];
+const workspacePackages = ["packages/chat-core", "packages/chat-ui", "packages/plugin-sdk"];
 
 updateJsonVersion(rootPackagePath);
 updateJsonVersion(path.join(repoRoot, "src-tauri", "tauri.conf.json"));

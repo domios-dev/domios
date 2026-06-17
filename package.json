@@ -10,6 +10,7 @@
     "tauri": "tauri",
     "test:unit": "bash scripts/ts-unit-tests.sh",
     "test:plugins": "bash scripts/plugin-tests.sh",
+    "build:plugin": "node scripts/build-plugin.mjs",
     "build:plugin-ui": "node scripts/build-plugin-ui.mjs",
     "test:pw": "playwright test -c tests/playwright",
     "test:pw:smoke": "playwright test -c tests/playwright --project=smoke",
