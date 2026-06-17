@@ -518,6 +518,34 @@ pub async fn mem_graph_prune_thin_vectors(
     Ok(Json(serde_json::json!({ "report": report })))
 }
 
+pub async fn mem_graph_collapse_synonym_edges(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<RepairOrphanVectorsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let report = state
+        .svc
+        .mem
+        .graph_collapse_synonym_edges(b.dry_run, &b.actor)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "report": report })))
+}
+
+pub async fn mem_graph_prune_dream_hub_edges(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<RepairOrphanVectorsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let report = state
+        .svc
+        .mem
+        .graph_prune_dream_hub_edges(b.dry_run, &b.actor)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "report": report })))
+}
+
 #[derive(Deserialize)]
 pub struct RepairOrphanBlobsBody {
     #[serde(default)]

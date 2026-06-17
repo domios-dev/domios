@@ -253,6 +253,22 @@ pub(crate) fn handle_mem_graph(
                 &payload,
             )
         }
+        MemGraphAction::CollapseSynonymEdges { dry_run, actor } => {
+            let payload = serde_json::json!({"dry_run": dry_run, "actor": actor});
+            mem_post_request(
+                http,
+                &format!("{}/api/mem/graph/repair/collapse-synonym-edges", base),
+                &payload,
+            )
+        }
+        MemGraphAction::PruneDreamHubEdges { dry_run, actor } => {
+            let payload = serde_json::json!({"dry_run": dry_run, "actor": actor});
+            mem_post_request(
+                http,
+                &format!("{}/api/mem/graph/repair/prune-dream-hub-edges", base),
+                &payload,
+            )
+        }
         MemGraphAction::RepairOrphanBlobs { dry_run, actor } => {
             let payload = serde_json::json!({"dry_run": dry_run, "actor": actor});
             mem_post_request(

@@ -344,7 +344,7 @@ fn default_worker_timeout_seconds() -> u64 {
 }
 
 fn default_dreaming_timeout_seconds() -> u64 {
-    1800
+    3600
 }
 
 fn default_dedup_threshold() -> f64 {
