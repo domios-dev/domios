@@ -10,7 +10,7 @@ import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
 import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
 import { Plus } from "lucide-react";
-import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon } from "../Icons";
+import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
@@ -715,12 +715,7 @@ export function Sidebar({
                 }`}
                 title="Extensions"
               >
-                <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                  <rect x="3" y="3" width="7" height="7" rx="1" />
-                  <rect x="14" y="3" width="7" height="7" rx="1" />
-                  <rect x="3" y="14" width="7" height="7" rx="1" />
-                  <rect x="14" y="14" width="7" height="7" rx="1" />
-                </svg>
+                <ExtensionsIcon size={touchMode ? 18 : 14} className="shrink-0" />
                 {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Extensions</span>}
               </button>
               <button

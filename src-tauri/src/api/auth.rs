@@ -243,6 +243,14 @@ pub async fn auth_middleware(
         return next.run(req).await;
     }
 
+    // Plugin iframe UI assets (`/api/plugins/<id>/ui/*`) self-verify via a query
+    // token — an iframe `src` can't send a Bearer header. Static plugin UI code,
+    // not secret. The `ct.invoke` bridge (`/api/plugins/view-call`) has no `/ui/`
+    // segment, so it stays Bearer-gated.
+    if path.starts_with("/api/plugins/") && path.contains("/ui/") {
+        return next.run(req).await;
+    }
+
     if PUBLIC_PATHS.iter().any(|p| path == *p) || is_custom_auth(&method, &path) {
         return next.run(req).await;
     }

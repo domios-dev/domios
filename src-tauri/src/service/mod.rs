@@ -112,6 +112,15 @@ pub struct ServiceContext {
     /// Registry of transcribers (built-in HTTP engine + any Transcriber plugin).
     /// Voice notes resolve the active transcriber here by id.
     pub transcribe_registry: Arc<crate::transcribe::TranscribeRegistry>,
+    /// Registry of glance-view providers (plugins with `glanceView`). Pinned
+    /// plugins render their popover from here.
+    pub glance_registry: crate::glance::GlanceRegistryHandle,
+    /// Registry of status-bubble providers (plugins with `statusBubble`). The
+    /// pane-footer bubble row polls these per pane context.
+    pub bubble_registry: crate::bubble::BubbleRegistryHandle,
+    /// Registry of view providers (plugins with `view`). The iframe bridge
+    /// (`ct.invoke`) routes here, gated by the plugin's permissions.
+    pub view_registry: crate::view_host::ViewRegistryHandle,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,

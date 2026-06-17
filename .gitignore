@@ -37,3 +37,6 @@ test-results/
 
 # native crash minidumps (machine-specific, never commit)
 .crashes/
+
+# Playwright MCP run artifacts (snapshots, screenshots, console logs)
+.playwright-mcp/

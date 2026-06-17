@@ -11,19 +11,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { CapabilityChip, capabilityLabel } from "./CapabilityChip";
+import { AgentProviderScreen } from "../Settings/AgentsTab";
+import { SchemaRenderer } from "../Settings/SchemaRenderer";
+import type { AppConfig, ProviderConfig, SettingField } from "../../lib/types";
+import { PinIcon } from "../Icons";
+import { PluginIcon } from "./PluginIcon";
+import { PluginView } from "./PluginView";
+import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 
 interface PluginCapabilities {
   agent_provider?: boolean;
   secret_backend?: boolean;
   transcriber?: boolean;
-}
-interface SettingField {
-  type: "select" | "text" | "toggle" | "number";
-  key: string;
-  label: string;
-  description?: string;
-  placeholder?: string;
-  options?: { value: string; label: string }[];
 }
 interface InstalledPlugin {
   id: string;
@@ -34,6 +33,9 @@ interface InstalledPlugin {
   capabilities?: PluginCapabilities | null;
   granted_permissions?: string[] | null;
   settings_schema?: SettingField[] | null;
+  icon_svg?: string | null;
+  icon_color?: string | null;
+  icon_hint?: string | null;
 }
 interface ChannelRecord {
   name: string;
@@ -71,13 +73,6 @@ function kindLabel(p: InstalledPlugin): string {
   if (p.capabilities?.agent_provider) return "agent";
   return "plugin";
 }
-function iconFor(p: InstalledPlugin): string {
-  if (p.capabilities?.transcriber) return "🎙";
-  if (p.capabilities?.secret_backend) return "🔐";
-  if (p.capabilities?.agent_provider) return "🤖";
-  if (p.system) return "⏻";
-  return "🧩";
-}
 const GROUP_TITLES: Record<Group, string> = {
   pinned: "Pinned",
   agents: "Agents",
@@ -86,8 +81,27 @@ const GROUP_TITLES: Record<Group, string> = {
 };
 
 interface AppConfigShape {
-  plugins?: Record<string, { pinned?: boolean; [k: string]: unknown } | undefined>;
+  plugins?: Record<string, { pinned?: boolean; serverUrl?: string; [k: string]: unknown } | undefined>;
+  integrations?: {
+    secrets?: { backend?: string; default_organization?: string; default_collection?: string };
+  };
+  api?: { host?: string; port?: number; token?: string };
   [k: string]: unknown;
+}
+
+function apiBaseOf(config: AppConfigShape | null): { base: string; headers: Record<string, string> } {
+  const api = config?.api;
+  const host = api?.host === "0.0.0.0" ? "127.0.0.1" : api?.host ?? "127.0.0.1";
+  const base = `http://${host}:${api?.port ?? 7686}`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (api?.token) headers.Authorization = `Bearer ${api.token}`;
+  return { base, headers };
+}
+
+// Secret API errors come back either flat ({message}) or nested ({error:{message}}).
+async function readApiError(r: Response, fallback: string): Promise<string> {
+  const j = (await r.json().catch(() => null)) as { message?: string; error?: { message?: string } } | null;
+  return j?.error?.message ?? j?.message ?? `${fallback} (${r.status})`;
 }
 
 export function ExtensionsView({ visible }: { visible: boolean }) {
@@ -99,11 +113,16 @@ export function ExtensionsView({ visible }: { visible: boolean }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const saveSetting = useCallback(async (pluginId: string, key: string, value: unknown) => {
-    const cfg = await invoke<AppConfigShape>("get_config");
-    const plugins = { ...(cfg.plugins ?? {}) };
-    plugins[pluginId] = { ...(plugins[pluginId] ?? {}), [key]: value };
-    await invoke("update_config", { config: { ...cfg, plugins } });
-    setConfig({ ...cfg, plugins });
+    try {
+      const cfg = await invoke<AppConfigShape>("get_config");
+      const plugins = { ...(cfg.plugins ?? {}) };
+      plugins[pluginId] = { ...(plugins[pluginId] ?? {}), [key]: value };
+      await invoke("update_config", { config: { ...cfg, plugins } });
+      setConfig({ ...cfg, plugins });
+      setError(null);
+    } catch (e) {
+      setError(`Couldn't save ${pluginId} setting: ${String(e)}`);
+    }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -124,6 +143,16 @@ export function ExtensionsView({ visible }: { visible: boolean }) {
     if (visible) void refresh();
   }, [visible, refresh]);
 
+  // Deep-link: the titlebar tray dispatches this to jump straight to a plugin.
+  useEffect(() => {
+    const onSelect = (e: Event) => {
+      const id = (e as CustomEvent<{ id: string | null }>).detail?.id ?? null;
+      setSelectedId(id);
+    };
+    window.addEventListener(SELECT_EXTENSION_EVENT, onSelect);
+    return () => window.removeEventListener(SELECT_EXTENSION_EVENT, onSelect);
+  }, []);
+
   const pinned = useMemo(() => {
     const s = new Set<string>();
     for (const [id, p] of Object.entries(config?.plugins ?? {})) if (p?.pinned) s.add(id);
@@ -132,15 +161,20 @@ export function ExtensionsView({ visible }: { visible: boolean }) {
 
   const togglePin = useCallback(
     async (id: string) => {
-      const cfg = await invoke<AppConfigShape>("get_config");
-      const plugins = { ...(cfg.plugins ?? {}) };
-      const entry = { ...(plugins[id] ?? {}) };
-      entry.pinned = !entry.pinned;
-      plugins[id] = entry;
-      await invoke("update_config", { config: { ...cfg, plugins } });
-      setConfig({ ...cfg, plugins });
+      try {
+        const cfg = await invoke<AppConfigShape>("get_config");
+        const plugins = { ...(cfg.plugins ?? {}) };
+        const entry = { ...(plugins[id] ?? {}) };
+        entry.pinned = !entry.pinned;
+        plugins[id] = entry;
+        await invoke("update_config", { config: { ...cfg, plugins } });
+        setConfig({ ...cfg, plugins });
+        setError(null);
+      } catch (e) {
+        setError(`Couldn't ${pinned.has(id) ? "unpin" : "pin"} ${id}: ${String(e)}`);
+      }
     },
-    [],
+    [pinned],
   );
 
   const runAction = useCallback(
@@ -176,12 +210,30 @@ export function ExtensionsView({ visible }: { visible: boolean }) {
           </p>
         </header>
 
+        {error && (
+          <div
+            role="alert"
+            style={{ fontSize: 12.5, color: "var(--ct-err, #e57373)", border: "1px solid var(--ct-err, rgba(229,115,115,0.4))", borderRadius: 8, padding: "10px 12px", marginBottom: 16 }}
+          >
+            {error}
+          </div>
+        )}
+
         {selected ? (
           <PluginDetail
             plugin={selected}
             config={config}
             onBack={() => setSelectedId(null)}
             onSave={saveSetting}
+            onUpdateFullConfig={async (next) => {
+              try {
+                await invoke("update_config", { config: next });
+                setConfig(next as unknown as AppConfigShape);
+                setError(null);
+              } catch (e) {
+                setError(`Couldn't save settings: ${String(e)}`);
+              }
+            }}
           />
         ) : (
         <>
@@ -205,12 +257,6 @@ export function ExtensionsView({ visible }: { visible: boolean }) {
             </button>
           ))}
         </div>
-
-        {error && (
-          <div style={{ fontSize: 12.5, color: "var(--ct-muted)", border: "1px solid var(--ct-border-default, rgba(255,255,255,0.1))", borderRadius: 8, padding: "10px 12px", marginBottom: 16 }}>
-            Plugin data unavailable: {error}
-          </div>
-        )}
 
         {tab === "installed" ? (
           <>
@@ -274,7 +320,6 @@ function PluginCard({
   onTogglePin: () => void;
   onOpen: () => void;
 }) {
-  const caps = plugin.granted_permissions ?? [];
   const active = plugin.state === "active" || plugin.state === "Active";
   return (
     <div
@@ -296,25 +341,15 @@ function PluginCard({
       }}
     >
       <div style={{ width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flex: "none", background: "rgba(255,255,255,0.04)" }}>
-        {iconFor(plugin)}
+        <PluginIcon plugin={plugin} size={18} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 560, display: "flex", alignItems: "center", gap: 7 }}>
+        <div style={{ fontSize: 13, fontWeight: 560 }}>
           {plugin.display_name || plugin.id}
-          <span style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 9.5, color: "var(--ct-muted)", border: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.06))", borderRadius: 3, padding: "0 5px", fontWeight: 400 }}>
-            {kindLabel(plugin)}
-          </span>
         </div>
         <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10.5, color: "var(--ct-muted)", marginTop: 2 }}>
           {plugin.version ? `v${plugin.version}` : ""}
         </div>
-        {caps.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 8 }}>
-            {caps.map((c) => (
-              <CapabilityChip key={c} label={c} title={capabilityLabel(c)} />
-            ))}
-          </div>
-        )}
       </div>
       <button
         onClick={(e) => {
@@ -326,13 +361,13 @@ function PluginCard({
           background: "transparent",
           border: "none",
           cursor: "pointer",
-          fontSize: 14,
+          display: "flex",
+          alignItems: "center",
           color: pinned ? "var(--ct-accent, #6366f1)" : "var(--ct-muted)",
-          transform: pinned ? "rotate(45deg)" : "none",
-          padding: 2,
+          padding: 4,
         }}
       >
-        📌
+        <PinIcon size={14} filled={pinned} />
       </button>
       <span
         title={active ? "active" : "inactive"}
@@ -347,26 +382,64 @@ function PluginDetail({
   config,
   onBack,
   onSave,
+  onUpdateFullConfig,
 }: {
   plugin: InstalledPlugin;
   config: AppConfigShape | null;
   onBack: () => void;
   onSave: (pluginId: string, key: string, value: unknown) => Promise<void>;
+  onUpdateFullConfig: (next: AppConfig) => void | Promise<void>;
 }) {
   const current = (config?.plugins?.[plugin.id] ?? {}) as Record<string, unknown>;
   const schema = plugin.settings_schema ?? [];
   const caps = plugin.granted_permissions ?? [];
+  // SchemaRenderer emits one key per change; fan out to the per-key saver.
+  const onPluginConfigChange = (id: string, patch: Partial<ProviderConfig>) => {
+    for (const [k, v] of Object.entries(patch)) void onSave(id, k, v);
+  };
+  const backBtn = (
+    <button
+      onClick={onBack}
+      style={{ background: "transparent", border: "none", color: "var(--ct-muted)", cursor: "pointer", fontSize: 12.5, padding: "0 0 14px" }}
+    >
+      ← Extensions
+    </button>
+  );
+
+  // Agent plugins render their real provider settings (descriptor schema, real
+  // icon) via the shared AgentProviderScreen — reads/writes config.agents.<id>.
+  if (plugin.capabilities?.agent_provider && config) {
+    return (
+      <div>
+        {backBtn}
+        <AgentProviderScreen
+          providerId={plugin.id}
+          fullConfig={config as unknown as AppConfig}
+          onUpdateFullConfig={(next) => void onUpdateFullConfig(next)}
+          onProviderGone={onBack}
+        />
+      </div>
+    );
+  }
+
+  // Secret-backend plugins (Bitwarden) host secret-store management here: a
+  // "use as default" toggle (not a picker — installing the plugin lets it BECOME
+  // the store), server URL (plugin config), and unlock/status.
+  if (plugin.capabilities?.secret_backend && config) {
+    return (
+      <div>
+        {backBtn}
+        <SecretBackendDetail plugin={plugin} config={config} />
+      </div>
+    );
+  }
+
   return (
     <div>
-      <button
-        onClick={onBack}
-        style={{ background: "transparent", border: "none", color: "var(--ct-muted)", cursor: "pointer", fontSize: 12.5, padding: "0 0 14px" }}
-      >
-        ← Extensions
-      </button>
+      {backBtn}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
         <div style={{ width: 40, height: 40, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, background: "rgba(255,255,255,0.04)" }}>
-          {iconFor(plugin)}
+          <PluginIcon plugin={plugin} size={18} />
         </div>
         <div>
           <div style={{ fontSize: 16, fontWeight: 620 }}>{plugin.display_name || plugin.id}</div>
@@ -377,19 +450,21 @@ function PluginDetail({
         </div>
       </div>
 
-      <GroupLabel>Settings</GroupLabel>
       {schema.length === 0 ? (
-        <div style={{ color: "var(--ct-muted)", fontSize: 12.5, marginBottom: 20 }}>This plugin has no settings.</div>
+        <>
+          <GroupLabel>Settings</GroupLabel>
+          <div style={{ color: "var(--ct-muted)", fontSize: 12.5, marginBottom: 20 }}>This plugin has no settings.</div>
+        </>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 22 }}>
-          {schema.map((f) => (
-            <SettingFieldRow
-              key={f.key}
-              field={f}
-              value={current[f.key]}
-              onChange={(v) => void onSave(plugin.id, f.key, v)}
-            />
-          ))}
+        <div style={{ marginBottom: 22 }}>
+          <SchemaRenderer
+            schema={schema}
+            providerId={plugin.id}
+            config={(config ?? {}) as unknown as AppConfig}
+            values={current}
+            onChange={onPluginConfigChange}
+            hidePathLinks
+          />
         </div>
       )}
 
@@ -407,25 +482,119 @@ function PluginDetail({
   );
 }
 
-function SettingFieldRow({
-  field,
-  value,
-  onChange,
+interface SecretStatus {
+  backend: string;
+  status: { status: "logged_out" | "locked" | "unlocked"; endpoint?: string; user?: string | null };
+  master_password_saved?: boolean;
+}
+
+// Secret-backend plugin detail. The model: installing this plugin lets it BECOME
+// the secret store — a single "use as default" toggle, NOT a picker. When active,
+// it owns `codeterm mem secret` and shows unlock/status. Server URL + creds live
+// in the plugin's own namespace (config.plugins.<id>).
+function SecretBackendDetail({
+  plugin,
+  config,
 }: {
-  field: SettingField;
-  value: unknown;
-  onChange: (v: unknown) => void;
+  plugin: InstalledPlugin;
+  config: AppConfigShape;
 }) {
-  const labelEl = (
-    <div style={{ fontSize: 12.5, fontWeight: 540, marginBottom: 4 }}>
-      {field.label}
-      {field.description && (
-        <span style={{ display: "block", fontSize: 11, color: "var(--ct-muted)", fontWeight: 400, marginTop: 2 }}>
-          {field.description}
-        </span>
-      )}
-    </div>
+  const backendId = plugin.id;
+  const secretsCfg = config.integrations?.secrets ?? {};
+  const [status, setStatus] = useState<SecretStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [orgs, setOrgs] = useState<Array<{ id: string; name: string }>>([]);
+  const [colls, setColls] = useState<Array<{ id: string; name: string }>>([]);
+  const [defaultOrg, setDefaultOrg] = useState(secretsCfg.default_organization ?? "");
+  const [defaultColl, setDefaultColl] = useState(secretsCfg.default_collection ?? "");
+
+  const { base, headers } = apiBaseOf(config);
+
+  // Source of truth is the live status (which backend is actually active), not
+  // the config prop — the parent doesn't reload config after a switch, so the
+  // prop would go stale and the toggle would lie.
+  const configActive = (config.integrations?.secrets?.backend ?? "local") === backendId;
+  const isActive = status ? status.backend === backendId : configActive;
+
+  const refresh = useCallback(async () => {
+    try {
+      const r = await fetch(`${base}/api/secrets/status`, { headers });
+      if (r.ok) setStatus((await r.json()) as SecretStatus);
+    } catch {
+      /* offline — leave status null */
+    }
+  }, [base, headers]);
+
+  useEffect(() => {
+    void refresh();
+    // Poll so org/collection appears after the user unlocks inside the iframe.
+    const t = setInterval(() => void refresh(), 5000);
+    return () => clearInterval(t);
+  }, [refresh]);
+
+  // Default org/collection are only enumerable once the vault is unlocked.
+  const unlocked = status?.status.status === "unlocked";
+  useEffect(() => {
+    if (!unlocked) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [oR, cR] = await Promise.all([
+          fetch(`${base}/api/secrets/organizations`, { headers }),
+          fetch(`${base}/api/secrets/collections`, { headers }),
+        ]);
+        if (cancelled) return;
+        if (oR.ok) setOrgs((await oR.json()).organizations ?? []);
+        if (cR.ok) setColls((await cR.json()).collections ?? []);
+      } catch {
+        /* leave lists empty */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [unlocked, base, headers]);
+
+  const saveDefaults = useCallback(
+    async (org: string, coll: string) => {
+      try {
+        const cfg = await invoke<AppConfigShape>("get_config");
+        const next = {
+          ...cfg,
+          integrations: {
+            ...cfg.integrations,
+            secrets: { ...cfg.integrations?.secrets, default_organization: org, default_collection: coll },
+          },
+        };
+        await invoke("update_config", { config: next });
+        setError(null);
+      } catch (e) {
+        setError(`Couldn't save default org/collection: ${String(e)}`);
+      }
+    },
+    [],
   );
+
+  const switchBackend = useCallback(
+    async (on: boolean) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const r = await fetch(`${base}/api/secrets/backend`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ backend: on ? backendId : "local" }),
+        });
+        if (!r.ok) throw new Error(await readApiError(r, "switch failed"));
+        await refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [base, headers, backendId, refresh],
+  );
+
   const inputStyle: React.CSSProperties = {
     width: "100%",
     background: "var(--ct-bg-elev, rgba(255,255,255,0.03))",
@@ -435,39 +604,89 @@ function SettingFieldRow({
     color: "var(--ct-fg)",
     fontSize: 12.5,
   };
-  if (field.type === "toggle") {
-    return (
-      <label style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}>
-        <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} />
-        {labelEl}
-      </label>
-    );
-  }
-  if (field.type === "select") {
-    return (
-      <div>
-        {labelEl}
-        <select style={inputStyle} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
-          <option value="">—</option>
-          {(field.options ?? []).map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
-    );
-  }
+
+  const st = status?.status.status;
+
   return (
     <div>
-      {labelEl}
-      <input
-        style={inputStyle}
-        type={field.type === "number" ? "number" : "text"}
-        value={String(value ?? "")}
-        placeholder={field.placeholder}
-        onChange={(e) => onChange(field.type === "number" ? Number(e.target.value) : e.target.value)}
-      />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.04)" }}>
+          <PluginIcon plugin={plugin} size={18} />
+        </div>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 620 }}>{plugin.display_name || plugin.id}</div>
+          <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10.5, color: "var(--ct-muted)" }}>
+            secret backend{plugin.version ? ` · v${plugin.version}` : ""}
+          </div>
+        </div>
+      </div>
+
+      <label
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 10,
+          cursor: busy ? "default" : "pointer",
+          padding: "12px 14px",
+          borderRadius: 8,
+          border: "1px solid var(--ct-border-default, rgba(255,255,255,0.1))",
+          background: isActive ? "rgba(91,140,255,0.08)" : "transparent",
+          marginBottom: 18,
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={isActive}
+          disabled={busy}
+          onChange={(e) => void switchBackend(e.target.checked)}
+          style={{ marginTop: 2 }}
+        />
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 560 }}>Use as your default secret store</div>
+          <div style={{ fontSize: 11.5, color: "var(--ct-muted)", marginTop: 2 }}>
+            When on, this plugin handles all <code>codeterm mem secret</code> reads and writes.
+            Off falls back to the built-in local file store.
+          </div>
+        </div>
+      </label>
+
+      {isActive && (
+        <>
+          <GroupLabel>Connection</GroupLabel>
+          {/* The plugin's own connection UI (server URL, unlock, status) runs in
+              its sandboxed iframe — the host owns only activation + defaults. */}
+          <div style={{ height: 360, marginBottom: 18 }}>
+            <PluginView pluginId={plugin.id} api={config.api} embedded />
+          </div>
+          {st === "unlocked" && (
+            <>
+              <GroupLabel>Default organization</GroupLabel>
+              <select
+                style={{ ...inputStyle, marginBottom: 14 }}
+                value={defaultOrg}
+                onChange={(e) => { setDefaultOrg(e.target.value); setDefaultColl(""); void saveDefaults(e.target.value, ""); }}
+              >
+                <option value="">Personal vault</option>
+                {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+              <GroupLabel>Default collection</GroupLabel>
+              <select
+                style={inputStyle}
+                value={defaultColl}
+                onChange={(e) => { setDefaultColl(e.target.value); void saveDefaults(defaultOrg, e.target.value); }}
+              >
+                <option value="">None</option>
+                {colls.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <div style={{ fontSize: 11, color: "var(--ct-muted)", marginTop: 4 }}>
+                New secrets are filed here by default.
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {error && <div style={{ color: "var(--ct-err, #e57373)", fontSize: 12, marginTop: 4 }}>{error}</div>}
     </div>
   );
 }
@@ -550,7 +769,7 @@ function Marketplace({
               </span>
               <button
                 disabled={busy === `install:${d.id}` || d.compatible === false}
-                onClick={() => onAction(`install:${d.id}`, { kind: "install", plugin_id: d.id, channel: d.channel })}
+                onClick={() => onAction(`install:${d.id}`, { kind: "install", pluginId: d.id, channel: d.channel })}
                 style={mpBtn}
               >
                 {d.local_version ? "Update" : "Install"}

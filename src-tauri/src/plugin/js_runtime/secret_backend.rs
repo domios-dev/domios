@@ -203,8 +203,8 @@ mod tests {
                 secretGetItem(name) { return { ok: { item_id: "id1", name: name, value: "s3cr3t", notes: null } }; }
             }"#,
         );
-        let b = JsSecretBackend::new(vm, "bitwarden");
-        assert_eq!(b.id(), "bitwarden");
+        let b = JsSecretBackend::new(vm, "test-vault");
+        assert_eq!(b.id(), "test-vault");
         assert!(b.status().await.is_unlocked());
         let v = b.get("api_key").await.unwrap();
         assert_eq!(v.name, "api_key");
@@ -218,90 +218,20 @@ mod tests {
                 secretGetItem() { return { error: { kind: "not_found" } }; }
             }"#,
         );
-        let b = JsSecretBackend::new(vm, "bitwarden");
+        let b = JsSecretBackend::new(vm, "test-vault");
         assert!(matches!(b.get("missing").await, Err(SecretError::NotFound)));
     }
 
     #[tokio::test]
     async fn optional_methods_default_when_absent() {
         let vm = vm_with(r#"module.exports.default = { secretStatus() { return { status: "locked" }; } }"#);
-        let b = JsSecretBackend::new(vm, "bitwarden");
+        let b = JsSecretBackend::new(vm, "test-vault");
         assert!(b.organizations().await.unwrap().is_empty());
         assert!(b.sync().await.is_ok());
         assert!(b.init().await.is_ok());
     }
 
-    // --- Real shipped Bitwarden plugin: loads + pure-logic parity with native Rust ---
-
-    fn bitwarden_manifest() -> std::path::PathBuf {
-        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
-            .join("plugins/bitwarden/plugin.json")
-    }
-
-    #[test]
-    fn shipped_bitwarden_loads_with_secret_capability() {
-        let mp = bitwarden_manifest();
-        if !mp.exists() {
-            return;
-        }
-        let p = super::super::loader::load_one(&mp).expect("load bitwarden");
-        assert_eq!(p.manifest().id, "bitwarden");
-        assert!(p.manifest().capabilities.secret_backend);
-        assert!(!p.manifest().capabilities.agent_provider);
-        assert_eq!(p.manifest().host_api, Some(2));
-        // subprocess allowlist carries bw.
-        assert!(p
-            .manifest()
-            .permissions
-            .subprocess
-            .allow
-            .iter()
-            .any(|b| b == "bw"));
-    }
-
-    #[test]
-    fn shipped_bitwarden_pure_helpers_match_native() {
-        use serde_json::json;
-        let mp = bitwarden_manifest();
-        if !mp.exists() {
-            return;
-        }
-        let p = super::super::loader::load_one(&mp).expect("load bitwarden");
-        let vm = p.vm();
-
-        // base64 — standard encoding, parity with the Rust STANDARD engine.
-        let b64: String = call_json(vm, "__test_base64", &[json!("hello")]).unwrap();
-        assert_eq!(b64, "aGVsbG8=");
-
-        // error mapping — mirror of map_bw_message().
-        let locked: serde_json::Value =
-            call_json(vm, "__test_mapError", &[json!("Vault is locked.")]).unwrap();
-        assert_eq!(locked["kind"], "locked");
-        let nf: serde_json::Value =
-            call_json(vm, "__test_mapError", &[json!("Item Not found.")]).unwrap();
-        assert_eq!(nf["kind"], "not_found");
-        let logged_out: serde_json::Value =
-            call_json(vm, "__test_mapError", &[json!("You are not logged in.")]).unwrap();
-        assert_eq!(logged_out["kind"], "logged_out");
-        let exists: serde_json::Value =
-            call_json(vm, "__test_mapError", &[json!("An item with that name already exists.")])
-                .unwrap();
-        assert_eq!(exists["kind"], "already_exists");
-
-        // envelope unwrap — mirror of unwrap_data_envelope().
-        let unwrapped: serde_json::Value =
-            call_json(vm, "__test_unwrap", &[json!({ "object": "list", "data": [1, 2] })]).unwrap();
-        assert_eq!(unwrapped, json!([1, 2]));
-
-        // cipher build — mirror of build_login_cipher() (type=1 login, password in login).
-        let cipher: serde_json::Value = call_json(
-            vm,
-            "__test_buildCipher",
-            &[json!({ "name": "n", "value": "p", "notes": null }), json!(null), json!(null)],
-        )
-        .unwrap();
-        assert_eq!(cipher["type"], 1);
-        assert_eq!(cipher["name"], "n");
-        assert_eq!(cipher["login"]["password"], "p");
-    }
+    // NOTE: Bitwarden-specific behaviour (bw CLI envelopes, cipher shape, error
+    // mapping) is tested on the PLUGIN side — see plugins/bitwarden/plugin.test.cjs.
+    // Core only tests the JsSecretBackend seam, with inline fixtures, above.
 }

@@ -40,6 +40,9 @@ const HTTP_MAP: Record<string, Mapper> = {
   // ── extensions / plugins (web-mirror parity) ──
   plugin_manager_snapshot: () => webJson("GET", "/api/plugins/snapshot"),
   plugin_manager_action: (a) => webJson("POST", "/api/plugins/action", a.action),
+  plugin_glance: (a) => webJson("POST", "/api/plugins/glance", a),
+  plugin_bubble: (a) => webJson("POST", "/api/plugins/bubble", a),
+  plugin_view_call: (a) => webJson("POST", "/api/plugins/view-call", a),
   // ── config ──
   get_config: () => webJson("GET", "/api/config"),
   // PATCH: the route has no POST; the handler merges top-level keys, so the full config object works as a partial.

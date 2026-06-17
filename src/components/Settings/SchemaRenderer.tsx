@@ -25,6 +25,13 @@ interface SchemaRendererProps {
   providerId: string;
   config: AppConfig;
   onChange: (providerId: string, patch: Partial<ProviderConfig>) => void;
+  /**
+   * When set, field values are read from this record instead of
+   * `config.agents[providerId]`. Used by non-agent surfaces (plugin settings
+   * read/write `config.plugins.<id>`). When provided, the agent-only
+   * `[agent]` resume-toggle fallback is skipped.
+   */
+  values?: Record<string, unknown>;
   hideActions?: boolean;
   hidePathLinks?: boolean;
 }
@@ -34,10 +41,11 @@ export function SchemaRenderer({
   providerId,
   config,
   onChange,
+  values,
   hideActions,
   hidePathLinks,
 }: SchemaRendererProps) {
-  const providerConfig = config.agents?.[providerId] ?? {};
+  const providerConfig = (values ?? config.agents?.[providerId] ?? {}) as ProviderConfig;
   return (
     <div className="space-y-5">
       {schema.map((field, i) => (
@@ -48,6 +56,7 @@ export function SchemaRenderer({
           providerConfig={providerConfig}
           config={config}
           onChange={onChange}
+          agentNamespace={values === undefined}
           hideActions={hideActions}
           hidePathLinks={hidePathLinks}
         />
@@ -56,8 +65,10 @@ export function SchemaRenderer({
   );
 }
 
-// Provider-specific toggle inherits [agent] defaults when unset (matches backend fallback).
-function globalToggleFallback(key: string, config: AppConfig): boolean | undefined {
+// Provider-specific toggle inherits [agent] defaults when unset (matches backend
+// fallback). Only meaningful for agent providers; plugin surfaces pass values.
+function globalToggleFallback(key: string, config: AppConfig, agentNamespace: boolean): boolean | undefined {
+  if (!agentNamespace) return undefined;
   if (key === "resume_sessions") return config.agent?.resume_sessions;
   if (key === "resume_skip_permissions") return config.agent?.resume_skip_permissions;
   return undefined;
@@ -69,6 +80,7 @@ interface FieldRendererProps {
   providerConfig: ProviderConfig;
   config: AppConfig;
   onChange: (providerId: string, patch: Partial<ProviderConfig>) => void;
+  agentNamespace: boolean;
   hideActions?: boolean;
   hidePathLinks?: boolean;
 }
@@ -79,6 +91,7 @@ function FieldRenderer({
   providerConfig,
   config,
   onChange,
+  agentNamespace,
   hideActions,
   hidePathLinks,
 }: FieldRendererProps) {
@@ -98,6 +111,7 @@ function FieldRenderer({
               providerConfig={providerConfig}
               config={config}
               onChange={onChange}
+              agentNamespace={agentNamespace}
               hideActions={hideActions}
               hidePathLinks={hidePathLinks}
             />
@@ -107,7 +121,7 @@ function FieldRenderer({
 
     case "toggle": {
       const value = (providerConfig[field.key] as boolean | undefined)
-        ?? globalToggleFallback(field.key, config)
+        ?? globalToggleFallback(field.key, config, agentNamespace)
         ?? field.default;
       return (
         <ToggleField
@@ -239,6 +253,7 @@ function FieldRenderer({
               providerConfig={providerConfig}
               config={config}
               onChange={onChange}
+              agentNamespace={agentNamespace}
               hideActions={hideActions}
               hidePathLinks={hidePathLinks}
             />

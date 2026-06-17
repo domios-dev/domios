@@ -1,20 +1,15 @@
 //! Transcription as a plugin capability.
 //!
-//! `Transcriber` is the core-owned trait a plugin (or the built-in HTTP engine)
-//! implements to turn a recorded audio file into text. The active transcriber is
-//! resolved from a [`TranscribeRegistry`] by id — never by a hardcoded match — so
-//! a channel plugin can supply a local engine, a mesh-delegating engine, or
-//! anything else satisfying the contract.
-//!
-//! The native [`http_engine::HttpEngine`] is registered at startup as
-//! `builtin-http` from `VoiceTranscribeConfig`, so voice notes keep working with
-//! no plugin installed (zero-regression migration — gap G5).
+//! `Transcriber` is the core-owned trait a plugin implements to turn a recorded
+//! audio file into text. The active transcriber is resolved from a
+//! [`TranscribeRegistry`] by id — never by a hardcoded match — so a channel
+//! plugin can supply a local engine, a mesh-delegating engine, or anything else
+//! satisfying the contract. There is no native engine: the bundled `transcriber`
+//! plugin owns the speech-to-text lifecycle (everything-as-plugins migration).
 
 use std::path::Path;
 
 use async_trait::async_trait;
-
-pub mod http_engine;
 
 /// The text produced for an audio file.
 #[derive(Debug, Clone)]
@@ -65,7 +60,7 @@ impl std::fmt::Display for TranscribeError {
 
 impl std::error::Error for TranscribeError {}
 
-/// A transcription backend. Implemented natively (`HttpEngine`) and by JS plugins
+/// A transcription backend. Implemented by JS plugins (`JsTranscriber`)
 /// (`JsTranscriber`).
 #[async_trait]
 pub trait Transcriber: Send + Sync {

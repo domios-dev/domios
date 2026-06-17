@@ -242,15 +242,13 @@ mod tests {
         // something else, both this test and the fallback must change together.
         use crate::agent::provider::AgentProvider;
         use crate::plugin::agent_claude::ClaudeProvider;
-        use crate::plugin::agent_codex::CodexProvider;
 
         let claude = ClaudeProvider::new();
         assert_eq!(claude.exit_command(), Some("/exit"));
         assert_eq!(provider_exit_command(claude.id()), claude.exit_command());
 
-        let codex = CodexProvider::new();
-        assert_eq!(codex.exit_command(), Some("/exit"));
-        assert_eq!(provider_exit_command(codex.id()), codex.exit_command());
+        // codex/opencode are JS plugins now; their /exit fallback is asserted in
+        // their plugin-side tests (plugins/provider-*/tests).
     }
 
     #[test]

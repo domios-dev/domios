@@ -25,6 +25,83 @@ pub fn plugin_manager_action(action: PluginManagerAction) -> Result<Value, Strin
     run_action(action)
 }
 
+/// Render (or act on) a plugin's glance view. `action == None` renders fresh;
+/// `Some(id)` dispatches a button action and returns the refreshed view.
+#[tauri::command]
+pub async fn plugin_glance(
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    plugin_id: String,
+    action: Option<String>,
+    ctx: Option<Value>,
+) -> Result<Value, String> {
+    glance_render(&svc.glance_registry, &plugin_id, action.as_deref(), ctx.unwrap_or(Value::Null)).await
+}
+
+/// Shared by the Tauri command and the web-mirror REST route.
+pub(crate) async fn glance_render(
+    registry: &crate::glance::GlanceRegistry,
+    plugin_id: &str,
+    action: Option<&str>,
+    ctx: Value,
+) -> Result<Value, String> {
+    let provider = registry
+        .get(plugin_id)
+        .ok_or_else(|| format!("no glance provider for plugin '{plugin_id}'"))?;
+    let view = match action {
+        Some(a) => provider.action(a, ctx).await,
+        None => provider.render(ctx).await,
+    }
+    .map_err(|e| e.to_string())?;
+    serde_json::to_value(view).map_err(|e| e.to_string())
+}
+
+/// Poll a single plugin's status bubble for a pane context. `null` = hide.
+#[tauri::command]
+pub async fn plugin_bubble(
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    plugin_id: String,
+    ctx: Option<Value>,
+) -> Result<Value, String> {
+    bubble_poll(&svc.bubble_registry, &plugin_id, ctx.unwrap_or(Value::Null)).await
+}
+
+/// Shared by the Tauri command and the web-mirror REST route.
+pub(crate) async fn bubble_poll(
+    registry: &crate::bubble::BubbleRegistry,
+    plugin_id: &str,
+    ctx: Value,
+) -> Result<Value, String> {
+    let provider = registry
+        .get(plugin_id)
+        .ok_or_else(|| format!("no bubble provider for plugin '{plugin_id}'"))?;
+    let pill = provider.bubble(ctx).await.map_err(|e| e.to_string())?;
+    serde_json::to_value(pill).map_err(|e| e.to_string())
+}
+
+/// The iframe `ct.invoke(method, args)` bridge endpoint → the plugin's `viewCall`.
+#[tauri::command]
+pub async fn plugin_view_call(
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    plugin_id: String,
+    method: String,
+    args: Option<Value>,
+) -> Result<Value, String> {
+    view_call(&svc.view_registry, &plugin_id, &method, args.unwrap_or(Value::Null)).await
+}
+
+/// Shared by the Tauri command and the web-mirror REST route.
+pub(crate) async fn view_call(
+    registry: &crate::view_host::ViewRegistry,
+    plugin_id: &str,
+    method: &str,
+    args: Value,
+) -> Result<Value, String> {
+    let provider = registry
+        .get(plugin_id)
+        .ok_or_else(|| format!("no view provider for plugin '{plugin_id}'"))?;
+    provider.call(method, args).await.map_err(|e| e.to_string())
+}
+
 /// Run a plugin-manager action and return the refreshed snapshot. Shared by the
 /// Tauri command and the web-mirror REST route (`POST /api/plugins/action`).
 pub(crate) fn run_action(action: PluginManagerAction) -> Result<Value, String> {
@@ -77,10 +154,14 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         Some(c) => c.get("agentProvider").and_then(|v| v.as_bool()).unwrap_or(false),
         None => true,
     };
+    let cap_bool = |key: &str| caps.and_then(|c| c.get(key)).and_then(|v| v.as_bool()).unwrap_or(false);
     let cap_obj = serde_json::json!({
         "agent_provider": agent_provider,
-        "secret_backend": caps.and_then(|c| c.get("secretBackend")).and_then(|v| v.as_bool()).unwrap_or(false),
-        "transcriber": caps.and_then(|c| c.get("transcriber")).and_then(|v| v.as_bool()).unwrap_or(false),
+        "secret_backend": cap_bool("secretBackend"),
+        "transcriber": cap_bool("transcriber"),
+        "glance_view": cap_bool("glanceView"),
+        "status_bubble": cap_bool("statusBubble"),
+        "view": cap_bool("view"),
     });
     let mut granted: Vec<&str> = Vec::new();
     if let Some(p) = m.get("permissions") {
@@ -115,6 +196,17 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         obj.insert("granted_permissions".into(), serde_json::json!(granted));
         if let Some(schema) = settings_schema {
             obj.insert("settings_schema".into(), schema);
+        }
+        // Real icon from the manifest — the providers already ship SVGs. Carry
+        // icon_svg / icon_color / icon_hint so the UI renders them, not emoji.
+        for (src, dst) in [
+            ("iconSvg", "icon_svg"),
+            ("iconColor", "icon_color"),
+            ("iconHint", "icon_hint"),
+        ] {
+            if let Some(v) = m.get(src) {
+                obj.insert(dst.into(), v.clone());
+            }
         }
         if obj.get("display_name").map(|v| v.is_null()).unwrap_or(true) {
             if let Some(dn) = m.get("displayName") {

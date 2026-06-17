@@ -1,14 +1,10 @@
 // Transcriber plugin — CodeTerm's speech-to-text backend (capability: transcriber).
 //
-// CodeTerm records the voice note and inserts the returned text; this plugin only
-// turns audio into text. The engine is external (no model ships here): it POSTs the
-// audio path to a transcribe daemon over `host.fetch`. Engine location:
-//   - local  (default): a daemon on this machine (CODETERM_TRANSCRIBE_URL or :7891)
-//   - mesh   (future):  delegate to a peer's daemon — same wire contract
-//
-// Settings UI (engine/model/watchdog) is rendered by CodeTerm from the schema and
-// surfaced to the plugin via env for now; the full settings bridge lands with the
-// Extensions UX.
+// CodeTerm records the voice note and inserts the returned text; this plugin owns
+// the engine end to end. For the `local` engine it installs whisper.cpp's
+// `whisper-server`, downloads a GGML model, and runs the daemon itself (via
+// host.exec — blocking for one-shot installs, `detach` for the long-lived server).
+// For `mesh` it just talks to a peer's daemon over the same wire contract.
 
 function settings() {
   try {
@@ -16,6 +12,10 @@ function settings() {
   } catch (e) {
     return {};
   }
+}
+
+function isMesh() {
+  return (settings().engine || "local") === "mesh";
 }
 
 function daemonUrl() {
@@ -27,6 +27,11 @@ function daemonUrl() {
   return url.replace(/\/+$/, "");
 }
 
+function port() {
+  var m = daemonUrl().match(/:(\d+)(?:\/|$)/);
+  return m ? m[1] : "7891";
+}
+
 function language() {
   var s = settings();
   if (s.language && s.language.length) return s.language;
@@ -34,8 +39,102 @@ function language() {
   return lang && lang.length ? lang : "";
 }
 
+function modelId() {
+  var s = settings();
+  return s.model && s.model.length ? s.model : "base.en";
+}
+
+function modelDir() {
+  var home = host.homeDir() || ".";
+  return home + "/.codeterm/transcriber";
+}
+
+function modelPath() {
+  return modelDir() + "/ggml-" + modelId() + ".bin";
+}
+
+function exec(opts) {
+  var raw = host.exec(JSON.stringify(opts));
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    return { error: String(e) };
+  }
+}
+
+// ── Lifecycle (local engine) ─────────────────────────────────────────
+
+function ensureEngine() {
+  var check = exec({ bin: "whisper-server", args: ["--help"] });
+  // present if it ran at all (help may exit 0 or 1, but no spawn error)
+  if (!check.error) return { ok: true };
+  var plat = host.platform();
+  if (plat === "macos") {
+    var r = exec({ bin: "brew", args: ["install", "whisper-cpp"] });
+    if (r.error) return { error: "brew install failed: " + r.error };
+    if (r.code !== 0) return { error: "brew install whisper-cpp exited " + r.code + ": " + (r.stderr || "") };
+    return { ok: true };
+  }
+  return {
+    error:
+      "Auto-install runs on macOS (brew install whisper-cpp). On " +
+      plat +
+      ", install whisper.cpp's whisper-server yourself, then set the daemon URL.",
+  };
+}
+
+function ensureModel() {
+  var mp = modelPath();
+  if (host.fileExists(mp)) return { ok: true, path: mp };
+  host.makeDirs(modelDir());
+  var url =
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-" + modelId() + ".bin";
+  var r = exec({ bin: "curl", args: ["-fsSL", "-o", mp, url] });
+  if (r.error || r.code !== 0) {
+    return { error: "model download failed: " + (r.stderr || r.error || "curl exit " + r.code) };
+  }
+  return { ok: true, path: mp };
+}
+
+function install() {
+  if (isMesh()) return { ok: true };
+  var e = ensureEngine();
+  if (e.error) return e;
+  var m = ensureModel();
+  if (m.error) return m;
+  return { ok: true };
+}
+
+function start() {
+  if (isMesh()) return { ok: true };
+  if (transcribeStatus().state === "ready") return { ok: true };
+  var mp = modelPath();
+  if (!host.fileExists(mp)) return { error: "model not installed — run Install first" };
+  var r = exec({
+    bin: "whisper-server",
+    args: ["-m", mp, "--host", "127.0.0.1", "--port", port()],
+    detach: true,
+    logFile: modelDir() + "/server.log",
+  });
+  if (r.error) return { error: "could not start whisper-server: " + r.error };
+  return { ok: true, pid: r.pid };
+}
+
+function stop() {
+  if (isMesh()) return { ok: true };
+  exec({ bin: "pkill", args: ["-f", "whisper-server"] });
+  return { ok: true };
+}
+
+function ensureRunning() {
+  if (!isMesh() && transcribeStatus().state !== "ready") start();
+}
+
+// ── Transcription wire (called by JsTranscriber) ─────────────────────
+
 // path: absolute audio file path. lang: BCP-47 hint ("" = auto / plugin default).
 function transcribe(path, lang) {
+  ensureRunning();
   var body = { path: path };
   var l = lang && lang.length ? lang : language();
   if (l) body.language = l;
@@ -66,7 +165,6 @@ function transcribe(path, lang) {
 }
 
 function transcribeStatus() {
-  // Liveness check via the daemon's /healthz; unreachable → unavailable.
   var raw = host.fetch(JSON.stringify({
     url: daemonUrl() + "/healthz",
     method: "GET",
@@ -82,7 +180,59 @@ function transcribeStatus() {
   }
 }
 
+// ── Glance (peek + lifecycle actions) ────────────────────────────────
+
+function renderGlance() {
+  var up = transcribeStatus().state === "ready";
+  var installed = host.fileExists(modelPath());
+  var nodes = [];
+
+  if (isMesh()) {
+    nodes.push({ kind: "badge", label: up ? "Peer up" : "Peer down", tone: up ? "ok" : "danger" });
+    nodes.push({ kind: "keyVal", key: "Engine", value: "Mesh peer" });
+    nodes.push({ kind: "keyVal", key: "Daemon", value: daemonUrl() });
+    nodes.push({ kind: "divider" });
+    nodes.push({ kind: "button", label: "Settings", action: "settings" });
+    return { title: "Transcriber", nodes: nodes };
+  }
+
+  nodes.push({
+    kind: "badge",
+    label: up ? "Engine up" : installed ? "Stopped" : "Not installed",
+    tone: up ? "ok" : installed ? "warn" : "danger",
+  });
+  nodes.push({ kind: "keyVal", key: "Model", value: modelId() });
+  nodes.push({ kind: "keyVal", key: "Daemon", value: daemonUrl() });
+  nodes.push({ kind: "divider" });
+  if (!installed) {
+    nodes.push({ kind: "button", label: "Install engine + model", action: "install" });
+  } else if (!up) {
+    nodes.push({ kind: "button", label: "Start engine", action: "start" });
+  } else {
+    nodes.push({
+      kind: "row",
+      style: { spacing: "sm" },
+      children: [
+        { kind: "button", label: "Restart", action: "restart" },
+        { kind: "button", label: "Stop", action: "stop", style: { tone: "danger" } },
+      ],
+    });
+  }
+  nodes.push({ kind: "button", label: "Settings", action: "settings" });
+  return { title: "Transcriber", nodes: nodes };
+}
+
+function glanceAction(action) {
+  if (action === "install") install();
+  else if (action === "start") start();
+  else if (action === "stop") stop();
+  else if (action === "restart") { stop(); start(); }
+  return renderGlance();
+}
+
 module.exports.default = {
   transcribe: transcribe,
   transcribeStatus: transcribeStatus,
+  renderGlance: renderGlance,
+  glanceAction: glanceAction,
 };

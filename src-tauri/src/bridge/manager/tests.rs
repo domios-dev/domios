@@ -257,12 +257,82 @@ fn enabled_cfg(url: &str) -> VoiceTranscribeConfig {
     }
 }
 
-/// Build a transcribe registry holding the built-in HTTP engine from `cfg`.
+/// Test-only HTTP transcriber: POSTs `{path,language}` to `<url>/transcribe` and
+/// reads `{text}`. The native engine moved into the `transcriber` plugin; this
+/// keeps the voice-flow integration tests (real server round-trip) self-contained.
+struct TestHttpTranscriber {
+    enabled: bool,
+    url: String,
+    timeout_ms: u64,
+    language: String,
+}
+
+#[async_trait::async_trait]
+impl crate::transcribe::Transcriber for TestHttpTranscriber {
+    fn id(&self) -> &str {
+        "builtin-http"
+    }
+    async fn status(&self) -> crate::transcribe::TranscriberStatus {
+        if self.enabled {
+            crate::transcribe::TranscriberStatus::Ready
+        } else {
+            crate::transcribe::TranscriberStatus::Unavailable { reason: "disabled".into() }
+        }
+    }
+    async fn transcribe(
+        &self,
+        audio_path: &std::path::Path,
+        language: &str,
+    ) -> Result<crate::transcribe::Transcript, crate::transcribe::TranscribeError> {
+        use crate::transcribe::TranscribeError;
+        if !self.enabled {
+            return Err(TranscribeError::Disabled);
+        }
+        if audio_path.as_os_str().is_empty() {
+            return Err(TranscribeError::EmptyPath);
+        }
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(self.timeout_ms.max(1)))
+            .build()
+            .map_err(|e| TranscribeError::RequestFailed(e.to_string()))?;
+        let endpoint = format!("{}/transcribe", self.url.trim_end_matches('/'));
+        let lang = if language.trim().is_empty() { self.language.clone() } else { language.to_string() };
+        let mut body = serde_json::json!({ "path": audio_path.to_string_lossy() });
+        if !lang.trim().is_empty() {
+            body["language"] = serde_json::Value::String(lang);
+        }
+        let resp = client
+            .post(&endpoint)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| TranscribeError::RequestFailed(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(TranscribeError::HttpStatus(resp.status().as_u16()));
+        }
+        let v: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| TranscribeError::ParseError(e.to_string()))?;
+        let text = v.get("text").and_then(|t| t.as_str()).unwrap_or_default().trim().to_string();
+        if text.is_empty() {
+            return Err(TranscribeError::Empty);
+        }
+        Ok(crate::transcribe::Transcript { text })
+    }
+}
+
+/// Build a transcribe registry holding the test HTTP transcriber from `cfg`.
 fn registry_for(cfg: &VoiceTranscribeConfig) -> crate::transcribe::TranscribeRegistry {
     let reg = crate::transcribe::TranscribeRegistry::new();
     reg.register(
-        crate::transcribe::http_engine::BUILTIN_HTTP_ID,
-        std::sync::Arc::new(crate::transcribe::http_engine::HttpEngine::from_config(cfg)),
+        "builtin-http",
+        std::sync::Arc::new(TestHttpTranscriber {
+            enabled: cfg.enabled,
+            url: cfg.daemon_url.clone(),
+            timeout_ms: cfg.timeout_ms,
+            language: cfg.language.clone(),
+        }),
     );
     reg
 }
@@ -299,7 +369,6 @@ async fn spawn_transcribe_server(
 
 #[tokio::test]
 async fn body_includes_transcript_and_file_uri() {
-    voice_transcribe::reset_health_cache();
     let (addr, stop, handle) = spawn_transcribe_server("привет мир").await;
     let cfg = enabled_cfg(&format!("http://{}", addr));
 
@@ -313,7 +382,6 @@ async fn body_includes_transcript_and_file_uri() {
 
 #[tokio::test]
 async fn body_falls_back_to_raw_when_daemon_down() {
-    voice_transcribe::reset_health_cache();
     // Reserve a port and drop the listener so nothing answers.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -332,7 +400,6 @@ async fn body_falls_back_to_raw_when_daemon_down() {
 
 #[tokio::test]
 async fn disabled_cfg_notes_missing_transcriber() {
-    voice_transcribe::reset_health_cache();
     let mut cfg = enabled_cfg("http://127.0.0.1:1");
     cfg.enabled = false;
 
@@ -353,7 +420,6 @@ async fn disabled_cfg_notes_missing_transcriber() {
 
 #[tokio::test]
 async fn non_voice_attachments_not_transcribed() {
-    voice_transcribe::reset_health_cache();
     // Daemon URL points nowhere; if we accidentally hit it, the test fails because we'd see fallback path. With photo kind we never call it.
     let cfg = enabled_cfg("http://127.0.0.1:1");
 
@@ -363,7 +429,6 @@ async fn non_voice_attachments_not_transcribed() {
 
 #[tokio::test]
 async fn empty_attachment_path_skips_transcription() {
-    voice_transcribe::reset_health_cache();
     let cfg = enabled_cfg("http://127.0.0.1:1");
 
     let body = build_message_body(&voice_msg(""), &registry_for(&cfg), "builtin-http").await;
@@ -372,7 +437,6 @@ async fn empty_attachment_path_skips_transcription() {
 
 #[tokio::test]
 async fn multiple_voice_attachments_each_transcribed() {
-    voice_transcribe::reset_health_cache();
     let (addr, stop, handle) = spawn_transcribe_server("ok").await;
     let cfg = enabled_cfg(&format!("http://{}", addr));
 
@@ -402,7 +466,6 @@ async fn multiple_voice_attachments_each_transcribed() {
 
 #[tokio::test]
 async fn malformed_url_notes_unavailable() {
-    voice_transcribe::reset_health_cache();
     let mut cfg = enabled_cfg("not-a-url");
     cfg.daemon_url = "not a url".into();
 

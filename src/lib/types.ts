@@ -184,14 +184,6 @@ export interface CronJob {
   jitter_max_ms: number | null;
 }
 
-export interface GitInfo {
-  branch: string | null;
-  is_dirty: boolean;
-  repo_root: string;
-  added: number;
-  deleted: number;
-}
-
 // Configuration types (matches Rust AppConfig schema)
 
 export interface ThemeConfig {

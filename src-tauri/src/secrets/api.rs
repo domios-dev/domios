@@ -77,8 +77,12 @@ pub async fn status(
     check_auth(&state, &headers)?;
     let store = state.svc.secrets.read().await;
     let st = store.status().await;
-    let master_password_saved =
-        store.id() == "bitwarden" && crate::secrets::bitwarden::master_password_file_exists();
+    // Bitwarden is a plugin now; its saved master lives in the plugin's own
+    // secret bucket. (Native Bitwarden is gone — `local` is the only native store.)
+    let master_password_saved = store.id() == "bitwarden"
+        && crate::secrets::secret_file::SecretFile::new("codeterm.plugin.bitwarden")
+            .get("master_password")
+            .is_ok();
     Ok(Json(serde_json::json!({
         "backend": store.id(),
         "status": st,
@@ -403,19 +407,21 @@ pub async fn switch_backend(
         return Err((s, Json(serde_json::json!({"error": m}))));
     }
 
-    if crate::secrets::get_factory(&body.backend).is_none() {
+    // A backend is valid if it's a built-in factory (local/mock) OR a plugin
+    // registered into the secret registry (e.g. the Bitwarden plugin).
+    if crate::secrets::get_factory(&body.backend).is_none()
+        && !state.svc.secret_registry.contains(&body.backend)
+    {
         return Err(map_error(SecretError::BadRequest {
             message: format!("unknown backend: {}", body.backend),
         }));
     }
 
-    if body.backend == "bitwarden" {
-        if let Some(url) = body.bitwarden_server_url.as_deref() {
-            if !crate::secrets::bitwarden::is_valid_http_url(url) {
-                return Err(map_error(SecretError::BadRequest {
-                    message: format!("invalid server URL: {}", url),
-                }));
-            }
+    if let Some(url) = body.bitwarden_server_url.as_deref() {
+        if !crate::secrets::is_valid_http_url(url) {
+            return Err(map_error(SecretError::BadRequest {
+                message: format!("invalid server URL: {}", url),
+            }));
         }
     }
 
@@ -423,8 +429,16 @@ pub async fn switch_backend(
     {
         let mut cfg = crate::config::load_config();
         cfg.integrations.secrets.backend = body.backend.clone();
+        // Server URL belongs to the Bitwarden *plugin* config now (it reads
+        // config.plugins.bitwarden.serverUrl); native Bitwarden is gone.
         if let Some(url) = body.bitwarden_server_url.as_ref() {
-            cfg.integrations.secrets.bitwarden.server_url = url.clone();
+            let entry = cfg
+                .plugins
+                .entry("bitwarden".to_string())
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(obj) = entry.as_object_mut() {
+                obj.insert("serverUrl".into(), serde_json::json!(url));
+            }
         }
         if let Err(e) = crate::config::save_config_pub(&cfg) {
             return Err(map_error(SecretError::Backend {

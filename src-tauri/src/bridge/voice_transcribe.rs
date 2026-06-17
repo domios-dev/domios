@@ -5,15 +5,12 @@
 //! inline on success, a note otherwise (including an install offer when no
 //! transcriber is active). Shared by the chat composer and the Telegram bridge.
 //!
-//! The engine logic lives in [`crate::transcribe::http_engine`]; this module is
-//! only the attachment-line shaping.
+//! The transcription engine lives in the bundled `transcriber` plugin; this
+//! module is only the attachment-line shaping.
 
 use std::path::Path;
 
 use crate::transcribe::TranscribeRegistry;
-
-#[cfg(test)]
-pub use crate::transcribe::http_engine::reset_health_cache;
 
 /// Build the agent-facing attachment line for a file. Voice attachments are
 /// transcribed via the active transcriber (`active_id` = config

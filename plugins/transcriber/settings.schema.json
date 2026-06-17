@@ -1,11 +1,52 @@
 [
-  { "type": "select", "key": "engine", "label": "Engine",
-    "options": [{ "value": "local", "label": "Run locally" }, { "value": "mesh", "label": "Use a mesh peer" }],
-    "description": "Where transcription runs. Local manages a daemon on this machine; mesh delegates to a peer." },
-  { "type": "text", "key": "daemonUrl", "label": "Daemon URL", "placeholder": "http://127.0.0.1:7891",
-    "description": "Local transcribe engine endpoint." },
-  { "type": "text", "key": "model", "label": "Model", "placeholder": "whisper-large-v3" },
-  { "type": "text", "key": "language", "label": "Language hint", "placeholder": "auto" },
-  { "type": "number", "key": "watchdogVramGb", "label": "Unload if GPU memory exceeds (GB)" },
-  { "type": "toggle", "key": "watchdogGame", "label": "Unload when a game / GPU-heavy app runs" }
+  {
+    "kind": "section",
+    "title": "Transcription engine",
+    "description": "Where speech-to-text runs.",
+    "fields": [
+      {
+        "kind": "select",
+        "key": "engine",
+        "label": "Engine",
+        "options": [["local", "Run locally"], ["mesh", "Use a mesh peer"]],
+        "default": "local",
+        "description": "Local manages a daemon on this machine; mesh delegates to a peer."
+      },
+      {
+        "kind": "when",
+        "field": "engine",
+        "equals": "local",
+        "then": [
+          {
+            "kind": "text",
+            "key": "daemonUrl",
+            "label": "Daemon URL",
+            "placeholder": "http://127.0.0.1:7891",
+            "description": "Local transcribe engine endpoint."
+          }
+        ]
+      },
+      { "kind": "text", "key": "model", "label": "Model", "placeholder": "whisper-large-v3" },
+      { "kind": "text", "key": "language", "label": "Language hint", "placeholder": "auto" }
+    ]
+  },
+  {
+    "kind": "section",
+    "title": "Watchdog",
+    "description": "Free the GPU automatically when it's needed elsewhere.",
+    "fields": [
+      {
+        "kind": "number",
+        "key": "watchdogVramGb",
+        "label": "Unload if GPU memory exceeds (GB)",
+        "min": 0
+      },
+      {
+        "kind": "toggle",
+        "key": "watchdogGame",
+        "label": "Unload when a game or GPU-heavy app runs",
+        "default": false
+      }
+    ]
+  }
 ]

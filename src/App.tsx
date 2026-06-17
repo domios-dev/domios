@@ -9,7 +9,7 @@ import { SettingsPanel, type SectionId } from "./components/Settings/SettingsPan
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
 import { ExtensionsView } from "./components/Extensions/ExtensionsView";
-import { GitPanel } from "./components/GitPanel/GitPanel";
+import { PluginView } from "./components/Extensions/PluginView";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
@@ -18,7 +18,6 @@ import { CrashReportToast } from "./components/CrashReportToast";
 import { ChatUiDefaultPrompt } from "./components/ChatUiDefaultPrompt";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { HamburgerIcon } from "./components/Icons";
-import { useGitInfo } from "./hooks/useGitInfo";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useAgentProviders } from "./hooks/useAgentProviders";
@@ -126,22 +125,21 @@ function AppInner() {
     transition: "opacity 200ms ease",
   });
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
-  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "git" | "extensions">("workspace");
-  const [gitRepoCwd, setGitRepoCwd] = useState<string | null>(null);
+  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions">("workspace");
+  const [pluginViewId, setPluginViewId] = useState<string | null>(null);
+  const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
   const [mountedSettings, setMountedSettings] = useState(false);
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
-  const [mountedGit, setMountedGit] = useState(false);
   const [mountedExtensions, setMountedExtensions] = useState(false);
   const [mountedTabIds, setMountedTabIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
     if (mainView === "mesh") setMountedMesh(true);
-    if (mainView === "git") setMountedGit(true);
     if (mainView === "extensions") setMountedExtensions(true);
   }, [mainView]);
   const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
@@ -164,10 +162,6 @@ function AppInner() {
       const open = typeof next === "function" ? next(wasOpen) : next;
       return open ? "mesh" : "workspace";
     });
-  }, []);
-  const openGit = useCallback((repoRoot: string) => {
-    setGitRepoCwd(repoRoot);
-    setMainView("git");
   }, []);
   const setExtensionsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
@@ -207,14 +201,6 @@ function AppInner() {
     spawnClaudeTab,
   } = useMultiplexer();
 
-  // Git info for the visible pane — after a restore nothing is focused yet,
-  // so fall back to the active workspace's active tab.
-  const gitWs = state.workspaces.find((w) => w.id === state.active_workspace_id);
-  const activeTabPaneId =
-    gitWs?.tabs.find((t) => t.id === gitWs.active_tab_id)?.pane_id ?? null;
-  const gitPaneId = state.focused_pane_id ?? activeTabPaneId;
-  const { info: focusedGitInfo, refresh: refreshFocusedGitInfo } = useGitInfo(gitPaneId);
-
   // When user focuses any pane (via sidebar click, Ctrl+Tab, etc), return to workspace view
   const lastFocusedRef = useRef(state.focused_pane_id);
   useEffect(() => {
@@ -229,6 +215,26 @@ function AppInner() {
   // Keep ref to latest state for keyboard handler closure
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  // Plugin glance/bubble surfaces ask the host to open a panel via this event
+  // (e.g. the Git plugin's "Open Git" button, or a glance's "Open settings").
+  useEffect(() => {
+    const onOpenPanel = (e: Event) => {
+      const detail = (e as CustomEvent<{ panel?: string; cwd?: string | null }>).detail;
+      const panel = detail?.panel;
+      if (panel?.startsWith("view:")) {
+        const fp = stateRef.current.focused_pane_id
+          ? stateRef.current.panes[stateRef.current.focused_pane_id]
+          : null;
+        setPluginViewCwd(detail?.cwd || fp?.cwd || null);
+        setPluginViewId(panel.slice("view:".length));
+      } else if (panel === "extensions") {
+        setExtensionsOpen(true);
+      }
+    };
+    window.addEventListener("codeterm:open-panel", onOpenPanel);
+    return () => window.removeEventListener("codeterm:open-panel", onOpenPanel);
+  }, [setExtensionsOpen]);
 
   const handleBackToMemory = useCallback(() => {
     const ret = navigationStore.get();
@@ -721,18 +727,14 @@ function AppInner() {
               />
             </div>
           )}
-          {mountedGit && (
-            <div className="absolute inset-0" style={viewLayerStyle(mainView === "git")}>
-              <GitPanel
-                api={stableApiConfig}
-                cwd={gitRepoCwd}
-                onClose={() => setMainView("workspace")}
-              />
-            </div>
-          )}
           {mountedExtensions && (
             <div className="absolute inset-0" style={viewLayerStyle(mainView === "extensions")}>
               <ExtensionsView visible={mainView === "extensions"} />
+            </div>
+          )}
+          {pluginViewId && (
+            <div className="absolute inset-0 z-30">
+              <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={() => setPluginViewId(null)} />
             </div>
           )}
           {state.workspaces.length > 0 ? (
@@ -766,9 +768,6 @@ function AppInner() {
                   fontConfig={stableFontConfig}
                   terminalConfig={stableTerminalConfig}
                   usageEnabledByProvider={usageEnabledByProvider}
-                  gitInfo={gitPaneId === tab.pane_id ? focusedGitInfo : null}
-                  onRefreshGitInfo={refreshFocusedGitInfo}
-                  onOpenGit={openGit}
                   api={stableApiConfig}
                   workspaceCwd={ws.cwd ?? null}
                 />
