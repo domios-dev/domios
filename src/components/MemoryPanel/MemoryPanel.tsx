@@ -130,8 +130,13 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
         <div className="flex items-center gap-3 mr-4 shrink-0">
           <strong>Memory</strong>
           <span className="text-[11px] opacity-70 max-sm:hidden">
-            {snapshot.stats?.node_count ?? 0} nodes &middot;{" "}
-            {snapshot.stats?.edge_count ?? 0} edges
+            {/* Use fresh memStats (refreshes on mem-activity) — the cached graph
+                snapshot is keyed by layout_version and goes stale after edge edits. */}
+            {memStats
+              ? memStats.total_entities + memStats.total_items
+              : (snapshot.stats?.node_count ?? 0)}{" "}
+            nodes &middot;{" "}
+            {memStats ? memStats.total_relations : (snapshot.stats?.edge_count ?? 0)} edges
           </span>
           {memStats && memStats.total_vectors < memStats.total_items && (
             <span className="text-[11px] text-[var(--ct-yellow)] flex items-center gap-1">
