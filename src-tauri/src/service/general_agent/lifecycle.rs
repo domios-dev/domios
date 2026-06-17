@@ -70,6 +70,20 @@ pub fn start_general_agent(
                             std::thread::sleep(std::time::Duration::from_millis(300));
                         }
                         if agent_visible {
+                            // Reused PTY across a restart: if the in-memory binding didn't
+                            // survive, restore it from durable state so chat finds the
+                            // session — no relaunch, the running agent keeps its history.
+                            let unbound = mux
+                                .lock()
+                                .get_pane(&pid)
+                                .and_then(|p| p.agent_session_id.clone())
+                                .is_none();
+                            if unbound {
+                                if let Some(sid) = state::load_session_id(&svc.agent_registry, provider_name, &general_cwd) {
+                                    svc.set_agent_session_id(&pid, Some(sid.clone()));
+                                    log::info!("[general-agent] Restored durable session {} onto reused PTY {}", sid, pty_id);
+                                }
+                            }
                             log::info!("[general-agent] Already running (pane={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
                             return;
                         }
@@ -201,32 +215,11 @@ pub fn start_general_agent(
     // 5. Spawn PTY
     let cols = 120u16;
     let rows = 40u16;
-    let env_vars = {
-        let mut env = std::collections::HashMap::new();
-        env.insert("CODETERM_PANE_ID".to_string(), pane_id.clone());
-        // Per-launch binding nonce so the session-start hook report can prove it
-        // owns this pane — parity with the normal pane/orchestrator launch paths.
-        env.insert(
-            "CODETERM_SESSION_BINDING_NONCE".to_string(),
-            svc.ensure_session_binding_nonce(&pane_id),
-        );
-        env.insert(
-            "CODETERM_SOCKET_PATH".to_string(),
-            crate::socket::server::socket_display_path(),
-        );
-        env.insert("CODETERM_ROLE".to_string(), "Orchestrator".to_string());
-        if let Ok(port) = std::env::var("CODETERM_API_PORT") {
-            env.insert("CODETERM_API_PORT".to_string(), port);
-        }
-        // Hook callbacks POST to our REST API. Without the token they'd 401 on any non-loopback bind and silently swallow the failure via `curl … || true`, so set it unconditionally.
-        let tok: Option<String> = config.lock().api.token.clone();
-        if let Some(tok) = tok {
-            if !tok.is_empty() {
-                env.insert("CODETERM_API_TOKEN".to_string(), tok);
-            }
-        }
-        env
-    };
+    let env_vars = general_agent_env_vars(
+        &pane_id,
+        svc.ensure_session_binding_nonce(&pane_id),
+        config,
+    );
 
     let pty_id = {
         let mut manager = pty.lock();
@@ -418,6 +411,23 @@ pub fn start_general_agent(
         }
     }
 
+    // Persist whatever the session-start hook binds (Claude self-assigns its id; we
+    // no longer inject --session-id), so the next restart can resume this exact session.
+    if !use_resume {
+        for _ in 0..20 {
+            let bound = mux
+                .lock()
+                .get_pane(&pane_id)
+                .and_then(|p| p.agent_session_id.clone());
+            if let Some(sid) = bound {
+                state::persist_session_id(provider_name, &sid);
+                log::info!("[general-agent] Persisted hook-bound session {}", sid);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+
     svc.emit_state_changed();
     log::info!(
         "[general-agent] Started successfully (pane={}, pty={})",
@@ -497,5 +507,70 @@ pub(super) fn poll_agent_started(
             return true;
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
+fn general_agent_env_vars(
+    pane_id: &str,
+    session_binding_nonce: String,
+    config: &crate::config::ConfigState,
+) -> std::collections::HashMap<String, String> {
+    let mut env = std::collections::HashMap::new();
+    env.insert("CODETERM_PANE_ID".to_string(), pane_id.to_string());
+    // Per-launch binding nonce so the session-start hook report can prove it owns this pane.
+    env.insert(
+        "CODETERM_SESSION_BINDING_NONCE".to_string(),
+        session_binding_nonce,
+    );
+    env.insert(
+        "CODETERM_SOCKET_PATH".to_string(),
+        crate::socket::server::socket_display_path(),
+    );
+    env.insert("CODETERM_ROLE".to_string(), "Orchestrator".to_string());
+    // Use the daemon config, not a parent CodeTerm env leak.
+    env.insert(
+        "CODETERM_API_PORT".to_string(),
+        config.lock().api.port.to_string(),
+    );
+    // Hook callbacks POST to our REST API. Without the token they'd 401 on any non-loopback bind and silently swallow the failure via `curl … || true`.
+    let tok: Option<String> = config.lock().api.token.clone();
+    if let Some(tok) = tok {
+        if !tok.is_empty() {
+            env.insert("CODETERM_API_TOKEN".to_string(), tok);
+        }
+    }
+    env
+}
+
+#[cfg(test)]
+mod tests {
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+
+    #[test]
+    fn general_agent_env_uses_configured_api_port_not_parent_env() {
+        let original_port = std::env::var_os("CODETERM_API_PORT");
+        unsafe {
+            std::env::set_var("CODETERM_API_PORT", "7685");
+        }
+        let mut config = crate::config::schema::AppConfig::default();
+        config.api.port = 7686;
+        config.api.token = Some("test-token".to_string());
+        let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
+
+        let env = super::general_agent_env_vars("pane-1", "nonce-1".to_string(), &config);
+        unsafe {
+            if let Some(original_port) = original_port {
+                std::env::set_var("CODETERM_API_PORT", original_port);
+            } else {
+                std::env::remove_var("CODETERM_API_PORT");
+            }
+        }
+
+        assert_eq!(env.get("CODETERM_API_PORT").map(String::as_str), Some("7686"));
+        assert_eq!(
+            env.get("CODETERM_API_TOKEN").map(String::as_str),
+            Some("test-token")
+        );
     }
 }
