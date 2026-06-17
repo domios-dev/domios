@@ -203,6 +203,30 @@ truncates to "just my files":
   belongs to another, `codeterm agent report` blocked — the Orchestrator splits it.
   Workers never spawn workers.
 
+### 0.8 Discipline: strict TDD + a green gate the Orchestrator re-runs
+
+**Every worker works test-first and leaves NOTHING red:**
+- Write the failing test **before** the code (red → implement → green → commit).
+- **No test exists for what you're touching? Write one** — never ship behavior
+  with no oracle. For type-only work (Track A) the oracle is `tsc --noEmit`; for
+  Rust it's a `cargo test`; for plugin logic it's a `tsx` unit test.
+- A worker must NOT report DONE with a failing/ignored/`#[ignore]`'d test or a
+  `tsc` error. If a pre-existing test is red and unrelated, report it — don't hide it.
+- State in your report **what tests you added/ran and that they're green.**
+
+**The Orchestrator re-runs the gate itself before every merge — never on the
+worker's word:**
+- Before merging a track branch into `plugins-rethink` (or a plugin repo's
+  `main`): run the applicable gate locally — `./build.sh test`,
+  `./node_modules/.bin/tsc --noEmit`, `scripts/plugin-tests.sh all`, and the
+  plugin repo's `npm test` — and read the output. Green → merge. Red → bounce the
+  branch back to its worker with the failure, don't merge.
+- **Between phases, run the full regression** on `plugins-rethink` so drift can't
+  accumulate silently.
+- An Opus reviewer diffs the branch in parallel; merge gates on review + green.
+- Stay alert and keep enriching: fold in any new detail a worker surfaces (a
+  better seam, a missed site) into the plan as it arrives — don't doze.
+
 ---
 
 ## 1. Target architecture (one diagram)
