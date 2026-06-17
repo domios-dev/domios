@@ -65,6 +65,9 @@ impl<T> LateRef<T> {
 
     /// Resolve to a live `Arc` if the ref was populated and the target is still
     /// alive; `None` before population or after the target has been dropped.
+    // Read side: consumed by the `host.worker`/`agent`/`mem` handles in a later
+    // track; for C0 it is the carrier only and exercised by tests.
+    #[allow(dead_code)]
     pub(super) fn get(&self) -> Option<Arc<T>> {
         self.0.get().and_then(Weak::upgrade)
     }
@@ -192,6 +195,8 @@ impl PluginSandbox {
     }
 
     /// Resolve the host `ServiceContext`, or `None` if not yet populated / gone.
+    // Read side consumed by the host.worker/agent/mem handles in a later track.
+    #[allow(dead_code)]
     pub(super) fn service(&self) -> Option<Arc<ServiceContext>> {
         self.svc.get()
     }
