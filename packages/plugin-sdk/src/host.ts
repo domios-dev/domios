@@ -80,6 +80,70 @@ export interface HostPath {
   equal(a: string, b: string): boolean;
 }
 
+// ── host compute base (host.worker / workspace / agent / mem) ──
+// These bridge the sync VM to async host work via a job-id/poll model (F4): the
+// VM never blocks on an agent turn. They are gated by enforced permissions
+// (`manage_workspaces` / `spawn_agents`).
+
+export interface Backend {
+  provider?: string;
+  model?: string;
+}
+
+export interface PaneRef {
+  paneId: string;
+  title?: string;
+  // "Shell" | "Agent" | "ChatBackend" — the pane's backing discriminator (F1).
+  backing?: string;
+}
+
+// Mirrors the host's existing parseUsage output (tokens / cost), read-only —
+// consumed by a plugin to drive its own reminder cadence (R6). Loosely typed
+// because the underlying provider shapes vary.
+export interface UsageSnapshot {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  costUsd?: number;
+  [key: string]: unknown;
+}
+
+// One-shot agent compute. start() enqueues and returns immediately; poll() reads
+// the GraphWorkerRegistry — the VM is never held for the turn.
+export interface HostWorker {
+  start(opts: { backend?: Backend; task: string; timeoutMs?: number }): Promise<{ jobId: string }>;
+  poll(jobId: string): Promise<{ done: boolean; report?: string; error?: string }>;
+}
+
+export interface HostWorkspace {
+  ensure(opts: { name: string; externalRoot?: string }): Promise<{ workspaceId: string }>;
+  panes(workspaceId: string): Promise<PaneRef[]>;
+}
+
+// A team of long-lived agent sessions the PLUGIN owns and reaps (R2). spawn starts
+// a FRESH session; resume re-attaches a SPECIFIC stored session; get looks up the
+// plugin's own key→session map. send/poll is the job-id/poll bridge (F4) — send
+// returns a ticket, the plugin polls for the reply, the VM never blocks.
+export interface HostAgent {
+  spawn(
+    workspaceId: string,
+    opts: { backend?: Backend; task: string; key?: string; commands?: string[] },
+  ): Promise<{ sessionId: string }>;
+  resume(workspaceId: string, sessionId: string): Promise<{ sessionId: string } | null>;
+  get(workspaceId: string, key: string): Promise<{ sessionId: string } | null>;
+  send(sessionId: string, text: string): Promise<{ ticket: string }>;
+  poll(ticket: string): Promise<{ done: boolean; reply?: string }>;
+  reap(sessionId: string): Promise<void>;
+  usage?(sessionId: string): Promise<UsageSnapshot | null>;
+}
+
+export interface HostMem {
+  search(opts: {
+    query: string;
+    k?: number;
+  }): Promise<{ hits: { id: string; text: string; score: number }[] }>;
+}
+
 export interface Host {
   // ── Identity / paths ──
   platform(): string;
@@ -124,6 +188,12 @@ export interface Host {
   fs: HostFs;
   shell: HostShell;
   path: HostPath;
+
+  // ── host compute base (permissioned; job-id/poll bridge) ──
+  worker: HostWorker;
+  workspace: HostWorkspace;
+  agent: HostAgent;
+  mem: HostMem;
 }
 
 declare global {

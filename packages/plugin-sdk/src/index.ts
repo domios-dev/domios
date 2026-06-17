@@ -11,5 +11,12 @@ export type {
   ExecResult,
   FetchOpts,
   FetchResult,
+  Backend,
+  PaneRef,
+  UsageSnapshot,
+  HostWorker,
+  HostWorkspace,
+  HostAgent,
+  HostMem,
 } from "./host";
 export * from "./capabilities";
