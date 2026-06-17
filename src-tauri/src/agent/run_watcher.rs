@@ -305,14 +305,16 @@ fn agent_screen_busy(svc: &ServiceContext, pty_id: &str) -> bool {
 }
 
 fn screen_shows_working(text: &str) -> bool {
-    // "esc to interrupt" is shown the whole time a turn or tool is in flight and
-    // is absent from the idle "ready" prompt — the reliable live-work signal. The
-    // whimsical spinner verbs are a secondary hint.
+    // Claude's live status line during a turn/tool is `<glyph> <Verb>… (<elapsed>
+    // · <arrow> <N> tokens)` plus an "esc to interrupt" hint. Either marker means
+    // the agent is alive and generating (even with a frozen spinner while blocked
+    // on a slow Bash subprocess) — defer idle reaping. The spinner verb itself is
+    // whimsical and rotates through dozens of words, so we key off the STABLE bits
+    // (the "… tokens)" counter and the interrupt hint), not a verb whitelist.
     text.contains("esc to interrupt")
-        || text.contains("Cogitat")
-        || text.contains("Brewing")
-        || text.contains("Forging")
-        || text.contains("Puzzling")
+        || text.contains("tokens)")
+        || text.contains("· ↑")
+        || text.contains("· ↓")
 }
 
 fn screen_is_bare_shell(text: &str) -> bool {
@@ -496,13 +498,22 @@ impl ResultEventScanner {
             }
         }
 
-        let safe_consume = consumed.min(self.tool_scan_pos);
+        let mut safe_consume = consumed.min(self.tool_scan_pos);
         if safe_consume > 0 {
+            // Floor to a UTF-8 char boundary — PTY chunks split multibyte glyphs
+            // (spinners ✶✳, …, box-drawing), and draining mid-char panics, which
+            // kills the backend reader and freezes the run.
+            while safe_consume > 0 && !self.buffer.is_char_boundary(safe_consume) {
+                safe_consume -= 1;
+            }
             self.buffer.drain(..safe_consume);
             self.tool_scan_pos = self.tool_scan_pos.saturating_sub(safe_consume);
         }
         if self.buffer.len() > SCANNER_BUFFER_CAP {
-            let cut = self.buffer.len() - SCANNER_BUFFER_CAP / 2;
+            let mut cut = self.buffer.len() - SCANNER_BUFFER_CAP / 2;
+            while cut < self.buffer.len() && !self.buffer.is_char_boundary(cut) {
+                cut += 1;
+            }
             self.buffer = self.buffer.split_off(cut);
             self.tool_scan_pos = self.tool_scan_pos.saturating_sub(cut);
         }
@@ -597,9 +608,12 @@ mod tests {
 
     #[test]
     fn screen_working_defers_idle_reap() {
-        assert!(screen_shows_working("· 1.2k tokens · esc to interrupt"));
-        assert!(screen_shows_working("✻ Cogitating… (12s)"));
-        assert!(screen_shows_working("Forging the answer"));
+        // The real frozen-spinner status line that used to get reaped mid-work.
+        assert!(screen_shows_working(
+            "✢ Propagating… (3m 18s · ↑ 9.8k tokens)\n❯ "
+        ));
+        assert!(screen_shows_working("✻ Schlepping… (12s · ↓ 2.1k tokens)"));
+        assert!(screen_shows_working("working… esc to interrupt"));
     }
 
     #[test]
@@ -701,6 +715,20 @@ mod tests {
         let big = "x".repeat(SCANNER_BUFFER_CAP * 2);
         let _ = s.feed(&big);
         assert!(s.buffer.len() <= SCANNER_BUFFER_CAP);
+    }
+
+    #[test]
+    fn scanner_caps_unicode_buffer_without_panic() {
+        // The dreamer floods the PTY with multibyte glyphs (spinners ✶✳, …, box
+        // drawing). Capping the buffer must floor to a char boundary, not slice
+        // mid-character (which panicked and killed the backend reader).
+        let mut s = ResultEventScanner::new();
+        let big = "✶✳✻… ".repeat(SCANNER_BUFFER_CAP); // far over cap, all multibyte
+        let _ = s.feed(&big);
+        assert!(s.buffer.len() <= SCANNER_BUFFER_CAP);
+        // Feeding more must keep working (no panic on the retained multibyte tail).
+        let _ = s.feed("✢✽ more ✶");
+        assert!(s.buffer.is_char_boundary(0));
     }
 
     #[test]
