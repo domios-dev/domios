@@ -55,8 +55,8 @@ function statusBubble(ctx) {
   if (!branch) return null; // not a repo → no pill
   var d = parsePorcelain(git(cwd, ["status", "--porcelain"]).stdout);
   return {
-    label: branch + (d.total ? " •" : ""),
-    tone: d.total ? "warn" : "default",
+    label: branch,
+    tone: "default",
     icon: "git",
     tooltip: d.total ? d.total + " changed — open Git" : "clean — open Git",
     // Click opens the plugin's own Git view (its sandboxed iframe UI).

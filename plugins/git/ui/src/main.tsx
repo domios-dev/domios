@@ -42,7 +42,7 @@ function Root() {
       </div>
     );
   }
-  return <GitPanel api={null} cwd={cwd} onClose={() => {}} />;
+  return <GitPanel api={null} cwd={cwd} onClose={() => window.ct?.close?.()} />;
 }
 
 const el = document.getElementById("ct-root");

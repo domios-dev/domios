@@ -61,6 +61,10 @@ export function PluginView({
         win.postMessage({ __ctTheme: themeCss() }, "*");
         return;
       }
+      if (m.__ctClose) {
+        onClose?.();
+        return;
+      }
       if (m.__ctInvoke != null) {
         try {
           // Stamp the pane cwd into args that don't carry one, so confined
@@ -76,13 +80,23 @@ export function PluginView({
         }
       }
     },
-    [pluginId, cwd],
+    [pluginId, cwd, onClose],
   );
 
   useEffect(() => {
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [onMessage]);
+
+  // Universal escape (host-side focus); in-iframe Esc/close routes via __ctClose.
+  useEffect(() => {
+    if (embedded) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose?.();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [embedded, onClose]);
 
   const frame = (
     <iframe
@@ -102,17 +116,11 @@ export function PluginView({
     );
   }
 
+  // No host chrome: the plugin owns its own header + close (the iframe calls
+  // window.ct.close() → __ctClose). Esc is the universal escape for plugins
+  // that don't render their own close.
   return (
     <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "var(--ct-bg)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.06))" }}>
-        <button
-          onClick={onClose}
-          style={{ background: "transparent", border: "none", color: "var(--ct-muted)", cursor: "pointer", fontSize: 12.5 }}
-        >
-          ← Back
-        </button>
-        <span style={{ fontSize: 12.5, color: "var(--ct-muted)" }}>{pluginId}</span>
-      </div>
       {frame}
     </div>
   );
