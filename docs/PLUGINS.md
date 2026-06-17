@@ -9,24 +9,38 @@ This guide reflects **what exists in the code today**.
 
 ## Anatomy of a plugin
 
+Plugins are authored in **TypeScript** and compiled to the artifacts the host loads.
+
 ```
 plugins/<id>/
   plugin.json          # manifest: id, capabilities, permissions, icon, settings schema
-  plugin.js            # logic — a QuickJS module: module.exports.default = { ...capability methods }
+  package.json         # type:module + workspace dep on @codeterm/plugin-sdk
+  src/plugin.ts        # SOURCE — logic, typed against @codeterm/plugin-sdk; ends with `export default plugin`
+  plugin.js            # BUILD ARTIFACT (esbuild → CJS) — committed; do not hand-edit
   settings.schema.json # optional — JSON-schema for the settings panel
   ui/                  # optional — the plugin's own UI (for the `view` capability)
-    src/main.tsx       # React entry, mounts on #ct-root
-    index.html         # BUILT bundle (esbuild) — committed; do not hand-edit
+    src/main.tsx       # SOURCE — React entry, mounts on #ct-root
+    app-<hash>.js      # BUILD ARTIFACT — content-hashed, cacheable bundle; committed
+    index.html         # BUILD ARTIFACT — tiny shell that loads app-<hash>.js; committed
   tests/ or *.test.cjs # plugin tests (run via tsx / scripts/plugin-tests.sh)
 ```
 
-A plugin has up to **two halves**:
+A plugin has up to **two halves**, each with a TS source and a built artifact:
 
-1. **Logic** — `plugin.js`, run in a confined **QuickJS** VM. No DOM, no network of
-   its own, synchronous. It talks to the host only through the injected `host.*` API.
-2. **UI** (optional) — a React app in `ui/`, rendered in a **sandboxed iframe**
+1. **Logic** — author `src/plugin.ts`, build to `plugin.js`, run in a confined
+   **QuickJS** VM. No DOM, no network of its own, synchronous. It talks to the host
+   only through the injected `host.*` API. The SDK (`@codeterm/plugin-sdk`) is
+   **type-only**: importing it adds zero runtime weight — it just declares the `host`
+   global and the capability contracts (`PluginModule`, `StatusBubble`, `GlanceView`,
+   `ViewNode`, `AgentProvider`, `SecretBackend`, `Transcriber`, …). esbuild strips the
+   `import type` lines, so nothing browser/Node-shaped leaks into the QuickJS bundle.
+2. **UI** (optional) — author `ui/src/main.tsx`, build to a **split** bundle
+   (`ui/app-<hash>.js` + a tiny `ui/index.html`), rendered in a **sandboxed iframe**
    (origin-null, CSP-locked). It talks only to its own logic half, via a
    `window.ct.invoke()` postMessage bridge the host relays to `viewCall`.
+
+Both `plugin.js` and the `ui/` bundle are **committed build artifacts** — regenerated
+by `scripts/build-plugin.mjs <id>`, never edited by hand. Edit the TS source and rebuild.
 
 This mirrors the VS Code / Figma model: untrusted plugin code in a sandbox, a narrow
 audited channel to the host, and a separately-sandboxed UI.
@@ -79,8 +93,8 @@ that calls the corresponding `plugin.js` export. The exports a plugin provides:
 | `glanceView`   | `renderGlance(ctx)`   | `{ title, nodes: ViewNode[] }` |
 | `view`         | `viewCall(method,args)` | any JSON (the iframe UI calls this via `window.ct.invoke`) |
 | `secretBackend`| `secretStatus`, `secretUnlock`, `secretGet`, `secretSet`, … | provider-specific |
-| `transcriber`  | `transcribe(opts)`    | `{ text }` |
-| `agentProvider`| `detect`, `parseSessionDelta`, `buildLaunchCommand`, `checkIntegration`, `installIntegration`, … | see `plugins/provider-*/` |
+| `transcriber`  | `transcribe(path, lang?)` | `{ text }` or `{ error }` |
+| `agentProvider`| `detectFromTitle`, `parseSessionDelta`, `buildLaunchCommand`, `checkIntegration`, `installIntegration`, … | see `plugins/provider-*/src/plugin.ts` |
 
 `ctx` for bubble/glance carries the pane's `cwd`. `action: "openPanel:view:<id>"` opens
 the plugin's own iframe view; `"openPanel:<name>"` opens a built-in panel.
@@ -98,7 +112,16 @@ the plugin's own iframe view; `"openPanel:<name>"` opens a built-in panel.
 
 QuickJS is **not** a browser: there is no `console` binding by default, no `fetch`, no
 timers. Anything not in `host.*` does not exist — a stray `console.warn` once aborted
-parsing with a silent `ReferenceError`. Keep `plugin.js` to the host surface.
+parsing with a silent `ReferenceError`. Keep the logic to the host surface. (When a
+parser genuinely needs to warn, guard it: `if (typeof console !== "undefined") console.warn(…)`.)
+
+**Loader contract.** The QuickJS loader wraps the built `plugin.js` in an IIFE exposing
+`module`/`exports`, runs it, then reads `module.exports.default`. esbuild's CJS output
+(`format: "cjs"`, `target: "es2020"`, neutral platform) assigns the TS `export default plugin`
+to exactly that — so the source ends with `export default plugin;` and the build does the
+rest. The host calls capability methods on that default object **by name**, so keep export
+names stable across a refactor. Top-level `function foo() {}` declarations survive bundling
+with their names intact (the cross-provider parity test relies on this for `validateEntry`).
 
 ## The `view` capability (sandboxed-iframe UI)
 
@@ -138,24 +161,43 @@ of truth and must stay so:
 ## Creating a plugin
 
 1. `mkdir plugins/<id>` and write `plugin.json` (id, capabilities, permissions, icon).
-2. Write `plugin.js`:
-   ```js
-   function git(cwd, args) { return JSON.parse(host.exec(JSON.stringify({ bin: "git", args: ["-C", cwd].concat(args) }))); }
-   function statusBubble(ctx) {
+2. Add a `package.json` (mirror an existing plugin's): `"type": "module"` and a
+   workspace dep on the SDK, then `pnpm install` to wire the symlink:
+   ```jsonc
+   { "name": "@codeterm/plugin-<id>", "version": "0.1.0", "private": true, "type": "module",
+     "devDependencies": { "@codeterm/plugin-sdk": "workspace:*" } }
+   ```
+3. Write `src/plugin.ts` — typed against the SDK, ending with `export default plugin`:
+   ```ts
+   import type { ExecOpts, ExecResult, PaneContext, PluginModule, StatusBubble } from "@codeterm/plugin-sdk";
+
+   function git(cwd: string, args: string[]): ExecResult {
+     return JSON.parse(host.exec(JSON.stringify({ bin: "git", args: ["-C", cwd].concat(args) })));
+   }
+   function statusBubble(ctx: PaneContext): StatusBubble | null {
      if (!ctx || !ctx.cwd) return null;
      // … shell git, build the pill …
      return { label: branch, tone: "default", icon: "git", action: "openPanel:view:git" };
    }
-   module.exports.default = { statusBubble: statusBubble /*, renderGlance, viewCall, … */ };
+   const plugin: PluginModule = { statusBubble /*, renderGlance, viewCall, … */ };
+   export default plugin;
    ```
-3. If it has a UI: `plugins/<id>/ui/src/main.tsx` (React, `createRoot(document.getElementById("ct-root"))`),
-   talk to the logic half via `window.ct.invoke("<method>", args)`, then build:
+4. If it has a UI: `plugins/<id>/ui/src/main.tsx` (React, `createRoot(document.getElementById("ct-root"))`),
+   talk to the logic half via `window.ct.invoke("<method>", args)`.
+5. Build both halves in one pass:
    ```
-   node scripts/build-plugin-ui.mjs <id>     # esbuild → plugins/<id>/ui/index.html
+   node scripts/build-plugin.mjs <id>        # esbuild → plugin.js (+ ui/app-<hash>.js + ui/index.html)
    ```
-   The bundle is self-contained (React inlined); the iframe cannot fetch app code.
-4. Tests: a `*.test.cjs` for pure parsers (run with `npx tsx`), and a `tests/*.test.ts`
-   for contract/behavior. Wire them into `scripts/plugin-tests.sh`.
+   This emits the loader-compatible `plugin.js` and, if `ui/src/main.tsx` exists, the
+   **split** UI bundle: a content-hashed `app-<hash>.js` (immutable, cacheable; stale
+   hashes are pruned) plus a tiny `index.html` that loads it via an external `<script>`.
+   The host serves `app-<hash>.js` with a long-lived immutable cache and `index.html`
+   `no-store` (it carries the per-load `__CT_NONCE__` the view route swaps in). The bundle
+   is self-contained (React bundled in); the iframe cannot fetch app code.
+6. Commit the artifacts (`plugin.js`, `ui/app-*.js`, `ui/index.html`) alongside the source.
+7. Tests: a `*.test.cjs` for pure parsers (run with `npx tsx`), and a `tests/*.test.ts`
+   for contract/behavior. They load the **built `plugin.js`** (`require("./plugin.js").default`
+   or a `vm` context). Wire them into `scripts/plugin-tests.sh`.
 
 ### UI gotchas (the sandbox is strict)
 
@@ -181,8 +223,11 @@ of truth and must stay so:
   providers** live, but the other capability registries (`statusBubble`, `glanceView`,
   `view`, `secretBackend`, `transcriber`) are populated at startup and are **not**
   refreshed on reload — a new/changed capability needs a daemon restart to take effect.
-- **Asset caching.** The plugin-UI route sends `Cache-Control: no-store` so the embedding
-  WebView (WKWebView caches aggressively) never serves a stale bundle after a rebuild.
+- **Asset caching.** The split UI bundle is cache-correct by construction: `index.html`
+  is served `no-store` (it carries the per-load nonce and points at the current hash), so
+  the embedding WebView never serves a stale shell; `app-<hash>.js` is content-hashed and
+  served immutable, so unchanged bundles are reused and a rebuild that changes the JS
+  produces a new filename the fresh `index.html` references.
 - **No `X-Frame-Options`** on the plugin-UI route: the app embeds the iframe *cross-origin*
   (desktop shell ≠ daemon origin), so `SAMEORIGIN` would blank it. Framing is safe anyway
   — sandboxed, CSP-locked, token-gated; a foreign framer gets an inert document.
@@ -229,4 +274,4 @@ tax (see also `docs/contributing/architecture.md`):
   inherited a parent's `CODETERM_API_PORT` (e.g. prod's 7685 when launched from prod),
   the hook reports to the wrong daemon. Inject env from **config**, not `std::env`.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

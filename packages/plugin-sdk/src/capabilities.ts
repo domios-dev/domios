@@ -59,7 +59,17 @@ export type ViewCall = (method: string, args: unknown) => unknown;
 export interface LaunchParams {
   skipPermissions?: boolean;
   args?: string[];
+  agentName?: string;
+  sessionId?: string;
+  task?: string;
   [key: string]: unknown;
+}
+
+// A permission prompt the provider parsed itself when the host's universal
+// picker can't read its layout (e.g. opencode's single-row options).
+export interface ParsedPrompt {
+  question: string;
+  options: [string, string][];
 }
 
 export interface AgentProvider {
@@ -69,10 +79,15 @@ export interface AgentProvider {
   isOutputNoise?(text: string): boolean;
   hasEventMarkers?(chunk: string): boolean;
   detectEvents?(text: string): string[];
+  extractSessionName?(screen: string): string | null;
   buildLaunchCommand?(params: LaunchParams): string;
   buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string;
+  buildPromptResponse?(optionIndex: number): string[];
+  parsePrompt?(text: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;
+  sessionExists?(cwd: string, sessionId: string): boolean;
+  sessionCreatedMs?(cwd: string, sessionId: string): number | null;
   parseSessionDelta?(chunk: string): unknown;
   detectSessionId?(cwd: string, exclude?: string, maxAgeMs?: number): string | null;
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
@@ -80,10 +95,14 @@ export interface AgentProvider {
   enumerateSessions?(): unknown[];
   parseUsage?(rawText: string, nowMs: number): unknown;
   parseSessionMessages?(text: string): unknown[];
+  usesStructuredChat?(): boolean;
+  readStructuredChat?(cwd: string, sessionId: string, cursor?: string | null): unknown;
   checkIntegration?(): unknown;
   installIntegration?(apiPort: number): unknown;
   uninstallIntegration?(): unknown;
   ensureIntegrationOnStartup?(apiPort: number): unknown;
+  installBridgeRule?(payload: string): unknown;
+  uninstallBridgeRule?(): unknown;
 }
 
 // ── secretBackend (mirrors plugins/bitwarden/plugin.js + JsSecretBackend) ──
@@ -91,22 +110,59 @@ export interface AgentProvider {
 export interface SecretCreds {
   masterPassword?: string;
   email?: string;
+  twoFactorToken?: string;
   apiKeyClientId?: string;
   apiKeyClientSecret?: string;
   [key: string]: unknown;
 }
 
-export type SecretEnvelope<T = unknown> = { ok: true } | (T & { ok?: true }) | { error: unknown };
+// Most secret ops return an envelope the JsSecretBackend adapter maps onto the
+// core SecretStore trait: `{ ok }` / `{ ok: <payload> }` / `{ error: <kind> }`.
+export type SecretError = { kind: string; message?: string; candidates?: string[] };
+export type SecretEnvelope<T = unknown> = { ok: T } | { error: SecretError };
+
+// secretStatus is the one method that returns a bare StoreStatus, not an envelope.
+export interface SecretStatus {
+  status: "unlocked" | "locked" | "logged_out" | "unavailable";
+  user?: string | null;
+  transient?: boolean;
+  endpoint?: string;
+  reason?: string;
+}
+
+export interface SecretSaveRequest {
+  name: string;
+  value: string;
+  notes?: string | null;
+  folder?: string | null;
+  organization?: string | null;
+  collection?: string | null;
+  overwrite?: boolean;
+}
+
+export interface SecretListFilter {
+  organization?: string;
+  collection?: string;
+  folder?: string;
+  limit?: number;
+}
 
 export interface SecretBackend {
-  secretStatus(): unknown;
+  secretStatus(): SecretStatus;
   secretUnlock?(creds: SecretCreds): unknown;
   secretLock?(): unknown;
   secretLogout?(): unknown;
   secretGet?(name: string): unknown;
   secretSet?(name: string, value: string): unknown;
-  secretList?(): unknown;
+  secretList?(filter?: SecretListFilter): unknown;
   secretDelete?(name: string): unknown;
+  secretSave?(req: SecretSaveRequest): unknown;
+  secretGetItem?(nameOrId: string): unknown;
+  secretSearch?(query: string): unknown;
+  secretOrganizations?(): unknown;
+  secretCollections?(organizationId?: string): unknown;
+  secretSync?(): unknown;
+  secretInit?(): unknown;
 }
 
 // ── transcriber (mirrors plugins/transcriber/plugin.js + Transcriber trait) ──
