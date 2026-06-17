@@ -1544,6 +1544,30 @@
               "subcommands": []
             },
             {
+              "name": "collapse-synonym-edges",
+              "about": "Collapse parallel membership-synonym edges graph-wide in one pass: per node-pair keep ONE of about/applies_to/belongs_to/part_of/documented_in, invalidate the rest. Distinct predicates (uses, runs_on, …) untouched",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "actor",
+                  "positional": false,
+                  "value_name": "ACTOR",
+                  "default": "user",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "dry_run",
+                  "positional": false,
+                  "value_name": "DRY_RUN",
+                  "default": null,
+                  "help": "Print the redundant edge rowids without invalidating anything",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "create",
               "about": "Create a graph entity",
               "aliases": [],
@@ -1970,6 +1994,54 @@
                   "value_name": "TO",
                   "default": null,
                   "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "prune-dream-hub-edges",
+              "about": "Invalidate dream-diary backlinks into hubs in one pass: every edge from a daily diary to a graph entity via a noise predicate (keeps the dreams anchor)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "actor",
+                  "positional": false,
+                  "value_name": "ACTOR",
+                  "default": "user",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "dry_run",
+                  "positional": false,
+                  "value_name": "DRY_RUN",
+                  "default": null,
+                  "help": "Print the dream backlink rowids without invalidating anything",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "prune-thin-vectors",
+              "about": "Find and (optionally) delete vectors whose mem_item has no real body (empty / title-only) — the \"bodyless embeddings\" that pollute search",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "actor",
+                  "positional": false,
+                  "value_name": "ACTOR",
+                  "default": "user",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "dry_run",
+                  "positional": false,
+                  "value_name": "DRY_RUN",
+                  "default": null,
+                  "help": "Print the thin-body vector ids without deleting anything",
                   "aliases": []
                 }
               ],
@@ -4028,6 +4100,13 @@
                   "aliases": []
                 }
               ],
+              "subcommands": []
+            },
+            {
+              "name": "ensure-default",
+              "about": "Register the default marketplace channel (codeterm-plugins) if missing. Register-only: nothing is installed. Best-effort/offline-tolerant",
+              "aliases": [],
+              "args": [],
               "subcommands": []
             },
             {

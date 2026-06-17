@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -442,6 +442,13 @@ Patch properties on an existing entity (audit-logged)
 - `--id` — Entity id (e.g. person_andrey)
 - `--patch` — JSON object of properties to merge in (e.g. '{"city":"Riga"}')
 
+#### `codeterm mem graph collapse-synonym-edges`
+
+Collapse parallel membership-synonym edges graph-wide in one pass: per node-pair keep ONE of about/applies_to/belongs_to/part_of/documented_in, invalidate the rest. Distinct predicates (uses, runs_on, …) untouched
+
+- `--actor` — 
+- `--dry_run` — Print the redundant edge rowids without invalidating anything
+
 #### `codeterm mem graph create`
 
 Create a graph entity
@@ -547,6 +554,20 @@ Shortest path between two entities
 - `--include_invalidated` — Include relations whose valid_to is set (default: active-only)
 - `--max_hops` — 
 - `--to` — 
+
+#### `codeterm mem graph prune-dream-hub-edges`
+
+Invalidate dream-diary backlinks into hubs in one pass: every edge from a daily diary to a graph entity via a noise predicate (keeps the dreams anchor)
+
+- `--actor` — 
+- `--dry_run` — Print the dream backlink rowids without invalidating anything
+
+#### `codeterm mem graph prune-thin-vectors`
+
+Find and (optionally) delete vectors whose mem_item has no real body (empty / title-only) — the "bodyless embeddings" that pollute search
+
+- `--actor` — 
+- `--dry_run` — Print the thin-body vector ids without deleting anything
 
 #### `codeterm mem graph purge-invalidated`
 
@@ -1151,6 +1172,10 @@ Add a local path or git URL channel
 Compare installed plugins against a channel without installing
 
 - `<name>` — 
+
+#### `codeterm plugin channel ensure-default`
+
+Register the default marketplace channel (codeterm-plugins) if missing. Register-only: nothing is installed. Best-effort/offline-tolerant
 
 #### `codeterm plugin channel list`
 
