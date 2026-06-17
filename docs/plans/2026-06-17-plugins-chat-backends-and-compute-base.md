@@ -1,0 +1,264 @@
+# Plugins as First-Class Chat Backends & Compute — Design
+
+**Status:** design only. No implementation yet. Supersedes the narrower
+`plugin-compute-base` draft.
+
+---
+
+## 1. What we want, and why
+
+Today every chat/agent in CodeTerm is a **terminal**: a pane is a PTY running a
+CLI, and provider plugins parse that PTY/JSONL stream into chat. "A chat" is
+welded to "a launched process."
+
+We want CodeTerm to host chats whose backend is **anything a plugin can drive**:
+
+- a **direct model API** — LM Studio, Groq — talking to our chat UI with *no
+  terminal* at all;
+- **someone else's agent system** — a third party (e.g. a "clawdbot") brings its
+  own brain and *provides its chat* through us;
+- **our own agents as brains** — e.g. game NPCs, each an agent the plugin drives;
+- a **preprocessor** that augments what we send, every turn, using CodeTerm's own
+  capabilities (memory recall, an agent worker, a Groq call).
+
+**Why this and not bespoke subsystems:** CodeTerm already is a multiplexer where
+agents live, with a provider abstraction, persistent `mem`, background workers,
+and a CLI/API to drive panes. The only missing piece is letting a plugin *be* the
+chat's source/transport instead of merely parsing a terminal. Building that as
+one extensible seam means the community can plug LM Studio, Groq, external agent
+systems, preprocessors, and game NPC brains **without forking the daemon** — and
+everything rides the plugin system we already have (capability registry +
+`host.*` API), not a parallel stack.
+
+## 2. End result (success criteria)
+
+When this lands, all of the following are true and are **plugins**:
+
+1. Install an **LM Studio** plugin → a new chat pane that talks to LM Studio
+   directly (no terminal); the model picker is populated by the plugin.
+2. `codeterm send --pane <that pane> "hi"` and `codeterm get-output --pane <that
+   pane>` behave exactly as on a terminal agent — our orchestrator, mesh, and
+   agents can drive a plugin-backed chat uniformly.
+3. A **chat-preprocessor** plugin augments every outbound message (mem recall / a
+   Groq call / one of our agent workers) before it reaches the agent;
+   on/off + backend/model configurable.
+4. A **dread NPC** plugin (separate channel) owns its **own workspace** (rooted
+   in the game folder), spawns a **team** of agent sessions keyed by `npc_id` (a
+   returning player meets an NPC that remembers them), tracks per-session turn
+   stats, and injects a stay-in-character reminder every Nth turn.
+5. The existing PTY provider path (claude/codex/opencode) is **unchanged** — all
+   additions are additive.
+
+## 3. Principle
+
+Extend the **existing** plugin abstraction — the same one behind `statusBubble` /
+`glanceView` / `secretBackend` / `transcriber` / `agentProvider`: a capability
+registry plus the `host.*` API in `plugin/js_runtime/host_api.rs`. Plugins
+*implement* behavior; CodeTerm provides handles. No provider-id branching in core
+(capability-not-identity).
+
+**Chosen direction: A → C.** Introduce a `chatBackend` **capability** (a
+pluggable, non-PTY chat transport) — the minimal real seam that unlocks direct
+chat and fits preprocessor/worker. Shape its interfaces as a **pipeline**
+(stages + transports over `NormalizedChatMessage`) so we can later converge on
+the full middleware-bus model (C) without rewriting the working PTY path.
+(Rejected: folding into `agentProvider` (B) — that contract is too PTY/session-
+file/launch-shaped; a clean new capability is less of a union-type mess.)
+
+## 4. Current state (verified, grounds the design)
+
+- `PaneCommand` = `Shell | Agent` (`src-tauri/src/service/spawn.rs:39`) — both
+  PTY-backed. No non-PTY chat exists.
+- `ChatView.tsx:14` is an explicit placeholder for a "direct API chat mode (pick
+  model, call `/chat` directly)" — the intent is already reserved, unbuilt.
+- `@codeterm/chat-core` `NormalizedChatMessage` + `@codeterm/chat-ui`
+  `MessageBubble` already abstract chat **rendering/normalization** (used by
+  ChatView, PaneSessionChat, RunChatPopup). This is the lingua franca.
+- Workers are real and **not** `claude -p`: a **subprocess** worker
+  (`mem/supervisor.rs` → `codeterm mem run-worker <kind>` → JSON on stdout) and a
+  **hidden-pane agent** worker (`mem/workers.rs` →
+  `spawn_pane(SpawnPaneSpec{ visibility: Hidden, command: Agent(AgentSpawnSpec{
+  provider, model, task, auto_approve, worker_id }) })`, throttled by
+  `worker_pool`, reports back). The hidden-pane worker is the "invisible tab" the
+  Dreamer uses.
+- Send seam: `commands/pane.rs:495 chat_send_text` → `send_text_when_ready` (with
+  PTY/TUI readiness: `await_agent_tui_on_screen`, `verify_submit`,
+  `poll_shell_prompt`), also `POST /api/panes/:id/send`.
+- Output seam: `codeterm get-output` → `api/pane_routes.rs:445 get_pane_output`
+  reads the PTY `output_buf` / screen text.
+
+## 5. Architecture — three layers
+
+### Layer 1 (core) — `chatBackend` capability
+
+A chat session is fed by a **transport**. Today the transport is implicit (PTY +
+provider parser). We add a plugin-implemented transport.
+
+**New pane command:** `PaneCommand::ChatBackend { plugin_id, config }` — a pane
+with no PTY; its lifecycle and messages are driven by the named plugin.
+
+**Capability `chatBackend`** (plugin logic half), entirely in
+`NormalizedChatMessage` so rendering is free via `MessageBubble`:
+
+```ts
+openSession(ctx: { paneId: string; config: unknown }): { sessionId: string };
+sendMessage(sessionId: string, text: string): void;
+poll(sessionId: string, cursor?: string | null):
+  { messages: NormalizedChatMessage[]; cursor: string | null; done?: boolean };
+closeSession(sessionId: string): void;
+listModels?(): { id: string; displayName: string }[];   // feeds the model picker
+```
+
+**Host side:** a `ChatBackendRegistry` (sibling to the other capability
+registries). For a `ChatBackend` pane, **send** dispatches to the plugin's
+`sendMessage` (not `send_text_when_ready`/PTY) and the chat **source** is the
+plugin's `poll` (not a session-file tail). The `ChatView` "direct API chat mode"
+placeholder becomes the renderer for these panes.
+
+**Transport-agnostic pane I/O (core tenet).** So our whole toolkit drives
+plugin-backed chats like any pane, the send/output seams become transport-aware:
+
+- **`send`** (`chat_send_text` / `POST /api/panes/:id/send` / `codeterm send`)
+  dispatches: `ChatBackend` pane → plugin `sendMessage`; PTY pane → today's path.
+  "Readiness" for a chatBackend = session open (plugin-defined), not TUI-on-screen.
+- **`get-output`** (`get_pane_output` / `/panes/:id/output`) for a chatBackend
+  pane returns the **chat transcript** (`NormalizedChatMessage[]`), not a byte
+  screen — structured, and cleaner.
+
+Result: `codeterm send`, `get-output`, spawn, report-routing, and mesh work
+uniformly on chatBackend panes. PTY-specific notions (`screenHasTui`,
+verify-submit, JSONL parsing) simply don't apply — the plugin reports its own
+status/readiness.
+
+### Layer 2 — host-API base (permissioned handles)
+
+New `host.*` namespaces any plugin can call. Powerful ones are **permissioned**:
+declared in `plugin.json` `permissions` and shown for approval at install (like
+git's `subprocess: { allow: ["git"] }`), mirroring the connector's
+manage_workspaces/spawn_agents grant — but at plugin-install level.
+
+```ts
+// message preprocessing — a STAGE on the send path of ANY session (PTY or chatBackend)
+// (capability, not host.*) chatPreprocess(ctx) -> { text } | null   // null = passthrough
+
+// compute dispatch — backed by the real worker machinery (spawn_pane Hidden + worker_pool)
+host.worker.run({ backend?, task, timeoutMs? }): Promise<{ ok, report?, error? }>;   // one-shot
+
+// own workspace + a TEAM of agent sessions inside it (the dread case)  [permissioned]
+host.workspace.ensure({ name, externalRoot? }): Promise<{ workspaceId }>;
+host.workspace.panes(workspaceId): Promise<PaneRef[]>;
+host.agent.spawn(workspaceId, { backend?, task, key? }): Promise<{ sessionId }>;  // key = npc_id
+host.agent.get(workspaceId, key): Promise<{ sessionId } | null>;                  // "remembers you"
+host.agent.send(sessionId, text): Promise<{ reply: string }>;
+host.agent.reap(sessionId): Promise<void>;
+
+// memory recall (read-only)
+host.mem.search({ query, k? }): Promise<{ hits: { id, text, score }[] }>;
+```
+
+`backend` is `{ provider?, model? }` resolved from plugin settings
+(`config.plugins.<id>`) or a tier — **never hardcoded**. For cheap external
+compute a plugin keeps using the existing `host.fetch` (e.g. a Groq POST);
+`host.worker`/`host.agent` are for driving *our* agents. `host.worker.run` is the
+one-shot case of `host.agent.spawn`+`send`+`reap`. Under the hood: the same
+`spawn_pane(Hidden, Agent{…})` + `worker_pool` + workspace machinery, exposed.
+
+> **QuickJS bridge:** the VM is synchronous (`call_json`); these handles are
+> async host-side (spawn panes, await reports). They use the same async-host /
+> sync-VM bridge `host.fetch` already uses (JSON envelope the VM unwraps).
+
+### Layer 3 — consumers (validate the base; each its own spec)
+
+- **LM Studio / Groq direct chat** (`codeterm-plugins`) — a `chatBackend` plugin:
+  `openSession` connects, `sendMessage` POSTs to the API, `poll` streams the reply
+  as `NormalizedChatMessage`; `listModels` feeds the picker. No terminal.
+- **clawdbot "bring your own brain"** — a `chatBackend` proxy to a third-party
+  agent system, surfacing its chat in our UI.
+- **chat-preprocessor** (`codeterm-plugins`) — a `chatPreprocessor` stage: per
+  turn, optional `host.mem.search` + optional `host.worker.run`/`host.fetch` to
+  rewrite/expand, returns augmented text. Settings: on/off, backend, model,
+  compose mode.
+- **NPC brain / connector** (`dread-delusion-ai`, separate channel) — a
+  `chatBackend` plugin for the player-facing chat that internally does
+  `host.workspace.ensure` (workspace rooted in the game folder),
+  `host.agent.spawn(key=npc_id)` per NPC, `host.agent.get` for "remembers you",
+  per-session turn stats, and a stay-in-character reminder every Nth turn (by
+  augmenting the sent text). This is the `CODETERM_CONNECTOR.md` scenario realized
+  as a **plugin via host-API**; the fully external scoped-grant connector
+  (`feat/external-connectors`) stays a heavier separate track.
+
+## 6. Data flow
+
+- **Outbound:** `compose → [chatPreprocessor stages] → transport.send` where
+  transport is the built-in PTY path **or** a `chatBackend` plugin. Preprocessor
+  is a *stage*; chatBackend is a *transport* — same pipeline shape (→ C later).
+- **Inbound:** `transport (PTY parse | plugin poll) → NormalizedChatMessage →
+  ChatView/MessageBubble`.
+
+## 7. Security & sandboxing
+
+- `chatBackend` plugins run in the existing QuickJS sandbox; their only outside
+  reach is the declared `host.*` surface (e.g. `host.fetch` to LM Studio/Groq).
+- `host.workspace.*` and `host.agent.spawn` are real confinement holes — they can
+  create workspaces and spawn agents. Gated by install-time **permissions** in
+  `plugin.json`, surfaced in the grant dialog; `host.agent` may only spawn
+  **hidden** panes under `worker_pool` limits and may only touch sessions it
+  spawned (no access to user panes). `host.mem.search` is read-only.
+- A chatBackend's UI half (if any) keeps the existing sandboxed-iframe rules.
+
+## 8. Error handling
+
+- Preprocessor timeout/throw → send original text, log, one-line non-blocking
+  composer notice. A slow/broken preprocessor never blocks or drops a message
+  (reuse the `timeoutMs` we added to `host.exec`).
+- `chatBackend` errors: `openSession` fail → pane shows a clear error state, not a
+  blank panel; `sendMessage`/`poll` error → surfaced in the transcript; the user
+  can retry/close.
+- `host.worker.run`/`host.agent` failure → error envelope; the consumer decides
+  fallback (preprocessor → un-augmented; NPC → static dialogue). Reaping never
+  strands a `worker_pool` permit.
+
+## 9. Testing
+
+- `parity_test.rs`: native vs JS for `chatPreprocessor` (identical augmented
+  text on fixtures) and for the `chatBackend` contract surface.
+- Service tests: `send` on a `ChatBackend` pane routes to `sendMessage`;
+  `get_pane_output` on it returns the transcript; PTY panes unaffected.
+  Preprocessor timeout path sends the original text.
+- `host.worker.run` integration: a hidden-pane worker runs a trivial task and its
+  report round-trips; `worker_pool` cap respected; `host.agent` resume by `key`.
+- Plugin-side (`codeterm-plugins`): LM Studio/preprocessor logic unit-tested via
+  `tsx`, like the existing git/bitwarden suites.
+
+## 10. Discipline (CLAUDE.md plugin rules)
+
+Capability-not-identity (core branches on capability presence, never plugin id) ·
+native↔JS parity tests for `chatBackend` and `chatPreprocessor` · audit every new
+`host.*` handle against the sandbox · all additions additive (PTY providers
+untouched) · powerful handles (`workspace`/`agent`) permissioned.
+
+## 11. Decomposition into specs/plans (build order)
+
+1. **Spec 1 — core `chatBackend`**: capability + `PaneCommand::ChatBackend` +
+   `ChatBackendRegistry` + transport-agnostic `send`/`get-output` + ChatView
+   direct-mode wiring + `listModels` picker. The load-bearing abstraction; first.
+2. **Spec 2 — host-API base**: `chatPreprocessor` stage + `host.worker.*` +
+   `host.workspace.*`/`host.agent.*` + `host.mem.*`, with the permission model.
+3. **Spec 3 — consumers**: LM Studio reference `chatBackend` plugin (validates
+   Spec 1) + chat-preprocessor (validates Spec 2), both in `codeterm-plugins`;
+   NPC brain in `dread-delusion-ai` (validates workspace/agent/team).
+
+Each gets its own brainstorm → plan → implementation cycle. This document is the
+umbrella design they share.
+
+## 12. Open decisions (resolve per-spec before its plan)
+
+1. **Preprocessor ordering** when several are registered — declared-order
+   chaining (assumed) vs single-preprocessor.
+2. **Inbound delivery** for `chatBackend` — host **polls** `poll(cursor)`
+   (assumed, simplest) vs a push callback the plugin calls.
+3. **Session mode depth** — ship one-shot `host.worker.run` first (covers the
+   preprocessor) and `host.agent`/workspace with Spec 2/3, or design all up front
+   (leaning: design all here, implement incrementally).
+4. **`host.mem` writes** — recall-only now (assumed); NPC "memory" rides
+   `host.agent` session persistence + existing mem rather than a plugin write API.
