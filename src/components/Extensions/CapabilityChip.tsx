@@ -57,6 +57,7 @@ export function CapabilityChip({
 export const CAPABILITY_LABELS: Record<string, string> = {
   manage_workspaces: "Create & manage its workspaces",
   spawn_agents: "Spawn AI agents",
+  agent_commands: "Receive commands from your agents",
   write_panes: "Type into its panes",
   send_input: "Type into its panes",
   read_panes: "Read its panes",

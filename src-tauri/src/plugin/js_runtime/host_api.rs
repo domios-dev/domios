@@ -93,6 +93,9 @@ pub(super) struct PluginSandbox {
     net_allow: Vec<String>,
     /// Whether `host.secret*` is permitted.
     secrets_allowed: bool,
+    /// Whether the plugin holds the `agent_commands` grant — gates routing of a
+    /// spawned agent's `codeterm plugin <id> <verb>` to its `onAgentCommand`.
+    agent_commands_allowed: bool,
     /// The plugin's own settings blob (`config.plugins.<id>`), as JSON. Returned
     /// by `host.settingsJson()` so a plugin reads its user-configured settings
     /// instead of env hacks. Defaults to `"null"`.
@@ -115,6 +118,7 @@ impl PluginSandbox {
             exec_allow: Vec::new(),
             net_allow: Vec::new(),
             secrets_allowed: true,
+            agent_commands_allowed: true,
             settings_json: "null".to_string(),
             svc: LateRef::new(),
         }
@@ -129,6 +133,7 @@ impl PluginSandbox {
             exec_allow: Vec::new(),
             net_allow: Vec::new(),
             secrets_allowed: false,
+            agent_commands_allowed: false,
             settings_json: "null".to_string(),
             svc: LateRef::new(),
         }
@@ -143,11 +148,13 @@ impl PluginSandbox {
         exec_allow: Vec<String>,
         net_allow: Vec<String>,
         secrets: bool,
+        agent_commands: bool,
     ) -> Self {
         self.plugin_id = plugin_id.to_string();
         self.exec_allow = exec_allow;
         self.net_allow = net_allow;
         self.secrets_allowed = self.unrestricted || secrets;
+        self.agent_commands_allowed = self.unrestricted || agent_commands;
         self
     }
 
@@ -176,6 +183,11 @@ impl PluginSandbox {
 
     pub(super) fn secrets_allowed(&self) -> bool {
         self.secrets_allowed
+    }
+
+    /// Whether the plugin holds the `agent_commands` grant (inverse-seam routing).
+    pub(super) fn agent_commands_allowed(&self) -> bool {
+        self.agent_commands_allowed
     }
 
     /// Attach the plugin's settings blob (`config.plugins.<id>` as JSON).
