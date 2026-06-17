@@ -20,7 +20,8 @@ pub mod workers;
 pub use calibration::{mem_calibration_log, mem_calibration_sweep};
 pub use dream::{mem_dream, mem_dream_report, mem_extract_pending};
 pub use graph::{
-    mem_graph_alias, mem_graph_create, mem_graph_full, mem_graph_invalidate, mem_graph_path,
+    mem_graph_alias, mem_graph_collapse_synonym_edges, mem_graph_create, mem_graph_full,
+    mem_graph_invalidate, mem_graph_path, mem_graph_prune_dream_hub_edges,
     mem_graph_prune_thin_vectors, mem_graph_relate, mem_graph_related,
     mem_graph_repair_augment_entity, mem_graph_repair_delete_entity,
     mem_graph_repair_delete_relations, mem_graph_repair_find_entities,
