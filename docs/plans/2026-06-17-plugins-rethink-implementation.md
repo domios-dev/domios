@@ -61,6 +61,7 @@ plugin repos.
 | Track | Repo | Branch (off) | Worktree path (codeterm-alpha tracks) |
 |---|---|---|---|
 | A — SDK types + seam contract | codeterm-alpha | `pr/chat-sdk-types` (off `plugins-rethink`) | main checkout (A lands first, fast) |
+| C0 — ServiceContext→host_api wiring (prereq, §1.5 F4) | codeterm-alpha | `pr/host-service-ref` (off `plugins-rethink`) | `/Users/kandrey/Developer/wt/host-service-ref` (Phase 1, parallel to A) |
 | B — chatBackend core | codeterm-alpha | `pr/chatbackend-core` (off `plugins-rethink`, after A) | `/Users/kandrey/Developer/wt/chatbackend-core` |
 | C — host-API base | codeterm-alpha | `pr/plugin-compute-base` (off `plugins-rethink`, after A) | `/Users/kandrey/Developer/wt/plugin-compute-base` |
 | D — LM Studio plugin | codeterm-plugins | `feat/lmstudio-chatbackend` (off `main`) | repo checkout |
@@ -182,10 +183,168 @@ gates merge on a clean review.
 
 ---
 
+## 1.5 Code-investigation findings → plan deltas (VERIFIED — authoritative)
+
+Five read-only Explore passes over the real code. Where this section conflicts
+with looser prose in a Track below, **this wins**. Evidence is `file:line`.
+
+### F1 — Non-PTY pane is the biggest cost; Track B is much bigger than "registry + enum"
+
+A pane today is PTY-backed; `resolve_pty_id()` (`src-tauri/src/service/pty_io.rs:892`)
+**errors on `None`** and gates ~10 paths. A `ChatBackend` pane has no PTY, so each
+must branch on pane backing:
+
+- **[BLOCKER] auto-PTY-spawn on send:** `ensure_pane_pty_for_send()`
+  (`pty_io.rs:344-447`, esp. 382-391) *creates* a PTY when none exists; the REST
+  `send_text` (`api/pane_routes.rs:204-381`, line 226) and `send_text_batch`
+  (`pty_io.rs:856`) inherit it. → must early-return for ChatBackend and route to
+  the plugin's `sendMessage`.
+- **[BLOCKER] output reads:** `cmd_get_output`/`cmd_get_text`
+  (`dispatch/mod.rs:242,290`), `get_pane_output` (`api/pane_routes.rs:445`, error
+  "has no PTY"), `stream_pane_output` (`pane_routes.rs:632`) → branch to return the
+  chat transcript / stream chat messages for ChatBackend.
+- **[BLOCKER] pty ops:** `resize_pane`/`pty_kill` (`pty_io.rs:875`,
+  `dispatch/mod.rs:288,358`) → graceful no-op/400 for ChatBackend.
+- **[NEEDS-GUARD] output/screen pipeline:** `process_pty_output`
+  (`service/output.rs:25`), `backend_read_loop`/`start_backend_reader`
+  (`service/pty_lifecycle.rs:28-193`), `screen_state.rs` → only run for PTY panes
+  (`gate on pane.pty_id.is_some()`); ChatBackend never enters them.
+- **[OK, leverage] precedent already exists:** restore writes `pty_id: None`
+  (`multiplexer/state/snapshot.rs:180`) and the frontend respawns on mount —
+  **the non-PTY pane model already exists**; `get_pane_status` returns "Idle" for
+  None (`hierarchy.rs:159-163`); `close_pane` handles None
+  (`multiplexer/state/pane.rs:176-208`). Mesh routes through dispatch → fails
+  gracefully.
+- **[RESTORE GAP]** a restored ChatBackend pane must NOT auto-spawn a shell on
+  next send — branch `ensure_pane_pty_for_send` on backing type and trigger a
+  plugin `openSession` instead.
+
+**Delta:** add a `Pane.backing` discriminator (`Shell | Agent | ChatBackend`),
+and make Track B an explicit checklist over the ~10 sites above. NOT a small task.
+
+### F2 — Inbound rendering is nearly free; reuse `StructuredSink` + `model_catalog`
+
+ChatView already consumes a normalized stream: it listens to Tauri event
+`pane-chat-msg-{paneId}` (`src/components/Terminal/useChatSession.ts:109`) with
+`{ pane_id, messages, cursor? }`, emitted by `StructuredSink`
+(`src-tauri/src/service/pane_chat/structured_sink.rs`), rendered by
+`@codeterm/chat-ui` `MessageBubble`. There is a REST twin
+(`api/pane_chat_routes.rs`: `/chat/start`, `/chat?since=N`).
+
+- `NormalizedChatMessage` minimal = `{ id, type, content }` (chat-core
+  `types.ts:40`); Rust `ChatMsg` (`agent/chat_types.rs:126`). Stable `id` is used
+  for client-side merge across polls.
+- Model picker = `ModelInfo { id, display_name, description? }`
+  (`agent/provider.rs:102`) registered via `model_catalog::register(...)`
+  (`agent/model_catalog.rs:78`); frontend reads `provider.available_models`.
+
+**Delta:** Track B's chatBackend `poll` output is pushed into the existing
+`StructuredSink`/`pane-chat-msg` path (host adapter does the poll→emit), so
+**frontend work shrinks to: render ChatBackend panes as chat (TerminalPane
+already has a `chat_view`/PaneSessionChat branch) + populate the picker from
+`listModels` via `model_catalog::register`.** Correct SDK message type to
+`{ id, type, content, ... }`.
+
+### F3 — Preprocessor hook point is `pane_routes.rs:204`, NOT `pty_io` (+ a 2nd web hook)
+
+All user sends converge at the REST `send_text` handler
+(`api/pane_routes.rs:204`): Tauri `chat_send_text`, web bridge, and delayed sends.
+Distinguish **user-turn vs system** via `source_pane` / `svc_token_match`
+(service-push = skip). System sends MUST be excluded: orchestrator task delivery
+(`service/orchestrator.rs:721`), agent restart (`agent_restart.rs:240,300`),
+hierarchy reports (`hierarchy.rs:99`), GA init (`general_agent/lifecycle.rs:408`),
+post-update (`update/post_update.rs:79`), install suggest (`system_info.rs:218`).
+**Do NOT hook `pty_io.rs send_text*`** — too low, can't tell origin. **Second
+hook required:** the browser chat path goes `ChatView.tsx:176 sendMessage` →
+`write_pty_string` → `POST /api/pty/{id}/write` (`web_routes.rs:316`), bypassing
+`pane_routes`. The stage pipeline must cover both, or the web composer routes
+through the preprocessed path.
+
+**Delta:** Track C hooks the stage pipeline at `pane_routes.rs:204` (gated on
+user-turn detection) **and** the `/api/pty/{id}/write` web path; explicitly
+exclude the listed system senders.
+
+### F4 — host.worker/agent/mem need a Service ref the VM doesn't have today (prereq) + non-blocking contract
+
+`host_api::install()` closures capture only `Arc<PluginSandbox>` — **no
+`ServiceContext`/app_handle** (`plugin/js_runtime/host_api.rs:213-417`). The VM is
+**not `Send`**; `call_json` holds a `parking_lot::Mutex` for the whole call
+(`vm.rs:121-137,337-387`). `host.fetch` bridges async-from-sync by
+`std::thread::spawn(reqwest::blocking).join()` (`host_net.rs:44-98`) — fine for a
+short HTTP call, **fatal if held for an agent turn** (it would serialize every
+other call to that plugin, e.g. the chatBackend `poll`).
+
+- Hidden-pane worker = `svc.spawn_pane(SpawnPaneSpec{Hidden, Agent{…}})` +
+  `worker_pool.acquire` + report via `GraphWorkerRegistry.complete/get`
+  (`mem/workers.rs:359-519,287-300`; `spawn.rs:179`). `spawn_pane` is sync;
+  lifecycle is an async task + poll loop.
+- `host.mem.search` is **feasible & sync** — direct `svc.mem.search()`
+  (`mem/manager_search.rs:12-124`).
+
+**Delta — two changes:**
+1. **NEW prerequisite task (Track C0, [BLOCKER]):** thread
+   `Option<Arc<ServiceContext>>` into `host_api::install` + `PluginVm`. Caveat:
+   `PluginVm` is built *before* `ServiceContext` exists → use late-binding
+   (`OnceCell`/setter on the sandbox/VM, populated at service init), not a
+   constructor arg. Blocks all of `host.worker/agent/workspace/mem`.
+2. **Contract correction (Track A):** `host.worker`/`host.agent` are
+   **non-blocking job-id + poll**, not blocking await:
+   `host.worker.start(opts) -> { jobId }` + `host.worker.poll(jobId) ->
+   { done, report? }` (reuse `GraphWorkerRegistry`). `host.agent.send` likewise
+   returns a ticket the plugin polls. `host.mem.search` stays sync.
+
+### F5 — Permission + routing: model EXISTS; new perms + a grant-persistence gap + namespace risk
+
+`network`/`subprocess`/`secrets` are declared (`manifest.rs:440-455`) and enforced
+in the sandbox (`host_api.rs:371-410`: `can_reach`/`can_exec`/`secrets_allowed`).
+Settings seam exists: `host.settingsJson()` → `config.plugins.<id>`
+(`host_api.rs:366`, `loader.rs:170-177`; **read at load → edits need reload**).
+The grant dialog exists (`InstallGrantDialog.tsx`) and `CapabilityChip.tsx:57-74`
+already lists `manage_workspaces`/`spawn_agents` **but they are NOT enforced**.
+Agent→daemon routing is JSON-RPC over the unix socket, dispatched by prefix
+(`socket/server/mod.rs:311-383`); closest pattern is `agent.report`
+(`socket/server/agent.rs:55`).
+
+**Deltas (Track C):**
+- LM Studio (Track D) needs only `network` (add the LM Studio host to the
+  manifest allowlist) — no new kind.
+- `host.workspace`/`host.agent`/`onAgentCommand` need **new enforced permissions**
+  `manage_workspaces` / `spawn_agents` / `agent_commands`: extend
+  `PermissionsConfig` (`manifest.rs:440`), the sandbox (`host_api.rs:54-202`),
+  loader stamping (`loader.rs:180-186`), the snapshot derive (`plugins.rs:228-258`),
+  and `CapabilityChip`/`InstallGrantDialog`.
+- **[GAP] grant persistence:** today grants are *derived from the manifest*, not
+  stored/enforceable per user edit. Powerful new perms need a persisted
+  `plugin_id → granted[]` store checked at the host call. Add this as a Track C
+  task (it's a real prerequisite for honest `host.workspace/agent` gating).
+- **`onAgentCommand` routing = NEW:** extend the socket dispatch so a method whose
+  prefix matches an installed plugin id with an `agent_commands` grant routes to
+  that plugin's handler. **[RISK] namespace collision** with built-in domains
+  (`agent`, `workspace`, …) — use a reserved prefix, e.g. `plugin:<id>.<verb>`
+  (agent calls `codeterm plugin <id> <verb>`), not a bare `<id>.<verb>`.
+  **[RISK] sync-from-VM:** the handler returns synchronously; if it must await an
+  external call, it uses the same job-id/poll bridge as F4.
+- **[OPEN] trust inheritance:** does a plugin-spawned agent inherit the plugin's
+  grants? Decide in Track C's sub-plan (default: spawned agents get a *narrower*
+  set, never `admin`).
+
+### Phasing delta
+
+Insert **Track C0 (ServiceContext→host_api wiring)** as a [BLOCKER] prerequisite
+that lands before the `host.worker/agent/workspace/mem` parts of Track C (it's a
+small, self-contained host refactor — can run in Phase 1 alongside Track A). Track
+B grows to the F1 branch-checklist (still Phase 2). Track A adopts the F4
+job-id/poll contract and the F2 message/model shapes.
+
+---
+
 ## 2. Track A — SDK types + seam contract
 
 **Repo/branch:** codeterm-alpha · `pr/chat-sdk-types`. **Depends on:** nothing.
 **Owner:** backend-dev. **Reviewer:** code-reviewer.
+> ⚠ Apply §1.5 corrections: `host.worker`/`host.agent` are **job-id + poll** (F4),
+> not blocking await; `NormalizedChatMessage` minimal `{ id, type, content }` and
+> `ModelInfo { id, display_name, description? }` (F2).
 
 **Files:**
 - Modify: `packages/plugin-sdk/src/capabilities.ts` — add `ChatBackend`,
@@ -264,6 +423,11 @@ mem: { search(opts: { query: string; k?: number }):
 **Repo/branch:** codeterm-alpha · `pr/chatbackend-core` (worktree
 `/Users/kandrey/Developer/wt/chatbackend-core`). **Depends on:** A.
 **Owner:** backend-dev (Rust) + frontend-dev (ChatView). **Reviewer:** code-reviewer.
+> ⚠ Per §1.5 F1 this Track is LARGE: add a `Pane.backing` discriminator and branch
+> the ~10 PTY-coupled sites (resolve_pty_id callers, `ensure_pane_pty_for_send`,
+> get_output/get_text/stream, resize/kill, output/screen pipeline) + the restore
+> hook. Per F2, reuse `StructuredSink`/`pane-chat-msg` for inbound and
+> `model_catalog::register` for `listModels` — frontend shrinks accordingly.
 
 **Files:**
 - Create: `src-tauri/src/chatbackend/mod.rs` — `ChatBackendRegistryHandle` mirroring
@@ -319,6 +483,12 @@ on a `ChatBackend` pane route to the plugin. PTY providers unchanged.
 B (the `run_outbound_stages` hook — C rebases once B lands it; C's `host.*` work
 proceeds immediately, independent of B).
 **Owner:** backend-dev (Rust + CLI). **Reviewer:** code-reviewer.
+> ⚠ Per §1.5: do **Track C0** first ([BLOCKER] wire `Arc<ServiceContext>` into
+> `host_api::install`+`PluginVm` via late-binding — F4). Hook the stage pipeline at
+> `api/pane_routes.rs:204` (user-turn gated) **and** `/api/pty/{id}/write`, NOT
+> `pty_io` (F3). `host.worker/agent` = job-id+poll (F4). Add enforced perms
+> `manage_workspaces`/`spawn_agents`/`agent_commands` + **grant persistence** (F5).
+> Route `onAgentCommand` as `plugin:<id>.<verb>` to dodge domain collision (F5).
 
 **Files:**
 - Create: `src-tauri/src/chatpipeline/mod.rs` — the ordered stage pipeline; a
