@@ -96,6 +96,11 @@ pub struct GraphWorkerInfo {
     pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    // Verbs a plugin-spawned worker may invoke on its owning plugin via the
+    // inverse seam — recorded from `host.agent.spawn(commands)` (C2 MINOR-2).
+    // Empty ⇒ unscoped (the plugin-level `agent_commands` grant alone gates it).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<String>,
 }
 
 pub struct GraphWorkerRegistry {
@@ -353,6 +358,7 @@ pub fn make_info(
         model: None,
         session_id: None,
         cwd: None,
+        commands: Vec::new(),
     }
 }
 

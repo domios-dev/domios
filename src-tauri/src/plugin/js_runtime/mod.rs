@@ -18,6 +18,7 @@
 //! because QuickJS evaluations are sub-millisecond for the kind of
 //! string work plugins do.
 
+mod agent_commands;
 mod bubble;
 mod chatbackend;
 mod chatpreprocessor;
@@ -36,6 +37,7 @@ mod transcriber;
 mod view;
 mod vm;
 
+pub use agent_commands::JsAgentCommandHandler;
 pub use bubble::JsBubbleProvider;
 pub use chatbackend::JsChatBackend;
 pub use chatpreprocessor::JsChatPreprocessor;

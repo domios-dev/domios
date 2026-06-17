@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod agent_commands;
 mod api;
 pub mod attachments;
 mod autostart;
@@ -340,6 +341,8 @@ pub fn run() {
                 Arc::new(crate::chatbackend::ChatBackendRegistry::new());
             let chat_preprocessor_registry: crate::chatpreprocessor::ChatPreprocessorRegistryHandle =
                 Arc::new(crate::chatpreprocessor::ChatPreprocessorRegistry::new());
+            let agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle =
+                Arc::new(crate::agent_commands::AgentCommandRegistry::new());
             // Plugin VMs collected as they load, so the host `ServiceContext`
             // can be late-bound into each sandbox once it is built below (the
             // VMs exist before `ServiceContext` does — plan §1.5 F4 / C0).
@@ -569,6 +572,22 @@ pub fn run() {
                             &chat_preprocessor_registry,
                         );
                     }
+                    // Inverse seam: register an agent-command handler for any
+                    // plugin holding the `agent_commands` grant (read from the
+                    // sandbox — the enforcement source). `granted=true` because
+                    // only granted plugins reach this arm; the dispatch still
+                    // re-checks `granted()` so an ungranted handler can never route.
+                    if p.vm().agent_commands_allowed() {
+                        agent_command_registry.register(
+                            id.clone(),
+                            Arc::new(plugin::js_runtime::JsAgentCommandHandler::new(
+                                p.vm().clone(),
+                                id.clone(),
+                                true,
+                            )),
+                        );
+                        log::info!("[js-plugin] {id} registered as agent_commands handler");
+                    }
                     if !caps.agent_provider {
                         plugin::audit::append_daemon_reloaded(&id, &version);
                         continue;
@@ -699,6 +718,7 @@ pub fn run() {
                 view_registry: view_registry.clone(),
                 chatbackend_registry: chatbackend_registry.clone(),
                 chat_preprocessor_registry: chat_preprocessor_registry.clone(),
+                agent_command_registry: agent_command_registry.clone(),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(
                     crate::service::store::ServicesStore::open(
