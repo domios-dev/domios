@@ -204,6 +204,12 @@ pub fn start_general_agent(
     let env_vars = {
         let mut env = std::collections::HashMap::new();
         env.insert("CODETERM_PANE_ID".to_string(), pane_id.clone());
+        // Per-launch binding nonce so the session-start hook report can prove it
+        // owns this pane — parity with the normal pane/orchestrator launch paths.
+        env.insert(
+            "CODETERM_SESSION_BINDING_NONCE".to_string(),
+            svc.ensure_session_binding_nonce(&pane_id),
+        );
         env.insert(
             "CODETERM_SOCKET_PATH".to_string(),
             crate::socket::server::socket_display_path(),
