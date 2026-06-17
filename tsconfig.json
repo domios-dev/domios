@@ -17,6 +17,15 @@
     "noFallthroughCasesInSwitch": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "packages/plugin-sdk/src", "plugins/git/src"],
+  "include": [
+    "src",
+    "packages/plugin-sdk/src",
+    "plugins/git/src",
+    "plugins/transcriber/src",
+    "plugins/bitwarden/src",
+    "plugins/provider-claude/src/plugin.ts",
+    "plugins/provider-codex/src/plugin.ts",
+    "plugins/provider-opencode/src/plugin.ts"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
