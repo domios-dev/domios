@@ -1,10 +1,17 @@
 // Left column of the Extensions surface: search box, filter tabs, and the
 // plugin rows (installed + marketplace) with status/update/installed badges.
+import { useState } from "react";
 import type { CatalogEntry, CatalogFilter } from "./pluginCatalog";
 import { catalogKindLabel } from "./pluginCatalog";
 import { PluginIcon } from "./PluginIcon";
 import { iconOf } from "./shared";
 import { PinIcon } from "../Icons";
+import { DropdownMenu } from "../shared/DropdownMenu";
+import { ChevronRight, Ellipsis, Trash2 } from "lucide-react";
+
+const CORE_CHANNEL = "codeterm-core";
+const PLUGINS_CHANNEL = "codeterm-plugins";
+const PROTECTED_CHANNELS = new Set([CORE_CHANNEL, PLUGINS_CHANNEL]);
 
 const FILTERS: Array<{ key: CatalogFilter; label: string }> = [
   { key: "all", label: "All" },
@@ -24,6 +31,7 @@ export function PluginList({
   updateCount,
   pinned,
   onTogglePin,
+  onRemoveChannel,
 }: {
   entries: CatalogEntry[];
   selectedId: string | null;
@@ -35,7 +43,19 @@ export function PluginList({
   updateCount: number;
   pinned: Set<string>;
   onTogglePin: (id: string) => void;
+  onRemoveChannel: (channel: string, installedCount: number) => void;
 }) {
+  const sections = groupBySource(entries);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const toggleSection = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
       <input
@@ -78,15 +98,82 @@ export function PluginList({
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 4, overflowY: "auto", minHeight: 0 }}>
-        {entries.map((e) => (
-          <PluginRow
-            key={e.id}
-            entry={e}
-            selected={e.id === selectedId}
-            pinned={pinned.has(e.id)}
-            onSelect={() => onSelect(e.id)}
-            onTogglePin={() => onTogglePin(e.id)}
-          />
+        {sections.map((section) => (
+          <div key={section.key}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "8px 4px 5px", color: "var(--ct-muted)", fontSize: 10.5, fontWeight: 650 }}>
+              <button
+                type="button"
+                onClick={() => toggleSection(section.key)}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  border: "none",
+                  background: "transparent",
+                  color: "inherit",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: 0,
+                  font: "inherit",
+                  textAlign: "left",
+                }}
+              >
+                <ChevronRight
+                  size={12}
+                  style={{ transform: collapsed.has(section.key) ? "none" : "rotate(90deg)", transition: "transform 0.12s", flex: "none" }}
+                />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{section.label}</span>
+                <span style={{ opacity: 0.65 }}>({section.entries.length})</span>
+              </button>
+              {section.channel && !PROTECTED_CHANNELS.has(section.channel) && (
+                <DropdownMenu
+                  items={[
+                    {
+                      label: "Delete channel",
+                      icon: <Trash2 size={12} />,
+                      danger: true,
+                      onClick: () => onRemoveChannel(section.channel ?? "", section.installedCount),
+                    },
+                  ]}
+                  className="ml-auto"
+                  trigger={
+                    <button
+                      type="button"
+                      title={`Channel ${section.channel} actions`}
+                      style={{
+                        width: 20,
+                        height: 20,
+                        border: "none",
+                        borderRadius: 5,
+                        background: "transparent",
+                        color: "var(--ct-muted)",
+                        cursor: "pointer",
+                        display: "grid",
+                        placeItems: "center",
+                      }}
+                    >
+                      <Ellipsis size={14} />
+                    </button>
+                  }
+                />
+              )}
+            </div>
+            {!collapsed.has(section.key) && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {section.entries.map((e) => (
+                  <PluginRow
+                    key={e.id}
+                    entry={e}
+                    selected={e.id === selectedId}
+                    pinned={pinned.has(e.id)}
+                    onSelect={() => onSelect(e.id)}
+                    onTogglePin={() => onTogglePin(e.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         ))}
         {entries.length === 0 && (
           <div style={{ color: "var(--ct-muted)", fontSize: 12.5, padding: "8px 4px" }}>No extensions match.</div>
@@ -94,6 +181,40 @@ export function PluginList({
       </div>
     </div>
   );
+}
+
+function groupBySource(entries: CatalogEntry[]): Array<{ key: string; label: string; channel?: string; installedCount: number; entries: CatalogEntry[] }> {
+  const sections = new Map<string, { key: string; label: string; channel?: string; installedCount: number; entries: CatalogEntry[] }>();
+  for (const entry of entries) {
+    const key = entry.channel
+      ? `channel:${entry.channel}`
+      : entry.dev
+        ? "workspace"
+        : entry.system
+          ? "bundled"
+          : "installed";
+    const label = entry.channel ? channelLabel(entry.channel) : entry.dev ? "Workspace" : entry.system ? "Bundled" : "Installed";
+    const section = sections.get(key) ?? { key, label, channel: entry.channel ?? undefined, installedCount: 0, entries: [] };
+    section.entries.push(entry);
+    if (entry.installed) section.installedCount += 1;
+    sections.set(key, section);
+  }
+  return [...sections.values()].sort((a, b) => sectionRank(a).localeCompare(sectionRank(b)));
+}
+
+function sectionRank(section: { key: string; label: string }): string {
+  if (section.key === `channel:${CORE_CHANNEL}`) return "0";
+  if (section.key === "bundled") return "1";
+  if (section.key === "workspace") return "2";
+  if (section.key === `channel:${PLUGINS_CHANNEL}`) return "3";
+  if (section.key.startsWith("channel:")) return `4:${section.label}`;
+  return "5";
+}
+
+function channelLabel(channel: string): string {
+  if (channel === CORE_CHANNEL) return "Core";
+  if (channel === PLUGINS_CHANNEL) return "CodeTerm Plugins";
+  return channel;
 }
 
 function PluginRow({
@@ -133,7 +254,7 @@ function PluginRow({
         if (!selected) e.currentTarget.style.background = "transparent";
       }}
     >
-      <div style={{ width: 26, height: 26, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", background: "rgba(255,255,255,0.04)" }}>
+      <div style={{ width: 26, height: 26, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", background: "var(--ct-bg-elev)", border: "1px solid var(--ct-border-subtle)" }}>
         <PluginIcon plugin={iconOf(entry)} size={15} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -172,16 +293,16 @@ function PluginRow({
 function Badge({ tone, children }: { tone: "installed" | "update" | "dev"; children: React.ReactNode }) {
   const style =
     tone === "update"
-      ? { background: "transparent", color: "var(--ct-green, #22c55e)", border: "1px solid var(--ct-green, #22c55e)" }
+      ? { background: "transparent", color: "var(--ct-fg)", border: "1px solid var(--ct-border-default)" }
       : tone === "dev"
-        ? { background: "transparent", color: "var(--ct-accent, #6366f1)", border: "1px solid var(--ct-accent, #6366f1)" }
+        ? { background: "transparent", color: "var(--ct-fg)", border: "1px solid var(--ct-border-default)" }
         : { background: "var(--ct-bg-active)", color: "var(--ct-muted)", border: "1px solid var(--ct-border-default)" };
   return (
     <span
       style={{
         fontSize: 9.5,
         fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-        letterSpacing: "0.04em",
+        letterSpacing: 0,
         textTransform: "uppercase",
         borderRadius: 4,
         padding: "1px 5px",
