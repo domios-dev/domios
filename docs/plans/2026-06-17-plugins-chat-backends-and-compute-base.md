@@ -174,16 +174,25 @@ one-shot case of `host.agent.spawn`+`send`+`reap`. Under the hood: the same
 
 **Agent-callable plugin handles (the inverse seam).** Driving an agent is only
 half the loop; the other half is letting the agent *act through the plugin*. When
-a plugin spawns an agent it can declare a command namespace + verbs (`commands`
-on `spawn`, also listed in `plugin.json` so the agent's task prompt is told what
-it may call). The spawned agent invokes them the way agents already call us today
-— `codeterm <ns> <verb> <args>` (the agent's CLI is already in its PATH; this is
-a new routed namespace, not raw shell) — and CodeTerm dispatches the call to the
+a plugin spawns an agent it declares a command namespace + verbs (`commands` on
+`spawn`). The spawned agent invokes them the way agents already call us today —
+`codeterm <ns> <verb> <args>` (the agent's CLI is already in its PATH; this is a
+new routed namespace, not raw shell) — and CodeTerm dispatches the call to the
 plugin's `onAgentCommand` handler. The plugin acts (e.g. bridges the call to an
 external process/service over `host.fetch` or its own state) and returns a result
 string the agent sees as the command's output. This makes a plugin a small
 **environment** its agents live in: it provisions them, hands them verbs, and is
 the bridge between what they "do" and the outside world.
+
+**Teaching the agent its verbs is the plugin's job — CodeTerm bakes nothing into
+prompts.** We do **not** touch our prompt-save system or inject verb docs on the
+host side. CodeTerm only guarantees the *handles*; how the agent learns what it
+can call is the plugin's responsibility, through channels it already has: write
+an `AGENTS.md`/`CLAUDE.md` into its own workspace (the spawned agent's cwd is in
+that workspace, so it's picked up automatically), seed the initial `task` prompt
+on `host.agent.spawn`, inject guidance every Nth turn (the reminder cadence), or
+return instructions in the `onAgentCommand` result. Which of these (or which
+mix) is pure plugin technique — out of scope for the host.
 
 > **QuickJS bridge:** the VM is synchronous (`call_json`); these handles are
 > async host-side (spawn panes, await reports). They use the same async-host /
@@ -229,9 +238,32 @@ the bridge between what they "do" and the outside world.
 
 ## 6. Data flow
 
-- **Outbound:** `compose → [chatPreprocessor stages] → transport.send` where
-  transport is the built-in PTY path **or** a `chatBackend` plugin. Preprocessor
-  is a *stage*; chatBackend is a *transport* — same pipeline shape (→ C later).
+The outbound path is a **phased pipeline of stages**, distinguished by *when*
+they run — because some transforms must produce editable composer content while
+others run transparently at send:
+
+- **compose-time stages** (input normalization; result is **editable** before
+  send): e.g. voice→text, image handling. The existing **transcriber** is exactly
+  this — frontend-initiated at the voice attachment (`transcribe_voice_attachment`
+  → `transcribe_registry`), returning a text line the user can edit; the Telegram
+  bridge reuses the same `format_attachment_line`. **This is why it is *not* a
+  send-time hook today.**
+- **send-time stages** (transparent, on the final text): `chatPreprocessor`(s),
+  invoked by the host inside the send seam (`chat_send_text`/`send_text_when_ready`)
+  before the text reaches the transport.
+- **transport:** the built-in PTY path **or** a `chatBackend` plugin.
+
+So: `compose → [compose-time stages: transcriber, …] → (editable composer) →
+[send-time stages: chatPreprocessor(s)] → transport.send`. A preprocessor is a
+send-time *stage*; the transcriber is a compose-time *stage*; chatBackend is a
+*transport* — one pipeline, three slots (→ converges on C later).
+
+**Transcriber retrofit (Spec 2):** recast the transcriber as the reference
+compose-time stage of this pipeline (it proves stages handle attachment→text, not
+just text→text), **preserving** its current properties — editable result and the
+Telegram-bridge reuse. Not required to make the preprocessor work; done for a
+single coherent abstraction.
+
 - **Inbound:** `transport (PTY parse | plugin poll) → NormalizedChatMessage →
   ChatView/MessageBubble`.
 
@@ -305,6 +337,15 @@ umbrella design they share.
 4. **`host.mem` writes** — recall-only now (assumed); NPC "memory" rides
    `host.agent` session persistence + existing mem rather than a plugin write API.
 5. **Agent→plugin verb routing** for `onAgentCommand` — a routed `codeterm <ns>
-   <verb>` CLI namespace the spawned agent calls (assumed; reuses the agent's
-   existing CLI access) vs an injected tool/MCP surface. Also: how the agent is
-   *told* its verbs (task-prompt preamble vs a discovery command).
+   <verb>` CLI namespace the spawned agent calls (decided; reuses the agent's
+   existing CLI access) vs an injected tool/MCP surface. Open part is only the
+   routing implementation, not the surface.
+
+**Resolved (recorded above, no longer open):**
+- *Verb discovery* — **the plugin's job, not CodeTerm's.** The host bakes nothing
+  into prompts; the plugin teaches its agents via its own channels (workspace
+  `AGENTS.md`/`CLAUDE.md`, initial `task`, periodic injection, `onAgentCommand`
+  result). See §5.
+- *Transcriber vs preprocessor* — different pipeline **phases** (transcriber =
+  compose-time/editable; preprocessor = send-time/transparent); transcriber is
+  retrofitted as the reference compose-time stage in Spec 2. See §6.
