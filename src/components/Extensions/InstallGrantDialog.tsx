@@ -90,7 +90,7 @@ export function InstallGrantDialog({
                 marginTop: 3,
               }}
             >
-              {[request.channel, request.version && `v${request.version}`].filter(Boolean).join(" · ")}
+              {[request.channel && channelLabel(request.channel), request.version && `v${request.version}`].filter(Boolean).join(" · ")}
             </div>
           </div>
         </div>
@@ -185,4 +185,10 @@ export function InstallGrantDialog({
       </div>
     </div>
   );
+}
+
+function channelLabel(channel: string): string {
+  if (channel === "codeterm-core") return "Core";
+  if (channel === "codeterm-plugins") return "CodeTerm Plugins";
+  return channel;
 }

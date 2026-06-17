@@ -4,10 +4,12 @@
 //! travel via `env`/`stdin`, never argv (visible to `ps`).
 
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use serde::Deserialize;
+use wait_timeout::ChildExt;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +29,9 @@ struct ExecOpts {
     /// When detached, append stdout+stderr here; otherwise they're discarded.
     #[serde(default)]
     log_file: Option<String>,
+    /// Kill blocking subprocesses after this many milliseconds.
+    #[serde(default)]
+    timeout_ms: Option<u64>,
 }
 
 fn err(msg: &str) -> String {
@@ -93,15 +98,42 @@ pub(super) fn run(opts_json: &str) -> String {
             let _ = si.write_all(s.as_bytes());
         }
     }
-    match child.wait_with_output() {
-        Ok(out) => serde_json::json!({
-            "code": out.status.code().unwrap_or(-1),
-            "stdout": String::from_utf8_lossy(&out.stdout),
-            "stderr": String::from_utf8_lossy(&out.stderr),
-        })
-        .to_string(),
-        Err(e) => err(&format!("wait {}: {e}", opts.bin)),
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
+    let timeout = Duration::from_millis(opts.timeout_ms.unwrap_or(30_000).max(1));
+    let (status_code, timeout_error) = match child.wait_timeout(timeout) {
+        Ok(Some(status)) => (status.code().unwrap_or(-1), None),
+        Ok(None) => {
+            let _ = child.kill();
+            let status = child.wait().ok();
+            (
+                status.and_then(|s| s.code()).unwrap_or(-1),
+                Some(format!(
+                    "{} timed out after {}ms",
+                    opts.bin,
+                    timeout.as_millis()
+                )),
+            )
+        }
+        Err(e) => return err(&format!("wait {}: {e}", opts.bin)),
+    };
+    let mut out = String::new();
+    if let Some(mut s) = stdout.take() {
+        let _ = s.read_to_string(&mut out);
     }
+    let mut errout = String::new();
+    if let Some(mut s) = stderr.take() {
+        let _ = s.read_to_string(&mut errout);
+    }
+    let mut value = serde_json::json!({
+        "code": status_code,
+        "stdout": out,
+        "stderr": errout,
+    });
+    if let Some(e) = timeout_error {
+        value["error"] = serde_json::json!(e);
+    }
+    value.to_string()
 }
 
 /// Extract the binary name from an exec-opts JSON blob, for the permission check.
@@ -109,4 +141,32 @@ pub(super) fn bin_of(opts_json: &str) -> Option<String> {
     serde_json::from_str::<serde_json::Value>(opts_json)
         .ok()
         .and_then(|v| v.get("bin").and_then(|b| b.as_str()).map(String::from))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_times_out_blocking_process() {
+        #[cfg(windows)]
+        let opts = serde_json::json!({
+            "bin": "powershell",
+            "args": ["-NoProfile", "-Command", "Start-Sleep -Seconds 2"],
+            "timeoutMs": 50,
+        });
+        #[cfg(not(windows))]
+        let opts = serde_json::json!({
+            "bin": "sh",
+            "args": ["-c", "sleep 2"],
+            "timeoutMs": 50,
+        });
+
+        let out: serde_json::Value = serde_json::from_str(&run(&opts.to_string())).unwrap();
+        assert!(out
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .contains("timed out"));
+    }
 }

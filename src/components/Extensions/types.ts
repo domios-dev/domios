@@ -11,6 +11,11 @@ export interface PluginCapabilities {
   view?: boolean;
 }
 
+export type PluginInstallSource =
+  | { kind: "dir"; path: string }
+  | { kind: "channel"; channel: string; path: string }
+  | { kind: "system_channel"; channel: string; path: string };
+
 /** A plugin physically installed on disk, workspace-loaded, or a bundled system
  * provider — the daemon's `snapshot.plugins`. */
 export interface InstalledPlugin {
@@ -32,6 +37,7 @@ export interface InstalledPlugin {
   description?: string | null;
   homepage?: string | null;
   readme_markdown?: string | null;
+  source?: PluginInstallSource | null;
 }
 
 export interface ChannelRecord {

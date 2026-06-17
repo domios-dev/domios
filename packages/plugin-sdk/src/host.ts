@@ -9,6 +9,7 @@ export interface ExecOpts {
   args?: string[];
   env?: Record<string, string>;
   stdin?: string;
+  timeoutMs?: number;
   detach?: boolean;
   logFile?: string;
 }

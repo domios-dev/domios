@@ -47,6 +47,7 @@ export function ExtensionsView({ visible }: { visible: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [channelsOpen, setChannelsOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -148,16 +149,18 @@ export function ExtensionsView({ visible }: { visible: boolean }) {
     [runAction],
   );
 
+  const onRemoveChannel = useCallback(
+    (channel: string, installedCount: number) => {
+      const pluginText = installedCount === 1 ? "1 installed plugin" : `${installedCount} installed plugins`;
+      if (!window.confirm(`Delete channel "${channel}" and remove ${pluginText} from it?`)) return;
+      void runAction(`remove-channel:${channel}`, { kind: "remove-channel", channel, force: true });
+    },
+    [runAction],
+  );
+
   return (
     <div className="h-full overflow-hidden" style={{ background: "var(--ct-bg)", color: "var(--ct-fg)" }}>
       <div style={{ display: "flex", flexDirection: "column", height: "100%", maxWidth: 1100, margin: "0 auto", padding: "24px 24px 0" }}>
-        <header style={{ marginBottom: 16, flex: "none" }}>
-          <h1 style={{ fontSize: 21, fontWeight: 640, margin: 0, letterSpacing: "-0.01em" }}>Extensions</h1>
-          <p style={{ color: "var(--ct-muted)", fontSize: 12.5, marginTop: 5 }}>
-            Manage installed plugins and browse the marketplace — each defined by what it's allowed to do.
-          </p>
-        </header>
-
         {error && (
           <div
             role="alert"
@@ -182,9 +185,10 @@ export function ExtensionsView({ visible }: { visible: boolean }) {
                 updateCount={updates}
                 pinned={pinned}
                 onTogglePin={togglePin}
+                onRemoveChannel={onRemoveChannel}
               />
             </div>
-            <ChannelManager channels={snapshot.channels} busy={busy} onAction={runAction} />
+            <ChannelManager busy={busy} onAction={runAction} open={channelsOpen} onOpenChange={setChannelsOpen} />
           </div>
 
           {/* Right pane */}

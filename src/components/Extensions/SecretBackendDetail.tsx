@@ -32,6 +32,7 @@ export function SecretBackendDetail({
   const [error, setError] = useState<string | null>(null);
   const [orgs, setOrgs] = useState<Array<{ id: string; name: string }>>([]);
   const [colls, setColls] = useState<Array<{ id: string; name: string }>>([]);
+  const [scopeError, setScopeError] = useState<string | null>(null);
   const [defaultOrg, setDefaultOrg] = useState(secretsCfg.default_organization ?? "");
   const [defaultColl, setDefaultColl] = useState(secretsCfg.default_collection ?? "");
 
@@ -63,21 +64,39 @@ export function SecretBackendDetail({
     let cancelled = false;
     (async () => {
       try {
-        const [oR, cR] = await Promise.all([
-          fetch(`${base}/api/secrets/organizations`, { headers }),
-          fetch(`${base}/api/secrets/collections`, { headers }),
-        ]);
+        const oR = await fetch(`${base}/api/secrets/organizations`, { headers });
         if (cancelled) return;
-        if (oR.ok) setOrgs((await oR.json()).organizations ?? []);
-        if (cR.ok) setColls((await cR.json()).collections ?? []);
-      } catch {
-        /* leave lists empty */
+        if (!oR.ok) throw new Error(await readApiError(oR, "couldn't load organizations"));
+        setOrgs((await oR.json()).organizations ?? []);
+        setScopeError(null);
+      } catch (e) {
+        if (!cancelled) setScopeError(e instanceof Error ? e.message : String(e));
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [unlocked, base, headers]);
+
+  useEffect(() => {
+    if (!unlocked) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const q = defaultOrg ? `?organization=${encodeURIComponent(defaultOrg)}` : "";
+        const cR = await fetch(`${base}/api/secrets/collections${q}`, { headers });
+        if (cancelled) return;
+        if (!cR.ok) throw new Error(await readApiError(cR, "couldn't load collections"));
+        setColls((await cR.json()).collections ?? []);
+        setScopeError(null);
+      } catch (e) {
+        if (!cancelled) setScopeError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [unlocked, defaultOrg, base, headers]);
 
   const saveDefaults = useCallback(async (org: string, coll: string) => {
     try {
@@ -219,6 +238,7 @@ export function SecretBackendDetail({
               <div style={{ fontSize: 11, color: "var(--ct-muted)", marginTop: 4 }}>
                 New secrets are filed here by default.
               </div>
+              {scopeError && <div style={{ color: "var(--ct-err, #e57373)", fontSize: 12, marginTop: 8 }}>{scopeError}</div>}
             </>
           )}
         </>

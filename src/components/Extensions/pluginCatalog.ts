@@ -37,6 +37,7 @@ export interface CatalogEntry {
   iconSvg?: string | null;
   iconColor?: string | null;
   iconHint?: string | null;
+  source?: InstalledPlugin["source"] | null;
 }
 
 export type PrimaryActionKind = "install" | "update" | "uninstall" | "none";
@@ -77,6 +78,7 @@ export function capabilityKeys(c?: PluginCapabilities | null): string[] {
 }
 
 function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
+  const sourceChannel = p.source?.kind === "channel" || p.source?.kind === "system_channel" ? p.source.channel : null;
   return {
     id: p.id,
     displayName: p.display_name || p.id,
@@ -87,7 +89,7 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
     dev: p.dev === true,
     version: p.version ?? null,
     remoteVersion: null,
-    channel: null,
+    channel: sourceChannel,
     drift: null,
     compatible: true,
     blockedReason: null,
@@ -101,6 +103,7 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
     iconSvg: p.icon_svg ?? null,
     iconColor: p.icon_color ?? null,
     iconHint: p.icon_hint ?? null,
+    source: p.source ?? null,
   };
 }
 
@@ -135,6 +138,7 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     iconSvg: base?.iconSvg ?? m.icon_svg ?? null,
     iconColor: base?.iconColor ?? m.icon_color ?? null,
     iconHint: base?.iconHint ?? m.icon_hint ?? null,
+    source: base?.source ?? null,
   };
   return entry;
 }

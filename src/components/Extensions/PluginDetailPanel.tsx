@@ -78,7 +78,7 @@ export function PluginDetailPanel({
   return (
     <div>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 16 }}>
-        <div style={{ width: 44, height: 44, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", background: "rgba(255,255,255,0.04)" }}>
+        <div style={{ width: 44, height: 44, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", background: "var(--ct-bg-elev)", border: "1px solid var(--ct-border-subtle)" }}>
           <PluginIcon plugin={iconOf(entry)} size={22} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -87,7 +87,7 @@ export function PluginDetailPanel({
             {entry.id} · {catalogKindLabel(entry)}
             {entry.version ? ` · v${entry.version}` : ""}
             {entry.updateAvailable && entry.remoteVersion ? ` → v${entry.remoteVersion}` : ""}
-            {entry.dev ? " · dev (workspace)" : entry.channel ? ` · ${entry.channel}` : ""}
+            {entry.dev ? " · dev (workspace)" : entry.channel ? ` · ${channelLabel(entry.channel)}` : ""}
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", flex: "none" }}>
@@ -121,13 +121,13 @@ export function PluginDetailPanel({
 
       {(capKeys.length > 0 || perms.length > 0) && (
         <div style={{ marginBottom: 18 }}>
-          <GroupLabel>Capabilities & permissions</GroupLabel>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+          <GroupLabel>Capabilities</GroupLabel>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px" }}>
             {capKeys.map((c) => (
               <CapabilityChip key={`cap-${c}`} variant="system" label={c.replace(/_/g, " ")} title={`Capability: ${c}`} />
             ))}
             {perms.map((c) => (
-              <CapabilityChip key={`perm-${c}`} label={c} title={capabilityLabel(c)} />
+              <CapabilityChip key={`perm-${c}`} label={capabilityLabel(c)} title={c} />
             ))}
           </div>
         </div>
@@ -169,6 +169,12 @@ export function PluginDetailPanel({
       )}
     </div>
   );
+}
+
+function channelLabel(channel: string): string {
+  if (channel === "codeterm-core") return "Core";
+  if (channel === "codeterm-plugins") return "CodeTerm Plugins";
+  return channel;
 }
 
 function primaryBtnStyle(kind: string, disabled: boolean): React.CSSProperties {
