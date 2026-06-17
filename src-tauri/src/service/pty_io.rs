@@ -84,6 +84,10 @@ impl ServiceContext {
     /// link the PTY). resolve_pty_id is wrapped in a 15s retry so scripts
     /// can chain `spawn → send` without hitting "no PTY".
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
+        if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
+            let staged = self.run_outbound_stages(pane_id, text.to_string());
+            return self.chatbackend_send(&plugin_id, &session_id, &staged);
+        }
         self.ensure_pane_pty_for_send(pane_id)?;
         self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
         let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
@@ -211,6 +215,10 @@ impl ServiceContext {
         text: &str,
         enter: bool,
     ) -> Result<(), String> {
+        if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
+            let staged = self.run_outbound_stages(pane_id, text.to_string());
+            return self.chatbackend_send(&plugin_id, &session_id, &staged);
+        }
         self.ensure_pane_pty_for_send(pane_id)?;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
         loop {
@@ -854,6 +862,13 @@ impl ServiceContext {
     }
 
     pub fn send_text_batch(&self, pane_id: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
+        if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
+            for item in batch {
+                let staged = self.run_outbound_stages(pane_id, item.text);
+                self.chatbackend_send(&plugin_id, &session_id, &staged)?;
+            }
+            return Ok(());
+        }
         let pty_id = self.resolve_pty_id(pane_id)?;
         let pty = self.pty.clone();
         tokio::spawn(async move {
@@ -873,6 +888,10 @@ impl ServiceContext {
     }
 
     pub fn resize_pane(&self, pane_id: &str, cols: u16, rows: u16) -> Result<(), String> {
+        // A chatBackend pane has no terminal to resize — graceful no-op.
+        if self.pane_chat_backing(pane_id).is_some() {
+            return Ok(());
+        }
         let pty_id = self.resolve_pty_id(pane_id)?;
         self.pty
             .lock()
@@ -883,6 +902,10 @@ impl ServiceContext {
     /// Kill the PTY process for a pane without removing the pane from the mux.
     /// Different from `close_pane`, which both kills the PTY and removes the pane.
     pub fn kill_pane_pty(&self, pane_id: &str) -> Result<(), String> {
+        // A chatBackend pane has no PTY process — close the plugin session.
+        if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
+            return self.chatbackend_close(&plugin_id, &session_id);
+        }
         let pty_id = self.resolve_pty_id(pane_id)?;
         self.pty.lock().remove(&pty_id);
         Ok(())
