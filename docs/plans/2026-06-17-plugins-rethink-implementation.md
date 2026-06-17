@@ -392,6 +392,58 @@ plugin's pure logic against a **stubbed `host.fetch`** (cursoring, request shape
 and run the live demo against the **real local LM Studio server**. No separate mock
 server to build — "just give the ability to connect to LM Studio."
 
+`host.agent.usage` and the self-count stats are **required**, not optional — the
+reminder cadence is a first-class feature of the environment pattern.
+
+---
+
+## 1.7 Agent-driven plugin configuration (design — REQUIRED, all plugins)
+
+**Goal:** when the user says "set up the transcriber" / "switch it to engine Y" /
+"point LM Studio at this URL", an **agent** does the whole thing — discover,
+install, edit settings (incl. secrets), reload, verify — with no UI clicks and no
+daemon restart. This realizes the spec's "plugins MUST be agent-configurable".
+
+**Five handles, all CLI → daemon-routed, so any agent in any pane can drive them:**
+
+1. **Discover — `codeterm get plugin <id>` (Track C).** Returns the agent-doc, the
+   `settings.schema.json` (fields, types, `required`, which fields are **secret**),
+   the **current values (secrets redacted)**, and installed/configured state. The
+   schema is *what the agent is allowed to set* — the agent reads it, it is not
+   baked into any prompt.
+2. **Install — `codeterm plugin install <id>`** (exists).
+3. **Configure / write — NEW `codeterm plugin config <id> --json '{…}'`** (also
+   `--set key=value`). Validates against the schema, then splits by field kind:
+   - **non-secret fields → `config.plugins.<id>`** (the existing JSON bag in
+     `config.toml`, read by `host.settingsJson()`).
+   - **secret fields → the secret store** (a per-plugin named bucket via the
+     existing secret backend), referenced by name from config — **never written
+     plaintext** into `config.toml`. The agent prompts the user for the value (or
+     the user pastes it) and never echoes/logs the raw secret.
+   Returns a diff of what changed.
+4. **Reload — live, no restart (NEW).** Writing settings fires a **settings
+   hot-refresh**: extend the existing `plugin.js` hot-reload watcher to also fire
+   when `config.plugins.<id>` changes (or when `plugin config` runs), re-stamping
+   `settingsJson` into the running plugin VM. The plugin re-reads
+   `host.settingsJson()` on its next call. (Today settings are read only at load —
+   this closes that gap, which F5 flagged.)
+5. **Verify — `codeterm get plugin <id>` reflects `configured: true`**, and/or the
+   plugin's optional `check()`/status handle (transcriber connectivity, bitwarden
+   unlock, LM Studio reachable) confirms it actually works.
+
+**Agent flow ("set up voice transcription"):**
+`get plugin transcribe` (not installed; schema = {engine, serverUrl, …}) → offer →
+user yes → `plugin install transcribe` → `plugin config transcribe --json
+{"engine":"whisper","serverUrl":"…"}` → live reload → `get plugin transcribe`
+shows configured → "done, voice transcription is on." Secrets (e.g. an API key)
+are prompted and routed to the secret bucket, not the flow above.
+
+**Tasks (Track C):** `codeterm plugin config <id>` (validate + secret-routing) ·
+**live settings reload** (extend the hot-reload watcher) · `get plugin <id>`
+returns schema + redacted current + state · (per-plugin, Tracks D/E/F) ship a
+`settings.schema.json` with secret fields marked, and an agent-doc — **acceptance
+item for every plugin**.
+
 ---
 
 ## 2. Track A — SDK types + seam contract
@@ -696,18 +748,32 @@ real game** — a chat with **several NPC characters acting**, where a mocked
 
 **Two pieces:**
 
+**(F0) dread-delusion-ai is its OWN channel.** The repo carries a `channel.json`
+(like `codeterm-plugins`) listing the `codeterm-npc` plugin; CodeTerm installs it
+by registering that channel (manual `codeterm plugin channel add
+https://github.com/rollacode/dread-delusion-ai.git`, or — if we want it visible
+out of the box later — a second seeded default like the `ensure-default` pattern).
+It is **not** in `codeterm-plugins`; it's a separate, third-party-style channel.
+Created when the plugin lands (a `channel.json` pointing at a non-existent plugin
+is invalid).
+
 **(F1) The NPC `chatBackend` plugin** (`codeterm-npc/`, TS) — installed into
 CodeTerm:
 - `openSession` → `host.workspace.ensure({ name: "dread-npcs", externalRoot:
   <mock game folder> })`.
-- For each `npc_id` in the scene → `host.agent.get(ws, npc_id)` else
-  `host.agent.spawn(ws, { task: <persona prompt from npc_scripts/<id>.md>,
-  key: npc_id, commands: ["say","look","move","emote"] })`.
-- Player line in → route to the addressed NPC's `host.agent.send`; reply out as
-  `NormalizedChatMessage` tagged with the speaker.
+- Owns a **~5-session LRU pool** (R2): for each `npc_id` → `host.agent.get(ws,
+  npc_id)` else `host.agent.spawn(ws, { task: <persona from npc_scripts/<id>.md>,
+  key: npc_id, commands: ["say","look","move","emote"] })`; reaps the oldest
+  inactive when over the cap; resumes a stored session via `host.agent.resume`.
+- Player line in → addressed NPC's `host.agent.send` → ticket → poll for reply
+  (R-async); reply out as `NormalizedChatMessage` tagged with the speaker; the
+  pane transcript flattens to text for `get-output` (R6).
 - `onAgentCommand({verb:"say",args})` → forward the NPC's spoken line to the mock
   game; `look/move/emote` → mutate + return mock world state.
-- Per-NPC turn counter → every Nth turn, prepend a stay-in-character reminder.
+- Per-NPC turn counter (+ optional `host.agent.usage`) → every Nth turn / over a
+  token threshold, prepend a stay-in-character reminder.
+- Ships `settings.schema.json` (scene, model tier per class, game folder; any key
+  marked `secret`) + an **agent-doc** so an agent can install+configure it (§1.7).
 
 **(F2) The mock-game harness** (`mock_game/`, Python — reuses `npc_server/`
 scaffolding) — stands in for the real game:
