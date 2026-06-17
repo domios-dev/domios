@@ -131,6 +131,10 @@ pub struct ServiceContext {
     /// `run_outbound_stages` runs these send-time text stages over every user
     /// turn before dispatching to transport.
     pub chat_preprocessor_registry: crate::chatpreprocessor::ChatPreprocessorRegistryHandle,
+    /// Registry of agent-command handlers (plugins with the `agent_commands`
+    /// grant). The socket dispatch routes `plugin:<id>.<verb>` here — the inverse
+    /// seam letting a spawned agent drive a plugin's `onAgentCommand`.
+    pub agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,

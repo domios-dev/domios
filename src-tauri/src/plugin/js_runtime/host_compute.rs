@@ -228,6 +228,8 @@ fn agent_spawn(
         backend: Option<Backend>,
         #[serde(default)]
         key: Option<String>,
+        #[serde(default)]
+        commands: Vec<String>,
     }
     let opts: Opts = match serde_json::from_str(opts_json) {
         Ok(o) => o,
@@ -248,6 +250,7 @@ fn agent_spawn(
         opts.task,
         Some(workspace_id.to_string()),
         None,
+        opts.commands,
     );
     serde_json::json!({ "sessionId": session_id }).to_string()
 }
@@ -299,6 +302,7 @@ fn agent_send(svc: &Arc<ServiceContext>, plugin_id: &str, session_id: &str, text
         text.to_string(),
         None,
         resume,
+        Vec::new(),
     );
     serde_json::json!({ "ticket": ticket }).to_string()
 }
@@ -341,6 +345,7 @@ fn enqueue_agent_turn(
     task_prompt: String,
     workspace_id: Option<String>,
     resume_session_id: Option<String>,
+    commands: Vec<String>,
 ) -> String {
     let worker_id = workers::new_worker_id();
     let color = svc.workers.pick_color();
@@ -356,6 +361,8 @@ fn enqueue_agent_turn(
     if !model.is_empty() {
         info.model = Some(model.clone());
     }
+    // C2 MINOR-2: scope the inverse seam to the verbs the plugin declared.
+    info.commands = commands;
     svc.workers.register(info.clone());
     let _ = tauri::Emitter::emit(&svc.app_handle, "graph-worker-spawned", &info);
 
