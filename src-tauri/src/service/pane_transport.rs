@@ -143,11 +143,24 @@ impl ServiceContext {
         }
     }
 
-    /// Send-time outbound stage hook (plan Track B↔C contract). Track B ships it
-    /// as identity; Track C extends it with the `chatPreprocessor` stage
-    /// pipeline. Called in the send seam before dispatching to transport.
-    pub fn run_outbound_stages(&self, _pane_id: &str, text: String) -> String {
-        text
+    /// Send-time outbound stage hook (plan Track B↔C contract). Runs the
+    /// registered `chatPreprocessor` text stages over the outbound text before
+    /// dispatching to transport. No stages ⇒ identity (Track B's shipped
+    /// contract). Stages run in id order for determinism; a broken stage fails
+    /// safe to passthrough (see [`JsChatPreprocessor`]).
+    ///
+    /// [`JsChatPreprocessor`]: crate::plugin::js_runtime::JsChatPreprocessor
+    pub fn run_outbound_stages(&self, pane_id: &str, text: String) -> String {
+        let mut stages = self.chat_preprocessor_registry.active();
+        if stages.is_empty() {
+            return text;
+        }
+        stages.sort_by(|a, b| a.id().cmp(b.id()));
+        let ctx = crate::chatpreprocessor::PreprocessCtx {
+            pane_id: pane_id.to_string(),
+            ..Default::default()
+        };
+        crate::chatpipeline::run_text_stages(&stages, &ctx, text)
     }
 
     /// Resolve a pane (or alias) to its [`PaneTransport`]. Reads the pane's

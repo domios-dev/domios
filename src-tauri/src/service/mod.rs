@@ -127,6 +127,10 @@ pub struct ServiceContext {
     /// Registry of chatBackend providers (plugins with `chatBackend`). Non-PTY
     /// panes route their I/O here via the `PaneTransport` seam.
     pub chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle,
+    /// Registry of chatPreprocessor providers (plugins with `chatPreprocessor`).
+    /// `run_outbound_stages` runs these send-time text stages over every user
+    /// turn before dispatching to transport.
+    pub chat_preprocessor_registry: crate::chatpreprocessor::ChatPreprocessorRegistryHandle,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,

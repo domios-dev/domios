@@ -131,6 +131,7 @@ fn default_capabilities() -> Capabilities {
         status_bubble: false,
         view: false,
         chat_backend: false,
+        chat_preprocessor: false,
     }
 }
 
@@ -162,6 +163,10 @@ pub struct Capabilities {
     /// The pane routes send/read through the plugin instead of a terminal.
     #[serde(default)]
     pub chat_backend: bool,
+    /// Send-time text stage of the outbound pipeline (`chatPreprocess`). Matches
+    /// final text and augments it (mem recall / worker / Groq) before transport.
+    #[serde(default)]
+    pub chat_preprocessor: bool,
 }
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
