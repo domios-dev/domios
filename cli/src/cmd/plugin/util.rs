@@ -157,6 +157,13 @@ pub(super) fn system_channel_url() -> String {
         .unwrap_or_else(|| DEFAULT_SYSTEM_CHANNEL_URL.to_string())
 }
 
+pub(super) fn default_plugin_channel_url() -> String {
+    std::env::var("CODETERM_PLUGIN_CHANNEL_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_PLUGIN_CHANNEL_URL.to_string())
+}
+
 pub(super) fn app_version() -> Option<String> {
     std::env::var("CODETERM_VERSION")
         .ok()

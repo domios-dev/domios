@@ -8,7 +8,13 @@ source "$ROOT/evals/_lib/lib.sh"
 
 DEVPLUG="$HOME/.codeterm-dev/plugins/transcriber"
 LOG="$HOME/.codeterm-dev/logs/codeterm.log"
-SRC="$ROOT/plugins/transcriber"
+# Marketplace plugins live in the sibling codeterm-plugins repo now (not this
+# repo's plugins/). Allow an override; default to a checkout next to this one.
+SRC="${CODETERM_PLUGINS_REPO:-$ROOT/../codeterm-plugins}/transcriber"
+if [ ! -f "$SRC/plugin.json" ]; then
+  echo "skip: transcriber plugin source not found at $SRC (clone rollacode/codeterm-plugins next to this repo, or set CODETERM_PLUGINS_REPO)" >&2
+  exit 0
+fi
 pass=0 fail=0
 ok(){ echo "  ✓ $1"; pass=$((pass+1)); }
 bad(){ echo "  ✗ $1"; fail=$((fail+1)); }

@@ -100,6 +100,11 @@ pub(super) fn command_failure_fields(
             PluginChannelAction::Add { name, .. } => {
                 ("channel-add-failed".to_string(), None, name.clone())
             }
+            PluginChannelAction::EnsureDefault => (
+                "channel-ensure-default-failed".to_string(),
+                None,
+                Some(DEFAULT_PLUGIN_CHANNEL_NAME.to_string()),
+            ),
             PluginChannelAction::List => ("channel-list-failed".to_string(), None, None),
             PluginChannelAction::Refresh { name } => {
                 ("refresh-failed".to_string(), None, name.clone())

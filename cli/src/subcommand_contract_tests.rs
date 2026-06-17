@@ -149,6 +149,13 @@ fn plugin_subcommands_parse() {
     ));
 
     assert!(matches!(
+        parse_plugin(&["channel", "ensure-default"]),
+        PluginAction::Channel {
+            command: PluginChannelAction::EnsureDefault
+        }
+    ));
+
+    assert!(matches!(
         parse_plugin(&["channel", "remove", "codeterm-core", "--force"]),
         PluginAction::Channel {
             command: PluginChannelAction::Remove { name, force: true }
