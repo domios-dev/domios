@@ -178,6 +178,12 @@ fn action_preview(actions: &[SendAction]) -> String {
 /// immediately would otherwise hit "no PTY" unconditionally. Poll for
 /// the link with this short budget so a script can chain spawn → send.
 async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
+    // [G] A chatBackend pane has no PTY to link — don't poll for one that never
+    // appears (it would hang the full budget and then fail). It is "ready" the
+    // moment it exists (B1.1#5).
+    if state.svc.pane_chat_backing(pane_id).is_some() {
+        return true;
+    }
     for _ in 0..75 {
         if state.svc.resolve_pty_id(pane_id).is_ok() {
             return true;
