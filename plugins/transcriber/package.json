@@ -1,0 +1,10 @@
+{
+  "name": "@codeterm/plugin-transcriber",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "CodeTerm Transcriber plugin: speech-to-text backend (local Whisper server or mesh peer).",
+  "devDependencies": {
+    "@codeterm/plugin-sdk": "workspace:*"
+  }
+}
