@@ -3,6 +3,10 @@
  * Run: npx tsx plugins/provider-opencode/tests/plugin.test.ts
  */
 
+import fs from "node:fs";
+import path from "node:path";
+import vm from "node:vm";
+import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
 
 let passed = 0;
@@ -46,6 +50,76 @@ console.log("\n--- titlePattern + noisePatterns ---\n");
 assert(plugin.titlePattern instanceof RegExp, "titlePattern is RegExp");
 assert(plugin.titlePattern!.test("opencode"), "titlePattern matches 'opencode'");
 assert(Array.isArray(plugin.noisePatterns) && plugin.noisePatterns.length > 0, "noisePatterns non-empty");
+
+console.log("\n--- binding nonce (install + outdated detection) ---\n");
+
+function loadOpencodeWithHost(host: unknown) {
+  const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
+  const source = fs.readFileSync(pluginPath, "utf8");
+  const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  return context.module.exports.default;
+}
+
+const ocHost = (over: Record<string, unknown>) => ({
+  manifestJson: () => "null",
+  homeDir: () => "/tmp",
+  platform: () => "linux",
+  expandHome: (v: string) => v,
+  envGet: () => null,
+  log: () => {},
+  shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
+  ...over,
+});
+
+// Install must write the x-codeterm-binding-nonce header into the generated
+// opencode plugin so the session-start report can prove pane ownership.
+{
+  let body = "";
+  const host = ocHost({
+    fs: {
+      fileExists: () => false,
+      readJson: () => null,
+      readFile: () => null,
+      writeFile: (_p: string, content: string) => { body = content; return true; },
+      writeJson: () => true,
+    },
+  });
+  const p = loadOpencodeWithHost(host);
+  const res = p.installIntegration(7686);
+  assert(!!res && res.ok === true, "installIntegration succeeds", JSON.stringify(res));
+  assert(
+    body.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
+      body.indexOf("x-codeterm-binding-nonce") !== -1,
+    "generated opencode plugin sends the binding-nonce header",
+  );
+}
+
+// A plugin file lacking the nonce is pre-nonce → not current (forces reinstall).
+{
+  const withBody = (body: string) =>
+    ocHost({
+      fs: {
+        fileExists: () => true,
+        readFile: () => body,
+        readJson: () => null,
+        writeFile: () => true,
+        writeJson: () => true,
+      },
+    });
+  const old = loadOpencodeWithHost(withBody("// codeterm-opencode-session-binding-v2\nconst x = 1;"));
+  assert(
+    old.checkIntegration().plugin_file_current === false,
+    "pre-nonce opencode plugin reads as not-current",
+  );
+  const cur = loadOpencodeWithHost(
+    withBody("// codeterm-opencode-session-binding-v2\nprocess.env.CODETERM_SESSION_BINDING_NONCE;"),
+  );
+  assert(
+    cur.checkIntegration().plugin_file_current === true,
+    "opencode plugin carrying the nonce reads as current",
+  );
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

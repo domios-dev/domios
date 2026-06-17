@@ -120,5 +120,79 @@ try {
 assert(parsed.messages.length === 1, "parseSessionDelta corrupted lines are skipped");
 assert(warned === 1, "parseSessionDelta emits one warning for a session with invalid entries");
 
+console.log("\n--- binding nonce (install + outdated detection) ---\n");
+
+function loadCodexWithHost(host: unknown) {
+  const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
+  const source = fs.readFileSync(pluginPath, "utf8");
+  const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  return context.module.exports.default;
+}
+
+const baseHost = (over: Record<string, unknown>) => ({
+  manifestJson: () => "null",
+  homeDir: () => "/tmp",
+  platform: () => "linux",
+  expandHome: (v: string) => v,
+  log: () => {},
+  shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
+  ...over,
+});
+
+// Install must emit the X-CodeTerm-Binding-Nonce header so the provider's
+// session-start report can prove pane ownership (release/1.4.6 binding-nonce).
+{
+  let writtenJson: any = null;
+  const host = baseHost({
+    fs: {
+      fileExists: () => false,
+      readJson: () => null,
+      readFile: () => null,
+      writeJson: (_p: string, json: unknown) => { writtenJson = json; return true; },
+      writeFile: () => true,
+    },
+  });
+  const p = loadCodexWithHost(host);
+  const res = p.installIntegration(7686);
+  assert(!!res && res.ok === true, "installIntegration succeeds", JSON.stringify(res));
+  const cmd = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.command ?? "");
+  assert(
+    cmd.indexOf("X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}") !== -1,
+    "session_start hook curl carries the binding-nonce header",
+    cmd,
+  );
+}
+
+// A hook lacking the nonce header is pre-nonce → must read as not-current so
+// startup reinstalls it; a hook carrying it is current.
+{
+  const sessionStartHook = (cmd: string) =>
+    baseHost({
+      fs: {
+        fileExists: () => true,
+        readFile: () => "",
+        readJson: () => ({ hooks: { SessionStart: [{ hooks: [{ command: cmd }] }] } }),
+        writeJson: () => true,
+        writeFile: () => true,
+      },
+    });
+  const preNonce =
+    "curl -s -X POST http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start " +
+    "-H 'X-CodeTerm-Agent-Provider: codex' --data-binary @-";
+  const old = loadCodexWithHost(sessionStartHook(preNonce));
+  assert(
+    old.checkIntegration().session_start_hook === false,
+    "pre-nonce hook is reported not-current (forces reinstall)",
+  );
+  const current = loadCodexWithHost(
+    sessionStartHook(preNonce + ' -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"'),
+  );
+  assert(
+    current.checkIntegration().session_start_hook === true,
+    "hook carrying the binding-nonce header reads as current",
+  );
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
