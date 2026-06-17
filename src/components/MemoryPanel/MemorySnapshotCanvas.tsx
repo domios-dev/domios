@@ -6,6 +6,10 @@ import type { ApiConfig } from "../../lib/types";
 import { MemoryNodeDetail } from "./MemoryNodeDetail";
 import { colorForKind, KIND_COLORS } from "./nodeKind";
 import { fetchGraphEdges, fetchLabels, setPinnedPosition } from "./memoryApi";
+import {
+  readMemoryGraphPalette,
+  type MemoryGraphPalette,
+} from "./memoryGraphTheme";
 import type { MemEdge, MemNode } from "./types";
 import type { Pulse } from "./useActivityPulses";
 import type { NodeIndex } from "./snapshotLogic";
@@ -32,7 +36,6 @@ interface Props {
 }
 
 const SELECTION_COLOR = "#c9d1d9";
-const EDGE_RGB = "100,116,139";
 const CLUSTER_COLOR = "#5b6472";
 const GHOST_COLOR = "rgba(91,100,114,0.08)";
 const LOD_DEBOUNCE_MS = 120;
@@ -74,6 +77,7 @@ export function MemorySnapshotCanvas({
   const fetchedLabelsRef = useRef<Set<string>>(new Set());
   const edgesByNodeRef = useRef<Map<string, SnapshotEdge[]>>(new Map());
   const fetchedEdgesRef = useRef<Set<string>>(new Set());
+  const paletteRef = useRef<MemoryGraphPalette | null>(null);
   const [labelTick, setLabelTick] = useState(0);
   const [egoEdges, setEgoEdges] = useState<SnapshotEdge[]>([]);
   // Selected node + its 1-hop neighborhood; everything else renders ghosted.
@@ -112,13 +116,15 @@ export function MemorySnapshotCanvas({
   // Sigma init — same options as the legacy canvas.
   useEffect(() => {
     if (!containerRef.current) return;
+    paletteRef.current = readMemoryGraphPalette();
     const graph = new Graph({ multi: false });
     graphRef.current = graph;
+    const palette = paletteRef.current;
 
     const sigma = new Sigma(graph, containerRef.current, {
       renderLabels: true,
       renderEdgeLabels: false,
-      labelColor: { color: "#c9d1d9" },
+      labelColor: { color: palette.labelColor },
       labelWeight: "400",
       labelSize: 11,
       labelDensity: 0.6,
@@ -222,6 +228,8 @@ export function MemorySnapshotCanvas({
     const graph = graphRef.current;
     const sigma = sigmaRef.current;
     if (!graph || !sigma) return;
+    paletteRef.current = readMemoryGraphPalette();
+    const palette = paletteRef.current;
     const idx = indexRef.current;
     const ratio = sigma.getCamera().ratio;
     const zoomedOut = isZoomedOut(ratio, idx.byId.size);
@@ -230,7 +238,7 @@ export function MemorySnapshotCanvas({
     graph.clear();
 
     if (zoomedOut) {
-      buildClusterView(graph, idx);
+      buildClusterView(graph, idx, palette);
       sigma.refresh();
       return;
     }
@@ -242,8 +250,8 @@ export function MemorySnapshotCanvas({
     // Mass edges only when zoomed in deep — the overview stays a clean map;
     // the selected node's ego edges are always visible.
     const showEdges = ratio <= EDGE_DETAIL_RATIO;
-    if (showEdges) applyRealEdges(graph, edgesByNodeRef.current);
-    applyEgoEdges(graph, selectedIdRef.current, edgesByNodeRef.current);
+    if (showEdges) applyRealEdges(graph, edgesByNodeRef.current, palette);
+    applyEgoEdges(graph, selectedIdRef.current, edgesByNodeRef.current, palette);
     sigma.refresh();
     void fetchViewportData(api, idx, bounds ?? viewportBounds(sigma), showEdges);
   }, [api]);
@@ -273,7 +281,11 @@ export function MemorySnapshotCanvas({
         try {
           const rows = await fetchGraphEdges(a, edgeIds);
           mergeEdges(edgesByNodeRef.current, rows);
-          applyRealEdges(graphRef.current, edgesByNodeRef.current);
+          applyRealEdges(
+            graphRef.current,
+            edgesByNodeRef.current,
+            paletteRef.current ?? readMemoryGraphPalette(),
+          );
           sigmaRef.current?.refresh({ skipIndexation: true });
         } catch {
           /* retry on next LOD pass */
@@ -331,7 +343,12 @@ export function MemorySnapshotCanvas({
         if (!active) return;
         setEgoEdges(rows);
         mergeEdges(edgesByNodeRef.current, rows);
-        applyEgoEdges(graphRef.current, selectedId, edgesByNodeRef.current);
+        applyEgoEdges(
+          graphRef.current,
+          selectedId,
+          edgesByNodeRef.current,
+          paletteRef.current ?? readMemoryGraphPalette(),
+        );
         sigmaRef.current?.refresh({ skipIndexation: true });
       })
       .catch(() => {});
@@ -557,7 +574,7 @@ function addItemNode(graph: Graph, n: SnapshotNode, label: string) {
   });
 }
 
-function buildClusterView(graph: Graph, idx: NodeIndex) {
+function buildClusterView(graph: Graph, idx: NodeIndex, palette: MemoryGraphPalette) {
   for (const c of idx.clusters) {
     graph.addNode(clusterNodeKey(c.id), {
       x: c.x,
@@ -580,7 +597,7 @@ function buildClusterView(graph: Graph, idx: NodeIndex) {
     try {
       graph.addEdgeWithKey(key, from, to, {
         size: Math.min(2, 0.3 + Math.log10(e.weight + 1) * 0.6),
-        color: `rgba(${EDGE_RGB},0.18)`,
+        color: `rgba(${palette.edgeRgb},${palette.clusterEdgeAlpha})`,
       });
     } catch {
       /* dup */
@@ -619,7 +636,11 @@ function mergeEdges(store: Map<string, SnapshotEdge[]>, rows: SnapshotEdge[]) {
   }
 }
 
-function applyRealEdges(graph: Graph | null, store: Map<string, SnapshotEdge[]>) {
+function applyRealEdges(
+  graph: Graph | null,
+  store: Map<string, SnapshotEdge[]>,
+  palette: MemoryGraphPalette,
+) {
   if (!graph) return;
   const seen = new Set<string>();
   for (const list of store.values()) {
@@ -632,7 +653,7 @@ function applyRealEdges(graph: Graph | null, store: Map<string, SnapshotEdge[]>)
         const conf = e.confidence ?? 0.5;
         graph.addEdgeWithKey(key, e.from, e.to, {
           size: 0.005 + conf * 0.01,
-          color: `rgba(${EDGE_RGB},${0.012 + conf * 0.025})`,
+          color: `rgba(${palette.edgeRgb},${palette.realEdgeAlpha(conf)})`,
         });
       } catch {
         /* dup */
@@ -645,6 +666,7 @@ function applyEgoEdges(
   graph: Graph | null,
   selectedId: string | null,
   store: Map<string, SnapshotEdge[]>,
+  palette: MemoryGraphPalette,
 ) {
   if (!graph || !selectedId) return;
   const list = store.get(selectedId) ?? [];
@@ -654,7 +676,7 @@ function applyEgoEdges(
     try {
       graph.addEdgeWithKey(key, e.from, e.to, {
         size: 0.4,
-        color: `rgba(201,209,217,0.55)`,
+        color: `rgba(${palette.edgeRgb},${palette.egoEdgeAlpha})`,
       });
     } catch {
       /* dup */

@@ -726,7 +726,10 @@ window.addEventListener('message',function(e){var m=e.data||{};
 window.ct={invoke:function(method,args){var id=++s;return new Promise(function(res,rej){
   p[id]={resolve:res,reject:rej};parent.postMessage({__ctInvoke:id,method:method,args:args||null},'*');});},
  close:function(){parent.postMessage({__ctClose:true},'*');}};
-parent.postMessage({__ctReady:true},'*');})();
+parent.postMessage({__ctReady:true},'*');
+function rz(){if(!document.body)return;var h=document.body.scrollHeight;if(h)parent.postMessage({__ctResize:h},'*');}
+function watch(){if(window.ResizeObserver){new ResizeObserver(rz).observe(document.body);}rz();}
+document.readyState==='loading'?document.addEventListener('DOMContentLoaded',watch):watch();})();
 "#;
 
 #[derive(serde::Deserialize)]

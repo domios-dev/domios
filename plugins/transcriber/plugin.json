@@ -4,6 +4,8 @@
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Transcriber",
+  "description": "Speech-to-text for voice notes, backed by a local Whisper server or a mesh peer. Press-to-talk dictation into the focused pane.",
+  "readme": "README.md",
   "iconHint": "\ud83c\udf99",
   "iconColor": "var(--ct-accent)",
   "entry": "plugin.js",

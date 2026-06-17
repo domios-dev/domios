@@ -6,7 +6,7 @@
  * The iframe holds no capability: its only channel is postMessage to us, and we
  * forward each call to the host (which stamps the plugin id + checks permissions).
  */
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { daemonHttpBase, daemonAuthToken, type DaemonApiConfig } from "../../lib/webApi";
 
@@ -49,6 +49,9 @@ export function PluginView({
   cwd?: string | null;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // Embedded views size to their content (the iframe reports its height via the
+  // bridge's __ctResize). Fullscreen views fill their container instead.
+  const [contentHeight, setContentHeight] = useState<number | null>(null);
 
   const src = `${daemonHttpBase(api)}/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html?token=${encodeURIComponent(daemonAuthToken(api))}`;
 
@@ -59,6 +62,11 @@ export function PluginView({
       const m = e.data || {};
       if (m.__ctReady) {
         win.postMessage({ __ctTheme: themeCss() }, "*");
+        return;
+      }
+      if (typeof m.__ctResize === "number" && embedded) {
+        // Clamp so a misbehaving plugin can't collapse to nothing or run away.
+        setContentHeight(Math.min(720, Math.max(72, Math.ceil(m.__ctResize))));
         return;
       }
       if (m.__ctClose) {
@@ -80,7 +88,7 @@ export function PluginView({
         }
       }
     },
-    [pluginId, cwd, onClose],
+    [pluginId, cwd, onClose, embedded],
   );
 
   useEffect(() => {
@@ -110,7 +118,18 @@ export function PluginView({
 
   if (embedded) {
     return (
-      <div style={{ width: "100%", height: "100%", display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.08))" }}>
+      <div
+        style={{
+          width: "100%",
+          height: contentHeight ?? 120,
+          display: "flex",
+          borderRadius: 8,
+          overflow: "hidden",
+          background: "var(--ct-bg)",
+          border: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.08))",
+          transition: "height 0.12s ease",
+        }}
+      >
         {frame}
       </div>
     );

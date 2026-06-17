@@ -40,6 +40,9 @@ audited channel to the host, and a separately-sandboxed UI.
   "minCodeterm": "1.0.0",      // compatibility gate (see "Maintenance")
   "hostApi": 2,                // host-API contract version the plugin targets
   "displayName": "Git",
+  "description": "One-line summary shown in the Extensions detail pane.",
+  "homepage": "https://…",     // optional project/docs link
+  "readme": "README.md",       // optional relative markdown path; loaded into the snapshot (bounded) and rendered safely (no raw HTML, remote images not fetched)
   "iconColor": "#f05133",
   "iconHint": "✳",             // text fallback when no svg
   "iconSvg": "<svg …>",        // inline icon shown in the Extensions UI + bubbles
@@ -226,4 +229,4 @@ tax (see also `docs/contributing/architecture.md`):
   inherited a parent's `CODETERM_API_PORT` (e.g. prod's 7685 when launched from prod),
   the hook reports to the wrong daemon. Inject env from **config**, not `std::env`.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

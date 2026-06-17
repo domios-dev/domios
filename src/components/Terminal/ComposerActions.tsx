@@ -377,10 +377,11 @@ export function ComposerActions({
             title="Attach file"
             disabled={uploading}
             onClick={() => fileRef.current?.click()}
-            className={`${btnBase} ct-composer-round-button mb-1 h-10 w-10 rounded-full border border-white/10 text-white/90 shadow-[0_2px_10px_rgba(0,0,0,0.28)] hover:scale-[1.03] disabled:opacity-40`}
+            className={`${btnBase} ct-composer-round-button mb-1 h-10 w-10 rounded-full border shadow-[0_2px_10px_rgba(0,0,0,0.18)] hover:scale-[1.03] disabled:opacity-40`}
             style={{
-              background:
-                "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 82%, white 8%)",
+              background: "var(--ct-surface, #161b22)",
+              borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 24%, transparent)",
+              color: "var(--ct-fg, #c9d1d9)",
             }}
           >
             <Paperclip size={20} strokeWidth={2.3} className={uploading ? "animate-pulse" : undefined} />
@@ -390,10 +391,9 @@ export function ComposerActions({
           ref={shellRef}
           className="ct-composer-input-shell relative flex min-h-12 flex-1 items-center rounded-[1.35rem] border px-3.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
           style={{
-            background:
-              "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 86%, white 7%)",
+            background: "var(--ct-bg-elev, var(--ct-surface, #161b22))",
             borderColor:
-              "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+              "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
           }}
         >
           {composerHidden && (
@@ -437,8 +437,7 @@ export function ComposerActions({
               }}
               className={`${btnBase} ml-1 mb-0.5 h-8 w-8 shrink-0 self-end rounded-full text-[var(--ct-muted-fg)] transition hover:text-[var(--ct-fg)] hover:brightness-125`}
               style={{
-                background:
-                  "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 82%, white 7%)",
+                background: "var(--ct-surface, #161b22)",
                 border:
                   "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",
               }}
@@ -456,7 +455,7 @@ export function ComposerActions({
                 data-testid="composer-voice-lock-pill"
                 className="ct-voice-lock-pill absolute bottom-full left-1/2 mb-7 flex -translate-x-1/2 flex-col items-center gap-1 rounded-full border px-2 py-2.5 text-[var(--ct-muted-fg)] shadow-[0_6px_20px_rgba(0,0,0,0.35)]"
                 style={{
-                  background: "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 90%, white 6%)",
+                  background: "var(--ct-surface, #161b22)",
                   borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 26%, transparent)",
                 }}
               >
@@ -518,7 +517,7 @@ export function ComposerActions({
                 background:
                   voiceActive || mainIsSend || isLocked
                     ? "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)"
-                    : "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 78%, white 9%)",
+                    : "var(--ct-surface, #161b22)",
                 borderColor:
                   voiceActive || mainIsSend || isLocked
                     ? "rgba(255,255,255,0.18)"
