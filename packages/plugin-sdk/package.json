@@ -1,12 +1,22 @@
 {
   "name": "@codeterm/plugin-sdk",
   "version": "1.4.6",
-  "private": true,
   "type": "module",
   "description": "Type-only SDK for authoring CodeTerm plugin logic (host API + capability contracts) in TypeScript.",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rollacode/codeterm.git",
+    "directory": "packages/plugin-sdk"
+  },
+  "keywords": ["codeterm", "plugin", "sdk", "types"],
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "files": ["src", "README.md"],
+  "publishConfig": {
+    "access": "public"
   }
 }
