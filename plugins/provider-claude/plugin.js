@@ -200,33 +200,14 @@ module.exports.default = {
       : "unset CLAUDECODE &&";
     var parts = [unset];
 
-    var useStdinPipe = !!(p.headless && p.task);
-    if (useStdinPipe) {
-      var path = writeTaskTempFile(p.task);
-      var prefix = win
-        ? "Get-Content '" + path + "' -Raw -Encoding UTF8 |"
-        : "cat '" + path + "' |";
-      parts.push(prefix);
-      parts.push("claude");
-      if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-      parts.push("-p");
-      parts.push("--output-format");
-      parts.push("stream-json");
-      parts.push("--verbose");
-      parts.push("--include-partial-messages");
-      parts.push("--allowedTools");
-      parts.push("Bash");
-    } else {
-      parts.push("claude");
-      if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-    }
+    parts.push("claude");
+    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
 
     if (p.agentName) {
       parts.push("--agent");
       parts.push(host.shell.quoteFor(p.agentName, host.platform()));
     }
-    // --session-id is ignored in -p mode; emit only for visible launches.
-    if (!useStdinPipe && p.sessionId) {
+    if (p.sessionId) {
       parts.push("--session-id");
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
@@ -235,10 +216,10 @@ module.exports.default = {
       // the spawn API (a mesh peer with SpawnAgents could inject `; cmd`).
       for (var i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
-    // Visible mode passes the prompt as a positional, last, after `--`: a spawn
-    // task can start with the -=-codeterm:...-=- origin marker, which commander
-    // would otherwise reject as an unknown option.
-    if (!useStdinPipe && p.task) {
+    // Prompt is a positional, last, after `--`: a spawn task can start with the
+    // -=-codeterm:...-=- origin marker, which commander would otherwise reject
+    // as an unknown option.
+    if (p.task) {
       var visiblePath = writeTaskTempFile(p.task);
       parts.push("--");
       parts.push(win

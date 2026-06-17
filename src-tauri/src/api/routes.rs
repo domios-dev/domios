@@ -266,6 +266,10 @@ pub fn create_router(state: AppState) -> Router {
             post(web_routes::chat_raw_backfill),
         )
         .route(
+            "/api/sessions/transcript",
+            get(web_routes::session_transcript),
+        )
+        .route(
             "/api/upload",
             post(web_routes::upload)
                 // Voice notes and attached files: axum's 2MB default is too small; cap at 200MB so a runaway client can't fill the disk.
@@ -482,6 +486,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/mem/graph/repair/orphan-vectors",
             post(mem_routes::mem_graph_repair_orphan_vectors),
+        )
+        .route(
+            "/api/mem/graph/repair/prune-thin-vectors",
+            post(mem_routes::mem_graph_prune_thin_vectors),
         )
         .route(
             "/api/mem/graph/repair/orphan-blobs",

@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -13,6 +13,15 @@ use crate::service::ServiceContext;
 // `memory.worker_timeout_seconds` can lower/higher this at runtime.
 const IDLE_COMPLETE_SECS: u64 = 30;
 const SCANNER_BUFFER_CAP: usize = 64 * 1024;
+
+// Unattended hidden runs: nudge Enter when the pane looks stuck (auto-answers any
+// prompt auto_approve didn't catch), and resume the agent if it dropped to a bare
+// shell. Both are bounded so a genuinely-finished run still completes via idle.
+const NUDGE_AFTER_IDLE_SECS: u64 = 18;
+const MAX_NUDGES: u32 = 3;
+const RESTART_GRACE_SECS: u64 = 25;
+const RESTART_SETTLE_SECS: u64 = 20;
+const MAX_RESTARTS: u32 = 2;
 
 #[derive(Clone, Debug)]
 pub enum AgentRunKind {
@@ -45,6 +54,9 @@ struct RunState {
     started_at: Instant,
     last_byte_at: Mutex<Instant>,
     completed: AtomicBool,
+    nudge_count: AtomicU32,
+    restart_count: AtomicU32,
+    last_restart_at: Mutex<Instant>,
 }
 
 pub struct RunWatcherRegistry {
@@ -80,6 +92,9 @@ impl RunWatcherRegistry {
             started_at: Instant::now(),
             last_byte_at: Mutex::new(Instant::now()),
             completed: AtomicBool::new(false),
+            nudge_count: AtomicU32::new(0),
+            restart_count: AtomicU32::new(0),
+            last_restart_at: Mutex::new(Instant::now()),
         });
         self.runs.lock().insert(pty_id, state.clone());
         // Use tauri's runtime handle so this works even when register() is called from outside a tokio reactor (e.g. main thread spawn paths).
@@ -96,6 +111,31 @@ impl RunWatcherRegistry {
             state.completed.store(true, Ordering::Release);
         }
         runs.remove(pty_id);
+    }
+
+    /// Stop hook fired = the agent finished its turn. For a hidden worker/cron
+    /// run that didn't explicitly report, treat this as success completion —
+    /// faster and cleaner than the 30s idle backstop. No-op for visible panes
+    /// (no registered run) and for runs already completed via report.
+    pub fn complete_via_stop_hook(&self, svc: &ServiceContext, pane_id: &str) {
+        let state = self
+            .runs
+            .lock()
+            .values()
+            .find(|s| s.pane_id == pane_id)
+            .cloned();
+        let Some(state) = state else {
+            return;
+        };
+        if state.scanner.lock().in_flight() {
+            return;
+        }
+        if state.completed.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        log::info!("[run-watcher] stop-hook complete: pane={}", pane_id);
+        finish_run(svc, &state, true, "(agent stopped)".to_string());
+        self.runs.lock().remove(&state.pty_id);
     }
 
     pub fn feed(&self, svc: &ServiceContext, pty_id: &str, bytes: &[u8]) {
@@ -137,10 +177,64 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         let elapsed_total = state.started_at.elapsed().as_secs();
         let idle_secs = state.last_byte_at.lock().elapsed().as_secs();
 
+        // Liveness: agent dropped to a bare shell (crashed / exited) before completing → resume it, bounded. Skip during launch grace + just after a restart.
+        if elapsed_total >= RESTART_GRACE_SECS
+            && state.last_restart_at.lock().elapsed().as_secs() >= RESTART_SETTLE_SECS
+            && agent_dropped_to_shell(&svc, &state.pty_id)
+        {
+            let restarts = state.restart_count.load(Ordering::Acquire);
+            if restarts >= MAX_RESTARTS {
+                if state.completed.swap(true, Ordering::AcqRel) {
+                    return;
+                }
+                log::warn!(
+                    "[run-watcher] agent died (shell) and exhausted {} restarts: pane={}",
+                    MAX_RESTARTS,
+                    state.pane_id
+                );
+                finish_run(
+                    &svc,
+                    &state,
+                    false,
+                    format!("agent exited to shell; {} restarts exhausted", MAX_RESTARTS),
+                );
+                svc.run_watcher.runs.lock().remove(&state.pty_id);
+                return;
+            }
+            state.restart_count.fetch_add(1, Ordering::AcqRel);
+            *state.last_restart_at.lock() = Instant::now();
+            *state.last_byte_at.lock() = Instant::now();
+            state.nudge_count.store(0, Ordering::Release);
+            log::warn!(
+                "[run-watcher] agent dropped to shell — resuming ({}/{}): pane={}",
+                restarts + 1,
+                MAX_RESTARTS,
+                state.pane_id
+            );
+            resume_hidden_run(&svc, &state.pane_id, &state.pty_id);
+            continue;
+        }
+
+        // Nudge: when idle past the threshold, send Enter to clear any prompt auto_approve didn't recognize. Bounded so a finished run still reaches idle-complete. Never nudge an agent that's visibly working.
+        if idle_secs >= NUDGE_AFTER_IDLE_SECS
+            && state.nudge_count.load(Ordering::Acquire) < MAX_NUDGES
+            && !state.scanner.lock().in_flight()
+            && !agent_screen_busy(&svc, &state.pty_id)
+        {
+            state.nudge_count.fetch_add(1, Ordering::AcqRel);
+            log::debug!(
+                "[run-watcher] nudge Enter (idle {}s) pane={}",
+                idle_secs,
+                state.pane_id
+            );
+            let _ = svc.pty.lock().write(&state.pty_id, b"\r");
+        }
+
         if idle_secs >= IDLE_COMPLETE_SECS {
-            // Defer the kill while a tool call is mid-flight: claude's PTY can stay silent for >30s during a slow Bash subprocess (mem graph hubs on a
-            // busy graph, large `mem search`, etc.) even though the run is alive. Hard timeout still bounds runaway tools.
-            let busy = state.scanner.lock().in_flight();
+            // Defer the kill while the agent is still working: its PTY can stay silent for >30s during a slow Bash subprocess (mem graph hubs on a busy
+            // graph, large `mem search`, etc.). In interactive mode the stream-json in_flight() signal is gone, so screen markers ("esc to interrupt",
+            // spinner) are the live-tool signal that keeps long dreamer/worker runs from being reaped mid-work. Hard timeout still bounds runaways.
+            let busy = state.scanner.lock().in_flight() || agent_screen_busy(&svc, &state.pty_id);
             if busy {
                 log::debug!(
                     "[run-watcher] idle {}s but tool in-flight — deferring reap: pane={}",
@@ -191,6 +285,83 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
     }
 }
 
+/// True when the pane's screen shows a bare shell prompt and none of the agent's
+/// own UI markers — i.e. the agent process exited and we're back at the shell.
+fn agent_dropped_to_shell(svc: &ServiceContext, pty_id: &str) -> bool {
+    let Some(text) = svc.screen_state.lock().get_screen_text(pty_id) else {
+        return false;
+    };
+    screen_is_bare_shell(&text)
+}
+
+/// True when the pane's screen shows the agent actively generating / running a
+/// tool (so a silent PTY is NOT an exit — defer idle reaping). Replaces the
+/// stream-json `in_flight()` signal that interactive launches no longer emit.
+fn agent_screen_busy(svc: &ServiceContext, pty_id: &str) -> bool {
+    let Some(text) = svc.screen_state.lock().get_screen_text(pty_id) else {
+        return false;
+    };
+    screen_shows_working(&text)
+}
+
+fn screen_shows_working(text: &str) -> bool {
+    // "esc to interrupt" is shown the whole time a turn or tool is in flight and
+    // is absent from the idle "ready" prompt — the reliable live-work signal. The
+    // whimsical spinner verbs are a secondary hint.
+    text.contains("esc to interrupt")
+        || text.contains("Cogitat")
+        || text.contains("Brewing")
+        || text.contains("Forging")
+        || text.contains("Puzzling")
+}
+
+fn screen_is_bare_shell(text: &str) -> bool {
+    if text.trim().is_empty() {
+        return false;
+    }
+    let agent_visible = text.contains("Claude Code")
+        || text.contains("? for shortcuts")
+        || text.contains("esc to interrupt")
+        || text.contains("Cogitated for")
+        || text.contains("Brewed for");
+    if agent_visible {
+        return false;
+    }
+    crate::pty::screen_state::screen_has_shell_prompt(text)
+}
+
+/// Re-launch the agent in its existing pane via `--resume <session_id>` so a
+/// crashed unattended run continues where it left off. No-op if the session id
+/// isn't known yet (let idle / timeout handle that case).
+fn resume_hidden_run(svc: &ServiceContext, pane_id: &str, pty_id: &str) {
+    let (provider, session_id) = {
+        let mux = svc.mux.lock();
+        let pane = mux.get_pane(pane_id);
+        (
+            pane.and_then(|p| p.agent_type.clone()),
+            pane.and_then(|p| p.agent_session_id.clone()),
+        )
+    };
+    let (Some(provider), Some(sid)) = (provider, session_id) else {
+        log::warn!(
+            "[run-watcher] cannot resume pane={}: no provider/session",
+            pane_id
+        );
+        return;
+    };
+    let cmd = svc
+        .agent_registry
+        .with_provider(&provider, |p| p.build_resume_command(&sid, true))
+        .flatten();
+    let Some(cmd) = cmd else {
+        log::warn!("[run-watcher] provider {} has no resume command", provider);
+        return;
+    };
+    if let Err(e) = svc.send_shell_spawn(pty_id, &cmd) {
+        log::error!("[run-watcher] resume send failed pane={}: {}", pane_id, e);
+    }
+}
+
 fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: String) {
     let raw = svc
         .output_buf
@@ -199,11 +370,25 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
         .unwrap_or_default();
     let clean = crate::pty::ansi::clean_terminal_output(&raw);
 
+    // Bound to the pane by the SessionStart hook; capture session_id + cwd before close_pane so the run stays renderable in the read-only chat-ui.
+    let (session_id, run_cwd) = {
+        let mux = svc.mux.lock();
+        let pane = mux.get_pane(&state.pane_id);
+        (
+            pane.and_then(|p| p.agent_session_id.clone()),
+            pane.and_then(|p| p.cwd.clone()),
+        )
+    };
+
     match &state.kind {
         AgentRunKind::MemWorker { worker_id } => {
             if let Ok(path) = crate::mem::workers::save_worker_log(worker_id, &clean) {
                 svc.workers
                     .set_log_path(worker_id, path.to_string_lossy().into_owned());
+            }
+            if let Some(ref sid) = session_id {
+                svc.workers
+                    .set_run_session(worker_id, sid.clone(), run_cwd.clone());
             }
             let _ = svc.workers.complete(worker_id.clone().as_str(), summary);
             let _ = svc.close_pane(&state.pane_id);
@@ -217,6 +402,9 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                 {
                     let mut store = cron_state.lock();
                     let _ = store.save_log(job_id, run_id, &log_text);
+                    if let Some(ref sid) = session_id {
+                        store.set_run_session(job_id, run_id, sid, run_cwd.as_deref());
+                    }
                     let status = if success {
                         crate::cron::store::CronRunStatus::Success
                     } else {
@@ -406,6 +594,42 @@ fn find_balanced_end(s: &str, start: usize) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screen_working_defers_idle_reap() {
+        assert!(screen_shows_working("· 1.2k tokens · esc to interrupt"));
+        assert!(screen_shows_working("✻ Cogitating… (12s)"));
+        assert!(screen_shows_working("Forging the answer"));
+    }
+
+    #[test]
+    fn screen_working_false_on_idle_prompt() {
+        assert!(!screen_shows_working(
+            "╭─ Claude ─╮\n│ > │\n╰───╯  ? for shortcuts"
+        ));
+        assert!(!screen_shows_working("user@host:~$ "));
+    }
+
+    #[test]
+    fn bare_shell_detected_when_agent_gone() {
+        assert!(screen_is_bare_shell("user@host:~/proj$ "));
+        assert!(screen_is_bare_shell("PS C:\\Users\\foo> "));
+    }
+
+    #[test]
+    fn bare_shell_false_when_agent_visible() {
+        assert!(!screen_is_bare_shell(
+            "Welcome to Claude Code\nuser@host:~$ "
+        ));
+        assert!(!screen_is_bare_shell("thinking…  esc to interrupt"));
+    }
+
+    #[test]
+    fn bare_shell_false_on_empty_or_non_prompt() {
+        assert!(!screen_is_bare_shell(""));
+        assert!(!screen_is_bare_shell("   \n  "));
+        assert!(!screen_is_bare_shell("still working on it\nno prompt here"));
+    }
 
     #[test]
     fn scanner_finds_result_event_inline() {

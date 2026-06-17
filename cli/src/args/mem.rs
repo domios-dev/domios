@@ -748,6 +748,16 @@ pub enum MemGraphAction {
         #[arg(long, default_value = "user")]
         actor: String,
     },
+    /// Find and (optionally) delete vectors whose mem_item has no real body
+    /// (empty / title-only) — the "bodyless embeddings" that pollute search.
+    #[clap(name = "prune-thin-vectors")]
+    PruneThinVectors {
+        /// Print the thin-body vector ids without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
     /// Find and (optionally) delete sha256_*.txt blob files in the mem blobs
     /// directory that no mem_item references. CAS-aware sweep (refcount = 0).
     #[clap(name = "repair-orphan-blobs")]

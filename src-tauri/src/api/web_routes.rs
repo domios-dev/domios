@@ -603,6 +603,35 @@ pub async fn transcribe_voice(
     Ok(Json(serde_json::json!({ "line": line })))
 }
 
+#[derive(Deserialize)]
+pub struct SessionTranscriptQuery {
+    pub provider: String,
+    pub cwd: String,
+    pub session_id: String,
+}
+
+/// Read-only transcript of a finished run (hidden worker / cron). Renders the
+/// same normalized ChatMsg shape as the live chat-ui, parsed straight from the
+/// session jsonl — no pane, no tailer, no composer.
+pub async fn session_transcript(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<SessionTranscriptQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let (messages, total) = crate::service::pane_chat::session_chat_snapshot(
+        &state.svc,
+        &q.provider,
+        &q.cwd,
+        &q.session_id,
+        0,
+    )
+    .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    Ok(Json(
+        serde_json::json!({ "messages": messages, "total": total }),
+    ))
+}
+
 pub async fn chat_raw_stop(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

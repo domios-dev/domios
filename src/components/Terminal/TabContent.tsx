@@ -25,6 +25,7 @@ interface TabContentProps {
   onOpenGit?: (repoRoot: string) => void;
   api?: ApiConfig;
   workspaceCwd?: string | null;
+  uiFontScale?: number;
 }
 
 export function TabContent({
@@ -41,6 +42,7 @@ export function TabContent({
   onOpenGit,
   api,
   workspaceCwd,
+  uiFontScale,
 }: TabContentProps) {
   if (!pane) return null;
   if (!isPaneVisible(pane)) return null;
@@ -62,6 +64,7 @@ export function TabContent({
           theme={theme}
           fontConfig={fontConfig}
           terminalConfig={terminalConfig}
+          uiFontScale={uiFontScale}
         />
       </div>
       {/* Tab chrome, not focus chrome — the tab is only visible when active. */}

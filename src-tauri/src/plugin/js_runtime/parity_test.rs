@@ -499,7 +499,7 @@ mod claude {
     }
 
     #[test]
-    fn launch_command_headless_uses_stdin_pipe_in_both() {
+    fn launch_command_with_task_matches_native_shape() {
         if require_plugins().is_none() {
             return;
         }
@@ -507,98 +507,47 @@ mod claude {
         let params = AgentLaunchParams {
             task: Some("count files in repo".into()),
             skip_permissions: true,
-            headless: true,
             ..Default::default()
         };
         let nat = n.build_launch_command(&params);
         let js = j.build_launch_command(&params);
         for cmd in [&nat, &js] {
-            if cfg!(target_os = "windows") {
-                assert!(cmd.contains("Get-Content "), "headless missing pipe: {cmd}");
-                assert!(cmd.contains(" -Raw -Encoding UTF8 |"));
-            } else {
-                assert!(cmd.contains("cat "), "headless missing pipe: {cmd}");
-                assert!(cmd.contains(" |"));
-            }
-            assert!(cmd.contains(" -p"));
-            assert!(cmd.contains("--output-format stream-json"));
-            assert!(cmd.contains("--verbose"));
-            assert!(cmd.contains("--allowedTools Bash"));
-            assert!(cmd.contains("--dangerously-skip-permissions"));
+            // Interactive launch only: no -p/stream-json, task delivered as a positional after `--`.
+            assert!(!cmd.contains(" -p"), "no headless -p: {cmd}");
+            assert!(!cmd.contains("--output-format"), "no stream-json: {cmd}");
+            assert!(cmd.contains(" -- "), "task after separator: {cmd}");
             assert!(cmd.contains(".ct-task-"));
+            assert!(cmd.contains("--dangerously-skip-permissions"));
         }
     }
 
     #[test]
-    fn launch_command_headless_writes_task_bytes_through_plugin() {
-        if require_plugins().is_none() {
-            return;
-        }
-        let (_n, j) = pair();
-        let body = "do thing --kind fact `whoami` 'quotes'";
-        let cmd = j.build_launch_command(&AgentLaunchParams {
-            task: Some(body.into()),
-            skip_permissions: true,
-            headless: true,
-            ..Default::default()
-        });
-        // Pull the task-file path out of the pipe prefix and verify the bytes the plugin wrote round-trip byte-exact to the task body.
-        let token = if cfg!(target_os = "windows") {
-            cmd.split("Get-Content '")
-                .nth(1)
-                .and_then(|s| s.split('\'').next())
-        } else {
-            cmd.split("cat '").nth(1).and_then(|s| s.split('\'').next())
-        };
-        let path = token.expect("path token");
-        let bytes = std::fs::read(path).expect("temp task file written");
-        let written = if cfg!(target_os = "windows") {
-            assert!(
-                bytes.starts_with(&[0xEF, 0xBB, 0xBF]),
-                "BOM expected on Windows"
-            );
-            String::from_utf8(bytes[3..].to_vec()).unwrap()
-        } else {
-            String::from_utf8(bytes).unwrap()
-        };
-        assert_eq!(
-            written, body,
-            "task body must round-trip byte-exact through plugin"
-        );
-        let _ = std::fs::remove_file(path);
-    }
-
-    #[test]
-    fn launch_command_session_id_only_in_visible_mode() {
+    fn launch_command_session_id_injected_in_both() {
         if require_plugins().is_none() {
             return;
         }
         let (n, j) = pair();
-        let visible = AgentLaunchParams {
-            session_id: Some("my-uuid".into()),
-            skip_permissions: true,
-            ..Default::default()
-        };
-        for cmd in [
-            n.build_launch_command(&visible),
-            j.build_launch_command(&visible),
+        // Interactive launch always injects --session-id, with or without a task (the old -p path that dropped it is gone).
+        for params in [
+            AgentLaunchParams {
+                session_id: Some("my-uuid".into()),
+                skip_permissions: true,
+                ..Default::default()
+            },
+            AgentLaunchParams {
+                task: Some("x".into()),
+                session_id: Some("my-uuid".into()),
+                skip_permissions: true,
+                ..Default::default()
+            },
         ] {
-            assert!(cmd.contains("--session-id"), "visible must inject: {cmd}");
-            assert!(cmd.contains("my-uuid"));
-        }
-        let headless = AgentLaunchParams {
-            task: Some("x".into()),
-            session_id: Some("should-not-appear".into()),
-            skip_permissions: true,
-            headless: true,
-            ..Default::default()
-        };
-        for cmd in [
-            n.build_launch_command(&headless),
-            j.build_launch_command(&headless),
-        ] {
-            assert!(!cmd.contains("--session-id"), "headless must skip: {cmd}");
-            assert!(!cmd.contains("should-not-appear"));
+            for cmd in [
+                n.build_launch_command(&params),
+                j.build_launch_command(&params),
+            ] {
+                assert!(cmd.contains("--session-id"), "must inject: {cmd}");
+                assert!(cmd.contains("my-uuid"));
+            }
         }
     }
 

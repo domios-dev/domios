@@ -775,10 +775,10 @@ impl ServiceContext {
             env_vars.insert(k.clone(), v.clone());
         }
 
-        // Wide PTY: ConPTY wrapping at col 120 corrupts claude stream-json mid-line.
+        // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
         let pty_id = {
             let mut pty = self.pty.lock();
-            pty.spawn(None, resolved_cwd, 9999, 40, env_vars)
+            pty.spawn(None, resolved_cwd, 120, 40, env_vars)
                 .map(|(id, _)| id)?
         };
 
@@ -788,8 +788,8 @@ impl ServiceContext {
         self.agent_run_pty_map
             .lock()
             .insert(pane_id.clone(), pty_id.clone());
-        // Register run for auto-complete via stream-json result event / idle / timeout. Cron kind is resolved later (after the cron registry links
-        // pane→run).
+        // Register run for auto-complete via the standard agent rails: `mem worker report` / Stop hook / idle / timeout backstop. Cron kind is resolved
+        // later (after the cron registry links pane→run).
         if let Some(ref worker_id) = agent.worker_id {
             // Dreamer (REM phase) needs a longer timeout than the default worker — hub decomposition + diary + classification all in one session takes a
             // while. Pick by intent: any worker whose intent starts with "dreaming:" gets the dreaming-specific timeout.
@@ -875,6 +875,8 @@ impl ServiceContext {
                 std::time::Duration::from_secs(10),
             );
 
+            // headless:false → ordinary interactive claude, task delivered as a positional after `--` (same launch a visible agent gets). Completion comes
+            // from the standard agent rails, not a stream-json result event.
             let launch_params = crate::agent::provider::AgentLaunchParams {
                 agent_name: None,
                 task: task_for_thread,
@@ -884,7 +886,6 @@ impl ServiceContext {
                     Some(model_args)
                 },
                 skip_permissions: true,
-                headless: true,
                 session_id: None,
             };
             let launch_cmd = svc_outer

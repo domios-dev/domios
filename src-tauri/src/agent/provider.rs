@@ -46,8 +46,6 @@ pub struct AgentLaunchParams {
     pub task: Option<String>,
     pub args: Option<Vec<String>>,
     pub skip_permissions: bool,
-    // True for one-shot hidden panes; providers pick non-interactive delivery.
-    pub headless: bool,
     // Pre-generated session id to use when starting a NEW conversation. Honored only by providers reporting `SessionIdInjection != None` — others
     // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
     pub session_id: Option<String>,

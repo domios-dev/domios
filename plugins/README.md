@@ -206,7 +206,7 @@ module.exports.default = {
   detectEvents(text)     { return ["permission_request" | "task_complete"]; },
 
   // ── launch / resume (shell command strings) ────────────────
-  buildLaunchCommand(params) { /* {task, args, skipPermissions, headless, sessionId} */ },
+  buildLaunchCommand(params) { /* {task, args, skipPermissions, sessionId} */ },
   buildResumeCommand(sessionId, skipPermissions) { },
 
   // ── session lifecycle (the part that grew during migration) ─

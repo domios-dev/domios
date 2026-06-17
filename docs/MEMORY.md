@@ -1,6 +1,6 @@
 # CodeTerm Memory System
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
 
 Persistent memory for agents. Survives restarts, provider switches
 (Claude ↔ Codex), and CodeTerm upgrades. Agent-agnostic.
@@ -152,6 +152,7 @@ The Dreamer cleans historical pollution (duplicate relations, near-duplicate ent
 | `mem graph augment-entity --id E --patch '{"city":"Riga"}'` | PATCH entity properties + re-embed | yes (count=0) |
 | `mem graph delete-entity --id E [--force] [--purge-history]` | Direct entity delete with safety net (errors if active relations and no `--force`). `--purge-history` also drops invalidated relations | yes |
 | `mem graph repair-orphan-vectors [--dry-run]` | Sweep `mem_vectors` rows whose mem_id has no matching entity/mem_item | yes |
+| `mem graph prune-thin-vectors [--dry-run]` | Delete vectors whose mem_item has an empty/title-only body (below the embed threshold) — the bodyless embeddings. Never touches a real-body vector or the item itself | yes |
 | `mem graph repair-orphan-blobs [--dry-run]` | CAS-aware sweep of `sha256_*.txt` blob files no `mem_item.body_blob_path` references | yes |
 
 Whitelist enums (`RelationColumn`, `EntitySimilarityStrategy`) make SQL injection a compile-time impossibility — the Dreamer cannot pass arbitrary WHERE clauses. See `src-tauri/prompts/dreaming_rem.md` Stage A.4 for how the Dreamer chains these.

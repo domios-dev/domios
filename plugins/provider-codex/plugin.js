@@ -90,23 +90,10 @@ module.exports.default = {
   buildLaunchCommand: function (params) {
     var p = params || {};
     var parts = [];
-    if (p.headless && p.task) {
-      parts.push("codex");
-      parts.push("exec");
-      parts.push("--dangerously-bypass-hook-trust");
-      if (p.skipPermissions) {
-        parts.push("--dangerously-bypass-approvals-and-sandbox");
-      }
-      parts.push("-c");
-      parts.push("'shell_environment_policy.inherit=all'");
-      parts.push("--skip-git-repo-check");
-      parts.push(host.shell.quote(p.task));
-    } else {
-      parts.push("codex");
-      parts.push("--dangerously-bypass-hook-trust");
-      if (p.skipPermissions) {
-        parts.push("--dangerously-bypass-approvals-and-sandbox");
-      }
+    parts.push("codex");
+    parts.push("--dangerously-bypass-hook-trust");
+    if (p.skipPermissions) {
+      parts.push("--dangerously-bypass-approvals-and-sandbox");
     }
     if (p.args && p.args.length > 0) {
       // Quote each arg — caller-supplied via the spawn API; prevents shell injection.

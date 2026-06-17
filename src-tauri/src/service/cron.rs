@@ -163,6 +163,8 @@ impl ServiceContext {
             status: CronRunStatus::Running,
             pane_id: None,
             tab_id: None,
+            session_id: None,
+            cwd: None,
         };
 
         // suffix must come after task; task_preamble prepends
@@ -264,10 +266,18 @@ impl ServiceContext {
             .get_pane_owner_by_run(run_id)
             .map(|(j, p)| (j.to_string(), p.to_string()));
         if let Some((job_id, pane_id)) = owner {
-            let pty_id = {
+            let (pty_id, session_id, run_cwd) = {
                 let mux = self.mux.lock();
-                mux.get_pane(&pane_id).and_then(|p| p.pty_id.clone())
+                let pane = mux.get_pane(&pane_id);
+                (
+                    pane.and_then(|p| p.pty_id.clone()),
+                    pane.and_then(|p| p.agent_session_id.clone()),
+                    pane.and_then(|p| p.cwd.clone()),
+                )
             };
+            if let Some(ref sid) = session_id {
+                store.set_run_session(&job_id, run_id, sid, run_cwd.as_deref());
+            }
             let raw = if let Some(ref pid) = pty_id {
                 self.output_buf.lock().get_text(pid).unwrap_or_default()
             } else {

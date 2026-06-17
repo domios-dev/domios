@@ -8,6 +8,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
+import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
 import { Plus } from "lucide-react";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon } from "../Icons";
@@ -54,6 +55,7 @@ interface SidebarProps {
   onNavigateToTab?: () => void;
   mainView?: "workspace" | "settings" | "memory" | "mesh" | "git";
   config?: AppConfig;
+  uiFontScale?: number;
 }
 
 export function Sidebar({
@@ -63,6 +65,7 @@ export function Sidebar({
   onNavigateToTab,
   mainView = "workspace",
   config,
+  uiFontScale,
 }: SidebarProps) {
   const {
     state,
@@ -283,6 +286,10 @@ export function Sidebar({
 
   const sidebarRef = useRef<HTMLDivElement>(null);
   const touchMode = useTouchOptimizedUi();
+  const sidebarHeaderText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
+  const sidebarActionText = pickUiFontScaleValue(uiFontScale, ["text-[10px]", "text-[11px]", "text-[12px]", "text-[13px]"]);
+  const sidebarNavText = pickUiFontScaleValue(uiFontScale, ["text-[10px]", "text-[11px]", "text-[12px]", "text-[13px]"]);
+  const sidebarNavTouchText = pickUiFontScaleValue(uiFontScale, ["text-[12px]", "text-[13px]", "text-[14px]", "text-[15px]"]);
   const visibleSidebarWidth = isSidebarCollapsed ? 16 : touchMode ? Math.round(sidebarWidth * 1.3) : sidebarWidth;
   const isCompact = !touchMode && !isSidebarCollapsed && sidebarWidth < 100;
 
@@ -376,7 +383,7 @@ export function Sidebar({
               {/* Panes header with action icons */}
               <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
                 {!isCompact && (
-                  <span className="text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] truncate">
+                  <span className={`${sidebarHeaderText} uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] truncate`}>
                     Panes
                   </span>
                 )}
@@ -484,6 +491,7 @@ export function Sidebar({
                         } catch { /* ignore */ }
                       }}
                       touchMode={touchMode}
+                      uiFontScale={uiFontScale}
                     />
                     {/* Animated expand/collapse using grid-template-rows */}
                     <div
@@ -555,6 +563,7 @@ export function Sidebar({
                                     isAppearing={isAppearing}
                                     isClosing={isClosing}
                                     touchMode={touchMode}
+                                    uiFontScale={uiFontScale}
                                   />
                                   {childTabs.map((ct, ci) => renderTab(ct, ci, depth + 1))}
                                 </div>
@@ -585,7 +594,7 @@ export function Sidebar({
                                 title={newSessionItems.length === 0 ? "No visible agent providers" : "New session in this workspace"}
                               >
                                 <Plus size={10} strokeWidth={1.5} />
-                                <span className="text-[11px]">New session</span>
+                                <span className={sidebarActionText}>New session</span>
                               </button>
                             );
                             return newSessionItems.length === 0 ? (
@@ -628,6 +637,7 @@ export function Sidebar({
                             pane={atFirstPane}
                             orchestrators={wsOrchestrators}
                             touchMode={touchMode}
+                            uiFontScale={uiFontScale}
                           />
                         );
                       })()
@@ -658,7 +668,7 @@ export function Sidebar({
                     <line x1="10.5" y1="14.5" x2="6.5" y2="17.5" />
                     <line x1="13.5" y1="14.5" x2="17.5" y2="17.5" />
                   </svg>
-                  {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Memory</span>}
+                  {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Memory</span>}
                 </button>
               )}
               {(config?.ui?.mesh_tab_enabled ?? true) && (
@@ -683,7 +693,7 @@ export function Sidebar({
                     <line x1="6" y1="18" x2="10.5" y2="13" />
                     <line x1="18" y1="18" x2="13.5" y2="13" />
                   </svg>
-                  {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Mesh</span>}
+                  {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Mesh</span>}
                 </button>
               )}
               <button
@@ -697,7 +707,7 @@ export function Sidebar({
                 title="Settings (Ctrl+,)"
               >
                 <GearIcon size={touchMode ? 18 : 14} className="shrink-0" />
-                {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Settings</span>}
+                {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Settings</span>}
               </button>
             </div>
           </>

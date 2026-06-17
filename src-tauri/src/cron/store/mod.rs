@@ -46,6 +46,11 @@ pub struct CronRunInfo {
     pub status: CronRunStatus,
     pub pane_id: Option<String>,
     pub tab_id: Option<String>,
+    // session_id + cwd captured before the hidden pane closes so the read-only chat-ui can resolve and render this past run's jsonl.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

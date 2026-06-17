@@ -8,6 +8,7 @@ import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { FolderIcon, ShieldCheckIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import type { PaneStatus, Workspace } from "../../lib/types";
+import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 
 interface WorkspaceItemProps {
   workspace: Workspace;
@@ -25,6 +26,7 @@ interface WorkspaceItemProps {
   onDragOver?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
   touchMode?: boolean;
+  uiFontScale?: number;
 }
 
 export function WorkspaceItem({
@@ -43,6 +45,7 @@ export function WorkspaceItem({
   onDragOver,
   onDrop,
   touchMode = false,
+  uiFontScale,
 }: WorkspaceItemProps) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(workspace.name);
@@ -72,6 +75,9 @@ export function WorkspaceItem({
   // Backend descriptors — single source of truth across bundled + user-installed JS plugins. Frontend `getAllProviders()` only knew about
   // plugins with a `src/index.ts` FE module, which left drop-in `~/.codeterm/plugins/<id>/plugin.js` plugins invisible in the workspace menu.
   const { providers } = useAgentProviders();
+  const workspaceText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
+  const workspaceTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
+  const workspaceCountText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
 
   const menuItems: DropdownMenuItem[] = useMemo(() => {
     const items: DropdownMenuItem[] = [
@@ -173,15 +179,15 @@ export function WorkspaceItem({
               onBlur={commitRename}
               onKeyDown={handleKeyDown}
               onClick={(e) => e.stopPropagation()}
-              className={`${touchMode ? "text-sm py-1" : "text-xs py-0"} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 w-full outline-none`}
+              className={`${touchMode ? `${workspaceTouchText} py-1` : `${workspaceText} py-0`} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 w-full outline-none`}
             />
           ) : (
-            <span className={`${touchMode ? "text-[14px]" : "text-xs"} font-medium truncate`} onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
+            <span className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`} onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
               {workspace.name}
             </span>
           )}
         </div>
-        <span className="text-[10px] text-[var(--ct-muted)]">
+        <span className={`${workspaceCountText} text-[var(--ct-muted)]`}>
           {workspace.tabs.length}
         </span>
         {hasWaiting && (
