@@ -2,9 +2,10 @@
 //!
 //! Routes pane I/O to the plugin `chatBackend` capability resolved from
 //! `svc.chatbackend_registry`: `send` → `sendMessage`, reads → the polled
-//! transcript. `resize`/`kill` are graceful no-ops (a chat session has no
-//! terminal to resize and no process to signal — closing the pane tears down
-//! the session via `close_pane`).
+//! transcript. `resize` is a graceful no-op (a chat session has no terminal to
+//! resize); `kill` closes the plugin session (`closeSession`). Pane teardown
+//! (`close_pane`) closes the session too, so a normal pane-close also releases
+//! the plugin's model/context.
 
 use std::sync::Arc;
 

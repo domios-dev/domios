@@ -3,10 +3,14 @@
 //! Two guards that "kill the fear" that a pane-keyed op was missed:
 //!
 //! 1. `chatbackend_registry_routes_every_op` — a fake [`ChatBackendProvider`]
-//!    registered in the registry receives every transport op
-//!    (open/send/poll/close/list) and no PTY is ever involved at this layer.
-//!    The transport's chat impl (`ChatBackendTransport`) and the `ServiceContext`
-//!    guards all funnel through exactly these registry calls.
+//!    registered in the registry receives every capability op
+//!    (open/send/poll/close/list) and no PTY exists at this layer. This proves
+//!    the registry+provider contract in isolation; it does NOT drive the
+//!    `ServiceContext` guards or `pane_transport()` (those need a full
+//!    `ServiceContext`, which has no unit-test harness). The transport's chat
+//!    impl and the PTY-entry guards funnel through exactly these registry calls,
+//!    and the live end-to-end (every entry op on a running chat pane) is
+//!    Track D's daemon demo.
 //! 2. `no_new_resolve_pty_id_outside_allowlist` — the CI grep guard: a direct
 //!    `resolve_pty_id(` call may only appear in the known PTY-path files. A new
 //!    one elsewhere means a pane-keyed entry bypassed the `PaneTransport` seam.
@@ -90,6 +94,30 @@ fn chatbackend_registry_routes_every_op() {
 fn unregistered_backend_resolves_to_none() {
     let reg = ChatBackendRegistry::new();
     assert!(reg.get("absent").is_none());
+}
+
+/// Pane teardown (`close_pane`) and `pty kill` both reach the plugin via
+/// `ServiceContext::chatbackend_close`, which is exactly
+/// `chatbackend_registry.get(plugin)?.close_session(sid)`. This asserts that
+/// teardown call path closes the session on the provider (so the plugin's
+/// model/context is released, not leaked). The `close_pane` → `chatbackend_close`
+/// edge itself is compile-checked; a live pane-close is Track D's daemon demo.
+#[test]
+fn teardown_closes_the_plugin_session() {
+    let reg = ChatBackendRegistry::new();
+    let fake = Arc::new(FakeBackend::default());
+    reg.register("fake", fake.clone());
+
+    let sid = reg
+        .get("fake")
+        .unwrap()
+        .open_session(serde_json::json!({}))
+        .unwrap();
+    assert_eq!(fake.closed.load(Ordering::SeqCst), 0);
+
+    // The exact call `chatbackend_close(plugin, sid)` makes on pane teardown.
+    reg.get("fake").unwrap().close_session(&sid).unwrap();
+    assert_eq!(fake.closed.load(Ordering::SeqCst), 1);
 }
 
 /// The CI grep guard (B1.1#7). A direct `resolve_pty_id(` call is allowed only

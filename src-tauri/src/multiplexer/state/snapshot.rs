@@ -178,6 +178,11 @@ impl MultiplexerState {
                 Pane {
                     id: pane_id.clone(),
                     pty_id: None,
+                    // R3 restore-gap: `backing` is NOT persisted in the snapshot,
+                    // so a restored chatBackend pane comes back as Pty and would
+                    // spawn a shell on next send. chatBackend panes are
+                    // intentionally not restored yet; persisting the backing
+                    // field (+ lazy openSession on first send) is a follow-up.
                     backing: PaneBacking::default(),
                     pane_type: PaneType::Terminal,
                     title: restored_title,
