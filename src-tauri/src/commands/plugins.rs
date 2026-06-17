@@ -3,6 +3,8 @@ use std::process::Command;
 use serde::Deserialize;
 use serde_json::Value;
 
+const PROTECTED_PLUGIN_CHANNELS: [&str; 2] = ["codeterm-core", "codeterm-plugins"];
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginManagerAction {
@@ -117,9 +119,50 @@ pub(crate) async fn view_call(
 /// Run a plugin-manager action and return the refreshed snapshot. Shared by the
 /// Tauri command and the web-mirror REST route (`POST /api/plugins/action`).
 pub(crate) fn run_action(action: PluginManagerAction) -> Result<Value, String> {
+    if action.kind == "remove-channel" {
+        let channel = action
+            .channel
+            .clone()
+            .ok_or("remove-channel requires channel")?;
+        if is_protected_channel(&channel) {
+            return Err(format!("channel '{channel}' is protected"));
+        }
+        remove_channel_plugins(&channel, action.force)?;
+    }
     let args = plugin_action_args(&action)?;
     let output = run_plugin_cli(&args)?;
     build_snapshot(Some(output))
+}
+
+fn is_protected_channel(channel: &str) -> bool {
+    PROTECTED_PLUGIN_CHANNELS.contains(&channel)
+}
+
+fn remove_channel_plugins(channel: &str, force: bool) -> Result<(), String> {
+    let installed = run_plugin_cli(&["plugin", "list", "--json"])?;
+    let ids: Vec<String> = installed
+        .get("plugins")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|p| {
+            p.get("source")
+                .and_then(|s| s.get("channel"))
+                .and_then(|v| v.as_str())
+                == Some(channel)
+        })
+        .filter_map(|p| p.get("id").and_then(|v| v.as_str()).map(String::from))
+        .collect();
+
+    for id in ids {
+        let mut args = vec!["plugin".to_string(), "remove".to_string(), id];
+        if force {
+            args.push("--force".to_string());
+        }
+        args.push("--json".to_string());
+        run_plugin_cli(&args)?;
+    }
+    Ok(())
 }
 
 /// Build the plugin snapshot. Shared by the Tauri command and the web-mirror
@@ -305,6 +348,10 @@ fn build_snapshot(last_output: Option<Value>) -> Result<Value, String> {
             arr.push(entry);
         }
     }
+    // Best-effort register the default marketplace channel so its plugins
+    // surface as available (register-only — nothing is installed). Offline or
+    // first-run failures are non-fatal; retried on the next snapshot.
+    let _ = run_plugin_cli(&["plugin", "channel", "ensure-default", "--json"]);
     let channels = run_plugin_cli(&["plugin", "channel", "list", "--json"])?;
     let diff = run_plugin_cli(&["plugin", "channel", "diff", "--json"]).unwrap_or_else(|e| {
         serde_json::json!({
@@ -430,6 +477,19 @@ fn plugin_action_args(action: &PluginManagerAction) -> Result<Vec<String>, Strin
             args.extend(["channel".into(), "add".into(), url]);
             if let Some(name) = &action.name {
                 args.extend(["--name".into(), name.clone()]);
+            }
+        }
+        "remove-channel" => {
+            let channel = action
+                .channel
+                .clone()
+                .ok_or("remove-channel requires channel")?;
+            if is_protected_channel(&channel) {
+                return Err(format!("channel '{channel}' is protected"));
+            }
+            args.extend(["channel".into(), "remove".into(), channel]);
+            if action.force {
+                args.push("--force".into());
             }
         }
         "install" => {

@@ -3,6 +3,14 @@ use super::*;
 pub(super) fn channel_command(action: PluginChannelAction) -> Result<serde_json::Value, String> {
     match action {
         PluginChannelAction::Add { url, name } => add_channel(&url, name),
+        PluginChannelAction::EnsureDefault => {
+            ensure_default_plugin_channel()?;
+            Ok(serde_json::json!({
+                "ok": true,
+                "message": format!("Default plugin channel '{DEFAULT_PLUGIN_CHANNEL_NAME}' ensured"),
+                "name": DEFAULT_PLUGIN_CHANNEL_NAME,
+            }))
+        }
         PluginChannelAction::List => list_channels(),
         PluginChannelAction::Refresh { name } => {
             refresh_channel(name.as_deref())?;
@@ -78,7 +86,7 @@ pub(super) fn list_channels() -> Result<serde_json::Value, String> {
             path: ch.path.clone(),
             kind: ch.kind.clone(),
             system: ch.name == SYSTEM_CHANNEL_NAME,
-            removable: ch.name != SYSTEM_CHANNEL_NAME,
+            removable: ch.name != SYSTEM_CHANNEL_NAME && ch.name != DEFAULT_PLUGIN_CHANNEL_NAME,
         })
         .collect();
     // The system marketplace is intrinsic — listed without a network fetch even

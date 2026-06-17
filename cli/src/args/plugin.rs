@@ -45,6 +45,9 @@ pub enum PluginChannelAction {
         #[arg(long)]
         name: Option<String>,
     },
+    /// Register the default marketplace channel (codeterm-plugins) if missing.
+    /// Register-only: nothing is installed. Best-effort/offline-tolerant.
+    EnsureDefault,
     /// List registered channels.
     List,
     /// Refresh one channel, or all channels when name is omitted.

@@ -209,3 +209,24 @@ pub(super) fn ensure_system_channel() -> Result<(), String> {
     }
     Err("failed to register system plugin channel".to_string())
 }
+
+/// Register the default marketplace channel (`codeterm-plugins`) if it is not
+/// already registered with the current URL. Register-only: `add_channel`
+/// clones the channel manifest and writes a registry entry but installs
+/// nothing, so the channel's plugins surface as *available* in Extensions
+/// without being installed by default. Requires network on first run; callers
+/// invoke it best-effort so an offline launch is a silent no-op (retried next
+/// time the marketplace is queried).
+pub(super) fn ensure_default_plugin_channel() -> Result<(), String> {
+    let url = default_plugin_channel_url();
+    let reg = read_channel_registry().unwrap_or_default();
+    let needs_add = match reg.channels.get(DEFAULT_PLUGIN_CHANNEL_NAME) {
+        Some(ch) => ch.url != url,
+        None => true,
+    };
+    if !needs_add {
+        return Ok(());
+    }
+    add_channel(&url, Some(DEFAULT_PLUGIN_CHANNEL_NAME.to_string()))?;
+    Ok(())
+}

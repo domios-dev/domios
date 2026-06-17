@@ -105,7 +105,7 @@ export interface AgentProvider {
   uninstallBridgeRule?(): unknown;
 }
 
-// ── secretBackend (mirrors plugins/bitwarden/plugin.js + JsSecretBackend) ──
+// ── secretBackend (mirrors the bitwarden plugin + JsSecretBackend) ──
 
 export interface SecretCreds {
   masterPassword?: string;
@@ -165,7 +165,7 @@ export interface SecretBackend {
   secretInit?(): unknown;
 }
 
-// ── transcriber (mirrors plugins/transcriber/plugin.js + Transcriber trait) ──
+// ── transcriber (mirrors the transcriber plugin + Transcriber trait) ──
 
 export interface TranscribeResult {
   text?: string;

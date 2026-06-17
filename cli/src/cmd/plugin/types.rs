@@ -11,8 +11,11 @@ use crate::args::plugin::{PluginAction, PluginChannelAction};
 use crate::data_root;
 
 pub(super) const SYSTEM_CHANNEL_NAME: &str = "codeterm-core";
+pub(super) const DEFAULT_PLUGIN_CHANNEL_NAME: &str = "codeterm-plugins";
 pub(super) const DEFAULT_SYSTEM_CHANNEL_URL: &str =
     "https://github.com/rollacode/codeterm.git#develop:plugins";
+pub(super) const DEFAULT_PLUGIN_CHANNEL_URL: &str =
+    "https://github.com/rollacode/codeterm-plugins.git";
 pub(super) const SYSTEM_PLUGIN_IDS: [&str; 3] = ["claude", "codex", "opencode"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
