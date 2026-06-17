@@ -588,6 +588,14 @@ plugin working for real** — the concept being that this, like all the work, ru
   character, an action fires, the reminder injects after N turns.
 - **No regressions:** `./build.sh test`, `./node_modules/.bin/tsc --noEmit`,
   `scripts/plugin-tests.sh all`, `./build.sh e2e` all green.
+- **Cross-platform (Windows) pass on ROG.** The pane↔PTY decoupling (Appendix B1)
+  and non-PTY chatBackend panes touch the Windows PTY/ConPTY paths — a macOS-only
+  pass would miss Windows regressions. ROG is a paired+online mesh peer
+  (`100.125.250.76`); run the lifecycle + LM-Studio-send + chatBackend-pane checks
+  there via `--mesh ROG` (`codeterm pane list --mesh ROG`, spawn a verify worker
+  with `--mesh ROG`, `codeterm get-output --pane <id> --mesh ROG`). Especially
+  verify: a ChatBackend pane never spawns a ConPTY, `send`/`get-output` route to
+  the plugin, and install/uninstall/reload behave the same as on macOS.
 
 This pass is the final gate before declaring the work done.
 
