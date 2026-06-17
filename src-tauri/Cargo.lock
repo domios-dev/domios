@@ -1094,6 +1094,7 @@ dependencies = [
  "include_dir",
  "interprocess",
  "keyring",
+ "libc",
  "log",
  "md-5",
  "mdns-sd",
