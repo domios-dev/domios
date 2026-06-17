@@ -13,6 +13,9 @@
   "dependencies": {
     "@codeterm/chat-core": "workspace:*"
   },
+  "devDependencies": {
+    "@codeterm/plugin-sdk": "workspace:*"
+  },
   "peerDependencies": {
     "react": "^19.0.0"
   }
