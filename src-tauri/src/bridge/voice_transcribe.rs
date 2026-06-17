@@ -38,7 +38,11 @@ pub async fn format_attachment_line(
             Ok(t) => mk::voice(path, Some(&t.text), None),
             Err(e) => {
                 log::warn!("[voice] transcribe failed for {}: {}", path, e);
-                mk::voice(path, None, Some(&format!("transcription unavailable: {}", e)))
+                mk::voice(
+                    path,
+                    None,
+                    Some(&format!("transcription unavailable: {}", e)),
+                )
             }
         };
     }

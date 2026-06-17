@@ -276,7 +276,9 @@ impl crate::transcribe::Transcriber for TestHttpTranscriber {
         if self.enabled {
             crate::transcribe::TranscriberStatus::Ready
         } else {
-            crate::transcribe::TranscriberStatus::Unavailable { reason: "disabled".into() }
+            crate::transcribe::TranscriberStatus::Unavailable {
+                reason: "disabled".into(),
+            }
         }
     }
     async fn transcribe(
@@ -296,7 +298,11 @@ impl crate::transcribe::Transcriber for TestHttpTranscriber {
             .build()
             .map_err(|e| TranscribeError::RequestFailed(e.to_string()))?;
         let endpoint = format!("{}/transcribe", self.url.trim_end_matches('/'));
-        let lang = if language.trim().is_empty() { self.language.clone() } else { language.to_string() };
+        let lang = if language.trim().is_empty() {
+            self.language.clone()
+        } else {
+            language.to_string()
+        };
         let mut body = serde_json::json!({ "path": audio_path.to_string_lossy() });
         if !lang.trim().is_empty() {
             body["language"] = serde_json::Value::String(lang);
@@ -314,7 +320,12 @@ impl crate::transcribe::Transcriber for TestHttpTranscriber {
             .json()
             .await
             .map_err(|e| TranscribeError::ParseError(e.to_string()))?;
-        let text = v.get("text").and_then(|t| t.as_str()).unwrap_or_default().trim().to_string();
+        let text = v
+            .get("text")
+            .and_then(|t| t.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string();
         if text.is_empty() {
             return Err(TranscribeError::Empty);
         }
@@ -372,7 +383,12 @@ async fn body_includes_transcript_and_file_uri() {
     let (addr, stop, handle) = spawn_transcribe_server("привет мир").await;
     let cfg = enabled_cfg(&format!("http://{}", addr));
 
-    let body = build_message_body(&voice_msg("/tmp/voice.oga"), &registry_for(&cfg), "builtin-http").await;
+    let body = build_message_body(
+        &voice_msg("/tmp/voice.oga"),
+        &registry_for(&cfg),
+        "builtin-http",
+    )
+    .await;
     // -=-codeterm:voice file=/tmp/voice.oga-=-привет мир — transcript is the payload.
     assert_eq!(body, "-=-codeterm:voice file=/tmp/voice.oga-=-привет мир");
 
@@ -388,7 +404,12 @@ async fn body_falls_back_to_raw_when_daemon_down() {
     drop(listener);
     let cfg = enabled_cfg(&format!("http://{}", addr));
 
-    let body = build_message_body(&voice_msg("/tmp/voice.oga"), &registry_for(&cfg), "builtin-http").await;
+    let body = build_message_body(
+        &voice_msg("/tmp/voice.oga"),
+        &registry_for(&cfg),
+        "builtin-http",
+    )
+    .await;
     // Daemon down → untranscribed voice marker; the readable note is the payload.
     assert!(
         body.starts_with("-=-codeterm:voice file=/tmp/voice.oga status=untranscribed-=-"),
@@ -403,7 +424,12 @@ async fn disabled_cfg_notes_missing_transcriber() {
     let mut cfg = enabled_cfg("http://127.0.0.1:1");
     cfg.enabled = false;
 
-    let body = build_message_body(&voice_msg("/tmp/voice.oga"), &registry_for(&cfg), "builtin-http").await;
+    let body = build_message_body(
+        &voice_msg("/tmp/voice.oga"),
+        &registry_for(&cfg),
+        "builtin-http",
+    )
+    .await;
     // Transcription off → untranscribed marker + readable note (with doc pointer).
     assert!(
         body.starts_with("-=-codeterm:voice file=/tmp/voice.oga status=untranscribed-=-"),
@@ -411,11 +437,7 @@ async fn disabled_cfg_notes_missing_transcriber() {
         body
     );
     // Engine present but disabled → transcribe errors; note carries the reason.
-    assert!(
-        body.contains("transcription unavailable"),
-        "body: {}",
-        body
-    );
+    assert!(body.contains("transcription unavailable"), "body: {}", body);
 }
 
 #[tokio::test]
@@ -423,7 +445,12 @@ async fn non_voice_attachments_not_transcribed() {
     // Daemon URL points nowhere; if we accidentally hit it, the test fails because we'd see fallback path. With photo kind we never call it.
     let cfg = enabled_cfg("http://127.0.0.1:1");
 
-    let body = build_message_body(&photo_msg("/tmp/pic.jpg"), &registry_for(&cfg), "builtin-http").await;
+    let body = build_message_body(
+        &photo_msg("/tmp/pic.jpg"),
+        &registry_for(&cfg),
+        "builtin-http",
+    )
+    .await;
     assert_eq!(body, "-=-codeterm:photo file=/tmp/pic.jpg name=pic.jpg-=-");
 }
 
@@ -469,7 +496,12 @@ async fn malformed_url_notes_unavailable() {
     let mut cfg = enabled_cfg("not-a-url");
     cfg.daemon_url = "not a url".into();
 
-    let body = build_message_body(&voice_msg("/tmp/voice.oga"), &registry_for(&cfg), "builtin-http").await;
+    let body = build_message_body(
+        &voice_msg("/tmp/voice.oga"),
+        &registry_for(&cfg),
+        "builtin-http",
+    )
+    .await;
     assert!(body.contains("transcription unavailable"), "body: {}", body);
     assert!(body.contains("file=/tmp/voice.oga"), "body: {}", body);
 }

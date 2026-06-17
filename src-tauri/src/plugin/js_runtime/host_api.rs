@@ -363,7 +363,9 @@ pub(super) fn install(
     // ── host_api v2: subprocess / network / per-plugin secrets ──────
     // Each is gated by the manifest permission baked into the sandbox.
     let sb = sandbox.clone();
-    bind!("settingsJson", move || -> String { sb.settings_json().to_string() });
+    bind!("settingsJson", move || -> String {
+        sb.settings_json().to_string()
+    });
 
     let sb = sandbox.clone();
     bind!("exec", move |opts_json: String| -> String {
@@ -669,14 +671,19 @@ mod tests {
         assert!(sb.secrets_allowed());
 
         // Restricted plugin with NO grants → everything denied.
-        let none =
-            PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms("p2", vec![], vec![], false);
+        let none = PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms(
+            "p2",
+            vec![],
+            vec![],
+            false,
+        );
         assert!(!none.can_exec("bw"));
         assert!(!none.can_reach("127.0.0.1:7891"));
         assert!(!none.secrets_allowed());
 
         // Unrestricted (bundled/dev) → everything allowed regardless of lists.
-        let full = PluginSandbox::unrestricted().with_identity_and_perms("sys", vec![], vec![], false);
+        let full =
+            PluginSandbox::unrestricted().with_identity_and_perms("sys", vec![], vec![], false);
         assert!(full.can_exec("anything"));
         assert!(full.can_reach("anywhere"));
         assert!(full.secrets_allowed());

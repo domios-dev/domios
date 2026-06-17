@@ -41,11 +41,16 @@ pub(super) fn run(opts_json: &str) -> String {
         Ok(o) => o,
         Err(e) => return err(&format!("bad exec opts: {e}")),
     };
-    let resolved =
-        which::which(&opts.bin).unwrap_or_else(|_| std::path::PathBuf::from(&opts.bin));
+    let resolved = which::which(&opts.bin).unwrap_or_else(|_| std::path::PathBuf::from(&opts.bin));
 
     if opts.detach {
-        let log = |p: &str| std::fs::OpenOptions::new().create(true).append(true).open(p).ok();
+        let log = |p: &str| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(p)
+                .ok()
+        };
         let (out, errout) = match opts.log_file.as_deref().and_then(log) {
             Some(f) => match f.try_clone() {
                 Ok(f2) => (Stdio::from(f), Stdio::from(f2)),

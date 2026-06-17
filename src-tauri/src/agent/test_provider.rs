@@ -29,7 +29,9 @@ impl AgentProvider for MockProvider {
         format!("{}-cli", self.id)
     }
     fn readiness_strategy(&self) -> ReadinessStrategy {
-        ReadinessStrategy::FixedDelay { duration: Duration::from_millis(0) }
+        ReadinessStrategy::FixedDelay {
+            duration: Duration::from_millis(0),
+        }
     }
     fn task_delivery(&self) -> TaskDelivery {
         TaskDelivery::PtyInput
@@ -46,7 +48,12 @@ impl AgentProvider for MockProvider {
     fn build_resume_command(&self, session_id: &str, _skip_permissions: bool) -> Option<String> {
         Some(format!("{}-cli --resume {session_id}", self.id))
     }
-    fn detect_session_id(&self, _cwd: &str, _exclude: &[String], _max_age: Option<Duration>) -> Option<String> {
+    fn detect_session_id(
+        &self,
+        _cwd: &str,
+        _exclude: &[String],
+        _max_age: Option<Duration>,
+    ) -> Option<String> {
         None
     }
 }

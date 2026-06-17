@@ -129,10 +129,21 @@ mod tests {
         let v = GlanceView {
             title: Some("Bitwarden".into()),
             nodes: vec![
-                ViewNode::KeyVal { key: "Account".into(), value: "me@x.io".into(), style: None },
-                ViewNode::Badge { label: "Unlocked".into(), tone: Tone::Ok },
+                ViewNode::KeyVal {
+                    key: "Account".into(),
+                    value: "me@x.io".into(),
+                    style: None,
+                },
+                ViewNode::Badge {
+                    label: "Unlocked".into(),
+                    tone: Tone::Ok,
+                },
                 ViewNode::Divider,
-                ViewNode::Button { label: "Open settings".into(), action: "settings".into(), style: None },
+                ViewNode::Button {
+                    label: "Open settings".into(),
+                    action: "settings".into(),
+                    style: None,
+                },
             ],
         };
         let json = serde_json::to_string(&v).unwrap();
@@ -146,7 +157,10 @@ mod tests {
     fn style_tokens_serialize_snake_case() {
         let n = ViewNode::Text {
             text: "x".into(),
-            style: Some(NodeStyle { tone: Some(Tone::Danger), spacing: Some(Spacing::Lg) }),
+            style: Some(NodeStyle {
+                tone: Some(Tone::Danger),
+                spacing: Some(Spacing::Lg),
+            }),
         };
         let json = serde_json::to_string(&n).unwrap();
         assert!(json.contains("\"tone\":\"danger\""));

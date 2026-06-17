@@ -152,7 +152,9 @@ impl SecretFile {
 fn read_file_entry(path: &std::path::Path, account: &str) -> Result<String, SecretFileError> {
     let raw = match std::fs::read_to_string(path) {
         Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(SecretFileError::NotFound),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(SecretFileError::NotFound)
+        }
         Err(e) => {
             return Err(SecretFileError::Other(format!(
                 "read {}: {}",

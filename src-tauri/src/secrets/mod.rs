@@ -11,9 +11,9 @@
 
 pub mod api;
 pub mod factory;
-pub mod secret_file;
 pub mod local;
 pub mod mock;
+pub mod secret_file;
 
 pub use factory::{factory as get_factory, list as list_factories, SecretBackendFactory};
 
@@ -530,7 +530,10 @@ mod tests {
     #[test]
     fn build_active_store_prefers_registered_plugin_instance() {
         let reg = SecretRegistry::new();
-        reg.register("some-plugin-store", std::sync::Arc::new(mock::MockStore::default()));
+        reg.register(
+            "some-plugin-store",
+            std::sync::Arc::new(mock::MockStore::default()),
+        );
         // A registered plugin instance wins over the native factory fallback.
         let store = build_active_store(&cfg_with("some-plugin-store"), &reg);
         assert_eq!(store.id(), mock::MockStore::default().id());

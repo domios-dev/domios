@@ -29,8 +29,12 @@ impl ViewProvider for JsViewProvider {
     }
 
     async fn call(&self, method: &str, args: Value) -> Result<Value, ViewError> {
-        call_json::<Value>(&self.vm, "viewCall", &[Value::String(method.to_string()), args])
-            .map_err(|e| ViewError::Call(format!("{e:?}")))
+        call_json::<Value>(
+            &self.vm,
+            "viewCall",
+            &[Value::String(method.to_string()), args],
+        )
+        .map_err(|e| ViewError::Call(format!("{e:?}")))
     }
 }
 
@@ -53,7 +57,10 @@ mod tests {
             }"#,
         );
         let v = JsViewProvider::new(vm, "test-view");
-        let out = v.call("echo", serde_json::json!({ "x": 21 })).await.unwrap();
+        let out = v
+            .call("echo", serde_json::json!({ "x": 21 }))
+            .await
+            .unwrap();
         assert_eq!(out["got"], 42);
     }
 }

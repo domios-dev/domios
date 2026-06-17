@@ -79,7 +79,11 @@ pub fn start_general_agent(
                                 .and_then(|p| p.agent_session_id.clone())
                                 .is_none();
                             if unbound {
-                                if let Some(sid) = state::load_session_id(&svc.agent_registry, provider_name, &general_cwd) {
+                                if let Some(sid) = state::load_session_id(
+                                    &svc.agent_registry,
+                                    provider_name,
+                                    &general_cwd,
+                                ) {
                                     svc.set_agent_session_id(&pid, Some(sid.clone()));
                                     log::info!("[general-agent] Restored durable session {} onto reused PTY {}", sid, pty_id);
                                 }
@@ -215,11 +219,8 @@ pub fn start_general_agent(
     // 5. Spawn PTY
     let cols = 120u16;
     let rows = 40u16;
-    let env_vars = general_agent_env_vars(
-        &pane_id,
-        svc.ensure_session_binding_nonce(&pane_id),
-        config,
-    );
+    let env_vars =
+        general_agent_env_vars(&pane_id, svc.ensure_session_binding_nonce(&pane_id), config);
 
     let pty_id = {
         let mut manager = pty.lock();
@@ -567,7 +568,10 @@ mod tests {
             }
         }
 
-        assert_eq!(env.get("CODETERM_API_PORT").map(String::as_str), Some("7686"));
+        assert_eq!(
+            env.get("CODETERM_API_PORT").map(String::as_str),
+            Some("7686")
+        );
         assert_eq!(
             env.get("CODETERM_API_TOKEN").map(String::as_str),
             Some("test-token")

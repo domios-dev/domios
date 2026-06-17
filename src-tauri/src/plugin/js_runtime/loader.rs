@@ -339,7 +339,10 @@ mod tests {
         let dir = root.join("transcriber");
 
         // --- install v0.1.0 ---
-        write(&dir.join("plugin.json"), &cap_manifest("transcriber", "0.1.0", HOST_API_VERSION));
+        write(
+            &dir.join("plugin.json"),
+            &cap_manifest("transcriber", "0.1.0", HOST_API_VERSION),
+        );
         write(
             &dir.join("plugin.js"),
             r#"module.exports.default = { transcribe() { return { text: "v0.1.0" }; } }"#,
@@ -352,10 +355,16 @@ mod tests {
         assert_eq!(p.manifest().version, "0.1.0");
         assert!(p.manifest().capabilities.transcriber);
         let t = JsTranscriber::new(p.vm().clone(), "transcriber");
-        assert_eq!(t.transcribe(Path::new("/a"), "").await.unwrap().text, "v0.1.0");
+        assert_eq!(
+            t.transcribe(Path::new("/a"), "").await.unwrap().text,
+            "v0.1.0"
+        );
 
         // --- update to v0.1.1 with changed behaviour ---
-        write(&dir.join("plugin.json"), &cap_manifest("transcriber", "0.1.1", HOST_API_VERSION));
+        write(
+            &dir.join("plugin.json"),
+            &cap_manifest("transcriber", "0.1.1", HOST_API_VERSION),
+        );
         write(
             &dir.join("plugin.js"),
             r#"module.exports.default = { transcribe() { return { text: "v0.1.1-updated" }; } }"#,
@@ -366,7 +375,10 @@ mod tests {
             .find(|p| p.manifest().id == "transcriber")
             .expect("v0.1.1 loaded");
         assert_eq!(p2.manifest().version, "0.1.1", "version bumped");
-        assert!(p2.manifest().capabilities.transcriber, "capability survives update");
+        assert!(
+            p2.manifest().capabilities.transcriber,
+            "capability survives update"
+        );
         let t2 = JsTranscriber::new(p2.vm().clone(), "transcriber");
         assert_eq!(
             t2.transcribe(Path::new("/a"), "").await.unwrap().text,
@@ -376,7 +388,10 @@ mod tests {
 
         // --- compat gate: incompatible hostApi is skipped, daemon survives ---
         let bad = root.join("badplug");
-        write(&bad.join("plugin.json"), &cap_manifest("badplug", "1.0.0", 999));
+        write(
+            &bad.join("plugin.json"),
+            &cap_manifest("badplug", "1.0.0", 999),
+        );
         write(&bad.join("plugin.js"), "module.exports.default = {};");
         let (providers3, report3) = scan_roots(&[root.clone()]);
         assert!(

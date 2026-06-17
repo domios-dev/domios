@@ -60,12 +60,19 @@ fn run_blocking(opts_json: &str) -> String {
         Err(e) => return err(&format!("bad fetch opts: {e}")),
     };
     let timeout = Duration::from_millis(opts.timeout_ms.unwrap_or(30_000).max(1));
-    let client = match reqwest::blocking::Client::builder().timeout(timeout).build() {
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(timeout)
+        .build()
+    {
         Ok(c) => c,
         Err(e) => return err(&format!("client: {e}")),
     };
     let method = reqwest::Method::from_bytes(
-        opts.method.as_deref().unwrap_or("GET").to_uppercase().as_bytes(),
+        opts.method
+            .as_deref()
+            .unwrap_or("GET")
+            .to_uppercase()
+            .as_bytes(),
     )
     .unwrap_or(reqwest::Method::GET);
     let mut req = client.request(method, &opts.url);
