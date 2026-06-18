@@ -136,13 +136,17 @@ async fn voice_stage_no_backend_errors() {
 }
 
 #[test]
-fn user_turn_send_runs_stages_only_for_user_pty_sends() {
-    // P3/F3: a plain user send to a PTY agent pane runs the stages.
-    assert!(is_user_turn_send(false, false, false));
+fn user_turn_send_runs_stages_only_for_user_agent_sends() {
+    // args: (is_service_push, has_source_pane, is_chat_backed, is_agent_pane)
+    // P3/F3: a plain user send to a PTY AGENT pane runs the stages.
+    assert!(is_user_turn_send(false, false, false, true));
+    // BUG A: a SHELL pane (no agent_type) must NEVER get a context block —
+    // injecting one garbled `echo X` and broke 23 e2e tests.
+    assert!(!is_user_turn_send(false, false, false, false));
     // Service push (svc_token) is system traffic → skip.
-    assert!(!is_user_turn_send(true, false, false));
+    assert!(!is_user_turn_send(true, false, false, true));
     // Carries a source_pane (inter-pane / mesh / report delivery) → skip.
-    assert!(!is_user_turn_send(false, true, false));
+    assert!(!is_user_turn_send(false, true, false, true));
     // chatBackend pane → its transport already staged; don't double-process.
-    assert!(!is_user_turn_send(false, false, true));
+    assert!(!is_user_turn_send(false, false, true, true));
 }

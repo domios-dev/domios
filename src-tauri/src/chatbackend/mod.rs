@@ -48,6 +48,20 @@ pub trait ChatBackendProvider: Send + Sync {
     /// Deliver one user turn to the session.
     fn send_message(&self, session_id: &str, text: &str) -> Result<(), ChatBackendError>;
 
+    /// Advance any in-flight async work for the session, called by the host poll
+    /// loop each tick BEFORE [`poll`](Self::poll). An async chatBackend (e.g. the
+    /// dread NPC plugin) does its turn-advance here: check `host.agent` tickets,
+    /// move completed replies into the transcript `poll` then surfaces. Without a
+    /// host-driven pump such a plugin would never advance on the real daemon (the
+    /// mock harness called `pump()` itself; the host never did) — Item 6.
+    ///
+    /// Optional: the default is a no-op, and a plugin with no `pump` export is
+    /// unaffected. Best-effort — a pump error must not kill the poll loop.
+    fn pump(&self, session_id: &str) -> Result<(), ChatBackendError> {
+        let _ = session_id;
+        Ok(())
+    }
+
     /// Pull any new transcript messages. Empty ⇒ nothing new. The plugin's
     /// `NormalizedChatMessage[]` deserializes directly into [`ChatMsg`]
     /// (`type` → `kind`).

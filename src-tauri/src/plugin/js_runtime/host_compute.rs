@@ -15,10 +15,14 @@
 //! * `host.worker.start` → `{ jobId }`, `host.worker.poll` → `{ done, report?, error? }`
 //! * `host.agent.spawn/resume/get/send` → ids/tickets, `host.agent.poll` → `{ done, reply? }`
 //!
-//! These are Promise-wrapped in the VM preamble (`vm.rs`).
+//! All of these are **synchronous** in the VM preamble (`vm.rs`) — job-id/poll is
+//! sync *per step* (each call returns immediately; the long-running work happens
+//! on the host between calls). They are NOT Promise-wrapped: QuickJS can't drain
+//! a Promise inside a synchronous `call_json` dispatch, so wrapping would break
+//! sync consumers like the chatBackend `pump`/`poll` (Item 6). `await` on a
+//! non-thenable still yields the value, so awaiting plugin code keeps working.
 //!
-//! The cheap handles run **synchronously** and return their result directly
-//! (no Promise wrapper): mem search is sync (`mem/manager_search.rs`), and the
+//! mem search is likewise sync (`mem/manager_search.rs`), and the
 //! `host.workspace` registry ops are mux operations, not agent turns.
 
 use std::sync::Arc;
