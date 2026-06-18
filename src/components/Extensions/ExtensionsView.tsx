@@ -19,7 +19,7 @@ import {
   type CatalogFilter,
 } from "./pluginCatalog";
 import { PluginList } from "./PluginList";
-import { PluginDetailPanel, type ActionKind } from "./PluginDetailPanel";
+import { PluginDetailPanel, type ActionKind, type ActionOptions } from "./PluginDetailPanel";
 import { ChannelManager } from "./ChannelManager";
 import { type AppConfigShape } from "./shared";
 import type { PluginSnapshot } from "./types";
@@ -28,14 +28,18 @@ import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 
 const EMPTY_SNAPSHOT: PluginSnapshot = { plugins: [], channels: [], diff: [], marketplace: [] };
 
-function actionPayload(kind: ActionKind, entry: CatalogEntry): Record<string, unknown> {
+function actionPayload(
+  kind: ActionKind,
+  entry: CatalogEntry,
+  options: ActionOptions = {},
+): Record<string, unknown> {
   switch (kind) {
     case "install":
       return { kind: "install", pluginId: entry.id, channel: entry.channel ?? undefined };
     case "update":
       return { kind: "update", pluginId: entry.id };
     case "remove":
-      return { kind: "remove", pluginId: entry.id };
+      return { kind: "remove", pluginId: entry.id, removeData: options.removeData ?? false };
   }
 }
 
@@ -149,8 +153,8 @@ export function ExtensionsView({
   );
 
   const onPluginAction = useCallback(
-    (kind: ActionKind, entry: CatalogEntry) => {
-      void runAction(`${kind}:${entry.id}`, actionPayload(kind, entry));
+    (kind: ActionKind, entry: CatalogEntry, options?: ActionOptions) => {
+      void runAction(`${kind}:${entry.id}`, actionPayload(kind, entry, options));
     },
     [runAction],
   );
