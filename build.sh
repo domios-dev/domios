@@ -282,13 +282,13 @@ case "$CMD" in
     export CODETERM_API_URL="http://127.0.0.1:7686"
     cd tests/e2e
     pip install -q -r requirements.txt 2>/dev/null
-    python -m pytest -m "not llm" -v --tb=short "${@:2}"
+    python3 -m pytest -m "not llm" -v --tb=short "${@:2}"
     ;;
   e2e:llm)
     export CODETERM_API_URL="http://127.0.0.1:7686"
     cd tests/e2e
     pip install -q -r requirements.txt 2>/dev/null
-    python -m pytest -m llm -v --tb=short "${@:2}"
+    python3 -m pytest -m llm -v --tb=short "${@:2}"
     ;;
   test:all)
     # Aggregate runner for every NON-LLM test layer. Unit layers always run;
@@ -308,9 +308,9 @@ case "$CMD" in
     ta_run "ts-unit"    pnpm -s test:unit
     ta_run "plugin"     pnpm -s test:plugins
 
-    DEV_STATUS=$(dev_health_status | python -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+    DEV_STATUS=$(dev_health_status | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
     if [ "$DEV_STATUS" = "ok" ]; then
-      ta_run "e2e-pytest" bash -c 'cd tests/e2e && pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:7686 python -m pytest -m "not llm" -q'
+      ta_run "e2e-pytest" bash -c 'cd tests/e2e && pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:7686 python3 -m pytest -m "not llm" -q'
       ta_run "playwright-smoke" pnpm -s test:pw:smoke
     else
       echo

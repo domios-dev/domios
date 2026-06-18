@@ -3823,11 +3823,27 @@
           "aliases": [],
           "args": [
             {
+              "name": "chat_backend",
+              "positional": false,
+              "value_name": "PLUGIN_ID",
+              "default": null,
+              "help": "Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability, e.g. `lmstudio`). `codeterm send`/`get-output` then route to the plugin, not a shell",
+              "aliases": []
+            },
+            {
               "name": "cmd",
               "positional": false,
               "value_name": "CMD",
               "default": null,
               "help": "Command to run on pane start (e.g. `\"poetry run backend\"`). Sent into the PTY after the shell is ready",
+              "aliases": []
+            },
+            {
+              "name": "config",
+              "positional": false,
+              "value_name": "JSON",
+              "default": null,
+              "help": "JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{\"model\":\"llama-3.1-8b\"}'`",
               "aliases": []
             },
             {

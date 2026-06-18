@@ -116,6 +116,25 @@ pub fn run_text_stages(
     current
 }
 
+/// Whether a send entering at a user-facing seam (REST `send_text`, the desktop
+/// composer's `chat_send_text`) should run the send-time text stages (F3, P3).
+///
+/// A **user turn** is one that is NOT a service push (`svc_token`) and carries
+/// NO `source_pane` — inter-pane delivery, mesh relay, and hierarchy reports all
+/// set `source_pane`, and orchestrator/restart/GA system sends go through the
+/// synchronous `send_text` (never this seam), so the gate excludes them.
+///
+/// chatBackend panes are excluded here because their transport already runs the
+/// stages (`pane_transport_chat` / the chat branch of `pty_io::send_text`) — a
+/// second run at this seam would double-process the message.
+pub fn is_user_turn_send(
+    is_service_push: bool,
+    has_source_pane: bool,
+    is_chat_backed: bool,
+) -> bool {
+    !is_service_push && !has_source_pane && !is_chat_backed
+}
+
 /// Run the compose-time voice stage: resolve the active transcriber and turn an
 /// audio file into editable text. The transcriber is the reference voice stage
 /// (plan §6) — `format_attachment_line` calls this, then shapes the marker, so

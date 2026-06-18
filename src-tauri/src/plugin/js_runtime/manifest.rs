@@ -45,6 +45,11 @@ pub struct PluginManifest {
     pub homepage: Option<String>,
     #[serde(default)]
     pub readme: Option<String>,
+    /// Relative path to an agent-facing doc (e.g. `AGENT.md`) the `get plugin`
+    /// surface returns so an agent can install + self-configure the plugin
+    /// (§1.7). Plain markdown; optional.
+    #[serde(default)]
+    pub agent_doc: Option<String>,
 
     // Identity / UI
     #[serde(default)]
@@ -140,7 +145,71 @@ fn default_capabilities() -> Capabilities {
         status_bubble: false,
         view: false,
         chat_backend: false,
-        chat_preprocessor: false,
+        chat_preprocessor: ChatPreprocessorCap::default(),
+    }
+}
+
+/// `chatPreprocessor` capability declaration. Authors write either a bare bool
+/// (`true`) or an object naming the pipeline slot it grabs (`{ "match": "text" }`
+/// — the §6 conflict-guard slot). Both forms mean "enabled"; the object also
+/// carries the declared slot so the conflict guard knows which slot it claims.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChatPreprocessorCap {
+    pub enabled: bool,
+    /// Declared pipeline slot (`match`). `None` ⇒ the text slot, the only slot a
+    /// preprocessor may grab today (the SDK fixes `match: "text"`).
+    pub match_slot: Option<String>,
+}
+
+impl ChatPreprocessorCap {
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+}
+
+impl<'de> Deserialize<'de> for ChatPreprocessorCap {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Flag(bool),
+            Obj {
+                #[serde(default, rename = "match")]
+                match_slot: Option<String>,
+            },
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::Flag(enabled) => Self {
+                enabled,
+                match_slot: None,
+            },
+            Raw::Obj { match_slot } => Self {
+                enabled: true,
+                match_slot,
+            },
+        })
+    }
+}
+
+impl Serialize for ChatPreprocessorCap {
+    /// Symmetric with `Deserialize`: a slot ⇒ object, otherwise the bare bool —
+    /// so a disabled cap round-trips to `false`, never silently re-enabling.
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match &self.match_slot {
+            Some(slot) if self.enabled => {
+                use serde::ser::SerializeMap;
+                let mut m = s.serialize_map(Some(1))?;
+                m.serialize_entry("match", slot)?;
+                m.end()
+            }
+            _ => s.serialize_bool(self.enabled),
+        }
     }
 }
 
@@ -174,8 +243,9 @@ pub struct Capabilities {
     pub chat_backend: bool,
     /// Send-time text stage of the outbound pipeline (`chatPreprocess`). Matches
     /// final text and augments it (mem recall / worker / Groq) before transport.
+    /// Bool or `{ match }` object (the §6 slot).
     #[serde(default)]
-    pub chat_preprocessor: bool,
+    pub chat_preprocessor: ChatPreprocessorCap,
 }
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -472,16 +542,18 @@ pub struct PermissionsConfig {
     #[serde(default)]
     pub secrets: bool,
     /// Whether a spawned agent may route `codeterm plugin <id> <verb>` to this
-    /// plugin's `onAgentCommand` (the inverse seam — plan §1.5 F5).
-    #[serde(default)]
+    /// plugin's `onAgentCommand` (the inverse seam — plan §1.5 F5). Canonical
+    /// snake_case (the casing grants.yaml / snapshot / frontend all use);
+    /// camelCase accepted as an alias.
+    #[serde(default, rename = "agent_commands", alias = "agentCommands")]
     pub agent_commands: bool,
     /// Whether the plugin may create/manage workspaces via `host.workspace*`
     /// (enforced perm — plan §1.10 P3).
-    #[serde(default)]
+    #[serde(default, rename = "manage_workspaces", alias = "manageWorkspaces")]
     pub manage_workspaces: bool,
     /// Whether the plugin may spawn/drive our agents via `host.agent*`
     /// (enforced perm — plan §1.10 P3).
-    #[serde(default)]
+    #[serde(default, rename = "spawn_agents", alias = "spawnAgents")]
     pub spawn_agents: bool,
 }
 
@@ -645,6 +717,87 @@ mod tests {
             m.spawn.session_id_injection,
             SerdeSessionIdInjection::FreshAndFork
         ));
+    }
+
+    #[test]
+    fn parse_chat_preprocessor_object_carries_match() {
+        // §6: chatPreprocessor authored as an OBJECT declaring its slot. The
+        // host must accept this (not only the bare bool) or the plugin never
+        // loads.
+        let json = r#"{
+            "id": "chat-preprocessor",
+            "version": "0.1.0",
+            "displayName": "Chat Preprocessor",
+            "capabilities": { "chatPreprocessor": { "match": "text" } }
+        }"#;
+        let m: PluginManifest = serde_json::from_str(json).expect("parse object form");
+        assert!(m.capabilities.chat_preprocessor.enabled());
+        assert_eq!(
+            m.capabilities.chat_preprocessor.match_slot.as_deref(),
+            Some("text"),
+            "match slot carried into the capability for the conflict guard"
+        );
+    }
+
+    #[test]
+    fn parse_chat_preprocessor_bool_still_works() {
+        let json = r#"{
+            "id": "p",
+            "version": "0.1.0",
+            "displayName": "P",
+            "capabilities": { "chatPreprocessor": true }
+        }"#;
+        let m: PluginManifest = serde_json::from_str(json).expect("parse bool form");
+        assert!(m.capabilities.chat_preprocessor.enabled());
+        assert_eq!(m.capabilities.chat_preprocessor.match_slot, None);
+    }
+
+    #[test]
+    fn chat_preprocessor_round_trips_symmetrically() {
+        // Disabled must not silently flip to enabled on re-parse (serialize as
+        // bool when no slot, object when a slot is declared).
+        let cap = Capabilities::default();
+        let v = serde_json::to_value(&cap.chat_preprocessor).unwrap();
+        assert_eq!(v, serde_json::json!(false));
+        let back: ChatPreprocessorCap = serde_json::from_value(v).unwrap();
+        assert!(!back.enabled());
+    }
+
+    #[test]
+    fn parse_agent_doc_field() {
+        // §1.7 agent-doc: codeterm-npc declares `agentDoc`; deny_unknown_fields
+        // would reject it without the schema entry → plugin fails to load.
+        let json = r#"{
+            "id": "codeterm-npc",
+            "version": "0.1.0",
+            "displayName": "Dread NPCs",
+            "agentDoc": "AGENT.md",
+            "capabilities": { "chatBackend": true }
+        }"#;
+        let m: PluginManifest = serde_json::from_str(json).expect("parse agentDoc");
+        assert_eq!(m.agent_doc.as_deref(), Some("AGENT.md"));
+    }
+
+    #[test]
+    fn parse_snake_case_new_permissions() {
+        // codeterm-npc authors the powerful grants in snake_case — the casing the
+        // grant store / snapshot / frontend all use. The manifest must accept it.
+        let json = r#"{
+            "id": "codeterm-npc",
+            "version": "0.1.0",
+            "displayName": "Dread NPCs",
+            "permissions": {
+                "manage_workspaces": true,
+                "spawn_agents": true,
+                "agent_commands": true,
+                "secrets": true
+            }
+        }"#;
+        let m: PluginManifest = serde_json::from_str(json).expect("parse snake perms");
+        assert!(m.permissions.manage_workspaces);
+        assert!(m.permissions.spawn_agents);
+        assert!(m.permissions.agent_commands);
+        assert!(m.permissions.secrets);
     }
 
     #[test]

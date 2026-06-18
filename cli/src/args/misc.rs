@@ -69,6 +69,15 @@ pub enum PaneAction {
         /// Spawn the shell PTY immediately on the daemon for headless/API use.
         #[arg(long)]
         eager: bool,
+        /// Open a non-PTY chat-backend pane driven by the given plugin id
+        /// (a plugin declaring the `chatBackend` capability, e.g. `lmstudio`).
+        /// `codeterm send`/`get-output` then route to the plugin, not a shell.
+        #[arg(long, value_name = "PLUGIN_ID")]
+        chat_backend: Option<String>,
+        /// JSON config object passed to the chat-backend plugin's `openSession`
+        /// (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`.
+        #[arg(long, value_name = "JSON")]
+        config: Option<String>,
     },
     /// Print the current (focused) pane ID — no JSON parsing needed
     Current {

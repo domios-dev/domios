@@ -177,6 +177,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 title,
                 cmd,
                 eager,
+                chat_backend,
+                config,
             } => {
                 let mut body = serde_json::json!({});
                 if let Some(w) = workspace {
@@ -193,6 +195,14 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if *eager {
                     body["eager"] = serde_json::Value::Bool(true);
+                }
+                if let Some(plugin_id) = chat_backend {
+                    body["chat_backend"] = serde_json::Value::String(plugin_id.clone());
+                    if let Some(cfg) = config {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(cfg) {
+                            body["config"] = v;
+                        }
+                    }
                 }
                 ("POST".into(), "/api/panes".into(), Some(body.to_string()))
             }

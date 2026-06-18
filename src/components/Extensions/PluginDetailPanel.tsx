@@ -16,6 +16,7 @@ import { SecretBackendDetail } from "./SecretBackendDetail";
 import { MarkdownDescription } from "./MarkdownDescription";
 import { PluginIcon } from "./PluginIcon";
 import { GroupLabel, iconOf, type AppConfigShape } from "./shared";
+import { invoke } from "../../lib/bridge";
 import type { AppConfig, ProviderConfig } from "../../lib/types";
 
 export type ActionKind = "install" | "update" | "remove";
@@ -135,6 +136,23 @@ export function PluginDetailPanel({
 
       {action.reason && action.disabled && (
         <div style={{ fontSize: 11.5, color: "#fca5a5", marginBottom: 14 }}>{action.reason}</div>
+      )}
+
+      {/* P1: a chatBackend plugin is opened as a non-PTY chat pane from here. */}
+      {entry.capabilities?.chat_backend && entry.installed && !entry.pendingReload && (
+        <div style={{ marginBottom: 16 }}>
+          <button
+            onClick={() => {
+              void invoke("open_chat_backend_pane", { pluginId: entry.id }).catch((e) =>
+                console.error("open_chat_backend_pane failed:", e),
+              );
+            }}
+            style={primaryBtnStyle("install", false)}
+            title={`Open a chat pane backed by ${entry.displayName}`}
+          >
+            Open chat
+          </button>
+        </div>
       )}
 
       {(capKeys.length > 0 || perms.length > 0) && (

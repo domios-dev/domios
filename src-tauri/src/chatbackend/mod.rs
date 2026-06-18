@@ -39,9 +39,11 @@ impl std::error::Error for ChatBackendError {}
 pub trait ChatBackendProvider: Send + Sync {
     fn id(&self) -> &str;
 
-    /// Open a session for a pane with the plugin's config. Returns the
-    /// plugin-chosen session id (echoed back on every later call).
-    fn open_session(&self, config: serde_json::Value) -> Result<String, ChatBackendError>;
+    /// Open a session for a pane. `ctx` is the SDK envelope
+    /// `{ paneId, config }` (a plugin may key its session on `paneId`, e.g.
+    /// LM Studio). Returns the plugin-chosen session id (echoed back on every
+    /// later call).
+    fn open_session(&self, ctx: serde_json::Value) -> Result<String, ChatBackendError>;
 
     /// Deliver one user turn to the session.
     fn send_message(&self, session_id: &str, text: &str) -> Result<(), ChatBackendError>;

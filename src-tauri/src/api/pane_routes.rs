@@ -25,6 +25,15 @@ pub struct CreateShellPaneBody {
     pub cmd: Option<String>,
     #[serde(default)]
     pub eager: bool,
+    /// When set, open a non-PTY chatBackend pane driven by this plugin id
+    /// (a `chatBackend`-capability plugin) instead of a shell (P1). `send`/
+    /// `get-output` then route to the plugin via the PaneTransport seam.
+    #[serde(default)]
+    pub chat_backend: Option<String>,
+    /// Config object handed to the chatBackend plugin's `openSession` — only
+    /// meaningful with `chat_backend`.
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
 }
 
 pub async fn create_shell_pane(
@@ -34,6 +43,17 @@ pub async fn create_shell_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
+    // P1: a chatBackend pane is the production entry point for plugin-driven
+    // chat. Build PaneCommand::ChatBackend so spawn routes through
+    // spawn_chatbackend_impl (no PTY, plugin session, poll loop); otherwise a
+    // plain shell pane.
+    let command = match body.chat_backend {
+        Some(plugin_id) => PaneCommand::ChatBackend {
+            plugin_id,
+            config: body.config.unwrap_or(serde_json::Value::Null),
+        },
+        None => PaneCommand::Shell,
+    };
     let handle = state
         .svc
         .spawn_pane(SpawnPaneSpec {
@@ -42,7 +62,7 @@ pub async fn create_shell_pane(
             title: body.title,
             visibility: PaneVisibility::Visible,
             eager: body.eager,
-            command: PaneCommand::Shell,
+            command,
             ..Default::default()
         })
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -289,6 +309,25 @@ pub async fn send_text(
         }
     };
 
+    // P3/F3: run the outbound text stages (chatPreprocessor) for a USER turn to a
+    // PTY agent pane. Service pushes (svc_token) and inter-pane/mesh/report
+    // deliveries (source_pane) are system traffic and excluded; chatBackend panes
+    // already stage at their transport, so they're excluded here to avoid
+    // double-processing. System senders (orchestrator/restart/GA) never reach this
+    // REST seam — they use the synchronous `send_text`.
+    let run_stages = crate::chatpipeline::is_user_turn_send(
+        svc_token_match.is_some(),
+        body.source_pane.is_some(),
+        state.svc.pane_chat_backing(&pane_id).is_some(),
+    );
+    let stage = |s: String| -> String {
+        if run_stages {
+            state.svc.run_outbound_stages(&pane_id, s)
+        } else {
+            s
+        }
+    };
+
     if let Some(actions) = body.actions {
         if actions.is_empty() {
             return Err((StatusCode::BAD_REQUEST, "actions cannot be empty"));
@@ -309,7 +348,7 @@ pub async fn send_text(
         let raw_text = body.text.clone().unwrap_or_default();
         let text_was_sent = !raw_text.is_empty();
         if text_was_sent {
-            let text = prepend(&raw_text);
+            let text = prepend(&stage(raw_text.clone()));
             state
                 .svc
                 .send_text_when_ready(&pane_id, &text, false)
@@ -358,7 +397,7 @@ pub async fn send_text(
         let items: Vec<crate::service::pty_io::SendBatchItem> = batch
             .into_iter()
             .map(|c| crate::service::pty_io::SendBatchItem {
-                text: prepend(&c.text),
+                text: prepend(&stage(c.text)),
                 enter: c.enter,
                 delay_ms: c.delay_ms,
             })
@@ -386,7 +425,7 @@ pub async fn send_text(
         return Ok(Json(serde_json::json!({"ok": true})));
     }
 
-    let text = prepend(&body.text.unwrap_or_default());
+    let text = prepend(&stage(body.text.unwrap_or_default()));
     state
         .svc
         .send_text_when_ready(&pane_id, &text, body.enter)

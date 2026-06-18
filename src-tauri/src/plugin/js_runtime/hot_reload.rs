@@ -92,7 +92,7 @@ impl CapabilityRegistries {
                 Arc::new(super::JsChatBackend::new(vm.clone(), id.clone())),
             );
         }
-        if caps.chat_preprocessor {
+        if caps.chat_preprocessor.enabled() {
             self.chat_preprocessor.register(
                 id.clone(),
                 Arc::new(super::JsChatPreprocessor::new(vm.clone(), id.clone())),
@@ -113,7 +113,7 @@ impl CapabilityRegistries {
         }
         // Conflict guard (plan §6): warn when the `voice` slot is grabbed by >1
         // stage. Warn-and-allow.
-        if caps.transcriber || caps.chat_preprocessor {
+        if caps.transcriber || caps.chat_preprocessor.enabled() {
             crate::chatpipeline::warn_stage_conflicts(&self.transcribe, &self.chat_preprocessor);
         }
     }
@@ -150,6 +150,12 @@ pub struct HotReloadRegistry {
     /// Plugins installed/enabled after start that declared `requiresReload` and so
     /// could not hot-activate — the UI/CLI surface "reload to activate" for these.
     pending_reload: Mutex<HashSet<String>>,
+    /// Weak `ServiceContext` ref, late-bound after service init (the watcher is
+    /// built before `ServiceContext` exists — same ordering wall as the startup
+    /// `plugin_vms` loop, C0). Threaded into every freshly (re)loaded plugin VM
+    /// so `host.mem`/`worker`/`agent` work without a daemon restart (P4). `Weak`
+    /// so a plugin VM never keeps the service alive past teardown.
+    service: Mutex<Option<std::sync::Weak<crate::service::ServiceContext>>>,
     #[cfg(test)]
     load_count: std::sync::atomic::AtomicUsize,
 }
@@ -168,6 +174,15 @@ pub fn pending_reload_ids() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Late-bind the `ServiceContext` into the running watcher (P4). Called once
+/// from `lib.rs` after service init: the watcher starts before the service
+/// exists, so it can't receive the ref at construction. No-op before `start()`.
+pub fn set_watcher_service(svc: std::sync::Weak<crate::service::ServiceContext>) {
+    if let Some(w) = WATCHER.get() {
+        w.set_service_ref(svc);
+    }
+}
+
 impl HotReloadRegistry {
     pub fn new(
         roots: Vec<PathBuf>,
@@ -181,9 +196,29 @@ impl HotReloadRegistry {
             state: Mutex::new(HashMap::new()),
             activated_startup: Mutex::new(HashSet::new()),
             pending_reload: Mutex::new(HashSet::new()),
+            service: Mutex::new(None),
             #[cfg(test)]
             load_count: std::sync::atomic::AtomicUsize::new(0),
         })
+    }
+
+    /// Late-bind the `ServiceContext` (C0 ordering: the watcher is constructed
+    /// before the service exists). After this, every plugin the watcher
+    /// (re)loads gets the service threaded into its VM (P4).
+    pub fn set_service_ref(&self, svc: std::sync::Weak<crate::service::ServiceContext>) {
+        *self.service.lock() = Some(svc);
+    }
+
+    /// Thread the late-bound service ref into a freshly loaded plugin VM. Returns
+    /// whether it bound (false when no service ref is set yet, or the VM already
+    /// has one). Called from `full_load` so hot-installed plugins reach
+    /// `host.mem`/`worker`/`agent` exactly like startup-loaded ones (P4).
+    fn bind_service(&self, vm: &Arc<super::PluginVm>) -> bool {
+        let svc = self.service.lock().clone();
+        match svc {
+            Some(weak) => vm.set_service(weak),
+            None => false,
+        }
     }
 
     /// Record every plugin already present (and registered by `lib.rs`) at full
@@ -376,6 +411,12 @@ impl HotReloadRegistry {
                     );
                     return Some(id);
                 }
+                // Late-bind the ServiceContext into the new VM BEFORE registering
+                // capabilities — host.mem/worker/agent must be live the moment a
+                // capability adapter (e.g. chatPreprocessor's mem search) can be
+                // called (P4). Startup-loaded plugins get this via lib.rs's
+                // plugin_vms loop; hot-installed ones get it here.
+                self.bind_service(provider.vm());
                 // Re-register capability adapters live (§1.8 P1) — bubble/glance/
                 // view/secret/transcribe/chatBackend/chatPreprocessor/agent_commands
                 // — so an installed capability plugin works without a restart.
@@ -485,6 +526,47 @@ mod tests {
             &held.chat_preprocessor,
             &caps.chat_preprocessor
         ));
+    }
+
+    #[test]
+    fn watcher_binds_service_into_freshly_loaded_vm() {
+        // P4: a plugin installed/reloaded AFTER daemon start must get the
+        // ServiceContext late-bound into its VM, or host.mem/worker/agent are
+        // dead for it — only the startup loop bound the service before this fix.
+        use std::sync::Weak;
+        let watcher = HotReloadRegistry::new(vec![], Arc::new(AgentRegistry::new()), test_caps());
+        watcher.set_service_ref(Weak::new());
+        let vm = Arc::new(
+            crate::plugin::js_runtime::PluginVm::from_source(
+                "p",
+                "module.exports.default = {};".into(),
+            )
+            .unwrap(),
+        );
+        assert!(
+            watcher.bind_service(&vm),
+            "watcher binds the service ref into the new VM"
+        );
+        assert!(
+            !vm.set_service(Weak::new()),
+            "already bound — the watcher already populated the service ref"
+        );
+    }
+
+    #[test]
+    fn watcher_bind_service_noop_without_ref() {
+        let watcher = HotReloadRegistry::new(vec![], Arc::new(AgentRegistry::new()), test_caps());
+        let vm = Arc::new(
+            crate::plugin::js_runtime::PluginVm::from_source(
+                "p",
+                "module.exports.default = {};".into(),
+            )
+            .unwrap(),
+        );
+        assert!(
+            !watcher.bind_service(&vm),
+            "no service ref set → nothing to bind"
+        );
     }
 
     fn write(path: &std::path::Path, contents: &str) {

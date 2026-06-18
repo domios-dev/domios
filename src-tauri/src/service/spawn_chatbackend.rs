@@ -20,10 +20,6 @@ impl ServiceContext {
             _ => return Err("spawn_chatbackend_impl called without ChatBackend command".into()),
         };
 
-        // Open the plugin session first — fail fast before creating a pane so a
-        // bad config doesn't leave a dangling empty pane.
-        let session_id = self.chatbackend_open_session(&plugin_id, config)?;
-
         let (ws_id, ws_cwd) = {
             let mux = self.mux.lock();
             let from_parent = spec
@@ -50,6 +46,19 @@ impl ServiceContext {
                 let _ = mux.rename_tab(&ws_id, &result.0, title);
             }
             result
+        };
+
+        // Open the plugin session AFTER the pane exists so the SDK `openSession`
+        // ctx carries the real `paneId` (a plugin may key its session on it,
+        // e.g. LM Studio). On failure, tear down the just-created tab so a bad
+        // config leaves no dangling empty pane.
+        let session_id = match self.chatbackend_open_session(&plugin_id, &pane_id, config) {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = self.mux.lock().close_tab(&ws_id, &tab_id);
+                self.emit_state_changed();
+                return Err(e);
+            }
         };
 
         // Mark the backing — pty_id stays None permanently, no backend reader.

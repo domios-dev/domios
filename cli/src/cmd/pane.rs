@@ -34,6 +34,8 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             title,
             cmd,
             eager,
+            chat_backend,
+            config,
         } => {
             let (base, token) = read_api_config();
             let http = match build_http(&token) {
@@ -55,6 +57,18 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             }
             if eager {
                 body["eager"] = serde_json::Value::Bool(true);
+            }
+            if let Some(plugin_id) = chat_backend {
+                body["chat_backend"] = serde_json::Value::String(plugin_id);
+                if let Some(cfg) = config.as_deref() {
+                    match serde_json::from_str::<serde_json::Value>(cfg) {
+                        Ok(v) => body["config"] = v,
+                        Err(e) => {
+                            eprintln!("Error: --config is not valid JSON: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
             }
             let create_result = http
                 .post(format!("{}/api/panes", base))
