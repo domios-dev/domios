@@ -4,11 +4,9 @@
  * waits for fire times: the suite time-travels, the scheduler is woken,
  * and the fire spawns a REAL agent (one trivial sonnet call).
  */
-import { expect, test } from "@playwright/test";
-import { ApiClient } from "../../helpers/api-client";
+import { expect, test } from "../../helpers/fixtures";
+import { type ApiClient } from "../../helpers/api-client";
 import { ensureDevConsole, killDevConsole } from "../../helpers/dev-console";
-
-const api = new ApiClient();
 
 interface CronJob {
   id: string;
@@ -17,7 +15,7 @@ interface CronJob {
   last_run?: { run_id: string; status: string } | null;
 }
 
-async function clockMocked(): Promise<boolean> {
+async function clockMocked(api: ApiClient): Promise<boolean> {
   try {
     const res = await api.get<{ mocked: boolean }>("/debug/clock");
     return res.mocked;
@@ -26,24 +24,24 @@ async function clockMocked(): Promise<boolean> {
   }
 }
 
-test.beforeAll(async () => {
+test.beforeEach(async ({ api }) => {
   // A console started before this branch (or without the env) has a real
   // clock — restart so the mock gate is active.
-  if (!(await clockMocked())) {
+  if (!(await clockMocked(api))) {
     killDevConsole();
     await ensureDevConsole();
   }
-  expect(await clockMocked(), "mock clock gate did not activate").toBe(true);
+  expect(await clockMocked(api), "mock clock gate did not activate").toBe(true);
 });
 
-test("@smoke debug clock reports mocked state and advances", async () => {
+test("@smoke debug clock reports mocked state and advances", async ({ api }) => {
   const before = await api.get<{ mocked: boolean; now_ms: number }>("/debug/clock");
   expect(before.mocked).toBe(true);
   const advanced = await api.post<{ now_ms: number }>("/debug/clock/advance", { ms: 1_000 });
   expect(advanced.now_ms).toBeGreaterThanOrEqual(before.now_ms + 1_000);
 });
 
-test("@golden oneshot cron fires via time travel and spawns a real run", async () => {
+test("@golden oneshot cron fires via time travel and spawns a real run", async ({ api }) => {
   test.setTimeout(300_000);
 
   const ws = (await api.get<{ id: string; is_active: boolean }[]>("/workspaces")).find(
@@ -117,7 +115,7 @@ test("@golden oneshot cron fires via time travel and spawns a real run", async (
   }
 });
 
-test("@golden recurring cron fires exactly per boundary, not per advance call", async () => {
+test("@golden recurring cron fires exactly per boundary, not per advance call", async ({ api }) => {
   test.setTimeout(300_000);
 
   const ws = (await api.get<{ id: string; is_active: boolean }[]>("/workspaces")).find(

@@ -4,24 +4,12 @@
  * peer, mobile viewport, and a fully live LLM round-trip read from the
  * rendered terminal DOM (/web/?a11y=1 runtime opt-in).
  */
-import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
-import { ApiClient, readDevToken } from "../../helpers/api-client";
-import { API_BASE } from "../../helpers/dev-console";
+import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 import { MeshStub } from "../../helpers/mesh-stub";
 
 const WEB_URL = `${API_BASE}/web/`;
-const api = new ApiClient();
-let browser: Browser;
 
-test.beforeAll(async () => {
-  browser = await chromium.launch({ channel: "msedge" });
-});
-
-test.afterAll(async () => {
-  await browser.close();
-});
-
-async function newWebPage(viewport?: { width: number; height: number }): Promise<Page> {
+async function newWebPage(browser: Browser, viewport?: { width: number; height: number }): Promise<Page> {
   const ctx = await browser.newContext({ viewport: viewport ?? { width: 1280, height: 800 } });
   return ctx.newPage();
 }
@@ -38,8 +26,8 @@ async function passTokenGate(page: Page): Promise<void> {
     .waitFor({ timeout: 20_000 });
 }
 
-test("@smoke /web serves the SPA; token gate authenticates; self is the default host", async () => {
-  const page = await newWebPage();
+test("@smoke /web serves the SPA; token gate authenticates; self is the default host", async ({ webBrowser }) => {
+  const page = await newWebPage(webBrowser);
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
   await passTokenGate(page);
 
@@ -53,8 +41,8 @@ test("@smoke /web serves the SPA; token gate authenticates; self is the default 
   await page.context().close();
 });
 
-test("@golden bad token is rejected with a rendered error, not a broken app", async () => {
-  const page = await newWebPage();
+test("@golden bad token is rejected with a rendered error, not a broken app", async ({ webBrowser }) => {
+  const page = await newWebPage(webBrowser);
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="web-token-input"]');
   await page.fill('[data-testid="web-token-input"]', "definitely-wrong-token");
@@ -63,7 +51,7 @@ test("@golden bad token is rejected with a rendered error, not a broken app", as
   await page.context().close();
 });
 
-test("@golden peer switching: dropdown lists the stub, traffic routes to it, switch-back restores", async () => {
+test("@golden peer switching: dropdown lists the stub, traffic routes to it, switch-back restores", async ({ api, webBrowser }) => {
   test.setTimeout(240_000);
   const STUB_TOKEN = "stub-web-token-123";
   const stub = new MeshStub({ services: 1, webToken: STUB_TOKEN });
@@ -100,7 +88,7 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
       await new Promise((r) => setTimeout(r, 500));
     }
 
-    const page = await newWebPage();
+    const page = await newWebPage(webBrowser);
     await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
     await passTokenGate(page);
 
@@ -147,9 +135,9 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
   }
 });
 
-test("@golden unreachable peer fails gracefully at the gate, back-to-self recovers", async () => {
+test("@golden unreachable peer fails gracefully at the gate, back-to-self recovers", async ({ webBrowser }) => {
   test.setTimeout(120_000);
-  const page = await newWebPage();
+  const page = await newWebPage(webBrowser);
   // Point the app at a dead host directly (sessionStorage), as if a peer
   // went down after being selected.
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
@@ -165,8 +153,8 @@ test("@golden unreachable peer fails gracefully at the gate, back-to-self recove
   await page.context().close();
 });
 
-test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker reachable", async () => {
-  const page = await newWebPage({ width: 375, height: 812 });
+test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker reachable", async ({ webBrowser }) => {
+  const page = await newWebPage(webBrowser, { width: 375, height: 812 });
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
   await passTokenGate(page);
 
@@ -191,20 +179,20 @@ test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker re
   await page.context().close();
 });
 
-test("@golden fully live on mobile: General Agent responds, read from the rendered DOM", async () => {
+test("@golden fully live on mobile: General Agent responds, read from the rendered DOM", async ({ api, webBrowser, paneCleanup, spawnAgent, pollMarkerInDom }) => {
   test.setTimeout(300_000);
-  const page = await newWebPage({ width: 375, height: 812 });
+  const page = await newWebPage(webBrowser, { width: 375, height: 812 });
   // Runtime a11y opt-in gives the browser terminal a readable DOM.
   await page.goto(`${WEB_URL}?a11y=1`, { waitUntil: "domcontentloaded" });
   await passTokenGate(page);
 
   const marker = `PW-WEB-${Date.now()}`;
   // Drive the spawn through the API (deterministic), observe in the DOM.
-  const inbox = (await api.createPane({ title: "pw-web-inbox" })) as { id: string };
+  const inbox = await paneCleanup.createPane({ title: "pw-web-inbox" });
   let agentPaneId: string | undefined;
   try {
     await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
-    const spawned = await api.post<{ pane_id: string }>("/agents/spawn", {
+    const spawned = await spawnAgent({
       agent: "claude",
       model: "sonnet",
       role: "Worker",
@@ -219,28 +207,17 @@ test("@golden fully live on mobile: General Agent responds, read from the render
 
     // Mobile defaults supported agent panes to chat mode, so the reply may
     // render as a chat bubble instead of xterm a11y text — accept either.
-    await page.waitForFunction(
-      (m) =>
-        Array.from(document.querySelectorAll(".xterm-accessibility")).some((tree) =>
-          (tree.textContent ?? "").includes(m),
-        ) ||
-        Array.from(document.querySelectorAll('[data-testid="chat-message"]')).some(
-          (bubble) => (bubble.textContent ?? "").includes(m),
-        ),
-      marker,
-      { timeout: 240_000, polling: 1_000 },
-    );
+    await pollMarkerInDom(marker, { page, includeChatMessages: true });
   } finally {
-    if (agentPaneId) await api.closePane(agentPaneId).catch(() => {});
-    await api.closePane(inbox.id).catch(() => {});
+    if (agentPaneId) paneCleanup.track(agentPaneId);
     await page.context().close();
   }
 });
 
 // ── share-link token auto-consume ────────────────────────────────────
 
-test("@golden share link: #token= auto-enters and the URL is redacted", async () => {
-  const page = await newWebPage();
+test("@golden share link: #token= auto-enters and the URL is redacted", async ({ webBrowser }) => {
+  const page = await newWebPage(webBrowser);
   await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
   // No manual gate — straight to the app.
   await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
@@ -249,16 +226,16 @@ test("@golden share link: #token= auto-enters and the URL is redacted", async ()
   await page.context().close();
 });
 
-test("@golden share link: ?token= query form also works and is redacted", async () => {
-  const page = await newWebPage();
+test("@golden share link: ?token= query form also works and is redacted", async ({ webBrowser }) => {
+  const page = await newWebPage(webBrowser);
   await page.goto(`${WEB_URL}?token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
   expect(page.url()).not.toContain("token=");
   await page.context().close();
 });
 
-test("@golden share link: a bad token falls through to the gate error path", async () => {
-  const page = await newWebPage();
+test("@golden share link: a bad token falls through to the gate error path", async ({ webBrowser }) => {
+  const page = await newWebPage(webBrowser);
   await page.goto(`${WEB_URL}#token=definitely-bad-token`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="web-token-input"]', { timeout: 20_000 });
   await expect(page.locator('[data-testid="web-token-error"]')).toBeVisible({ timeout: 10_000 });
@@ -268,8 +245,8 @@ test("@golden share link: a bad token falls through to the gate error path", asy
 
 // ── web chrome strip + mobile viewport hardening ─────────────────────
 
-test("@golden web chrome: titlebar absent, sidebar hosts peer picker + keep-awake", async () => {
-  const page = await newWebPage();
+test("@golden web chrome: titlebar absent, sidebar hosts peer picker + keep-awake", async ({ webBrowser }) => {
+  const page = await newWebPage(webBrowser);
   await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
 
@@ -292,8 +269,8 @@ test("@golden web chrome: titlebar absent, sidebar hosts peer picker + keep-awak
   await page.context().close();
 });
 
-test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", async () => {
-  const page = await newWebPage({ width: 375, height: 812 });
+test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", async ({ webBrowser }) => {
+  const page = await newWebPage(webBrowser, { width: 375, height: 812 });
   await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
   // Phones boot with the sidebar collapsed — the floating hamburger is the
   // only way in, so its absence bricks mobile navigation.
@@ -310,20 +287,18 @@ test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", asyn
 
 // ── close-sync: actions propagate between web and desktop UIs ────────
 
-test("@golden close sync: web close updates the desktop window, desktop close updates web", async () => {
+test("@golden close sync: web close updates the desktop window, desktop close updates web", async ({ api, ui, webBrowser, paneCleanup }) => {
   test.setTimeout(180_000);
-  const { connectUi } = await import("../../helpers/dev-console");
 
-  const a = (await api.createPane({ title: "pw-close-from-web" })) as {
+  const a = await paneCleanup.createPane<{
     id: string;
     tab_id: string;
-  };
-  const b = (await api.createPane({ title: "pw-close-from-desktop" })) as {
+  }>({ title: "pw-close-from-web" });
+  const b = await paneCleanup.createPane<{
     id: string;
     tab_id: string;
-  };
-  const ui = await connectUi();
-  const page = await newWebPage();
+  }>({ title: "pw-close-from-desktop" });
+  const page = await newWebPage(webBrowser);
   try {
     await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
@@ -353,14 +328,13 @@ test("@golden close sync: web close updates the desktop window, desktop close up
   } finally {
     await api.closePane(a.id).catch(() => {});
     await api.closePane(b.id).catch(() => {});
-    await ui.browser.close().catch(() => {});
     await page.context().close();
   }
 });
 
 // ── chat view in the browser — the mirror's core demo path ──────────
 
-test("@golden web chat: a live assistant reply streams in AND history survives a reload", async () => {
+test("@golden web chat: a live assistant reply streams in AND history survives a reload", async ({ api, webBrowser, spawnAgent }) => {
   // Regression for the 'No messages yet' bug: chat_start in web returned
   // the wrong shape (parsed snapshot instead of raw JSONL), and assistant
   // deltas (pane-chat-raw-{id}) were never mirrored to SSE.
@@ -370,7 +344,7 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
   // work and times out), and toggling its chat-view flips the desktop UI.
   test.setTimeout(300_000);
 
-  const spawned = await api.post<{ pane_id: string }>("/agents/spawn", {
+  const spawned = await spawnAgent({
     agent: "claude",
     model: "sonnet",
     title: "pw-web-chat",
@@ -378,7 +352,7 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
     activate: true,
   });
   const paneId = spawned.pane_id;
-  const page = await newWebPage();
+  const page = await newWebPage(webBrowser);
   try {
     // The chat source is ready once the claude CLI has booted a session —
     // until then chat-raw/start 409s.
