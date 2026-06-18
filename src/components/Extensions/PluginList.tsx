@@ -8,6 +8,8 @@ import { iconOf } from "./shared";
 import { PinIcon } from "../Icons";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { ChevronRight, Ellipsis, Trash2 } from "lucide-react";
+import type { PluginActivity } from "../../lib/types";
+import { PluginActivityInline } from "./PluginActivityInline";
 
 const CORE_CHANNEL = "codeterm-core";
 const PLUGINS_CHANNEL = "codeterm-plugins";
@@ -32,6 +34,7 @@ export function PluginList({
   pinned,
   onTogglePin,
   onRemoveChannel,
+  activities,
 }: {
   entries: CatalogEntry[];
   selectedId: string | null;
@@ -44,6 +47,7 @@ export function PluginList({
   pinned: Set<string>;
   onTogglePin: (id: string) => void;
   onRemoveChannel: (channel: string, installedCount: number) => void;
+  activities: Map<string, PluginActivity>;
 }) {
   const sections = groupBySource(entries);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -167,6 +171,7 @@ export function PluginList({
                     entry={e}
                     selected={e.id === selectedId}
                     pinned={pinned.has(e.id)}
+                    activity={activities.get(e.id)}
                     onSelect={() => onSelect(e.id)}
                     onTogglePin={() => onTogglePin(e.id)}
                   />
@@ -223,10 +228,12 @@ function PluginRow({
   pinned,
   onSelect,
   onTogglePin,
+  activity,
 }: {
   entry: CatalogEntry;
   selected: boolean;
   pinned: boolean;
+  activity?: PluginActivity;
   onSelect: () => void;
   onTogglePin: () => void;
 }) {
@@ -273,6 +280,7 @@ function PluginRow({
           {catalogKindLabel(entry)}
           {entry.version ? ` · v${entry.version}` : entry.remoteVersion ? ` · v${entry.remoteVersion}` : ""}
         </div>
+        <PluginActivityInline activity={activity} compact />
       </div>
       {entry.installed && (
         <button

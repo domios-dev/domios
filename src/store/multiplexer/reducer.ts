@@ -31,6 +31,7 @@ export type Action =
   | { type: "SET_FOCUSED_PANE"; paneId: string }
   | { type: "SET_PANE_PTY"; paneId: string; ptyId: string }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
+  | { type: "UPSERT_TOAST"; toast: Notification }
   | { type: "MARK_READ"; id: string }
   | { type: "MARK_ALL_READ" }
   | { type: "CLEAR_NOTIFICATIONS" }
@@ -290,6 +291,18 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         notifications: [...state.notifications, action.notification],
         toasts: [...state.toasts, action.notification],
       };
+
+    case "UPSERT_TOAST": {
+      const existingIndex = action.toast.key
+        ? state.toasts.findIndex((toast) => toast.key === action.toast.key)
+        : state.toasts.findIndex((toast) => toast.id === action.toast.id);
+      if (existingIndex === -1) {
+        return { ...state, toasts: [...state.toasts, action.toast] };
+      }
+      const toasts = [...state.toasts];
+      toasts[existingIndex] = action.toast;
+      return { ...state, toasts };
+    }
 
     case "MARK_READ":
       return {
