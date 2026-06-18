@@ -277,7 +277,7 @@ mod tests {
         let mut steps = 0;
         loop {
             let next = next_poll_delay_ms(false, d);
-            assert!(next >= POLL_ACTIVE_MS && next <= POLL_IDLE_MS);
+            assert!((POLL_ACTIVE_MS..=POLL_IDLE_MS).contains(&next));
             assert!(next > d || next == POLL_IDLE_MS, "must grow until capped");
             d = next;
             steps += 1;
