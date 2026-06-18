@@ -9,6 +9,7 @@ import { PinIcon } from "../Icons";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { ChevronRight, Ellipsis, Trash2 } from "lucide-react";
 import type { PluginActivity } from "../../lib/types";
+import { resolvePluginActivityDisplay, type PluginActivityDisplayMap } from "../../lib/usePluginActivity";
 import { PluginActivityInline } from "./PluginActivityInline";
 
 const CORE_CHANNEL = "codeterm-core";
@@ -35,6 +36,7 @@ export function PluginList({
   onTogglePin,
   onRemoveChannel,
   activities,
+  activityDisplayMap,
 }: {
   entries: CatalogEntry[];
   selectedId: string | null;
@@ -48,6 +50,7 @@ export function PluginList({
   onTogglePin: (id: string) => void;
   onRemoveChannel: (channel: string, installedCount: number) => void;
   activities: Map<string, PluginActivity>;
+  activityDisplayMap: PluginActivityDisplayMap;
 }) {
   const sections = groupBySource(entries);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -172,6 +175,7 @@ export function PluginList({
                     selected={e.id === selectedId}
                     pinned={pinned.has(e.id)}
                     activity={activities.get(e.id)}
+                    display={resolvePluginActivityDisplay(e.id, activityDisplayMap)}
                     onSelect={() => onSelect(e.id)}
                     onTogglePin={() => onTogglePin(e.id)}
                   />
@@ -229,11 +233,13 @@ function PluginRow({
   onSelect,
   onTogglePin,
   activity,
+  display,
 }: {
   entry: CatalogEntry;
   selected: boolean;
   pinned: boolean;
   activity?: PluginActivity;
+  display: ReturnType<typeof resolvePluginActivityDisplay>;
   onSelect: () => void;
   onTogglePin: () => void;
 }) {
@@ -280,7 +286,7 @@ function PluginRow({
           {catalogKindLabel(entry)}
           {entry.version ? ` · v${entry.version}` : entry.remoteVersion ? ` · v${entry.remoteVersion}` : ""}
         </div>
-        <PluginActivityInline activity={activity} compact />
+        <PluginActivityInline activity={activity} display={display} compact />
       </div>
       {entry.installed && (
         <button

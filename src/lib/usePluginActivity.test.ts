@@ -1,4 +1,9 @@
-import { normalizePluginActivityEvent, reducePluginActivity } from "./usePluginActivity";
+import {
+  normalizePluginActivityEvent,
+  reducePluginActivity,
+  resolvePluginActivityDisplay,
+  type PluginActivityDisplayMap,
+} from "./usePluginActivity";
 
 let passed = 0;
 let failed = 0;
@@ -72,6 +77,18 @@ activities = reducePluginActivity(activities, webError);
 assert("web error payload removes the active plugin", !activities.has("lmstudio"));
 
 assert("malformed payload is ignored", normalizePluginActivityEvent({ event: "plugin_activity", pluginId: "bad" }) === null);
+
+const displayMap: PluginActivityDisplayMap = new Map([
+  ["transcriber", { displayName: "Transcriber", iconSvg: "<svg />", iconColor: "#35a", iconHint: null }],
+]);
+assert(
+  "known plugin id resolves to plugin display name",
+  resolvePluginActivityDisplay("transcriber", displayMap).displayName === "Transcriber",
+);
+assert(
+  "unknown plugin id falls back to plugin id",
+  resolvePluginActivityDisplay("missing-plugin", displayMap).displayName === "missing-plugin",
+);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -50,7 +50,7 @@ function useStableJsonValue<T>(value: T): T {
 
 function AppInner() {
   useAgentProviders();
-  const { activities: pluginActivities } = usePluginActivity();
+  const { activities: pluginActivities, displayMap: pluginActivityDisplayMap } = usePluginActivity();
   // Phones start with the sidebar collapsed; the hamburger opens it as an overlay (see the wrapper at the render site).
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 640,
@@ -712,7 +712,11 @@ function AppInner() {
           )}
           {mountedExtensions && (
             <div className="absolute inset-0" style={viewLayerStyle(mainView === "extensions")}>
-              <ExtensionsView visible={mainView === "extensions"} pluginActivities={pluginActivities} />
+              <ExtensionsView
+                visible={mainView === "extensions"}
+                pluginActivities={pluginActivities}
+                pluginActivityDisplayMap={pluginActivityDisplayMap}
+              />
             </div>
           )}
           {pluginViewId && (
