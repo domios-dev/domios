@@ -202,6 +202,12 @@ export interface Model {
 export interface ChatBackend {
   openSession(ctx: { paneId: string; config: unknown }): { sessionId: string };
   sendMessage(sessionId: string, text: string): void;
+  // Optional turn-advance, called by the host poll loop each tick BEFORE `poll`
+  // (Item 6). An ASYNC backend does its work here: drain `host.agent`/`host.worker`
+  // tickets and move completed replies into the transcript `poll` then surfaces.
+  // Synchronous (one `call_json` dispatch, no event loop); best-effort — a throw
+  // does not kill the host loop. A plugin with no async work omits it.
+  pump?(sessionId: string): void;
   poll(
     sessionId: string,
     cursor?: string | null,

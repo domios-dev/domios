@@ -70,12 +70,14 @@ const PLUGIN_PREAMBLE: &str = r#"
   host.manifest = function () { return parseJson(host.manifestJson()); };
 
   // ── host compute base ──────────────────────────────────────────────
-  // mem + workspace are SYNCHRONOUS (mem search is sync; workspace ops are
-  // cheap mux ops) — they return their parsed result directly so a sync stage
-  // like chatPreprocess can call them mid-turn. worker + agent genuinely spawn
-  // long-lived agents (job-id/poll, F4) and are typed Promise in the SDK, so
-  // their sync binds are wrapped in resolved Promises here to make the surface
-  // awaitable without a VM event loop.
+  // ALL compute binds are SYNCHRONOUS — each returns its parsed result
+  // directly. mem search is sync at the host; workspace ops are cheap mux ops;
+  // worker/agent are job-id/poll, which is *sync per step* (each call returns a
+  // ticket/status immediately — the long-running work happens between calls, on
+  // the host side). They are NOT Promise-wrapped: QuickJS has no event loop to
+  // drain a Promise inside a synchronous `call_json` dispatch, so wrapping would
+  // break sync consumers like the chatBackend `pump`/`poll` (Item 6). Plugin code
+  // that `await`s these still works — `await x` on a non-thenable yields `x`.
   host.mem = {
     search: function (opts) { return parseJson(host.memSearch(JSON.stringify(opts))) || { hits: [] }; },
   };
@@ -84,17 +86,17 @@ const PLUGIN_PREAMBLE: &str = r#"
     panes:  function (workspaceId) { return parseJson(host.workspacePanes(workspaceId)) || []; },
   };
   host.worker = {
-    start: function (opts) { return Promise.resolve(parseJson(host.workerStart(JSON.stringify(opts)))); },
-    poll:  function (jobId) { return Promise.resolve(parseJson(host.workerPoll(jobId))); },
+    start: function (opts) { return parseJson(host.workerStart(JSON.stringify(opts))); },
+    poll:  function (jobId) { return parseJson(host.workerPoll(jobId)); },
   };
   host.agent = {
-    spawn:  function (workspaceId, opts) { return Promise.resolve(parseJson(host.agentSpawn(workspaceId, JSON.stringify(opts)))); },
-    resume: function (workspaceId, sessionId) { return Promise.resolve(parseJson(host.agentResume(workspaceId, sessionId))); },
-    get:    function (workspaceId, key) { return Promise.resolve(parseJson(host.agentGet(workspaceId, key))); },
-    send:   function (sessionId, text) { return Promise.resolve(parseJson(host.agentSend(sessionId, text))); },
-    poll:   function (ticket) { return Promise.resolve(parseJson(host.agentPoll(ticket))); },
-    reap:   function (sessionId) { host.agentReap(sessionId); return Promise.resolve(); },
-    usage:  function (sessionId) { return Promise.resolve(parseJson(host.agentUsage(sessionId))); },
+    spawn:  function (workspaceId, opts) { return parseJson(host.agentSpawn(workspaceId, JSON.stringify(opts))); },
+    resume: function (workspaceId, sessionId) { return parseJson(host.agentResume(workspaceId, sessionId)); },
+    get:    function (workspaceId, key) { return parseJson(host.agentGet(workspaceId, key)); },
+    send:   function (sessionId, text) { return parseJson(host.agentSend(sessionId, text)); },
+    poll:   function (ticket) { return parseJson(host.agentPoll(ticket)); },
+    reap:   function (sessionId) { host.agentReap(sessionId); },
+    usage:  function (sessionId) { return parseJson(host.agentUsage(sessionId)); },
   };
 })();
 "#;
@@ -615,30 +617,29 @@ mod tests {
     }
 
     #[test]
-    fn preamble_compute_handles_sync_vs_promise() {
-        // The preamble must expose host.mem / host.workspace / host.worker /
-        // host.agent. mem + workspace are SYNCHRONOUS (return their result
-        // directly); worker + agent are Promise-wrapped (awaitable). No service
-        // is bound in from_source, so the underlying sync binds return the
-        // `{ error }` envelope — we assert the SHAPE here, not a live result.
+    fn preamble_compute_is_fully_synchronous() {
+        // Item 6: ALL compute binds (mem/workspace/worker/agent) are synchronous
+        // — each returns its parsed result DIRECTLY, never a Promise. A Promise
+        // would be undrainable inside a sync `call_json` dispatch and would break
+        // the chatBackend `pump`/`poll` consumers. No service is bound in
+        // from_source, so the underlying sync binds return the `{ error }`
+        // envelope — we assert the SHAPE (sync, not thenable) here.
         let vm = fixture(
             r#"
             module.exports.default = {
                 shape() {
                     var mem = host.mem.search({ query: "q" });
-                    var startP = host.worker.start({ task: "t" });
-                    var sendP = host.agent.send("s", "t");
+                    var start = host.worker.start({ task: "t" });
+                    var send = host.agent.send("s", "t");
                     return {
                         memIsFn:       typeof host.mem.search === "function",
                         wsEnsureIsFn:  typeof host.workspace.ensure === "function",
                         wsPanesIsFn:   typeof host.workspace.panes === "function",
-                        // mem.search is SYNC: a plain object, not a thenable.
+                        // every result is a plain object, NOT a thenable.
                         memSync:       mem !== null && typeof mem === "object" && mem.then === undefined,
-                        // svc absent -> error envelope flows through synchronously.
                         memError:      typeof mem.error === "string",
-                        // worker/agent are Promise-wrapped: the call returns a thenable.
-                        workerThenable: typeof startP.then === "function",
-                        agentThenable:  typeof sendP.then === "function",
+                        workerSync:    start !== null && typeof start === "object" && start.then === undefined,
+                        agentSync:     send !== null && typeof send === "object" && send.then === undefined,
                     };
                 }
             };
@@ -654,12 +655,12 @@ mod tests {
             "svc-absent must surface an error envelope"
         );
         assert_eq!(
-            v["workerThenable"], true,
-            "host.worker.start must return a Promise"
+            v["workerSync"], true,
+            "host.worker.start must be synchronous (no Promise wrapper)"
         );
         assert_eq!(
-            v["agentThenable"], true,
-            "host.agent.send must return a Promise"
+            v["agentSync"], true,
+            "host.agent.send must be synchronous (no Promise wrapper)"
         );
     }
 

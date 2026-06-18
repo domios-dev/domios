@@ -87,6 +87,14 @@ impl ChatBackendProvider for JsChatBackend {
         Ok(())
     }
 
+    fn pump(&self, session_id: &str) -> Result<(), ChatBackendError> {
+        // Optional export; a missing `pump` is not an error (best-effort advance,
+        // mirrors `closeSession`). Errors are swallowed so a flaky pump can't kill
+        // the host poll loop.
+        let _ = call_json::<serde_json::Value>(&self.vm, "pump", &[json!(session_id)]);
+        Ok(())
+    }
+
     fn poll(&self, session_id: &str) -> Result<Vec<ChatMsg>, ChatBackendError> {
         let out: PollOut =
             call_json(&self.vm, "poll", &[json!(session_id)]).map_err(|e| map_err("poll", e))?;
@@ -227,6 +235,34 @@ mod tests {
         );
         let b = JsChatBackend::new(vm, "lmstudio");
         assert!(b.send_message("s1", "hello").is_ok());
+    }
+
+    #[test]
+    fn pump_advances_state_that_poll_then_surfaces() {
+        // Item 6: the host calls pump() each tick BEFORE poll(); an async plugin
+        // moves completed work into its transcript in pump, poll surfaces it.
+        let vm = vm_with(
+            r#"let pumped = 0;
+               module.exports.default = {
+                 pump(sid) { pumped++; },
+                 poll(sid) { return pumped > 0
+                     ? [{ id: "1", type: "assistant", content: "advanced" }]
+                     : []; }
+               }"#,
+        );
+        let b = JsChatBackend::new(vm, "npc");
+        assert!(b.poll("s").unwrap().is_empty(), "no messages before pump");
+        b.pump("s").unwrap();
+        let msgs = b.poll("s").unwrap();
+        assert_eq!(msgs.len(), 1, "pump advanced state poll surfaces");
+        assert_eq!(msgs[0].content, "advanced");
+    }
+
+    #[test]
+    fn pump_missing_export_is_ok() {
+        let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
+        let b = JsChatBackend::new(vm, "npc");
+        assert!(b.pump("s").is_ok(), "a plugin without pump is unaffected");
     }
 
     #[test]

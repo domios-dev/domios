@@ -81,13 +81,15 @@ export interface HostPath {
 }
 
 // ── host compute base (host.worker / workspace / agent / mem) ──
-// Split by cost (Track C2): worker + agent genuinely spawn long-lived agents,
-// so they bridge the sync VM to async host work via a job-id/poll model (F4)
-// and are typed `Promise` (the VM preamble wraps the sync binds in resolved
-// Promises). mem search + the cheap workspace registry ops are SYNCHRONOUS —
-// the VM has no event loop mid-call, so a sync stage (e.g. chatPreprocess) can
-// call them and use the result directly. They are gated by enforced
-// permissions (`manage_workspaces` / `spawn_agents`).
+// ALL of these are SYNCHRONOUS (Item 6). worker + agent use a job-id/poll model
+// (F4) for genuinely-async host work, but job-id/poll is sync *per step*: each
+// call returns a ticket/status immediately; the long-running work happens on the
+// host between calls. They are NOT Promise-wrapped — the QuickJS VM has no event
+// loop to drain a Promise inside a synchronous `call_json` dispatch, so wrapping
+// would break sync consumers like a chatBackend `pump`/`poll`. (Plugin code may
+// still `await` these: `await x` on a non-thenable just yields `x`.) mem search
+// and the cheap workspace registry ops are likewise sync. agent/workspace are
+// gated by enforced permissions (`manage_workspaces` / `spawn_agents`).
 
 export interface Backend {
   provider?: string;
@@ -113,10 +115,10 @@ export interface UsageSnapshot {
 }
 
 // One-shot agent compute. start() enqueues and returns immediately; poll() reads
-// the GraphWorkerRegistry — the VM is never held for the turn.
+// the GraphWorkerRegistry — the VM is never held for the turn. Sync per step.
 export interface HostWorker {
-  start(opts: { backend?: Backend; task: string }): Promise<{ jobId: string }>;
-  poll(jobId: string): Promise<{ done: boolean; report?: string; error?: string }>;
+  start(opts: { backend?: Backend; task: string }): { jobId: string };
+  poll(jobId: string): { done: boolean; report?: string; error?: string };
 }
 
 // Synchronous: workspace ensure/list are cheap mux ops, not agent turns.
@@ -128,18 +130,20 @@ export interface HostWorkspace {
 // A team of long-lived agent sessions the PLUGIN owns and reaps (R2). spawn starts
 // a FRESH session; resume re-attaches a SPECIFIC stored session; get looks up the
 // plugin's own key→session map. send/poll is the job-id/poll bridge (F4) — send
-// returns a ticket, the plugin polls for the reply, the VM never blocks.
+// returns a ticket, the plugin polls for the reply, the VM never blocks. Every
+// method is sync per step (Item 6): the call returns immediately; the agent turn
+// runs on the host between `send` and a later `poll`.
 export interface HostAgent {
   spawn(
     workspaceId: string,
     opts: { backend?: Backend; task: string; key?: string; commands?: string[] },
-  ): Promise<{ sessionId: string }>;
-  resume(workspaceId: string, sessionId: string): Promise<{ sessionId: string } | null>;
-  get(workspaceId: string, key: string): Promise<{ sessionId: string } | null>;
-  send(sessionId: string, text: string): Promise<{ ticket: string }>;
-  poll(ticket: string): Promise<{ done: boolean; reply?: string; error?: string }>;
-  reap(sessionId: string): Promise<void>;
-  usage?(sessionId: string): Promise<UsageSnapshot | null>;
+  ): { sessionId: string };
+  resume(workspaceId: string, sessionId: string): { sessionId: string } | null;
+  get(workspaceId: string, key: string): { sessionId: string } | null;
+  send(sessionId: string, text: string): { ticket: string };
+  poll(ticket: string): { done: boolean; reply?: string; error?: string };
+  reap(sessionId: string): void;
+  usage?(sessionId: string): UsageSnapshot | null;
 }
 
 // Synchronous: mem search is sync (mem/manager_search.rs), so a sync stage like

@@ -514,12 +514,14 @@ pub async fn chat_send_text(
 ) -> Result<(), String> {
     let enter = enter.unwrap_or(true);
     // P3/F3: the desktop composer is always a user turn (no svc_token, no
-    // source_pane). Run the outbound text stages for PTY agent panes; chatBackend
-    // panes stage at their transport, so skip them here to avoid double-processing.
+    // source_pane). Run the outbound text stages only for AGENT panes (BUG A: a
+    // shell pane must never get a context block); chatBackend panes stage at
+    // their transport, so skip them here to avoid double-processing.
     let run_stages = crate::chatpipeline::is_user_turn_send(
         false,
         false,
         svc.pane_chat_backing(&pane_id).is_some(),
+        svc.pane_has_agent(&pane_id),
     );
     let text = if run_stages {
         svc.run_outbound_stages(&pane_id, text)

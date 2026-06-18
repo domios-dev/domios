@@ -319,6 +319,7 @@ pub async fn send_text(
         svc_token_match.is_some(),
         body.source_pane.is_some(),
         state.svc.pane_chat_backing(&pane_id).is_some(),
+        state.svc.pane_has_agent(&pane_id),
     );
     let stage = |s: String| -> String {
         if run_stages {

@@ -127,12 +127,18 @@ pub fn run_text_stages(
 /// chatBackend panes are excluded here because their transport already runs the
 /// stages (`pane_transport_chat` / the chat branch of `pty_io::send_text`) — a
 /// second run at this seam would double-process the message.
+///
+/// `is_agent_pane` is REQUIRED: the stages only make sense delivering to an AI
+/// agent. A plain SHELL pane must never get a `<context>` block injected — that
+/// garbles `echo X` and broke 23 e2e tests (BUG A regression). Shell panes (no
+/// detected `agent_type`) are therefore excluded.
 pub fn is_user_turn_send(
     is_service_push: bool,
     has_source_pane: bool,
     is_chat_backed: bool,
+    is_agent_pane: bool,
 ) -> bool {
-    !is_service_push && !has_source_pane && !is_chat_backed
+    is_agent_pane && !is_service_push && !has_source_pane && !is_chat_backed
 }
 
 /// Run the compose-time voice stage: resolve the active transcriber and turn an

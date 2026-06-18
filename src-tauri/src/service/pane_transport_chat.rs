@@ -117,6 +117,14 @@ impl ServiceContext {
             .map_err(|e| e.to_string())
     }
 
+    /// Advance an async chatBackend's in-flight work for a session (Item 6).
+    /// Called each poll-loop tick before `chatbackend_poll`; best-effort.
+    pub fn chatbackend_pump(&self, plugin_id: &str, session_id: &str) -> Result<(), String> {
+        self.chatbackend_provider(plugin_id)?
+            .pump(session_id)
+            .map_err(|e| e.to_string())
+    }
+
     /// Pull new transcript messages from a plugin session.
     pub fn chatbackend_poll(
         &self,

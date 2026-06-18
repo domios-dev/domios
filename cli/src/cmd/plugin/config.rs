@@ -65,18 +65,21 @@ pub(super) fn config_command(
     let (_schema, secret_keys) = load_schema(&dir, &manifest);
     let known_keys = known_keys(&dir, &manifest);
 
-    let mut updates: Vec<(String, String)> = Vec::new();
+    let mut updates: Vec<(String, Value)> = Vec::new();
     for s in sets {
         let (k, v) = s
             .split_once('=')
             .ok_or_else(|| format!("--set expects KEY=VALUE, got '{s}'"))?;
-        updates.push((k.trim().to_string(), v.to_string()));
+        // Infer the scalar TYPE from the string so `enabled=false` writes a real
+        // YAML boolean, not the truthy string "false" (BUG B).
+        updates.push((k.trim().to_string(), infer_scalar(v)));
     }
     if let Some(j) = values_json {
         let obj: serde_json::Map<String, Value> = serde_json::from_str(j)
             .map_err(|e| format!("--values-json must be a JSON object: {e}"))?;
         for (k, v) in obj {
-            updates.push((k, json_scalar_to_string(&v)));
+            // The JSON value already carries its type — preserve it verbatim.
+            updates.push((k, v));
         }
     }
     if updates.is_empty() && grants.is_empty() && revokes.is_empty() {
@@ -259,11 +262,35 @@ fn yaml_has_content(text: &str) -> bool {
         .any(|l| !l.is_empty() && !l.starts_with('#'))
 }
 
+/// Infer the scalar type of a `--set KEY=VALUE` string so booleans and numbers
+/// land in the YAML as their native types — `enabled=false` → `false` (bool),
+/// `port=8080` → `8080` (number), everything else stays a string. Without this,
+/// `enabled=false` was stored as the quoted string "false", which is truthy in
+/// the plugin VM, so the toggle never took effect (BUG B).
+fn infer_scalar(s: &str) -> Value {
+    match s {
+        "true" => return Value::Bool(true),
+        "false" => return Value::Bool(false),
+        _ => {}
+    }
+    if let Ok(i) = s.parse::<i64>() {
+        return Value::from(i);
+    }
+    // Only treat as a float when it round-trips and actually looks numeric (so
+    // "1.2.3" / "http://x" stay strings). serde_json::Number guards NaN/inf.
+    if let Ok(f) = s.parse::<f64>() {
+        if let Some(n) = serde_json::Number::from_f64(f) {
+            return Value::Number(n);
+        }
+    }
+    Value::String(s.to_string())
+}
+
 /// Set a top-level `key: value`, preserving comments. Replaces the value of an
 /// existing `key:` line (keeping any trailing ` # comment`), otherwise appends a
-/// new `key: value` line. The value is YAML-encoded so strings needing quotes
-/// are quoted correctly.
-fn yaml_set_scalar(text: &str, key: &str, value: &str) -> String {
+/// new `key: value` line. The value is YAML-encoded by type so booleans/numbers
+/// stay native and strings are quoted only when needed.
+fn yaml_set_scalar(text: &str, key: &str, value: &Value) -> String {
     let encoded = encode_scalar(value);
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
     let mut replaced = false;
@@ -323,18 +350,13 @@ fn top_level_key<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     Some(rest)
 }
 
-fn encode_scalar(value: &str) -> String {
-    serde_yaml::to_string(&Value::String(value.to_string()))
+/// YAML-encode a typed scalar to a single line. Booleans/numbers emit natively
+/// (`false`, `8080`); strings are quoted only when YAML requires it.
+fn encode_scalar(value: &Value) -> String {
+    serde_yaml::to_string(value)
         .ok()
         .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| format!("\"{value}\""))
-}
-
-fn json_scalar_to_string(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        other => other.to_string(),
-    }
+        .unwrap_or_else(|| value.to_string())
 }
 
 #[cfg(test)]
@@ -344,7 +366,7 @@ mod tests {
     #[test]
     fn set_scalar_replaces_value_preserving_comment() {
         let yaml = "# the speech engine\nengine: whisper # default\nport: 8080\n";
-        let out = yaml_set_scalar(yaml, "engine", "deepgram");
+        let out = yaml_set_scalar(yaml, "engine", &infer_scalar("deepgram"));
         assert!(out.contains("# the speech engine"), "leading comment kept");
         assert!(
             out.contains("engine: deepgram # default"),
@@ -355,9 +377,36 @@ mod tests {
 
     #[test]
     fn set_scalar_appends_unknown_key() {
-        let out = yaml_set_scalar("engine: whisper\n", "serverUrl", "http://x");
+        let out = yaml_set_scalar("engine: whisper\n", "serverUrl", &infer_scalar("http://x"));
         assert!(out.contains("engine: whisper"));
         assert!(out.contains("serverUrl: http://x"));
+    }
+
+    #[test]
+    fn set_bool_writes_native_yaml_bool_not_string() {
+        // BUG B: `--set enabled=false` must write a real boolean. Quoting it as
+        // the string "false" leaves it truthy in JS, so the plugin never
+        // disables and augmentation keeps running.
+        let out = yaml_set_scalar("enabled: 'true'\n", "enabled", &infer_scalar("false"));
+        assert!(
+            out.contains("enabled: false"),
+            "native bool expected: {out}"
+        );
+        assert!(
+            !out.contains("'false'") && !out.contains("\"false\""),
+            "must not be a quoted string: {out}"
+        );
+    }
+
+    #[test]
+    fn infer_scalar_types_bool_number_string() {
+        assert_eq!(infer_scalar("true"), serde_json::json!(true));
+        assert_eq!(infer_scalar("false"), serde_json::json!(false));
+        assert_eq!(infer_scalar("8080"), serde_json::json!(8080));
+        assert_eq!(infer_scalar("0.5"), serde_json::json!(0.5));
+        assert_eq!(infer_scalar("whisper"), serde_json::json!("whisper"));
+        // A version-like / url string stays a string (not a number).
+        assert_eq!(infer_scalar("http://x"), serde_json::json!("http://x"));
     }
 
     #[test]

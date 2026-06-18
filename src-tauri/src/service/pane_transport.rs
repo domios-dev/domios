@@ -143,6 +143,17 @@ impl ServiceContext {
         }
     }
 
+    /// Whether `pane_id` (or its alias) is an AGENT pane — it has a detected
+    /// agent provider (`agent_type`). Used to gate the outbound preprocessor to
+    /// agent recipients only (BUG A): a plain shell pane must never receive an
+    /// injected `<context>` block.
+    pub(crate) fn pane_has_agent(&self, pane_id: &str) -> bool {
+        let mux = self.mux.lock();
+        mux.resolve_pane_id(pane_id)
+            .and_then(|resolved| mux.get_pane(&resolved).and_then(|p| p.agent_type.clone()))
+            .is_some()
+    }
+
     /// Send-time outbound stage hook (plan Track B↔C contract). Runs the
     /// registered `chatPreprocessor` text stages over the outbound text before
     /// dispatching to transport. No stages ⇒ identity (Track B's shipped

@@ -134,8 +134,14 @@ impl ServiceContext {
                     break;
                 }
                 let (svc2, plugin2, sid2) = (svc.clone(), plugin_id.clone(), session_id.clone());
-                match tokio::task::spawn_blocking(move || svc2.chatbackend_poll(&plugin2, &sid2))
-                    .await
+                match tokio::task::spawn_blocking(move || {
+                    // Item 6: advance any async work (NPC agent tickets → replies)
+                    // BEFORE reading the transcript, so a host-driven async
+                    // chatBackend actually progresses on the real daemon.
+                    let _ = svc2.chatbackend_pump(&plugin2, &sid2);
+                    svc2.chatbackend_poll(&plugin2, &sid2)
+                })
+                .await
                 {
                     Ok(Ok(msgs)) if !msgs.is_empty() => sink.emit(&pane_id, msgs, None),
                     Ok(Ok(_)) => {}
