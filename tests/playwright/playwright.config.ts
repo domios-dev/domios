@@ -1,5 +1,11 @@
 import { defineConfig } from "@playwright/test";
 
+const postMortemArtifacts = {
+  trace: "retain-on-failure-and-retries" as const,
+  video: "retain-on-failure" as const,
+  screenshot: "only-on-failure" as const,
+};
+
 /**
  * One app instance, one worker — every suite drives the same live dev
  * console (port 7686) over CDP + REST. Parallel workers would fight over
@@ -11,12 +17,21 @@ export default defineConfig({
   fullyParallel: false,
   timeout: 90_000,
   expect: { timeout: 10_000 },
-  retries: 0,
-  reporter: [["list"]],
+  outputDir: "./artifacts/test-results",
+  reporter: [
+    ["list"],
+    ["html", { outputFolder: "./artifacts/html-report", open: "never" }],
+  ],
+  use: postMortemArtifacts,
   globalSetup: "./helpers/global-setup",
   projects: [
-    { name: "smoke", grep: /@smoke/ },
-    { name: "golden", grep: /@golden/, retries: 1, timeout: 300_000 },
-    { name: "full", grepInvert: /@quarantine/ },
+    { name: "smoke", grep: /@smoke/, retries: 0 },
+    {
+      name: "golden",
+      grep: /@golden/,
+      retries: 1,
+      timeout: 300_000,
+    },
+    { name: "full", grepInvert: /@quarantine/, retries: 1 },
   ],
 });
