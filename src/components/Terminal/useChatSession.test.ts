@@ -31,7 +31,7 @@ Object.defineProperty(globalThis, "CustomEvent", {
   value: TestCustomEvent,
 });
 
-assert(!isCodeTermFrontendTestMode({ DEV: false, VITE_CODETERM_TEST: "1" }), "release ignores chat test flag");
+assert(isCodeTermFrontendTestMode({ DEV: false, VITE_CODETERM_TEST: "1" }), "built web harness honors chat test flag");
 assert(isCodeTermFrontendTestMode({ DEV: true, VITE_CODETERM_TEST: "1" }), "dev chat test flag enables test mode");
 
 resetTestChatClockForCodeTerm();
