@@ -2,6 +2,7 @@
 // agent providers to AgentProviderScreen and secret backends to
 // SecretBackendDetail (unchanged behavior); everything else gets the generic
 // header + primary action + capabilities + settings + markdown description.
+import { useState } from "react";
 import {
   canUninstall,
   capabilityKeys,
@@ -23,6 +24,7 @@ import type { AppConfig, PluginActivity, ProviderConfig } from "../../lib/types"
 import { PluginActivityInline } from "./PluginActivityInline";
 
 export type ActionKind = "install" | "update" | "remove";
+export type ActionOptions = { removeData?: boolean };
 
 export function PluginDetailPanel({
   entry,
@@ -38,11 +40,14 @@ export function PluginDetailPanel({
   config: AppConfigShape | null;
   busy: string | null;
   activity?: PluginActivity;
-  onAction: (kind: ActionKind, entry: CatalogEntry) => void;
+  onAction: (kind: ActionKind, entry: CatalogEntry, options?: ActionOptions) => void;
   onSave: (pluginId: string, key: string, value: unknown) => Promise<void>;
   onUpdateFullConfig: (next: AppConfig) => void | Promise<void>;
   onGone: () => void;
 }) {
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [removeData, setRemoveData] = useState(true);
+
   // Agent plugins render their real provider settings via the shared screen.
   if (entry.capabilities?.agent_provider && config) {
     return (
@@ -75,10 +80,15 @@ export function PluginDetailPanel({
     for (const [k, v] of Object.entries(patch)) void onSave(id, k, v);
   };
 
+  const beginRemove = () => {
+    setRemoveData(true);
+    setConfirmingRemove(true);
+  };
+
   const runPrimary = () => {
     if (action.kind === "install") onAction("install", entry);
     else if (action.kind === "update") onAction("update", entry);
-    else if (action.kind === "uninstall") onAction("remove", entry);
+    else if (action.kind === "uninstall") beginRemove();
   };
 
   return (
@@ -112,7 +122,7 @@ export function PluginDetailPanel({
           )}
           {showUninstall && (
             <button
-              onClick={() => onAction("remove", entry)}
+              onClick={beginRemove}
               disabled={anyBusy}
               style={secondaryBtnStyle(anyBusy)}
             >
@@ -121,6 +131,60 @@ export function PluginDetailPanel({
           )}
         </div>
       </div>
+
+      {confirmingRemove && (
+        <div
+          role="dialog"
+          aria-label={`Uninstall ${entry.displayName}`}
+          style={{
+            border: "1px solid rgba(229,115,115,0.36)",
+            borderRadius: 8,
+            padding: 12,
+            marginBottom: 14,
+            background: "rgba(229,115,115,0.08)",
+          }}
+        >
+          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>
+            Uninstall {entry.displayName}?
+          </div>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 12,
+              color: "var(--ct-fg)",
+              marginBottom: 10,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={removeData}
+              onChange={(e) => setRemoveData(e.currentTarget.checked)}
+            />
+            also remove downloaded data
+          </label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => {
+                setConfirmingRemove(false);
+                onAction("remove", entry, { removeData });
+              }}
+              disabled={anyBusy}
+              style={primaryBtnStyle("uninstall", anyBusy)}
+            >
+              Uninstall
+            </button>
+            <button
+              onClick={() => setConfirmingRemove(false)}
+              disabled={anyBusy}
+              style={secondaryBtnStyle(anyBusy)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {entry.pendingReload && (
         <div

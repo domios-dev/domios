@@ -113,6 +113,19 @@ pub fn usage_tracking_enabled(provider_id: &str) -> bool {
         .unwrap_or(false)
 }
 
+pub fn cleanup_removed_plugin_config(plugin_id: &str) -> Result<(), String> {
+    let mut config = load_config();
+    cleanup_removed_plugin_config_in_memory(&mut config, plugin_id);
+    save_config(&config)
+}
+
+fn cleanup_removed_plugin_config_in_memory(config: &mut AppConfig, plugin_id: &str) {
+    config.plugins.remove(plugin_id);
+    if config.integrations.voice_transcribe.active == plugin_id {
+        config.integrations.voice_transcribe.active = schema::default_transcribe_active();
+    }
+}
+
 /// Load config from disk, or create default if missing.
 /// Auto-generates an API token when none is configured — the internal
 /// webview and the CLI both need it to authenticate against the REST API.
@@ -340,6 +353,28 @@ size = 16
         let loaded: AppConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(loaded.font.size, 18);
         assert_eq!(loaded.api.port, 9999);
+    }
+
+    #[test]
+    fn cleanup_removed_plugin_config_drops_plugin_and_resets_active_transcriber() {
+        let mut config = AppConfig::default();
+        config.plugins.insert(
+            "transcriber".to_string(),
+            serde_json::json!({"model": "large-v3"}),
+        );
+        config
+            .plugins
+            .insert("other".to_string(), serde_json::json!({"ok": true}));
+        config.integrations.voice_transcribe.active = "transcriber".to_string();
+
+        cleanup_removed_plugin_config_in_memory(&mut config, "transcriber");
+
+        assert!(!config.plugins.contains_key("transcriber"));
+        assert!(config.plugins.contains_key("other"));
+        assert_eq!(
+            config.integrations.voice_transcribe.active,
+            schema::default_transcribe_active()
+        );
     }
 
     #[test]
