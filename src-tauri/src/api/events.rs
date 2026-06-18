@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
+use crate::plugin::activity::PluginActivity;
+
 /// Typed system events published on the in-process bus.
 /// Plugins subscribe to this enum; the webhook broadcaster still fires
 /// per-event-type HTTP POSTs for external integrations.
@@ -44,6 +46,7 @@ pub enum SystemEvent {
     ContributionsChanged {
         kind: String,
     },
+    PluginActivity(PluginActivity),
     /// Escape hatch for events that don't have a typed variant yet.
     Generic {
         event_type: String,
@@ -63,6 +66,7 @@ impl SystemEvent {
             Self::AgentIdle { .. } => "agent-idle",
             Self::ConfigChanged { .. } => "config-changed",
             Self::ContributionsChanged { .. } => "contributions-changed",
+            Self::PluginActivity(_) => "plugin-activity",
             Self::Generic { .. } => "generic",
         }
     }
@@ -286,6 +290,21 @@ mod tests {
             }
             .type_name(),
             "pane-title-pinned",
+        );
+        assert_eq!(
+            SystemEvent::PluginActivity(PluginActivity {
+                id: "a".into(),
+                plugin_id: "plugin".into(),
+                kind: "install".into(),
+                label: "Installing".into(),
+                percent: None,
+                status: "running".into(),
+                error: None,
+                started_at: 1,
+                updated_at: 1,
+            })
+            .type_name(),
+            "plugin-activity",
         );
     }
 }

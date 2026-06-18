@@ -602,6 +602,7 @@ pub fn run() {
                 workers: crate::mem::workers::GraphWorkerRegistry::load(
                     crate::paths::data_dir().join("mem").join("workers.json"),
                 ),
+                plugin_activity: Arc::new(crate::plugin::activity::PluginActivityRegistry::new()),
                 worker_pool: Arc::new(crate::mem::worker_pool::WorkerPool::new(
                     crate::config::memory_config().workers_per_provider,
                 )),

@@ -85,6 +85,7 @@ pub struct ServiceContext {
     pub mem_supervisor: Arc<crate::mem::supervisor::Supervisor>,
     pub activity: Arc<crate::mem::activity::ActivityRing>,
     pub workers: Arc<crate::mem::workers::GraphWorkerRegistry>,
+    pub plugin_activity: Arc<crate::plugin::activity::PluginActivityRegistry>,
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
     // Stable pane→pty map for hidden agent runs; survives close_pane so the unified AgentRun log endpoints can read closed-worker output.
