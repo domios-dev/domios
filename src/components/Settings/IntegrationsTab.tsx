@@ -9,7 +9,7 @@ export function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpd
   );
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5" data-testid="settings-integrations-tab">
       <SettingsCard
         icon={<Send size={16} />}
         title="Telegram"
@@ -34,6 +34,7 @@ export function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpd
               <div className="text-xs text-[var(--ct-muted-fg)]">Allowed user IDs (comma-separated, empty = all)</div>
               <input
                 type="text"
+                data-testid="settings-telegram-allowed-users"
                 value={allowedUsersText}
                 onChange={(e) => {
                   setAllowedUsersText(e.target.value);

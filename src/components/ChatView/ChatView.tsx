@@ -385,6 +385,8 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     <div
       ref={rootRef}
       className="flex flex-col w-full h-full select-text"
+      data-testid="direct-chat-view"
+      data-pane-id={paneId}
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
@@ -399,9 +401,10 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         ref={scrollContainerRef}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto py-4 px-4 select-text cursor-text"
+        data-testid="direct-chat-messages"
       >
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3">
+          <div className="flex flex-col items-center justify-center h-full gap-3" data-testid="direct-chat-loading">
             <div className="flex gap-1">
               <div className="w-2 h-2 rounded-full bg-[var(--ct-blue)] animate-bounce" style={{ animationDelay: '0ms' }} />
               <div className="w-2 h-2 rounded-full bg-[var(--ct-blue)] animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -412,7 +415,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             </span>
           </div>
         ) : messages.length === 0 && !pendingPrompt ? (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex items-center justify-center h-full" data-testid="direct-chat-empty">
             <span
               className="text-xs"
               style={{ color: "var(--ct-muted, #8b949e)" }}
@@ -425,6 +428,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             {hasMore && (
               <div className="flex justify-center py-2">
                 <button
+                  data-testid="direct-chat-load-more"
                   onClick={() => setVisibleCount(prev => prev + 50)}
                   className="text-[10px] px-3 py-1 rounded-md transition-colors"
                   style={{ color: "var(--ct-blue)", background: "var(--ct-bg-hover, rgba(255,255,255,0.04))" }}
@@ -433,10 +437,14 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
                 </button>
               </div>
             )}
-            {messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)}
+            {messages.map((msg) => (
+              <div key={msg.id} data-testid="direct-chat-message" data-message-role={msg.type}>
+                <MessageBubble message={msg} />
+              </div>
+            ))}
             {/* Thinking indicator — shown after sending message, before Claude responds */}
             {waitingForReply && !pendingPrompt && (
-              <div className="mb-3 max-w-4xl mx-auto">
+              <div className="mb-3 max-w-4xl mx-auto" data-testid="direct-chat-waiting-reply">
                 <span
                   className="inline-flex items-center gap-1 text-sm"
                   style={{ color: "var(--ct-muted-fg, #8b949e)" }}
@@ -451,7 +459,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             )}
             {/* Permission prompt — interactive buttons */}
             {pendingPrompt && (
-              <div className="mb-3 max-w-4xl mx-auto">
+              <div className="mb-3 max-w-4xl mx-auto" data-testid="direct-chat-permission-prompt">
                 <div
                   className="rounded-lg px-4 py-3 border"
                   style={{
@@ -469,6 +477,8 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
                     {pendingPrompt.options.map((opt) => (
                       <button
                         key={opt.value}
+                        data-testid="direct-chat-prompt-option"
+                        data-prompt-value={opt.value}
                         onClick={async () => {
                           setPendingPrompt(null);
                           pendingPromptRef.current = null;
@@ -500,6 +510,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       {/* Input area */}
       <div
         className="flex-shrink-0 px-3 py-2 transition-all duration-200"
+        data-testid="direct-chat-input-area"
         style={{
           borderTop: "1px solid var(--ct-border, #30363d)",
           background: "var(--ct-surface, #161b22)",
@@ -508,9 +519,9 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       >
         {/* Attachments preview */}
         {attachments.length > 0 && (
-          <div className="flex gap-2 pb-2 pt-1 px-1 overflow-x-auto" style={{ overflow: "visible" }}>
+          <div className="flex gap-2 pb-2 pt-1 px-1 overflow-x-auto" style={{ overflow: "visible" }} data-testid="direct-chat-attachments">
             {attachments.map(att => (
-              <div key={att.id} className="relative flex-shrink-0 group">
+              <div key={att.id} className="relative flex-shrink-0 group" data-testid="direct-chat-attachment" data-attachment-name={att.name}>
                 {att.preview ? (
                   <img
                     src={att.preview}
@@ -528,6 +539,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
                   </div>
                 )}
                 <button
+                  data-testid="direct-chat-remove-attachment"
                   onClick={() => setAttachments(prev => prev.filter(a => a.id !== att.id))}
                   className="absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center text-[10px] leading-none font-bold shadow-md"
                   style={{ background: "#f85149", color: "#fff" }}
@@ -541,6 +553,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         {/* Expand button — visible only when textarea hit max height */}
         {inputAtMax && !inputExpanded && (
           <button
+            data-testid="direct-chat-expand"
             onClick={toggleExpand}
             className="w-full flex items-center justify-center gap-1 py-1 text-[10px] transition-colors hover:bg-[var(--ct-bg-hover)]"
             style={{ color: "var(--ct-muted, #8b949e)" }}
@@ -551,6 +564,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         )}
         {inputExpanded && (
           <button
+            data-testid="direct-chat-collapse"
             onClick={toggleExpand}
             className="w-full flex items-center justify-center gap-1 py-1 text-[10px] transition-colors hover:bg-[var(--ct-bg-hover)]"
             style={{ color: "var(--ct-muted, #8b949e)" }}
@@ -560,6 +574,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
           </button>
         )}
         <div
+          data-testid="direct-chat-composer-shell"
           className={`flex gap-2 rounded-lg px-3 py-2 ${inputExpanded ? "items-stretch" : "items-center"}`}
           style={{
             background: "var(--ct-bg, #0d1117)",
@@ -569,6 +584,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         >
           <textarea
             ref={textareaRef}
+            data-testid="direct-chat-composer"
             value={input}
             onChange={(e) => {
               setInput(e.target.value);
@@ -604,6 +620,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             }}
           />
           <button
+            data-testid="direct-chat-send"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               sendMessage();

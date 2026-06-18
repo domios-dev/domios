@@ -415,6 +415,7 @@ export function TerminalPane({
   return (
     <div
       className="w-full h-full relative"
+      data-testid="terminal-pane"
       data-pane-id={paneId}
       style={{
         boxSizing: "border-box",
@@ -465,6 +466,8 @@ export function TerminalPane({
           ? "absolute inset-0 grid grid-rows-[minmax(0,1fr)_auto] overflow-hidden"
           : "absolute"
         }
+        data-testid="terminal-frame"
+        data-terminal-visible={terminalVisible ? "true" : "false"}
         style={{
           top: showTerminalKeyBar
             ? undefined
@@ -517,11 +520,12 @@ export function TerminalPane({
           }}
           onClick={() => termRef.current?.focus()}
         >
-          <div ref={containerRef} className="terminal-xterm-host w-full h-full" />
+          <div ref={containerRef} className="terminal-xterm-host w-full h-full" data-testid="terminal-xterm-host" />
         </div>
         {showTerminalKeyBar && (
           <div
             className="min-w-0 border-t px-2 pt-2"
+            data-testid="terminal-keybar-container"
             style={{
               paddingBottom: "var(--ct-composer-bottom-padding, 0.5rem)",
               borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 24%, transparent)",
@@ -536,6 +540,7 @@ export function TerminalPane({
       {mobileSheet && (
         <div
           className="absolute inset-0"
+          data-testid="terminal-sheet-backdrop"
           style={{
             zIndex: 3,
             background: "rgba(0, 0, 0, 0.6)",
@@ -599,6 +604,7 @@ export function TerminalPane({
               boxShadow: FB_SHADOW,
               animation: "ct-fb-in 200ms cubic-bezier(0.32, 0.72, 0, 1)",
             }}
+            data-testid="terminal-fallback-header"
           >
             <span
               className="flex items-center gap-2 text-[13px] font-semibold tracking-tight"
@@ -609,6 +615,7 @@ export function TerminalPane({
             </span>
             <button
               type="button"
+              data-testid="terminal-fallback-close"
               className="inline-flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_18%,transparent)]"
               style={{ color: "var(--ct-muted-fg)" }}
               onMouseDown={(e) => e.preventDefault()}
@@ -626,6 +633,7 @@ export function TerminalPane({
           {/* Sheet header: grabber, live title, native Done */}
           <div
             className="absolute pointer-events-auto flex items-center justify-between px-3"
+            data-testid="terminal-sheet-header"
             style={{
               top: SHEET_TOP,
               left: 10,
@@ -666,6 +674,7 @@ export function TerminalPane({
           {/* Sheet footer: integrated key bar */}
           <div
             className="absolute pointer-events-auto px-3 pt-2"
+            data-testid="terminal-sheet-footer"
             style={{
               bottom: "0.75rem",
               left: 10,
@@ -689,6 +698,7 @@ export function TerminalPane({
           pointer-events: none so the drag continues to bubble naturally. */}
       <div
         className="absolute inset-2 rounded-md flex items-center justify-center pointer-events-none"
+        data-testid="terminal-drop-overlay"
         style={{
           opacity: showDropOverlay ? 1 : 0,
           transition: "opacity 120ms ease-out",
@@ -699,6 +709,7 @@ export function TerminalPane({
       >
         <div
           className="px-3 py-1.5 rounded text-[12px] font-medium"
+          data-testid="terminal-drop-overlay-label"
           style={{
             background: "color-mix(in srgb, var(--ct-bg, #0d1117) 80%, transparent)",
             color: "var(--ct-fg, #c9d1d9)",
@@ -713,6 +724,7 @@ export function TerminalPane({
       {shell.overlayVisible && (
         <div
           className={`absolute inset-0 ${!shell.shellReady ? "terminal-loading-overlay" : ""}`}
+          data-testid="terminal-loading-overlay"
           style={{
             background: "var(--ct-bg, #0d1117)",
             opacity: shell.shellReady ? 0 : 1,

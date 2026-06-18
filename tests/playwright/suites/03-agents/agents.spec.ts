@@ -13,20 +13,12 @@
  * Auth: the spawned agent uses the host's provider CLI login (claude CLI
  * on this machine) — no API key env needed for the claude provider.
  */
-import { expect, test } from "@playwright/test";
-import { ApiClient } from "../../helpers/api-client";
-import { connectUi } from "../../helpers/dev-console";
-import { apiReset } from "../../helpers/reset";
-
-const api = new ApiClient();
-
-test.afterAll(async () => {
-  await apiReset(api);
-});
+import { expect, test, type SpawnAgent } from "../../helpers/fixtures";
+import { pollUntil } from "../../helpers/poll";
 
 // ── @smoke: no LLM involved ──────────────────────────────────────────
 
-test("@smoke spawn with an unknown provider errors honestly", async () => {
+test("@smoke spawn with an unknown provider errors honestly", async ({ api }) => {
   let status = 0;
   let message = "";
   try {
@@ -39,43 +31,35 @@ test("@smoke spawn with an unknown provider errors honestly", async () => {
   expect(message).toContain("definitely-no-such-provider");
 });
 
-test("@smoke report IPC primitive: child report lands in parent inbox (no LLM)", async () => {
-  const parent = (await api.createPane({ title: "pw-report-parent" })) as { id: string };
-  const child = (await api.createPane({ title: "pw-report-child" })) as { id: string };
-  try {
-    // 2-level hierarchy: a Worker's parent must be an Orchestrator.
-    await api.post(`/panes/${parent.id}/role`, { role: "Orchestrator" });
-    await api.post(`/panes/${child.id}/role`, {
-      role: "Worker",
-      parent_pane_id: parent.id,
-    });
+test("@smoke report IPC primitive: child report lands in parent inbox (no LLM)", async ({ api, paneCleanup }) => {
+  const parent = await paneCleanup.createPane({ title: "pw-report-parent" });
+  const child = await paneCleanup.createPane({ title: "pw-report-child" });
+  // 2-level hierarchy: a Worker's parent must be an Orchestrator.
+  await api.post(`/panes/${parent.id}/role`, { role: "Orchestrator" });
+  await api.post(`/panes/${child.id}/role`, {
+    role: "Worker",
+    parent_pane_id: parent.id,
+  });
 
-    const marker = `pw-report-${Date.now()}`;
-    const submitted = await api.post<{ ok: boolean; report_id: string }>(
-      `/panes/${child.id}/report`,
-      { message: marker },
-    );
-    expect(submitted.ok).toBe(true);
-    expect(submitted.report_id).toBeTruthy();
+  const marker = `pw-report-${Date.now()}`;
+  const submitted = await api.post<{ ok: boolean; report_id: string }>(
+    `/panes/${child.id}/report`,
+    { message: marker },
+  );
+  expect(submitted.ok).toBe(true);
+  expect(submitted.report_id).toBeTruthy();
 
-    const reports = await api.get<unknown>(`/panes/${parent.id}/reports?clear=true`);
-    const text = JSON.stringify(reports);
-    expect(text, `parent inbox missing the report: ${text.slice(0, 300)}`).toContain(marker);
-    expect(text, "report must carry the reporting pane id").toContain(child.id);
-  } finally {
-    await api.closePane(child.id).catch(() => {});
-    await api.closePane(parent.id).catch(() => {});
-  }
+  const reports = await api.get<unknown>(`/panes/${parent.id}/reports?clear=true`);
+  const text = JSON.stringify(reports);
+  expect(text, `parent inbox missing the report: ${text.slice(0, 300)}`).toContain(marker);
+  expect(text, "report must carry the reporting pane id").toContain(child.id);
 });
 
-test("@smoke pane status endpoint answers for a live pane and 404s for a dead id", async () => {
-  const pane = (await api.createPane({ title: "pw-status-probe" })) as { id: string };
-  try {
-    const status = await api.get<Record<string, unknown>>(`/panes/${pane.id}/status`);
-    expect(typeof status).toBe("object");
-  } finally {
-    await api.closePane(pane.id).catch(() => {});
-  }
+test("@smoke pane status endpoint answers for a live pane and 404s for a dead id", async ({ api, paneCleanup }) => {
+  const pane = await paneCleanup.createPane({ title: "pw-status-probe" });
+  const status = await api.get<Record<string, unknown>>(`/panes/${pane.id}/status`);
+  expect(typeof status).toBe("object");
+  await api.closePane(pane.id).catch(() => {});
   let code = 200;
   try {
     await api.get("/panes/no-such-pane/status");
@@ -87,22 +71,22 @@ test("@smoke pane status endpoint answers for a live pane and 404s for a dead id
 
 // ── @golden: ONE real LLM call ───────────────────────────────────────
 
-test("@golden real agent spawn → works → reports back (structural asserts)", async () => {
+test("@golden real agent spawn → works → reports back (structural asserts)", async ({ api, paneCleanup, spawnAgent }) => {
   // Real model latency + CLI startup; bounded, not unbounded.
   test.setTimeout(300_000);
 
-  const inbox = (await api.createPane({ title: "pw-agent-inbox" })) as { id: string };
+  const inbox = await paneCleanup.createPane({ title: "pw-agent-inbox" });
   const marker = `PW-AGENT-OK-${Date.now()}`;
   let agentPaneId: string | undefined;
 
   try {
     // 2-level hierarchy: a Worker must hang off an Orchestrator parent.
     await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
-    const spawned = await api.post<{
+    const spawned = await spawnAgent<{
       pane_id: string;
       agent: string;
       role?: string;
-    }>("/agents/spawn", {
+    }>({
       agent: "claude",
       model: "sonnet",
       role: "Worker",
@@ -126,14 +110,11 @@ test("@golden real agent spawn → works → reports back (structural asserts)",
     // The agent runs the report command; poll the inbox. Single LLM call,
     // no retries — if the model never reports within budget, that is a
     // real finding, not flake to paper over.
-    let reportText = "";
-    const deadline = Date.now() + 240_000;
-    while (Date.now() < deadline) {
+    const reportText = await pollUntil(async () => {
       const reports = await api.get<unknown>(`/panes/${inbox.id}/reports`);
-      reportText = JSON.stringify(reports);
-      if (reportText.includes(marker)) break;
-      await new Promise((r) => setTimeout(r, 3_000));
-    }
+      const text = JSON.stringify(reports);
+      return text.includes(marker) ? text : undefined;
+    }, 240_000, 3_000, "agent report reaches inbox");
     expect(reportText, "agent report with marker never arrived").toContain(marker);
 
     // Session detection is async but should have landed by report time.
@@ -143,28 +124,12 @@ test("@golden real agent spawn → works → reports back (structural asserts)",
     expect(status.agent_type).toBe("claude");
     expect(status.agent_session_id ?? "").not.toBe("");
   } finally {
-    if (agentPaneId) await api.closePane(agentPaneId).catch(() => {});
-    await api.closePane(inbox.id).catch(() => {});
+    if (agentPaneId) paneCleanup.track(agentPaneId);
   }
 });
 
-async function waitForMarkerInDom(
-  ui: Awaited<ReturnType<typeof connectUi>>,
-  marker: string,
-  timeout = 240_000,
-): Promise<void> {
-  await ui.page.waitForFunction(
-    (m) =>
-      Array.from(document.querySelectorAll(".xterm-accessibility")).some((tree) =>
-        (tree.textContent ?? "").includes(m),
-      ),
-    marker,
-    { timeout, polling: 1_000 },
-  );
-}
-
-async function spawnWorker(inboxId: string, task: string): Promise<string> {
-  const spawned = await api.post<{ pane_id: string }>("/agents/spawn", {
+async function spawnWorker(spawnAgent: SpawnAgent, inboxId: string, task: string): Promise<string> {
+  const spawned = await spawnAgent({
     agent: "claude",
     model: "sonnet",
     role: "Worker",
@@ -178,14 +143,13 @@ async function spawnWorker(inboxId: string, task: string): Promise<string> {
   return spawned.pane_id;
 }
 
-test("@golden multi-turn + tool round-trip observed in the live terminal DOM", async () => {
+test("@golden multi-turn + tool round-trip observed in the live terminal DOM", async ({ api, paneCleanup, spawnAgent, pollMarkerInDom }) => {
   // Turn 1 makes the agent EXECUTE a command (tool use — the echoed marker
   // only reaches the terminal if the tool actually ran); turn 2 sends a
   // follow-up into the same session and reads the reply from the DOM.
   test.setTimeout(420_000);
 
-  const ui = await connectUi();
-  const inbox = (await api.createPane({ title: "pw-mt-inbox" })) as { id: string };
+  const inbox = await paneCleanup.createPane({ title: "pw-mt-inbox" });
   const toolMarker = `PW-TOOL-${Date.now()}`;
   const toolLeft = toolMarker.slice(0, Math.floor(toolMarker.length / 2));
   const toolRight = toolMarker.slice(Math.floor(toolMarker.length / 2));
@@ -195,29 +159,33 @@ test("@golden multi-turn + tool round-trip observed in the live terminal DOM", a
   try {
     await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
     agentPaneId = await spawnWorker(
+      spawnAgent,
       inbox.id,
       `Run exactly this command and nothing else, then stop: node -e "console.log('${toolLeft}' + '${toolRight}')"`,
     );
-    await waitForMarkerInDom(ui, toolMarker);
+    await pollMarkerInDom(toolMarker);
+    const toolText = await api.get<{ text?: string } | string>(`/panes/${agentPaneId}/text`);
+    const toolBuffer = typeof toolText === "string" ? toolText : (toolText.text ?? JSON.stringify(toolText));
+    expect(toolBuffer, "tool command marker missing from pane buffer").toContain(toolMarker);
 
     // Same pane, same session — a real second turn.
     await api.post(`/panes/${agentPaneId}/send`, {
       text: `Reply with a single line containing exactly ${turn2Marker} and nothing else.`,
       enter: true,
     });
-    await waitForMarkerInDom(ui, turn2Marker);
+    await pollMarkerInDom(turn2Marker);
+    const turn2Text = await api.get<{ text?: string } | string>(`/panes/${agentPaneId}/text`);
+    const turn2Buffer = typeof turn2Text === "string" ? turn2Text : (turn2Text.text ?? JSON.stringify(turn2Text));
+    expect(turn2Buffer, "second turn marker missing from pane buffer").toContain(turn2Marker);
   } finally {
-    if (agentPaneId) await api.closePane(agentPaneId).catch(() => {});
-    await api.closePane(inbox.id).catch(() => {});
-    await ui.browser.close().catch(() => {});
+    if (agentPaneId) paneCleanup.track(agentPaneId);
   }
 });
 
-test("@golden agent restart mid-session resumes and stays usable", async () => {
+test("@golden agent restart mid-session resumes and stays usable", async ({ api, paneCleanup, spawnAgent, pollMarkerInDom }) => {
   test.setTimeout(420_000);
 
-  const ui = await connectUi();
-  const inbox = (await api.createPane({ title: "pw-restart-inbox" })) as { id: string };
+  const inbox = await paneCleanup.createPane({ title: "pw-restart-inbox" });
   const warmMarker = `PW-WARM-${Date.now()}`;
   const resumeMarker = `PW-RESUME-${Date.now()}`;
   let agentPaneId: string | undefined;
@@ -225,10 +193,11 @@ test("@golden agent restart mid-session resumes and stays usable", async () => {
   try {
     await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
     agentPaneId = await spawnWorker(
+      spawnAgent,
       inbox.id,
       `Reply with a single line containing exactly ${warmMarker} and nothing else.`,
     );
-    await waitForMarkerInDom(ui, warmMarker);
+    await pollMarkerInDom(warmMarker);
 
     const sessionBefore = (await api.panes()).find((p) => p.id === agentPaneId) as
       | { agent_session_id?: string }
@@ -242,23 +211,24 @@ test("@golden agent restart mid-session resumes and stays usable", async () => {
     expect(restart.restarting).toBe(true);
 
     // The pane must survive the restart and stay a claude agent pane.
-    const deadline = Date.now() + 120_000;
-    let pane: { agent_type?: string | null; agent_session_id?: string } | undefined;
-    while (Date.now() < deadline) {
-      pane = (await api.panes()).find((p) => p.id === agentPaneId);
-      if (pane?.agent_type === "claude") break;
-      await new Promise((r) => setTimeout(r, 2_000));
-    }
+    const pane = await pollUntil(async () => {
+      const found = (await api.panes()).find((p) => p.id === agentPaneId) as
+        | { agent_type?: string | null; agent_session_id?: string }
+        | undefined;
+      return found?.agent_type === "claude" ? found : undefined;
+    }, 120_000, 2_000, "agent pane survives restart");
     expect(pane?.agent_type, "pane lost its agent after restart").toBe("claude");
 
     // Usability after restart is the real bar: a fresh prompt round-trips.
-    // Give the resumed CLI a moment to be input-ready.
-    await new Promise((r) => setTimeout(r, 10_000));
+    await pollUntil(async () => {
+      const status = await api.get<Record<string, unknown>>(`/panes/${agentPaneId}/status`);
+      return status.agent_session_id || status.agent_type === "claude";
+    }, 120_000, 2_000, "restarted agent is input-ready");
     await api.post(`/panes/${agentPaneId}/send`, {
       text: `Reply with a single line containing exactly ${resumeMarker} and nothing else.`,
       enter: true,
     });
-    await waitForMarkerInDom(ui, resumeMarker);
+    await pollMarkerInDom(resumeMarker);
 
     // Resume (not a fresh session): the session id survives when it was
     // known before the restart.
@@ -271,26 +241,23 @@ test("@golden agent restart mid-session resumes and stays usable", async () => {
       );
     }
   } finally {
-    if (agentPaneId) await api.closePane(agentPaneId).catch(() => {});
-    await api.closePane(inbox.id).catch(() => {});
-    await ui.browser.close().catch(() => {});
+    if (agentPaneId) paneCleanup.track(agentPaneId);
   }
 });
 
-test("@golden fully live: agent response read from the rendered terminal DOM", async () => {
+test("@golden fully live: agent response read from the rendered terminal DOM", async ({ api, paneCleanup, spawnAgent, pollMarkerInDom }) => {
   // Real UI → real PTY → real LLM → real DOM. The WebGL canvas has no
   // readable text; the screenReaderMode accessibility tree
   // (.xterm-accessibility) is the renderer-independent observable.
   test.setTimeout(300_000);
 
-  const ui = await connectUi();
-  const inbox = (await api.createPane({ title: "pw-dom-inbox" })) as { id: string };
+  const inbox = await paneCleanup.createPane({ title: "pw-dom-inbox" });
   const marker = `PW-DOM-${Date.now()}`;
   let agentPaneId: string | undefined;
 
   try {
     await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
-    const spawned = await api.post<{ pane_id: string }>("/agents/spawn", {
+    const spawned = await spawnAgent({
       agent: "claude",
       model: "sonnet",
       role: "Worker",
@@ -305,14 +272,7 @@ test("@golden fully live: agent response read from the rendered terminal DOM", a
 
     // The model's reply lands in the agent pane's terminal; the active
     // pane's accessibility tree mirrors the viewport text.
-    await ui.page.waitForFunction(
-      (m) =>
-        Array.from(document.querySelectorAll(".xterm-accessibility")).some((tree) =>
-          (tree.textContent ?? "").includes(m),
-        ),
-      marker,
-      { timeout: 240_000, polling: 1_000 },
-    );
+    await pollMarkerInDom(marker);
 
     // Cross-check the same content through the PTY text API — DOM and
     // daemon-side buffer must agree.
@@ -320,8 +280,6 @@ test("@golden fully live: agent response read from the rendered terminal DOM", a
     const buffer = typeof text === "string" ? text : (text.text ?? JSON.stringify(text));
     expect(buffer, "PTY buffer missing the marker the DOM showed").toContain(marker);
   } finally {
-    if (agentPaneId) await api.closePane(agentPaneId).catch(() => {});
-    await api.closePane(inbox.id).catch(() => {});
-    await ui.browser.close().catch(() => {});
+    if (agentPaneId) paneCleanup.track(agentPaneId);
   }
 });

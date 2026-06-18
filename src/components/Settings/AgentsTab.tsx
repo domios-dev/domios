@@ -25,7 +25,7 @@ export function AgentsOverview({
   const { providers, loading, error } = useAgentProviders();
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5" data-testid="settings-agents-overview">
       <NotificationsGroup
         config={config}
         onUpdate={onUpdate}
@@ -48,6 +48,7 @@ export function AgentsOverview({
               <span className="text-xs text-[var(--ct-muted-fg)]">Provider</span>
               <div className="flex items-center gap-2">
                 <select
+                  data-testid="settings-general-agent-provider"
                   value={config.general_agent?.agent_provider ?? providers[0]?.id ?? ""}
                   onChange={(e) => onUpdate("general_agent", { agent_provider: e.target.value })}
                   className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
@@ -57,6 +58,7 @@ export function AgentsOverview({
                   ))}
                 </select>
                 <button
+                  data-testid="settings-general-agent-restart"
                   onClick={() => {
                     invoke("restart_general_agent").catch((e) => console.error("GA restart failed:", e));
                   }}
@@ -103,6 +105,7 @@ export function AgentsOverview({
         headerRight={
           <button
             type="button"
+            data-testid="settings-open-provider-plugins"
             onClick={onOpenPlugins}
             className="flex items-center gap-1 rounded-full bg-[var(--ct-accent)]/12 px-2.5 py-1 text-[10px] font-medium text-[var(--ct-accent)] transition-colors hover:bg-[var(--ct-accent)]/20 active:scale-95"
             title="Providers are installed and managed as plugins"
@@ -125,6 +128,8 @@ export function AgentsOverview({
           {providers.map((p) => (
             <button
               key={p.id}
+              data-testid="settings-agent-provider-row"
+              data-provider-id={p.id}
               onClick={() => onOpenProvider(p.id)}
               className="flex items-center gap-3 p-4 rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 hover:bg-[var(--ct-hover)] hover:border-[var(--ct-accent)]/50 transition-colors text-left"
             >
@@ -188,7 +193,7 @@ export function AgentProviderScreen({
   const visibleInMenu = providerCfg.visible_in_menu !== false;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5" data-testid="settings-agent-provider-screen" data-provider-id={provider.id}>
       <div className="flex items-center gap-3 pb-2">
         <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-[22px] shrink-0">
           <AgentIcon providerId={provider.id} title={provider.display_name} />

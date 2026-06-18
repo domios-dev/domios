@@ -47,7 +47,7 @@ export function SchemaRenderer({
 }: SchemaRendererProps) {
   const providerConfig = (values ?? config.agents?.[providerId] ?? {}) as ProviderConfig;
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-testid="settings-schema" data-provider-id={providerId}>
       {schema.map((field, i) => (
         <FieldRenderer
           key={i}
@@ -98,7 +98,7 @@ function FieldRenderer({
   switch (field.kind) {
     case "section":
       return (
-        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3" data-testid="settings-schema-section">
           <div className="text-sm font-medium text-[var(--ct-fg)]">{field.title}</div>
           {field.description && (
             <div className="text-xs text-[var(--ct-muted-fg)]">{field.description}</div>
@@ -136,10 +136,12 @@ function FieldRenderer({
     case "text": {
       const value = (providerConfig[field.key] as string | undefined) ?? field.default ?? "";
       return (
-        <div className="space-y-1">
+        <div className="space-y-1" data-testid="settings-schema-field" data-settings-field={field.key}>
           <div className="text-xs text-[var(--ct-fg)]">{field.label}</div>
           <input
             type="text"
+            data-testid="settings-schema-text"
+            data-settings-field={field.key}
             value={value}
             placeholder={field.placeholder}
             onChange={(e) => onChange(providerId, { [field.key]: e.target.value })}
@@ -155,10 +157,12 @@ function FieldRenderer({
     case "number": {
       const value = (providerConfig[field.key] as number | undefined) ?? field.default ?? 0;
       return (
-        <div className="space-y-1">
+        <div className="space-y-1" data-testid="settings-schema-field" data-settings-field={field.key}>
           <div className="text-xs text-[var(--ct-fg)]">{field.label}</div>
           <input
             type="number"
+            data-testid="settings-schema-number"
+            data-settings-field={field.key}
             value={value}
             min={field.min}
             max={field.max}
@@ -172,9 +176,11 @@ function FieldRenderer({
     case "select": {
       const value = (providerConfig[field.key] as string | undefined) ?? field.default ?? "";
       return (
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between" data-testid="settings-schema-field" data-settings-field={field.key}>
           <span className="text-xs text-[var(--ct-fg)]">{field.label}</span>
           <select
+            data-testid="settings-schema-select"
+            data-settings-field={field.key}
             value={value}
             onChange={(e) => onChange(providerId, { [field.key]: e.target.value })}
             className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
@@ -189,7 +195,7 @@ function FieldRenderer({
 
     case "api_key":
       return (
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-testid="settings-schema-api-key" data-settings-field={field.env_var}>
           <div className="text-xs text-[var(--ct-fg)]">{field.label}</div>
           <div className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)]">
             <span>set via</span>
@@ -282,7 +288,7 @@ function ToggleField({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3">
+    <div className="flex items-start justify-between gap-3" data-testid="settings-schema-toggle-row">
       <div className="flex-1">
         <div className="text-xs text-[var(--ct-fg)]">{label}</div>
         {description && (
@@ -291,6 +297,7 @@ function ToggleField({
       </div>
       <button
         type="button"
+        data-testid="settings-schema-toggle"
         onClick={() => onChange(!checked)}
         className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
           checked ? "bg-[var(--ct-accent)]" : "bg-[var(--ct-border)]"
@@ -321,7 +328,7 @@ function InfoField({
     error: "text-[var(--ct-red)]",
   };
   return (
-    <div className={`text-[11px] ${colors[level]} leading-relaxed`}>
+    <div className={`text-[11px] ${colors[level]} leading-relaxed`} data-testid="settings-schema-info" data-settings-level={level}>
       {title && <div className="font-medium mb-1">{title}</div>}
       <div className="whitespace-pre-wrap">{body}</div>
     </div>
@@ -333,12 +340,12 @@ function PathLinkField({ label, path }: { label: string; path: string }) {
     invoke("open_folder", { path }).catch(() => {});
   }, [path]);
   return (
-    <div className="flex items-center justify-between text-[10px] text-[var(--ct-muted)]">
+    <div className="flex items-center justify-between text-[10px] text-[var(--ct-muted)]" data-testid="settings-schema-path-link">
       <div className="flex items-center gap-2">
         <span>{label}</span>
         <code className="font-mono">{path}</code>
       </div>
-      <button onClick={onClick} className="text-[var(--ct-accent)] hover:underline">
+      <button onClick={onClick} className="text-[var(--ct-accent)] hover:underline" data-testid="settings-schema-open-folder">
         Open folder
       </button>
     </div>
@@ -412,6 +419,7 @@ function BadgeField({
   if (!variant) return null;
   return (
     <span
+      data-testid="settings-schema-badge"
       className={`text-[9px] px-1.5 py-0.5 rounded-full inline-block ${BADGE_COLORS[variant.style]}`}
     >
       {variant.label}
@@ -504,6 +512,7 @@ function ActionField({
 
   return (
     <button
+      data-testid="settings-schema-action"
       onClick={click}
       disabled={busy || justDone}
       className={`w-full py-1.5 text-xs rounded font-medium transition-all duration-300 ${klass}`}

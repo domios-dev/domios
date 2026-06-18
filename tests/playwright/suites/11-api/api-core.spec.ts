@@ -7,12 +7,8 @@
  * here (plugin contract is in flight on Mac-Air; mesh needs the §4.2 peer
  * simulator; update mutates the install).
  */
-import { expect, test } from "@playwright/test";
-import { ApiClient, readDevToken } from "../../helpers/api-client";
-import { API_BASE } from "../../helpers/dev-console";
-import { apiReset } from "../../helpers/reset";
-
-const api = new ApiClient();
+import { expect, test, API_BASE, readDevToken } from "../../helpers/fixtures";
+import { pollUntil } from "../../helpers/poll";
 
 async function raw(
   method: string,
@@ -31,10 +27,6 @@ async function raw(
   });
   return { status: r.status, body: await r.text() };
 }
-
-test.afterAll(async () => {
-  await apiReset(api);
-});
 
 // ── auth contract ────────────────────────────────────────────────────
 
@@ -71,27 +63,23 @@ test("@golden pane ops on a nonexistent id return 404", async () => {
   expect(status, "GET output").toBe(404);
 });
 
-test("@golden PTY echo round-trip: send a command, read it back from output", async () => {
+test("@golden PTY echo round-trip: send a command, read it back from output", async ({ api, paneCleanup }) => {
   test.setTimeout(120_000);
-  const created = (await api.createPane()) as { id: string };
+  const created = await paneCleanup.createPane();
   const marker = `pw-api-${Date.now()}`;
   const left = marker.slice(0, Math.floor(marker.length / 2));
   const right = marker.slice(Math.floor(marker.length / 2));
   try {
-    // Give the shell a moment to be ready, then echo a unique marker.
-    await new Promise((r) => setTimeout(r, 3_000));
     await api.post(`/panes/${created.id}/send`, {
       text: `node -e "console.log('${left}' + '${right}')"`,
       enter: true,
     });
 
-    let seen = false;
-    for (let i = 0; i < 30 && !seen; i++) {
-      await new Promise((r) => setTimeout(r, 1_000));
+    const seen = await pollUntil(async () => {
       const out = await api.get<{ text?: string } | string>(`/panes/${created.id}/output`);
       const text = typeof out === "string" ? out : (out.text ?? JSON.stringify(out));
-      seen = text.includes(marker);
-    }
+      return text.includes(marker);
+    }, 30_000, 1_000, `marker ${marker} appears in pane output`);
     expect(seen, `marker ${marker} never appeared in pane output`).toBe(true);
   } finally {
     await api.closePane(created.id).catch(() => {});
@@ -100,7 +88,7 @@ test("@golden PTY echo round-trip: send a command, read it back from output", as
 
 // ── workspaces: validation + not-found + idempotency ─────────────────
 
-test("@golden workspace ops on a nonexistent id return 404, close is not idempotent-silent", async () => {
+test("@golden workspace ops on a nonexistent id return 404, close is not idempotent-silent", async ({ api }) => {
   expect((await raw("POST", "/api/workspaces/no-such-ws/close")).status).toBe(404);
   expect(
     (await raw("POST", "/api/workspaces/no-such-ws/rename", { body: { name: "x" } })).status,
@@ -117,7 +105,7 @@ test("@golden workspace ops on a nonexistent id return 404, close is not idempot
 
 // ── crons: CRUD lifecycle (disabled — nothing may fire mid-test) ─────
 
-test("@golden cron CRUD lifecycle", async () => {
+test("@golden cron CRUD lifecycle", async ({ api }) => {
   const ws = (await api.workspaces()).find((w) => w.is_active)!;
   const name = `pw-api-cron-${Date.now()}`;
   const created = await api.post<{ id: string; enabled: boolean }>("/crons", {
@@ -140,7 +128,7 @@ test("@golden cron CRUD lifecycle", async () => {
   expect((await raw("GET", `/api/crons/${created.id}`)).status).toBe(404);
 });
 
-test("@golden cron create with a malformed schedule is rejected with 400", async () => {
+test("@golden cron create with a malformed schedule is rejected with 400", async ({ api }) => {
   const ws = (await api.workspaces()).find((w) => w.is_active)!;
   const { status } = await raw("POST", "/api/crons", {
     body: {
@@ -156,7 +144,7 @@ test("@golden cron create with a malformed schedule is rejected with 400", async
 
 // ── pasteboard: put/get/pop/delete cycle ─────────────────────────────
 
-test("@golden pasteboard put → get → pop → gone", async () => {
+test("@golden pasteboard put → get → pop → gone", async ({ api }) => {
   const body = `pw-paste-${Date.now()}`;
   const created = await api.post<{ id: string }>("/pasteboard", { body });
   expect(created.id).toBeTruthy();
@@ -175,7 +163,7 @@ test("@golden pasteboard put → get → pop → gone", async () => {
 
 // ── read-only feeds: activity, themes, sessions search ──────────────
 
-test("@smoke activity feed returns a bounded array and accepts source filter", async () => {
+test("@smoke activity feed returns a bounded array and accepts source filter", async ({ api }) => {
   const all = await api.get<unknown[]>("/activity");
   expect(Array.isArray(all)).toBe(true);
   expect(all.length).toBeLessThanOrEqual(10_000);
@@ -183,7 +171,7 @@ test("@smoke activity feed returns a bounded array and accepts source filter", a
   expect(Array.isArray(filtered)).toBe(true);
 });
 
-test("@smoke themes list is a non-empty name array", async () => {
+test("@smoke themes list is a non-empty name array", async ({ api }) => {
   const res = await api.get<{ themes: string[] }>("/themes");
   expect(Array.isArray(res.themes)).toBe(true);
   expect(res.themes.length).toBeGreaterThan(0);
@@ -277,7 +265,7 @@ test("@golden fs list-dir + mkdir: browse, create, conflict, validation", async 
   expect(unauth.status).toBe(401);
 });
 
-test("@smoke sessions search answers with a hits array for any query", async () => {
+test("@smoke sessions search answers with a hits array for any query", async ({ api }) => {
   const res = await api.get<{ hits: unknown[] }>(
     "/sessions/search?q=pw-definitely-unmatched-term",
   );
