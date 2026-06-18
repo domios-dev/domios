@@ -224,6 +224,8 @@ pub async fn resume_session_api(
         skip_permissions: Some(true),
         spawned_by_pane_id: None,
         model: body.model.clone(),
+        system_prompt: None,
+        preset: None,
         resume_session_id: Some(meta.session_id.clone()),
         activate: None,
     };

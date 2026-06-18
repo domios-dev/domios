@@ -139,6 +139,12 @@ pub enum AgentAction {
         /// see what's available.
         #[arg(long)]
         model: Option<String>,
+        /// Override the shell system prompt when spawning a chatBackend shell.
+        #[arg(long = "system")]
+        system_prompt: Option<String>,
+        /// Select a chatBackend shell preset. Omit to use the plugin default preset.
+        #[arg(long)]
+        preset: Option<String>,
     },
 }
 

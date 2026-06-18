@@ -346,6 +346,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 cwd,
                 args,
                 model,
+                system_prompt,
+                preset,
             } => {
                 let agent_name = agent.as_str();
                 let mut body = serde_json::json!({
@@ -375,6 +377,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(m) = model {
                     body["model"] = serde_json::json!(m);
+                }
+                if let Some(system_prompt) = system_prompt {
+                    body["system_prompt"] = serde_json::json!(system_prompt);
+                }
+                if let Some(preset) = preset {
+                    body["preset"] = serde_json::json!(preset);
                 }
                 (
                     "POST".into(),

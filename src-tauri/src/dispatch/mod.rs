@@ -325,10 +325,12 @@ fn cmd_pty_kill(ctx: &ServiceContext, pane_id: &str) -> Result<CommandResult, St
 }
 
 fn cmd_list_agent_providers(ctx: &ServiceContext) -> Result<CommandResult, String> {
-    let descriptors = ctx.agent_registry.list_descriptors();
-    let json = serde_json::to_value(&descriptors)
-        .map_err(|e| format!("serialize ProviderDescriptor: {}", e))?;
-    Ok(CommandResult::Json(json))
+    Ok(CommandResult::Json(serde_json::Value::Array(
+        crate::api::agent_routes::list_agent_provider_values(
+            &ctx.agent_registry,
+            &ctx.chatbackend_registry,
+        ),
+    )))
 }
 
 // ── Tests ───────────────────────────────────────────────────────────

@@ -89,7 +89,7 @@ impl CapabilityRegistries {
         if caps.chat_backend {
             self.chatbackend.register(
                 id.clone(),
-                Arc::new(super::JsChatBackend::new(vm.clone(), id.clone())),
+                Arc::new(super::JsChatBackend::from_manifest(vm.clone(), manifest)),
             );
         }
         if caps.chat_preprocessor.enabled() {
