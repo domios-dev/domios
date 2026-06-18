@@ -9,26 +9,18 @@
  * the string the QR is generated from (QRCode.toDataURL(link)), so checking the
  * link field verifies what the QR encodes.
  */
-import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
-import { readDevToken } from "../../helpers/api-client";
-import { API_BASE } from "../../helpers/dev-console";
+import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 
 const WEB_URL = `${API_BASE}/web/`;
-let browser: Browser;
 let token: string;
 
 test.beforeAll(async () => {
-  browser = await chromium.launch({ channel: "msedge" });
   token = readDevToken();
-});
-
-test.afterAll(async () => {
-  await browser.close();
 });
 
 type NetShape = Record<string, unknown>;
 
-async function openWebUiWithNetwork(net: NetShape): Promise<{ page: Page; close: () => Promise<void> }> {
+async function openWebUiWithNetwork(browser: Browser, net: NetShape): Promise<{ page: Page; close: () => Promise<void> }> {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await ctx.newPage();
   // Every get_network_info (bridge → GET /api/network) returns this scenario.
@@ -85,8 +77,8 @@ const scenarios = [
 ];
 
 for (const sc of scenarios) {
-  test(`@golden web-access: ${sc.name}`, async () => {
-    const { page, close } = await openWebUiWithNetwork(sc.net);
+  test(`@golden web-access: ${sc.name}`, async ({ webBrowser }) => {
+    const { page, close } = await openWebUiWithNetwork(webBrowser, sc.net);
     try {
       const expected = `${sc.expectLink}#token=${encodeURIComponent(token)}`;
       await expect(page.locator('[data-testid="web-ui-link"]')).toHaveValue(expected);

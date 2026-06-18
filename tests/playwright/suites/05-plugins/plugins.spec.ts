@@ -10,8 +10,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { expect, test, type Page } from "@playwright/test";
-import { connectUi, ensureDevConsole, REPO_ROOT, type UiSession } from "../../helpers/dev-console";
+import { expect, test, type Page, type ManagedUiSession } from "../../helpers/fixtures";
+import { ensureDevConsole, REPO_ROOT } from "../../helpers/dev-console";
 import { devDataDir, wipeDevState } from "../../helpers/reset";
 
 const CHANNEL_NAME = "pw-plugins";
@@ -85,7 +85,9 @@ function writeChannel(version: string): void {
 }
 
 function setupChannel(version = "0.1.0"): string {
-  rmSync(CHANNEL_ROOT, { recursive: true, force: true });
+  if (existsSync(CHANNEL_ROOT)) {
+    rmSync(CHANNEL_ROOT, { recursive: true });
+  }
   mkdirSync(CHANNEL_ROOT, { recursive: true });
   bash(`git init --bare ${shQuote(BARE)} >/dev/null`);
   bash(`git clone ${shQuote(BARE)} ${shQuote(WORKTREE)} >/dev/null 2>&1`);
@@ -117,8 +119,8 @@ function cli(args: string): string {
   return bash(`${shQuote(bin)} ${args}`);
 }
 
-async function openPlugins(): Promise<UiSession> {
-  const ui = await connectUi();
+async function openPlugins(ui: ManagedUiSession): Promise<void> {
+  await ui.reconnect();
   await ui.page.locator('[data-testid="nav-settings"]').click();
   const section = ui.page.locator('[data-testid="settings-section-plugins"]');
   if (await section.isVisible().catch(() => false)) {
@@ -127,7 +129,6 @@ async function openPlugins(): Promise<UiSession> {
   await expect(ui.page.locator('[data-testid="plugin-installed-list"]')).toBeVisible({
     timeout: 20_000,
   });
-  return ui;
 }
 
 async function addChannelViaUi(page: Page, url: string): Promise<void> {
@@ -156,94 +157,78 @@ test.beforeEach(async () => {
 
 test.afterEach(() => {
   if (existsSync(CHANNEL_ROOT)) {
-    rmSync(CHANNEL_ROOT, { recursive: true, force: true });
+    rmSync(CHANNEL_ROOT, { recursive: true });
   }
 });
 
-test("@golden Scenario A: add channel and install plugin through Settings DOM", async () => {
+test("@golden Scenario A: add channel and install plugin through Settings DOM", async ({ ui }) => {
   const url = `${fileUrl(WORKTREE)}#main:plugins`;
-  const ui = await openPlugins();
-  try {
-    await addChannelViaUi(ui.page, url);
-    await expect(diffRow(ui.page)).toHaveAttribute("data-drift", "not_installed", {
-      timeout: 30_000,
-    });
-    await ui.page.locator(`[data-testid="plugin-install-${PLUGIN_ID}"]`).click();
-    await expect(pluginRow(ui.page)).toHaveAttribute("data-version", "0.1.0", {
-      timeout: 30_000,
-    });
-    await expect(pluginRow(ui.page)).toHaveAttribute("data-source-kind", "channel");
-    await expect(pluginRow(ui.page)).toHaveAttribute("data-source-channel", CHANNEL_NAME);
-    await expect(pluginRow(ui.page)).toHaveAttribute("data-update-available", "false");
-  } finally {
-    await ui.browser.close().catch(() => {});
-  }
+  await openPlugins(ui);
+  await addChannelViaUi(ui.page, url);
+  await expect(diffRow(ui.page)).toHaveAttribute("data-drift", "not_installed", {
+    timeout: 30_000,
+  });
+  await ui.page.locator(`[data-testid="plugin-install-${PLUGIN_ID}"]`).click();
+  await expect(pluginRow(ui.page)).toHaveAttribute("data-version", "0.1.0", {
+    timeout: 30_000,
+  });
+  await expect(pluginRow(ui.page)).toHaveAttribute("data-source-kind", "channel");
+  await expect(pluginRow(ui.page)).toHaveAttribute("data-source-channel", CHANNEL_NAME);
+  await expect(pluginRow(ui.page)).toHaveAttribute("data-update-available", "false");
 });
 
-test("@golden Scenario B: channel bump renders update badge, click update clears it", async () => {
+test("@golden Scenario B: channel bump renders update badge, click update clears it", async ({ ui }) => {
   const url = `${fileUrl(WORKTREE)}#main:plugins`;
-  const ui = await openPlugins();
-  try {
-    await addChannelViaUi(ui.page, url);
-    await ui.page.locator(`[data-testid="plugin-install-${PLUGIN_ID}"]`).click();
-    await expect(pluginRow(ui.page)).toHaveAttribute("data-version", "0.1.0", {
-      timeout: 30_000,
-    });
+  await openPlugins(ui);
+  await addChannelViaUi(ui.page, url);
+  await ui.page.locator(`[data-testid="plugin-install-${PLUGIN_ID}"]`).click();
+  await expect(pluginRow(ui.page)).toHaveAttribute("data-version", "0.1.0", {
+    timeout: 30_000,
+  });
 
-    bumpChannel("0.1.1");
-    await ui.page.locator(`[data-testid="plugin-channel-refresh-${CHANNEL_NAME}"]`).click();
-    await expect(pluginRow(ui.page)).toHaveAttribute("data-update-available", "true", {
-      timeout: 30_000,
-    });
-    await expect(pluginRow(ui.page).locator('[data-testid="plugin-update-available-badge"]')).toBeVisible();
+  bumpChannel("0.1.1");
+  await ui.page.locator(`[data-testid="plugin-channel-refresh-${CHANNEL_NAME}"]`).click();
+  await expect(pluginRow(ui.page)).toHaveAttribute("data-update-available", "true", {
+    timeout: 30_000,
+  });
+  await expect(pluginRow(ui.page).locator('[data-testid="plugin-update-available-badge"]')).toBeVisible();
 
-    await ui.page.locator(`[data-testid="plugin-update-${PLUGIN_ID}"]`).click();
-    await expect(pluginRow(ui.page)).toHaveAttribute("data-version", "0.1.1", {
-      timeout: 30_000,
-    });
-    await expect(pluginRow(ui.page)).toHaveAttribute("data-update-available", "false");
-  } finally {
-    await ui.browser.close().catch(() => {});
-  }
+  await ui.page.locator(`[data-testid="plugin-update-${PLUGIN_ID}"]`).click();
+  await expect(pluginRow(ui.page)).toHaveAttribute("data-version", "0.1.1", {
+    timeout: 30_000,
+  });
+  await expect(pluginRow(ui.page)).toHaveAttribute("data-update-available", "false");
 });
 
-test("@golden Scenario C: system channel update renders bundled plugins from develop", async () => {
+test("@golden Scenario C: system channel update renders bundled plugins from develop", async ({ ui }) => {
   cli("plugin update-system --json");
-  const ui = await openPlugins();
-  try {
-    await expect(
-      ui.page.locator('[data-testid="plugin-channel"][data-channel-name="codeterm-core"]'),
-    ).toBeVisible({ timeout: 30_000 });
-    for (const id of ["claude", "codex", "opencode"]) {
-      await expect(pluginRow(ui.page, id)).toHaveAttribute("data-version", "0.1.0", {
-        timeout: 30_000,
-      });
-      await expect(pluginRow(ui.page, id)).toHaveAttribute("data-source-channel", "codeterm-core");
-      await expect(pluginRow(ui.page, id)).toHaveAttribute("data-verified", "true");
-    }
-  } finally {
-    await ui.browser.close().catch(() => {});
+  await openPlugins(ui);
+  await expect(
+    ui.page.locator('[data-testid="plugin-channel"][data-channel-name="codeterm-core"]'),
+  ).toBeVisible({ timeout: 30_000 });
+  for (const id of ["claude", "codex", "opencode"]) {
+    await expect(pluginRow(ui.page, id)).toHaveAttribute("data-version", "0.1.0", {
+      timeout: 30_000,
+    });
+    await expect(pluginRow(ui.page, id)).toHaveAttribute("data-source-channel", "codeterm-core");
+    await expect(pluginRow(ui.page, id)).toHaveAttribute("data-verified", "true");
   }
 });
 
-test("@smoke @failure Scenario D: plugin failures are rendered in Settings DOM", async () => {
+test("@smoke @failure Scenario D: plugin failures are rendered in Settings DOM", async ({ ui }) => {
   const brokenChannel = `broken-${Date.now()}`;
-  const ui = await openPlugins();
-  try {
-    await ui.page.locator('[data-testid="plugin-channel-url-input"]').fill(`${fileUrl(CHANNEL_ROOT)}/missing#main:plugins`);
-    await ui.page.locator('[data-testid="plugin-channel-name-input"]').fill(brokenChannel);
-    await ui.page.locator('[data-testid="plugin-add-channel"]').click();
-    await expect(ui.page.locator('[data-testid="plugin-manager-error"]')).toBeVisible({
-      timeout: 30_000,
-    });
-    const ownErrorToast = ui.page
-      .locator('[data-testid="plugin-error-toast"]')
-      .filter({ hasText: brokenChannel });
-    await expect(ownErrorToast).toHaveCount(1, {
-      timeout: 30_000,
-    });
-    await expect(ownErrorToast).toBeVisible();
-  } finally {
-    await ui.browser.close().catch(() => {});
-  }
+  await openPlugins(ui);
+  await ui.page.locator('[data-testid="plugin-channel-url-input"]').fill(`${fileUrl(CHANNEL_ROOT)}/missing#main:plugins`);
+  await ui.page.locator('[data-testid="plugin-channel-name-input"]').fill(brokenChannel);
+  await ui.page.locator('[data-testid="plugin-add-channel"]').click();
+  await expect(ui.page.locator('[data-testid="plugin-manager-error"]')).toBeVisible({
+    timeout: 30_000,
+  });
+  const ownErrorToast = ui.page
+    .locator('[data-testid="plugin-error-toast"]')
+    .filter({ hasText: brokenChannel });
+  await expect(ownErrorToast).toHaveCount(1, {
+    timeout: 30_000,
+  });
+  await expect(ownErrorToast).toBeVisible();
 });
