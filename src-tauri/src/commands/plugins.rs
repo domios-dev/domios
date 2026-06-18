@@ -959,11 +959,11 @@ mod tests {
 
         // configHelp present → carried verbatim as config_help.
         let with_help = serde_json::json!({
-            "id": "lmstudio",
+            "id": "local-shell",
             "description": "Local LLM via LM Studio.",
             "configHelp": "Set `baseUrl` and `model` to point at your LM Studio server.",
         });
-        let mut entry = serde_json::json!({ "id": "lmstudio" });
+        let mut entry = serde_json::json!({ "id": "local-shell" });
         enrich_from_manifest(&mut entry, &dir, &with_help);
         assert_eq!(
             entry["config_help"],

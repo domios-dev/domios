@@ -23,7 +23,7 @@ const PARITY: &[(&str, &str)] = &[
         "pane label has space",
     ),
     (
-        "-=-codeterm:plugin_config plugin=lmstudio name=LM%20Studio-=-hello body",
+        "-=-codeterm:plugin_config plugin=local-shell name=LM%20Studio-=-hello body",
         "plugin_config (name has space)",
     ),
 ];
@@ -40,7 +40,7 @@ fn convenience_constructors_match_parity_wire() {
     assert_eq!(mesh("peer-a", "abc12345", "hi"), PARITY[4].0);
     assert_eq!(pane("General Main", "bda0e267", "ping"), PARITY[5].0);
     assert_eq!(
-        plugin_config("lmstudio", "LM Studio", "hello body"),
+        plugin_config("local-shell", "LM Studio", "hello body"),
         PARITY[6].0
     );
 }

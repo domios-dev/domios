@@ -63,6 +63,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     return;
                 }
                 for p in arr {
+                    let kind = p.get("kind").and_then(|v| v.as_str()).unwrap_or("agent");
                     let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
                     let name = p.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
                     let default_model = p
@@ -75,8 +76,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         .map(|a| a.len())
                         .unwrap_or(0);
                     println!(
-                        "{:<12} {:<20} default={}  models={}",
-                        id, name, default_model, models_count
+                        "{:<12} {:<6} {:<20} default={}  models={}",
+                        id, kind, name, default_model, models_count
                     );
                 }
             }
@@ -266,6 +267,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             args,
             workspace,
             model,
+            system_prompt,
+            preset,
         } => {
             let mut body = serde_json::json!({
                 "agent": agent,
@@ -296,6 +299,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(m) = model {
                 body["model"] = serde_json::json!(m);
+            }
+            if let Some(system_prompt) = system_prompt {
+                body["system_prompt"] = serde_json::json!(system_prompt);
+            }
+            if let Some(preset) = preset {
+                body["preset"] = serde_json::json!(preset);
             }
             // Record the spawner's pane for report-routing fallback.
             if let Ok(spawner) = std::env::var("CODETERM_PANE_ID") {

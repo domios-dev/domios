@@ -142,7 +142,7 @@ pub struct SpawnResult {
     pub warning: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct SpawnAgentParams {
     pub agent: Option<String>,
     pub agent_name: Option<String>,
@@ -164,6 +164,8 @@ pub struct SpawnAgentParams {
     pub spawned_by_pane_id: Option<String>,
     /// Provider decides flag syntax via `AgentProvider::model_launch_args`.
     pub model: Option<String>,
+    pub system_prompt: Option<String>,
+    pub preset: Option<String>,
     pub resume_session_id: Option<String>,
     pub activate: Option<bool>,
 }
@@ -191,6 +193,8 @@ impl SpawnAgentParams {
             skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
             spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
             model: json_str(params, "model"),
+            system_prompt: json_str(params, "system_prompt").or_else(|| json_str(params, "system")),
+            preset: json_str(params, "preset"),
             resume_session_id: json_str(params, "resume_session_id"),
             activate: params.get("activate").and_then(|v| v.as_bool()),
         })
@@ -266,7 +270,10 @@ impl ServiceContext {
             .clone()
             .or_else(|| params.agent_name.clone())
             .unwrap_or_else(|| agent.clone());
-        let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params(params);
+        let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
+            self.chatbackend_registry.as_ref(),
+            params,
+        );
         let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
         Ok(SpawnResult {
             pane_id: handle.pane_id,
@@ -290,18 +297,42 @@ impl ServiceContext {
             .agent
             .clone()
             .unwrap_or_else(|| default_provider.clone());
-        // Validate against the registry — reject unknown provider ids upfront.
-        if self
-            .agent_registry
-            .with_provider(&agent_cmd, |_| ())
-            .is_none()
+        let is_shell = self.chatbackend_registry.get(&agent_cmd).is_some();
+        if !is_shell
+            && self
+                .agent_registry
+                .with_provider(&agent_cmd, |_| ())
+                .is_none()
         {
-            let available = self.agent_registry.provider_ids().join(", ");
+            let available = self.available_agent_or_shell_ids().join(", ");
             return Err(format!(
                 "Unknown agent provider: '{}'. Available: [{}]",
                 agent_cmd, available
             ));
         }
+        if is_shell {
+            let role = params.role.clone();
+            let title = params
+                .title
+                .clone()
+                .or_else(|| params.agent_name.clone())
+                .unwrap_or_else(|| agent_cmd.clone());
+            let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
+                self.chatbackend_registry.as_ref(),
+                params,
+            );
+            let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
+            return Ok(SpawnResult {
+                pane_id: handle.pane_id,
+                tab_id: handle.tab_id,
+                pty_id: handle.pty_id.unwrap_or_default(),
+                agent: agent_cmd,
+                title,
+                role,
+                warning: handle.warning,
+            });
+        }
+
         let cli_warning =
             crate::service::spawn::provider_cli_install_warning(&self.agent_registry, &agent_cmd)?;
         if let Some(ref warning) = cli_warning {
@@ -536,6 +567,7 @@ pub(crate) use crate::agent::registry::AgentRegistry;
 
 /// Shared background thread logic for launching agents in a PTY.
 /// Uses the AgentRegistry to determine readiness strategy and task delivery.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn launch_agent_in_background(
     svc: ServiceContext,
     pane_id: String,

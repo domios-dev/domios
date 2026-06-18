@@ -69,14 +69,14 @@ mod tests {
     fn registry_resolves_provider() {
         let reg: AgentCommandRegistry = AgentCommandRegistry::new();
         reg.register(
-            "lmstudio",
+            "local-shell",
             Arc::new(Fake {
-                id: "lmstudio".into(),
+                id: "local-shell".into(),
                 granted: true,
             }),
         );
-        let p = reg.get("lmstudio").expect("registered");
-        assert_eq!(p.id(), "lmstudio");
+        let p = reg.get("local-shell").expect("registered");
+        assert_eq!(p.id(), "local-shell");
         assert!(p.granted());
         assert_eq!(
             p.on_agent_command("s1", "say", &["hi".into()]).unwrap(),

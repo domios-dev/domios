@@ -7,6 +7,60 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_pane, AppState};
 
+pub(crate) fn list_agent_provider_values(
+    agents: &crate::agent::registry::AgentRegistry,
+    shells: &crate::chatbackend::ChatBackendRegistry,
+) -> Vec<serde_json::Value> {
+    let mut out: Vec<serde_json::Value> = agents
+        .list_descriptors()
+        .into_iter()
+        .filter_map(|descriptor| {
+            let mut value = serde_json::to_value(descriptor).ok()?;
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("kind".into(), serde_json::json!("agent"));
+            }
+            Some(value)
+        })
+        .collect();
+
+    let mut shell_ids = shells.ids();
+    shell_ids.sort();
+    for id in shell_ids {
+        let Some(shell) = shells.get(&id) else {
+            continue;
+        };
+        let models = shell.list_models().unwrap_or_default();
+        let presets = shell.list_presets().unwrap_or_default();
+        let mut value = serde_json::json!({
+            "schema_version": 1,
+            "kind": "shell",
+            "id": id,
+            "display_name": shell.display_name(),
+            "available_models": models,
+            "default_model": null,
+            "settings_schema": [],
+            "notifications_schema": [],
+            "supports_lazy_skills": false,
+            "has_hooks": false,
+            "preserves_context_on_resume": true,
+            "supports_chat_ui": true,
+            "supports_stop": false,
+            "presets": presets,
+        });
+        if let Some(icon_hint) = shell.icon_hint() {
+            value["icon_hint"] = serde_json::json!(icon_hint);
+        }
+        if let Some(icon_svg) = shell.icon_svg() {
+            value["icon_svg"] = serde_json::json!(icon_svg);
+        }
+        if let Some(icon_color) = shell.icon_color() {
+            value["icon_color"] = serde_json::json!(icon_color);
+        }
+        out.push(value);
+    }
+    out
+}
+
 #[derive(Deserialize)]
 pub(crate) struct SpawnAgentBody {
     /// Agent command to run (e.g. "claude", "aider", "goose"). Default: "claude"
@@ -31,6 +85,9 @@ pub(crate) struct SpawnAgentBody {
     /// Model selector — provider decides flag syntax via
     /// AgentProvider::model_launch_args.
     model: Option<String>,
+    #[serde(alias = "system")]
+    system_prompt: Option<String>,
+    preset: Option<String>,
     activate: Option<bool>,
 }
 
@@ -60,6 +117,8 @@ pub async fn spawn_agent(
         skip_permissions: body.skip_permissions,
         spawned_by_pane_id: body.spawned_by_pane_id,
         model: body.model,
+        system_prompt: body.system_prompt,
+        preset: body.preset,
         resume_session_id: None,
         activate: body.activate,
     };
@@ -356,9 +415,10 @@ pub async fn list_agent_providers(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    crate::dispatch::dispatch(&crate::dispatch::Command::ListAgentProviders, &state.svc)
-        .map(|r| Json(r.into_json()))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+    Ok(Json(serde_json::Value::Array(list_agent_provider_values(
+        &state.svc.agent_registry,
+        &state.svc.chatbackend_registry,
+    ))))
 }
 
 /// Public provider list for local plugin verification/UI smoke checks.
@@ -367,9 +427,10 @@ pub async fn list_agent_providers(
 pub async fn list_agent_providers_public(
     AxumState(state): AxumState<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    crate::dispatch::dispatch(&crate::dispatch::Command::ListAgentProviders, &state.svc)
-        .map(|r| Json(r.into_json()))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+    Ok(Json(serde_json::Value::Array(list_agent_provider_values(
+        &state.svc.agent_registry,
+        &state.svc.chatbackend_registry,
+    ))))
 }
 
 #[cfg(test)]
@@ -386,5 +447,72 @@ mod tests {
     fn spawn_body_empty_object() {
         let body: SpawnAgentBody = serde_json::from_str("{}").unwrap();
         assert_eq!(body.agent, None);
+    }
+
+    struct ListingShell;
+
+    impl crate::chatbackend::ChatBackendProvider for ListingShell {
+        fn id(&self) -> &str {
+            "local-shell"
+        }
+
+        fn open_session(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, crate::chatbackend::ChatBackendError> {
+            Ok("session".into())
+        }
+
+        fn send_message(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<(), crate::chatbackend::ChatBackendError> {
+            Ok(())
+        }
+
+        fn poll(
+            &self,
+            _: &str,
+        ) -> Result<Vec<crate::agent::chat_types::ChatMsg>, crate::chatbackend::ChatBackendError>
+        {
+            Ok(Vec::new())
+        }
+
+        fn close_session(&self, _: &str) -> Result<(), crate::chatbackend::ChatBackendError> {
+            Ok(())
+        }
+
+        fn list_models(
+            &self,
+        ) -> Result<Vec<crate::agent::provider::ModelInfo>, crate::chatbackend::ChatBackendError>
+        {
+            Ok(vec![crate::agent::provider::ModelInfo {
+                id: "qwen".into(),
+                display_name: "Qwen".into(),
+                description: None,
+            }])
+        }
+
+        fn display_name(&self) -> &str {
+            "Local Shell"
+        }
+    }
+
+    #[test]
+    fn provider_listing_includes_chatbackend_shells_tagged_shell() {
+        let agents = crate::agent::registry::AgentRegistry::new();
+        let shells = crate::chatbackend::ChatBackendRegistry::new();
+        shells.register("local-shell", std::sync::Arc::new(ListingShell));
+
+        let listing = super::list_agent_provider_values(&agents, &shells);
+
+        let shell = listing
+            .iter()
+            .find(|p| p.get("id").and_then(|v| v.as_str()) == Some("local-shell"))
+            .expect("registered chatBackend shell is listed");
+        assert_eq!(shell["kind"], "shell");
+        assert_eq!(shell["display_name"], "Local Shell");
+        assert_eq!(shell["available_models"][0]["id"], "qwen");
     }
 }
