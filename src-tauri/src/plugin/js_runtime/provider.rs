@@ -846,7 +846,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {
-        self.manifest.models.iter().map(ModelInfo::from).collect()
+        crate::agent::model_catalog::resolve_models(&self.manifest.id)
     }
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {

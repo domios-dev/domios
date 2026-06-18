@@ -299,6 +299,34 @@ fn fresh_agent_model_falls_back_to_default_for_unknown_request() {
 }
 
 #[test]
+fn fresh_agent_model_reports_fallback_notice() {
+    let registry = registry_with(ModelProvider::new(
+        "model-test-fallback-notice",
+        &["model-a", "model-b"],
+    ));
+
+    let resolved = resolve_fresh_agent_model_with_notice(
+        &registry,
+        "model-test-fallback-notice",
+        Some("stale".into()),
+        None,
+    );
+
+    assert_eq!(resolved.model.as_deref(), Some("model-a"));
+    assert_eq!(
+        resolved.fallback_notice,
+        Some(ModelFallbackNotice {
+            requested: "stale".into(),
+            using: "model-a".into(),
+        })
+    );
+    assert_eq!(
+        model_fallback_notice_title(&resolved.fallback_notice.unwrap()),
+        "model stale unavailable -> using model-a"
+    );
+}
+
+#[test]
 fn resume_agent_model_does_not_inject_default() {
     let registry = registry_with(ModelProvider::new(
         "model-test-resume",
