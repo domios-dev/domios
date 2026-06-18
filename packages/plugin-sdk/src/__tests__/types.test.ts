@@ -132,5 +132,17 @@ async function exercise() {
   // mem: SYNCHRONOUS search (callable mid-turn by a sync stage), scored hits.
   const { hits } = host.mem.search({ query: "q", k: 5 });
   void hits.map((h) => `${h.id}:${h.text}:${h.score}`);
+
+  // fetch streaming: same sync job-id + poll shape as worker/agent.
+  const rawFetchResult = JSON.parse(host.fetch(JSON.stringify({ url: "http://127.0.0.1" })));
+  void rawFetchResult;
+  const stream = host.fetch.stream({ url: "http://127.0.0.1/stream" });
+  if (stream.jobId) {
+    const streamPoll = host.fetch.streamPoll(stream.jobId);
+    void streamPoll.chunks.join("");
+    void streamPoll.status;
+    void streamPoll.error;
+    host.fetch.streamClose(stream.jobId);
+  }
 }
 void exercise;

@@ -464,6 +464,22 @@ pub(super) fn install(
         }
         super::host_net::run(&opts_json)
     });
+    let sb = sandbox.clone();
+    bind!("fetchStream", move |opts_json: String| -> String {
+        let host = super::host_net::host_of(&opts_json).unwrap_or_default();
+        // Egress-equivalent to host.fetch: use the exact same network.allow gate.
+        if !sb.can_reach(&host) {
+            log::warn!("[plugin] denied fetch.stream({host}) — not in network.allow");
+            return serde_json::json!({ "error": format!("fetch denied: {host}") }).to_string();
+        }
+        super::host_net::stream(&opts_json)
+    });
+    bind!("fetchStreamPoll", move |job_id: String| -> String {
+        super::host_net::stream_poll(&job_id)
+    });
+    bind!("fetchStreamClose", move |job_id: String| {
+        super::host_net::stream_close(&job_id);
+    });
 
     let sb = sandbox.clone();
     bind!("secretGet", move |name: String| -> Option<String> {
