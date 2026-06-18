@@ -5,7 +5,8 @@
 //! VM is not `Send`, so we call it directly on the caller's thread).
 //!
 //! Plugin surface (all via `call_json`):
-//! * `openSession(config) -> { sessionId }`
+//! * `openSession(ctx) -> { sessionId }` — `ctx` is the SDK `{ paneId, config }`
+//!   envelope (the host builds it; a plugin may key its session on `paneId`).
 //! * `sendMessage(sessionId, text)` — fire; transcript arrives via `poll`
 //! * `poll(sessionId) -> NormalizedChatMessage[]` (or `{ messages: [...] }`)
 //! * `closeSession(sessionId)` — optional, best-effort
@@ -69,9 +70,9 @@ impl ChatBackendProvider for JsChatBackend {
         &self.id
     }
 
-    fn open_session(&self, config: serde_json::Value) -> Result<String, ChatBackendError> {
+    fn open_session(&self, ctx: serde_json::Value) -> Result<String, ChatBackendError> {
         let out: OpenOut =
-            call_json(&self.vm, "openSession", &[config]).map_err(|e| map_err("openSession", e))?;
+            call_json(&self.vm, "openSession", &[ctx]).map_err(|e| map_err("openSession", e))?;
         if let Some(e) = out.error {
             return Err(ChatBackendError::Call(e));
         }
@@ -133,6 +134,24 @@ mod tests {
         let b = JsChatBackend::new(vm, "lmstudio");
         let sid = b.open_session(json!({ "model": "qwen" })).unwrap();
         assert_eq!(sid, "s-qwen");
+    }
+
+    #[test]
+    fn open_session_forwards_ctx_pane_id() {
+        // The host passes the SDK ctx envelope `{ paneId, config }`; a plugin
+        // keying its session on paneId (LM Studio) must receive it. Guards the
+        // P1 wiring bug where the host passed bare config and `ctx.paneId` was
+        // null.
+        let vm = vm_with(
+            r#"module.exports.default = {
+                openSession(ctx) { return { sessionId: ctx.paneId }; }
+            }"#,
+        );
+        let b = JsChatBackend::new(vm, "lmstudio");
+        let sid = b
+            .open_session(json!({ "paneId": "pane-7", "config": {} }))
+            .unwrap();
+        assert_eq!(sid, "pane-7");
     }
 
     #[test]

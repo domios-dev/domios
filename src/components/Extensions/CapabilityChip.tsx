@@ -68,6 +68,8 @@ export const CAPABILITY_LABELS: Record<string, string> = {
   secrets: "Use its own secret store",
   manage_crons: "Schedule recurring tasks",
   admin: "Full control",
+  chat_backend: "Drive a chat pane",
+  chat_preprocessor: "Augment your messages",
 };
 
 export function capabilityLabel(id: string): string {

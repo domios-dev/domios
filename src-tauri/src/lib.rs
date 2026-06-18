@@ -205,6 +205,7 @@ pub fn run() {
             commands::chat_stop,
             commands::chat_backfill,
             commands::chat_send_text,
+            commands::open_chat_backend_pane,
             commands::transcribe_voice_attachment,
             commands::delayed_send_list,
             commands::delayed_send_create,
@@ -651,6 +652,10 @@ pub fn run() {
             for vm in &plugin_vms {
                 vm.set_service(Arc::downgrade(&service_state));
             }
+            // Same late-bind for the hot-reload watcher (P4): plugins installed or
+            // reloaded AFTER startup get the service threaded into their VMs too,
+            // so host.mem/worker/agent work without a daemon restart.
+            plugin::js_runtime::set_watcher_service(Arc::downgrade(&service_state));
             app.manage(service_state.clone());
             crate::delayed_send::start_scheduler(service_state.clone());
 

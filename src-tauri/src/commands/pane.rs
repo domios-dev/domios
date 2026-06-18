@@ -513,5 +513,42 @@ pub async fn chat_send_text(
     enter: Option<bool>,
 ) -> Result<(), String> {
     let enter = enter.unwrap_or(true);
+    // P3/F3: the desktop composer is always a user turn (no svc_token, no
+    // source_pane). Run the outbound text stages for PTY agent panes; chatBackend
+    // panes stage at their transport, so skip them here to avoid double-processing.
+    let run_stages = crate::chatpipeline::is_user_turn_send(
+        false,
+        false,
+        svc.pane_chat_backing(&pane_id).is_some(),
+    );
+    let text = if run_stages {
+        svc.run_outbound_stages(&pane_id, text)
+    } else {
+        text
+    };
     svc.send_text_when_ready(&pane_id, &text, enter).await
+}
+
+/// P1: open a non-PTY chatBackend pane driven by `plugin_id` (a plugin declaring
+/// the `chatBackend` capability). The frontend Extensions "Open chat" action
+/// calls this; `send`/`get-output` on the returned pane route to the plugin via
+/// the PaneTransport seam. Returns the new pane id.
+#[tauri::command]
+pub async fn open_chat_backend_pane(
+    svc: tauri::State<'_, ServiceState>,
+    plugin_id: String,
+    workspace_id: Option<String>,
+    config: Option<serde_json::Value>,
+) -> Result<String, String> {
+    use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
+    let handle = svc.spawn_pane(SpawnPaneSpec {
+        workspace_id,
+        visibility: PaneVisibility::Visible,
+        command: PaneCommand::ChatBackend {
+            plugin_id,
+            config: config.unwrap_or(serde_json::Value::Null),
+        },
+        ..Default::default()
+    })?;
+    Ok(handle.pane_id)
 }

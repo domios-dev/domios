@@ -217,6 +217,9 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
             .and_then(|v| v.as_bool())
             .unwrap_or(false)
     };
+    // chatPreprocessor may be a bool OR an object (`{ match }`) — either form
+    // means enabled. chat_backend is a plain bool.
+    let cap_present = |key: &str| caps.and_then(|c| c.get(key)).is_some_and(|v| !v.is_null());
     let cap_obj = serde_json::json!({
         "agent_provider": agent_provider,
         "secret_backend": cap_bool("secretBackend"),
@@ -224,7 +227,14 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         "glance_view": cap_bool("glanceView"),
         "status_bubble": cap_bool("statusBubble"),
         "view": cap_bool("view"),
+        "chat_backend": cap_bool("chatBackend"),
+        "chat_preprocessor": cap_bool("chatPreprocessor") || cap_present("chatPreprocessor"),
     });
+    // Effective grants reflect the user's persisted grants.yaml override (§1.10),
+    // which wins over the manifest request. Keys are canonical snake_case (what
+    // grants.yaml / host_api / the frontend chips all use); accept camelCase as a
+    // fallback for manifests authored that way.
+    let grants = crate::plugin::js_runtime::grants::load_grants(dir);
     let mut granted: Vec<&str> = Vec::new();
     if let Some(p) = m.get("permissions") {
         let allow_nonempty = |key: &str| {
@@ -234,34 +244,36 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
                 .map(|a| !a.is_empty())
                 .unwrap_or(false)
         };
+        // A toggleable perm: persisted grant override wins, else manifest
+        // request (snake_case canonical, camelCase fallback).
+        let perm_on = |snake: &str, camel: &str| {
+            if let Some(v) = grants.get(snake) {
+                return *v;
+            }
+            p.get(snake)
+                .and_then(|v| v.as_bool())
+                .or_else(|| p.get(camel).and_then(|v| v.as_bool()))
+                .unwrap_or(false)
+        };
         if allow_nonempty("network") {
             granted.push("network");
         }
         if allow_nonempty("subprocess") {
             granted.push("subprocess");
         }
-        if p.get("secrets").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if perm_on("secrets", "secrets") {
             granted.push("secrets");
         }
         if p.get("sendText").and_then(|v| v.as_bool()).unwrap_or(false) {
             granted.push("send_text");
         }
-        if p.get("agentCommands")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
+        if perm_on("agent_commands", "agentCommands") {
             granted.push("agent_commands");
         }
-        if p.get("manageWorkspaces")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
+        if perm_on("manage_workspaces", "manageWorkspaces") {
             granted.push("manage_workspaces");
         }
-        if p.get("spawnAgents")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
+        if perm_on("spawn_agents", "spawnAgents") {
             granted.push("spawn_agents");
         }
     }
@@ -716,6 +728,82 @@ mod tests {
         assert_eq!(
             entry["capabilities"]["status_bubble"],
             serde_json::json!(true)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn enrich_emits_chat_caps_and_snake_case_grants() {
+        let dir = std::env::temp_dir().join(format!("ct-caps-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = serde_json::json!({
+            "id": "codeterm-npc",
+            "version": "0.1.0",
+            "displayName": "Dread NPCs",
+            "capabilities": { "chatBackend": true, "chatPreprocessor": { "match": "text" } },
+            "permissions": {
+                "manage_workspaces": true,
+                "spawn_agents": true,
+                "agent_commands": true,
+                "secrets": true
+            }
+        });
+        let mut entry = serde_json::json!({ "id": "codeterm-npc" });
+        enrich_from_manifest(&mut entry, &dir, &manifest);
+
+        assert_eq!(
+            entry["capabilities"]["chat_backend"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            entry["capabilities"]["chat_preprocessor"],
+            serde_json::json!(true),
+            "object-form chatPreprocessor still reads as enabled"
+        );
+        let granted: Vec<String> = entry["granted_permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        for want in [
+            "manage_workspaces",
+            "spawn_agents",
+            "agent_commands",
+            "secrets",
+        ] {
+            assert!(
+                granted.contains(&want.to_string()),
+                "missing {want}: {granted:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn enrich_granted_permissions_reflect_grants_yaml() {
+        let dir = std::env::temp_dir().join(format!("ct-grant-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // User revoked spawn_agents (manifest requested it) → snapshot must honor it.
+        std::fs::write(dir.join("grants.yaml"), "spawn_agents: false\n").unwrap();
+        let manifest = serde_json::json!({
+            "id": "codeterm-npc",
+            "version": "0.1.0",
+            "displayName": "Dread NPCs",
+            "permissions": { "manage_workspaces": true, "spawn_agents": true }
+        });
+        let mut entry = serde_json::json!({ "id": "codeterm-npc" });
+        enrich_from_manifest(&mut entry, &dir, &manifest);
+        let granted: Vec<String> = entry["granted_permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        assert!(granted.contains(&"manage_workspaces".to_string()));
+        assert!(
+            !granted.contains(&"spawn_agents".to_string()),
+            "revoked grant must not appear: {granted:?}"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

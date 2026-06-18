@@ -189,6 +189,47 @@ fn top_level_docs_parse() {
 }
 
 #[test]
+fn pane_new_chat_backend_parses() {
+    // P1: `codeterm pane new --chat-backend <id> --config <json>` is the CLI
+    // entry point that opens a plugin-driven chat pane.
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "pane",
+        "new",
+        "--chat-backend",
+        "lmstudio",
+        "--config",
+        r#"{"model":"llama"}"#,
+    ])
+    .expect("pane new --chat-backend parses");
+    match parsed.command {
+        Commands::Pane {
+            action:
+                PaneAction::New {
+                    chat_backend,
+                    config,
+                    ..
+                },
+        } => {
+            assert_eq!(chat_backend.as_deref(), Some("lmstudio"));
+            assert_eq!(config.as_deref(), Some(r#"{"model":"llama"}"#));
+        }
+        _ => panic!("expected pane new"),
+    }
+}
+
+#[test]
+fn pane_new_without_chat_backend_defaults_to_none() {
+    let parsed = Cli::try_parse_from(["codeterm", "pane", "new"]).expect("plain pane new parses");
+    match parsed.command {
+        Commands::Pane {
+            action: PaneAction::New { chat_backend, .. },
+        } => assert!(chat_backend.is_none()),
+        _ => panic!("expected pane new"),
+    }
+}
+
+#[test]
 fn send_stdin_without_positional_parses() {
     let parsed = Cli::try_parse_from(["codeterm", "send", "--stdin", "--pane", "abc123"])
         .expect("send --stdin parses");

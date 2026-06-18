@@ -90,14 +90,18 @@ impl ServiceContext {
             .ok_or_else(|| format!("chatBackend plugin '{plugin_id}' not registered"))
     }
 
-    /// Open a plugin session for a pane. Returns the plugin-chosen session id.
+    /// Open a plugin session for a pane. Builds the SDK `openSession` ctx
+    /// envelope `{ paneId, config }` (the plugin may key its session on
+    /// `paneId`, e.g. LM Studio) and returns the plugin-chosen session id.
     pub fn chatbackend_open_session(
         &self,
         plugin_id: &str,
+        pane_id: &str,
         config: serde_json::Value,
     ) -> Result<String, String> {
+        let ctx = serde_json::json!({ "paneId": pane_id, "config": config });
         self.chatbackend_provider(plugin_id)?
-            .open_session(config)
+            .open_session(ctx)
             .map_err(|e| e.to_string())
     }
 
