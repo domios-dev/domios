@@ -216,36 +216,11 @@ pub(crate) fn validate_agent_model(
     provider_id: &str,
     model: Option<&str>,
 ) -> Result<(), String> {
-    let Some(model) = model.map(str::trim).filter(|m| !m.is_empty()) else {
-        return Ok(());
-    };
-    let models = registry
-        .with_provider(provider_id, |p| p.available_models())
-        .unwrap_or_default();
-    if models.is_empty() {
-        return Ok(());
+    let _ = registry;
+    if model.map(str::trim).is_some_and(|m| !m.is_empty()) {
+        let _ = crate::agent::model_catalog::resolve_model(provider_id, model);
     }
-    if models.iter().any(|m| m.id == model) {
-        return Ok(());
-    }
-
-    let suffix_matches: Vec<&str> = models
-        .iter()
-        .filter_map(|m| {
-            m.id.rsplit_once('/')
-                .map(|(_, suffix)| (m.id.as_str(), suffix))
-        })
-        .filter_map(|(id, suffix)| (suffix == model).then_some(id))
-        .collect();
-    let suggestion = if suffix_matches.len() == 1 {
-        format!(" Did you mean '{}'?", suffix_matches[0])
-    } else {
-        String::new()
-    };
-    Err(format!(
-        "Invalid model '{}' for provider '{}'.{} Run `codeterm agent models {}` to see available models.",
-        model, provider_id, suggestion, provider_id
-    ))
+    Ok(())
 }
 
 pub(crate) fn resolve_fresh_agent_model(
@@ -258,14 +233,24 @@ pub(crate) fn resolve_fresh_agent_model(
         return requested.and_then(non_empty_model);
     }
     if let Some(model) = requested.and_then(non_empty_model) {
-        return Some(model);
+        let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(&model));
+        if resolved.fell_back {
+            log::warn!(
+                "[spawn] requested model '{}' unavailable for provider '{}'; using '{}'",
+                model,
+                provider_id,
+                resolved.id
+            );
+        }
+        return non_empty_model(resolved.id);
     }
     if let Some(model) = crate::config::provider_config(provider_id)
         .default_model
         .and_then(non_empty_model)
     {
-        if model_is_advertised(registry, provider_id, &model) {
-            return Some(model);
+        let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(&model));
+        if !resolved.fell_back {
+            return non_empty_model(resolved.id);
         }
         log::warn!(
             "[spawn] ignoring stale default model '{}' for provider '{}'",
@@ -273,22 +258,18 @@ pub(crate) fn resolve_fresh_agent_model(
             provider_id
         );
     }
-    registry
+    let provider_default = registry
         .with_provider(provider_id, |p| p.default_model())
         .flatten()
-        .and_then(non_empty_model)
+        .and_then(non_empty_model);
+    let resolved =
+        crate::agent::model_catalog::resolve_model(provider_id, provider_default.as_deref());
+    non_empty_model(resolved.id)
 }
 
 fn non_empty_model(model: String) -> Option<String> {
     let trimmed = model.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
-}
-
-fn model_is_advertised(registry: &AgentRegistry, provider_id: &str, model: &str) -> bool {
-    registry
-        .with_provider(provider_id, |p| p.available_models())
-        .map(|models| models.is_empty() || models.iter().any(|m| m.id == model))
-        .unwrap_or(false)
 }
 
 impl ServiceContext {

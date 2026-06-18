@@ -192,6 +192,38 @@ fn test_build_with_model_uses_provider_specific_flag() {
 }
 
 #[test]
+fn build_agent_command_canonicalizes_display_model_before_launch_args() {
+    let reg = AgentRegistry::new();
+    reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+    crate::agent::model_catalog::register(
+        "display-canon",
+        crate::agent::model_catalog::RegisteredDefaults {
+            models: vec![crate::agent::provider::ModelInfo {
+                id: "gpt-5.5".into(),
+                display_name: "GPT-5.5".into(),
+                description: None,
+            }],
+            default: Some("gpt-5.5".into()),
+        },
+    );
+
+    let mut p = make_params("display-canon", None);
+    p.model = Some("GPT-5.5".into());
+    let cmd = build_agent_command("display-canon", &p, None, None, &reg);
+
+    assert!(
+        cmd.contains("--model gpt-5.5"),
+        "launch command must use canonical id: {}",
+        cmd
+    );
+    assert!(
+        !cmd.contains("--model GPT-5.5"),
+        "launch command leaked display name: {}",
+        cmd
+    );
+}
+
+#[test]
 fn test_build_with_resume_session_id_uses_provider_resume_form() {
     // codex/opencode resume forms are JS-plugin logic now (plugins/provider-*/tests);
     // here we verify the orchestrator delegates resume to the native claude provider.
