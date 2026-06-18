@@ -128,10 +128,13 @@ No cross-pane injection — the agent is already in context.
 
 ### Behavior
 
-A reserved glance/settings action **`configure-with-ai`**, shown for any plugin
-that is configurable (has a `settingsSchema`). Clicking it opens a focused
-General-style agent pane preloaded with a **safety-wrapped** description of the
-plugin and how to configure it, then asks the user what they want.
+A reserved glance/settings action **`configure-with-ai`**, shown for **every
+plugin** — every plugin carries a mandatory `configHelp` (Part E). Clicking it
+opens a focused General-style agent pane preloaded with a **safety-wrapped**
+description of the plugin: what it does, how to use it, and what knobs it exposes
+for the agent — then asks the user what they want. For a plugin with no settings
+(e.g. `git`) it is a "help me use this" affordance; for configurable plugins it
+is "configure for me."
 
 ### Why core-owned, not plugin-owned
 
@@ -144,16 +147,17 @@ help text; **core wraps it**.
 1. **Button injection (core).** In the glance/settings renderer
    (`src/components/Extensions/ViewNodeRenderer.tsx` +
    `Extensions/ExtensionsView.tsx`), auto-append a `configure-with-ai` button for
-   plugins whose snapshot reports a `settingsSchema`. Plugin authors get it for
-   free; they may also place it explicitly in `renderGlance`.
+   **every plugin** (all carry `configHelp`). Plugin authors get it for free;
+   they may also place it explicitly in `renderGlance`.
 2. **Interception (core).** In `src/components/Extensions/GlancePopover.tsx`
    (alongside the existing `openPanel:` branch ~line 78) and
    `Extensions/PluginBubbles.tsx`, intercept `configure-with-ai` before it
    reaches the plugin's `glanceAction`.
-3. **Build config-help (core).** Resolve the plugin's help text from, in order:
-   manifest `configHelp` → `description` + a rendering of `settingsSchema` →
-   `README`. Surfaced via the plugin snapshot
-   (`src-tauri/src/commands/plugins.rs` `build_snapshot`) so the frontend has it.
+3. **Build config-help (core).** Use the manifest's **required** `configHelp` as
+   the canonical text; if a plugin is missing it (legacy/non-conformant), fall
+   back to `description` + a rendering of `settingsSchema` + `README`. Surfaced
+   via the plugin snapshot (`src-tauri/src/commands/plugins.rs` `build_snapshot`)
+   so the frontend has it.
 4. **Wrap (core).** Build the payload:
    ```
    <PLUGIN CONFIG — ASK THE USER, DO NOT ACT AUTOMATICALLY>
@@ -194,11 +198,14 @@ Files (mirrors the existing marker plumbing exactly):
 - `packages/chat-ui/src/MessageBubble.tsx` — origin header (Settings icon,
   "Configure · <plugin>").
 
-### `configHelp` manifest field
+### `configHelp` manifest field — REQUIRED
 
-Optional. When present, it is the canonical help text for the magic button. The
-schema renderer + README remain fallbacks. Documented in `docs/PLUGINS.md` as the
-recommended way to author a great "Configure with AI" experience.
+Every plugin MUST declare a `configHelp` string: a short, agent-facing
+explanation of what the plugin does, how to use it, and what knobs exist to
+configure it (with the exact `codeterm plugin config <id> --set key=value` keys
+where applicable). It is the canonical text for the magic button. The schema
+renderer + README are only fallbacks for non-conformant plugins. Documented in
+`docs/PLUGINS.md` as a hard authoring requirement.
 
 ---
 
@@ -206,27 +213,31 @@ recommended way to author a great "Configure with AI" experience.
 
 ### Plugin audit (`codeterm-plugins/`)
 
-| Plugin | Has settings? | Action |
-|--------|---------------|--------|
-| transcriber | yes | shrink settings (Part A), add `configHelp` |
-| bitwarden | yes | add `configHelp`; button auto-appears |
-| lmstudio | no | **add `settingsSchema`** (model, endpoint URL) + `configHelp` |
-| chat-preprocessor | no | **add `settingsSchema`** (strategy, backend) + `configHelp` |
-| git | no | nothing to configure — no button |
+Every plugin gets the button **and** a mandatory `configHelp`. Plugins that have
+real knobs also get/keep a `settingsSchema`.
+
+| Plugin | settingsSchema | Action |
+|--------|----------------|--------|
+| transcriber | yes (shrunk) | shrink settings (Part A), add `configHelp` |
+| bitwarden | yes (keep) | add `configHelp`; button auto-appears |
+| lmstudio | **add** (model, endpoint URL) | + `configHelp` |
+| chat-preprocessor | **add** (strategy, backend) | + `configHelp` |
+| git | none | add `configHelp` (how-to-use; no knobs) — button still appears |
 
 ### Self-doc requirement
 
-Every plugin must ship a `README.md` and (recommended) a `configHelp`. All
-current plugins already have READMEs. Formalize as a convention: the magic button
-reads them; a plugin without any help text falls back to manifest description +
-schema.
+Every plugin MUST ship (1) a `README.md` and (2) a `configHelp` string in its
+manifest (agent-facing: what it does, how to use it, what config knobs exist).
+This is a hard convention, not a suggestion — the magic button relies on it. A
+non-conformant plugin degrades to description + schema + README, but all
+first-party plugins must declare `configHelp`.
 
 ### Author docs — `docs/PLUGINS.md`
 
 Add a section documenting the full pattern for external plugin builders:
 
-- The `configure-with-ai` magic button: when it appears (any `settingsSchema`),
-  how to customize its help text (`configHelp`), and that it never auto-executes.
+- The `configure-with-ai` magic button: it appears for **every** plugin, reads
+  the required `configHelp`, and never auto-executes (asks the user first).
 - The `plugin_config` marker and the core-added safety envelope (why plugin text
   is treated as data).
 - The install → configure flow (Parts B/C): the install success message guides

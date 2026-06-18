@@ -190,11 +190,11 @@ export async function configureWithAI(id: string, name: string, help: string): P
 }
 ```
 
-- [ ] **Step 1 — snapshot test (Rust).** In `src-tauri/src/commands/plugins.rs` tests, assert a plugin with a `settingsSchema` yields a snapshot row where `has_settings == true` and `config_help` is `Some` (from manifest `configHelp`, else description). Expect FAIL.
+- [ ] **Step 1 — snapshot test (Rust).** In `src-tauri/src/commands/plugins.rs` tests, assert every plugin row exposes `config_help` (`Some` — from manifest `configHelp`, else fallback to `description`) and that a plugin with a `settingsSchema` reports `has_settings == true`. The button shows for all; `has_settings` only gates the settings form. Expect FAIL.
 - [ ] **Step 2 — implement** `config_help` + `has_settings` in `build_snapshot` (read manifest `configHelp`/`description`/`settingsSchema` presence). Run; expect PASS. `tsc --noEmit` after extending `Extensions/types.ts`.
 - [ ] **Step 3 — task-builder test (TS).** Test `buildConfigureTask("lmstudio","LM Studio","set the model")` contains the preamble, the `<PLUGIN CONFIG …>` envelope around the help, and parses back via `parseMarker` to kind `plugin_config` with `plugin=lmstudio`. Expect FAIL.
 - [ ] **Step 4 — implement** `src/lib/pluginConfigure.ts` (`buildConfigureTask` + `configureWithAI`, copying the spawn mechanics from `MeshPanel.tsx::spawnSetupChat`). Run; expect PASS.
-- [ ] **Step 5 — wire button injection.** In `ViewNodeRenderer.tsx` auto-append a `{ kind:"button", label:"Configure with AI", action:"configure-with-ai" }` node when the plugin is configurable. In `GlancePopover.tsx` + `PluginBubbles.tsx`, when `action === "configure-with-ai"`, call `configureWithAI(pluginId, displayName, configHelp)` instead of dispatching to the plugin. Verify `tsc --noEmit`.
+- [ ] **Step 5 — wire button injection (every plugin).** In `ViewNodeRenderer.tsx` auto-append a `{ kind:"button", label:"Configure with AI", action:"configure-with-ai" }` node for **every** plugin (all carry `configHelp`). In `GlancePopover.tsx` + `PluginBubbles.tsx`, when `action === "configure-with-ai"`, call `configureWithAI(pluginId, displayName, configHelp)` instead of dispatching to the plugin. Verify `tsc --noEmit`.
 - [ ] **Step 6 — gate + commit.** All codeterm-alpha gates. Commit: `feat(plugins): universal Configure-with-AI magic button (Track G)`.
 
 ---
@@ -264,13 +264,18 @@ whisper-cli -m <modelPath> -f <tmp>.wav -l <lang|auto> -nt -oj -of <tmpBase>
 
 ---
 
-## Track S — lmstudio / chat-preprocessor / bitwarden settings + configHelp
+## Track S — settings + mandatory `configHelp` for ALL non-transcriber plugins
+
+Covers lmstudio, chat-preprocessor, bitwarden, **and git**. Every plugin gets a
+mandatory `configHelp` (agent-facing: what it does, how to use it, what knobs).
+Plugins with real knobs also get a `settingsSchema`.
 
 **Files:**
 - Create: `codeterm-plugins/lmstudio/settings.schema.json` (model, endpoint URL)
 - Create: `codeterm-plugins/chat-preprocessor/settings.schema.json` (strategy, backend)
 - Modify: `lmstudio/plugin.json`, `chat-preprocessor/plugin.json`,
-  `bitwarden/plugin.json` (add `settingsSchema` ref where created + `configHelp`)
+  `bitwarden/plugin.json`, `git/plugin.json` (add `settingsSchema` ref where
+  created + a **required** `configHelp` on every one)
 - Modify: each plugin's `src/plugin.ts` to read the new settings via
   `host.settingsJson()` where applicable (lmstudio: model/endpoint;
   preprocessor: strategy/backend)
@@ -287,8 +292,11 @@ whisper-cli -m <modelPath> -f <tmp>.wav -l <lang|auto> -nt -oj -of <tmpBase>
   `configHelp`. Run; expect PASS. Rebuild `plugin.js`.
 - [ ] **Step 5 — bitwarden `configHelp`.** Add a `configHelp` string to
   `bitwarden/plugin.json` (it already has a settings schema). No behavior change.
-- [ ] **Step 6 — gate + commit.** Plugin test runner + builds. Commit:
-  `feat(plugins): settings + configHelp for lmstudio/preprocessor/bitwarden (Track S)`.
+- [ ] **Step 6 — git `configHelp`.** Add a `configHelp` to `git/plugin.json`
+  describing what the git bubble/glance shows and how to use it (no settings
+  knobs — state that explicitly). No behavior change. Rebuild `plugin.js`.
+- [ ] **Step 7 — gate + commit.** Plugin test runner + builds. Commit:
+  `feat(plugins): settings + mandatory configHelp for all plugins (Track S)`.
 
 ---
 
