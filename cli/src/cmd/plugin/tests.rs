@@ -15,6 +15,18 @@ mod store_index_tests {
         }
     }
 
+    #[cfg(unix)]
+    fn make_executable(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(not(unix))]
+    fn make_executable(_path: &Path) {}
+
     fn with_data_root<T>(f: impl FnOnce(PathBuf) -> T) -> T {
         let _guard = env_lock().lock().unwrap();
         let prev = std::env::var("CODETERM_DATA_DIR").ok();
@@ -245,6 +257,141 @@ mod store_index_tests {
             let manifest = read_channel_manifest(&cache).expect("old cache must remain readable");
             assert_eq!(manifest.name, "demo");
             assert_eq!(manifest.plugins[0].id, "demo-plugin");
+        });
+    }
+
+    #[test]
+    fn install_from_git_channel_refreshes_before_resolving() {
+        with_data_root(|root| {
+            let prev_path = std::env::var("PATH").ok();
+            let prev_fresh = std::env::var("CODETERM_TEST_FRESH_CHANNEL").ok();
+            let prev_log = std::env::var("CODETERM_TEST_GIT_LOG").ok();
+
+            let cache = channels_root().join("demo");
+            write_channel(&cache, "demo", &[("fresh", "provider-fresh")]);
+
+            let fresh_channel = root.join("fresh-channel");
+            write_channel(&fresh_channel, "demo", &[("fresh", "provider-fresh")]);
+            std::fs::write(
+                fresh_channel.join("channel.json"),
+                serde_json::json!({
+                    "schemaVersion": 1,
+                    "name": "demo",
+                    "plugins": [{"id": "fresh", "version": "2.0.0", "path": "provider-fresh"}]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            std::fs::write(
+                fresh_channel.join("provider-fresh/plugin.json"),
+                serde_json::json!({
+                    "id": "fresh",
+                    "version": "2.0.0",
+                    "displayName": "Fresh",
+                    "main": "plugin.js"
+                })
+                .to_string(),
+            )
+            .unwrap();
+
+            write_channel_registry(&ChannelRegistry {
+                channels: BTreeMap::from([(
+                    "demo".to_string(),
+                    ChannelRecord {
+                        name: "demo".to_string(),
+                        url: "https://example.invalid/demo.git#main".to_string(),
+                        path: cache.display().to_string(),
+                        kind: ChannelKind::Git,
+                    },
+                )]),
+            })
+            .unwrap();
+
+            let bin = root.join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            let git = bin.join("git");
+            std::fs::write(
+                &git,
+                r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$CODETERM_TEST_GIT_LOG"
+if [ "$1" = "clone" ]; then
+  dest="$5"
+  mkdir -p "$dest"
+  cp -R "$CODETERM_TEST_FRESH_CHANNEL/." "$dest/"
+fi
+exit 0
+"#,
+            )
+            .unwrap();
+            make_executable(&git);
+
+            let log = root.join("git.log");
+            std::env::set_var("CODETERM_TEST_FRESH_CHANNEL", &fresh_channel);
+            std::env::set_var("CODETERM_TEST_GIT_LOG", &log);
+            let mut path_entries = vec![bin.clone()];
+            if let Some(path) = &prev_path {
+                path_entries.extend(std::env::split_paths(path));
+            }
+            std::env::set_var("PATH", std::env::join_paths(path_entries).unwrap());
+
+            let out = install_command(Some("fresh".to_string()), None, None, None)
+                .expect("install should refresh channel and install");
+
+            assert_eq!(
+                manifest_version(&plugin_dir("fresh")).unwrap(),
+                Some("2.0.0".to_string())
+            );
+            assert_eq!(out["warnings"], serde_json::json!([]));
+            let git_log = std::fs::read_to_string(log).expect("git stub should be invoked");
+            assert!(git_log.contains("clone --depth 1 https://example.invalid/demo.git"));
+            assert!(git_log.contains("fetch --depth 1 origin main"));
+
+            restore_env("PATH", prev_path);
+            restore_env("CODETERM_TEST_FRESH_CHANNEL", prev_fresh);
+            restore_env("CODETERM_TEST_GIT_LOG", prev_log);
+        });
+    }
+
+    #[test]
+    fn install_from_channel_warns_and_uses_cache_when_refresh_fails() {
+        with_data_root(|root| {
+            let bad_source = root.join("bad-source");
+            std::fs::create_dir_all(&bad_source).unwrap();
+            std::fs::write(bad_source.join("channel.json"), "{not-json").unwrap();
+
+            let cache = channels_root().join("demo");
+            write_channel(&cache, "demo", &[("cached", "provider-cached")]);
+            write_channel_registry(&ChannelRegistry {
+                channels: BTreeMap::from([(
+                    "demo".to_string(),
+                    ChannelRecord {
+                        name: "demo".to_string(),
+                        url: format!("file://{}", bad_source.display()),
+                        path: cache.display().to_string(),
+                        kind: ChannelKind::Local,
+                    },
+                )]),
+            })
+            .unwrap();
+
+            let out = install_command(
+                Some("cached".to_string()),
+                None,
+                None,
+                Some("demo".to_string()),
+            )
+            .expect("refresh failure should not block cached install");
+
+            assert!(plugin_dir("cached").join("plugin.json").exists());
+            let warnings = out["warnings"].as_array().expect("warnings array");
+            assert_eq!(warnings.len(), 1);
+            let warning = warnings[0].as_str().unwrap();
+            assert!(
+                warning.contains("refresh channel 'demo' failed"),
+                "{warning}"
+            );
+            assert!(warning.contains("cached channel"), "{warning}");
         });
     }
 

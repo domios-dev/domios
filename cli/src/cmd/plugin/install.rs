@@ -57,7 +57,8 @@ pub(super) fn install_command(
     }
 
     let id = id.ok_or("install requires <id> or --from-dir <path>")?;
-    let candidate = find_channel_plugin(&id, channel.as_deref())?;
+    let mut warnings = Vec::new();
+    let candidate = resolve_channel_install_candidate(&id, channel.as_deref(), &mut warnings)?;
     let source_dir = candidate.channel_path.join(&candidate.plugin_path);
     let channel_name = candidate.channel_name.clone();
     let version = candidate.version;
@@ -96,7 +97,38 @@ pub(super) fn install_command(
         "id": id,
         "path": plugin_dir(&id).display().to_string(),
         "reload_required": reload_required,
+        "warnings": warnings,
     }))
+}
+
+fn resolve_channel_install_candidate(
+    id: &str,
+    channel: Option<&str>,
+    warnings: &mut Vec<String>,
+) -> Result<ChannelCandidate, String> {
+    if let Some(channel) = channel {
+        refresh_channel_for_install(channel, warnings);
+        return find_channel_plugin(id, Some(channel));
+    }
+
+    let cached = find_channel_plugin(id, None)?;
+    let channel_name = cached.channel_name.clone();
+    if refresh_channel_for_install(&channel_name, warnings) {
+        return find_channel_plugin(id, Some(&channel_name));
+    }
+    Ok(cached)
+}
+
+fn refresh_channel_for_install(channel: &str, warnings: &mut Vec<String>) -> bool {
+    match refresh_channel(Some(channel)) {
+        Ok(()) => true,
+        Err(err) => {
+            warnings.push(format!(
+                "refresh channel '{channel}' failed: {err}; using cached channel"
+            ));
+            false
+        }
+    }
 }
 
 /// Build the agent-readable install success message: the reload hint when a
