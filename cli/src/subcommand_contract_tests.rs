@@ -197,7 +197,7 @@ fn pane_new_chat_backend_parses() {
         "pane",
         "new",
         "--chat-backend",
-        "lmstudio",
+        "local-shell",
         "--config",
         r#"{"model":"llama"}"#,
     ])
@@ -211,7 +211,7 @@ fn pane_new_chat_backend_parses() {
                     ..
                 },
         } => {
-            assert_eq!(chat_backend.as_deref(), Some("lmstudio"));
+            assert_eq!(chat_backend.as_deref(), Some("local-shell"));
             assert_eq!(config.as_deref(), Some(r#"{"model":"llama"}"#));
         }
         _ => panic!("expected pane new"),

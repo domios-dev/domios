@@ -286,7 +286,7 @@ mod tests {
         let p = pane_with(
             "b",
             PaneBacking::ChatBackend {
-                plugin_id: "lmstudio".into(),
+                plugin_id: "local-shell".into(),
                 session_id: "s1".into(),
             },
         );
@@ -299,7 +299,7 @@ mod tests {
         let p = pane_with(
             "c",
             PaneBacking::ChatBackend {
-                plugin_id: "lmstudio".into(),
+                plugin_id: "local-shell".into(),
                 session_id: "s1".into(),
             },
         );
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn chat_backing_round_trips_through_serde() {
         let backing = PaneBacking::ChatBackend {
-            plugin_id: "lmstudio".into(),
+            plugin_id: "local-shell".into(),
             session_id: "abc".into(),
         };
         let v = serde_json::to_value(&backing).unwrap();

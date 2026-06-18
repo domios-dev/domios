@@ -296,11 +296,27 @@
               "aliases": []
             },
             {
+              "name": "preset",
+              "positional": false,
+              "value_name": "PRESET",
+              "default": null,
+              "help": "Select a chatBackend shell preset. Omit to use the plugin default preset",
+              "aliases": []
+            },
+            {
               "name": "role",
               "positional": false,
               "value_name": "ROLE",
               "default": null,
               "help": "Role: Orchestrator, Worker",
+              "aliases": []
+            },
+            {
+              "name": "system_prompt",
+              "positional": false,
+              "value_name": "SYSTEM_PROMPT",
+              "default": null,
+              "help": "Override the shell system prompt when spawning a chatBackend shell",
               "aliases": []
             },
             {
@@ -3827,7 +3843,7 @@
               "positional": false,
               "value_name": "PLUGIN_ID",
               "default": null,
-              "help": "Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability, e.g. `lmstudio`). `codeterm send`/`get-output` then route to the plugin, not a shell",
+              "help": "Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`get-output` then route to the plugin, not a shell",
               "aliases": []
             },
             {

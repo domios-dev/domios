@@ -154,7 +154,7 @@ pub fn read_session_jsonl(
         file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
         Ok(buf)
     } else if let Some(tail) = tail_bytes {
-        let start = if file_len > tail { file_len - tail } else { 0 };
+        let start = file_len.saturating_sub(tail);
         file.seek(SeekFrom::Start(start))
             .map_err(|e| e.to_string())?;
         let mut buf = String::new();
@@ -541,15 +541,28 @@ pub async fn open_chat_backend_pane(
     plugin_id: String,
     workspace_id: Option<String>,
     config: Option<serde_json::Value>,
+    system_prompt: Option<String>,
+    preset: Option<String>,
+    model: Option<String>,
 ) -> Result<String, String> {
     use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
+    let mut config = config.unwrap_or(serde_json::Value::Null);
+    let overrides = crate::service::spawn::chatbackend_spawn_config(
+        system_prompt.as_deref(),
+        preset.as_deref(),
+        model.as_deref(),
+    );
+    if let (Some(base), Some(extra)) = (config.as_object_mut(), overrides.as_object()) {
+        for (key, value) in extra {
+            base.insert(key.clone(), value.clone());
+        }
+    } else if !overrides.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+        config = overrides;
+    }
     let handle = svc.spawn_pane(SpawnPaneSpec {
         workspace_id,
         visibility: PaneVisibility::Visible,
-        command: PaneCommand::ChatBackend {
-            plugin_id,
-            config: config.unwrap_or(serde_json::Value::Null),
-        },
+        command: PaneCommand::ChatBackend { plugin_id, config },
         ..Default::default()
     })?;
     Ok(handle.pane_id)

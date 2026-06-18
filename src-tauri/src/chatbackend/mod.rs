@@ -47,6 +47,22 @@ impl std::error::Error for ChatBackendError {}
 pub trait ChatBackendProvider: Send + Sync {
     fn id(&self) -> &str;
 
+    fn display_name(&self) -> &str {
+        self.id()
+    }
+
+    fn icon_hint(&self) -> Option<&str> {
+        None
+    }
+
+    fn icon_svg(&self) -> Option<&str> {
+        None
+    }
+
+    fn icon_color(&self) -> Option<&str> {
+        None
+    }
+
     /// Open a session for a pane. `ctx` is the SDK envelope
     /// `{ paneId, config, systemPrompt?, preset?, model? }` (a plugin may key
     /// its session on `paneId`, e.g. LM Studio). Returns the plugin-chosen
