@@ -3,6 +3,8 @@ use std::process::Command;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::service::ServiceContext;
+
 const PROTECTED_PLUGIN_CHANNELS: [&str; 2] = ["codeterm-core", "codeterm-plugins"];
 
 #[derive(Debug, Deserialize)]
@@ -23,8 +25,11 @@ pub fn plugin_manager_snapshot() -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub fn plugin_manager_action(action: PluginManagerAction) -> Result<Value, String> {
-    run_action(action)
+pub fn plugin_manager_action(
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    action: PluginManagerAction,
+) -> Result<Value, String> {
+    run_action(action, svc.inner().as_ref())
 }
 
 /// Render (or act on) a plugin's glance view. `action == None` renders fresh;
@@ -118,7 +123,10 @@ pub(crate) async fn view_call(
 
 /// Run a plugin-manager action and return the refreshed snapshot. Shared by the
 /// Tauri command and the web-mirror REST route (`POST /api/plugins/action`).
-pub(crate) fn run_action(action: PluginManagerAction) -> Result<Value, String> {
+pub(crate) fn run_action(
+    action: PluginManagerAction,
+    svc: &ServiceContext,
+) -> Result<Value, String> {
     if action.kind == "remove-channel" {
         let channel = action
             .channel
@@ -127,11 +135,106 @@ pub(crate) fn run_action(action: PluginManagerAction) -> Result<Value, String> {
         if is_protected_channel(&channel) {
             return Err(format!("channel '{channel}' is protected"));
         }
-        remove_channel_plugins(&channel, action.force)?;
     }
     let args = plugin_action_args(&action)?;
-    let output = run_plugin_cli(&args)?;
-    build_snapshot(Some(output))
+    let activity_meta = plugin_action_activity(&action)?;
+    let activity = svc.plugin_activity.start(
+        &activity_meta.plugin_id,
+        activity_meta.kind,
+        &activity_meta.label,
+    );
+    crate::plugin::activity::emit_plugin_activity(svc, &activity);
+
+    let result = (|| {
+        if action.kind == "remove-channel" {
+            let channel = action
+                .channel
+                .as_deref()
+                .ok_or("remove-channel requires channel")?;
+            remove_channel_plugins(channel, action.force)?;
+        }
+        let output = run_plugin_cli(&args)?;
+        build_snapshot(Some(output))
+    })();
+
+    let finished = svc
+        .plugin_activity
+        .finish(&activity.id, result.as_ref().err().cloned());
+    crate::plugin::activity::emit_plugin_activity(svc, &finished);
+    result
+}
+
+struct PluginActionActivity {
+    plugin_id: String,
+    kind: &'static str,
+    label: String,
+}
+
+fn plugin_action_activity(action: &PluginManagerAction) -> Result<PluginActionActivity, String> {
+    match action.kind.as_str() {
+        "install" => {
+            let id = action
+                .plugin_id
+                .as_deref()
+                .ok_or("install requires pluginId")?;
+            Ok(PluginActionActivity {
+                plugin_id: id.to_string(),
+                kind: "install",
+                label: format!("Installing {id}…"),
+            })
+        }
+        "remove" => {
+            let id = action
+                .plugin_id
+                .as_deref()
+                .ok_or("remove requires pluginId")?;
+            Ok(PluginActionActivity {
+                plugin_id: id.to_string(),
+                kind: "uninstall",
+                label: format!("Uninstalling {id}…"),
+            })
+        }
+        "update" | "update-system" => {
+            let id = action.plugin_id.as_deref().unwrap_or("plugins");
+            Ok(PluginActionActivity {
+                plugin_id: id.to_string(),
+                kind: "update",
+                label: format!("Updating {id}…"),
+            })
+        }
+        "refresh-channel" => {
+            let id = action.channel.as_deref().unwrap_or("channels");
+            Ok(PluginActionActivity {
+                plugin_id: format!("channel:{id}"),
+                kind: "channel",
+                label: format!("Refreshing {id}…"),
+            })
+        }
+        "add-channel" => {
+            let id = action
+                .name
+                .as_deref()
+                .or(action.url.as_deref())
+                .ok_or("add-channel requires url")?;
+            Ok(PluginActionActivity {
+                plugin_id: format!("channel:{id}"),
+                kind: "channel",
+                label: format!("Adding channel {id}…"),
+            })
+        }
+        "remove-channel" => {
+            let id = action
+                .channel
+                .as_deref()
+                .ok_or("remove-channel requires channel")?;
+            Ok(PluginActionActivity {
+                plugin_id: format!("channel:{id}"),
+                kind: "channel",
+                label: format!("Removing channel {id}…"),
+            })
+        }
+        other => Err(format!("unknown plugin manager action: {other}")),
+    }
 }
 
 fn is_protected_channel(channel: &str) -> bool {
@@ -704,6 +807,77 @@ mod tests {
         assert!(plugin_action_args(&action)
             .unwrap_err()
             .contains("pluginId"));
+    }
+
+    #[test]
+    fn plugin_action_activity_maps_install_remove_and_update() {
+        let install = PluginManagerAction {
+            kind: "install".into(),
+            plugin_id: Some("transcriber".into()),
+            channel: None,
+            url: None,
+            name: None,
+            force: false,
+        };
+        let install_activity = plugin_action_activity(&install).unwrap();
+        assert_eq!(install_activity.plugin_id, "transcriber");
+        assert_eq!(install_activity.kind, "install");
+        assert_eq!(install_activity.label, "Installing transcriber…");
+
+        let remove = PluginManagerAction {
+            kind: "remove".into(),
+            plugin_id: Some("transcriber".into()),
+            channel: None,
+            url: None,
+            name: None,
+            force: false,
+        };
+        let remove_activity = plugin_action_activity(&remove).unwrap();
+        assert_eq!(remove_activity.plugin_id, "transcriber");
+        assert_eq!(remove_activity.kind, "uninstall");
+        assert_eq!(remove_activity.label, "Uninstalling transcriber…");
+
+        let update_system = PluginManagerAction {
+            kind: "update-system".into(),
+            plugin_id: Some("codeterm-core".into()),
+            channel: None,
+            url: None,
+            name: None,
+            force: false,
+        };
+        let update_activity = plugin_action_activity(&update_system).unwrap();
+        assert_eq!(update_activity.plugin_id, "codeterm-core");
+        assert_eq!(update_activity.kind, "update");
+        assert_eq!(update_activity.label, "Updating codeterm-core…");
+    }
+
+    #[test]
+    fn plugin_action_activity_maps_channel_operations() {
+        let add = PluginManagerAction {
+            kind: "add-channel".into(),
+            plugin_id: None,
+            channel: None,
+            url: Some("https://example.test/channel.json".into()),
+            name: Some("demo".into()),
+            force: false,
+        };
+        let add_activity = plugin_action_activity(&add).unwrap();
+        assert_eq!(add_activity.plugin_id, "channel:demo");
+        assert_eq!(add_activity.kind, "channel");
+        assert_eq!(add_activity.label, "Adding channel demo…");
+
+        let refresh = PluginManagerAction {
+            kind: "refresh-channel".into(),
+            plugin_id: None,
+            channel: Some("demo".into()),
+            url: None,
+            name: None,
+            force: false,
+        };
+        let refresh_activity = plugin_action_activity(&refresh).unwrap();
+        assert_eq!(refresh_activity.plugin_id, "channel:demo");
+        assert_eq!(refresh_activity.kind, "channel");
+        assert_eq!(refresh_activity.label, "Refreshing demo…");
     }
 
     #[test]
