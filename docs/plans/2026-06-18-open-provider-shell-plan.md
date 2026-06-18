@@ -256,6 +256,22 @@ capability-CONDITIONAL, never assert a specific plugin is installed):**
 - [ ] chatPreprocessor + Dreamer + `codeterm-npc` unaffected.
 - [ ] Plugin installs cleanly; docs accurate. Then `git branch --no-merged plugins-rethink` audit.
 
+## Track S9 — fix `pane chat` snapshot for chatBackend panes (real bug surfaced by this feature)
+
+`pane_chat_snapshot` (`src-tauri/src/service/pane_chat/mod.rs:444-452`) requires
+`pane.agent_type` + `agent_session_id`; a chatBackend pane (PaneBacking::ChatBackend)
+has neither → `GET /api/panes/{id}/chat` returns HTTP 400 "chat snapshot failed"
+(found by the peer's pw cross-pane-chat:59). The open shell makes chatBackend panes
+first-class, so `codeterm pane chat` / the chat-ui MUST work on them.
+
+**Fix:** branch `pane_chat_snapshot` on the pane backing — for a ChatBackend pane,
+resolve `(plugin_id, session_id)` from `PaneBacking::ChatBackend` and read the
+transcript via the chatbackend provider (`chatbackend_poll(plugin_id, session_id, 0)`
+or a snapshot variant) instead of the agent-session path. Honor `since`.
+**Files:** `pane_chat/mod.rs` (+ maybe `pane_chat_routes.rs`). **TDD:** a chatBackend
+pane returns its transcript (not 400); `since` slices correctly. Gate: cargo test
+pane_chat + fmt + clippy --lib. Run on Opus.
+
 ## Phase R — adversarial peer-Opus review-harden loop (AFTER S8; up to 5 iterations)
 
 Goal: stop shipping at "passes my own gates" — pressure-test the whole open-shell
