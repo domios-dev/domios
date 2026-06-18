@@ -186,7 +186,11 @@ function AppInner() {
   // (e.g. the Git plugin's "Open Git" button, or a glance's "Open settings").
   useEffect(() => {
     const onOpenPanel = (e: Event) => {
-      const detail = (e as CustomEvent<{ panel?: string; cwd?: string | null }>).detail;
+      const detail = (e as CustomEvent<{
+        panel?: string;
+        cwd?: string | null;
+        memoryState?: MemoryInitialState;
+      }>).detail;
       const panel = detail?.panel;
       if (panel?.startsWith("view:")) {
         const fp = stateRef.current.focused_pane_id
@@ -196,6 +200,9 @@ function AppInner() {
         setPluginViewId(panel.slice("view:".length));
       } else if (panel === "extensions") {
         setExtensionsOpen(true);
+      } else if (panel === "memory" && import.meta.env.DEV && import.meta.env.VITE_CODETERM_TEST === "1") {
+        setMemoryInitial(detail?.memoryState);
+        setMemoryOpen(true);
       }
     };
     window.addEventListener("codeterm:open-panel", onOpenPanel);

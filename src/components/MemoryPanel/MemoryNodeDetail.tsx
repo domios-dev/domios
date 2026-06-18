@@ -296,7 +296,10 @@ export function MemoryNodeDetail({
             onChange={(e) => setEdit((s) => ({ ...s, body: e.target.value }))}
           />
         ) : (
-          <pre className="m-0 whitespace-pre-wrap font-mono text-[11px] bg-[var(--ct-bg)] p-2 rounded max-h-[240px] overflow-y-auto">
+          <pre
+            data-testid="memory-node-body-preview"
+            className="m-0 whitespace-pre-wrap font-mono text-[11px] bg-[var(--ct-bg)] p-2 rounded max-h-[240px] overflow-y-auto"
+          >
             {bodyText ?? (loadingBody ? "" : "—")}
           </pre>
         )}
