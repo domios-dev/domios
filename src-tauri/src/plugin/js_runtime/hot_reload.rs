@@ -143,6 +143,13 @@ pub struct HotReloadRegistry {
     /// Plugin id → tracked state. Mutex because the watcher mutates
     /// from a background thread.
     state: Mutex<HashMap<String, Tracked>>,
+    /// Plugin id → weak handle to its live VM. Populated for both startup-loaded
+    /// plugins (seeded by `lib.rs` via [`register_vm`]) and hot-loaded ones (in
+    /// `full_load`). A config-only change re-stamps settings into THIS VM instead
+    /// of rebuilding — preserving the plugin's in-memory sessions. `Weak` so the
+    /// watcher never keeps a torn-down plugin's VM alive; a dead weak falls back
+    /// to a full rebuild.
+    vms: Mutex<HashMap<String, std::sync::Weak<super::PluginVm>>>,
     /// Plugins that were present (and registered by `lib.rs`) at the full daemon
     /// start. A `requiresReload` plugin in this set is already active, so a later
     /// reload of it must NOT be marked pending (§1.8).
@@ -194,6 +201,7 @@ impl HotReloadRegistry {
             agent_registry,
             caps,
             state: Mutex::new(HashMap::new()),
+            vms: Mutex::new(HashMap::new()),
             activated_startup: Mutex::new(HashSet::new()),
             pending_reload: Mutex::new(HashSet::new()),
             service: Mutex::new(None),
@@ -219,6 +227,21 @@ impl HotReloadRegistry {
             Some(weak) => vm.set_service(weak),
             None => false,
         }
+    }
+
+    /// Track a startup-loaded plugin's live VM so a later config-only change can
+    /// re-stamp settings into it instead of rebuilding (which would wipe its
+    /// in-memory sessions). `lib.rs` calls this once per startup plugin after
+    /// `seed()`; hot-loaded plugins are tracked in `full_load`. `Weak` so the
+    /// watcher never pins a torn-down VM alive.
+    pub fn register_vm(&self, id: &str, vm: &Arc<super::PluginVm>) {
+        self.vms.lock().insert(id.to_string(), Arc::downgrade(vm));
+    }
+
+    /// The live VM for `id`, if still alive. `None` once the plugin is gone — the
+    /// caller then rebuilds rather than re-stamping a dead VM.
+    fn existing_vm(&self, id: &str) -> Option<Arc<super::PluginVm>> {
+        self.vms.lock().get(id).and_then(std::sync::Weak::upgrade)
     }
 
     /// Record every plugin already present (and registered by `lib.rs`) at full
@@ -301,6 +324,7 @@ impl HotReloadRegistry {
             .collect();
         for id in removed {
             state.remove(&id);
+            self.vms.lock().remove(&id);
             self.agent_registry.unregister_provider(&id);
             self.caps.deregister_plugin(&id);
             self.pending_reload.lock().remove(&id);
@@ -371,8 +395,38 @@ impl HotReloadRegistry {
             if !manifest_changed && !entry_changed && !config_changed {
                 return Some(manifest.id);
             }
-            // Always full-rebuild on any change. In-place `vm.reload` would be faster but adds a second code path that races against any provider call
-            // holding the VM mutex (an idle pane's detect_from_output still runs at PTY-event rate). Throwing the old VM away and constructing a new one is 10-50ms — cheap enough for plugin edits. A config.yaml edit reloads too so settings re-stamp live (§1.7).
+            // A CONFIG-ONLY change (e.g. the Settings UX writing config.yaml) must
+            // NOT rebuild the VM: a rebuild wipes the plugin's module-scope
+            // in-memory sessions, silently bricking every open chatBackend shell.
+            // Re-stamp the resolved settings into the EXISTING VM instead, so
+            // `host.settingsJson()` reflects the edit on its next call while live
+            // sessions survive. Only a manifest/entry (contract/code) change
+            // forces a full rebuild.
+            if config_changed && !manifest_changed && !entry_changed {
+                if let Some(vm) = self.existing_vm(&manifest.id) {
+                    let settings = manifest_path
+                        .parent()
+                        .map(|dir| super::plugin_config::resolve_settings_json(dir, &manifest.id))
+                        .unwrap_or_else(|| "null".to_string());
+                    vm.reload_settings(settings);
+                    if let Some(tracked) = self.state.lock().get_mut(&manifest.id) {
+                        tracked.config_mtime = config_mtime;
+                    }
+                    log::info!(
+                        "[plugin-watcher] {} config-only change — re-stamped settings into live VM (no rebuild, sessions preserved)",
+                        manifest.id
+                    );
+                    return Some(manifest.id);
+                }
+                // No live VM to re-stamp (never loaded / torn down) — fall through
+                // to a full load so the new settings still take effect.
+            }
+            // Full-rebuild on a manifest/entry change. In-place `vm.reload` would
+            // be faster but adds a second code path that races against any
+            // provider call holding the VM mutex (an idle pane's
+            // detect_from_output still runs at PTY-event rate). Throwing the old
+            // VM away and constructing a new one is 10-50ms — cheap enough for
+            // code edits.
             log::info!(
                 "[plugin-watcher] {} changed (manifest={manifest_changed}, entry={entry_changed}, config={config_changed}) — reloading",
                 manifest.id
@@ -392,6 +446,9 @@ impl HotReloadRegistry {
             Ok(mut provider) => {
                 let id = provider.manifest().id.clone();
                 let version = provider.manifest().version.clone();
+                // Track the freshly built VM so a later config-only change can
+                // re-stamp settings into it instead of rebuilding (§1.7 / HIGH-2).
+                self.register_vm(&id, provider.vm());
                 // A `requiresReload` plugin freshly installed after start cannot
                 // hot-activate (§1.8): mark it pending and skip live capability
                 // registration. Already-activated (startup) plugins reload normally.
@@ -882,10 +939,13 @@ mod tests {
     }
 
     #[test]
-    fn config_yaml_edit_triggers_reload_for_live_settings() {
-        // §1.7 live settings reload: editing the per-plugin config.yaml must
-        // reload the VM so host.settingsJson re-stamps. We assert the reload
-        // happens (load_count increments) on a config.yaml change alone.
+    fn config_yaml_edit_restamps_settings_without_vm_rebuild() {
+        // HIGH-2 (CRITICAL): editing the per-plugin config.yaml must NOT rebuild
+        // the VM — a rebuild wipes the plugin's module-scope in-memory sessions,
+        // silently bricking every open chatBackend shell. Instead the watcher
+        // re-stamps host.settingsJson() into the EXISTING VM. Assert: a
+        // config-only change does NOT increment load_count (no rebuild), AND the
+        // live VM observes the new settings on its next read.
         let root = tempfile::tempdir().unwrap();
         let registry = Arc::new(AgentRegistry::new());
         let watcher = HotReloadRegistry::new(
@@ -895,24 +955,53 @@ mod tests {
         );
         let dir = root.path().join("cfgplugin");
         write(&dir.join("plugin.json"), &manifest_for("cfgplugin"));
-        write(&dir.join("plugin.js"), &plugin_for("cfgplugin"));
+        write(
+            &dir.join("plugin.js"),
+            r#"module.exports.default = {
+                detectFromTitle: function (t) { return false; },
+                settings: function () { return JSON.parse(host.settingsJson()); }
+            };"#,
+        );
         write(&dir.join("config.yaml"), "engine: whisper\n");
         watcher.tick();
         assert_eq!(watcher.load_count(), 1);
 
-        // No change → no reload.
+        // The watcher tracks the live VM; it reads the initial settings.
+        let vm = watcher
+            .existing_vm("cfgplugin")
+            .expect("VM tracked after load");
+        let before: serde_json::Value = super::super::call_json(&vm, "settings", &[]).unwrap();
+        assert_eq!(before["engine"], "whisper");
+
+        // No change → no reload, no re-stamp.
         watcher.tick();
         assert_eq!(watcher.load_count(), 1);
 
-        // Edit config.yaml only → reload (settings re-stamp).
+        // Edit config.yaml only → re-stamp into the live VM, NOT a rebuild.
         std::thread::sleep(Duration::from_millis(1100));
         write(&dir.join("config.yaml"), "engine: deepgram\n");
         watcher.tick();
         assert_eq!(
             watcher.load_count(),
-            2,
-            "a config.yaml edit must reload the plugin VM"
+            1,
+            "a config-only edit must NOT rebuild the VM (a rebuild bricks live sessions)"
         );
+
+        // Same VM Arc, new settings visible — proves the re-stamp reached the
+        // existing VM rather than a fresh one.
+        let after: serde_json::Value = super::super::call_json(&vm, "settings", &[]).unwrap();
+        assert_eq!(
+            after["engine"], "deepgram",
+            "re-stamped settings must be live on the existing VM"
+        );
+
+        // A second config-only edit still no-ops the rebuild path.
+        std::thread::sleep(Duration::from_millis(1100));
+        write(&dir.join("config.yaml"), "engine: vosk\n");
+        watcher.tick();
+        assert_eq!(watcher.load_count(), 1);
+        let again: serde_json::Value = super::super::call_json(&vm, "settings", &[]).unwrap();
+        assert_eq!(again["engine"], "vosk");
     }
 
     #[test]

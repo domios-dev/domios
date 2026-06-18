@@ -545,6 +545,12 @@ pub fn run() {
                 // activated-at-startup) so the first tick doesn't re-register them
                 // or mis-flag startup `requiresReload` plugins as pending (§1.8).
                 watcher.seed();
+                // Track each startup-loaded plugin's live VM so a later
+                // config-only edit re-stamps settings into it instead of
+                // rebuilding (which would wipe in-memory chatBackend sessions).
+                for vm in &plugin_vms {
+                    watcher.register_vm(vm.plugin_id(), vm);
+                }
                 watcher.start();
                 log::info!(
                     "[js-plugin] hot-reload watcher started on {} roots",
