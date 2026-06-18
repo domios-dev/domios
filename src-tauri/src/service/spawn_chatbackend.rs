@@ -6,12 +6,30 @@
 //! never entered for it — B1.1#3). Inbound messages arrive via the plugin
 //! `poll` → `StructuredSink` path, not a PTY tail.
 
+use std::future::Future;
+
 use super::spawn::{PaneCommand, PaneHandle, SpawnPaneSpec};
 use super::ServiceContext;
 use crate::multiplexer::types::PaneBacking;
 
 /// How often the inbound poll loop pulls new transcript from the plugin.
 const POLL_INTERVAL_MS: u64 = 500;
+
+/// Spawn chatBackend background work on the daemon's main Tokio runtime.
+///
+/// chatBackend panes are spawned from three call sites: the async HTTP route,
+/// the Tauri UI command, and the **synchronous socket RPC** (`spawn_agent_sync`,
+/// which runs on a plain blocking thread with NO ambient Tokio runtime). Bare
+/// `tokio::spawn` needs a runtime in thread-local context and panics ("there is
+/// no reactor running, must be called from the context of a Tokio 1.x runtime")
+/// on that last path. `tauri::async_runtime` holds a global handle to the
+/// daemon's runtime and spawns regardless of the caller's context.
+fn spawn_bg<F>(fut: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    tauri::async_runtime::spawn(fut);
+}
 
 impl ServiceContext {
     pub(crate) fn spawn_chatbackend_impl(&self, spec: SpawnPaneSpec) -> Result<PaneHandle, String> {
@@ -91,7 +109,7 @@ impl ServiceContext {
         {
             let svc2 = self.clone();
             let plugin2 = plugin_id.clone();
-            tokio::task::spawn_blocking(move || {
+            tauri::async_runtime::spawn_blocking(move || {
                 if let Ok(models) = svc2.chatbackend_list_models(&plugin2) {
                     if !models.is_empty() {
                         crate::agent::model_catalog::register(
@@ -126,7 +144,7 @@ impl ServiceContext {
     fn spawn_chatbackend_poll_loop(&self, pane_id: String, plugin_id: String, session_id: String) {
         let svc = self.clone();
         let app = self.app_handle.clone();
-        tokio::spawn(async move {
+        spawn_bg(async move {
             let sink = crate::service::pane_chat::structured_sink::make_sink(app);
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
@@ -156,5 +174,51 @@ impl ServiceContext {
             }
             log::info!("[chatbackend] poll loop ended for pane {}", pane_id);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// Repro for the socket-RPC `agent.spawn <chatBackend>` panic. The poll loop
+    /// used `tokio::spawn`, which requires the caller to already be inside a
+    /// Tokio runtime. The synchronous socket RPC runs the spawn on a plain
+    /// blocking thread with NO ambient runtime, so it panicked with "there is no
+    /// reactor running, must be called from the context of a Tokio 1.x runtime".
+    /// `spawn_bg` routes onto the daemon's tauri runtime (global handle), which
+    /// works regardless of caller context. A plain `#[test]` (NOT
+    /// `#[tokio::test]`) reproduces that no-runtime thread.
+    #[test]
+    fn poll_loop_spawn_does_not_need_ambient_runtime() {
+        // This thread has no ambient runtime — exactly the socket-RPC situation.
+        assert!(
+            tokio::runtime::Handle::try_current().is_err(),
+            "test must reproduce the no-ambient-runtime context"
+        );
+
+        // The bug condition is real on this thread: a bare `tokio::spawn` panics
+        // with "there is no reactor running". Suppress the panic hook so the
+        // catch_unwind doesn't pollute test output.
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let bare = std::panic::catch_unwind(|| {
+            tokio::spawn(async {});
+        });
+        std::panic::set_hook(prev);
+        assert!(
+            bare.is_err(),
+            "precondition: tokio::spawn must panic without an ambient runtime"
+        );
+
+        // The fix: `spawn_bg` uses the daemon's tauri runtime, so the future runs
+        // even though THIS thread never entered a runtime.
+        let (tx, rx) = mpsc::channel();
+        super::spawn_bg(async move {
+            let _ = tx.send(());
+        });
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("poll loop future must run on the tauri runtime, not the ambient one");
     }
 }

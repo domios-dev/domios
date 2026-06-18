@@ -51,6 +51,15 @@ pub trait ChatBackendProvider: Send + Sync {
         self.id()
     }
 
+    /// Whether a user may open this backend as a pane from the new-session
+    /// picker. Bare `chatBackend: true` ⇒ false (backend-only, e.g. an NPC
+    /// driven by the host/agent); the manifest `{ spawnable: true }` form opts
+    /// in. Default false (not user-spawnable) — core filters discovery and
+    /// rejects spawn requests for non-spawnable backends on this signal.
+    fn spawnable(&self) -> bool {
+        false
+    }
+
     fn icon_hint(&self) -> Option<&str> {
         None
     }
