@@ -16,6 +16,14 @@ use crate::agent::chat_types::ChatMsg;
 use crate::agent::provider::ModelInfo;
 use crate::plugin::capability::CapabilityRegistry;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PresetInfo {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
 #[derive(Debug)]
 pub enum ChatBackendError {
     /// The plugin's exported function threw, returned an error field, or the
@@ -40,9 +48,9 @@ pub trait ChatBackendProvider: Send + Sync {
     fn id(&self) -> &str;
 
     /// Open a session for a pane. `ctx` is the SDK envelope
-    /// `{ paneId, config }` (a plugin may key its session on `paneId`, e.g.
-    /// LM Studio). Returns the plugin-chosen session id (echoed back on every
-    /// later call).
+    /// `{ paneId, config, systemPrompt?, preset?, model? }` (a plugin may key
+    /// its session on `paneId`, e.g. LM Studio). Returns the plugin-chosen
+    /// session id (echoed back on every later call).
     fn open_session(&self, ctx: serde_json::Value) -> Result<String, ChatBackendError>;
 
     /// Deliver one user turn to the session.
@@ -72,6 +80,12 @@ pub trait ChatBackendProvider: Send + Sync {
 
     /// Models this backend offers, for the pane's model picker.
     fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError>;
+
+    /// Presets this backend offers. Optional: backends without preset support
+    /// return an empty list.
+    fn list_presets(&self) -> Result<Vec<PresetInfo>, ChatBackendError> {
+        Ok(Vec::new())
+    }
 }
 
 pub type ChatBackendRegistry = CapabilityRegistry<dyn ChatBackendProvider>;

@@ -22,8 +22,20 @@ const backend: ChatBackend = {
   poll: (_sessionId, _cursor) => ({ messages: [], cursor: null }),
   closeSession: (_sessionId) => {},
   listModels: () => [{ id: "m", displayName: "M" }],
+  listPresets: () => [
+    { id: "codeterm", name: "CodeTerm", description: "default shell" },
+  ],
 };
 void backend;
+
+const openShellSession = backend.openSession({
+  paneId: "pane-1",
+  config: {},
+  systemPrompt: "You are CodeTerm.",
+  preset: "codeterm",
+  model: "qwen",
+});
+void openShellSession;
 
 // listModels is optional — omitting it still satisfies ChatBackend.
 const minimalBackend: ChatBackend = {
