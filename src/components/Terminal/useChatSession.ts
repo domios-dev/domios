@@ -64,7 +64,7 @@ function importEnv(): FrontendTestEnv | undefined {
 }
 
 export function isCodeTermFrontendTestMode(env: FrontendTestEnv | undefined = importEnv()): boolean {
-  return env?.DEV === true && env.VITE_CODETERM_TEST === "1";
+  return env?.VITE_CODETERM_TEST === "1";
 }
 
 export function resetTestChatClockForCodeTerm(): void {
