@@ -87,23 +87,35 @@ host.fetch.streamClose(jobId) -> void
 **Role:** Rust core + CLI engineer.
 
 **Files:**
-- Modify: `cli/src/args/agent.rs` + `cli/src/cmd/agent.rs` (add `--system`, `--preset` flags; pass through)
-- Modify: `src-tauri/src/api/agent_routes.rs` (`SpawnAgentBody`: `system_prompt`, `preset`)
-- Modify: `src-tauri/src/service/orchestrator.rs` (`SpawnAgentParams` fields; route by capability)
+- Modify: `cli/src/args/agent.rs` + `cli/src/cmd/agent.rs` (add `--system`, `--preset` flags; pass through; show shells in `agent providers` output, tagged by kind)
+- Modify: `src-tauri/src/api/agent_routes.rs` (`SpawnAgentBody`: `system_prompt`, `preset`; **`list_agent_providers` also emits chatBackend shells**)
+- Modify: `src-tauri/src/service/orchestrator.rs` + `src-tauri/src/service/spawn.rs` (`SpawnAgentParams` fields; **route by capability** — consult `chatbackend_registry.get(id)` vs `agent_registry`)
 - Modify: `src-tauri/src/commands/pane.rs` (`open_chat_backend_pane`: accept system_prompt/preset/model) + `src-tauri/src/api/pane_routes.rs` (`CreateShellPaneBody`)
-- Test: spawn-routing unit test (a chatBackend provider id routes to ChatBackend spawn carrying the fields; an agent_provider id keeps the PTY path)
+- Test: spawn-routing unit test + a discovery test (a registered chatBackend id appears in the providers listing tagged `shell`)
 
 **Contract:**
-- `codeterm agent spawn <id> [--system TEXT] [--preset ID] [--model M]`: when `<id>`
-  resolves to a **chatBackend** capability (NOT a hardcoded list — check the
-  registry), spawn a `PaneCommand::ChatBackend` whose `config` carries
-  `systemPrompt`/`preset`/`model`, instead of the PTY agent path. No flag → plugin's `defaultPreset`.
-- Same fields accepted on `open_chat_backend_pane` + `POST /api/panes`.
-- Core asks capability, never identity (architecture rule #1).
+- **Dynamic, never hardcoded.** `lmstudio` (and any third-party shell) is known
+  ONLY because the plugin manifest declares `{id, capabilities.chatBackend:true}`
+  and the host registers it by id (`hot_reload.rs:89-92` → `chatbackend_registry`,
+  `.ids()`/`.get(id)`). S2 reads that registry; there is no `"lmstudio"` literal
+  anywhere in core (architecture rule #1: core asks capability, never identity).
+- **Discovery (the gap this track closes).** `codeterm agent providers` /
+  `GET /api/agents/providers` (`list_agent_providers`) today lists ONLY
+  `agent_registry.provider_ids()` (PTY agents). Extend it to ALSO enumerate
+  `chatbackend_registry.ids()`, each entry tagged with a `kind` (`agent` | `shell`)
+  so the CLI/UI can show "which agents/shells are available" — making third-party
+  shells first-class, not UI-only. Each shell's display metadata comes from its
+  manifest/describe (id, name, icon), NOT a hardcoded table.
+- **Spawn routing.** `codeterm agent spawn <id> [--system TEXT] [--preset ID] [--model M]`:
+  if `<id>` is in the chatBackend registry → spawn `PaneCommand::ChatBackend` whose
+  `config` carries `systemPrompt`/`preset`/`model`; else the PTY agent path. No
+  flag → plugin's `defaultPreset`. Same fields on `open_chat_backend_pane` + `POST /api/panes`.
+- Spawn validation (the "available providers: …" error in spawn.rs/orchestrator.rs)
+  must include shell ids too, so an unknown id message lists both kinds.
 
-- [ ] Step 1: failing test — spawn with a chatBackend id routes to ChatBackend with system/preset in config; agent id unaffected. RED.
-- [ ] Step 2: implement flags → body → params → capability routing. GREEN; tsc; cli cargo test.
-- [ ] Step 3: gate + commit `feat(agent): spawn chatBackend shells via agent spawn + --system/--preset (S2)`.
+- [ ] Step 1: failing tests — (a) spawn with a chatBackend id routes to ChatBackend carrying system/preset; agent id unaffected. (b) a registered chatBackend id surfaces in the providers listing tagged `shell`. RED.
+- [ ] Step 2: implement flags → body → params → capability routing + unified discovery (agent + shell) from the registries. GREEN; tsc; cli cargo test.
+- [ ] Step 3: gate + commit `feat(agent): spawn + discover chatBackend shells via agent spawn/providers (S2)`.
 
 ---
 
