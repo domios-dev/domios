@@ -105,6 +105,7 @@ export interface NotificationAction {
 
 export interface Notification {
   id: string;
+  key?: string;
   pane_id: string | null;
   workspace_id: string | null;
   title: string;
@@ -148,6 +149,18 @@ export interface GraphWorkerInfo {
   model?: string | null;
   session_id?: string | null;
   cwd?: string | null;
+}
+
+export interface PluginActivity {
+  id: string;
+  pluginId: string;
+  kind: string;
+  label: string;
+  percent?: number | null;
+  status: "running" | "done" | "error";
+  error?: string | null;
+  startedAt: number;
+  updatedAt: number;
 }
 
 export interface SpawnWorkerReq {

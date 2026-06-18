@@ -23,7 +23,7 @@ import { PluginDetailPanel, type ActionKind } from "./PluginDetailPanel";
 import { ChannelManager } from "./ChannelManager";
 import { type AppConfigShape } from "./shared";
 import type { PluginSnapshot } from "./types";
-import type { AppConfig } from "../../lib/types";
+import type { AppConfig, PluginActivity } from "../../lib/types";
 import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 
 const EMPTY_SNAPSHOT: PluginSnapshot = { plugins: [], channels: [], diff: [], marketplace: [] };
@@ -39,7 +39,13 @@ function actionPayload(kind: ActionKind, entry: CatalogEntry): Record<string, un
   }
 }
 
-export function ExtensionsView({ visible }: { visible: boolean }) {
+export function ExtensionsView({
+  visible,
+  pluginActivities,
+}: {
+  visible: boolean;
+  pluginActivities: Map<string, PluginActivity>;
+}) {
   const [snapshot, setSnapshot] = useState<PluginSnapshot>(EMPTY_SNAPSHOT);
   const [config, setConfig] = useState<AppConfigShape | null>(null);
   const [query, setQuery] = useState("");
@@ -186,6 +192,7 @@ export function ExtensionsView({ visible }: { visible: boolean }) {
                 pinned={pinned}
                 onTogglePin={togglePin}
                 onRemoveChannel={onRemoveChannel}
+                activities={pluginActivities}
               />
             </div>
             <ChannelManager busy={busy} onAction={runAction} open={channelsOpen} onOpenChange={setChannelsOpen} />
@@ -198,6 +205,7 @@ export function ExtensionsView({ visible }: { visible: boolean }) {
                 entry={selected}
                 config={config}
                 busy={busy}
+                activity={pluginActivities.get(selected.id)}
                 onAction={onPluginAction}
                 onSave={saveSetting}
                 onUpdateFullConfig={async (next: AppConfig) => {
