@@ -200,6 +200,80 @@ user sees a one-line notice "model X unavailable → using Y".
 
 ---
 
+## Pre-dispatch review REVISION (AUTHORITATIVE — supersedes T2–T5 above on conflict)
+
+A code-verified review found the plan reinvents existing infrastructure. Follow this.
+
+### Architecture change (B2) — extend `model_catalog`, do NOT add a ServiceContext registry
+`src-tauri/src/agent/model_catalog.rs` is ALREADY a process-global model registry:
+`register(provider_id, RegisteredDefaults{models, default})` (:78), `resolve_models`
+(:92), `resolve_default` (:106), with user-TOML overrides + merge + mtime cache.
+It is seeded from `js_runtime/provider.rs:165`, `agent_claude/provider/mod.rs:34`,
+`spawn_chatbackend.rs:97`. **T2 = extend THIS in place** (add `put_live(provider,
+models, default)` + a `fetched_at`/TTL with `is_stale(provider, ttl, now: Instant)`),
+keep it process-global, **drop the `ServiceContext.models` field entirely.** Then
+T3/T4 read the SAME `resolve_models`/`resolve_default` path they already use — no
+ServiceContext threading (kills B3: the free fns `resolve_fresh_agent_model`/
+`build_agent_command` already reach the catalog via `available_models()`).
+
+### B1 — `ModelInfo` has NO `default` field
+`provider.rs:106` = `{ id, display_name, description }` (+ `#[serde(deny_unknown_fields)]`,
+a `SerdeModelInfo` mirror at `manifest.rs:519`, and a TS mirror). Do NOT add a field.
+Carry the default on the CONTAINER (mirror `RegisteredDefaults{models, default}`),
+in `put_live` and in T3's `Resolved`.
+
+### B5 — JS `discover_models` is SYNCHRONOUS (QuickJS `call_json`, not a Promise)
+So T5's codex probe runs synchronously via `host.exec` and blocks its thread. The
+"bounded / never-block-the-spawn" guarantee is enforced **Rust-side**: T2's refresh
+helper wraps the call in `tokio::task::spawn_blocking` + `tokio::time::timeout`
+(copy `spawn_chatbackend.rs:94`). Refresh is off-thread; reads are sync snapshots.
+
+### B4 — the casing leak is at FRESH SPAWN, not resume
+`build_agent_command` (`orchestrator.rs:753`) only appends `--model` on the
+NON-resume path (:771); resume → `build_resume_command`, no `--model`.
+`orchestrator.rs:520` is a message-prefix, not a launch. So T3 canonicalizes
+`params.model` at fresh spawn (`resolve_fresh_agent_model` → `:771`). Re-trace where
+a resumed codex pane gets `--model` (likely the provider's `build_resume_command` or
+nowhere) before writing any "resume" step — don't write a no-op.
+
+### M1 — claude `detect_session_model` returns a capitalized FAMILY ("Opus"), not display/id
+`agent_claude/provider/sessions.rs:104`. family→id is lossy. T3's "detection returns
+id" = "id when UNAMBIGUOUS, else keep the family"; rule: resolve family→the catalog
+entry whose id contains it, prefer `default_model` on ties. Note `detect_session_model`
+also feeds the model BADGE at `service/pane.rs:291` — changing its return changes the
+badge text; keep that sane. The clean "returns id" is really only the JS/codex path.
+
+### M2 — `describe()`/`available_models()` are pure/no-await; never refresh on read
+`provider.rs:902` (describe MUST be pure, no locks/await, called under the registry
+read lock). T3/T4 read the last-known catalog snapshot synchronously; refresh ONLY at
+spawn-time + startup/manual (off-thread per B5). Do not trigger a probe from describe.
+
+### M3 — unify `available_models()` source
+Native claude → `model_catalog::resolve_models` (`schemas.rs:30`); JsProvider →
+`self.manifest.models` directly (`js_runtime/provider.rs:848`, BYPASSES the catalog it
+seeded). T4 must route BOTH through the catalog or codex's live/override models never
+show. The CLI `agent models` already crosses via `/api/agents/providers` →
+`available_models()` (no new API needed).
+
+### m3 / scope
+`validate_agent_model` (`spawn.rs:214`, case-sensitive id match) becomes
+redundant once `resolve_model` is the canonicalizer — make it call `resolve_model`
+or remove it (avoid a resolve↔validate disagreement). Only ONE `ServiceContext`
+construction site exists (`lib.rs:649`) but B2 means zero edits there. T5 probes
+likely DON'T exist for codex/claude → return the seed + document; **the casing fix
+comes from T3 canonicalization, NOT T5 — T3 must not depend on live probe data.**
+"nearest by family" fallback (no owning step) → reduce to "fallback to provider
+default" unless a test is written.
+
+### Net track shape
+T2 = extend `model_catalog` (put_live + TTL + spawn_blocking/timeout refresh helper).
+T3 = `resolve_model` (id/display case-insensitive → canonical id; default fallback) +
+canonicalize at fresh-spawn/`build_agent_command:771` + detection→id-when-unambiguous.
+T4 = unify `available_models` through the catalog + CLI/picker read it + fallback notice.
+T5 = recon probes (sync host.exec; codex first; seed-fallback documented).
+
+---
+
 ## Track T6 — live verify (orchestrator)
 - [ ] macOS `./build.sh dev`: spawn a codex worker → **no `GPT-5.5` error**, launches `gpt-5.5` (canonical). Set a bogus/old model → spawn falls back to default with a notice. `codeterm agent models codex` reflects live (kill network → still returns seed, no hang). Resume a codex pane → still canonical (no display leak).
 - [ ] Windows `--mesh ROG`: same, cross-platform.
