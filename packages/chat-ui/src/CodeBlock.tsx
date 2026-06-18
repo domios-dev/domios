@@ -681,7 +681,7 @@ export function CodeBlock({
     : undefined;
 
   return (
-    <div ref={blockRef}>
+    <div ref={blockRef} data-testid="chat-code-block" data-code-language={language}>
       <div className="overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
         <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
           <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>

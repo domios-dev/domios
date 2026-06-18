@@ -218,6 +218,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                 {attachments.map((att) => (
                   <button
                     key={att.id}
+                    data-testid="chat-image-attachment-button"
                     onClick={() => handleImageClick(att)}
                     className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors hover:brightness-125"
                     style={{
@@ -234,7 +235,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             )}
             {/* Inline image preview */}
             {viewingImage && viewingImage.data && (
-              <div className="mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
+              <div
+                data-testid="chat-image-preview"
+                className="mt-2 pt-2"
+                style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
+              >
                 <img
                   src={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
                   alt="Attached image"

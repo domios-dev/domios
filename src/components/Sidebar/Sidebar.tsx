@@ -718,6 +718,7 @@ export function Sidebar({
             <div className={`border-t border-[var(--ct-border)] mt-auto ${isCompact ? "px-1 py-2 flex flex-col items-center gap-1" : "px-3 py-2 flex flex-col gap-1"}`}>
               {(config?.ui?.memory_tab_enabled ?? true) && (
                 <button
+                  data-testid="nav-memory"
                   onClick={onOpenMemory}
                   className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                     mainView === "memory"

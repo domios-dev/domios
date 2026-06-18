@@ -71,6 +71,10 @@ function ToastItem({ notification, onDismiss, onNavigate }: ToastItemProps) {
   return (
     <div
       onClick={handleClick}
+      data-testid="notification-toast"
+      data-notification-id={notification.id}
+      data-notification-key={notification.key ?? ""}
+      data-notification-level={notification.level}
       className={`
         border-l-2 ${styles.border} bg-[var(--ct-sidebar-bg)] rounded-r shadow-lg
         px-3 pt-2 pb-1.5 max-w-[360px] min-w-[260px]
