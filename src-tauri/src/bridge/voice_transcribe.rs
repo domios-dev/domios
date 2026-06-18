@@ -41,9 +41,9 @@ pub async fn format_attachment_line(
                 path,
                 None,
                 Some(
-                    "No speech-to-text engine is installed. Ask the user if they want voice \
-                     transcription set up; if yes, run `codeterm plugin install transcriber` \
-                     (the codeterm-plugins channel is pre-registered), then offer to configure it.",
+                    "No speech-to-text engine. Run codeterm plugin install transcriber, then open \
+                     the Transcriber panel, pick a model, and click Install — it downloads and \
+                     enables itself. Do not build anything by hand.",
                 ),
             ),
             Err(e) => {
@@ -105,11 +105,15 @@ mod tests {
     async fn voice_attachment_no_transcriber_offers_install() {
         let reg = TranscribeRegistry::new();
         let line = format_attachment_line("/note.oga", "voice", None, &reg, "missing").await;
+        assert!(line.contains("No speech-to-text engine."), "got {line}");
         assert!(
-            line.contains("codeterm plugin install transcriber"),
+            line.contains("Run codeterm plugin install transcriber"),
             "got {line}"
         );
-        assert!(line.contains("Ask the user"), "got {line}");
+        assert!(
+            line.contains("Do not build anything by hand."),
+            "got {line}"
+        );
     }
 
     // Non-voice attachments are untouched by the voice stage.
