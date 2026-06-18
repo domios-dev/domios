@@ -218,6 +218,13 @@ export interface ChatBackendOpenSessionCtx {
   model?: string;
 }
 
+// Manifest declaration form for `capabilities.chatBackend` (mirrors the Rust
+// `ChatBackendCap` in plugin/js_runtime/manifest.rs). A bare `true` registers
+// the backend but it is NOT user-spawnable — a host-/agent-driven backend pane
+// (e.g. an NPC). `{ spawnable: true }` marks it user-openable: it then appears
+// in the new-session picker as a shell.
+export type ChatBackendCapability = boolean | { spawnable?: boolean };
+
 export interface ChatBackend {
   openSession(ctx: ChatBackendOpenSessionCtx): { sessionId: string };
   sendMessage(sessionId: string, text: string): void;

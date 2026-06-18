@@ -152,7 +152,7 @@ fn default_capabilities() -> Capabilities {
         glance_view: false,
         status_bubble: false,
         view: false,
-        chat_backend: false,
+        chat_backend: ChatBackendCap::default(),
         chat_preprocessor: ChatPreprocessorCap::default(),
     }
 }
@@ -221,6 +221,76 @@ impl Serialize for ChatPreprocessorCap {
     }
 }
 
+/// `chatBackend` capability declaration. Authors write either a bare bool
+/// (`true` — the backend is registered but NOT user-spawnable, e.g. a
+/// host-/agent-driven NPC pane) or an object (`{ "spawnable": true }` — a
+/// user-openable "open shell" that appears in the new-session picker). Both
+/// forms mean "enabled"; the object also carries whether a user may spawn it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChatBackendCap {
+    pub enabled: bool,
+    /// Whether a user may open this backend as a pane from the new-session
+    /// picker. Bare `chatBackend: true` ⇒ false (backend-only); the object form
+    /// `{ spawnable: true }` opts in.
+    pub spawnable: bool,
+}
+
+impl ChatBackendCap {
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn spawnable(&self) -> bool {
+        self.spawnable
+    }
+}
+
+impl<'de> Deserialize<'de> for ChatBackendCap {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Flag(bool),
+            Obj {
+                #[serde(default)]
+                spawnable: bool,
+            },
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::Flag(enabled) => Self {
+                enabled,
+                spawnable: false,
+            },
+            Raw::Obj { spawnable } => Self {
+                enabled: true,
+                spawnable,
+            },
+        })
+    }
+}
+
+impl Serialize for ChatBackendCap {
+    /// Symmetric with `Deserialize`: a spawnable backend ⇒ object, otherwise the
+    /// bare bool — so a disabled cap round-trips to `false`, never silently
+    /// re-enabling.
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if self.enabled && self.spawnable {
+            use serde::ser::SerializeMap;
+            let mut m = s.serialize_map(Some(1))?;
+            m.serialize_entry("spawnable", &true)?;
+            m.end()
+        } else {
+            s.serialize_bool(self.enabled)
+        }
+    }
+}
+
 /// The core capability traits a plugin can implement. Drives which adapters the
 /// loader builds (`JsProvider` / `JsSecretBackend` / `JsTranscriber` /
 /// `JsGlanceProvider` / `JsBubbleProvider`).
@@ -247,13 +317,22 @@ pub struct Capabilities {
     pub view: bool,
     /// Drives a non-PTY pane as a full conversational backend (e.g. LM Studio).
     /// The pane routes send/read through the plugin instead of a terminal.
+    /// Bool (registered, backend-only) or `{ spawnable }` object (user-openable).
     #[serde(default)]
-    pub chat_backend: bool,
+    pub chat_backend: ChatBackendCap,
     /// Send-time text stage of the outbound pipeline (`chatPreprocess`). Matches
     /// final text and augments it (mem recall / worker / Groq) before transport.
     /// Bool or `{ match }` object (the §6 slot).
     #[serde(default)]
     pub chat_preprocessor: ChatPreprocessorCap,
+}
+
+impl Capabilities {
+    /// Whether the `chatBackend` capability is a user-openable shell (the
+    /// `{ spawnable: true }` form). Bare `chatBackend: true` is backend-only.
+    pub fn chat_backend_spawnable(&self) -> bool {
+        self.chat_backend.spawnable()
+    }
 }
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -769,6 +848,59 @@ mod tests {
         assert_eq!(v, serde_json::json!(false));
         let back: ChatPreprocessorCap = serde_json::from_value(v).unwrap();
         assert!(!back.enabled());
+    }
+
+    #[test]
+    fn parse_chat_backend_bool_is_enabled_not_spawnable() {
+        // Bare `chatBackend: true` registers the backend but it is NOT
+        // user-spawnable (a host-/agent-driven pane, e.g. the NPC plugin).
+        let json = r#"{
+            "id": "codeterm-npc",
+            "version": "0.1.0",
+            "displayName": "Dread NPCs",
+            "capabilities": { "chatBackend": true }
+        }"#;
+        let m: PluginManifest = serde_json::from_str(json).expect("parse bool form");
+        assert!(m.capabilities.chat_backend.enabled());
+        assert!(
+            !m.capabilities.chat_backend_spawnable(),
+            "bool form is backend-only, never user-spawnable"
+        );
+    }
+
+    #[test]
+    fn parse_chat_backend_object_spawnable() {
+        // `{ spawnable: true }` marks a user-openable open shell (e.g. lmstudio).
+        let json = r#"{
+            "id": "lmstudio",
+            "version": "0.1.0",
+            "displayName": "LM Studio",
+            "capabilities": { "chatBackend": { "spawnable": true } }
+        }"#;
+        let m: PluginManifest = serde_json::from_str(json).expect("parse object form");
+        assert!(m.capabilities.chat_backend.enabled());
+        assert!(
+            m.capabilities.chat_backend_spawnable(),
+            "object form opts into user-spawnable"
+        );
+    }
+
+    #[test]
+    fn chat_backend_round_trips_symmetrically() {
+        // Disabled ⇒ bare `false` (never silently re-enabling); spawnable ⇒
+        // object (never silently dropping the flag).
+        let disabled = Capabilities::default();
+        let v = serde_json::to_value(&disabled.chat_backend).unwrap();
+        assert_eq!(v, serde_json::json!(false));
+
+        let spawnable = ChatBackendCap {
+            enabled: true,
+            spawnable: true,
+        };
+        let v = serde_json::to_value(&spawnable).unwrap();
+        assert_eq!(v, serde_json::json!({ "spawnable": true }));
+        let back: ChatBackendCap = serde_json::from_value(v).unwrap();
+        assert!(back.enabled() && back.spawnable());
     }
 
     #[test]
