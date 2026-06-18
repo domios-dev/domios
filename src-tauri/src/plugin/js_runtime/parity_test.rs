@@ -12,7 +12,7 @@
 
 use std::path::PathBuf;
 
-use crate::agent::provider::{AgentLaunchParams, AgentProvider};
+use crate::agent::provider::{AgentLaunchParams, AgentProvider, ModelInfo};
 
 use super::{load_one, JsProvider};
 
@@ -44,6 +44,115 @@ fn load_js(id: &str) -> JsProvider {
         .join(format!("provider-{id}"))
         .join("plugin.json");
     load_one(&manifest).unwrap_or_else(|e| panic!("load {id} plugin: {e}"))
+}
+
+fn load_inline_js(id: &str, plugin_js: &str) -> JsProvider {
+    use std::sync::Arc;
+
+    let manifest_json = format!(
+        r#"{{"id":"{id}","version":"0.1.0","displayName":"Fixture",
+                "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
+                         "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}}}}"#
+    );
+    let manifest: super::PluginManifest = serde_json::from_str(&manifest_json).unwrap();
+    let vm = super::PluginVm::from_source_with(id, plugin_js.to_string(), Some(manifest_json))
+        .expect("fixture vm");
+    JsProvider::new(manifest, Arc::new(vm))
+}
+
+fn discover_models_fixture() -> Vec<ModelInfo> {
+    vec![
+        ModelInfo {
+            id: "live-a".into(),
+            display_name: "Live A".into(),
+            description: None,
+        },
+        ModelInfo {
+            id: "live-b".into(),
+            display_name: "Live B".into(),
+            description: Some("second".into()),
+        },
+    ]
+}
+
+struct DiscoverModelsNativeStub;
+
+#[async_trait::async_trait]
+impl AgentProvider for DiscoverModelsNativeStub {
+    fn id(&self) -> &str {
+        "discover-fixture"
+    }
+
+    fn display_name(&self) -> &str {
+        "Discover Fixture"
+    }
+
+    fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+        String::new()
+    }
+
+    fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
+        crate::agent::provider::ReadinessStrategy::FixedDelay {
+            duration: std::time::Duration::ZERO,
+        }
+    }
+
+    fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
+        crate::agent::provider::TaskDelivery::PtyInput
+    }
+
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+
+    fn detect_from_output(&self, _: &str) -> bool {
+        false
+    }
+
+    fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn detect_session_id(
+        &self,
+        _: &str,
+        _: &[String],
+        _: Option<std::time::Duration>,
+    ) -> Option<String> {
+        None
+    }
+
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+
+    async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
+        Some(discover_models_fixture())
+    }
+}
+
+#[tokio::test]
+async fn discover_models_native_js_parity() {
+    let native = DiscoverModelsNativeStub;
+    let js = load_inline_js(
+        "discover-fixture",
+        r#"
+            module.exports.default = {
+                discoverModels() {
+                    return [
+                        { id: 'live-a', displayName: 'Live A' },
+                        { id: 'live-b', displayName: 'Live B', description: 'second' }
+                    ];
+                }
+            };
+        "#,
+    );
+
+    assert_eq!(
+        native.discover_models().await,
+        Some(discover_models_fixture())
+    );
+    assert_eq!(js.discover_models().await, native.discover_models().await);
 }
 
 // Claude parity.

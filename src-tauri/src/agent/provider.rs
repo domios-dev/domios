@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 /// How to wait for agent readiness after PTY spawn.
@@ -454,6 +455,7 @@ pub enum ProviderTrust {
 pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 5;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
+#[async_trait]
 pub trait AgentProvider: Send + Sync {
     /// Unique identifier for this provider (e.g. "claude").
     fn id(&self) -> &str;
@@ -831,6 +833,12 @@ pub trait AgentProvider: Send + Sync {
     /// Models this provider offers (e.g. sonnet, opus, haiku for Claude).
     fn available_models(&self) -> Vec<ModelInfo> {
         Vec::new()
+    }
+
+    /// Query the models this provider currently offers, live.
+    /// None means "can't probe; use the manifest seed."
+    async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
+        None
     }
 
     /// Default model id, must match one of `available_models()` if non-None.
