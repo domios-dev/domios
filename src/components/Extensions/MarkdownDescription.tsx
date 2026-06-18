@@ -37,6 +37,40 @@ export function MarkdownDescription({ markdown }: { markdown: string }) {
           ul: ({ children }) => <ul style={{ margin: "0 0 10px", paddingLeft: 20 }}>{children}</ul>,
           ol: ({ children }) => <ol style={{ margin: "0 0 10px", paddingLeft: 20 }}>{children}</ol>,
           li: ({ children }) => <li style={{ margin: "2px 0" }}>{children}</li>,
+          // GFM tables: react-markdown parses them (remark-gfm), but without these
+          // overrides they fall back to unstyled browser defaults (cramped, no
+          // borders). Mirror the chat's MarkdownBody table treatment.
+          table: ({ children }) => (
+            <div style={{ overflowX: "auto", margin: "0 0 12px" }}>
+              <table style={{ borderCollapse: "collapse", fontSize: 12.5, width: "100%" }}>{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => (
+            <thead style={{ background: "var(--ct-bg-elev, rgba(255,255,255,0.06))" }}>{children}</thead>
+          ),
+          th: ({ children }) => (
+            <th
+              style={{
+                border: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.12))",
+                padding: "5px 9px",
+                textAlign: "left",
+                fontWeight: 600,
+              }}
+            >
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td
+              style={{
+                border: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.08))",
+                padding: "5px 9px",
+                verticalAlign: "top",
+              }}
+            >
+              {children}
+            </td>
+          ),
           code: ({ children }) => (
             <code
               style={{

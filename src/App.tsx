@@ -200,6 +200,19 @@ function AppInner() {
     return () => window.removeEventListener("codeterm:open-panel", onOpenPanel);
   }, [setExtensionsOpen]);
 
+  // "Configure with AI" spawns a pane and asks the host to bring it forward —
+  // dismiss any covering Extensions/glance overlay and focus the new pane.
+  useEffect(() => {
+    const onFocusPane = (e: Event) => {
+      const paneId = (e as CustomEvent<{ paneId?: string }>).detail?.paneId;
+      if (!paneId) return;
+      setExtensionsOpen(false);
+      setFocusedPane(paneId);
+    };
+    window.addEventListener("codeterm:focus-pane", onFocusPane);
+    return () => window.removeEventListener("codeterm:focus-pane", onFocusPane);
+  }, [setExtensionsOpen, setFocusedPane]);
+
   const handleBackToMemory = useCallback(() => {
     const ret = navigationStore.get();
     const focused = stateRef.current.focused_pane_id;
