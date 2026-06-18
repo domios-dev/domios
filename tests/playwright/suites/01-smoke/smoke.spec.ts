@@ -24,9 +24,13 @@ test("@smoke the real app window renders the shell UI", async ({ ui }) => {
   await expect(
     page.locator('[data-testid="terminal-pane"], [data-testid="chat-composer"]').first(),
   ).toBeVisible();
-  // Desktop chrome is present — the web mirror strips it (see 12-web),
-  // so this guards the inverse: Tauri must keep its titlebar.
-  await expect(page.locator('[data-testid="titlebar"]')).toBeVisible();
+  if (process.platform === "win32") {
+    // Desktop chrome is present — the web mirror strips it (see 12-web),
+    // so this guards the inverse: Tauri must keep its titlebar.
+    await expect(page.locator('[data-testid="titlebar"]')).toBeVisible();
+  } else {
+    await expect(page.locator('[data-testid="titlebar"]')).toHaveCount(0);
+  }
 });
 
 test("@smoke default workspace and at least one pane exist", async ({ api }) => {

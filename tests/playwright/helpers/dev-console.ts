@@ -11,10 +11,12 @@ import { execFileSync } from "node:child_process";
 import { chromium, type Browser, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { readDevToken } from "./api-client";
 
 export const API_BASE = "http://127.0.0.1:7686";
 export const CDP_PORT = 9223;
 export const CDP_BASE = `http://127.0.0.1:${CDP_PORT}`;
+export const WEB_URL = `${API_BASE}/web/`;
 
 export const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 
@@ -113,7 +115,9 @@ function killDevLeftovers(): void {
  * debugging port is fixed at WebView2 creation).
  */
 export async function ensureDevConsole(): Promise<void> {
-  if ((await isHealthy()) && (await isCdpUp())) return;
+  if (await isHealthy()) {
+    if (process.platform !== "win32" || (await isCdpUp())) return;
+  }
   killDevConsole();
   try {
     bash(["build.sh", "dev", "--wait"], 600_000);
@@ -126,6 +130,7 @@ export async function ensureDevConsole(): Promise<void> {
   if (!(await isHealthy())) {
     throw new Error("dev console did not become healthy after ./build.sh dev --wait");
   }
+  if (process.platform !== "win32") return;
   for (let i = 0; i < 20; i++) {
     if (await isCdpUp()) return;
     await new Promise((r) => setTimeout(r, 500));
@@ -141,6 +146,52 @@ export interface UiSession {
   page: Page;
 }
 
+async function waitForShell(page: Page): Promise<void> {
+  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+  await page.evaluate(() => {
+    try {
+      localStorage.setItem("codeterm-chat-ui-default-enabled", "false");
+    } catch {
+      /* localStorage may be unavailable; tests that need it will surface it */
+    }
+  });
+  await page
+    .locator('.xterm:visible, [data-testid="chat-composer"]')
+    .first()
+    .waitFor({ state: "visible", timeout: 90_000 });
+}
+
+async function connectDesktopUi(): Promise<UiSession> {
+  const browser = await chromium.connectOverCDP(CDP_BASE);
+  const pages = browser.contexts().flatMap((c) => c.pages()).filter((p) => !p.isClosed());
+  const page =
+    pages.find((p) => /localhost|tauri/.test(p.url())) ??
+    pages[0] ??
+    (() => {
+      throw new Error("no page exposed over CDP — dev console window missing?");
+    })();
+  await waitForShell(page);
+  return { browser, page };
+}
+
+async function connectWebUi(): Promise<UiSession> {
+  const token = readDevToken();
+  const browser = await chromium.launch();
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  await page.addInitScript((devToken) => {
+    try {
+      localStorage.setItem(`codeterm-web-token:${window.location.origin}`, devToken);
+      localStorage.setItem("codeterm-chat-ui-default-enabled", "false");
+    } catch {
+      /* localStorage may be unavailable; tests that need it will surface it */
+    }
+  }, token);
+  await page.goto(`${WEB_URL}#token=${encodeURIComponent(token)}`, { waitUntil: "domcontentloaded" });
+  await waitForShell(page);
+  return { browser, page };
+}
+
 /** Attach to the running dev console window over CDP and wait until the
  * shell has actually rendered — on a cold start the WebView is up while
  * Vite is still compiling, so the page can be blank for many seconds. */
@@ -150,33 +201,9 @@ export async function connectUi(): Promise<UiSession> {
     let browser: Browser | undefined;
     try {
       await ensureDevConsole();
-      browser = await chromium.connectOverCDP(CDP_BASE);
-      const pages = browser.contexts().flatMap((c) => c.pages()).filter((p) => !p.isClosed());
-      const page =
-        pages.find((p) => /localhost|tauri/.test(p.url())) ??
-        pages[0] ??
-        (() => {
-          throw new Error("no page exposed over CDP — dev console window missing?");
-        })();
-      await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-      // Pin terminal mode: if a prior run (or the user) enabled the chat-UI
-      // default, new agent panes open in chat and hide their xterm, so the
-      // terminal-DOM assertions would read an empty accessibility tree.
-      await page.evaluate(() => {
-        try {
-          localStorage.setItem("codeterm-chat-ui-default-enabled", "false");
-        } catch {
-          /* localStorage may be unavailable; tests that need it will surface it */
-        }
-      });
-      // First terminal mounts after session restore + PTY spawn. A pane left in
-      // chat-view hides its xterm and shows the composer — both prove the shell
-      // is alive.
-      await page
-        .locator('.xterm:visible, [data-testid="chat-composer"]')
-        .first()
-        .waitFor({ state: "visible", timeout: 90_000 });
-      return { browser, page };
+      const session = process.platform === "win32" ? await connectDesktopUi() : await connectWebUi();
+      browser = session.browser;
+      return session;
     } catch (e) {
       lastError = e;
       await browser?.close().catch(() => {});
