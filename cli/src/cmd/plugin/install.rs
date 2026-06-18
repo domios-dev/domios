@@ -47,6 +47,7 @@ pub(super) fn install_command(
             "ok": true,
             "message": install_message(
                 &format!("Installed plugin '{}' from {}", install_id, source.display()),
+                &install_id,
                 reload_required,
             ),
             "id": install_id,
@@ -89,6 +90,7 @@ pub(super) fn install_command(
         "ok": true,
         "message": install_message(
             &format!("Installed plugin '{}' from channel", id),
+            &id,
             reload_required,
         ),
         "id": id,
@@ -97,15 +99,21 @@ pub(super) fn install_command(
     }))
 }
 
-/// Append the agent-readable "reload to activate" hint when a plugin can't
-/// hot-activate (§1.8), so an agent installing on the user's behalf says so
-/// instead of silently leaving the capability dark.
-fn install_message(base: &str, reload_required: bool) -> String {
+/// Build the agent-readable install success message: the reload hint when a
+/// plugin can't hot-activate (§1.8), plus a configuration next-step so the agent
+/// that ran the install offers to configure it instead of leaving knobs unset.
+/// `base` already says "Installed plugin '<id>' …", so we append only the
+/// continuation sentence — never restate "Installed <id>" (m5).
+fn install_message(base: &str, id: &str, reload_required: bool) -> String {
+    let mut msg = base.to_string();
     if reload_required {
-        format!("{base} — reload CodeTerm to activate")
-    } else {
-        base.to_string()
+        msg.push_str(" — reload CodeTerm to activate");
     }
+    msg.push_str(&format!(
+        ". To configure it: run `codeterm plugin get {id}` to see options, \
+         ask the user what they want, then `codeterm plugin config {id} --set key=value`."
+    ));
+    msg
 }
 
 pub(super) fn remove_installed(id: &str, force: bool) -> Result<serde_json::Value, String> {
