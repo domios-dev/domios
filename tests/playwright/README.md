@@ -145,6 +145,24 @@ checks this before a test can land unnoticed.
 Non-tier tags such as `@edge`, `@failure`, or `@regression` may still describe
 coverage, but they do not satisfy the lint by themselves.
 
+## Deferred lint guardrails
+
+`pnpm test:pw:lint` also contains stricter Playwright guardrails that are
+currently opt-in because the Track F and Track S cleanups have not landed on
+this branch yet. Enable them with `PW_LINT_STRICT=1` after those tracks migrate
+specs to fixtures and remove timing hacks.
+
+Strict mode rejects:
+
+- `waitForTimeout`
+- `networkidle`
+- Playwright action options using `force: true`
+- `test()` bodies with no `expect()`
+- raw `new ApiClient()` or `connectUi()` in specs instead of the fixtures layer
+
+For targeted proof runs, set `PW_LINT_SCOPE` to a spec file or directory under
+`tests/playwright/suites`.
+
 ## Web mirror (12-web)
 
 12-web drives the **web mirror** (`/web` on the daemon) in a **launched
@@ -183,4 +201,4 @@ server-spawned panes do). Each throws a clear
 - Suites assert **UI DOM state**, not just API JSON, wherever the action
   has a user-visible effect.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
