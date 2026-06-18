@@ -99,6 +99,9 @@ const PLUGIN_PREAMBLE: &str = r#"
     reap:   function (sessionId) { host.agentReap(sessionId); },
     usage:  function (sessionId) { return parseJson(host.agentUsage(sessionId)); },
   };
+  host.fetch.stream = function (opts) { return parseJson(host.fetchStream(JSON.stringify(opts))); };
+  host.fetch.streamPoll = function (jobId) { return parseJson(host.fetchStreamPoll(jobId)); };
+  host.fetch.streamClose = function (jobId) { host.fetchStreamClose(jobId); };
 })();
 "#;
 
@@ -344,6 +347,12 @@ impl PluginVm {
         inner._rt = rt;
         inner.bundle_source = new_source;
         Ok(())
+    }
+}
+
+impl Drop for PluginVm {
+    fn drop(&mut self) {
+        super::host_net::drop_plugin_jobs(&self.plugin_id);
     }
 }
 
@@ -709,6 +718,43 @@ mod tests {
         assert!(
             ag2.contains("host service unavailable"),
             "granted ag: {ag2}"
+        );
+    }
+
+    #[test]
+    fn fetch_stream_preamble_is_sync_and_uses_fetch_allowlist() {
+        use crate::plugin::js_runtime::host_api::PluginSandbox;
+        use crate::plugin::js_runtime::manifest::PermissionsConfig;
+        use std::sync::Arc;
+
+        const SRC: &str = r#"
+            module.exports.default = {
+                shape() {
+                    var result = host.fetch.stream({ url: "http://blocked.example.test/stream" });
+                    return {
+                        streamIsFn: typeof host.fetch.stream === "function",
+                        pollIsFn: typeof host.fetch.streamPoll === "function",
+                        closeIsFn: typeof host.fetch.streamClose === "function",
+                        sync: !(result && typeof result.then === "function"),
+                        error: result && result.error,
+                    };
+                }
+            };
+        "#;
+
+        let sandbox = Arc::new(
+            PluginSandbox::restricted(vec![], vec![])
+                .with_identity_and_perms("p", &PermissionsConfig::default()),
+        );
+        let vm = PluginVm::from_source_sandboxed("p", SRC.to_string(), None, sandbox).unwrap();
+        let shape: serde_json::Value = call_json(&vm, "shape", &[]).unwrap();
+        assert_eq!(shape["streamIsFn"], true);
+        assert_eq!(shape["pollIsFn"], true);
+        assert_eq!(shape["closeIsFn"], true);
+        assert_eq!(shape["sync"], true);
+        assert_eq!(
+            shape["error"], "fetch denied: blocked.example.test",
+            "stream must share host.fetch's network allowlist denial"
         );
     }
 

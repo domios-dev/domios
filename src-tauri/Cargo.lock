@@ -1086,6 +1086,7 @@ dependencies = [
  "fern",
  "filetime",
  "futures-core",
+ "futures-util",
  "git2",
  "hnsw_rs",
  "hostname",

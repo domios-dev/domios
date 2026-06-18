@@ -37,6 +37,25 @@ export interface FetchResult {
   error?: string;
 }
 
+export interface FetchStreamStart {
+  jobId?: string;
+  error?: string;
+}
+
+export interface FetchStreamPoll {
+  chunks: string[];
+  done: boolean;
+  status?: number;
+  error?: string;
+}
+
+export interface HostFetch {
+  (optsJson: string): string;
+  stream(opts: FetchOpts): FetchStreamStart;
+  streamPoll(jobId: string): FetchStreamPoll;
+  streamClose(jobId: string): void;
+}
+
 export interface DirEntry {
   name: string;
   path: string;
@@ -193,7 +212,10 @@ export interface Host {
   // ── host_api v2: subprocess / network / secrets / settings ──
   settingsJson(): string;
   exec(optsJson: string): string;
-  fetch(optsJson: string): string;
+  fetch: HostFetch;
+  fetchStream(optsJson: string): string;
+  fetchStreamPoll(jobId: string): string;
+  fetchStreamClose(jobId: string): void;
   secretGet(name: string): string | null;
   secretSet(name: string, value: string): boolean;
   secretDelete(name: string): boolean;
