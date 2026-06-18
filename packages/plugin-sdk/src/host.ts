@@ -155,6 +155,13 @@ export interface HostMem {
   }): { hits: { id: string; text: string; score: number }[] };
 }
 
+export interface HostProgressOpts {
+  label: string;
+  percent?: number;
+  done?: boolean;
+  error?: string;
+}
+
 export interface Host {
   // ── Identity / paths ──
   platform(): string;
@@ -199,6 +206,7 @@ export interface Host {
   fs: HostFs;
   shell: HostShell;
   path: HostPath;
+  progress(opts: HostProgressOpts): void;
 
   // ── host compute base (permissioned; job-id/poll bridge) ──
   worker: HostWorker;
