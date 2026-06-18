@@ -172,3 +172,34 @@ impl PluginActivityRegistry {
 - Both surfaces (Extensions + toast) → D. ✓
 - Phase labels (percent reserved) → A model has optional `percent`; v1 uses labels. ✓
 - Types consistent: `PluginActivity` (A) is the single shape emitted by B/C and consumed by D; `host.progress` opts map onto registry start/step/finish. ✓
+
+---
+
+## Pre-dispatch review amendments (AUTHORITATIVE — override track text on conflict)
+
+### Track A (registry = STATE ONLY; emit at call sites)
+- **(B2)** `PluginActivityRegistry` holds ONLY `RwLock<HashMap<String,PluginActivity>>` — NO `app_handle`, NO events tx (mirror `GraphWorkerRegistry`, src-tauri/src/mem/workers.rs:106). Methods `start/step/finish` mutate state and RETURN the updated `PluginActivity`. They are unit-testable (state transitions) — that is the only buildable test (ServiceContext needs a real AppHandle; there is no test harness — see host_api/tests.rs:101).
+- Provide a free fn `pub fn emit_plugin_activity(svc: &ServiceContext, a: &PluginActivity)` that does BOTH emits: `tauri::Emitter::emit(&svc.app_handle, "plugin-activity", a)` AND `svc.events.publish(SystemEvent::PluginActivity(a.clone()))` (copy the pattern at src-tauri/src/mem_routes/workers.rs:116 + mem/workers.rs:405). Callers (B, C) call a registry method then `emit_plugin_activity(svc, &activity)`.
+- **(M2)** The ONLY exhaustive match needing a new arm is `type_name()` in `src-tauri/src/api/events.rs:57`. **(M1)** that arm MUST return the literal `"plugin-activity"` (hyphen) — the frontend keys off `type_name()` for BOTH the Tauri channel and the SSE `event_type`; do NOT return the snake_case serde tag. The SSE serializer (web_routes.rs:109) is a catch-all → no edit there. `EventBroadcaster::publish` is generic → no edit.
+- `SystemEvent::PluginActivity(PluginActivity)` newtype variant; `PluginActivity` is `#[serde(rename_all="camelCase")]` so TS sees `pluginId/startedAt/updatedAt`.
+- Add `plugin_activity: Arc<PluginActivityRegistry>` to `ServiceContext` (service/mod.rs:73) — update EVERY construction site (grep `ServiceContext {`).
+
+### Track B (vm.rs preamble fold; emit via LateRef svc)
+- **(M3)** Bind raw `progressRaw(json: String) -> String` in host_compute (NOT `progress`). Fold in `src-tauri/src/plugin/js_runtime/vm.rs` (the preamble, ~:84): `host.progress = function(o){ return host.progressRaw(JSON.stringify(o || {})); };`. Add `vm.rs` to the file list.
+- Impl: `progressRaw` parses `{label, percent?, done?, error?}`, reaches `ServiceContext` via the existing `LateRef<ServiceContext>` carrier (same as host.worker/mem), calls the registry (start on first call for this plugin's current op / step / finish) AND `emit_plugin_activity(svc, &a)`. host.progress IS a call site that has `svc` (via LateRef), so it emits directly. Sync, returns `"{}"`.
+- SDK `host.ts`: `progress(opts: { label: string; percent?: number; done?: boolean; error?: string }): void` (object-typed; vm.rs stringifies).
+
+### Track C (thread ServiceContext; real kind strings)
+- **(B1)** Change `run_action(action) -> Result<Value,String>` to `run_action(action, svc: &ServiceContext)`. Thread it:
+  - `plugin_manager_action` (plugins.rs:26): add param `svc: tauri::State<'_, crate::service::ServiceState>` and pass `&svc` (it currently takes only `action`; sibling cmds like `plugin_glance` already take this State).
+  - `web_routes::plugin_action` (web_routes.rs:626/632): pass `&state.svc`.
+- **(m1)** Use the REAL action kinds from `plugin_action_args` (plugins.rs:530): `install`→start "Installing <id>…", `remove`→kind "uninstall" label "Uninstalling <id>…", `update`/`update-system`→"update", channel ops→"channel". Emit `start` before `run_plugin_cli` (blocking subprocess, opaque → no intermediate frame) and `finish(None|Some(err))` after.
+
+### Track D (unified listen; keyed toast; TS type)
+- **(m3)** Do NOT mirror useGraphWorkers' polling. Use the unified `listen` from `src/lib/bridge.ts` (it auto-routes Tauri in desktop, SSE/webEvents in web): a SINGLE `listen("plugin-activity", handler)` covers both. Reducer maps `pluginId → PluginActivity`.
+- Add `PluginActivity` TS interface to `src/lib/types.ts` (camelCase fields) next to `GraphWorkerInfo`.
+- **(m2)** In-place toast needs a keyed upsert: add an `UPSERT_TOAST` reducer action in `src/store/multiplexer/reducer.ts` (key = pluginId) OR add `key?: string` to `Notification` and make `ADD_NOTIFICATION` replace-if-key-matches; the hook drives one toast per active plugin op, updates label, dismiss on done/error.
+- **(m4)** Reducer test must cover BOTH payload shapes: desktop (struct only) and web (struct + extra `event:"plugin_activity"` tag from the SSE serializer). Ignore unknown fields.
+
+### Track E — unchanged (guard `typeof host.progress === "function"`).
+### Verify F — confirm one `listen("plugin-activity")` fires in both desktop + web; bootstrap labels live.
