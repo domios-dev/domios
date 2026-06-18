@@ -36,6 +36,9 @@ export function CapabilityChip({
   return (
     <span
       title={title}
+      data-testid="extensions-capability-chip"
+      data-capability-label={label}
+      data-capability-variant={variant}
       style={{
         display: "inline-flex",
         alignItems: "center",

@@ -21,6 +21,7 @@ export function PluginActivityInline({
   return (
     <div
       role="status"
+      data-testid="extensions-plugin-activity"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -65,6 +66,7 @@ export function PluginActivityInline({
       {percent !== null && (
         <div
           aria-label={`${Math.round(percent)}%`}
+          data-testid="extensions-plugin-activity-progress"
           style={{
             height: compact ? 3 : 4,
             borderRadius: 999,

@@ -109,6 +109,8 @@ export function PluginView({
   const frame = (
     <iframe
       ref={iframeRef}
+      data-testid="extensions-plugin-iframe"
+      data-plugin-id={pluginId}
       src={src}
       title={`${pluginId} view`}
       sandbox="allow-scripts"
@@ -119,6 +121,8 @@ export function PluginView({
   if (embedded) {
     return (
       <div
+        data-testid="extensions-plugin-embedded-view"
+        data-plugin-id={pluginId}
         style={{
           width: "100%",
           height: contentHeight ?? 120,

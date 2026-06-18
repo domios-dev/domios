@@ -172,7 +172,7 @@ export function SettingsPanel({
       : "Provider";
 
   return (
-    <div className="absolute inset-0 flex flex-col overflow-hidden bg-[var(--ct-sidebar-bg)]">
+    <div className="absolute inset-0 flex flex-col overflow-hidden bg-[var(--ct-sidebar-bg)]" data-testid="settings-panel">
       <div className="absolute inset-0 flex flex-col pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
         {/* Subtle dot grid background */}
         <div
@@ -188,6 +188,7 @@ export function SettingsPanel({
           <div className="flex min-w-0 flex-1 items-center">
             {top.kind !== "root" && (
               <button
+                data-testid="settings-back"
                 onClick={pop}
                 className="-ml-1 flex items-center gap-0.5 pr-2 text-[var(--ct-accent)] transition-opacity active:opacity-60"
                 title="Back"
@@ -203,7 +204,7 @@ export function SettingsPanel({
               </button>
             )}
           </div>
-          <h2 className="pointer-events-none absolute left-1/2 max-w-[55%] -translate-x-1/2 truncate text-center text-sm font-semibold text-[var(--ct-fg)]">
+          <h2 className="pointer-events-none absolute left-1/2 max-w-[55%] -translate-x-1/2 truncate text-center text-sm font-semibold text-[var(--ct-fg)]" data-testid="settings-header-title">
             {headerTitle}
           </h2>
           {/* Balances the back button so the centered title stays optically centered. */}
@@ -212,7 +213,7 @@ export function SettingsPanel({
 
         {/* Body */}
         <div className="flex flex-1 min-h-0 relative z-10">
-          <div className="flex-1 overflow-y-auto px-5 py-5">
+          <div className="flex-1 overflow-y-auto px-5 py-5" data-testid="settings-body">
             {top.kind === "root" && (
               <div className="min-h-full flex items-center justify-center">
                 <div className="w-full max-w-3xl grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -248,6 +249,7 @@ export function SettingsPanel({
                   <label className="block">
                     <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">Theme</span>
                     <select
+                      data-testid="settings-theme-select"
                       value={localConfig.theme.name}
                       onChange={(e) => update("theme", { name: e.target.value })}
                       className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
@@ -280,6 +282,7 @@ export function SettingsPanel({
                       ].map((color, i) => (
                         <div
                           key={i}
+                          data-testid="settings-theme-swatch"
                           className="w-5 h-5 rounded border border-[var(--ct-border)]"
                           style={{ backgroundColor: color }}
                           title={color}
@@ -288,6 +291,7 @@ export function SettingsPanel({
                     </div>
                     {themesDir && (
                       <button
+                        data-testid="settings-open-themes-folder"
                         onClick={() => invoke("open_folder", { path: themesDir })}
                         className="text-[10px] text-[var(--ct-accent)] hover:underline shrink-0"
                         title={`Open ${themesDir}`}
@@ -300,6 +304,7 @@ export function SettingsPanel({
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] text-[var(--ct-muted-fg)]">Custom theme</span>
                       <button
+                        data-testid="settings-delete-custom-theme"
                         onClick={async () => {
                           await invoke("delete_custom_theme", { themeId: localConfig.theme.name });
                           update("theme", { name: "github-dark" });
@@ -318,6 +323,7 @@ export function SettingsPanel({
                     <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">Font family</span>
                     <input
                       type="text"
+                      data-testid="settings-font-family-input"
                       value={localConfig.font.family}
                       onChange={(e) => update("font", { family: e.target.value })}
                       className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
@@ -327,6 +333,7 @@ export function SettingsPanel({
                     <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">{`Size: ${localConfig.font.size}px`}</span>
                     <input
                       type="range"
+                      data-testid="settings-font-size-input"
                       min={8}
                       max={28}
                       value={localConfig.font.size}
@@ -345,6 +352,7 @@ export function SettingsPanel({
                   <label className="block">
                     <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">Style</span>
                     <select
+                      data-testid="settings-cursor-style-select"
                       value={localConfig.terminal.cursor_style}
                       onChange={(e) => update("terminal", { cursor_style: e.target.value })}
                       className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
@@ -366,6 +374,7 @@ export function SettingsPanel({
                     <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">{`Buffer: ${localConfig.terminal.scrollback.toLocaleString()} lines`}</span>
                     <input
                       type="range"
+                      data-testid="settings-scrollback-input"
                       min={1000}
                       max={100000}
                       step={1000}
@@ -444,6 +453,7 @@ export function SettingsPanel({
                     onChange={(v) => update("ui", { memory_tab_enabled: v })}
                   />
                   <button
+                    data-testid="settings-go-memory"
                     onClick={() => { onNavigateToTab?.("memory"); onClose(); }}
                     className="text-[var(--ct-accent)] text-[10px] hover:underline ml-6"
                   >
@@ -458,6 +468,7 @@ export function SettingsPanel({
                     }}
                   />
                   <button
+                    data-testid="settings-go-mesh"
                     onClick={() => { onNavigateToTab?.("mesh"); onClose(); }}
                     className="text-[var(--ct-accent)] text-[10px] hover:underline ml-6"
                   >
@@ -525,7 +536,7 @@ export function SettingsPanel({
             {top.kind === "section" && top.id === "about" && (
               <SettingsPage title="About" subtitle="Version, updates, and creator.">
                 <div className="text-center py-4">
-                  <img src={logoUrl} alt="CodeTerm" width="64" height="64" className="rounded-xl mb-3 mx-auto" />
+                  <img src={logoUrl} alt="CodeTerm" width="64" height="64" className="rounded-xl mb-3 mx-auto" data-testid="settings-about-logo" />
                   <div className="text-xl font-bold text-[var(--ct-fg)]">CodeTerm</div>
                   <div className="text-xs text-[var(--ct-muted-fg)] mt-1">AI-first terminal multiplexer</div>
                 </div>

@@ -19,7 +19,7 @@ export function LogsFilterBar({
   onRangeChange: (r: RangeKey) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-wrap items-center gap-3" data-testid="settings-logs-filter-bar">
       <div className="flex items-center gap-1.5">
         {ALL_LEVELS.map((l) => {
           const active = levels.has(l);
@@ -33,6 +33,8 @@ export function LogsFilterBar({
           return (
             <button
               key={l}
+              data-testid="settings-logs-level-filter"
+              data-log-level={l}
               onClick={() => onToggleLevel(l)}
               className={`px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-medium border transition-colors ${
                 active
@@ -49,6 +51,7 @@ export function LogsFilterBar({
       <div className="flex-1 min-w-[160px]">
         <input
           type="text"
+          data-testid="settings-logs-source-filter"
           list="logs-source-list"
           value={source}
           onChange={(e) => onSourceChange(e.target.value)}
@@ -68,6 +71,8 @@ export function LogsFilterBar({
           return (
             <button
               key={opt.key}
+              data-testid="settings-logs-range-filter"
+              data-log-range={opt.key}
               onClick={() => onRangeChange(opt.key)}
               className={`px-2 py-1 text-[10px] uppercase tracking-wider transition-colors ${
                 active

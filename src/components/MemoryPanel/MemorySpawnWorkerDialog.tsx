@@ -60,15 +60,20 @@ function MemorySpawnWorkerDialogImpl({ onSpawn, onClose }: Props) {
     <div
       className="fixed inset-0 z-[1050] flex items-center justify-center bg-black/60"
       onClick={onClose}
+      data-testid="memory-worker-dialog-backdrop"
     >
       <div
         className="bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg p-5 w-[480px] max-w-[90%] text-[var(--ct-fg)]"
         onClick={(e) => e.stopPropagation()}
+        data-testid="memory-worker-dialog"
+        role="dialog"
+        aria-label="Spawn graph worker"
       >
         <h3 className="m-0 mb-4 text-sm">Spawn Graph Worker</h3>
         <div className="mb-3">
           <label className={labelClass}>Intent</label>
           <input
+            data-testid="memory-worker-intent-input"
             className={fieldClass}
             value={intent}
             onChange={(e) => setIntent(e.target.value)}
@@ -79,6 +84,7 @@ function MemorySpawnWorkerDialogImpl({ onSpawn, onClose }: Props) {
         <div className="mb-3">
           <label className={labelClass}>Task</label>
           <textarea
+            data-testid="memory-worker-task-input"
             className={`${fieldClass} resize-y min-h-[120px]`}
             value={task}
             onChange={(e) => setTask(e.target.value)}
@@ -89,6 +95,7 @@ function MemorySpawnWorkerDialogImpl({ onSpawn, onClose }: Props) {
         <div className="mb-3">
           <label className={labelClass}>Agent</label>
           <select
+            data-testid="memory-worker-agent-select"
             className={fieldClass}
             value={agent}
             onChange={(e) => setAgent(e.target.value)}
@@ -102,21 +109,22 @@ function MemorySpawnWorkerDialogImpl({ onSpawn, onClose }: Props) {
         </div>
         <div className="mb-4">
           <label className={labelClass}>Parent</label>
-          <input className={fieldClass} value="user:memory-panel" readOnly disabled />
+          <input className={fieldClass} value="user:memory-panel" readOnly disabled data-testid="memory-worker-parent-input" />
         </div>
         {error && (
-          <div className="mb-3 px-2.5 py-1.5 bg-[var(--ct-red)] text-white rounded text-[11px]">
+          <div className="mb-3 px-2.5 py-1.5 bg-[var(--ct-red)] text-white rounded text-[11px]" data-testid="memory-worker-dialog-error" role="alert">
             {error}
           </div>
         )}
         <div className="flex justify-end gap-2">
-          <button className={btnClass} onClick={onClose} disabled={submitting}>
+          <button className={btnClass} onClick={onClose} disabled={submitting} data-testid="memory-worker-cancel">
             Cancel
           </button>
           <button
             className={`${btnClass} !bg-[var(--ct-accent)] !border-[var(--ct-accent)] !text-white`}
             onClick={handleSpawn}
             disabled={submitting}
+            data-testid="memory-worker-spawn-submit"
           >
             {submitting ? "Spawning…" : "Spawn"}
           </button>

@@ -151,7 +151,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
   let lastDay = "";
 
   return (
-    <div className="absolute inset-0 flex flex-col">
+    <div className="absolute inset-0 flex flex-col" data-testid="memory-activity-tab">
       {/* Header / global filters */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--ct-border)]">
         <ActivityIcon size={14} className="text-[var(--ct-muted-fg)]" />
@@ -168,6 +168,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--ct-border)]">
             <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--ct-muted-fg)]">Stream</span>
             <select
+              data-testid="memory-activity-op-filter"
               className="bg-transparent border border-[var(--ct-border)] rounded px-2 py-0.5 text-[10px] text-[var(--ct-fg)] cursor-pointer ml-2"
               value={opFilter}
               onChange={(e) => setOpFilter(e.target.value)}
@@ -181,6 +182,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             </select>
             {opFilter && (
               <button
+                data-testid="memory-activity-clear-filter"
                 onClick={() => setOpFilter("")}
                 className="text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] cursor-pointer bg-transparent border-0"
               >
@@ -192,6 +194,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             </span>
             <label className="flex items-center gap-1 cursor-pointer text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]">
               <input
+                data-testid="memory-activity-follow"
                 type="checkbox"
                 checked={autoScroll}
                 onChange={(e) => setAutoScroll(e.target.checked)}
@@ -201,10 +204,11 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             </label>
           </div>
 
-          <div ref={eventsScrollRef} className="flex-1 overflow-y-auto" onScroll={handleScroll}>
+          <div ref={eventsScrollRef} className="flex-1 overflow-y-auto" onScroll={handleScroll} data-testid="memory-activity-stream">
             {newCount > 0 && !autoScroll && (
               <div className="sticky top-0 z-10 flex justify-center py-1">
                 <button
+                  data-testid="memory-activity-new-events"
                   onClick={scrollToTop}
                   className="px-3 py-1 rounded-full bg-[var(--ct-accent)] text-white text-[10px] cursor-pointer shadow-lg border-0"
                 >
@@ -213,7 +217,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
               </div>
             )}
             {filtered.length === 0 && (
-              <div className="text-xs text-[var(--ct-muted-fg)] text-center py-8">
+              <div className="text-xs text-[var(--ct-muted-fg)] text-center py-8" data-testid="memory-activity-empty">
                 No activity yet
               </div>
             )}
@@ -232,7 +236,11 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
                       <span className="flex-1 h-px bg-[var(--ct-border)]" />
                     </div>
                   )}
-                  <div className="flex items-start gap-2.5 px-3 py-1.5 border-b border-white/[0.04] hover:bg-[var(--ct-hover-bg)] transition-colors duration-75">
+                  <div
+                    className="flex items-start gap-2.5 px-3 py-1.5 border-b border-white/[0.04] hover:bg-[var(--ct-hover-bg)] transition-colors duration-75"
+                    data-testid="memory-activity-event"
+                    data-memory-op={ev.op}
+                  >
                     <span className="w-[56px] shrink-0 text-[10px] font-mono tabular-nums text-[var(--ct-muted-fg)]">
                       {formatTime(ev.ts_ms)}
                     </span>
@@ -258,6 +266,8 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
                               </span>
                             )}
                             <span
+                              data-testid="memory-activity-item-link"
+                              data-memory-id={id}
                               className="text-[11px] text-[var(--ct-fg)] truncate cursor-pointer hover:underline hover:decoration-[var(--ct-accent)]"
                               onClick={() => onNavigateToItem(id)}
                             >
@@ -294,6 +304,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             <Cpu size={12} className="text-[var(--ct-muted-fg)]" />
             <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--ct-muted-fg)]">Workers</span>
             <button
+              data-testid="memory-worker-spawn-open"
               onClick={() => setSpawnOpen(true)}
               className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] border border-[var(--ct-border)] hover:border-[var(--ct-fg)] bg-transparent cursor-pointer"
               title="Spawn worker"
@@ -302,6 +313,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
               spawn
             </button>
             <button
+              data-testid="memory-workers-refresh"
               onClick={() => refreshWorkers()}
               className="px-1.5 py-0.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] bg-transparent border-0 cursor-pointer"
               title="Refresh"
@@ -310,12 +322,12 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3">
+          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3" data-testid="memory-workers-list">
             {workersLoading && (
-              <div className="text-[11px] text-[var(--ct-muted-fg)]">loading…</div>
+              <div className="text-[11px] text-[var(--ct-muted-fg)]" data-testid="memory-workers-loading">loading…</div>
             )}
             {!workersLoading && live.length === 0 && recent.length === 0 && (
-              <div className="text-[11px] text-[var(--ct-muted-fg)] text-center py-6">
+              <div className="text-[11px] text-[var(--ct-muted-fg)] text-center py-6" data-testid="memory-workers-empty">
                 No workers running. Spawn one or wait for the next dreaming session.
               </div>
             )}
@@ -405,6 +417,9 @@ function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
   return (
     <div
       onClick={onOpen}
+      data-testid="memory-worker-card"
+      data-worker-id={worker.worker_id}
+      data-worker-status={worker.status}
       className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]/60 hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
       title={isDone ? "View log" : "View live output"}
     >
@@ -417,6 +432,7 @@ function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
       <span className="text-[9px] tabular-nums text-[var(--ct-muted-fg)] shrink-0">{elapsed}</span>
       {onKill && (
         <button
+          data-testid="memory-worker-kill"
           onClick={(e) => {
             e.stopPropagation();
             onKill();

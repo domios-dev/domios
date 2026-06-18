@@ -68,6 +68,7 @@ export function CompletionPopup({
 
   return (
     <div
+      data-testid="terminal-completion-popup"
       className="fixed z-50 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-xl overflow-hidden"
       style={{
         left: anchorX,
@@ -79,6 +80,9 @@ export function CompletionPopup({
       {visibleItems.map((item, i) => (
         <div
           key={item.text}
+          data-testid="terminal-completion-item"
+          data-completion-text={item.text}
+          data-completion-kind={item.kind}
           onClick={() => onAccept(item)}
           onMouseEnter={() => setSelectedIndex(i)}
           className={`flex items-center gap-3 px-2.5 py-1 cursor-pointer text-xs ${
