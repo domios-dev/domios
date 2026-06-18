@@ -25,8 +25,10 @@
 //! mem search is likewise sync (`mem/manager_search.rs`), and the
 //! `host.workspace` registry ops are mux operations, not agent turns.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock};
 
+use parking_lot::Mutex;
 use rquickjs::function::Func;
 use rquickjs::Object;
 
@@ -34,6 +36,7 @@ use super::host_api::PluginSandbox;
 use super::vm::VmError;
 use crate::mem::workers::{self, GraphWorkerInfo, WorkerStatus};
 use crate::mem::{SearchHit, SearchQuery};
+use crate::plugin::activity::{emit_plugin_activity, PluginActivity, PluginActivityRegistry};
 use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
 use crate::service::ServiceContext;
 
@@ -41,6 +44,9 @@ use crate::service::ServiceContext;
 /// worker watchdog (`mem/workers.rs`). A turn that never reports is forced
 /// `Orphaned` and its hidden pane closed so it can't leak.
 const TURN_WATCHDOG_SECS: u64 = 30 * 60;
+
+static PROGRESS_ACTIVITY_IDS: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 // ── Pure helpers (unit-tested; no `ServiceContext`) ──────────────────────
 
@@ -58,6 +64,17 @@ struct Backend {
     provider: Option<String>,
     #[serde(default)]
     model: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ProgressOpts {
+    label: String,
+    #[serde(default)]
+    percent: Option<f32>,
+    #[serde(default)]
+    done: bool,
+    #[serde(default)]
+    error: Option<String>,
 }
 
 /// Resolve `(provider, model)` from an optional `Backend`, defaulting the
@@ -84,6 +101,43 @@ fn search_hits_json(hits: &[SearchHit]) -> serde_json::Value {
             }))
             .collect::<Vec<_>>()
     })
+}
+
+fn apply_progress_raw(
+    registry: &PluginActivityRegistry,
+    current_id: &mut Option<String>,
+    plugin_id: &str,
+    opts_json: &str,
+) -> Result<PluginActivity, String> {
+    let opts: ProgressOpts =
+        serde_json::from_str(opts_json).map_err(|e| format!("bad progress opts: {e}"))?;
+    if opts.label.trim().is_empty() {
+        return Err("progress label is required".to_string());
+    }
+
+    let mut activity = match current_id
+        .as_ref()
+        .filter(|id| registry.get(id).is_some())
+        .cloned()
+    {
+        Some(id) => registry.step(&id, &opts.label, opts.percent),
+        None => {
+            let started = registry.start(plugin_id, "bootstrap", &opts.label);
+            *current_id = Some(started.id.clone());
+            if opts.percent.is_some() {
+                registry.step(&started.id, &opts.label, opts.percent)
+            } else {
+                started
+            }
+        }
+    };
+
+    if opts.done || opts.error.is_some() {
+        activity = registry.finish(&activity.id, opts.error);
+        *current_id = None;
+    }
+
+    Ok(activity)
 }
 
 /// `host.worker.poll` envelope: `{ done, report?, error? }`.
@@ -213,6 +267,32 @@ fn worker_start(svc: &Arc<ServiceContext>, plugin_id: &str, opts_json: &str) -> 
         Ok(job_id) => serde_json::json!({ "jobId": job_id }).to_string(),
         Err(e) => err(e),
     }
+}
+
+fn progress_raw(svc: &Arc<ServiceContext>, plugin_id: &str, opts_json: &str) -> String {
+    let activity = {
+        let mut ids = PROGRESS_ACTIVITY_IDS.lock();
+        let mut current = ids.get(plugin_id).cloned();
+        let activity =
+            match apply_progress_raw(&svc.plugin_activity, &mut current, plugin_id, opts_json) {
+                Ok(activity) => activity,
+                Err(e) => {
+                    log::warn!("[plugin-progress] {plugin_id}: {e}");
+                    return "{}".to_string();
+                }
+            };
+        match current {
+            Some(id) => {
+                ids.insert(plugin_id.to_string(), id);
+            }
+            None => {
+                ids.remove(plugin_id);
+            }
+        }
+        activity
+    };
+    emit_plugin_activity(svc, &activity);
+    "{}".to_string()
 }
 
 /// `host.agent.spawn` — async. Starts a FRESH session in `workspace_id` and
@@ -498,6 +578,14 @@ pub(super) fn install_handles(
         match sb.service() {
             Some(svc) => worker_poll_json(svc.workers.get(&job_id).as_ref()).to_string(),
             None => err("host service unavailable"),
+        }
+    });
+
+    let sb = sandbox.clone();
+    bind!("progressRaw", move |opts: String| -> String {
+        match sb.service() {
+            Some(svc) => progress_raw(&svc, sb.plugin_id(), &opts),
+            None => "{}".to_string(),
         }
     });
 
