@@ -256,6 +256,40 @@ capability-CONDITIONAL, never assert a specific plugin is installed):**
 - [ ] chatPreprocessor + Dreamer + `codeterm-npc` unaffected.
 - [ ] Plugin installs cleanly; docs accurate. Then `git branch --no-merged plugins-rethink` audit.
 
+## Phase R — adversarial peer-Opus review-harden loop (AFTER S8; up to 5 iterations)
+
+Goal: stop shipping at "passes my own gates" — pressure-test the whole open-shell
+feature against an INDEPENDENT mind, then fix at source (no band-aids), repeat.
+
+Each iteration:
+1. **Spawn an equal peer-Opus orchestrator** (`codeterm agent spawn claude --model opus --role Orchestrator`),
+   NOT a worker — a peer who reviews as if they owned it. Hand it the full context:
+   the spec + this plan + the merged branches (plugins-rethink + codeterm-plugins
+   lmstudio) + how to build/run on dev. Ask it to (a) find what works badly, is
+   fragile, or breaks (run it, read it, try to break it), and (b) surface
+   INTERESTING alternative approaches/designs worth adopting — I want to learn from
+   how it would have done it. It reports findings back to me (it does not fix).
+2. **I triage + plan the fixes** (fix at source, no patches, clean abstractions),
+   then dispatch fix workers (Codex for code, Opus-claude for architecture), gate +
+   merge each myself as usual.
+3. **Ask the peer-Opus to re-review** the fixed state.
+4. **Track the iteration counter** in the queued heartbeat message (e.g.
+   "REVIEW-LOOP iteration N/5") so it survives a context reset — re-stamp it each
+   tick. Persist the running findings list there too if useful.
+5. **Stop** when a review returns clean (no actionable findings) OR after 5
+   iterations, whichever first.
+
+## Phase F — final test handoff to Mac-Air (after Phase R converges)
+
+Hand the feature to `claude@Mac-Air` (he grasped the testing principle well — the
+Playwright + fixtures + auditor stack). Ask him to (a) re-test the open-shell
+end-to-end and (b) ADD new tests (unit + UI where the WebView2 path allows; the
+deterministic layers macOS can run). Gate + merge his test additions into the
+mainline. This is the final acceptance before any release.
+
+Principles for R + F: no band-aids, fix at source, improve only the code, do not
+be lazy. Equal-peer review is the point — adopt the good ideas, fix the real bugs.
+
 ## Self-review checklist
 - Core asks capability, not identity (S2 routing). ✓
 - New host surface (S0) reuses the existing network allowlist — no new confinement hole. ✓
