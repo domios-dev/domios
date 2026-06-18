@@ -221,6 +221,11 @@ var plugin = {
     }
     return null;
   },
+  // Anthropic exposes live API models only for API-key users. Claude Pro/Max
+  // OAuth accounts do not expose a cheap CLI model-list probe, so they use seed.
+  discoverModels() {
+    return discoverAnthropicModels() || manifestModels();
+  },
   // Parse the `/usage` TUI screen into a UsageSnapshot-shaped object
   // (snake_case fields, matching the Rust struct). Returns null when nothing
   // recognizable was found.
@@ -538,6 +543,51 @@ var plugin = {
     return { ok: false, error: "writeJson failed for " + path };
   }
 };
+function discoverAnthropicModels() {
+  const key = host.envGet("ANTHROPIC_API_KEY") || host.envGet("CLAUDE_API_KEY");
+  if (!key) return null;
+  const raw = host.fetch(JSON.stringify({
+    url: "https://api.anthropic.com/v1/models",
+    method: "GET",
+    timeoutMs: 3e3,
+    headers: {
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01"
+    }
+  }));
+  const response = safeJson(raw);
+  if (!response || response.status !== 200 || typeof response.body !== "string") return null;
+  const body = safeJson(response.body);
+  const data = body && body.data;
+  if (!Array.isArray(data)) return null;
+  const models = [];
+  for (let i = 0; i < data.length; i++) {
+    const item = data[i];
+    if (!item) continue;
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    if (!id) continue;
+    const display = typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : typeof item.displayName === "string" && item.displayName.trim() ? item.displayName.trim() : displayNameFromId(id);
+    models.push({ id, displayName: display });
+  }
+  return models.length ? models : null;
+}
+function manifestModels() {
+  const m = manifest();
+  return Array.isArray(m && m.models) ? m.models : [];
+}
+function safeJson(s) {
+  try {
+    return JSON.parse(String(s || "null"));
+  } catch (_) {
+    return null;
+  }
+}
+function displayNameFromId(id) {
+  const leaf = id.split("/").pop() || id;
+  return leaf.split("-").filter(Boolean).map((part) => {
+    return part ? part.charAt(0).toUpperCase() + part.substring(1) : part;
+  }).join(" ");
+}
 function claudeSessionFilePath(cwd, sessionId) {
   const m = manifest();
   const root = m && m.sessions && m.sessions.rootDir || "~/.claude/projects";

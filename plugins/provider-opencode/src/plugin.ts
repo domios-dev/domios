@@ -3,7 +3,7 @@
 // QuickJS-compatible plugin.js by scripts/build-plugin.mjs. Detect, slash
 // commands, sqlite-backed session discovery + structured chat. The frontend
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
-import type { LaunchParams, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
+import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 
 const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v2";
 const CODETERM_OPENCODE_PLUGIN_FILE = "codeterm-session-binding.js";
@@ -78,6 +78,12 @@ const plugin: PluginModule = {
       events.push("permission_request");
     }
     return events;
+  },
+
+  // OpenCode exposes `opencode models`; host-side caching keeps this sync probe
+  // off hot reads. If the CLI is absent/offline, use the manifest seed.
+  discoverModels(): ModelInfo[] {
+    return discoverOpencodeModels() || manifestModels();
   },
 
   // Parse opencode's permission box. Its options are a single horizontal row
@@ -326,6 +332,7 @@ const plugin: PluginModule = {
 
 // --- types shared by the helpers above ---
 
+interface OpencodeManifest { models?: ModelInfo[] }
 interface OpencodeConfig { "$schema"?: string; plugin?: unknown[] }
 interface OpencodePart {
   type?: string;
@@ -334,8 +341,52 @@ interface OpencodePart {
   state?: { input?: unknown; output?: unknown };
 }
 
+function discoverOpencodeModels(): ModelInfo[] | null {
+  const raw = host.exec(JSON.stringify({
+    bin: "opencode",
+    args: ["models"],
+    timeoutMs: 3000,
+  }));
+  const result = safeJson(raw) as { code?: number; stdout?: string } | null;
+  if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
+  const lines = result.stdout.split("\n");
+  const models: ModelInfo[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const id = lines[i].trim();
+    if (!isModelId(id)) continue;
+    models.push({ id: id, displayName: displayNameFromId(id) });
+  }
+  return models.length ? models : null;
+}
+
+function isModelId(value: string): boolean {
+  return /^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/i.test(value);
+}
+
+function manifestModels(): ModelInfo[] {
+  try {
+    const m = JSON.parse(host.manifestJson() || "null") as OpencodeManifest | null;
+    return Array.isArray(m && m.models) ? m!.models! : [];
+  } catch (_) {
+    return [];
+  }
+}
+
 function safeJson(s: string | undefined): unknown {
-  try { return JSON.parse(s as string); } catch (_) { return null; }
+  try { return JSON.parse(String(s || "null")); } catch (_) { return null; }
+}
+
+function displayNameFromId(id: string): string {
+  const slash = id.split("/");
+  const provider = slash.length > 1 ? slash[0] : "";
+  const leaf = slash[slash.length - 1] || id;
+  const words = leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
+  if (provider.toLowerCase() === "opencode") return "OpenCode " + words;
+  return words;
+}
+
+function capitalizeToken(token: string): string {
+  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
 }
 
 // Map one opencode `part` blob to a ChatMsg (camelCase, matching the Rust

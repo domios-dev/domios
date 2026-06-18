@@ -59,6 +59,46 @@ function loadHostPlugin() {
   return context.module.exports.default;
 }
 
+function loadClaudeWithHost(host: unknown) {
+  const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
+  const source = fs.readFileSync(pluginPath, "utf8");
+  const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  return context.module.exports.default;
+}
+
+const manifestSeed = {
+  models: [
+    { id: "seed-sonnet", displayName: "Seed Sonnet", description: "Manifest fallback" },
+  ],
+};
+
+const baseHost = (over: Record<string, unknown>) => ({
+  manifestJson: () => JSON.stringify(manifestSeed),
+  homeDir: () => "/tmp",
+  path: { equal: () => true },
+  platform: () => "linux",
+  unixNowMs: () => 0,
+  envGet: () => null,
+  fetch: () => JSON.stringify({ error: "not configured" }),
+  shell: {
+    quoteFor: (value: unknown) => String(value),
+    quote: (value: unknown) => String(value),
+  },
+  fs: {
+    fileExists: () => false,
+    readFile: () => null,
+    readJson: () => null,
+    writeTempFile: () => "/tmp/ct-task",
+    writeJson: () => true,
+  },
+  expandHome: (value: string) => value,
+  writeFile: () => true,
+  removeFile: () => true,
+  log: () => {},
+  ...over,
+});
+
 console.log("\n--- meta ---\n");
 
 eq(plugin.meta.id, "claude", "meta.id is 'claude'");
@@ -119,6 +159,30 @@ try {
 }
 assert(parsed.messages.length === 1, "parseSessionDelta corrupted lines are skipped");
 assert(warned === 1, "parseSessionDelta emits one warning for a session with invalid entries");
+
+console.log("\n--- discoverModels ---\n");
+
+{
+  const p = loadClaudeWithHost(baseHost({
+    envGet: (name: string) => name === "ANTHROPIC_API_KEY" ? "test-key" : null,
+    fetch: () => JSON.stringify({
+      status: 200,
+      body: JSON.stringify({
+        data: [{ id: "claude-live-1", display_name: "Claude Live 1" }],
+      }),
+    }),
+  }));
+  eq(
+    p.discoverModels(),
+    [{ id: "claude-live-1", displayName: "Claude Live 1" }],
+    "discoverModels surfaces the stubbed Anthropic models probe",
+  );
+}
+
+{
+  const p = loadClaudeWithHost(baseHost({}));
+  eq(p.discoverModels(), manifestSeed.models, "discoverModels falls back to manifest seed when no Anthropic key exists");
+}
 
 console.log("\n--- parseUsage reset formats ---\n");
 
