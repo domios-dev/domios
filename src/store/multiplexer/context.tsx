@@ -17,6 +17,7 @@ export interface MultiplexerContextType {
   setFocusedPane: (paneId: string) => void;
   setPanePty: (paneId: string, ptyId: string) => void;
   addNotification: (notif: Omit<Notification, "id" | "timestamp" | "read">) => void;
+  upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => void;
   markRead: (id: string) => void;
   markAllRead: () => void;
   clearNotifications: () => void;

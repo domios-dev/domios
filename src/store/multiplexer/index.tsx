@@ -450,6 +450,20 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const upsertToast = useCallback(
+    (toast: Omit<Notification, "timestamp" | "read">) => {
+      dispatch({
+        type: "UPSERT_TOAST",
+        toast: {
+          ...toast,
+          timestamp: Date.now(),
+          read: false,
+        },
+      });
+    },
+    [],
+  );
+
   const markRead = useCallback((id: string) => {
     dispatch({ type: "MARK_READ", id });
   }, []);
@@ -496,6 +510,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     setFocusedPane,
     setPanePty,
     addNotification,
+    upsertToast,
     markRead,
     markAllRead,
     clearNotifications,

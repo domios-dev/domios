@@ -19,7 +19,8 @@ import { GroupLabel, iconOf, type AppConfigShape } from "./shared";
 import { invoke } from "../../lib/bridge";
 import { configureWithAI } from "../../lib/pluginConfigure";
 import type { DaemonApiConfig } from "../../lib/webApi";
-import type { AppConfig, ProviderConfig } from "../../lib/types";
+import type { AppConfig, PluginActivity, ProviderConfig } from "../../lib/types";
+import { PluginActivityInline } from "./PluginActivityInline";
 
 export type ActionKind = "install" | "update" | "remove";
 
@@ -31,10 +32,12 @@ export function PluginDetailPanel({
   onSave,
   onUpdateFullConfig,
   onGone,
+  activity,
 }: {
   entry: CatalogEntry;
   config: AppConfigShape | null;
   busy: string | null;
+  activity?: PluginActivity;
   onAction: (kind: ActionKind, entry: CatalogEntry) => void;
   onSave: (pluginId: string, key: string, value: unknown) => Promise<void>;
   onUpdateFullConfig: (next: AppConfig) => void | Promise<void>;
@@ -92,6 +95,7 @@ export function PluginDetailPanel({
             {entry.updateAvailable && entry.remoteVersion ? ` → v${entry.remoteVersion}` : ""}
             {entry.dev ? " · dev (workspace)" : entry.channel ? ` · ${channelLabel(entry.channel)}` : ""}
           </div>
+          <PluginActivityInline activity={activity} />
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", flex: "none" }}>
           {action.kind === "none" ? (
