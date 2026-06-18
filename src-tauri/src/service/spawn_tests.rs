@@ -123,6 +123,13 @@ impl crate::agent::provider::AgentProvider for ModelProvider {
 }
 
 fn registry_with(provider: ModelProvider) -> crate::agent::registry::AgentRegistry {
+    crate::agent::model_catalog::register(
+        provider.id,
+        crate::agent::model_catalog::RegisteredDefaults {
+            models: provider.models.clone(),
+            default: provider.default_model.clone(),
+        },
+    );
     let registry = crate::agent::registry::AgentRegistry::new();
     registry.register_provider(Box::new(provider));
     registry
@@ -154,12 +161,10 @@ fn validate_agent_model_accepts_advertised_id() {
 }
 
 #[test]
-fn validate_agent_model_rejects_bogus_id() {
+fn validate_agent_model_allows_bogus_id_for_default_fallback() {
     let registry = registry_with(ModelProvider::new("opencode", &["opencode/big-pickle"]));
 
-    let err = validate_agent_model(&registry, "opencode", Some("does-not-exist")).unwrap_err();
-    assert!(err.contains("does-not-exist"));
-    assert!(err.contains("codeterm agent models opencode"));
+    assert!(validate_agent_model(&registry, "opencode", Some("does-not-exist")).is_ok());
 }
 
 #[test]
@@ -171,15 +176,13 @@ fn validate_agent_model_accepts_claude_alias() {
 }
 
 #[test]
-fn validate_agent_model_suggests_unique_prefixed_suffix() {
+fn validate_agent_model_allows_unique_prefixed_suffix_for_default_fallback() {
     let registry = registry_with(ModelProvider::new(
         "opencode",
         &["opencode/big-pickle", "opencode/ring-2.6-1t"],
     ));
 
-    let err = validate_agent_model(&registry, "opencode", Some("big-pickle")).unwrap_err();
-    assert!(err.contains("Did you mean 'opencode/big-pickle'?"));
-    assert!(err.contains("codeterm agent models opencode"));
+    assert!(validate_agent_model(&registry, "opencode", Some("big-pickle")).is_ok());
 }
 
 #[test]
@@ -252,6 +255,46 @@ fn fresh_agent_model_keeps_explicit_model() {
         )
         .as_deref(),
         Some("model-b")
+    );
+}
+
+#[test]
+fn fresh_agent_model_canonicalizes_display_name() {
+    let registry = registry_with(ModelProvider {
+        id: "model-test-display",
+        models: vec![crate::agent::provider::ModelInfo {
+            id: "gpt-5.5".into(),
+            display_name: "GPT-5.5".into(),
+            description: None,
+        }],
+        default_model: Some("gpt-5.5".into()),
+        cli_binary: None,
+        install_command: None,
+    });
+
+    assert_eq!(
+        resolve_fresh_agent_model(
+            &registry,
+            "model-test-display",
+            Some("GPT-5.5".into()),
+            None
+        )
+        .as_deref(),
+        Some("gpt-5.5")
+    );
+}
+
+#[test]
+fn fresh_agent_model_falls_back_to_default_for_unknown_request() {
+    let registry = registry_with(ModelProvider::new(
+        "model-test-stale",
+        &["model-a", "model-b"],
+    ));
+
+    assert_eq!(
+        resolve_fresh_agent_model(&registry, "model-test-stale", Some("stale".into()), None)
+            .as_deref(),
+        Some("model-a")
     );
 }
 
