@@ -12,6 +12,7 @@ import {
   Network,         // mesh
   ChevronsRight,   // slash-command chip
   CornerUpLeft,    // report (bubbled up to parent)
+  Settings,        // plugin_config (Configure card)
   Info,
 } from "lucide-react";
 import { recognize } from "./codeterm/recognize";
@@ -153,12 +154,14 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       }
 
       const OriginIcon =
-        origin.kind === "mesh"    ? Network :
-        origin.kind === "command" ? ChevronsRight :
+        origin.kind === "mesh"          ? Network :
+        origin.kind === "command"       ? ChevronsRight :
+        origin.kind === "plugin_config" ? Settings :
         Send;
       const label =
-        origin.kind === "telegram"? `Telegram · ${origin.userId.slice(0, 12)}` :
-        origin.kind === "mesh"    ? `Mesh · ${origin.peerId.slice(0, 10)}` :
+        origin.kind === "telegram"     ? `Telegram · ${origin.userId.slice(0, 12)}` :
+        origin.kind === "mesh"         ? `Mesh · ${origin.peerId.slice(0, 10)}` :
+        origin.kind === "plugin_config"? `Configure · ${origin.name}` :
         origin.kind === "command" ? (
           origin.commands.length === 1
             ? origin.commands[0].name

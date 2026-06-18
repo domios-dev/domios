@@ -28,6 +28,7 @@ export {
   markTelegram,
   markMesh,
   markPane,
+  markPluginConfig,
   markReport,
   markHook,
   type ParsedMarker,
