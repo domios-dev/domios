@@ -441,18 +441,54 @@ pub fn pane_chat_snapshot(
     pane_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
-    let (provider_id, cwd, session_id) = {
+    // A chatBackend pane has no agent_type / agent_session_id — its transcript
+    // lives in the plugin session, not a JSONL/sqlite file. Branch on the pane
+    // backing so `pane chat` / chat-ui work on these panes too (S9).
+    let backing = {
         let m = svc.mux.lock();
-        let pane = m.get_pane(pane_id).ok_or("pane not found")?;
-        let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
-        let cwd = pane.cwd.clone().unwrap_or_default();
-        let sid = pane
-            .agent_session_id
-            .clone()
-            .ok_or("pane has no session_id yet")?;
-        (provider, cwd, sid)
+        m.get_pane(pane_id).ok_or("pane not found")?.backing.clone()
     };
-    session_chat_snapshot(svc, &provider_id, &cwd, &session_id, since)
+    match backing {
+        crate::multiplexer::types::PaneBacking::ChatBackend {
+            plugin_id,
+            session_id,
+        } => {
+            let provider = svc
+                .chatbackend_registry
+                .get(&plugin_id)
+                .ok_or_else(|| format!("chatBackend plugin '{plugin_id}' not registered"))?;
+            chatbackend_transcript_snapshot(provider.as_ref(), &session_id, since)
+        }
+        crate::multiplexer::types::PaneBacking::Pty => {
+            let (provider_id, cwd, session_id) = {
+                let m = svc.mux.lock();
+                let pane = m.get_pane(pane_id).ok_or("pane not found")?;
+                let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
+                let cwd = pane.cwd.clone().unwrap_or_default();
+                let sid = pane
+                    .agent_session_id
+                    .clone()
+                    .ok_or("pane has no session_id yet")?;
+                (provider, cwd, sid)
+            };
+            session_chat_snapshot(svc, &provider_id, &cwd, &session_id, since)
+        }
+    }
+}
+
+/// Snapshot a chatBackend pane's transcript. The plugin session owns the full
+/// transcript; `poll(session_id)` (called with no cursor) returns it
+/// cumulatively, so we slice `[since..]` exactly like the agent path's
+/// [`session_chat_snapshot`]. Returns (messages[since..], total_count).
+pub(crate) fn chatbackend_transcript_snapshot(
+    provider: &dyn crate::chatbackend::ChatBackendProvider,
+    session_id: &str,
+    since: usize,
+) -> Result<(Vec<ChatMsg>, usize), String> {
+    let all = provider.poll(session_id).map_err(|e| e.to_string())?;
+    let total = all.len();
+    let slice = all.into_iter().skip(since).collect();
+    Ok((slice, total))
 }
 
 /// Pane-less twin of [`pane_chat_snapshot`]: parse a session's transcript
@@ -510,7 +546,78 @@ pub fn session_chat_snapshot(
 mod chat_snapshot_tests {
     use super::*;
     use crate::agent::chat_types::{MessageBlock, RichMessage};
+    use crate::agent::provider::ModelInfo;
+    use crate::chatbackend::{ChatBackendError, ChatBackendProvider};
     use serde_json::json;
+
+    /// Cumulative-transcript backend (like the lmstudio plugin): `poll` with no
+    /// cursor returns the FULL transcript, so the snapshot can slice it.
+    struct SnapshotBackend {
+        messages: Vec<ChatMsg>,
+    }
+
+    impl SnapshotBackend {
+        fn with_messages(n: usize) -> Self {
+            let messages = (0..n)
+                .map(|i| ChatMsg {
+                    id: i.to_string(),
+                    kind: "assistant".into(),
+                    content: format!("m{i}"),
+                    ..Default::default()
+                })
+                .collect();
+            Self { messages }
+        }
+    }
+
+    impl ChatBackendProvider for SnapshotBackend {
+        fn id(&self) -> &str {
+            "snapshot"
+        }
+        fn open_session(&self, _ctx: serde_json::Value) -> Result<String, ChatBackendError> {
+            Ok("sid".into())
+        }
+        fn send_message(&self, _session_id: &str, _text: &str) -> Result<(), ChatBackendError> {
+            Ok(())
+        }
+        fn poll(&self, _session_id: &str) -> Result<Vec<ChatMsg>, ChatBackendError> {
+            Ok(self.messages.clone())
+        }
+        fn close_session(&self, _session_id: &str) -> Result<(), ChatBackendError> {
+            Ok(())
+        }
+        fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[test]
+    fn chatbackend_snapshot_returns_full_transcript() {
+        let backend = SnapshotBackend::with_messages(3);
+        let (msgs, total) = chatbackend_transcript_snapshot(&backend, "sid", 0).unwrap();
+        assert_eq!(total, 3);
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0].content, "m0");
+        assert_eq!(msgs[2].content, "m2");
+    }
+
+    #[test]
+    fn chatbackend_snapshot_honors_since_cursor() {
+        let backend = SnapshotBackend::with_messages(3);
+        let (msgs, total) = chatbackend_transcript_snapshot(&backend, "sid", 2).unwrap();
+        // total is the full count; the slice starts at `since`.
+        assert_eq!(total, 3);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].content, "m2");
+    }
+
+    #[test]
+    fn chatbackend_snapshot_since_past_end_is_empty_not_error() {
+        let backend = SnapshotBackend::with_messages(2);
+        let (msgs, total) = chatbackend_transcript_snapshot(&backend, "sid", 5).unwrap();
+        assert_eq!(total, 2);
+        assert!(msgs.is_empty());
+    }
 
     #[test]
     fn live_chat_poll_interval_stays_low_latency() {
