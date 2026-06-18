@@ -629,7 +629,7 @@ pub async fn plugin_action(
     Json(action): Json<crate::commands::plugins::PluginManagerAction>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    crate::commands::plugins::run_action(action)
+    crate::commands::plugins::run_action(action, &state.svc)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
