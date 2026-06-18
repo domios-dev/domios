@@ -71,6 +71,7 @@ export function ExtensionsTray({ onOpen }: { onOpen: () => void }) {
     <GlancePopover
       pluginId={glance.plugin.id}
       displayName={glance.plugin.display_name || glance.plugin.id}
+      configHelp={glance.plugin.config_help ?? undefined}
       anchor={glance.anchor}
       onClose={() => setGlance(null)}
       onOpenSettings={(id) => open(id)}

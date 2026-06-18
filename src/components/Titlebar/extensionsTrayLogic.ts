@@ -4,6 +4,7 @@
 export interface TrayPluginData {
   id: string;
   display_name?: string | null;
+  config_help?: string | null;
   icon_svg?: string | null;
   icon_color?: string | null;
   icon_hint?: string | null;
