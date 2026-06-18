@@ -3,8 +3,8 @@
 //! ## Lookup precedence
 //!   1. `<data_dir>/models/<provider>.toml` — user override, replaces the
 //!      registered list entirely. Persists across upgrades.
-//!   2. Plugin-registered list (set once at startup via `register`) — what
-//!      ships with the current CodeTerm build. Bumped with each release.
+//!   2. Live discovery snapshot (when available), otherwise plugin-registered
+//!      seed list.
 //!
 //! ## How plugins integrate
 //!
@@ -24,12 +24,13 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use parking_lot::RwLock;
 use serde::Deserialize;
 
-use crate::agent::provider::ModelInfo;
+use crate::agent::provider::{AgentProvider, ModelInfo};
 
 /// One model entry as read from the TOML file. Matches `ModelInfo` plus an
 /// optional alias field, kept ergonomic so the user file feels light.
@@ -66,8 +67,49 @@ pub struct RegisteredDefaults {
     pub default: Option<String>,
 }
 
-fn registry() -> &'static RwLock<HashMap<String, RegisteredDefaults>> {
-    static REG: OnceLock<RwLock<HashMap<String, RegisteredDefaults>>> = OnceLock::new();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    Seed,
+    Live,
+}
+
+#[derive(Debug, Clone)]
+struct ProviderModels {
+    models: Vec<ModelInfo>,
+    default: Option<String>,
+    source: Source,
+    fetched_at: Option<Instant>,
+}
+
+impl ProviderModels {
+    fn seed(defaults: RegisteredDefaults) -> Self {
+        Self {
+            models: defaults.models,
+            default: defaults.default,
+            source: Source::Seed,
+            fetched_at: None,
+        }
+    }
+
+    fn live(models: Vec<ModelInfo>, default: Option<String>, fetched_at: Instant) -> Self {
+        Self {
+            models,
+            default,
+            source: Source::Live,
+            fetched_at: Some(fetched_at),
+        }
+    }
+
+    fn as_defaults(&self) -> RegisteredDefaults {
+        RegisteredDefaults {
+            models: self.models.clone(),
+            default: self.default.clone(),
+        }
+    }
+}
+
+fn registry() -> &'static RwLock<HashMap<String, ProviderModels>> {
+    static REG: OnceLock<RwLock<HashMap<String, ProviderModels>>> = OnceLock::new();
     REG.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
@@ -76,7 +118,62 @@ fn registry() -> &'static RwLock<HashMap<String, RegisteredDefaults>> {
 /// hot-reloaded plugin updates and for tests). The data here is what CodeTerm
 /// ships with for the current build; bump it alongside upstream releases.
 pub fn register(provider_id: &str, defaults: RegisteredDefaults) {
-    registry().write().insert(provider_id.to_string(), defaults);
+    registry()
+        .write()
+        .insert(provider_id.to_string(), ProviderModels::seed(defaults));
+}
+
+/// Publish a live discovery snapshot for `provider_id`.
+pub fn put_live(provider_id: &str, models: Vec<ModelInfo>, default: Option<String>) {
+    put_live_at(provider_id, models, default, Instant::now());
+}
+
+fn put_live_at(
+    provider_id: &str,
+    models: Vec<ModelInfo>,
+    default: Option<String>,
+    fetched_at: Instant,
+) {
+    registry().write().insert(
+        provider_id.to_string(),
+        ProviderModels::live(models, default, fetched_at),
+    );
+}
+
+/// Returns true when the provider has no live snapshot or the snapshot is older
+/// than `ttl` at the caller-provided time.
+pub fn is_stale(provider_id: &str, ttl: Duration, now: Instant) -> bool {
+    let registered = registry().read();
+    let Some(snapshot) = registered.get(provider_id) else {
+        return true;
+    };
+    if snapshot.source != Source::Live {
+        return true;
+    }
+    let Some(fetched_at) = snapshot.fetched_at else {
+        return true;
+    };
+    now.checked_duration_since(fetched_at)
+        .is_some_and(|age| age >= ttl)
+}
+
+/// Refresh live models without blocking the async runtime. On timeout, provider
+/// opt-out, join failure, or panic, the previous catalog snapshot remains active.
+pub async fn refresh_live(
+    provider: Arc<dyn AgentProvider>,
+    timeout_duration: Duration,
+) -> Option<Vec<ModelInfo>> {
+    let provider_id = provider.id().to_string();
+    let default = provider.default_model();
+    let handle = tokio::runtime::Handle::current();
+    let task = tokio::task::spawn_blocking(move || handle.block_on(provider.discover_models()));
+    match tokio::time::timeout(timeout_duration, task).await {
+        Ok(Ok(Some(models))) => {
+            put_live(&provider_id, models.clone(), default);
+            Some(models)
+        }
+        Ok(Ok(None)) | Ok(Err(_)) | Err(_) => None,
+    }
 }
 
 /// Read-side: returns the resolved model list using these rules —
@@ -192,7 +289,7 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
     let parsed_arc: Option<std::sync::Arc<ProviderOverrideOwned>> = {
         let raw = match std::fs::read_to_string(&path) {
             Ok(s) => s,
-            Err(_) => None.into_iter().next().unwrap_or_else(|| String::new()),
+            Err(_) => None.into_iter().next().unwrap_or_else(String::new),
         };
         if raw.is_empty() {
             None
@@ -299,7 +396,7 @@ pub fn refresh_example_files() {
     let snapshot: Vec<(String, RegisteredDefaults)> = registry()
         .read()
         .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
+        .map(|(k, v)| (k.clone(), v.as_defaults()))
         .collect();
     for (id, defaults) in snapshot {
         let path = dir.join(format!("{}.example.toml", id));
@@ -574,5 +671,84 @@ mod tests {
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].id, "b");
         registry().write().remove(id);
+    }
+
+    #[test]
+    fn put_live_overrides_seed_for_models_and_default() {
+        let id = "test-put-live-overrides-seed";
+        register(
+            id,
+            RegisteredDefaults {
+                models: vec![ModelInfo {
+                    id: "seed".into(),
+                    display_name: "Seed".into(),
+                    description: None,
+                }],
+                default: Some("seed".into()),
+            },
+        );
+
+        put_live(
+            id,
+            vec![ModelInfo {
+                id: "live".into(),
+                display_name: "Live".into(),
+                description: None,
+            }],
+            Some("live".into()),
+        );
+
+        let models = resolve_models(id);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "live");
+        assert_eq!(resolve_default(id).as_deref(), Some("live"));
+        registry().write().remove(id);
+    }
+
+    #[test]
+    fn is_stale_uses_injected_now() {
+        let id = "test-is-stale-injected-now";
+        register(
+            id,
+            RegisteredDefaults {
+                models: vec![ModelInfo {
+                    id: "seed".into(),
+                    display_name: "Seed".into(),
+                    description: None,
+                }],
+                default: Some("seed".into()),
+            },
+        );
+
+        put_live(
+            id,
+            vec![ModelInfo {
+                id: "live".into(),
+                display_name: "Live".into(),
+                description: None,
+            }],
+            Some("live".into()),
+        );
+        let fetched_at = test_live_fetched_at(id);
+
+        assert!(!is_stale(
+            id,
+            std::time::Duration::from_secs(60),
+            fetched_at + std::time::Duration::from_secs(59)
+        ));
+        assert!(is_stale(
+            id,
+            std::time::Duration::from_secs(60),
+            fetched_at + std::time::Duration::from_secs(60)
+        ));
+        registry().write().remove(id);
+    }
+
+    fn test_live_fetched_at(provider_id: &str) -> std::time::Instant {
+        registry()
+            .read()
+            .get(provider_id)
+            .and_then(|snapshot| snapshot.fetched_at)
+            .expect("live snapshot fetched_at")
     }
 }
