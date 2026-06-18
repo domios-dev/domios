@@ -17,6 +17,8 @@ pub struct PluginManagerAction {
     pub name: Option<String>,
     #[serde(default)]
     pub force: bool,
+    #[serde(default)]
+    pub remove_data: bool,
 }
 
 #[tauri::command]
@@ -154,6 +156,13 @@ pub(crate) fn run_action(
             remove_channel_plugins(channel, action.force)?;
         }
         let output = run_plugin_cli(&args)?;
+        if action.kind == "remove" {
+            let plugin_id = action
+                .plugin_id
+                .as_deref()
+                .ok_or("remove requires pluginId")?;
+            crate::config::cleanup_removed_plugin_config(plugin_id)?;
+        }
         build_snapshot(Some(output))
     })();
 
@@ -685,6 +694,9 @@ fn plugin_action_args(action: &PluginManagerAction) -> Result<Vec<String>, Strin
             if action.force {
                 args.push("--force".into());
             }
+            if action.remove_data {
+                args.push("--remove-data".into());
+            }
         }
         other => return Err(format!("unknown plugin manager action: {other}")),
     }
@@ -750,6 +762,7 @@ mod tests {
             url: None,
             name: None,
             force: false,
+            remove_data: false,
         };
         assert_eq!(
             plugin_action_args(&action).unwrap(),
@@ -766,6 +779,7 @@ mod tests {
             url: None,
             name: Some("demo".into()),
             force: false,
+            remove_data: false,
         };
         assert!(plugin_action_args(&action).unwrap_err().contains("url"));
     }
@@ -779,6 +793,7 @@ mod tests {
             url: None,
             name: None,
             force: false,
+            remove_data: false,
         };
         assert_eq!(
             plugin_action_args(&base).unwrap(),
@@ -792,6 +807,21 @@ mod tests {
             plugin_action_args(&forced).unwrap(),
             vec!["plugin", "remove", "demo", "--force", "--json"]
         );
+        let remove_data = PluginManagerAction {
+            remove_data: true,
+            ..forced
+        };
+        assert_eq!(
+            plugin_action_args(&remove_data).unwrap(),
+            vec![
+                "plugin",
+                "remove",
+                "demo",
+                "--force",
+                "--remove-data",
+                "--json"
+            ]
+        );
     }
 
     #[test]
@@ -803,6 +833,7 @@ mod tests {
             url: None,
             name: None,
             force: false,
+            remove_data: false,
         };
         assert!(plugin_action_args(&action)
             .unwrap_err()
@@ -818,6 +849,7 @@ mod tests {
             url: None,
             name: None,
             force: false,
+            remove_data: false,
         };
         let install_activity = plugin_action_activity(&install).unwrap();
         assert_eq!(install_activity.plugin_id, "transcriber");
@@ -831,6 +863,7 @@ mod tests {
             url: None,
             name: None,
             force: false,
+            remove_data: false,
         };
         let remove_activity = plugin_action_activity(&remove).unwrap();
         assert_eq!(remove_activity.plugin_id, "transcriber");
@@ -844,6 +877,7 @@ mod tests {
             url: None,
             name: None,
             force: false,
+            remove_data: false,
         };
         let update_activity = plugin_action_activity(&update_system).unwrap();
         assert_eq!(update_activity.plugin_id, "codeterm-core");
@@ -860,6 +894,7 @@ mod tests {
             url: Some("https://example.test/channel.json".into()),
             name: Some("demo".into()),
             force: false,
+            remove_data: false,
         };
         let add_activity = plugin_action_activity(&add).unwrap();
         assert_eq!(add_activity.plugin_id, "channel:demo");
@@ -873,6 +908,7 @@ mod tests {
             url: None,
             name: None,
             force: false,
+            remove_data: false,
         };
         let refresh_activity = plugin_action_activity(&refresh).unwrap();
         assert_eq!(refresh_activity.plugin_id, "channel:demo");

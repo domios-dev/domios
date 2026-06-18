@@ -1,6 +1,7 @@
 use super::*;
 mod store_index_tests {
     use super::*;
+    use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
 
@@ -200,6 +201,117 @@ mod store_index_tests {
             assert!(msg.to_lowercase().contains("ask the user"), "{msg}");
             // m5: must not double-prefix "Installed".
             assert_eq!(msg.matches("Installed").count(), 1, "{msg}");
+        });
+    }
+
+    #[test]
+    fn remove_with_remove_data_deletes_convention_dir_and_manifest_data_paths() {
+        with_data_root(|root| {
+            let plugin = plugins_root().join("transcriber");
+            std::fs::create_dir_all(&plugin).unwrap();
+            let custom_data = root.join("models").join("transcriber");
+            std::fs::create_dir_all(&custom_data).unwrap();
+            std::fs::write(custom_data.join("model.bin"), "model").unwrap();
+            let convention_data = root.join("transcriber");
+            std::fs::create_dir_all(&convention_data).unwrap();
+            std::fs::write(convention_data.join("cache.bin"), "cache").unwrap();
+            std::fs::write(
+                plugin.join("plugin.json"),
+                serde_json::json!({
+                    "id": "transcriber",
+                    "version": "1.0.0",
+                    "dataPaths": [
+                        "~/models/transcriber"
+                    ]
+                })
+                .to_string(),
+            )
+            .unwrap();
+
+            remove_installed("transcriber", false, true).expect("remove must succeed");
+
+            assert!(!plugin.exists());
+            assert!(!convention_data.exists());
+            assert!(!custom_data.exists());
+        });
+    }
+
+    #[test]
+    fn remove_without_remove_data_keeps_plugin_data() {
+        with_data_root(|root| {
+            let plugin = plugins_root().join("demo");
+            std::fs::create_dir_all(&plugin).unwrap();
+            let data = root.join("demo");
+            std::fs::create_dir_all(&data).unwrap();
+            std::fs::write(
+                plugin.join("plugin.json"),
+                serde_json::json!({"id": "demo", "version": "1.0.0"}).to_string(),
+            )
+            .unwrap();
+
+            remove_installed("demo", false, false).expect("remove must succeed");
+
+            assert!(!plugin.exists());
+            assert!(data.exists());
+        });
+    }
+
+    #[test]
+    fn remove_data_rejects_reserved_data_ids() {
+        with_data_root(|_root| {
+            let plugin = plugins_root().join("logs");
+            std::fs::create_dir_all(&plugin).unwrap();
+            std::fs::write(
+                plugin.join("plugin.json"),
+                serde_json::json!({"id": "logs", "version": "1.0.0"}).to_string(),
+            )
+            .unwrap();
+
+            let err = remove_installed("logs", false, true).expect_err("reserved id rejected");
+
+            assert!(err.contains("reserved plugin data id"), "{err}");
+            assert!(plugin.exists());
+        });
+    }
+
+    #[test]
+    fn remove_data_rejects_manifest_paths_outside_home_or_with_parent_segments() {
+        with_data_root(|root| {
+            let outside = std::env::temp_dir()
+                .join(format!("codeterm-outside-data-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&outside).unwrap();
+            let plugin = plugins_root().join("demo");
+            std::fs::create_dir_all(&plugin).unwrap();
+            std::fs::write(
+                plugin.join("plugin.json"),
+                serde_json::json!({
+                    "id": "demo",
+                    "version": "1.0.0",
+                    "dataPaths": [outside.display().to_string()]
+                })
+                .to_string(),
+            )
+            .unwrap();
+
+            let err = remove_installed("demo", false, true).expect_err("outside path rejected");
+            assert!(err.contains("outside home"), "{err}");
+            assert!(plugin.exists());
+
+            std::fs::write(
+                plugin.join("plugin.json"),
+                serde_json::json!({
+                    "id": "demo",
+                    "version": "1.0.0",
+                    "dataPaths": [root.join("demo/../other").display().to_string()]
+                })
+                .to_string(),
+            )
+            .unwrap();
+
+            let err = remove_installed("demo", false, true).expect_err("parent path rejected");
+            assert!(err.contains("parent segment"), "{err}");
+            assert!(plugin.exists());
+            let _ = std::fs::remove_dir_all(outside);
         });
     }
 

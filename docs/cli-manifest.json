@@ -4305,6 +4305,14 @@
               "default": null,
               "help": null,
               "aliases": []
+            },
+            {
+              "name": "remove_data",
+              "positional": false,
+              "value_name": "REMOVE_DATA",
+              "default": null,
+              "help": "Also remove plugin-owned downloaded data",
+              "aliases": []
             }
           ],
           "subcommands": []

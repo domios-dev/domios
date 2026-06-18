@@ -14,9 +14,7 @@ mod tests;
 
 use crate::args::plugin::{PluginAction, PluginChannelAction};
 use crate::data_root;
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -42,7 +40,11 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
         } => install_command(id, from_dir, id_override, channel),
         PluginAction::Update { id } => update_command(id),
         PluginAction::UpdateSystem { id } => update_system_command(id),
-        PluginAction::Remove { id, force } => remove_installed(&id, force),
+        PluginAction::Remove {
+            id,
+            force,
+            remove_data,
+        } => remove_installed(&id, force, remove_data),
         PluginAction::Channel { command } => channel_command(command),
         PluginAction::Get { id } => config::get_command(&id),
         PluginAction::Config {

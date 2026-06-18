@@ -1,14 +1,5 @@
-use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-
-use crate::args::plugin::{PluginAction, PluginChannelAction};
-use crate::data_root;
+use std::collections::BTreeMap;
 
 pub(super) const SYSTEM_CHANNEL_NAME: &str = "codeterm-core";
 pub(super) const DEFAULT_PLUGIN_CHANNEL_NAME: &str = "codeterm-plugins";
@@ -62,6 +53,8 @@ pub(super) struct PluginManifest {
     pub(super) id: String,
     #[serde(default)]
     pub(super) version: Option<String>,
+    #[serde(default, rename = "dataPaths")]
+    pub(super) data_paths: Vec<String>,
     #[serde(default, rename = "displayName")]
     pub(super) display_name: Option<String>,
     #[serde(default, rename = "minCodeterm")]

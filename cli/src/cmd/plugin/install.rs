@@ -116,24 +116,125 @@ fn install_message(base: &str, id: &str, reload_required: bool) -> String {
     msg
 }
 
-pub(super) fn remove_installed(id: &str, force: bool) -> Result<serde_json::Value, String> {
+pub(super) fn remove_installed(
+    id: &str,
+    force: bool,
+    remove_data: bool,
+) -> Result<serde_json::Value, String> {
     if is_reserved_system_id(id) && !force {
         return Err(format!(
             "'{id}' is a system plugin id; pass --force to remove its user-installed folder"
         ));
     }
+    if remove_data && is_reserved_data_id(id) {
+        return Err(format!("'{id}' is a reserved plugin data id"));
+    }
     let dir = plugin_dir(id);
     if !dir.exists() {
         return Err(format!("plugin '{id}' is not installed"));
     }
+    let data_dirs = if remove_data {
+        removable_data_paths(id, &dir)?
+    } else {
+        Vec::new()
+    };
     let before = manifest_version(&dir).ok().flatten();
     let result = fs::remove_dir_all(&dir).map_err(|e| format!("remove {}: {e}", dir.display()));
     audit_plugin_result("remove", Some(id), None, before, None, &result);
     result?;
+    for data_dir in data_dirs {
+        if data_dir.exists() {
+            fs::remove_dir_all(&data_dir)
+                .map_err(|e| format!("remove data {}: {e}", data_dir.display()))?;
+        }
+    }
     Ok(serde_json::json!({
         "ok": true,
         "message": format!("Removed plugin '{}'", id),
     }))
+}
+
+fn is_reserved_data_id(id: &str) -> bool {
+    matches!(id, "plugins" | "channels" | "bin" | "logs")
+}
+
+fn removable_data_paths(id: &str, plugin_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut paths = vec![safe_data_path(&data_root().join(id))?];
+    let manifest = read_plugin_manifest(plugin_dir)?;
+    for raw in manifest.data_paths {
+        paths.push(safe_data_path(&expand_home(&raw)?)?);
+    }
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+fn expand_home(raw: &str) -> Result<PathBuf, String> {
+    if raw == "~" {
+        return Ok(data_home());
+    }
+    if let Some(rest) = raw.strip_prefix("~/") {
+        return Ok(data_home().join(rest));
+    }
+    Ok(PathBuf::from(raw))
+}
+
+fn data_home() -> PathBuf {
+    if std::env::var_os("CODETERM_DATA_DIR").is_some() {
+        data_root()
+    } else {
+        dirs::home_dir().unwrap_or_else(data_root)
+    }
+}
+
+fn safe_data_path(path: &Path) -> Result<PathBuf, String> {
+    if path
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(format!(
+            "plugin data path contains parent segment: {}",
+            path.display()
+        ));
+    }
+    let canonical = canonicalize_existing_or_parent(path)?;
+    let home = data_home()
+        .canonicalize()
+        .map_err(|e| format!("canonicalize home {}: {e}", data_home().display()))?;
+    if !canonical.starts_with(&home) {
+        return Err(format!(
+            "plugin data path is outside home: {}",
+            canonical.display()
+        ));
+    }
+    Ok(canonical)
+}
+
+fn canonicalize_existing_or_parent(path: &Path) -> Result<PathBuf, String> {
+    if path.exists() {
+        return path
+            .canonicalize()
+            .map_err(|e| format!("canonicalize plugin data path {}: {e}", path.display()));
+    }
+    let parent = path.parent().ok_or_else(|| {
+        format!(
+            "plugin data path has no parent to canonicalize: {}",
+            path.display()
+        )
+    })?;
+    let name = path.file_name().ok_or_else(|| {
+        format!(
+            "plugin data path has no file name to canonicalize: {}",
+            path.display()
+        )
+    })?;
+    let parent = parent.canonicalize().map_err(|e| {
+        format!(
+            "canonicalize plugin data path parent {}: {e}",
+            parent.display()
+        )
+    })?;
+    Ok(parent.join(name))
 }
 pub(super) fn install_from_dir(
     source: &Path,

@@ -604,7 +604,7 @@ pub struct VoiceTranscribeConfig {
     pub active: String,
 }
 
-fn default_transcribe_active() -> String {
+pub(crate) fn default_transcribe_active() -> String {
     "transcriber".to_string()
 }
 

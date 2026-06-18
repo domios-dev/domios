@@ -1231,6 +1231,7 @@ Remove an installed plugin
 
 - `--force` — Allow removing a verified/system plugin folder
 - `<id>` — 
+- `--remove_data` — Also remove plugin-owned downloaded data
 
 #### `codeterm plugin update`
 
