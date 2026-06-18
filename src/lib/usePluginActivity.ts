@@ -1,11 +1,33 @@
-import { useEffect, useState } from "react";
-import { listen } from "./bridge";
+import { useEffect, useRef, useState } from "react";
+import { invoke, listen } from "./bridge";
 import type { Notification, PluginActivity } from "./types";
 import { useMultiplexer } from "../store/multiplexer";
 
 type PluginActivityStatus = PluginActivity["status"];
 
 const STATUSES = new Set<PluginActivityStatus>(["running", "done", "error"]);
+
+export interface PluginActivityDisplay {
+  displayName: string;
+  iconSvg?: string | null;
+  iconColor?: string | null;
+  iconHint?: string | null;
+}
+
+export type PluginActivityDisplayMap = Map<string, PluginActivityDisplay>;
+
+interface SnapshotPlugin {
+  id?: string | null;
+  display_name?: string | null;
+  icon_svg?: string | null;
+  icon_color?: string | null;
+  icon_hint?: string | null;
+}
+
+interface PluginSnapshot {
+  plugins?: SnapshotPlugin[] | null;
+  marketplace?: SnapshotPlugin[] | null;
+}
 
 export function normalizePluginActivityEvent(payload: unknown): PluginActivity | null {
   if (!payload || typeof payload !== "object") return null;
@@ -36,6 +58,30 @@ export function normalizePluginActivityEvent(payload: unknown): PluginActivity |
   };
 }
 
+export function buildPluginActivityDisplayMap(snapshot: PluginSnapshot | null | undefined): PluginActivityDisplayMap {
+  const map: PluginActivityDisplayMap = new Map();
+  const add = (plugin: SnapshotPlugin) => {
+    if (!plugin.id) return;
+    map.set(plugin.id, {
+      displayName: plugin.display_name || plugin.id,
+      iconSvg: plugin.icon_svg ?? null,
+      iconColor: plugin.icon_color ?? null,
+      iconHint: plugin.icon_hint ?? null,
+    });
+  };
+
+  for (const plugin of snapshot?.marketplace ?? []) add(plugin);
+  for (const plugin of snapshot?.plugins ?? []) add(plugin);
+  return map;
+}
+
+export function resolvePluginActivityDisplay(
+  pluginId: string,
+  displayMap: PluginActivityDisplayMap,
+): PluginActivityDisplay {
+  return displayMap.get(pluginId) ?? { displayName: pluginId };
+}
+
 export function reducePluginActivity(
   activities: Map<string, PluginActivity>,
   payload: unknown,
@@ -52,9 +98,33 @@ export function reducePluginActivity(
   return next;
 }
 
-export function usePluginActivity(): { activities: Map<string, PluginActivity> } {
+export function usePluginActivity(): {
+  activities: Map<string, PluginActivity>;
+  displayMap: PluginActivityDisplayMap;
+} {
   const [activities, setActivities] = useState<Map<string, PluginActivity>>(() => new Map());
+  const [displayMap, setDisplayMap] = useState<PluginActivityDisplayMap>(() => new Map());
+  const activitiesRef = useRef(activities);
+  const displayMapRef = useRef(displayMap);
   const { upsertToast, dismissToast } = useMultiplexer();
+
+  useEffect(() => {
+    let mounted = true;
+    invoke<PluginSnapshot>("plugin_manager_snapshot")
+      .then((snapshot) => {
+        if (!mounted) return;
+        const nextDisplayMap = buildPluginActivityDisplayMap(snapshot);
+        displayMapRef.current = nextDisplayMap;
+        setDisplayMap(nextDisplayMap);
+        for (const activity of activitiesRef.current.values()) {
+          upsertToast(pluginActivityToast(activity, nextDisplayMap));
+        }
+      })
+      .catch((e) => console.warn("plugin activity display lookup failed:", e));
+    return () => {
+      mounted = false;
+    };
+  }, [upsertToast]);
 
   useEffect(() => {
     let mounted = true;
@@ -64,9 +134,13 @@ export function usePluginActivity(): { activities: Map<string, PluginActivity> }
       const activity = normalizePluginActivityEvent(payload);
       if (!activity || !mounted) return;
 
-      setActivities((current) => reducePluginActivity(current, activity));
+      setActivities((current) => {
+        const next = reducePluginActivity(current, activity);
+        activitiesRef.current = next;
+        return next;
+      });
       if (activity.status === "running") {
-        upsertToast(pluginActivityToast(activity));
+        upsertToast(pluginActivityToast(activity, displayMapRef.current));
       } else {
         dismissToast(pluginActivityToastId(activity.pluginId));
       }
@@ -83,17 +157,24 @@ export function usePluginActivity(): { activities: Map<string, PluginActivity> }
     };
   }, [dismissToast, upsertToast]);
 
-  return { activities };
+  return { activities, displayMap };
 }
 
-function pluginActivityToast(activity: PluginActivity): Omit<Notification, "timestamp" | "read"> {
+function pluginActivityToast(
+  activity: PluginActivity,
+  displayMap: PluginActivityDisplayMap,
+): Omit<Notification, "timestamp" | "read"> {
+  const display = resolvePluginActivityDisplay(activity.pluginId, displayMap);
   return {
     id: pluginActivityToastId(activity.pluginId),
     key: pluginActivityToastId(activity.pluginId),
     pane_id: null,
     workspace_id: null,
-    title: "Plugin activity",
+    title: display.displayName,
     body: activity.label,
+    icon_svg: display.iconSvg ?? null,
+    icon_color: display.iconColor ?? null,
+    icon_hint: display.iconHint ?? null,
     level: "Info",
     sticky: true,
   };
