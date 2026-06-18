@@ -485,7 +485,12 @@ pub(crate) fn chatbackend_transcript_snapshot(
     session_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
-    let all = provider.poll(session_id).map_err(|e| e.to_string())?;
+    // No cursor ⇒ the plugin returns the full cumulative transcript, which we
+    // slice `[since..]` exactly like the agent path.
+    let all = provider
+        .poll(session_id, None)
+        .map_err(|e| e.to_string())?
+        .messages;
     let total = all.len();
     let slice = all.into_iter().skip(since).collect();
     Ok((slice, total))
@@ -580,8 +585,15 @@ mod chat_snapshot_tests {
         fn send_message(&self, _session_id: &str, _text: &str) -> Result<(), ChatBackendError> {
             Ok(())
         }
-        fn poll(&self, _session_id: &str) -> Result<Vec<ChatMsg>, ChatBackendError> {
-            Ok(self.messages.clone())
+        fn poll(
+            &self,
+            _session_id: &str,
+            _cursor: Option<&str>,
+        ) -> Result<crate::agent::chat_types::StructuredChat, ChatBackendError> {
+            Ok(crate::agent::chat_types::StructuredChat {
+                messages: self.messages.clone(),
+                cursor: None,
+            })
         }
         fn close_session(&self, _session_id: &str) -> Result<(), ChatBackendError> {
             Ok(())

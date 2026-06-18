@@ -21,7 +21,7 @@ use serde_json::json;
 
 use super::vm::{call_json, PluginVm, VmError};
 use super::PluginManifest;
-use crate::agent::chat_types::ChatMsg;
+use crate::agent::chat_types::{ChatMsg, StructuredChat};
 use crate::agent::provider::ModelInfo;
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, PresetInfo};
 
@@ -73,7 +73,8 @@ struct OpenOut {
     error: Option<String>,
 }
 
-/// `poll` may return a bare `NormalizedChatMessage[]` or `{ messages: [...] }`.
+/// `poll` may return a bare `NormalizedChatMessage[]` (legacy/cursorless) or the
+/// cursor-delta envelope `{ messages, cursor }`.
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum PollOut {
@@ -81,6 +82,8 @@ enum PollOut {
     Wrapped {
         #[serde(default)]
         messages: Vec<ChatMsg>,
+        #[serde(default)]
+        cursor: Option<String>,
     },
 }
 
@@ -155,12 +158,19 @@ impl ChatBackendProvider for JsChatBackend {
         Ok(())
     }
 
-    fn poll(&self, session_id: &str) -> Result<Vec<ChatMsg>, ChatBackendError> {
-        let out: PollOut =
-            call_json(&self.vm, "poll", &[json!(session_id)]).map_err(|e| map_err("poll", e))?;
+    fn poll(
+        &self,
+        session_id: &str,
+        cursor: Option<&str>,
+    ) -> Result<StructuredChat, ChatBackendError> {
+        let out: PollOut = call_json(&self.vm, "poll", &[json!(session_id), json!(cursor)])
+            .map_err(|e| map_err("poll", e))?;
         Ok(match out {
-            PollOut::List(m) => m,
-            PollOut::Wrapped { messages } => messages,
+            PollOut::List(messages) => StructuredChat {
+                messages,
+                cursor: None,
+            },
+            PollOut::Wrapped { messages, cursor } => StructuredChat { messages, cursor },
         })
     }
 
@@ -293,7 +303,7 @@ mod tests {
             }"#,
         );
         let b = JsChatBackend::new(vm, "local-shell");
-        let msgs = b.poll("s1").unwrap();
+        let msgs = b.poll("s1", None).unwrap().messages;
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0].kind, "user");
         assert_eq!(msgs[0].content, "hi");
@@ -308,9 +318,56 @@ mod tests {
             }"#,
         );
         let b = JsChatBackend::new(vm, "local-shell");
-        let msgs = b.poll("s1").unwrap();
+        let msgs = b.poll("s1", None).unwrap().messages;
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].content, "ok");
+    }
+
+    #[test]
+    fn poll_forwards_cursor_and_returns_delta_plus_next_cursor() {
+        // Contract: poll(sessionId, cursor) -> { messages, cursor }. The plugin
+        // echoes the cursor it received and returns the next one; an idle poll
+        // (cursor already at the end) returns an empty delta. Guards the C1+M1
+        // wiring bug where the host passed no cursor and got the whole transcript
+        // every tick.
+        let vm = vm_with(
+            r#"module.exports.default = {
+                poll(sid, cursor) {
+                    if (cursor === "c1") { return { messages: [], cursor: "c1" }; }
+                    return {
+                        messages: [{ id: "1", type: "assistant", content: cursor || "fresh" }],
+                        cursor: "c1"
+                    };
+                }
+            }"#,
+        );
+        let b = JsChatBackend::new(vm, "local-shell");
+
+        // First poll: no cursor ⇒ full delta + seeded cursor.
+        let first = b.poll("s1", None).unwrap();
+        assert_eq!(first.messages.len(), 1);
+        assert_eq!(first.messages[0].content, "fresh");
+        assert_eq!(first.cursor.as_deref(), Some("c1"));
+
+        // Next poll passes that cursor ⇒ empty delta (nothing new), cursor held.
+        let second = b.poll("s1", Some("c1")).unwrap();
+        assert!(second.messages.is_empty(), "idle poll yields no delta");
+        assert_eq!(second.cursor.as_deref(), Some("c1"));
+    }
+
+    #[test]
+    fn poll_bare_list_has_no_cursor() {
+        // A legacy/cursorless plugin returning a bare array maps to messages with
+        // cursor None (the loop keeps its prior cursor).
+        let vm = vm_with(
+            r#"module.exports.default = {
+                poll(sid, cursor) { return [{ id: "1", type: "assistant", content: "x" }]; }
+            }"#,
+        );
+        let b = JsChatBackend::new(vm, "local-shell");
+        let out = b.poll("s1", None).unwrap();
+        assert_eq!(out.messages.len(), 1);
+        assert_eq!(out.cursor, None);
     }
 
     #[test]
@@ -384,9 +441,12 @@ mod tests {
                }"#,
         );
         let b = JsChatBackend::new(vm, "npc");
-        assert!(b.poll("s").unwrap().is_empty(), "no messages before pump");
+        assert!(
+            b.poll("s", None).unwrap().messages.is_empty(),
+            "no messages before pump"
+        );
         b.pump("s").unwrap();
-        let msgs = b.poll("s").unwrap();
+        let msgs = b.poll("s", None).unwrap().messages;
         assert_eq!(msgs.len(), 1, "pump advanced state poll surfaces");
         assert_eq!(msgs[0].content, "advanced");
     }

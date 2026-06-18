@@ -43,14 +43,21 @@ impl ChatBackendProvider for FakeBackend {
         self.sent.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
-    fn poll(&self, _session_id: &str) -> Result<Vec<ChatMsg>, ChatBackendError> {
+    fn poll(
+        &self,
+        _session_id: &str,
+        _cursor: Option<&str>,
+    ) -> Result<crate::agent::chat_types::StructuredChat, ChatBackendError> {
         self.polled.fetch_add(1, Ordering::SeqCst);
-        Ok(vec![ChatMsg {
-            id: "1".into(),
-            kind: "assistant".into(),
-            content: "hi".into(),
-            ..Default::default()
-        }])
+        Ok(crate::agent::chat_types::StructuredChat {
+            messages: vec![ChatMsg {
+                id: "1".into(),
+                kind: "assistant".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            cursor: None,
+        })
     }
     fn close_session(&self, _session_id: &str) -> Result<(), ChatBackendError> {
         self.closed.fetch_add(1, Ordering::SeqCst);
@@ -78,7 +85,7 @@ fn chatbackend_registry_routes_every_op() {
     let sid = p.open_session(serde_json::json!({})).unwrap();
     assert_eq!(sid, "sess-1");
     p.send_message(&sid, "hello").unwrap();
-    let msgs = p.poll(&sid).unwrap();
+    let msgs = p.poll(&sid, None).unwrap().messages;
     assert_eq!(msgs.len(), 1);
     p.close_session(&sid).unwrap();
     assert_eq!(p.list_models().unwrap().len(), 1);
