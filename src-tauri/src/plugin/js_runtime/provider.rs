@@ -437,6 +437,7 @@ impl AgentProvider for JsProvider {
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
         self.try_call::<Option<String>>("detectSessionModel", &[json!(cwd), json!(session_id)])
             .flatten()
+            .map(|model| crate::agent::model_catalog::resolve_model(self.id(), Some(&model)).id)
     }
 
     fn session_created_at(&self, cwd: &str, session_id: &str) -> Option<std::time::SystemTime> {

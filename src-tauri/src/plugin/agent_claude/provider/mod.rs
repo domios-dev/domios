@@ -140,7 +140,9 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
-        sessions::detect_session_model(cwd, session_id)
+        sessions::detect_session_model(cwd, session_id).map(|family| {
+            crate::agent::model_catalog::resolve_family_model("claude", &family).unwrap_or(family)
+        })
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
