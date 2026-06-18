@@ -208,6 +208,7 @@ export function MemoryNodeDetail({
     <>
       {tucked && (
         <button
+          data-testid="memory-node-detail-show"
           onClick={() => setTucked(false)}
           aria-label="Show details"
           title="Show details"
@@ -217,13 +218,16 @@ export function MemoryNodeDetail({
         </button>
       )}
     <div
+      data-testid="memory-node-detail"
+      data-memory-id={node.id}
+      data-memory-kind={node.kind}
       className="absolute top-0 right-0 bottom-0 w-[360px] p-4 z-10 overflow-y-auto flex flex-col gap-2.5 text-xs bg-[var(--ct-surface)] border-l border-[var(--ct-border)] text-[var(--ct-fg)] transition-transform duration-200 ease-out"
       style={{ transform: tucked ? "translateX(100%)" : "translateX(0)" }}
       onMouseDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
     >
       {saveError && (
-        <div className="bg-[#ef4444] text-white px-2 py-1.5 rounded">{saveError}</div>
+        <div className="bg-[#ef4444] text-white px-2 py-1.5 rounded" data-testid="memory-node-detail-error" role="alert">{saveError}</div>
       )}
 
       <div className="flex items-start gap-2">
@@ -233,6 +237,7 @@ export function MemoryNodeDetail({
         />
         {editing ? (
           <input
+            data-testid="memory-node-title-input"
             className={`${inputClass} text-sm font-semibold`}
             value={edit.title}
             onChange={(e) => setEdit((s) => ({ ...s, title: e.target.value }))}
@@ -241,6 +246,7 @@ export function MemoryNodeDetail({
           <strong className="text-sm flex-1 break-words">{node.title}</strong>
         )}
         <button
+          data-testid="memory-node-detail-tuck"
           onClick={() => setTucked(true)}
           aria-label="Tuck panel"
           title="Tuck panel"
@@ -267,6 +273,7 @@ export function MemoryNodeDetail({
         {editing ? (
           <textarea
             rows={3}
+            data-testid="memory-node-summary-input"
             className={`${inputClass} resize-y`}
             value={edit.summary}
             onChange={(e) => setEdit((s) => ({ ...s, summary: e.target.value }))}
@@ -283,6 +290,7 @@ export function MemoryNodeDetail({
         {editing ? (
           <textarea
             rows={10}
+            data-testid="memory-node-body-input"
             className={`${inputClass} resize-y font-mono`}
             value={edit.body}
             onChange={(e) => setEdit((s) => ({ ...s, body: e.target.value }))}
@@ -298,6 +306,7 @@ export function MemoryNodeDetail({
         <div>
           <div className={sectionLabelClass}>Area</div>
           <input
+            data-testid="memory-node-area-input"
             className={inputClass}
             value={edit.area}
             onChange={(e) => setEdit((s) => ({ ...s, area: e.target.value }))}
@@ -312,6 +321,7 @@ export function MemoryNodeDetail({
         {editing ? (
           <input
             type="range"
+            data-testid="memory-node-importance-input"
             min={0}
             max={10}
             step={0.1}
@@ -333,6 +343,8 @@ export function MemoryNodeDetail({
               {t}
               {editing && (
                 <button
+                  data-testid="memory-node-tag-remove"
+                  data-memory-tag={t}
                   onClick={() => removeTag(t)}
                   className="bg-transparent border-0 text-inherit p-0 text-xs leading-none cursor-pointer"
                 >
@@ -344,6 +356,7 @@ export function MemoryNodeDetail({
           {editing && (
             <input
               placeholder="add tag…"
+              data-testid="memory-node-tag-input"
               value={tagInput}
               onChange={(e) => setTagInput(e.target.value)}
               onKeyDown={onTagKeyDown}
@@ -366,6 +379,9 @@ export function MemoryNodeDetail({
               {neighbors.map((nb, i) => (
                 <button
                   key={`${nb.dir}-${nb.id}-${nb.rel}-${i}`}
+                  data-testid="memory-node-related-item"
+                  data-memory-id={nb.id}
+                  data-memory-rel={nb.rel}
                   onClick={() => onSelectNode(nb.id)}
                   className={`${rowButtonClass} cursor-pointer`}
                   title={nb.id}
@@ -426,25 +442,26 @@ export function MemoryNodeDetail({
       <div className="flex gap-1.5 mt-auto flex-wrap">
         {editing ? (
           <>
-            <button onClick={handleSave} className={`${btnClass} !bg-[#3b82f6] !border-[#3b82f6]`}>
+            <button onClick={handleSave} className={`${btnClass} !bg-[#3b82f6] !border-[#3b82f6]`} data-testid="memory-node-save">
               Save
             </button>
-            <button onClick={handleCancel} className={btnClass}>
+            <button onClick={handleCancel} className={btnClass} data-testid="memory-node-cancel">
               Cancel
             </button>
           </>
         ) : (
           <>
-            <button onClick={() => setEditing(true)} className={btnClass}>
+            <button onClick={() => setEditing(true)} className={btnClass} data-testid="memory-node-edit">
               Edit
             </button>
             <button
               onClick={handleDelete}
+              data-testid="memory-node-delete"
               className={`${btnClass} !text-[#ef4444] !border-[#ef4444]`}
             >
               Delete
             </button>
-            <button onClick={handleCopyId} className={btnClass}>
+            <button onClick={handleCopyId} className={btnClass} data-testid="memory-node-copy-id">
               {copied ? "Copied!" : "Copy ID"}
             </button>
           </>

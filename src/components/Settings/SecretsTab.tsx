@@ -376,7 +376,7 @@ export function SecretsTab({
   const sectionLabelClass = UI_TEXT.sectionTitle;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5" data-testid="settings-secrets-tab">
       <SettingsCard
         icon={<KeyRound size={16} />}
         title="Secret store"
@@ -384,6 +384,7 @@ export function SecretsTab({
           <div className="flex items-center gap-2">
             {statusBadge}
             <button
+              data-testid="settings-secrets-refresh-status"
               onClick={refreshStatus}
               disabled={statusBusy}
               className={`${statusBtnClass} gap-1 disabled:opacity-50`}
@@ -403,6 +404,7 @@ export function SecretsTab({
         <div className="space-y-1">
           <div className={sectionLabelClass}>Backend</div>
           <select
+            data-testid="settings-secrets-backend-select"
             value={backend}
             onChange={(e) => void setBackend(e.target.value as SecretsBackend)}
             className={inputClass}
@@ -428,6 +430,7 @@ export function SecretsTab({
             <div className="flex gap-2">
               <input
                 type="text"
+                data-testid="settings-secrets-server-url"
                 value={serverUrlInput}
                 onChange={(e) => setServerUrlInput(e.target.value)}
                 placeholder="https://vault.bitwarden.com"
@@ -435,6 +438,7 @@ export function SecretsTab({
                 spellCheck={false}
               />
               <button
+                data-testid="settings-secrets-apply-server-url"
                 onClick={() => void saveServerUrl()}
                 disabled={serverUrlInput.trim() === bitwardenServerUrl}
                 className={`${applyBtnClass} disabled:opacity-40 disabled:cursor-not-allowed`}
@@ -460,6 +464,7 @@ export function SecretsTab({
                     <form onSubmit={submitPasswordLogin} className="flex gap-2">
                       <input
                         type="password"
+                        data-testid="settings-secrets-save-master-password"
                         placeholder="master password"
                         autoComplete="current-password"
                         value={masterPassword}
@@ -469,6 +474,7 @@ export function SecretsTab({
                       />
                     <button
                       type="submit"
+                      data-testid="settings-secrets-save-master-password-submit"
                       className={`${primaryBtnClass} whitespace-nowrap`}
                     >
                       Save
@@ -484,7 +490,7 @@ export function SecretsTab({
         )}
 
         {toast && (
-          <div className="text-[11px] rounded border border-[var(--ct-green)]/40 bg-[var(--ct-green)]/10 p-2 text-[var(--ct-green)]">
+          <div className="text-[11px] rounded border border-[var(--ct-green)]/40 bg-[var(--ct-green)]/10 p-2 text-[var(--ct-green)]" data-testid="settings-secrets-toast" role="status">
             {toast}
           </div>
         )}
@@ -492,6 +498,7 @@ export function SecretsTab({
         {backend === "bitwarden" && status?.status?.status === "locked" && (
           <div className="flex items-center gap-2 pt-1">
             <button
+              data-testid="settings-secrets-sign-out"
               onClick={logout}
               className={dangerBtnClass}
             >
@@ -512,6 +519,7 @@ export function SecretsTab({
             {backend === "bitwarden" && (
               <div className="flex items-center gap-2 pt-1">
                 <button
+                  data-testid="settings-secrets-install-bitwarden-cli"
                   onClick={() => void installBitwardenCli()}
                   className={`${primaryBtnClass} font-medium`}
                 >
@@ -526,7 +534,7 @@ export function SecretsTab({
         )}
 
         {error && (
-          <div className="text-[11px] rounded border border-[var(--ct-red)]/40 bg-[var(--ct-red)]/10 p-2 text-[var(--ct-red)]">
+          <div className="text-[11px] rounded border border-[var(--ct-red)]/40 bg-[var(--ct-red)]/10 p-2 text-[var(--ct-red)]" data-testid="settings-secrets-error" role="alert">
             {error}
           </div>
         )}
@@ -536,6 +544,7 @@ export function SecretsTab({
         <SettingsCard icon={<LogIn size={16} />} title="Sign in to Bitwarden">
           <div className="flex gap-1 text-[11px]">
             <button
+              data-testid="settings-secrets-login-password-tab"
               onClick={() => setActiveTab("password")}
               className={`${UI_BUTTON.compact} border ${
                 activeTab === "password" ? UI_BUTTON.primary : UI_BUTTON.ghost
@@ -544,6 +553,7 @@ export function SecretsTab({
               Password
             </button>
             <button
+              data-testid="settings-secrets-login-apikey-tab"
               onClick={() => setActiveTab("apikey")}
               className={`${UI_BUTTON.compact} border ${
                 activeTab === "apikey" ? UI_BUTTON.primary : UI_BUTTON.ghost
@@ -556,6 +566,7 @@ export function SecretsTab({
             <form onSubmit={submitPasswordLogin} className="space-y-2">
               <input
                 type="email"
+                data-testid="settings-secrets-email"
                 placeholder="email"
                 autoComplete="username"
                 value={email}
@@ -565,6 +576,7 @@ export function SecretsTab({
               />
               <input
                 type="password"
+                data-testid="settings-secrets-master-password"
                 placeholder="master password (never persisted)"
                 autoComplete="current-password"
                 value={masterPassword}
@@ -574,6 +586,7 @@ export function SecretsTab({
               />
               <input
                 type="text"
+                data-testid="settings-secrets-two-factor"
                 placeholder="2FA code (optional)"
                 value={twoFactor}
                 onChange={(e) => setTwoFactor(e.target.value)}
@@ -581,6 +594,7 @@ export function SecretsTab({
               />
               <button
                 type="submit"
+                data-testid="settings-secrets-login-submit"
                 className={primaryBtnClass}
               >
                 Sign in
@@ -593,6 +607,7 @@ export function SecretsTab({
               </div>
               <input
                 type="text"
+                data-testid="settings-secrets-api-client-id"
                 placeholder="client_id"
                 value={apiClientId}
                 onChange={(e) => setApiClientId(e.target.value)}
@@ -601,6 +616,7 @@ export function SecretsTab({
               />
               <input
                 type="password"
+                data-testid="settings-secrets-api-client-secret"
                 placeholder="client_secret"
                 value={apiClientSecret}
                 onChange={(e) => setApiClientSecret(e.target.value)}
@@ -609,6 +625,7 @@ export function SecretsTab({
               />
               <input
                 type="password"
+                data-testid="settings-secrets-api-master-password"
                 placeholder="master password (still required to unlock)"
                 autoComplete="current-password"
                 value={masterPassword}
@@ -618,6 +635,7 @@ export function SecretsTab({
               />
               <button
                 type="submit"
+                data-testid="settings-secrets-api-login-submit"
                 className={primaryBtnClass}
               >
                 Sign in with API key
@@ -639,6 +657,7 @@ export function SecretsTab({
           }
         >
           <button
+            data-testid="settings-secrets-activate-mock"
             onClick={() => {
               setMasterPassword("dev-only");
               submitPasswordLogin(new Event("submit") as unknown as React.FormEvent);
@@ -676,6 +695,7 @@ export function SecretsTab({
                 <div className="space-y-1">
                   <div className={sectionLabelClass}>Organization</div>
                   <select
+                    data-testid="settings-secrets-default-org"
                     value={cfg.default_organization}
                     onChange={(e) => setDefaultOrg(e.target.value)}
                     className={inputClass}
@@ -691,6 +711,7 @@ export function SecretsTab({
                 <div className="space-y-1">
                   <div className={sectionLabelClass}>Collection</div>
                   <select
+                    data-testid="settings-secrets-default-collection"
                     value={cfg.default_collection}
                     onChange={(e) => setDefaultColl(e.target.value)}
                     className={inputClass}
@@ -708,6 +729,7 @@ export function SecretsTab({
             )}
             <div className="flex gap-2 pt-1">
               <button
+                data-testid="settings-secrets-unlocked-sign-out"
                 onClick={logout}
                 className={dangerBtnClass}
               >
@@ -721,6 +743,7 @@ export function SecretsTab({
             title="Recently saved"
             headerRight={
               <button
+                data-testid="settings-secrets-refresh-items"
                 onClick={refreshItems}
                 className={`${statusBtnClass} gap-1`}
               >
@@ -738,7 +761,7 @@ export function SecretsTab({
             ) : (
               <div className="space-y-1">
                 {items.map((it) => (
-                  <div key={it.item_id} className="flex items-center justify-between text-[11px] font-mono">
+                  <div key={it.item_id} className="flex items-center justify-between text-[11px] font-mono" data-testid="settings-secrets-item" data-secret-item-id={it.item_id}>
                     <span className="text-[var(--ct-fg)] truncate">{it.name}</span>
                     <span className="text-[var(--ct-muted)] truncate ml-3">
                       {it.folder ? `folder:${it.folder.slice(0, 8)} ` : ""}

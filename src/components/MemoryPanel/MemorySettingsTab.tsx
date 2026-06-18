@@ -190,9 +190,10 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
   const renderProviderSelect = (
     value: string,
     onChange: (v: string) => void,
+    testId: string,
   ) => (
     <Label text="Provider">
-      <select value={value || ""} onChange={(e) => onChange(e.target.value)} className={inputClass}>
+      <select value={value || ""} onChange={(e) => onChange(e.target.value)} className={inputClass} data-testid={testId}>
         <option value="">Default ({defaultProvider})</option>
         {providers.map(p => (
           <option key={p.id} value={p.id}>{p.display_name}</option>
@@ -205,10 +206,11 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
     value: string,
     onChange: (v: string) => void,
     models: { id: string; display_name: string }[],
+    testId: string,
   ) => (
     <Label text="Model">
       {models.length > 0 ? (
-        <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass}>
+        <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass} data-testid={testId}>
           <option value="">Provider default</option>
           {models.map(m => (
             <option key={m.id} value={m.id}>{m.display_name}</option>
@@ -219,6 +221,7 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className={inputClass}
+          data-testid={testId}
           placeholder="haiku, sonnet, o3-mini..."
         />
       )}
@@ -228,6 +231,7 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
   const dreamRunButton = (
     <button
       onClick={triggerDream}
+      data-testid="memory-settings-run-dream"
       className="text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-[var(--ct-accent)] text-white hover:opacity-80"
     >
       Run Now
@@ -238,6 +242,7 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
     <button
       onClick={triggerSync}
       disabled={syncing}
+      data-testid="memory-settings-sync-now"
       className="text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-[var(--ct-accent)] text-white hover:opacity-80 disabled:opacity-50"
     >
       {syncing ? "Syncing..." : "Sync Now"}
@@ -260,11 +265,13 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
           {renderProviderSelect(
             mem.extraction_agent,
             (v) => onUpdate("memory", { ...mem, extraction_agent: v }),
+            "memory-settings-extraction-provider",
           )}
           {renderModelSelect(
             mem.extraction_model,
             (v) => onUpdate("memory", { ...mem, extraction_model: v }),
             extractionModels,
+            "memory-settings-extraction-model",
           )}
           <Label text="Dedup threshold">
             <input
@@ -280,6 +287,7 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
                 }
               }}
               className={inputClass}
+              data-testid="memory-settings-dedup-threshold"
             />
           </Label>
           <Label text="Worker timeout (s)">
@@ -295,6 +303,7 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
                 }
               }}
               className={inputClass}
+              data-testid="memory-settings-worker-timeout"
             />
           </Label>
         </div>
@@ -312,6 +321,7 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
           <Label text="Schedule">
             <select
+              data-testid="memory-settings-dream-schedule"
               value={currentFreq}
               disabled={!dreamCron || scheduleSaving}
               onChange={(e) => applySchedule(e.target.value as ScheduleFreq, currentTime)}
@@ -329,6 +339,7 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
               disabled={!dreamCron || currentFreq === "off" || scheduleSaving}
               onChange={(e) => applySchedule(currentFreq === "off" ? "daily" : currentFreq, e.target.value)}
               className={inputClass}
+              data-testid="memory-settings-dream-time"
             />
           </Label>
         </div>
@@ -348,11 +359,13 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
           {renderProviderSelect(
             mem.dreaming_agent,
             (v) => onUpdate("memory", { ...mem, dreaming_agent: v }),
+            "memory-settings-dreaming-provider",
           )}
           {renderModelSelect(
             mem.dreaming_model,
             (v) => onUpdate("memory", { ...mem, dreaming_model: v }),
             dreamingModels,
+            "memory-settings-dreaming-model",
           )}
         </div>
       </SettingsCard>
@@ -389,6 +402,7 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
                 }
               }}
               className={inputClass}
+              data-testid="memory-settings-file-sync-interval"
             />
           </Label>
         </div>

@@ -228,7 +228,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
   }, []);
 
   return (
-    <div className="absolute inset-0 overflow-y-auto bg-[var(--ct-bg)]">
+    <div className="absolute inset-0 overflow-y-auto bg-[var(--ct-bg)]" data-testid="memory-dreams-tab">
       <div
         className="pointer-events-none fixed inset-0 -z-0 opacity-25"
         style={{
@@ -271,6 +271,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
           {dreamCron && (
             <button
               type="button"
+              data-testid="memory-dream-nightly-toggle"
               onClick={() => toggleDreamCron(!dreamCron.enabled)}
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-[var(--ct-bg)]/40 border border-[var(--ct-border)] cursor-pointer hover:border-[var(--ct-accent)] transition-colors"
               aria-label={dreamCron.enabled ? "Disable nightly dreaming" : "Enable nightly dreaming"}
@@ -288,6 +289,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
             </button>
           )}
           <button
+            data-testid="memory-dream-run-now"
             onClick={runNow}
             disabled={running || !!inflight}
             className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[var(--ct-bg)] text-[11px] font-medium tracking-wide hover:shadow-[0_0_18px_color-mix(in_srgb,_var(--ct-accent)_55%,_transparent)] disabled:opacity-50 disabled:cursor-wait transition-shadow border-0 cursor-pointer"
@@ -313,7 +315,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
       </div>
 
       {runError && (
-        <div className="mx-5 mb-3 px-3 py-2 rounded-md bg-[#f87171]/15 border border-[#f87171]/40 text-[11px] text-[#fecaca]">
+        <div className="mx-5 mb-3 px-3 py-2 rounded-md bg-[#f87171]/15 border border-[#f87171]/40 text-[11px] text-[#fecaca]" data-testid="memory-dream-run-error" role="alert">
           {runError}
         </div>
       )}
@@ -327,6 +329,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
             <div className="flex gap-1">
               <button
                 onClick={() => scrollCarousel(-1)}
+                data-testid="memory-dream-scroll-left"
                 className="w-7 h-7 rounded-full border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-fg)] flex items-center justify-center bg-transparent cursor-pointer"
                 aria-label="Scroll left"
               >
@@ -334,6 +337,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
               </button>
               <button
                 onClick={() => scrollCarousel(1)}
+                data-testid="memory-dream-scroll-right"
                 className="w-7 h-7 rounded-full border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-fg)] flex items-center justify-center bg-transparent cursor-pointer"
                 aria-label="Scroll right"
               >
@@ -352,6 +356,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
             ref={carouselRef}
             className="flex gap-4 overflow-x-auto px-5 pb-3 snap-x snap-mandatory scroll-pl-5"
             style={{ scrollbarWidth: "thin" }}
+            data-testid="memory-dream-carousel"
           >
             {diaryEntries.map((entry) => (
               <DreamCard
@@ -364,7 +369,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
         )}
       </section>
 
-      <section className="px-5 pb-6">
+      <section className="px-5 pb-6" data-testid="memory-dream-sessions">
         <h3 className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--ct-muted-fg)] mb-2">
           Recent sessions
         </h3>
@@ -401,7 +406,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
 
 function EmptyDream() {
   return (
-    <div className="mx-5 rounded-2xl border border-dashed border-[var(--ct-border)] px-6 py-10 flex flex-col items-center gap-2 text-center">
+    <div className="mx-5 rounded-2xl border border-dashed border-[var(--ct-border)] px-6 py-10 flex flex-col items-center gap-2 text-center" data-testid="memory-dream-empty">
       <Moon size={28} className="text-[var(--ct-magenta,#a78bfa)] opacity-70" />
       <div className="text-[12px] text-[var(--ct-fg)]">No dreams yet</div>
       <div className="text-[10px] text-[var(--ct-muted-fg)] max-w-[300px] leading-relaxed">
@@ -480,6 +485,9 @@ function RecentSessionsList({
       <div
         key={w.worker_id}
         onClick={() => onSelect(w)}
+        data-testid="memory-dream-session"
+        data-worker-id={w.worker_id}
+        data-worker-status={w.status}
         className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-[var(--ct-hover-bg)]/60 border border-[var(--ct-border)] hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
       >
         <span className="text-[10px] uppercase tracking-wider w-[60px] shrink-0" style={{ color }}>
@@ -505,11 +513,12 @@ function RecentSessionsList({
     );
   };
   return (
-    <div>
+    <div data-testid="memory-dream-session-list">
       <div className="space-y-1">{first.map(renderRow)}</div>
       {rest.length > 0 && (
         <div className="flex flex-col items-center">
           <button
+            data-testid="memory-dream-show-all-sessions"
             onClick={onToggleAll}
             className="text-[10px] uppercase tracking-wider text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] mt-2 cursor-pointer bg-transparent border-0"
           >

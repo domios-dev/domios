@@ -66,6 +66,7 @@ export function PluginList({
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
       <input
+        data-testid="extensions-search"
         value={query}
         onChange={(e) => onQuery(e.target.value)}
         placeholder="Search extensions…"
@@ -86,6 +87,8 @@ export function PluginList({
           return (
             <button
               key={f.key}
+              data-testid="extensions-filter"
+              data-extension-filter={f.key}
               onClick={() => onFilter(f.key)}
               style={{
                 fontSize: 11.5,
@@ -104,12 +107,14 @@ export function PluginList({
         })}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 4, overflowY: "auto", minHeight: 0 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, overflowY: "auto", minHeight: 0 }} data-testid="extensions-list">
         {sections.map((section) => (
-          <div key={section.key}>
+          <div key={section.key} data-testid="extensions-section" data-extension-section={section.key}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "8px 4px 5px", color: "var(--ct-muted)", fontSize: 10.5, fontWeight: 650 }}>
               <button
                 type="button"
+                data-testid="extensions-section-toggle"
+                data-extension-section={section.key}
                 onClick={() => toggleSection(section.key)}
                 style={{
                   flex: 1,
@@ -147,6 +152,8 @@ export function PluginList({
                   trigger={
                     <button
                       type="button"
+                      data-testid="extensions-channel-actions"
+                      data-channel-name={section.channel}
                       title={`Channel ${section.channel} actions`}
                       style={{
                         width: 20,
@@ -185,7 +192,7 @@ export function PluginList({
           </div>
         ))}
         {entries.length === 0 && (
-          <div style={{ color: "var(--ct-muted)", fontSize: 12.5, padding: "8px 4px" }}>No extensions match.</div>
+          <div style={{ color: "var(--ct-muted)", fontSize: 12.5, padding: "8px 4px" }} data-testid="extensions-list-empty">No extensions match.</div>
         )}
       </div>
     </div>
@@ -246,6 +253,10 @@ function PluginRow({
   return (
     <div
       role="button"
+      data-testid="extensions-plugin-row"
+      data-plugin-id={entry.id}
+      data-plugin-installed={entry.installed ? "true" : "false"}
+      data-plugin-update-available={entry.updateAvailable ? "true" : "false"}
       tabIndex={0}
       onClick={onSelect}
       onKeyDown={(e) => {
@@ -290,6 +301,8 @@ function PluginRow({
       </div>
       {entry.installed && (
         <button
+          data-testid="extensions-plugin-pin"
+          data-plugin-id={entry.id}
           onClick={(ev) => {
             ev.stopPropagation();
             onTogglePin();
@@ -313,6 +326,7 @@ function Badge({ tone, children }: { tone: "installed" | "update" | "dev"; child
         : { background: "var(--ct-bg-active)", color: "var(--ct-muted)", border: "1px solid var(--ct-border-default)" };
   return (
     <span
+      data-testid={`extensions-plugin-badge-${tone}`}
       style={{
         fontSize: 9.5,
         fontFamily: '"JetBrains Mono", ui-monospace, monospace',

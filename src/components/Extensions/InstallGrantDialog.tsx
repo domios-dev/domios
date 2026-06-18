@@ -43,6 +43,8 @@ export function InstallGrantDialog({
     <div
       role="dialog"
       aria-modal="true"
+      data-testid="extensions-install-grant-dialog"
+      data-plugin-id={request.pluginId}
       style={{
         position: "fixed",
         inset: 0,
@@ -120,6 +122,8 @@ export function InstallGrantDialog({
             return (
               <label
                 key={p}
+                data-testid="extensions-install-permission"
+                data-permission-id={p}
                 style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 0", cursor: "pointer" }}
               >
                 <span
@@ -151,6 +155,7 @@ export function InstallGrantDialog({
 
         <div style={{ display: "flex", gap: 9, justifyContent: "flex-end" }}>
           <button
+            data-testid="extensions-install-cancel"
             onClick={onCancel}
             style={{
               fontSize: 12,
@@ -165,6 +170,7 @@ export function InstallGrantDialog({
             Cancel
           </button>
           <button
+            data-testid="extensions-install-approve"
             onClick={() => onApprove(request.requested.filter((p) => granted[p]))}
             disabled={grantedCount === 0}
             style={{

@@ -20,7 +20,7 @@ const baseText: CSSProperties = { fontSize: 13, lineHeight: 1.6, color: "var(--c
 
 export function MarkdownDescription({ markdown }: { markdown: string }) {
   return (
-    <div style={{ ...baseText, wordBreak: "break-word" }}>
+    <div style={{ ...baseText, wordBreak: "break-word" }} data-testid="extensions-markdown-description">
       <Markdown
         remarkPlugins={[remarkGfm]}
         // No rehypePlugins → no raw HTML. Keep it that way.
