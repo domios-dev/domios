@@ -472,13 +472,15 @@ pub(super) fn install(
             log::warn!("[plugin] denied fetch.stream({host}) — not in network.allow");
             return serde_json::json!({ "error": format!("fetch denied: {host}") }).to_string();
         }
-        super::host_net::stream(&opts_json)
+        super::host_net::stream(sb.plugin_id(), &opts_json)
     });
+    let sb = sandbox.clone();
     bind!("fetchStreamPoll", move |job_id: String| -> String {
-        super::host_net::stream_poll(&job_id)
+        super::host_net::stream_poll(sb.plugin_id(), &job_id)
     });
+    let sb = sandbox.clone();
     bind!("fetchStreamClose", move |job_id: String| {
-        super::host_net::stream_close(&job_id);
+        super::host_net::stream_close(sb.plugin_id(), &job_id);
     });
 
     let sb = sandbox.clone();
