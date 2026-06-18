@@ -333,3 +333,89 @@ Plugins with real knobs also get a `settingsSchema`.
 - **Security:** envelope + preamble added in core (`pluginConfigure.ts`), plugin
   never sees it. ✓
 - **No placeholders:** all steps have concrete code/commands. ✓
+
+---
+
+## Pre-dispatch review amendments (AUTHORITATIVE — override the track text above on conflict)
+
+These corrections come from a verified code review against the real tree. Each
+worker MUST apply the amendments for its track.
+
+### Track M
+- **(B1) Export the builder.** Add `markPluginConfig` to the explicit barrel in
+  `packages/chat-core/src/index.ts` (it enumerates each `mark*` — no wildcard).
+  Without this, Track G's import fails. Add `packages/chat-core/src/index.ts` to
+  Track M's file list.
+- **(m1) Use the parity-fixture convention.** Instead of a standalone Rust test,
+  add the new pair to the `PARITY` const array in `message_markers_tests.rs:6` and
+  let `convenience_constructors_match_parity_wire` cover it; mirror the same entry
+  in `markers.test.ts`. Wire string is confirmed correct:
+  `name=LM%20Studio` (Marker percent-encodes the space).
+- **(m2) Builder import in TS test.** `markers.test.ts` currently imports only
+  `{ MARKER_OPEN, parseMarker }`; add `markPluginConfig` to that import.
+- **(M3) Exhaustive origin handling.** `ChatOrigin` gaining `plugin_config` breaks
+  two exhaustive sites — fix both in Step 10:
+  `packages/chat-ui/src/MessageBubble.tsx:159-167` (add a `plugin_config` branch
+  BEFORE the `service` fallback) and `src/lib/chatPrefixes.ts:186-201` `labelFor`
+  (add a `plugin_config` case). Add `chatPrefixes.ts::labelFor` to the file list.
+
+### Track I
+- **(m5) Don't double-prefix.** `install_message(base, reload_required)`
+  (`install.rs:103`) already receives `base = "Installed plugin '<id>' from …"`.
+  Thread the real `<id>` into `install_message` and append ONLY the continuation
+  sentence `To configure it: run \`codeterm plugin get <id>\` …` — do not restate
+  "Installed <id>".
+
+### Track G
+- **(m3) Right function + field.** Add `config_help` in `enrich_from_manifest`
+  (`src-tauri/src/commands/plugins.rs:206-341`, mirror the `description` block at
+  `:327-329`), NOT `build_snapshot`.
+- **(m4) Drop `has_settings`.** `InstalledPlugin.settings_schema` already exists
+  (`Extensions/types.ts:38`, populated at `commands/plugins.rs:299-301`). Derive
+  "configurable" in the frontend from `settings_schema`; the button shows for ALL
+  plugins regardless (every plugin has `config_help`). Do not add `has_settings`.
+- **(B2) Correct injection point.** `ViewNodeRenderer.tsx` renders ONE node with
+  no plugin context — it cannot inject. Append the synthetic
+  `{kind:"button",label:"Configure with AI",action:"configure-with-ai"}` node in
+  `GlancePopover.load()` after `setView` (it has `pluginId`/`displayName`), and in
+  `PluginBubbles` before showing its popover. Update the Track G file list (remove
+  `ViewNodeRenderer.tsx` as the injection site).
+- **(B3) Thread `config_help` to the call site.** `GlancePopover` props
+  (`GlancePopover.tsx:19-33`) and `PluginBubbles` snapshot fetch
+  (`PluginBubbles.tsx:62-77`) currently drop `config_help`. (a) In `PluginBubbles`
+  keep `config_help` from the snapshot row and pass it as a new `configHelp` prop
+  to `GlancePopover`; (b) add `configHelp?: string` to `GlancePopover` props and
+  use it in `onAction` when `action === "configure-with-ai"`.
+- **(M2) API base for the spawn.** `src/lib/pluginConfigure.ts` is a free function
+  and cannot close over a component's `config`. `configureWithAI` MUST take the API
+  base/token as a parameter supplied by the calling component (mirror how
+  `MeshPanel.spawnSetupChat` reads `config.api.host/port/token`), or use the
+  shared `webJson` web path. Specify the desktop `fetch http://host:port` config
+  source explicitly.
+- **(M1) Settings-panel surface.** The Extensions detail panel is
+  `src/components/Extensions/PluginDetailPanel.tsx` (its `ActionKind` is
+  install/update/uninstall — unrelated to glance actions). Add a "Configure with
+  AI" button there too, wired to `configureWithAI`. Add `PluginDetailPanel.tsx` to
+  the Track G file list. (This delivers design Part D #1's settings-panel surface.)
+
+### Track S
+- **(M4) lmstudio key is `baseUrl`, not `endpoint`.** lmstudio already reads
+  `s.baseUrl` and `s.model` from `host.settingsJson()`
+  (`lmstudio/src/plugin.ts:20,43-53`) and its test asserts `baseUrl`. The new
+  `lmstudio/settings.schema.json` MUST use key `baseUrl` (label it "Endpoint URL").
+  Reading is already implemented — Track S only adds the schema file + `configHelp`
+  + the manifest `settingsSchema` ref. Step 1/2 do NOT need to change reading code.
+
+### Track T
+- **(B4) Register the test in the gate.** Add `transcriber` to the root
+  `codeterm-plugins/package.json` `scripts.test` (e.g. append
+  `&& npx tsx transcriber/plugin.test.cjs`) — otherwise the new test never runs in
+  the gate. Confirm the exact runner by matching the existing entries
+  (git/bitwarden/lmstudio/chat-preprocessor).
+- **(m6) Build before green.** Tests `require("./plugin.js")` (the BUILT bundle),
+  so run `node scripts/build-plugin.mjs transcriber` before every "expect PASS"
+  in Steps 2–5, not only at Step 7.
+
+### Track Verify
+- Empirically confirm whisper-cli `-oj` output shape (the `transcription[].text`
+  joining assumption) against a real run — it was not statically verified.
