@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
   lastSessionResetIndex,
@@ -12,6 +12,13 @@ import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "..
 
 const INITIAL_VISIBLE_MESSAGES = 220;
 const VISIBLE_MESSAGE_STEP = 160;
+export const TEST_CHAT_REPLY_EVENT = "codeterm:test-chat-reply";
+const TEST_CHAT_BASE_TIME_MS = 1_700_000_000_000;
+
+type FrontendTestEnv = {
+  DEV?: boolean;
+  VITE_CODETERM_TEST?: string;
+};
 
 interface ChatStartResult {
   text: string;
@@ -26,6 +33,113 @@ interface ChatMsgEvent {
   pane_id: string;
   messages: ChatMessage[];
   cursor?: string;
+}
+
+export interface TestChatReplyDetail {
+  paneId: string;
+  content?: string;
+  id?: string;
+  timestamp?: string;
+  type?: ChatMessage["type"];
+  provider?: string;
+  messages?: ChatMessage[];
+}
+
+export interface TestChatHandle {
+  reply: (paneId: string, content: string, options?: Omit<TestChatReplyDetail, "paneId" | "content" | "messages">) => void;
+  pushMessages: (paneId: string, messages: ChatMessage[]) => void;
+  resetClock: () => void;
+}
+
+declare global {
+  interface Window {
+    __codetermTestChat?: TestChatHandle;
+  }
+}
+
+let testChatSequence = 0;
+
+function importEnv(): FrontendTestEnv | undefined {
+  return (import.meta as { env?: FrontendTestEnv }).env;
+}
+
+export function isCodeTermFrontendTestMode(env: FrontendTestEnv | undefined = importEnv()): boolean {
+  return env?.DEV === true && env.VITE_CODETERM_TEST === "1";
+}
+
+export function resetTestChatClockForCodeTerm(): void {
+  testChatSequence = 0;
+}
+
+function nextTestChatTimestamp(): string {
+  const value = TEST_CHAT_BASE_TIME_MS + testChatSequence;
+  testChatSequence += 1;
+  return String(value);
+}
+
+export function testChatReplyPayload(detail: TestChatReplyDetail): ChatMsgEvent {
+  if (detail.messages) {
+    return { pane_id: detail.paneId, messages: detail.messages };
+  }
+  return {
+    pane_id: detail.paneId,
+    messages: [
+      {
+        id: detail.id ?? `test-assistant-${detail.paneId}-${testChatSequence}`,
+        type: detail.type ?? "assistant",
+        content: detail.content ?? "",
+        timestamp: detail.timestamp ?? nextTestChatTimestamp(),
+        provider: detail.provider ?? "test",
+      },
+    ],
+  };
+}
+
+export function installCodeTermTestChatHandle(testMode = isCodeTermFrontendTestMode()): void {
+  if (!testMode || typeof window === "undefined" || window.__codetermTestChat) return;
+  window.__codetermTestChat = {
+    reply(paneId, content, options = {}) {
+      window.dispatchEvent(
+        new CustomEvent(TEST_CHAT_REPLY_EVENT, {
+          detail: { ...options, paneId, content } satisfies TestChatReplyDetail,
+        }),
+      );
+    },
+    pushMessages(paneId, messages) {
+      window.dispatchEvent(
+        new CustomEvent(TEST_CHAT_REPLY_EVENT, {
+          detail: { paneId, messages } satisfies TestChatReplyDetail,
+        }),
+      );
+    },
+    resetClock: resetTestChatClockForCodeTerm,
+  };
+}
+
+function applyChatMsgEvent(
+  payload: ChatMsgEvent,
+  paneId: string,
+  setStructured: Dispatch<SetStateAction<ChatMessage[] | null>>,
+): void {
+  if (payload.pane_id !== paneId) return;
+  const incoming = payload.messages;
+  if (!incoming?.length) return;
+  setStructured((prev) => mergeById(prev ?? [], incoming));
+}
+
+function listenForTestChatReplies(
+  paneId: string,
+  setStructured: Dispatch<SetStateAction<ChatMessage[] | null>>,
+): (() => void) | null {
+  if (!isCodeTermFrontendTestMode() || typeof window === "undefined") return null;
+  installCodeTermTestChatHandle();
+  const handler = (event: Event) => {
+    const detail = (event as CustomEvent<TestChatReplyDetail>).detail;
+    if (!detail || detail.paneId !== paneId) return;
+    applyChatMsgEvent(testChatReplyPayload(detail), paneId, setStructured);
+  };
+  window.addEventListener(TEST_CHAT_REPLY_EVENT, handler);
+  return () => window.removeEventListener(TEST_CHAT_REPLY_EVENT, handler);
 }
 
 function mergeById(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
@@ -97,6 +211,7 @@ export function useChatSession({
   useEffect(() => {
     let cancelled = false;
     let unlisten: UnlistenFn | null = null;
+    let unlistenTest: (() => void) | null = null;
     (async () => {
       try {
         const res = await invoke<ChatStartResult>("chat_start", { paneId });
@@ -104,15 +219,14 @@ export function useChatSession({
         setError(null);
         setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
         setLoading(false);
+        unlistenTest = listenForTestChatReplies(paneId, setStructured);
         if (res.pending) return;
         setStructured(res.messages ?? []);
         unlisten = await listen<ChatMsgEvent>(
           `pane-chat-msg-${paneId}`,
           (ev) => {
             if (cancelled) return;
-            const incoming = ev.payload.messages;
-            if (!incoming?.length) return;
-            setStructured((prev) => mergeById(prev ?? [], incoming));
+            applyChatMsgEvent(ev.payload, paneId, setStructured);
           },
         );
       } catch (e) {
@@ -126,6 +240,7 @@ export function useChatSession({
     return () => {
       cancelled = true;
       unlisten?.();
+      unlistenTest?.();
       void invoke("chat_stop", { paneId }).catch(() => {});
     };
   }, [paneId, agentSessionId]);
