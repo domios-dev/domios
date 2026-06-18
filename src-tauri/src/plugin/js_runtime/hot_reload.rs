@@ -434,7 +434,7 @@ impl HotReloadRegistry {
                     log::info!("[plugin-watcher] registered {id}");
                 } else {
                     log::info!(
-                        "[plugin-watcher] {id} is a capability plugin (not an agent) — skipped agent registration"
+                        "[plugin-watcher] {id} capability registered live; not an agent provider — skipped agent registry"
                     );
                 }
                 self.state.lock().insert(
