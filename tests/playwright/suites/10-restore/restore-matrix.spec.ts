@@ -22,10 +22,9 @@ type MatrixManifest = {
 };
 
 const manifestPath = process.env.RESTORE_MATRIX_MANIFEST;
-if (!manifestPath) {
-  throw new Error("RESTORE_MATRIX_MANIFEST is required");
-}
-const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as MatrixManifest;
+const manifest = manifestPath
+  ? JSON.parse(readFileSync(manifestPath, "utf8")) as MatrixManifest
+  : null;
 
 async function visibleTerminalTextForPane(ui: ManagedUiSession, paneId: string): Promise<string> {
   return ui.page.evaluate((id) => {
@@ -49,15 +48,17 @@ function isAssertableSlot(slot: MatrixSlot): boolean {
 }
 
 test("@golden restore matrix markers are visible in their restored provider panes", async ({ api, ui, pollMarkerInDom }) => {
+  test.skip(!manifest || !manifestPath, "RESTORE_MATRIX_MANIFEST is required for restore-matrix golden");
+  const activeManifest = manifest!;
   test.setTimeout(600_000);
-  const asserted = manifest.slots.filter(isAssertableSlot);
+  const asserted = activeManifest.slots.filter(isAssertableSlot);
   expect(asserted.length, `no observable provider panes in ${manifestPath}`).toBeGreaterThan(0);
 
-  await api.focusWorkspace(manifest.workspace.id);
+  await api.focusWorkspace(activeManifest.workspace.id);
   const wsItem = ui.page.locator(
-    `[data-testid="workspace-item"][data-workspace-id="${manifest.workspace.id}"]`,
+    `[data-testid="workspace-item"][data-workspace-id="${activeManifest.workspace.id}"]`,
   );
-  await expect(wsItem, `workspace ${manifest.workspace.name} visible`).toBeVisible({ timeout: 30_000 });
+  await expect(wsItem, `workspace ${activeManifest.workspace.name} visible`).toBeVisible({ timeout: 30_000 });
   await wsItem.click();
 
   const allMarkers = asserted.map((slot) => slot.marker);
