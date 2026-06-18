@@ -3,6 +3,7 @@ import { invoke } from "../../lib/bridge";
 import type { Notification, NotificationAction } from "../../lib/types";
 import { InfoIcon, WarningIcon, ErrorIcon } from "../Icons";
 import { UI_BUTTON } from "../shared/design";
+import { PluginIcon } from "../Extensions/PluginIcon";
 
 const LEVEL_STYLES: Record<Notification["level"], { border: string; icon: string }> = {
   Info: { border: "border-l-[var(--ct-accent)]", icon: "text-[var(--ct-accent)]" },
@@ -65,6 +66,7 @@ function ToastItem({ notification, onDismiss, onNavigate }: ToastItemProps) {
   }, [notification.id, onDismiss]);
 
   const styles = LEVEL_STYLES[notification.level];
+  const hasCustomIcon = Boolean(notification.icon_svg || notification.icon_hint || notification.icon_color);
 
   return (
     <div
@@ -77,7 +79,20 @@ function ToastItem({ notification, onDismiss, onNavigate }: ToastItemProps) {
       `}
     >
           <div className="flex items-start gap-2">
-            <LevelIcon level={notification.level} className={`shrink-0 mt-0.5 ${styles.icon}`} />
+            {hasCustomIcon ? (
+              <span className="shrink-0 mt-0.5 inline-flex">
+                <PluginIcon
+                  plugin={{
+                    icon_svg: notification.icon_svg,
+                    icon_color: notification.icon_color,
+                    icon_hint: notification.icon_hint,
+                  }}
+                  size={16}
+                />
+              </span>
+            ) : (
+              <LevelIcon level={notification.level} className={`shrink-0 mt-0.5 ${styles.icon}`} />
+            )}
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-[var(--ct-fg)] truncate">
                 {notification.title}

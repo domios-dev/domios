@@ -21,6 +21,7 @@ import { invoke } from "../../lib/bridge";
 import { configureWithAI } from "../../lib/pluginConfigure";
 import type { DaemonApiConfig } from "../../lib/webApi";
 import type { AppConfig, PluginActivity, ProviderConfig } from "../../lib/types";
+import { resolvePluginActivityDisplay, type PluginActivityDisplayMap } from "../../lib/usePluginActivity";
 import { PluginActivityInline } from "./PluginActivityInline";
 
 export type ActionKind = "install" | "update" | "remove";
@@ -35,11 +36,13 @@ export function PluginDetailPanel({
   onUpdateFullConfig,
   onGone,
   activity,
+  activityDisplayMap,
 }: {
   entry: CatalogEntry;
   config: AppConfigShape | null;
   busy: string | null;
   activity?: PluginActivity;
+  activityDisplayMap: PluginActivityDisplayMap;
   onAction: (kind: ActionKind, entry: CatalogEntry, options?: ActionOptions) => void;
   onSave: (pluginId: string, key: string, value: unknown) => Promise<void>;
   onUpdateFullConfig: (next: AppConfig) => void | Promise<void>;
@@ -105,7 +108,10 @@ export function PluginDetailPanel({
             {entry.updateAvailable && entry.remoteVersion ? ` → v${entry.remoteVersion}` : ""}
             {entry.dev ? " · dev (workspace)" : entry.channel ? ` · ${channelLabel(entry.channel)}` : ""}
           </div>
-          <PluginActivityInline activity={activity} />
+          <PluginActivityInline
+            activity={activity}
+            display={resolvePluginActivityDisplay(entry.id, activityDisplayMap)}
+          />
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", flex: "none" }}>
           {action.kind === "none" ? (
