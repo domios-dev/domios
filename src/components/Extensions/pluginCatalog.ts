@@ -34,6 +34,8 @@ export interface CatalogEntry {
   grantedPermissions?: string[] | null;
   settingsSchema?: SettingField[] | null;
   description?: string | null;
+  /** Agent-facing help for the "Configure with AI" button (Part D). */
+  configHelp?: string | null;
   homepage?: string | null;
   readmeMarkdown?: string | null;
   iconSvg?: string | null;
@@ -101,6 +103,7 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
     grantedPermissions: p.granted_permissions ?? null,
     settingsSchema: p.settings_schema ?? null,
     description: p.description ?? null,
+    configHelp: p.config_help ?? null,
     homepage: p.homepage ?? null,
     readmeMarkdown: p.readme_markdown ?? null,
     iconSvg: p.icon_svg ?? null,
@@ -137,6 +140,7 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     grantedPermissions: base?.grantedPermissions ?? m.granted_permissions ?? null,
     settingsSchema: base?.settingsSchema ?? null,
     description: base?.description ?? m.description ?? null,
+    configHelp: base?.configHelp ?? m.config_help ?? null,
     homepage: base?.homepage ?? m.homepage ?? null,
     readmeMarkdown: base?.readmeMarkdown ?? m.readme_markdown ?? null,
     iconSvg: base?.iconSvg ?? m.icon_svg ?? null,

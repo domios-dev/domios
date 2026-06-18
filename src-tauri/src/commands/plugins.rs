@@ -327,6 +327,16 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         if let Some(desc) = m.get("description").and_then(|v| v.as_str()) {
             obj.insert("description".into(), serde_json::json!(desc));
         }
+        // Agent-facing help for the universal "Configure with AI" button (Part D).
+        // Manifest `configHelp` is canonical; fall back to `description` so every
+        // plugin yields some text for the safety-wrapped configure task.
+        if let Some(help) = m
+            .get("configHelp")
+            .and_then(|v| v.as_str())
+            .or_else(|| m.get("description").and_then(|v| v.as_str()))
+        {
+            obj.insert("config_help".into(), serde_json::json!(help));
+        }
         if let Some(hp) = m.get("homepage").and_then(|v| v.as_str()) {
             obj.insert("homepage".into(), serde_json::json!(hp));
         }
@@ -729,6 +739,40 @@ mod tests {
             entry["capabilities"]["status_bubble"],
             serde_json::json!(true)
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn enrich_exposes_config_help_with_description_fallback() {
+        let dir = std::env::temp_dir().join(format!("ct-confhelp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // configHelp present → carried verbatim as config_help.
+        let with_help = serde_json::json!({
+            "id": "lmstudio",
+            "description": "Local LLM via LM Studio.",
+            "configHelp": "Set `baseUrl` and `model` to point at your LM Studio server.",
+        });
+        let mut entry = serde_json::json!({ "id": "lmstudio" });
+        enrich_from_manifest(&mut entry, &dir, &with_help);
+        assert_eq!(
+            entry["config_help"],
+            serde_json::json!("Set `baseUrl` and `model` to point at your LM Studio server.")
+        );
+
+        // configHelp absent → fall back to description so the magic button always
+        // has agent-facing text.
+        let no_help = serde_json::json!({
+            "id": "git",
+            "description": "Shows git status in the pane bubble.",
+        });
+        let mut entry2 = serde_json::json!({ "id": "git" });
+        enrich_from_manifest(&mut entry2, &dir, &no_help);
+        assert_eq!(
+            entry2["config_help"],
+            serde_json::json!("Shows git status in the pane bubble.")
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 
