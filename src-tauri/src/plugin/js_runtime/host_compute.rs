@@ -388,7 +388,10 @@ fn enqueue_agent_turn(
             .workers
             .update_status(&worker_id_task, WorkerStatus::Starting);
 
-        let task = workers::build_worker_task(&intent, &worker_id_task, &task_prompt);
+        // Plugin agents own their full prompt and act through plugin verbs — do
+        // NOT wrap them in the mem graph-worker preamble (that identity makes the
+        // agent report via `mem worker` and never run the plugin's commands).
+        let task = crate::prompts::PLUGIN_AGENT_TASK_PREAMBLE.replace("{task}", &task_prompt);
         let svc_blocking = svc_task.clone();
         let worker_id_blocking = worker_id_task.clone();
         let title = format!("plugin:{intent}");
