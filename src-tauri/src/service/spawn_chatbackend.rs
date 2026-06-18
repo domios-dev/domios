@@ -10,10 +10,56 @@ use std::future::Future;
 
 use super::spawn::{PaneCommand, PaneHandle, SpawnPaneSpec};
 use super::ServiceContext;
+use crate::agent::chat_types::StructuredChat;
 use crate::multiplexer::types::PaneBacking;
 
-/// How often the inbound poll loop pulls new transcript from the plugin.
-const POLL_INTERVAL_MS: u64 = 500;
+/// Adaptive inbound-poll cadence bounds. While a turn/stream is active (a
+/// non-empty delta arrived on the previous tick) the loop polls at
+/// [`POLL_ACTIVE_MS`] for near-token streaming; when idle it backs off
+/// geometrically up to [`POLL_IDLE_MS`] so an open-but-quiet chat pane costs
+/// almost nothing. The floor prevents a busy-spin.
+const POLL_ACTIVE_MS: u64 = 60;
+const POLL_IDLE_MS: u64 = 750;
+
+/// Next sleep before the following poll. Active (`had_delta`) snaps back to the
+/// fast cadence; idle doubles the current delay, clamped to `[ACTIVE, IDLE]`.
+fn next_poll_delay_ms(had_delta: bool, current_ms: u64) -> u64 {
+    if had_delta {
+        POLL_ACTIVE_MS
+    } else {
+        current_ms
+            .saturating_mul(2)
+            .clamp(POLL_ACTIVE_MS, POLL_IDLE_MS)
+    }
+}
+
+/// Per-tick poll-loop decision.
+struct PollTick {
+    /// Cursor to pass on the next poll: whatever the plugin returned, falling
+    /// back to the previous cursor when it returned none.
+    cursor: Option<String>,
+    /// Emit the delta to the chat UI only when it carried new messages.
+    emit: bool,
+    /// Adaptive delay before the next poll.
+    delay_ms: u64,
+}
+
+/// Pure per-tick planning for the inbound poll loop: advance the cursor, decide
+/// whether to emit (non-empty delta only — idle ⇒ zero emit), and pick the next
+/// adaptive delay. Keeping this pure makes the loop's contract unit-testable
+/// without a live daemon/sink.
+fn plan_poll_tick(
+    delta: &StructuredChat,
+    prev_cursor: Option<String>,
+    prev_delay: u64,
+) -> PollTick {
+    let had_delta = !delta.messages.is_empty();
+    PollTick {
+        cursor: delta.cursor.clone().or(prev_cursor),
+        emit: had_delta,
+        delay_ms: next_poll_delay_ms(had_delta, prev_delay),
+    }
+}
 
 /// Spawn chatBackend background work on the daemon's main Tokio runtime.
 ///
@@ -146,23 +192,41 @@ impl ServiceContext {
         let app = self.app_handle.clone();
         spawn_bg(async move {
             let sink = crate::service::pane_chat::structured_sink::make_sink(app);
+            // Per-session cursor: the plugin returns only the DELTA after this
+            // bookmark plus the next cursor. None on the first tick ⇒ the plugin
+            // returns the whole transcript and seeds the cursor.
+            let mut cursor: Option<String> = None;
+            // Start idle; the first non-empty delta snaps the loop to the fast
+            // cadence (adaptive: near-token streaming while active, ~zero when idle).
+            let mut delay_ms = POLL_IDLE_MS;
             loop {
-                tokio::time::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
                 if svc.mux.lock().get_pane(&pane_id).is_none() {
                     break;
                 }
-                let (svc2, plugin2, sid2) = (svc.clone(), plugin_id.clone(), session_id.clone());
+                let (svc2, plugin2, sid2, cur) = (
+                    svc.clone(),
+                    plugin_id.clone(),
+                    session_id.clone(),
+                    cursor.clone(),
+                );
                 match tokio::task::spawn_blocking(move || {
                     // Item 6: advance any async work (NPC agent tickets → replies)
                     // BEFORE reading the transcript, so a host-driven async
                     // chatBackend actually progresses on the real daemon.
                     let _ = svc2.chatbackend_pump(&plugin2, &sid2);
-                    svc2.chatbackend_poll(&plugin2, &sid2)
+                    svc2.chatbackend_poll(&plugin2, &sid2, cur.as_deref())
                 })
                 .await
                 {
-                    Ok(Ok(msgs)) if !msgs.is_empty() => sink.emit(&pane_id, msgs, None),
-                    Ok(Ok(_)) => {}
+                    Ok(Ok(delta)) => {
+                        let tick = plan_poll_tick(&delta, cursor.take(), delay_ms);
+                        cursor = tick.cursor;
+                        delay_ms = tick.delay_ms;
+                        if tick.emit {
+                            sink.emit(&pane_id, delta.messages, None);
+                        }
+                    }
                     Ok(Err(e)) => {
                         log::warn!("[chatbackend] poll pane {} failed: {}", pane_id, e)
                     }
@@ -181,6 +245,80 @@ impl ServiceContext {
 mod tests {
     use std::sync::mpsc;
     use std::time::Duration;
+
+    use super::{next_poll_delay_ms, plan_poll_tick, POLL_ACTIVE_MS, POLL_IDLE_MS};
+    use crate::agent::chat_types::{ChatMsg, StructuredChat};
+
+    fn delta(n: usize, cursor: Option<&str>) -> StructuredChat {
+        StructuredChat {
+            messages: (0..n)
+                .map(|i| ChatMsg {
+                    id: i.to_string(),
+                    ..Default::default()
+                })
+                .collect(),
+            cursor: cursor.map(|c| c.to_string()),
+        }
+    }
+
+    #[test]
+    fn cadence_is_fast_while_active() {
+        // A delta arrived this tick ⇒ poll fast next, regardless of prior delay.
+        assert_eq!(next_poll_delay_ms(true, POLL_IDLE_MS), POLL_ACTIVE_MS);
+        assert_eq!(next_poll_delay_ms(true, POLL_ACTIVE_MS), POLL_ACTIVE_MS);
+        assert!(POLL_ACTIVE_MS <= 80, "active cadence must be near-token");
+    }
+
+    #[test]
+    fn cadence_backs_off_to_idle_when_quiet() {
+        // Sustained idle climbs geometrically and converges to the idle cap,
+        // never below the floor and never above the cap (no busy-spin).
+        let mut d = POLL_ACTIVE_MS;
+        let mut steps = 0;
+        loop {
+            let next = next_poll_delay_ms(false, d);
+            assert!(next >= POLL_ACTIVE_MS && next <= POLL_IDLE_MS);
+            assert!(next > d || next == POLL_IDLE_MS, "must grow until capped");
+            d = next;
+            steps += 1;
+            if d == POLL_IDLE_MS {
+                break;
+            }
+            assert!(steps < 20, "must converge to idle cap");
+        }
+        // Stays pinned at the idle cap once reached.
+        assert_eq!(next_poll_delay_ms(false, POLL_IDLE_MS), POLL_IDLE_MS);
+    }
+
+    #[test]
+    fn tick_emits_and_advances_cursor_on_nonempty_delta() {
+        let tick = plan_poll_tick(&delta(2, Some("c2")), Some("c1".into()), POLL_IDLE_MS);
+        assert!(tick.emit, "non-empty delta must emit");
+        assert_eq!(tick.cursor.as_deref(), Some("c2"), "cursor advances");
+        assert_eq!(tick.delay_ms, POLL_ACTIVE_MS, "active ⇒ fast next poll");
+    }
+
+    #[test]
+    fn tick_idle_does_not_emit_and_keeps_cursor() {
+        // Empty delta with no fresh cursor ⇒ no emit, prior cursor retained,
+        // cadence backs off.
+        let tick = plan_poll_tick(&delta(0, None), Some("c1".into()), POLL_ACTIVE_MS);
+        assert!(!tick.emit, "empty delta must NOT emit");
+        assert_eq!(
+            tick.cursor.as_deref(),
+            Some("c1"),
+            "cursor unchanged when idle"
+        );
+        assert!(tick.delay_ms > POLL_ACTIVE_MS, "idle backs off");
+    }
+
+    #[test]
+    fn tick_first_poll_no_cursor_emits_full_transcript() {
+        // First tick: prev cursor None, plugin returns whole transcript + cursor.
+        let tick = plan_poll_tick(&delta(3, Some("c0")), None, POLL_IDLE_MS);
+        assert!(tick.emit);
+        assert_eq!(tick.cursor.as_deref(), Some("c0"));
+    }
 
     /// Repro for the socket-RPC `agent.spawn <chatBackend>` panic. The poll loop
     /// used `tokio::spawn`, which requires the caller to already be inside a

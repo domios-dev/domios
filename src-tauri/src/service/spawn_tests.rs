@@ -746,8 +746,12 @@ impl ChatBackendProvider for SpawnRouteShell {
         Ok(())
     }
 
-    fn poll(&self, _: &str) -> Result<Vec<crate::agent::chat_types::ChatMsg>, ChatBackendError> {
-        Ok(Vec::new())
+    fn poll(
+        &self,
+        _: &str,
+        _: Option<&str>,
+    ) -> Result<crate::agent::chat_types::StructuredChat, ChatBackendError> {
+        Ok(crate::agent::chat_types::StructuredChat::default())
     }
 
     fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
@@ -806,8 +810,12 @@ impl ChatBackendProvider for BackendOnlyShell {
         Ok(())
     }
 
-    fn poll(&self, _: &str) -> Result<Vec<crate::agent::chat_types::ChatMsg>, ChatBackendError> {
-        Ok(Vec::new())
+    fn poll(
+        &self,
+        _: &str,
+        _: Option<&str>,
+    ) -> Result<crate::agent::chat_types::StructuredChat, ChatBackendError> {
+        Ok(crate::agent::chat_types::StructuredChat::default())
     }
 
     fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {

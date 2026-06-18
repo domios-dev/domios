@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use crate::agent::chat_types::ChatMsg;
+use crate::agent::chat_types::StructuredChat;
 use crate::agent::provider::ModelInfo;
 use crate::plugin::capability::CapabilityRegistry;
 
@@ -95,10 +95,18 @@ pub trait ChatBackendProvider: Send + Sync {
         Ok(())
     }
 
-    /// Pull any new transcript messages. Empty ⇒ nothing new. The plugin's
-    /// `NormalizedChatMessage[]` deserializes directly into [`ChatMsg`]
-    /// (`type` → `kind`).
-    fn poll(&self, session_id: &str) -> Result<Vec<ChatMsg>, ChatBackendError>;
+    /// Pull transcript after `cursor`. The plugin export is
+    /// `poll(sessionId, cursor) -> { messages, cursor }`: with a cursor it
+    /// returns ONLY the delta since that bookmark plus the next cursor; with
+    /// `None` it returns the whole transcript (and seeds the cursor). Empty
+    /// `messages` ⇒ nothing new (the loop emits nothing and backs off). The
+    /// plugin's `NormalizedChatMessage[]` deserializes directly into
+    /// [`ChatMsg`](crate::agent::chat_types::ChatMsg) (`type` → `kind`).
+    fn poll(
+        &self,
+        session_id: &str,
+        cursor: Option<&str>,
+    ) -> Result<StructuredChat, ChatBackendError>;
 
     /// Tear down a session. Best-effort; called on pane close.
     fn close_session(&self, session_id: &str) -> Result<(), ChatBackendError>;
