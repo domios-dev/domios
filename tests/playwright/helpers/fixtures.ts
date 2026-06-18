@@ -77,7 +77,9 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
   webBrowser: [
     async ({}, use) => {
-      const browser = await chromium.launch({ channel: "msedge" });
+      const browser = await chromium.launch(
+        process.platform === "win32" ? { channel: "msedge" } : {},
+      );
       try {
         await use(browser);
       } finally {
