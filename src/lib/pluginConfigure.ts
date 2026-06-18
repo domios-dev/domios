@@ -45,17 +45,25 @@ export async function configureWithAI(
 ): Promise<void> {
   const task = buildConfigureTask(id, name, help);
   const body = { agent: "claude", title: `Configure ${name}`, task, activate: true };
+  type SpawnResp = { id?: string; pane_id?: string } | null;
+  let spawned: SpawnResp = null;
   if (IS_WEB) {
-    await webJson("POST", "/api/agents/spawn", body);
-    return;
+    spawned = (await webJson("POST", "/api/agents/spawn", body)) as SpawnResp;
+  } else {
+    const token = daemonAuthToken(api);
+    const res = await fetch(`${daemonHttpBase(api)}/api/agents/spawn`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+    spawned = (await res.json().catch(() => null)) as SpawnResp;
   }
-  const token = daemonAuthToken(api);
-  await fetch(`${daemonHttpBase(api)}/api/agents/spawn`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  });
+  // Bring the freshly spawned Configure pane forward (App listens for this).
+  const paneId = spawned?.id ?? spawned?.pane_id;
+  if (paneId) {
+    window.dispatchEvent(new CustomEvent("codeterm:focus-pane", { detail: { paneId } }));
+  }
 }
