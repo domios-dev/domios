@@ -110,6 +110,9 @@ export interface Notification {
   workspace_id: string | null;
   title: string;
   body: string | null;
+  icon_svg?: string | null;
+  icon_color?: string | null;
+  icon_hint?: string | null;
   level: "Info" | "Warning" | "Error";
   timestamp: number;
   read: boolean;
