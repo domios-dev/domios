@@ -204,8 +204,22 @@ export interface ModelInfo {
 export interface Model extends ModelInfo {
 }
 
+export interface PresetInfo {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface ChatBackendOpenSessionCtx {
+  paneId: string;
+  config: unknown;
+  systemPrompt?: string;
+  preset?: string;
+  model?: string;
+}
+
 export interface ChatBackend {
-  openSession(ctx: { paneId: string; config: unknown }): { sessionId: string };
+  openSession(ctx: ChatBackendOpenSessionCtx): { sessionId: string };
   sendMessage(sessionId: string, text: string): void;
   // Optional turn-advance, called by the host poll loop each tick BEFORE `poll`
   // (Item 6). An ASYNC backend does its work here: drain `host.agent`/`host.worker`
@@ -219,6 +233,7 @@ export interface ChatBackend {
   ): { messages: NormalizedChatMessage[]; cursor: string | null; done?: boolean };
   closeSession(sessionId: string): void;
   listModels?(): Model[];
+  listPresets?(): PresetInfo[];
 }
 
 // ── chatPreprocessor (compose/send-time outbound stage) ──

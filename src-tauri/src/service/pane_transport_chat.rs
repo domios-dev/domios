@@ -16,6 +16,24 @@ use crate::agent::chat_types::ChatMsg;
 use crate::agent::provider::ModelInfo;
 use crate::chatbackend::ChatBackendProvider;
 
+fn build_chatbackend_open_session_ctx(
+    pane_id: &str,
+    config: serde_json::Value,
+) -> serde_json::Value {
+    let mut ctx = serde_json::Map::new();
+    ctx.insert(
+        "paneId".into(),
+        serde_json::Value::String(pane_id.to_string()),
+    );
+    for key in ["systemPrompt", "preset", "model"] {
+        if let Some(value) = config.get(key).and_then(|v| v.as_str()) {
+            ctx.insert(key.into(), serde_json::Value::String(value.to_string()));
+        }
+    }
+    ctx.insert("config".into(), config);
+    serde_json::Value::Object(ctx)
+}
+
 pub struct ChatBackendTransport<'a> {
     pub(crate) svc: &'a ServiceContext,
     pub(crate) pane_id: String,
@@ -91,15 +109,15 @@ impl ServiceContext {
     }
 
     /// Open a plugin session for a pane. Builds the SDK `openSession` ctx
-    /// envelope `{ paneId, config }` (the plugin may key its session on
-    /// `paneId`, e.g. LM Studio) and returns the plugin-chosen session id.
+    /// envelope `{ paneId, config, systemPrompt?, preset?, model? }` and
+    /// returns the plugin-chosen session id.
     pub fn chatbackend_open_session(
         &self,
         plugin_id: &str,
         pane_id: &str,
         config: serde_json::Value,
     ) -> Result<String, String> {
-        let ctx = serde_json::json!({ "paneId": pane_id, "config": config });
+        let ctx = build_chatbackend_open_session_ctx(pane_id, config);
         self.chatbackend_provider(plugin_id)?
             .open_session(ctx)
             .map_err(|e| e.to_string())
@@ -148,5 +166,49 @@ impl ServiceContext {
         self.chatbackend_provider(plugin_id)?
             .list_models()
             .map_err(|e| e.to_string())
+    }
+
+    pub fn chatbackend_list_presets(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Vec<crate::chatbackend::PresetInfo>, String> {
+        self.chatbackend_provider(plugin_id)?
+            .list_presets()
+            .map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    #[test]
+    fn chatbackend_open_session_ctx_promotes_open_shell_fields() {
+        let ctx = super::build_chatbackend_open_session_ctx(
+            "pane-7",
+            json!({
+                "systemPrompt": "You are CodeTerm.",
+                "preset": "codeterm",
+                "model": "qwen",
+                "temperature": 0.2
+            }),
+        );
+
+        assert_eq!(ctx["paneId"], "pane-7");
+        assert_eq!(ctx["config"]["temperature"], 0.2);
+        assert_eq!(ctx["systemPrompt"], "You are CodeTerm.");
+        assert_eq!(ctx["preset"], "codeterm");
+        assert_eq!(ctx["model"], "qwen");
+    }
+
+    #[test]
+    fn chatbackend_open_session_ctx_omits_absent_open_shell_fields() {
+        let ctx = super::build_chatbackend_open_session_ctx("pane-7", json!({}));
+
+        assert_eq!(ctx["paneId"], "pane-7");
+        assert_eq!(ctx["config"], json!({}));
+        assert!(ctx.get("systemPrompt").is_none());
+        assert!(ctx.get("preset").is_none());
+        assert!(ctx.get("model").is_none());
     }
 }
