@@ -95,7 +95,7 @@ export function PluginDetailPanel({
   };
 
   return (
-    <div>
+    <div data-testid="extensions-plugin-detail" data-plugin-id={entry.id}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 16 }}>
         <div style={{ width: 44, height: 44, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", background: "var(--ct-bg-elev)", border: "1px solid var(--ct-border-subtle)" }}>
           <PluginIcon plugin={iconOf(entry)} size={22} />
@@ -118,6 +118,8 @@ export function PluginDetailPanel({
             <span style={{ fontSize: 11.5, color: "var(--ct-muted)", padding: "5px 0" }}>{action.label}</span>
           ) : (
             <button
+              data-testid={`extensions-plugin-${action.kind === "uninstall" ? "uninstall" : action.kind}`}
+              data-plugin-id={entry.id}
               onClick={runPrimary}
               disabled={action.disabled || anyBusy}
               title={action.reason}
@@ -128,6 +130,8 @@ export function PluginDetailPanel({
           )}
           {showUninstall && (
             <button
+              data-testid="extensions-plugin-uninstall"
+              data-plugin-id={entry.id}
               onClick={beginRemove}
               disabled={anyBusy}
               style={secondaryBtnStyle(anyBusy)}
@@ -142,6 +146,8 @@ export function PluginDetailPanel({
         <div
           role="dialog"
           aria-label={`Uninstall ${entry.displayName}`}
+          data-testid="extensions-uninstall-confirm"
+          data-plugin-id={entry.id}
           style={{
             border: "1px solid rgba(229,115,115,0.36)",
             borderRadius: 8,
@@ -165,6 +171,7 @@ export function PluginDetailPanel({
           >
             <input
               type="checkbox"
+              data-testid="extensions-uninstall-remove-data"
               checked={removeData}
               onChange={(e) => setRemoveData(e.currentTarget.checked)}
             />
@@ -172,6 +179,7 @@ export function PluginDetailPanel({
           </label>
           <div style={{ display: "flex", gap: 8 }}>
             <button
+              data-testid="extensions-uninstall-confirm-submit"
               onClick={() => {
                 setConfirmingRemove(false);
                 onAction("remove", entry, { removeData });
@@ -182,6 +190,7 @@ export function PluginDetailPanel({
               Uninstall
             </button>
             <button
+              data-testid="extensions-uninstall-confirm-cancel"
               onClick={() => setConfirmingRemove(false)}
               disabled={anyBusy}
               style={secondaryBtnStyle(anyBusy)}
@@ -195,6 +204,7 @@ export function PluginDetailPanel({
       {entry.pendingReload && (
         <div
           role="status"
+          data-testid="extensions-reload-required"
           style={{
             fontSize: 12,
             color: "var(--ct-warn, #f59e0b)",
@@ -211,13 +221,15 @@ export function PluginDetailPanel({
       )}
 
       {action.reason && action.disabled && (
-        <div style={{ fontSize: 11.5, color: "#fca5a5", marginBottom: 14 }}>{action.reason}</div>
+        <div style={{ fontSize: 11.5, color: "#fca5a5", marginBottom: 14 }} data-testid="extensions-action-disabled-reason">{action.reason}</div>
       )}
 
       {/* P1: a chatBackend plugin is opened as a non-PTY chat pane from here. */}
       {entry.capabilities?.chat_backend && entry.installed && !entry.pendingReload && (
         <div style={{ marginBottom: 16 }}>
           <button
+            data-testid="extensions-open-chat"
+            data-plugin-id={entry.id}
             onClick={() => {
               void invoke("open_chat_backend_pane", { pluginId: entry.id }).catch((e) =>
                 console.error("open_chat_backend_pane failed:", e),
@@ -236,6 +248,8 @@ export function PluginDetailPanel({
       {entry.installed && !entry.pendingReload && (
         <div style={{ marginBottom: 16 }}>
           <button
+            data-testid="extensions-configure-ai"
+            data-plugin-id={entry.id}
             onClick={() => {
               const help =
                 entry.configHelp ||
@@ -256,7 +270,7 @@ export function PluginDetailPanel({
       )}
 
       {(capKeys.length > 0 || perms.length > 0) && (
-        <div style={{ marginBottom: 18 }}>
+        <div style={{ marginBottom: 18 }} data-testid="extensions-capabilities">
           <GroupLabel>Capabilities</GroupLabel>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px" }}>
             {capKeys.map((c) => (
@@ -270,7 +284,7 @@ export function PluginDetailPanel({
       )}
 
       {entry.installed && schema.length > 0 && config && (
-        <div style={{ marginBottom: 20 }}>
+        <div style={{ marginBottom: 20 }} data-testid="extensions-settings">
           <GroupLabel>Settings</GroupLabel>
           <SchemaRenderer
             schema={schema}
@@ -287,7 +301,7 @@ export function PluginDetailPanel({
       {entry.readmeMarkdown ? (
         <MarkdownDescription markdown={entry.readmeMarkdown} />
       ) : entry.description ? (
-        <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--ct-fg)", margin: 0 }}>{entry.description}</p>
+        <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--ct-fg)", margin: 0 }} data-testid="extensions-description">{entry.description}</p>
       ) : (
         <p style={{ fontSize: 12.5, color: "var(--ct-muted)", margin: 0 }}>
           No description provided for this {catalogKindLabel(entry)}.
@@ -295,6 +309,7 @@ export function PluginDetailPanel({
       )}
       {entry.homepage && (
         <a
+          data-testid="extensions-homepage-link"
           href={entry.homepage}
           target="_blank"
           rel="noreferrer noopener"

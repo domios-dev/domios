@@ -19,10 +19,10 @@ test("@smoke the real app window renders the shell UI", async ({ ui }) => {
   // Non-empty render: the shell mounts real content, not a blank root.
   const childCount = await page.locator("#root > *").count();
   expect(childCount).toBeGreaterThan(0);
-  // A terminal surface exists (xterm.js mounts .xterm containers); a pane
-  // left in chat-view shows the composer instead — either proves the shell.
+  // A terminal surface exists; a pane left in chat-view shows the composer
+  // instead — either proves the shell.
   await expect(
-    page.locator('.xterm:visible, [data-testid="chat-composer"]').first(),
+    page.locator('[data-testid="terminal-pane"], [data-testid="chat-composer"]').first(),
   ).toBeVisible();
   // Desktop chrome is present — the web mirror strips it (see 12-web),
   // so this guards the inverse: Tauri must keep its titlebar.

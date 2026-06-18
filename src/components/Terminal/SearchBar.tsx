@@ -58,6 +58,7 @@ export function SearchBar({ searchAddon, onClose }: SearchBarProps) {
 
   return (
     <div
+      data-testid="terminal-search-bar"
       style={{
         position: "absolute",
         top: 0,
@@ -79,6 +80,7 @@ export function SearchBar({ searchAddon, onClose }: SearchBarProps) {
       <input
         ref={inputRef}
         type="text"
+        data-testid="terminal-search-input"
         value={query}
         onChange={(e) => handleInputChange(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -96,6 +98,7 @@ export function SearchBar({ searchAddon, onClose }: SearchBarProps) {
         }}
       />
       <button
+        data-testid="terminal-search-previous"
         onClick={findPrevious}
         title="Previous (Shift+Enter)"
         style={btnStyle}
@@ -103,6 +106,7 @@ export function SearchBar({ searchAddon, onClose }: SearchBarProps) {
         &#x25B2;
       </button>
       <button
+        data-testid="terminal-search-next"
         onClick={findNext}
         title="Next (Enter)"
         style={btnStyle}
@@ -110,6 +114,7 @@ export function SearchBar({ searchAddon, onClose }: SearchBarProps) {
         &#x25BC;
       </button>
       <button
+        data-testid="terminal-search-close"
         onClick={() => {
           searchAddon?.clearDecorations();
           onClose();

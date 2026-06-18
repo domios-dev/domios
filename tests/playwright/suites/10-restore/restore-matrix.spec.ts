@@ -1,7 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
-import { ApiClient } from "../../helpers/api-client";
-import { connectUi, type UiSession } from "../../helpers/dev-console";
+import { expect, test, type ManagedUiSession } from "../../helpers/fixtures";
 
 type MatrixSlot = {
   provider: string;
@@ -28,18 +26,8 @@ if (!manifestPath) {
   throw new Error("RESTORE_MATRIX_MANIFEST is required");
 }
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as MatrixManifest;
-const api = new ApiClient();
-let ui: UiSession;
 
-test.beforeAll(async () => {
-  ui = await connectUi();
-});
-
-test.afterAll(async () => {
-  await ui.browser.close();
-});
-
-async function visibleTerminalTextForPane(paneId: string): Promise<string> {
+async function visibleTerminalTextForPane(ui: ManagedUiSession, paneId: string): Promise<string> {
   return ui.page.evaluate((id) => {
     const pane = document.querySelector(`[data-pane-id="${id}"]`);
     const roots = pane
@@ -60,7 +48,7 @@ function isAssertableSlot(slot: MatrixSlot): boolean {
   return !slot.skipped;
 }
 
-test("@golden restore matrix markers are visible in their restored provider panes", async () => {
+test("@golden restore matrix markers are visible in their restored provider panes", async ({ api, ui, pollMarkerInDom }) => {
   test.setTimeout(600_000);
   const asserted = manifest.slots.filter(isAssertableSlot);
   expect(asserted.length, `no observable provider panes in ${manifestPath}`).toBeGreaterThan(0);
@@ -86,29 +74,19 @@ test("@golden restore matrix markers are visible in their restored provider pane
     await tab.click();
 
     try {
-      await ui.page.waitForFunction(
-        ({ paneId, marker }) => {
-          const normalize = (text: string) => text.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
-          const needle = normalize(marker);
-          const pane = document.querySelector(`[data-pane-id="${paneId}"]`);
-          const roots = pane
-            ? Array.from(pane.querySelectorAll(".xterm-rows, .xterm-accessibility-tree"))
-            : Array.from(document.querySelectorAll(".xterm-rows, .xterm-accessibility-tree"));
-          return roots
-            .filter((el) => el.tagName !== "STYLE" && el.tagName !== "SCRIPT")
-            .some((el) => normalize((el as HTMLElement).innerText || el.textContent || "").includes(needle));
-        },
-        { paneId: slot.pane_id!, marker: slot.marker },
-        { timeout: 120_000, polling: 1_000 },
-      );
+      await pollMarkerInDom(slot.marker, {
+        paneId: slot.pane_id!,
+        timeout: 120_000,
+        normalize: true,
+      });
     } catch (error) {
-      const visibleText = await visibleTerminalTextForPane(slot.pane_id!);
+      const visibleText = await visibleTerminalTextForPane(ui, slot.pane_id!);
       throw new Error(
         `marker timeout provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id} tab=${slot.tab_id} marker=${slot.marker} visibleTail=${JSON.stringify(visibleText.slice(-1000))}: ${String(error)}`,
       );
     }
 
-    const visibleText = await visibleTerminalTextForPane(slot.pane_id!);
+    const visibleText = await visibleTerminalTextForPane(ui, slot.pane_id!);
     const normalizedVisible = markerNeedle(visibleText);
     expect(
       normalizedVisible,

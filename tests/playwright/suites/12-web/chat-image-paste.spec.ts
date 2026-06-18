@@ -7,41 +7,28 @@
  * handler's image-capture → storeBlob (→ /api/upload) → attach path. The async
  * Clipboard API branch (the WebView2 screenshot case) is covered by live verify.
  */
-import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
-import { ApiClient, readDevToken } from "../../helpers/api-client";
-import { API_BASE } from "../../helpers/dev-console";
+import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 
 const WEB_URL = `${API_BASE}/web/`;
-const api = new ApiClient();
-let browser: Browser;
-
-test.beforeAll(async () => {
-  browser = await chromium.launch({ channel: "msedge" });
-});
-test.afterAll(async () => {
-  await browser.close();
-});
 
 // 1x1 transparent PNG.
 const PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
-test("@golden pasting a screenshot into the chat composer attaches it", async () => {
+test("@golden pasting a screenshot into the chat composer attaches it", async ({ api, webBrowser, paneCleanup, spawnAgent }) => {
   test.setTimeout(120_000);
-  const ctx = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  const ctx = await webBrowser.newContext({ viewport: { width: 375, height: 812 } });
   const page: Page = await ctx.newPage();
 
-  for (const pane of await api.panes()) {
-    if (!pane.protected) await api.closePane(pane.id).catch(() => {});
-  }
+  await paneCleanup.closeUnprotectedPanes();
   await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
   await page.locator('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]').first().waitFor({ timeout: 20_000 });
 
-  const inbox = (await api.createPane({ title: "pw-imgpaste-inbox" })) as { id: string };
+  const inbox = await paneCleanup.createPane({ title: "pw-imgpaste-inbox" });
   let agentPaneId: string | undefined;
   try {
     await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
-    const spawned = await api.post<{ pane_id: string }>("/agents/spawn", {
+    const spawned = await spawnAgent({
       agent: "claude",
       model: "sonnet",
       role: "Worker",
@@ -71,8 +58,7 @@ test("@golden pasting a screenshot into the chat composer attaches it", async ()
 
     await expect(page.locator('[data-testid="attachment-chip"]').first()).toBeVisible({ timeout: 10_000 });
   } finally {
-    if (agentPaneId) await api.closePane(agentPaneId).catch(() => {});
-    await api.closePane(inbox.id).catch(() => {});
+    if (agentPaneId) paneCleanup.track(agentPaneId);
     await ctx.close();
   }
 });

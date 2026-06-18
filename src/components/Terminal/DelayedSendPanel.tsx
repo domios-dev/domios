@@ -47,6 +47,7 @@ function PanelHeader({
       </div>
       <button
         type="button"
+        data-testid="delayed-send-panel-close"
         onMouseDown={(e) => e.preventDefault()}
         onClick={onClose}
         className="inline-flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_18%,transparent)]"
@@ -91,7 +92,7 @@ export function DelayedSendSchedulePanel({
   const presetHeight = touchMode ? "h-11" : "h-9";
 
   return (
-    <div className={panelClass} style={panelStyle}>
+    <div className={panelClass} style={panelStyle} data-testid="delayed-send-schedule-panel">
       <PanelHeader
         icon={<CalendarClock size={15} />}
         title="Schedule message"
@@ -105,6 +106,8 @@ export function DelayedSendSchedulePanel({
             <button
               key={p.label}
               type="button"
+              data-testid="delayed-send-preset"
+              data-preset-label={p.label}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 setValue(toLocalInputValue(p.ms));
@@ -127,6 +130,7 @@ export function DelayedSendSchedulePanel({
         })}
         <button
           type="button"
+          data-testid="delayed-send-custom-toggle"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => setCustomOpen((v) => !v)}
           className={`${presetHeight} inline-flex items-center justify-center gap-1 rounded-lg border text-[13px] font-medium transition active:scale-[0.97]`}
@@ -148,6 +152,7 @@ export function DelayedSendSchedulePanel({
       {customOpen && (
         <input
           type="datetime-local"
+          data-testid="delayed-send-custom-input"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           className={`mt-2 w-full rounded-lg border bg-transparent px-2.5 text-[13px] outline-none ${touchMode ? "h-11" : "h-9"}`}
@@ -162,6 +167,7 @@ export function DelayedSendSchedulePanel({
       <div className="mt-3 flex items-center gap-2">
         <button
           type="button"
+          data-testid="delayed-send-stash"
           onMouseDown={(e) => e.preventDefault()}
           onClick={onStash}
           disabled={busy}
@@ -196,6 +202,7 @@ export function DelayedSendSchedulePanel({
 
         <button
           type="button"
+          data-testid="delayed-send-schedule-submit"
           onMouseDown={(e) => e.preventDefault()}
           className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-4 text-[13px] font-semibold text-white shadow-sm transition active:scale-[0.98] disabled:opacity-40 ${touchMode ? "h-11" : "h-9"}`}
           disabled={busy || invalid}
@@ -249,6 +256,8 @@ function CardAction({
   return (
     <button
       type="button"
+      data-testid="delayed-send-card-action"
+      data-action-title={title}
       onMouseDown={(e) => e.preventDefault()}
       disabled={disabled}
       onClick={onClick}
@@ -297,6 +306,9 @@ function QueueCard({
 
   return (
     <div
+      data-testid="delayed-send-queue-item"
+      data-delayed-message-id={msg.id}
+      data-delayed-message-state={msg.state}
       className="group rounded-xl border px-2.5 py-2 transition-colors"
       style={{
         borderColor: failed
@@ -308,6 +320,7 @@ function QueueCard({
       {editing ? (
         <div className="grid gap-2">
           <textarea
+            data-testid="delayed-send-edit-text"
             value={text}
             onChange={(e) => onText(e.target.value)}
             className="min-h-16 resize-y rounded-lg border bg-transparent px-2.5 py-1.5 text-[13px] leading-5 outline-none"
@@ -319,6 +332,7 @@ function QueueCard({
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="datetime-local"
+              data-testid="delayed-send-edit-time"
               value={time}
               onChange={(e) => onTime(e.target.value)}
               className={`min-w-[12rem] flex-1 rounded-lg border bg-transparent px-2.5 text-[13px] outline-none ${touchMode ? "h-10" : "h-8"}`}
@@ -438,7 +452,7 @@ export function DelayedSendQueuePanel({
   }
 
   return (
-    <div className={panelClass} style={panelStyle}>
+    <div className={panelClass} style={panelStyle} data-testid="delayed-send-queue-panel">
       <PanelHeader
         icon={<Clock3 size={15} />}
         title={`${messages.length} queued`}
@@ -447,6 +461,7 @@ export function DelayedSendQueuePanel({
       <div className="grid max-h-72 gap-2 overflow-y-auto pr-0.5">
         {messages.length === 0 ? (
           <div
+            data-testid="delayed-send-queue-empty"
             className="rounded-xl border border-dashed px-3 py-6 text-center text-xs"
             style={{
               color: "var(--ct-muted-fg)",

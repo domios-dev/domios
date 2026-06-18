@@ -149,7 +149,7 @@ export function SecretBackendDetail({
   const st = status?.status.status;
 
   return (
-    <div>
+    <div data-testid="extensions-secret-backend-detail" data-plugin-id={entry.id}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
         <div style={{ width: 40, height: 40, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.04)" }}>
           <PluginIcon plugin={iconOf(entry)} size={18} />
@@ -177,6 +177,7 @@ export function SecretBackendDetail({
       >
         <input
           type="checkbox"
+          data-testid="extensions-secret-backend-toggle"
           checked={isActive}
           disabled={busy}
           onChange={(e) => void switchBackend(e.target.checked)}
@@ -204,6 +205,7 @@ export function SecretBackendDetail({
             <>
               <GroupLabel>Default organization</GroupLabel>
               <select
+                data-testid="extensions-secret-default-org"
                 style={{ ...inputStyle, marginBottom: 14 }}
                 value={defaultOrg}
                 onChange={(e) => {
@@ -221,6 +223,7 @@ export function SecretBackendDetail({
               </select>
               <GroupLabel>Default collection</GroupLabel>
               <select
+                data-testid="extensions-secret-default-collection"
                 style={inputStyle}
                 value={defaultColl}
                 onChange={(e) => {
@@ -238,13 +241,13 @@ export function SecretBackendDetail({
               <div style={{ fontSize: 11, color: "var(--ct-muted)", marginTop: 4 }}>
                 New secrets are filed here by default.
               </div>
-              {scopeError && <div style={{ color: "var(--ct-err, #e57373)", fontSize: 12, marginTop: 8 }}>{scopeError}</div>}
+              {scopeError && <div style={{ color: "var(--ct-err, #e57373)", fontSize: 12, marginTop: 8 }} data-testid="extensions-secret-scope-error">{scopeError}</div>}
             </>
           )}
         </>
       )}
 
-      {error && <div style={{ color: "var(--ct-err, #e57373)", fontSize: 12, marginTop: 4 }}>{error}</div>}
+      {error && <div style={{ color: "var(--ct-err, #e57373)", fontSize: 12, marginTop: 4 }} data-testid="extensions-secret-error">{error}</div>}
     </div>
   );
 }

@@ -215,6 +215,8 @@ function SlashPicker({
         <button
           key={c.name}
           type="button"
+          data-testid="slash-command-option"
+          data-slash-command={c.name}
           onClick={() => onPick(c)}
           className="w-full flex items-center justify-between gap-2 px-2 py-1 text-xs font-mono text-left"
           style={{
@@ -634,6 +636,7 @@ export function ChatComposer({
   return (
     <div
       className="relative shrink-0 p-2 border-t"
+      data-testid="chat-composer-shell"
       style={{
         borderColor:
           "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
