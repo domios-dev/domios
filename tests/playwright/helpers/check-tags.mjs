@@ -6,7 +6,7 @@ import ts from "typescript";
 const suitesDir = fileURLToPath(new URL("../suites", import.meta.url));
 const tagRe = /@(smoke|golden|quarantine)/;
 const strictEnv = process.env.PW_LINT_STRICT ?? process.env.PLAYWRIGHT_STRICT_LINT;
-const strictEnabled = /^(1|true|yes)$/i.test(strictEnv ?? "");
+const strictEnabled = !/^(0|false|no)$/i.test(strictEnv ?? "");
 const actionMethodsWithForce = new Set([
   "check",
   "click",
