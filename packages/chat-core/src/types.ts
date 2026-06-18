@@ -83,6 +83,7 @@ export type ChatOrigin =
   | { kind: "mesh"; peerId: string }
   | { kind: "service"; service: string; userId: string }
   | { kind: "plugin_config"; pluginId: string; name: string }
+  | { kind: "system_prompt" }
   | { kind: "command"; commands: SlashCommand[] };
 
 export interface SlashCommand {

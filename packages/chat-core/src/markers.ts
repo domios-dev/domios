@@ -94,3 +94,4 @@ export const markPluginConfig = (id: string, name: string, body: string): string
 export const markReport = (from: string, body: string) =>
   buildMarker("report", [["from", from]], body);
 export const markHook = (json: string) => buildMarker("hook", [], json);
+export const markSystemPrompt = (body: string) => buildMarker("system_prompt", [], body);
