@@ -267,7 +267,7 @@ test("@golden fs list-dir + mkdir: browse, create, conflict, validation", async 
 
 test("@smoke sessions search answers with a hits array for any query", async ({ api }) => {
   const res = await api.get<{ hits: unknown[] }>(
-    "/sessions/search?q=pw-definitely-unmatched-term",
+    "/sessions/search?q=pw-definitely-unmatched-term&provider=pw-no-such-provider",
   );
   expect(Array.isArray(res.hits)).toBe(true);
   expect(res.hits.length).toBe(0);

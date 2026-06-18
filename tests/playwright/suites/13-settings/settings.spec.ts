@@ -9,11 +9,36 @@ async function openSettings(ui: ManagedUiSession): Promise<void> {
   await ui.reconnect();
   await ui.page.locator('[data-testid="nav-settings"]').click();
   await expect(ui.page.locator('[data-testid="settings-panel"]')).toBeVisible();
-  await expect(ui.page.locator('[data-testid="settings-section-general"]')).toBeVisible();
+  const section = ui.page.locator('[data-testid="settings-section-general"]');
+  if (await section.isVisible().catch(() => false)) {
+    await section.click();
+  }
+  await expect(ui.page.locator('[data-testid="settings-theme-select"]')).toBeVisible();
 }
 
 async function restoreConfig(api: { request<T>(method: string, apiPath: string, body?: unknown): Promise<T> }, config: AppConfig): Promise<void> {
   await api.request<AppConfig>("PATCH", "/config", config);
+}
+
+function expectedShortcutText(binding: string): string {
+  const isMac = process.platform === "darwin";
+  return binding
+    .split("+")
+    .map((part, _index, parts) => {
+      const key = part.trim().toLowerCase();
+      if (isMac) {
+        if (key === "ctrl" && parts.some((p) => /^[a-zA-Z0-9]$/.test(p.trim()))) return "⌘";
+        if (key === "ctrl") return "⌃";
+        if (key === "shift") return "⇧";
+        if (key === "alt") return "⌥";
+        if (key === "cmd" || key === "mod" || key === "super") return "⌘";
+      } else {
+        if (key === "cmd" || key === "mod") return "Ctrl";
+        if (key === "super") return "Win";
+      }
+      return part.trim().toUpperCase();
+    })
+    .join("");
 }
 
 test("@smoke theme selection applies to live config and CSS variables", async ({ api, ui }) => {
@@ -67,10 +92,10 @@ test("@smoke keybinding display renders configured shortcuts", async ({ api, ui 
   const openSettingsRow = ui.page.locator('[data-testid="settings-keybinding-row"][data-keybinding-key="open_settings"]');
 
   await expect(newTab.locator('[data-testid="settings-keybinding-display"]')).toContainText(
-    config.keybindings.new_tab,
+    expectedShortcutText(config.keybindings.new_tab),
   );
   await expect(openSettingsRow.locator('[data-testid="settings-keybinding-display"]')).toContainText(
-    config.keybindings.open_settings,
+    expectedShortcutText(config.keybindings.open_settings),
   );
   await expect(ui.page.locator('[data-testid="settings-keybinding-row"]')).toHaveCount(13);
 });
