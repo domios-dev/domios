@@ -476,6 +476,23 @@ export type SettingField =
   | { kind: "text"; key: string; label: string; default?: string; placeholder?: string; description?: string }
   | { kind: "number"; key: string; label: string; default?: number; min?: number; max?: number; description?: string }
   | { kind: "select"; key: string; label: string; options: [string, string][]; default?: string; description?: string }
+  | {
+      kind: "array";
+      key: string;
+      label: string;
+      description?: string;
+      item_label?: string;
+      default?: Record<string, unknown>[];
+      item: {
+        kind: "object";
+        fields: Array<
+          | { kind: "text"; key: string; label: string; default?: string; placeholder?: string; description?: string }
+          | { kind: "textarea"; key: string; label: string; default?: string; placeholder?: string; description?: string }
+          | { kind: "number"; key: string; label: string; default?: number; min?: number; max?: number; description?: string }
+          | { kind: "json"; key: string; label: string; default?: Record<string, unknown>; description?: string }
+        >;
+      };
+    }
   | { kind: "api_key"; env_var: string; label: string; link?: string }
   | { kind: "info"; title?: string; body: string; level: NoteLevel }
   | { kind: "path_link"; label: string; path: string; open: PathOpenKind }
