@@ -20,6 +20,7 @@
     "test:pw:report": "playwright show-report tests/playwright/artifacts/html-report",
     "test:pw:trace": "playwright show-trace",
     "test:pw:debug": "playwright test -c tests/playwright --debug",
+    "test:pw:audit": "node tests/playwright/helpers/audit-combine.mjs",
     "lint": "biome check .",
     "sync:versions": "node scripts/sync-plugin-versions.mjs",
     "check:versions": "node scripts/sync-plugin-versions.mjs --check",
