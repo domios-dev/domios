@@ -31,5 +31,6 @@ export {
   markPluginConfig,
   markReport,
   markHook,
+  markSystemPrompt,
   type ParsedMarker,
 } from "./markers";

@@ -77,6 +77,12 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
       body: marker.payload,
     };
   }
+  if (marker.kind === "system_prompt") {
+    return {
+      origin: { kind: "system_prompt" },
+      body: marker.payload,
+    };
+  }
   if (marker.attrs.user) {
     return {
       origin: { kind: "service", service: marker.kind, userId: marker.attrs.user },
@@ -205,6 +211,8 @@ export function labelFor(origin: ChatOrigin): string {
       return `${origin.service} · ${origin.userId.slice(0, 12)}`;
     case "plugin_config":
       return `Configure · ${origin.name}`;
+    case "system_prompt":
+      return "System prompt";
     case "command":
       return origin.commands.length === 1
         ? origin.commands[0].name
