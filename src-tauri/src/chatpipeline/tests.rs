@@ -127,6 +127,16 @@ async fn voice_stage_transcribes_via_active_engine() {
 }
 
 #[tokio::test]
+async fn voice_stage_auto_selects_single_registered_engine_when_active_empty() {
+    let reg = crate::transcribe::TranscribeRegistry::new();
+    reg.register("fake", Arc::new(FakeTranscriber));
+    let out = run_voice_stage(&reg, "", Path::new("/a.oga"), "ru")
+        .await
+        .unwrap();
+    assert_eq!(out.text, "hello ru");
+}
+
+#[tokio::test]
 async fn voice_stage_no_backend_errors() {
     let reg = crate::transcribe::TranscribeRegistry::new();
     assert!(matches!(
