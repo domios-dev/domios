@@ -218,6 +218,17 @@ pub enum SettingField {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
     },
+    Array {
+        key: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item_label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<Vec<serde_json::Map<String, serde_json::Value>>>,
+        item: ArraySettingItem,
+    },
     /// Read-only field that reports an env var the user must set externally.
     ApiKey {
         env_var: String,
@@ -278,6 +289,57 @@ pub enum SettingField {
         field: String,
         equals: serde_json::Value,
         then: Vec<SettingField>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ArraySettingItem {
+    Object { fields: Vec<ObjectSettingField> },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ObjectSettingField {
+    Text {
+        key: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
+    Textarea {
+        key: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
+    Number {
+        key: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
+    Json {
+        key: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<serde_json::Map<String, serde_json::Value>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
 }
 
