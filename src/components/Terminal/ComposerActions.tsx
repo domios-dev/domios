@@ -389,6 +389,7 @@ export function ComposerActions({
         )}
         <div
           ref={shellRef}
+          data-testid="composer-input-shell"
           className="ct-composer-input-shell relative flex min-h-12 flex-1 items-center rounded-[1.35rem] border px-3.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
           style={{
             background: "var(--ct-bg-elev, var(--ct-surface, #161b22))",

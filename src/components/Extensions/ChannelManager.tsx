@@ -18,10 +18,11 @@ export function ChannelManager({
   const [name, setName] = useState("");
 
   return (
-    <div style={{ borderTop: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.06))", paddingTop: 10, paddingBottom: 16, marginTop: 10 }}>
+    <div style={{ borderTop: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.06))", paddingTop: 10, paddingBottom: 16, marginTop: 10 }} data-testid="extensions-channel-manager">
       {!open ? (
         <button
           type="button"
+          data-testid="extensions-channel-add-open"
           onClick={() => onOpenChange(true)}
           style={{
             width: "100%",
@@ -45,14 +46,16 @@ export function ChannelManager({
         <div>
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             <input
+              data-testid="extensions-channel-url-input"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="channel URL (git or local path)"
               style={input}
             />
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="name (optional)" style={input} />
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="name (optional)" style={input} data-testid="extensions-channel-name-input" />
             <div style={{ display: "flex", gap: 6 }}>
               <button
+                data-testid="extensions-channel-add-submit"
                 disabled={!url.trim() || busy === "add-channel"}
                 onClick={() => {
                   onAction("add-channel", { kind: "add-channel", url: url.trim(), name: name.trim() || undefined });
@@ -66,6 +69,7 @@ export function ChannelManager({
               </button>
               <button
                 type="button"
+                data-testid="extensions-channel-add-cancel"
                 onClick={() => onOpenChange(false)}
                 style={{ flex: 1, ...btn }}
               >
