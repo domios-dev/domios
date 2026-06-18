@@ -480,9 +480,10 @@ mod tests {
         fn poll(
             &self,
             _: &str,
-        ) -> Result<Vec<crate::agent::chat_types::ChatMsg>, crate::chatbackend::ChatBackendError>
+            _: Option<&str>,
+        ) -> Result<crate::agent::chat_types::StructuredChat, crate::chatbackend::ChatBackendError>
         {
-            Ok(Vec::new())
+            Ok(crate::agent::chat_types::StructuredChat::default())
         }
 
         fn close_session(&self, _: &str) -> Result<(), crate::chatbackend::ChatBackendError> {
@@ -537,9 +538,10 @@ mod tests {
         fn poll(
             &self,
             _: &str,
-        ) -> Result<Vec<crate::agent::chat_types::ChatMsg>, crate::chatbackend::ChatBackendError>
+            _: Option<&str>,
+        ) -> Result<crate::agent::chat_types::StructuredChat, crate::chatbackend::ChatBackendError>
         {
-            Ok(Vec::new())
+            Ok(crate::agent::chat_types::StructuredChat::default())
         }
 
         fn close_session(&self, _: &str) -> Result<(), crate::chatbackend::ChatBackendError> {

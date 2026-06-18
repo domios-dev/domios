@@ -12,9 +12,19 @@ use std::sync::Arc;
 use super::pane_transport::PaneTransport;
 use super::pty_io::SendBatchItem;
 use super::ServiceContext;
-use crate::agent::chat_types::ChatMsg;
+use crate::agent::chat_types::StructuredChat;
 use crate::agent::provider::ModelInfo;
 use crate::chatbackend::ChatBackendProvider;
+
+/// Whether outbound preprocessor stages (`chatPreprocessor`) should run for a
+/// chatBackend send. Mirrors the PTY gate ([`is_user_turn_send`]): only agent
+/// panes get a `<context>` block injected. A plain shell chatBackend owns its
+/// own prompt, so a registered preprocessor must NOT rewrite every shell send.
+///
+/// [`is_user_turn_send`]: crate::chatpipeline::is_user_turn_send
+fn chatbackend_should_stage(pane_has_agent: bool) -> bool {
+    pane_has_agent
+}
 
 fn build_chatbackend_open_session_ctx(
     pane_id: &str,
@@ -43,9 +53,14 @@ pub struct ChatBackendTransport<'a> {
 
 impl PaneTransport for ChatBackendTransport<'_> {
     fn send(&self, text: &str, _enter: bool) -> Result<(), String> {
-        let staged = self
-            .svc
-            .run_outbound_stages(&self.pane_id, text.to_string());
+        // Gate the preprocessor on agent-ness, like the PTY path — a plain shell
+        // chatBackend must not get context injected into every send.
+        let staged = if chatbackend_should_stage(self.svc.pane_has_agent(&self.pane_id)) {
+            self.svc
+                .run_outbound_stages(&self.pane_id, text.to_string())
+        } else {
+            text.to_string()
+        };
         self.svc
             .chatbackend_send(&self.plugin_id, &self.session_id, &staged)
     }
@@ -86,9 +101,11 @@ impl PaneTransport for ChatBackendTransport<'_> {
 impl ChatBackendTransport<'_> {
     /// Render the plugin transcript as plain text for the CLI/REST text reads.
     fn transcript_text(&self) -> Result<String, String> {
+        // No cursor ⇒ the plugin returns the full transcript for the text read.
         let msgs = self
             .svc
-            .chatbackend_poll(&self.plugin_id, &self.session_id)?;
+            .chatbackend_poll(&self.plugin_id, &self.session_id, None)?
+            .messages;
         let text = msgs
             .into_iter()
             .map(|m| m.content)
@@ -143,14 +160,16 @@ impl ServiceContext {
             .map_err(|e| e.to_string())
     }
 
-    /// Pull new transcript messages from a plugin session.
+    /// Pull the transcript delta after `cursor` from a plugin session (no
+    /// cursor ⇒ the full transcript). Returns `{ messages, cursor }`.
     pub fn chatbackend_poll(
         &self,
         plugin_id: &str,
         session_id: &str,
-    ) -> Result<Vec<ChatMsg>, String> {
+        cursor: Option<&str>,
+    ) -> Result<StructuredChat, String> {
         self.chatbackend_provider(plugin_id)?
-            .poll(session_id)
+            .poll(session_id, cursor)
             .map_err(|e| e.to_string())
     }
 
@@ -181,6 +200,21 @@ impl ServiceContext {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+
+    #[test]
+    fn chatbackend_send_is_gated_on_agent_pane() {
+        // M3: a plain shell chatBackend (no detected agent_type) must NOT run the
+        // outbound preprocessor — shells own their prompt. Only an agent pane gets
+        // context injected, matching the PTY `is_user_turn_send` gate.
+        assert!(
+            !super::chatbackend_should_stage(false),
+            "shell chatBackend send must skip outbound stages"
+        );
+        assert!(
+            super::chatbackend_should_stage(true),
+            "agent chatBackend send still runs outbound stages"
+        );
+    }
 
     #[test]
     fn chatbackend_open_session_ctx_promotes_open_shell_fields() {
