@@ -111,6 +111,12 @@ pub struct PluginManifest {
     #[serde(default)]
     pub settings_schema: Option<String>,
 
+    /// Agent-facing, one-paragraph "how to use me + what knobs I expose" string.
+    /// Read into the snapshot's `config_help` and wrapped by core into the
+    /// safety-enveloped "Configure with AI" prompt. Every plugin should declare it.
+    #[serde(default)]
+    pub config_help: Option<String>,
+
     /// The plugin's capability cannot hot-activate — it needs a CodeTerm reload
     /// to take effect (§1.8). When a plugin declaring this is *installed/enabled
     /// after daemon start*, the watcher marks it `pending_reload` instead of
@@ -776,6 +782,25 @@ mod tests {
         }"#;
         let m: PluginManifest = serde_json::from_str(json).expect("parse agentDoc");
         assert_eq!(m.agent_doc.as_deref(), Some("AGENT.md"));
+    }
+
+    #[test]
+    fn parse_config_help_field() {
+        // Self-setup: every plugin declares `configHelp` for the Configure-with-AI
+        // button. deny_unknown_fields would reject it without the schema entry →
+        // the plugin (and ALL its capabilities) silently fails to load.
+        let json = r#"{
+            "id": "transcriber",
+            "version": "0.3.0",
+            "displayName": "Transcriber",
+            "configHelp": "Offline speech-to-text. Knobs: model, language.",
+            "capabilities": { "transcriber": true }
+        }"#;
+        let m: PluginManifest = serde_json::from_str(json).expect("parse configHelp");
+        assert_eq!(
+            m.config_help.as_deref(),
+            Some("Offline speech-to-text. Knobs: model, language.")
+        );
     }
 
     #[test]
