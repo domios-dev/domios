@@ -89,6 +89,8 @@ export const markMesh = (peer: string, pane: string, body: string) =>
   buildMarker("mesh", [["peer", peer], ["pane", pane]], body);
 export const markPane = (label: string, pane: string, body: string) =>
   buildMarker("pane", [["label", label], ["pane", pane]], body);
+export const markPluginConfig = (id: string, name: string, body: string): string =>
+  buildMarker("plugin_config", [["plugin", id], ["name", name]], body);
 export const markReport = (from: string, body: string) =>
   buildMarker("report", [["from", from]], body);
 export const markHook = (json: string) => buildMarker("hook", [], json);

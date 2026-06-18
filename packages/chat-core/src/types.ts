@@ -82,6 +82,7 @@ export type ChatOrigin =
   | { kind: "telegram"; userId: string; messageId?: string }
   | { kind: "mesh"; peerId: string }
   | { kind: "service"; service: string; userId: string }
+  | { kind: "plugin_config"; pluginId: string; name: string }
   | { kind: "command"; commands: SlashCommand[] };
 
 export interface SlashCommand {
