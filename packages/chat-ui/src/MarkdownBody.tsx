@@ -1,7 +1,7 @@
 import React from "react";
 import type { NormalizedChatMessage as ChatMessage, SlashCommand } from "@codeterm/chat-core";
 import { parseMarker } from "@codeterm/chat-core";
-import { File, Image, Info, Mic } from "lucide-react";
+import { File, Image, Info, Mic, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
@@ -465,9 +465,45 @@ export function VoiceCard({ v }: { v: ParsedVoice }) {
   );
 }
 
+export interface ParsedPluginConfig {
+  pluginId: string;
+  name: string;
+  body: string;
+}
+
+/** Parse the CodeTerm `plugin_config` marker so the chat can show a Configure
+ *  card instead of the raw (core-wrapped) marker string. Returns null when the
+ *  text isn't a plugin_config line. */
+export function parsePluginConfigMessage(content: string): ParsedPluginConfig | null {
+  const m = parseMarker(content.trim());
+  if (!m || m.kind !== "plugin_config" || !m.attrs.plugin) return null;
+  return {
+    pluginId: m.attrs.plugin,
+    name: m.attrs.name ?? m.attrs.plugin,
+    body: m.payload,
+  };
+}
+
+export function PluginConfigCard({ c }: { c: ParsedPluginConfig }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div
+        className="flex flex-wrap items-center gap-1.5 text-[11px] min-w-0 max-w-full"
+        style={{ color: "var(--ct-muted-fg)" }}
+      >
+        <Settings size={13} strokeWidth={2} className="shrink-0" />
+        <span className="opacity-80 font-medium shrink-0">Configure {c.name}</span>
+      </div>
+      <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{c.body}</pre>
+    </div>
+  );
+}
+
 export function renderUserContent(content: string): React.ReactNode {
   const voice = parseVoiceMessage(content);
   if (voice) return <VoiceCard v={voice} />;
+  const pluginConfig = parsePluginConfigMessage(content);
+  if (pluginConfig) return <PluginConfigCard c={pluginConfig} />;
   // Non-voice attachment markers (photo/document/video/file) → file badge.
   const mk = parseMarker(content.trim());
   if (mk && ["photo", "file", "document", "video", "audio", "sticker"].includes(mk.kind)) {

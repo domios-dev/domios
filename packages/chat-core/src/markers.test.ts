@@ -1,5 +1,5 @@
 // Run: npx tsx packages/chat-core/src/markers.test.ts
-import { MARKER_OPEN, parseMarker } from "./markers";
+import { MARKER_OPEN, parseMarker, markPluginConfig } from "./markers";
 
 let passed = 0,
   failed = 0;
@@ -26,6 +26,14 @@ eq(parsed?.payload, "Payload with space", "leading-space marker payload");
 const normal = parseMarker(`${MARKER_OPEN}pane label=clean-=-ok`);
 eq(normal?.kind, "pane", "parseMarker keeps no-leading-space case");
 eq(normal?.payload, "ok", "parseMarker keeps payload unchanged");
+
+// Parity with the Rust `plugin_config` constructor — the wire string MUST match
+// `message_markers_tests.rs` PARITY[6] exactly (name space percent-encoded).
+eq(
+  markPluginConfig("lmstudio", "LM Studio", "hello body"),
+  "-=-codeterm:plugin_config plugin=lmstudio name=LM%20Studio-=-hello body",
+  "markPluginConfig wire matches Rust parity fixture",
+);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
