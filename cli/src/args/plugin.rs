@@ -29,6 +29,9 @@ pub enum PluginAction {
         /// Allow removing a verified/system plugin folder.
         #[arg(long)]
         force: bool,
+        /// Also remove plugin-owned downloaded data.
+        #[arg(long = "remove-data")]
+        remove_data: bool,
     },
     /// Manage plugin channels.
     Channel {
