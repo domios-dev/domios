@@ -67,6 +67,13 @@ pub struct RegisteredDefaults {
     pub default: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolved {
+    pub id: String,
+    pub display: String,
+    pub fell_back: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Source {
     Seed,
@@ -210,6 +217,66 @@ pub fn resolve_default(provider_id: &str) -> Option<String> {
         .read()
         .get(provider_id)
         .and_then(|d| d.default.clone())
+}
+
+pub fn resolve_model(provider_id: &str, requested: Option<&str>) -> Resolved {
+    let models = resolve_models(provider_id);
+    let requested = requested.map(str::trim).filter(|m| !m.is_empty());
+
+    if let Some(requested) = requested {
+        if let Some(model) = find_model(&models, requested) {
+            return resolved_from_model(model, false);
+        }
+    }
+
+    if let Some(default) = resolve_default(provider_id).and_then(|id| non_empty(id.as_str())) {
+        if let Some(model) = find_model(&models, &default) {
+            return resolved_from_model(model, requested.is_some());
+        }
+        return Resolved {
+            id: default.clone(),
+            display: default,
+            fell_back: requested.is_some(),
+        };
+    }
+
+    if let Some(requested) = requested {
+        return Resolved {
+            id: requested.to_string(),
+            display: requested.to_string(),
+            fell_back: false,
+        };
+    }
+
+    Resolved {
+        id: String::new(),
+        display: String::new(),
+        fell_back: false,
+    }
+}
+
+pub fn resolve_family_model(provider_id: &str, family: &str) -> Option<String> {
+    let family = family.trim();
+    if family.is_empty() {
+        return None;
+    }
+    let family_lower = family.to_lowercase();
+    let models = resolve_models(provider_id);
+    let matches: Vec<&ModelInfo> = models
+        .iter()
+        .filter(|m| m.id.to_lowercase().contains(&family_lower))
+        .collect();
+    match matches.as_slice() {
+        [] => None,
+        [model] => Some(model.id.clone()),
+        many => resolve_default(provider_id)
+            .and_then(|default| {
+                many.iter()
+                    .find(|m| m.id.eq_ignore_ascii_case(&default))
+                    .map(|m| m.id.clone())
+            })
+            .or_else(|| Some(family.to_string())),
+    }
 }
 
 /// Like `resolve_models` but returns `None` when no user override file is
@@ -366,6 +433,25 @@ fn merge_models(builtin: &[ModelInfo], overrides: &[ModelInfo]) -> Vec<ModelInfo
         }
     }
     merged
+}
+
+fn find_model<'a>(models: &'a [ModelInfo], needle: &str) -> Option<&'a ModelInfo> {
+    models
+        .iter()
+        .find(|m| m.id.eq_ignore_ascii_case(needle) || m.display_name.eq_ignore_ascii_case(needle))
+}
+
+fn resolved_from_model(model: &ModelInfo, fell_back: bool) -> Resolved {
+    Resolved {
+        id: model.id.clone(),
+        display: model.display_name.clone(),
+        fell_back,
+    }
+}
+
+fn non_empty(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 /// Auto-install the README documenting the catalog format. Called once on
@@ -741,6 +827,91 @@ mod tests {
             std::time::Duration::from_secs(60),
             fetched_at + std::time::Duration::from_secs(60)
         ));
+        registry().write().remove(id);
+    }
+
+    #[test]
+    fn resolve_model_matches_exact_id() {
+        let id = "test-resolve-exact-id";
+        register(
+            id,
+            RegisteredDefaults {
+                models: vec![
+                    ModelInfo {
+                        id: "gpt-5.5".into(),
+                        display_name: "GPT-5.5".into(),
+                        description: None,
+                    },
+                    ModelInfo {
+                        id: "gpt-5.5-mini".into(),
+                        display_name: "GPT-5.5 Mini".into(),
+                        description: None,
+                    },
+                ],
+                default: Some("gpt-5.5-mini".into()),
+            },
+        );
+
+        let resolved = resolve_model(id, Some("gpt-5.5"));
+
+        assert_eq!(resolved.id, "gpt-5.5");
+        assert_eq!(resolved.display, "GPT-5.5");
+        assert!(!resolved.fell_back);
+        registry().write().remove(id);
+    }
+
+    #[test]
+    fn resolve_model_matches_display_case_insensitively() {
+        let id = "test-resolve-display-case";
+        register(
+            id,
+            RegisteredDefaults {
+                models: vec![ModelInfo {
+                    id: "gpt-5.5".into(),
+                    display_name: "GPT-5.5".into(),
+                    description: None,
+                }],
+                default: Some("gpt-5.5".into()),
+            },
+        );
+
+        let upper = resolve_model(id, Some("GPT-5.5"));
+        let lower = resolve_model(id, Some("gpt-5.5"));
+
+        assert_eq!(upper.id, "gpt-5.5");
+        assert_eq!(lower.id, "gpt-5.5");
+        assert!(!upper.fell_back);
+        assert!(!lower.fell_back);
+        registry().write().remove(id);
+    }
+
+    #[test]
+    fn resolve_model_unknown_falls_back_to_default() {
+        let id = "test-resolve-unknown-default";
+        register(
+            id,
+            RegisteredDefaults {
+                models: vec![
+                    ModelInfo {
+                        id: "gpt-5.5".into(),
+                        display_name: "GPT-5.5".into(),
+                        description: None,
+                    },
+                    ModelInfo {
+                        id: "gpt-5.5-mini".into(),
+                        display_name: "GPT-5.5 Mini".into(),
+                        description: None,
+                    },
+                ],
+                default: Some("gpt-5.5-mini".into()),
+            },
+        );
+
+        let resolved = resolve_model(id, Some("stale-model"));
+
+        assert_eq!(resolved.id, "gpt-5.5-mini");
+        assert_eq!(resolved.display, "GPT-5.5 Mini");
+        assert!(resolved.fell_back);
         registry().write().remove(id);
     }
 

@@ -770,9 +770,10 @@ pub(crate) fn build_agent_command(
     let mut args: Vec<String> = params.args.clone().unwrap_or_default();
     if let Some(ref model) = params.model {
         if !model.is_empty() {
+            let resolved = crate::agent::model_catalog::resolve_model(agent_cmd, Some(model));
             let model_args = registry
-                .with_provider(agent_cmd, |p| p.model_launch_args(model))
-                .unwrap_or_else(|| vec!["--model".into(), model.clone()]);
+                .with_provider(agent_cmd, |p| p.model_launch_args(&resolved.id))
+                .unwrap_or_else(|| vec!["--model".into(), resolved.id]);
             args.extend(model_args);
         }
     }
