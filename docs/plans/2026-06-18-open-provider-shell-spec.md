@@ -196,10 +196,17 @@ check as `host.fetch` — same egress, just chunked, so no new permission class
 - **Dreamer** (mem REM worker) — unrelated; do not touch.
 - **Existing chatBackend contract** — new `openSession` ctx fields are OPTIONAL;
   a shell without presets/system prompt still works.
-- **Dread NPC** (`codeterm-npc`) — a DIFFERENT plugin type (provider selection,
-  not an open LLM shell). Out of scope. The optional ctx fields keep any
-  chatBackend usage it may have backward-safe; verify its real type from
-  `codeterm-plugins` during S5 and confirm no regression.
+- **Dread NPC** (`codeterm-npc`) — a real chatBackend plugin in a SEPARATE repo
+  `/Users/kandrey/Developer/dread-delusion-ai/codeterm-npc/`. It does NOT talk to
+  an LLM directly: it orchestrates NPC agent sessions via `host.agent.spawn()`,
+  delegating LLM work to the host's agent providers (provider chosen via its
+  `defaultModel` setting). It is a different *kind* of shell (provider-routing,
+  not direct-LLM). Our changes are backward-safe AND additive for it: S1 ctx
+  fields are optional (its `openSession` ignores them); S2 capability routing
+  makes it appear in `agent providers` (kind `shell`) and spawnable via
+  `agent spawn` without touching its existing `open_chat_backend_pane` path. S2/S5
+  workers: confirm no regression against that repo; do not assume it's the only
+  shell shape.
 
 ## Out of scope (explicitly future)
 
