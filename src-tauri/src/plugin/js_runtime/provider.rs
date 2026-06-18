@@ -90,7 +90,9 @@ use crate::agent::provider::{
     VerifySubmitStrategy,
 };
 
-use super::{call_json, manifest_settings_sections, PluginManifest, PluginVm, VmError};
+use super::{
+    call_json, manifest_settings_sections, PluginManifest, PluginVm, SerdeModelInfo, VmError,
+};
 
 /// One generic provider per plugin bundle.
 pub struct JsProvider {
@@ -269,6 +271,7 @@ fn launch_params_to_json(p: &AgentLaunchParams) -> Value {
     })
 }
 
+#[async_trait::async_trait]
 impl AgentProvider for JsProvider {
     fn id(&self) -> &str {
         &self.manifest.id
@@ -843,6 +846,11 @@ impl AgentProvider for JsProvider {
 
     fn available_models(&self) -> Vec<ModelInfo> {
         self.manifest.models.iter().map(ModelInfo::from).collect()
+    }
+
+    async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
+        self.try_call::<Vec<SerdeModelInfo>>("discoverModels", &[])
+            .map(|models| models.iter().map(ModelInfo::from).collect())
     }
 
     fn default_model(&self) -> Option<String> {

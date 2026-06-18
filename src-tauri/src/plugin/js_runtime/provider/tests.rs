@@ -335,6 +335,32 @@ fn available_models_round_trip_through_manifest() {
     assert_eq!(ms[1].description.as_deref(), Some("second"));
 }
 
+#[tokio::test]
+async fn discover_models_delegates_to_optional_js_export() {
+    let js = r#"
+            module.exports.default = {
+                discoverModels() {
+                    return [
+                        { id: 'live-a', displayName: 'Live A' },
+                        { id: 'live-b', displayName: 'Live B', description: 'second' }
+                    ];
+                }
+            };
+        "#;
+    let p = load(MIN_MANIFEST, js);
+    let ms = p.discover_models().await.expect("discoverModels result");
+    assert_eq!(ms.len(), 2);
+    assert_eq!(ms[0].id, "live-a");
+    assert_eq!(ms[0].display_name, "Live A");
+    assert_eq!(ms[1].description.as_deref(), Some("second"));
+}
+
+#[tokio::test]
+async fn discover_models_missing_export_returns_none() {
+    let p = load(MIN_MANIFEST, "module.exports.default = {};");
+    assert_eq!(p.discover_models().await, None);
+}
+
 #[test]
 fn install_command_resolved_per_platform() {
     let json = r#"{

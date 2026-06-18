@@ -6,9 +6,11 @@
 import type {
   ChatBackend,
   ChatPreprocessor,
+  AgentProvider,
   AgentCommandHandler,
   AgentCommandCtx,
   Model,
+  ModelInfo,
   NormalizedChatMessage,
 } from "../capabilities";
 import type { Host, Backend, PaneRef, UsageSnapshot } from "../host";
@@ -78,6 +80,17 @@ void model;
 // @ts-expect-error SDK uses camelCase displayName, not snake_case display_name
 const snakeModel: Model = { id: "gpt", display_name: "GPT" };
 void snakeModel;
+
+// ── AgentProvider: optional live model discovery ──
+const provider: AgentProvider = {
+  discoverModels: () => [{ id: "gpt-5.5", displayName: "GPT-5.5", description: "live" }],
+};
+void provider;
+const providerModel: ModelInfo = provider.discoverModels!()[0];
+void providerModel;
+// @ts-expect-error discoverModels returns the shared camelCase ModelInfo shape
+const brokenProvider: AgentProvider = { discoverModels: () => [{ id: "x", display_name: "X" }] };
+void brokenProvider;
 
 // ── host compute base: worker/workspace/agent/mem (job-id + poll) ──
 declare const host: Host;

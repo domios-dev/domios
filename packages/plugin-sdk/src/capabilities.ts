@@ -94,6 +94,7 @@ export interface AgentProvider {
   detectSessionModel?(cwd: string, sessionId: string): string | null;
   enumerateSessions?(): unknown[];
   parseUsage?(rawText: string, nowMs: number): unknown;
+  discoverModels?(): ModelInfo[];
   parseSessionMessages?(text: string): unknown[];
   usesStructuredChat?(): boolean;
   readStructuredChat?(cwd: string, sessionId: string, cursor?: string | null): unknown;
@@ -192,11 +193,15 @@ export interface NormalizedChatMessage {
   content: string;
 }
 
-export interface Model {
+export interface ModelInfo {
   id: string;
   // camelCase here; the host maps it to Rust ModelInfo.display_name (snake_case)
   // when registering via model_catalog::register.
   displayName: string;
+  description?: string;
+}
+
+export interface Model extends ModelInfo {
 }
 
 export interface ChatBackend {
