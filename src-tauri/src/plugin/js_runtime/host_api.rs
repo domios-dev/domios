@@ -100,10 +100,15 @@ pub(super) struct PluginSandbox {
     manage_workspaces_allowed: bool,
     /// Whether `host.agent*` is permitted (`spawn_agents` grant).
     spawn_agents_allowed: bool,
-    /// The plugin's own settings blob (`config.plugins.<id>`), as JSON. Returned
-    /// by `host.settingsJson()` so a plugin reads its user-configured settings
-    /// instead of env hacks. Defaults to `"null"`.
-    settings_json: String,
+    /// The plugin's own settings blob (`config.yaml` → JSON, falling back to the
+    /// legacy `config.plugins.<id>`). Returned by `host.settingsJson()` so a
+    /// plugin reads its user-configured settings instead of env hacks. Defaults
+    /// to `"null"`. Interior-mutable so a config-only hot-reload can RE-STAMP it
+    /// in place (the watcher mutates the shared sandbox) without rebuilding the
+    /// VM — a rebuild would wipe the plugin's in-memory sessions. The
+    /// `settingsJson` binding reads this lock on each call, so a live VM sees the
+    /// new value on its next read.
+    settings_json: parking_lot::Mutex<String>,
     /// Late-bound handle to the host `ServiceContext`, populated after service
     /// init (the VM is built before `ServiceContext` exists — plan §1.5 F4).
     /// Carrier only at this stage: `host.worker`/`agent`/`mem` handles that read
@@ -125,7 +130,7 @@ impl PluginSandbox {
             agent_commands_allowed: true,
             manage_workspaces_allowed: true,
             spawn_agents_allowed: true,
-            settings_json: "null".to_string(),
+            settings_json: parking_lot::Mutex::new("null".to_string()),
             svc: LateRef::new(),
         }
     }
@@ -142,7 +147,7 @@ impl PluginSandbox {
             agent_commands_allowed: false,
             manage_workspaces_allowed: false,
             spawn_agents_allowed: false,
-            settings_json: "null".to_string(),
+            settings_json: parking_lot::Mutex::new("null".to_string()),
             svc: LateRef::new(),
         }
     }
@@ -208,14 +213,22 @@ impl PluginSandbox {
         self.spawn_agents_allowed
     }
 
-    /// Attach the plugin's settings blob (`config.plugins.<id>` as JSON).
-    pub(super) fn with_settings(mut self, settings_json: String) -> Self {
-        self.settings_json = settings_json;
+    /// Attach the plugin's settings blob (`config.yaml` → JSON) at load.
+    pub(super) fn with_settings(self, settings_json: String) -> Self {
+        *self.settings_json.lock() = settings_json;
         self
     }
 
-    pub(super) fn settings_json(&self) -> &str {
-        &self.settings_json
+    /// Re-stamp the settings blob in place on a config-only hot-reload (the
+    /// watcher mutates the shared sandbox). `host.settingsJson()` reads this lock
+    /// per call, so a live VM picks up the new value without a rebuild — live
+    /// sessions in the VM's module scope survive.
+    pub(super) fn set_settings(&self, settings_json: String) {
+        *self.settings_json.lock() = settings_json;
+    }
+
+    pub(super) fn settings_json(&self) -> String {
+        self.settings_json.lock().clone()
     }
 
     /// Late-bind the host `ServiceContext` (see [`LateRef`]). First write wins.
@@ -441,9 +454,7 @@ pub(super) fn install(
     // ── host_api v2: subprocess / network / per-plugin secrets ──────
     // Each is gated by the manifest permission baked into the sandbox.
     let sb = sandbox.clone();
-    bind!("settingsJson", move || -> String {
-        sb.settings_json().to_string()
-    });
+    bind!("settingsJson", move || -> String { sb.settings_json() });
 
     let sb = sandbox.clone();
     bind!("exec", move |opts_json: String| -> String {
