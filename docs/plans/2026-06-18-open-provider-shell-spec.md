@@ -155,6 +155,22 @@ Edited via the existing settings UI (SchemaRenderer). `listPresets()` surfaces
 them. Spawn-time `--system` overrides the preset's systemPrompt; `--preset`
 picks one; no flag → `defaultPreset`.
 
+### User-spawnable shells only (NOT every chatBackend)
+
+A chatBackend plugin is not necessarily a user-openable shell. **Dread NPC
+(`codeterm-npc`) is self-spawning** — it spawns its own NPC agent sessions via
+`host.agent.spawn`; the user never opens it via `agent spawn`/"+new session". So
+discovery + spawn must include ONLY chatBackend plugins that declare themselves
+user-spawnable.
+
+**Mechanism:** the `chatBackend` capability accepts a bool OR an object
+(mirroring `chatPreprocessor`): `chatBackend: true` = a backend that is NOT
+user-spawnable (e.g. codeterm-npc); `chatBackend: { spawnable: true }` = a
+user-openable open shell (lmstudio). Only `spawnable` shells appear in
+`agent providers` (kind `shell`) and are accepted by `agent spawn`. Bare-bool
+stays the safe default → codeterm-npc needs NO change and is correctly excluded.
+lmstudio sets `chatBackend: { spawnable: true }`.
+
 ### Spawn integration (unified)
 
 `codeterm agent spawn <id>` learns that `<id>` may be a **chatBackend** provider
