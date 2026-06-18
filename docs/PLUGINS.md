@@ -129,6 +129,7 @@ that calls the corresponding `plugin.js` export. The exports a plugin provides:
 | `view`         | `viewCall(method,args)` | any JSON (the iframe UI calls this via `window.ct.invoke`) |
 | `secretBackend`| `secretStatus`, `secretUnlock`, `secretGet`, `secretSet`, … | provider-specific |
 | `transcriber`  | `transcribe(path, lang?)` | `{ text }` or `{ error }` |
+| `chatBackend`  | `openSession(ctx)`, `sendMessage`, `pump?`, `poll`, `closeSession`, `listModels?`, `listPresets?` | an **open agent shell** — see below |
 | `agentProvider`| `detectFromTitle`, `parseSessionDelta`, `buildLaunchCommand`, `checkIntegration`, `installIntegration`, … | see `plugins/provider-*/src/plugin.ts` |
 
 `ctx` for bubble/glance carries the pane's `cwd`. `action: "openPanel:view:<id>"` opens
@@ -137,7 +138,8 @@ the plugin's own iframe view; `"openPanel:<name>"` opens a built-in panel.
 ### Host API (`host.*`, synchronous, inside QuickJS)
 
 - `host.exec(json)` → run an allow-listed subprocess (`{bin, args}`) → `{stdout, stderr, code}`.
-- `host.fetch(json)` → HTTP to an allow-listed host.
+- `host.fetch(json)` → HTTP to an allow-listed host (full body buffered).
+- `host.fetchStream(json)` → `{jobId}`; `host.fetchStreamPoll(jobId)` → `{chunks, done, status?, error?}`; `host.fetchStreamClose(jobId)` — chunked streaming GET/POST (token streaming for shells). Same network allowlist as `host.fetch`.
 - `host.fs.{fileExists, readFile, readJson, writeFile, writeJson}`, `host.makeDirs`.
 - `host.secretGet(key)` / `host.secretSet(key, value)` (needs `permissions.secrets`).
 - `host.settingsJson()` → the plugin's settings bag (`config.plugins.<id>`).
@@ -192,6 +194,83 @@ of truth and must stay so:
 - **Desktop (Tauri)** → the local daemon (`127.0.0.1:<config.api.port>`) + config token,
   because the app shell runs at a `tauri://` / Vite origin and only the daemon serves
   plugin routes.
+
+## Open agent shells (the `chatBackend` capability)
+
+A `chatBackend` plugin turns a pane into an **open agent shell**: a non-PTY chat
+pane whose plugin talks directly to a local LLM, runs its own agentic ReAct loop
+*inside the QuickJS sandbox*, is parameterised by selectable **presets**, and
+makes its active **system prompt observable**. The core stays a generic relay —
+it asks capabilities, never identities, so any number of shell plugins coexist
+and each owns its own "brain". The shipped reference instance is **lmstudio**
+(LM Studio native v1, streaming, curated tools, presets).
+
+### The session lifecycle (exports)
+
+| Export | Role |
+|--------|------|
+| `openSession(ctx)` | start a session; `ctx = { paneId, config, systemPrompt?, preset?, model? }`. Resolve the preset (`ctx.preset` or `defaultPreset`), apply any `ctx.systemPrompt` override, and **emit a `system_prompt` first message** so the prompt is observable. |
+| `sendMessage(sid, text)` | enqueue a user turn; kick the ReAct loop. |
+| `pump(sid)` *(optional)* | drive one loop step: stream the LLM call, append the growing assistant message (stable id), scan the completed message for tool blocks, execute each curated tool, append a `tool_result`, continue (capped — e.g. 8 rounds/turn). |
+| `poll(sid, cursor)` | return the transcript delta; stable message ids + growing `content` give in-place streaming. |
+| `closeSession(sid)` | tear down. |
+| `listModels()` *(optional)* | model picker entries. |
+| `listPresets()` *(optional)* | `[{ id, name, description? }]`; the host returns `[]` if absent. |
+
+`ctx.systemPrompt`/`preset`/`model` are **optional** — a shell that ignores them
+still works (backward-safe). Token streaming uses the sync `host.fetchStream` /
+`host.fetchStreamPoll` / `host.fetchStreamClose` primitive (job-id + chunked
+poll, same network allowlist as `host.fetch` — no new confinement class).
+
+### Presets (plugin-owned)
+
+A preset is `{ id, name, systemPrompt, model?, params? }`, plus a top-level
+`defaultPreset`. They live in the plugin's own config (`config.plugins.<id>` /
+its `config.yaml`) and are edited through the standard settings UI. Spawn-time
+`--system` overrides the resolved preset's prompt; `--preset` selects one; no
+flag → `defaultPreset`.
+
+### Observable system prompt + the text tool protocol
+
+On session start the shell emits a `system_prompt` marker message; the chat-UI
+renders it as a collapsible **"System prompt"** card so the user always sees the
+instructions the shell is working from. Because LM Studio's native chat has no
+custom function-calling, tools use a **text protocol**: the model emits a fenced
+block and the plugin parses it from the completed message:
+
+````
+```codeterm-tool
+{"tool": "exec", "args": {"cmd": "codeterm pane list"}}
+```
+````
+
+No fence = final answer. The default prompt teaches the model a **curated, closed
+tool set**, each mapped to an existing `host.*` (so no new sandbox hole): `exec`,
+`read_file`, `write_file`, `codeterm`, `mem_search`, `spawn_agent`. The
+tool-protocol text in the default system prompt must match the plugin's parser
+exactly — it is the single source of truth.
+
+### Installing & using lmstudio
+
+1. In **LM Studio**: load a model, then Developer → **Start Server** (default
+   `http://localhost:1234`).
+2. Install the plugin from the channel (`codeterm plugin install lmstudio`) or
+   from a local checkout (`--from-dir ~/Developer/codeterm-plugins/lmstudio`).
+3. Point it at your server / pick a preset via settings, or
+   `codeterm plugin config lmstudio --set baseUrl=http://localhost:1234`. Add any
+   non-default `host:port` to `permissions.network.allow`.
+4. **Open a shell** from the UI's new-pane/agent picker (installed shells appear
+   tagged as shells), or from the CLI:
+
+   ```bash
+   codeterm agent providers                                   # shells show kind=shell
+   codeterm agent spawn lmstudio                              # uses defaultPreset
+   codeterm agent spawn lmstudio --preset rhymes              # pick a preset
+   codeterm agent spawn lmstudio --system "You answer only in rhymes."
+   ```
+
+Editing presets, the LM Studio continuation semantics, and the curated tools are
+documented in the plugin's own `README.md` and `configHelp`.
 
 ## Creating a plugin
 
@@ -495,5 +574,5 @@ tax (see also `docs/contributing/architecture.md`):
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
 
