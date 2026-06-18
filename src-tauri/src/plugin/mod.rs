@@ -9,6 +9,7 @@
 //!
 //! See `docs/plans/plugin-architecture.md` for the full design.
 
+pub mod activity;
 pub mod agent_claude;
 pub mod audit;
 pub mod bundle_hash;
