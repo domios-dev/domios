@@ -222,6 +222,10 @@ pub fn hook(json: &str) -> String {
     Marker::new("hook").payload(json).build()
 }
 
+pub fn system_prompt(body: &str) -> String {
+    Marker::new("system_prompt").payload(body).build()
+}
+
 #[cfg(test)]
 #[path = "message_markers_tests.rs"]
 mod tests;

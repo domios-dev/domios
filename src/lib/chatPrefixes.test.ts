@@ -54,6 +54,12 @@ console.log("detectChatPrefix");
 }
 
 {
+  const r = detectChatPrefix("-=-codeterm:system_prompt-=-# Shell rules\n\nUse tools carefully.");
+  eq(r?.origin, { kind: "system_prompt" }, "ct system_prompt marker parses");
+  eq(r?.body, "# Shell rules\n\nUse tools carefully.", "ct system_prompt marker body stripped");
+}
+
+{
   const r = splitChatPrefixedMessages(
     "-=-codeterm:pane label=Main pane=12e450b4 model=Sonnet-=-Hey" +
     "-=-codeterm:pane label=Claude pane=e8a0ac20-=-Rollo online",

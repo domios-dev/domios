@@ -1,5 +1,5 @@
 // Run: npx tsx packages/chat-core/src/markers.test.ts
-import { MARKER_OPEN, parseMarker, markPluginConfig } from "./markers";
+import { MARKER_OPEN, parseMarker, markPluginConfig, markSystemPrompt } from "./markers";
 
 let passed = 0,
   failed = 0;
@@ -34,6 +34,18 @@ eq(
   "-=-codeterm:plugin_config plugin=lmstudio name=LM%20Studio-=-hello body",
   "markPluginConfig wire matches Rust parity fixture",
 );
+
+const systemPrompt = "You are CodeTerm.\nUse tools carefully.";
+const systemPromptWire = markSystemPrompt(systemPrompt);
+eq(
+  systemPromptWire,
+  "-=-codeterm:system_prompt-=-You are CodeTerm.\nUse tools carefully.",
+  "markSystemPrompt wire matches Rust parity fixture",
+);
+const systemPromptParsed = parseMarker(systemPromptWire);
+eq(systemPromptParsed?.kind, "system_prompt", "system_prompt marker kind parses");
+eq(systemPromptParsed?.attrs, {}, "system_prompt marker has no attrs");
+eq(systemPromptParsed?.payload, systemPrompt, "system_prompt payload is prompt text");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

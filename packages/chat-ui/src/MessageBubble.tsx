@@ -104,6 +104,45 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     const attachments = message.attachments;
     const userText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
 
+    if (origin?.kind === "system_prompt") {
+      return (
+        <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto">
+          <div
+            className="max-w-full min-w-0 rounded-md border"
+            style={{
+              background: "color-mix(in srgb, var(--ct-surface, #161b22) 92%, var(--ct-green, #3fb950) 8%)",
+              borderColor: "color-mix(in srgb, var(--ct-green, #3fb950) 32%, transparent)",
+              color: "var(--ct-fg)",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setExpanded(!expanded)}
+              className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:brightness-110"
+              style={{ color: "var(--ct-fg)" }}
+            >
+              <Info size={14} strokeWidth={2} style={{ color: "var(--ct-green, #3fb950)" }} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-medium">System prompt</span>
+                <span className="block truncate text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
+                  This is the shell system prompt.
+                </span>
+              </span>
+              <ChevronIcon expanded={expanded} className="opacity-60" />
+            </button>
+            {expanded && (
+              <div
+                className={`border-t px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
+                style={{ borderColor: "color-mix(in srgb, var(--ct-green, #3fb950) 22%, transparent)" }}
+              >
+                <RichMarkdown text={message.content} fontScale={fontScale} />
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     // Origin header rendered above the bubble when the message came from a
     // codeterm channel (cross-pane, telegram, mesh) or wraps slash-commands.
     const originHeader = origin ? (() => {
