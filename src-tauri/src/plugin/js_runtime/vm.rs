@@ -89,6 +89,7 @@ const PLUGIN_PREAMBLE: &str = r#"
     start: function (opts) { return parseJson(host.workerStart(JSON.stringify(opts))); },
     poll:  function (jobId) { return parseJson(host.workerPoll(jobId)); },
   };
+  host.progress = function (opts) { return host.progressRaw(JSON.stringify(opts || {})); };
   host.agent = {
     spawn:  function (workspaceId, opts) { return parseJson(host.agentSpawn(workspaceId, JSON.stringify(opts))); },
     resume: function (workspaceId, sessionId) { return parseJson(host.agentResume(workspaceId, sessionId)); },
@@ -185,7 +186,7 @@ impl PluginVm {
     /// Like `load_with_manifest` but with an explicit sandbox policy. Used by
     /// the loader, which knows whether the plugin is bundled (unrestricted) or
     /// a user drop-in (confined).
-    pub fn load_with_manifest_sandboxed(
+    pub(super) fn load_with_manifest_sandboxed(
         plugin_id: &str,
         plugin_js_path: &Path,
         manifest_json: String,
@@ -237,7 +238,7 @@ impl PluginVm {
         )
     }
 
-    pub fn from_source_sandboxed(
+    pub(super) fn from_source_sandboxed(
         plugin_id: &str,
         bundle_source: String,
         manifest_json: Option<String>,
@@ -390,7 +391,7 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
         let plugin_obj = plugin_obj
             .as_object()
             .ok_or_else(|| VmError::Script("__plugin__ is not an object".into()))?;
-        let func: Function = plugin_obj
+        let _func: Function = plugin_obj
             .get(method)
             .catch(&ctx)
             .map_err(|_| VmError::MissingFunction(method.to_string()))?;
