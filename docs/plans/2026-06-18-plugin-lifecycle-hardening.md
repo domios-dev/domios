@@ -152,8 +152,102 @@ note. Keep `--from-dir` installs unchanged.
   `~/.codeterm/transcriber` + `~/.codeterm-dev/config.toml`.
 - [ ] Windows `--mesh ROG` (also clears the still-pending plugin-activity ROG check).
 
-## Self-review
-- L1 fixes hot-activate; L2 fixes freshness; L3 fixes leftover data+config (with
-  the agreed convention+manifest discovery + ask-with-checkbox). Manifest gains
-  `dataPaths`. `removeData` flag threaded end-to-end. Config helper resets
-  integrations referencing the id. All three independent; merged sequentially.
+## REVISION (AUTHORITATIVE — supersedes the tracks above where they conflict)
+
+Pre-dispatch review + two product decisions changed the scope. Workers: follow
+THIS section.
+
+### L1 — DROPPED. Already implemented; do NOT build.
+The watcher already hot-registers capability plugins live: `hot_reload.rs:423`
+`self.caps.register_plugin(provider.manifest(), provider.vm())` runs BEFORE the
+agent branch, with passing tests (`tick_registers_capability_plugin_live_without_restart`,
+`tick_deregisters_capability_on_folder_removal`). The "skipped agent registration"
+log (`hot_reload.rs:437`) only means "not added to the AGENT registry" — benign.
+The live-verify NoBackend was **L2 (stale channel served the old transcriber)**,
+not a missing hot-register. Action: only reword the misleading log line at
+`hot_reload.rs:437` to "capability registered live; not an agent provider —
+skipped agent registry" (do this inside L2's commit). Re-verify hot-install after
+L2 lands.
+
+### L2 — channel refresh on install (refined). Branch `pl-l2-channel`.
+As written in the L2 track, PLUS:
+- `find_channel_plugin` (`channel.rs:316`) reads only the cached clone — no fetch.
+  `refresh_channel(Some(name))` (`channel.rs:252`, `pub(super)`) is the reusable
+  fetch; `update.rs:38` already uses it for channel updates.
+- Sequencing: if `--channel <name>` given → refresh THAT name, then resolve. If
+  omitted → resolve to learn the channel, refresh it, re-resolve (do not refresh
+  all channels).
+- **Offline = non-fatal:** `refresh_channel` returns `Err` and `update_one` uses
+  `?` — do NOT copy that. In `install_command`, on refresh error, push a warning
+  into the result JSON and proceed with the cached clone.
+- `--from-dir` untouched. Also do the L1 log-line reword here.
+
+### L3 — clean uninstall (RESTRUCTURED, one track). Branch `pl-l3-clean-uninstall`.
+Spans CLI + src-tauri + frontend; keep it ONE worker (the `--remove-data` flag is
+the spine — don't split mid-flag). Apply ALL of:
+- **Config cleanup is src-tauri-side, NOT CLI.** `cli` has no `src-tauri` dep, so
+  `remove_installed` cannot reach `crate::config`. Do config cleanup in
+  `run_action` (`src-tauri/src/commands/plugins.rs:126`) AFTER the remove CLI
+  subprocess returns ok: a new `crate::config` helper drops `config.plugins.remove(id)`
+  and, if `integrations.voice_transcribe.active == id`, resets it to
+  `default_transcribe_active()`. **Config cleanup ALWAYS runs** (no flag).
+  Config writes are lossy serde round-trip (`config/mod.rs:360`) — that's
+  consistent with the existing `config set`; accept it, do NOT add `toml_edit`.
+- **`removeData` is a CLI flag, threaded across the subprocess boundary:**
+  (1) add `#[serde(default)] pub remove_data: bool` to `PluginManagerAction`
+  (`plugins.rs:12`) — grep `PluginManagerAction {` and add `remove_data: false` to
+  EVERY struct-literal site (28+ in tests; no Default derive);
+  (2) `plugin_action_args` remove arm (`plugins.rs:684`) appends `--remove-data`;
+  (3) clap `PluginAction::Remove` (`cli/src/args/plugin.rs:27`) gains
+  `#[arg(long="remove-data")] remove_data: bool`;
+  (4) the dispatch match (`cli/src/cmd/plugin/mod.rs:45`) destructures the new
+  field (exhaustive — compile breaks until updated);
+  (5) `remove_installed(id, force, remove_data)` — data-dir deletion only when
+  `remove_data`. `remove_channel_plugins` (`plugins.rs:261`) stays WITHOUT
+  `--remove-data` (bulk channel removal must not nuke data).
+- **Data discovery (CLI-side, in `remove_installed`):** delete
+  `data_root().join(<id>)` (the convention; transcriber uses `~/.codeterm/transcriber`)
+  PLUS manifest `dataPaths`. SAFETY (required tests): reject `id` ∈
+  {`plugins`,`channels`,`bin`,`logs`}; for `dataPaths`, expand `~`, `canonicalize`,
+  and reject anything not under the user home or containing `..`.
+- **Manifest field (both readers):** add `#[serde(default)] data_paths: Vec<String>`
+  to `src-tauri/.../manifest.rs:23` (rename_all already → `dataPaths`) AND to the
+  CLI reader `cli/src/cmd/plugin/types.rs:60` (`#[serde(default, rename="dataPaths")]`)
+  — the CLI does the deletion so it must read it.
+- **Frontend:** uninstall confirm with a checkbox "also remove downloaded data"
+  (default ON). State lives in `PluginDetailPanel` (`useState`); thread `removeData`
+  through `onAction`'s signature → `actionPayload` (`ExtensionsView.tsx:31`) →
+  `{kind:"remove", pluginId, removeData}`. DROP the "(NNN MB)" size — no size API
+  exists; out of scope (a backend size probe is a future nicety).
+- The existing `run_action` already emits the PluginActivity uninstall frame — do
+  NOT add a new one.
+
+### L4 — transcriber: delete orphan models on switch (NEW, decision Q1). Branch `pl-l4-orphan` (repo codeterm-plugins).
+On `transcribe`/`ensureModel`, after resolving the active model, remove any other
+`ggml-*.bin` (+ matching `.done`) in `~/.codeterm/transcriber` that are not the
+active model — so switching models keeps only the active one on disk; the new one
+lazy-downloads as today. STRICT TDD against the fake-host fs (assert orphan model
+files are removed, active kept). Guard so an in-progress `.part`/active file is
+never deleted. Rebuild `plugin.js`.
+
+### L5 — warm model + VRAM watchdog (NEW, decision Q2). NOT dispatched — needs its own spec.
+This is a real architecture change, designed separately (do it RIGHT, not bolted
+on). It requires:
+1. A NEW host capability: **multipart/file upload** (e.g. `host.uploadFile` /
+   `host.fetchMultipart`) so a plugin can POST audio to a resident server —
+   `host.fetch` is text-only today, which is the whole reason we went one-shot.
+   This is a new confinement-surface (audit per the architecture rules) + SDK +
+   parity considerations.
+2. **Warm `whisper-server`**: run it detached with the model resident; transcribe =
+   upload audio → `/inference` → parse. Lazy-start on first transcribe; stay warm.
+3. **Watchdog**: per-OS GPU/VRAM probe (nvidia-smi on Win/Linux+NVIDIA; macOS
+   unified-memory has no discrete VRAM — likely memory-pressure or no-op) + the
+   `watchdogGame`/`watchdogVramGb` settings (re-added) → unload (stop server) over
+   threshold/while a GPU-heavy app runs → lazy reload on next request.
+4. Integrate with `host.progress` ("Loading model…/Transcribing…/Unloading (GPU busy)…").
+Owner: gets a dedicated brainstorming → spec → plan → pre-dispatch-review cycle
+before any worker. Sequenced AFTER L2/L3/L4 land + re-verify.
+
+### Dispatch order
+Now: **L2, L3, L4** (Codex, branches off mainline, merge back, gate each). Then
+re-verify hot-install + clean-uninstall live. Then design **L5** properly.
