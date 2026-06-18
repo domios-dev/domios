@@ -216,6 +216,28 @@ case "$CMD" in
     export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=9223}"
     start_web_watch
 
+    # Optional: give the dev binary a STABLE code signature so macOS TCC remembers
+    # data-access grants across rebuilds. Ad-hoc/linker-signed binaries get a new
+    # cdhash every build, so TCC re-prompts ("access data from other apps") on each
+    # rebuild. Signing with a persistent identity gives a stable designated
+    # requirement -> grant persists. Opt-in + guarded: only runs if the identity
+    # exists in THIS machine's keychain (set CODETERM_DEV_SIGN_ID to override the
+    # name). On machines without the cert it is a no-op -> ad-hoc as before, never
+    # breaks dev. Pre-build first so the signed binary is the one tauri dev runs.
+    if [ "$(uname)" = "Darwin" ]; then
+      SIGN_ID="${CODETERM_DEV_SIGN_ID:-Codeterm Dev}"
+      if security find-identity -p codesigning 2>/dev/null | grep -q "$SIGN_ID"; then
+        DEV_BIN="${CARGO_TARGET_DIR:-src-tauri/target}/debug/codeterm"
+        echo "Pre-building + signing dev binary ($SIGN_ID) for stable TCC grants..."
+        ( cd src-tauri && cargo build ) || true
+        if [ -f "$DEV_BIN" ] && codesign --force --sign "$SIGN_ID" "$DEV_BIN" 2>/dev/null; then
+          echo "Dev binary signed ($SIGN_ID) — macOS data-access grants now persist across rebuilds."
+        else
+          echo "codesign skipped/failed — falling back to ad-hoc (no breakage)."
+        fi
+      fi
+    fi
+
     WAIT=0
     for arg in "${@:2}"; do
       case "$arg" in
