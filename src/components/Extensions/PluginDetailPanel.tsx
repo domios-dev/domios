@@ -17,6 +17,8 @@ import { MarkdownDescription } from "./MarkdownDescription";
 import { PluginIcon } from "./PluginIcon";
 import { GroupLabel, iconOf, type AppConfigShape } from "./shared";
 import { invoke } from "../../lib/bridge";
+import { configureWithAI } from "../../lib/pluginConfigure";
+import type { DaemonApiConfig } from "../../lib/webApi";
 import type { AppConfig, ProviderConfig } from "../../lib/types";
 
 export type ActionKind = "install" | "update" | "remove";
@@ -151,6 +153,30 @@ export function PluginDetailPanel({
             title={`Open a chat pane backed by ${entry.displayName}`}
           >
             Open chat
+          </button>
+        </div>
+      )}
+
+      {/* Universal "Configure with AI" (Part D): spawns a safety-wrapped pane.
+          Shown once installed; works for plugins with or without settings. */}
+      {entry.installed && !entry.pendingReload && (
+        <div style={{ marginBottom: 16 }}>
+          <button
+            onClick={() => {
+              const help =
+                entry.configHelp ||
+                `Help the user configure and use the ${entry.displayName} plugin.`;
+              void (async () => {
+                const cfg = await invoke<{ api?: DaemonApiConfig }>("get_config").catch(
+                  () => ({}) as { api?: DaemonApiConfig },
+                );
+                await configureWithAI(entry.id, entry.displayName, help, cfg.api ?? {});
+              })();
+            }}
+            style={primaryBtnStyle("install", false)}
+            title={`Open an AI chat that configures ${entry.displayName} for you`}
+          >
+            Configure with AI
           </button>
         </div>
       )}
