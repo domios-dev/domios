@@ -7,6 +7,40 @@ agent providers (Claude/Codex/OpenCode) including their UI — is a plugin.
 
 This guide reflects **what exists in the code today**.
 
+## Ecosystem at a glance
+
+Three moving parts, two channels, one published SDK:
+
+- **`@codeterm/plugin-sdk` (npm).** The type-only SDK every plugin compiles
+  against. Published to npm from this repo via OIDC CI
+  (`.github/workflows/publish-plugin-sdk.yml`; npm granular token in Bitwarden,
+  org `codeterm`) — no manual `npm publish`.
+- **`codeterm-alpha` (this repo) → the `codeterm-core` channel.** The *intrinsic*
+  provider plugins (`plugins/provider-claude|codex|opencode`), bundled into the
+  binary (`build.rs` → `embedded`). They ship and update **with the app**; their
+  versions **mirror the app version**.
+- **`codeterm-plugins` (separate repo, `rollacode/codeterm-plugins`) → the
+  `codeterm-plugins` marketplace channel.** Non-provider capability plugins
+  (`git`, `transcriber`, `bitwarden`, `lmstudio`, `chat-preprocessor`), authored in
+  TS against the published SDK. Pre-registered out of the box (register-only —
+  nothing installed); the user opts in from Marketplace.
+
+| | `codeterm-core` | `codeterm-plugins` |
+|---|---|---|
+| Repo | codeterm-alpha (`plugins/provider-*`) | rollacode/codeterm-plugins |
+| Kind | agent providers (claude/codex/opencode) | capability plugins (git/transcriber/…) |
+| Ships as | bundled in the binary | cloned from the channel git repo |
+| Versioning | mirrors app version (`npm run sync:versions`) | per-plugin, in its own repo |
+| Trust | system / trusted | third-party (sandboxed) |
+| Install | present + `plugin update-system` | opt-in from Marketplace |
+
+**App + plugin ship together.** A plugin feature that needs a NEW host capability
+(e.g. `host.progress`, a new ViewNode, a mesh hook) only works on an app build that
+has it. Shipping such a plugin update therefore means releasing the **app** (which
+carries the host change) AND publishing the plugin — a plugin alone cannot unlock a
+host API the installed app lacks. (This is the trap behind "I updated the plugin but
+the new behaviour isn't there".)
+
 ## Anatomy of a plugin
 
 Plugins are authored in **TypeScript** and compiled to the artifacts the host loads.
@@ -379,10 +413,15 @@ file/multipart capability — there is no long-lived-daemon host API to lean on.
 - **Compatibility gate.** `minCodeterm` in `plugin.json`/`channel.json` is checked on
   install/update against `CODETERM_VERSION`; incompatible versions are refused with a
   reason (the UI shows "needs CodeTerm ≥ X").
-- **Hot-reload caveat.** The plugin watcher reloads `plugin.js` and re-registers **agent
-  providers** live, but the other capability registries (`statusBubble`, `glanceView`,
-  `view`, `secretBackend`, `transcriber`) are populated at startup and are **not**
-  refreshed on reload — a new/changed capability needs a daemon restart to take effect.
+- **Hot-reload.** The plugin watcher reloads `plugin.js` and re-registers **both**
+  agent providers AND capability plugins (`statusBubble`/`glanceView`/`view`/
+  `secretBackend`/`transcriber`/`chatBackend`/`chatPreprocessor`) **live** on
+  install/change (`hot_reload.rs` → `CapabilityRegistries::register_plugin`);
+  removal deregisters. The only exception is a plugin declaring
+  `requiresReload: true`, which is held *pending* until a full daemon restart.
+  (A freshly *installed-from-channel* plugin that still looks inactive is usually a
+  **stale channel cache** serving an old build — `plugin channel refresh` — not a
+  hot-reload gap.)
 - **Asset caching.** The split UI bundle is cache-correct by construction: `index.html`
   is served `no-store` (it carries the per-load nonce and points at the current hash), so
   the embedding WebView never serves a stale shell; `app-<hash>.js` is content-hashed and
@@ -429,9 +468,32 @@ tax (see also `docs/contributing/architecture.md`):
 - `X-Frame-Options: SAMEORIGIN` blanks every cross-origin embed (i.e. always, on desktop).
 - The iframe must load from the *connected* origin, not the daemon's `0.0.0.0` bind addr,
   or remote web / Tailscale loads the client's own `127.0.0.1` and fails.
-- Capability registries don't hot-reload — restart to register a new capability.
+- Capability registries **do** hot-register on install/change (`hot_reload.rs`);
+  only `requiresReload: true` plugins wait for a restart. A still-inactive
+  freshly-installed plugin is usually a **stale channel cache**, not a reload gap.
 - A plugin-launched agent's hooks inherit the daemon's **process env**; if the daemon
   inherited a parent's `CODETERM_API_PORT` (e.g. prod's 7685 when launched from prod),
   the hook reports to the wrong daemon. Inject env from **config**, not `std::env`.
 
-<!-- revision: 8 -->
+## Releasing
+
+- **SDK (`@codeterm/plugin-sdk`).** Bump `packages/plugin-sdk/package.json`, run
+  `npm run sync:versions` (propagates to provider manifests, `packages/*`,
+  `plugins/channel.json`) then `npm run check:versions`. Push/tag → the OIDC
+  workflow publishes to npm. Never `npm publish` by hand (token is in Bitwarden).
+- **Core provider plugin (`claude`/`codex`/`opencode`).** It's bundled — it ships
+  with the app. Bump the app version, `npm run sync:versions`, then run the app
+  release (`.codeterm/skills/github-release`). The `codeterm-core` channel serves
+  the same version so existing installs pick it up via `plugin update-system`.
+- **Marketplace plugin (`codeterm-plugins` repo).**
+  1. Bump `<id>/plugin.json` (and `channel.json` if its entry changed).
+  2. `npm run build:all && npm test && npx tsc --noEmit` (the committed
+     `<id>/plugin.js` must match `src/`).
+  3. Push `codeterm-plugins` `main` → the channel now offers the new version; users
+     get it via `plugin channel refresh` + `plugin install/update`.
+  4. **If the new behaviour needs a host capability not in users' current app,
+     release the app first/together** (see "App + plugin ship together"). Test
+     path: install the new app, then `codeterm plugin install <id>`.
+
+<!-- revision: 9 -->
+
