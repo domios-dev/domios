@@ -5,22 +5,24 @@
 //! VM is not `Send`, so we call it directly on the caller's thread).
 //!
 //! Plugin surface (all via `call_json`):
-//! * `openSession(ctx) -> { sessionId }` — `ctx` is the SDK `{ paneId, config }`
-//!   envelope (the host builds it; a plugin may key its session on `paneId`).
+//! * `openSession(ctx) -> { sessionId }` — `ctx` is the SDK
+//!   `{ paneId, config, systemPrompt?, preset?, model? }` envelope (the host
+//!   builds it; a plugin may key its session on `paneId`).
 //! * `sendMessage(sessionId, text)` — fire; transcript arrives via `poll`
 //! * `poll(sessionId) -> NormalizedChatMessage[]` (or `{ messages: [...] }`)
 //! * `closeSession(sessionId)` — optional, best-effort
 //! * `listModels() -> Model[]` (`{ id, displayName, description? }`)
+//! * `listPresets() -> Preset[]` (`{ id, name, description? }`) optional
 
 use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::json;
 
-use super::vm::{call_json, PluginVm};
+use super::vm::{call_json, PluginVm, VmError};
 use crate::agent::chat_types::ChatMsg;
 use crate::agent::provider::ModelInfo;
-use crate::chatbackend::{ChatBackendError, ChatBackendProvider};
+use crate::chatbackend::{ChatBackendError, ChatBackendProvider, PresetInfo};
 
 pub struct JsChatBackend {
     vm: Arc<PluginVm>,
@@ -57,6 +59,14 @@ struct PluginModel {
     id: String,
     #[serde(default, rename = "displayName", alias = "display_name")]
     display_name: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PluginPreset {
+    id: String,
+    name: String,
     #[serde(default)]
     description: Option<String>,
 }
@@ -122,6 +132,23 @@ impl ChatBackendProvider for JsChatBackend {
             })
             .collect())
     }
+
+    fn list_presets(&self) -> Result<Vec<PresetInfo>, ChatBackendError> {
+        let presets = match call_json::<Vec<PluginPreset>>(&self.vm, "listPresets", &[]) {
+            Ok(presets) => presets,
+            Err(VmError::MissingFunction(_)) => return Ok(Vec::new()),
+            Err(VmError::Script(msg)) if msg.contains("not a function") => return Ok(Vec::new()),
+            Err(e) => return Err(map_err("listPresets", e)),
+        };
+        Ok(presets
+            .into_iter()
+            .map(|p| PresetInfo {
+                id: p.id,
+                name: p.name,
+                description: p.description,
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]
@@ -160,6 +187,35 @@ mod tests {
             .open_session(json!({ "paneId": "pane-7", "config": {} }))
             .unwrap();
         assert_eq!(sid, "pane-7");
+    }
+
+    #[test]
+    fn open_session_forwards_open_shell_ctx_fields() {
+        let vm = vm_with(
+            r#"module.exports.default = {
+                openSession(ctx) {
+                    return {
+                        sessionId: [
+                            ctx.paneId,
+                            ctx.systemPrompt,
+                            ctx.preset,
+                            ctx.model
+                        ].join("|")
+                    };
+                }
+            }"#,
+        );
+        let b = JsChatBackend::new(vm, "lmstudio");
+        let sid = b
+            .open_session(json!({
+                "paneId": "pane-7",
+                "config": {},
+                "systemPrompt": "You are CodeTerm.",
+                "preset": "codeterm",
+                "model": "qwen"
+            }))
+            .unwrap();
+        assert_eq!(sid, "pane-7|You are CodeTerm.|codeterm|qwen");
     }
 
     #[test]
@@ -224,6 +280,33 @@ mod tests {
         assert_eq!(models[0].description.as_deref(), Some("local"));
         // Missing displayName falls back to the id.
         assert_eq!(models[1].display_name, "bare");
+    }
+
+    #[test]
+    fn list_presets_maps_optional_export() {
+        let vm = vm_with(
+            r#"module.exports.default = {
+                listPresets() { return [
+                    { id: "codeterm", name: "CodeTerm", description: "default shell" },
+                    { id: "rhymes", name: "Rhymes" }
+                ]; }
+            }"#,
+        );
+        let b = JsChatBackend::new(vm, "lmstudio");
+        let presets = b.list_presets().unwrap();
+        assert_eq!(presets[0].id, "codeterm");
+        assert_eq!(presets[0].name, "CodeTerm");
+        assert_eq!(presets[0].description.as_deref(), Some("default shell"));
+        assert_eq!(presets[1].id, "rhymes");
+        assert_eq!(presets[1].name, "Rhymes");
+        assert_eq!(presets[1].description, None);
+    }
+
+    #[test]
+    fn list_presets_missing_export_returns_empty_list() {
+        let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
+        let b = JsChatBackend::new(vm, "lmstudio");
+        assert!(b.list_presets().unwrap().is_empty());
     }
 
     #[test]
