@@ -33,31 +33,60 @@ fn next_poll_delay_ms(had_delta: bool, current_ms: u64) -> u64 {
     }
 }
 
+/// Byte-identity signature of a delta's emitted payload (`delta.messages` — the
+/// exact bytes the sink would ship to the chat UI). A live streaming message
+/// re-returned every tick with no growth (cursor pinned at `liveFrom`) hashes to
+/// the same value, so the loop can suppress the redundant emit. Cheap u64 hash
+/// over the serialized payload keeps per-tick cost O(n) without retaining the
+/// payload between ticks.
+fn delta_signature(delta: &StructuredChat) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    serde_json::to_string(&delta.messages)
+        .unwrap_or_default()
+        .hash(&mut h);
+    h.finish()
+}
+
 /// Per-tick poll-loop decision.
 struct PollTick {
     /// Cursor to pass on the next poll: whatever the plugin returned, falling
     /// back to the previous cursor when it returned none.
     cursor: Option<String>,
-    /// Emit the delta to the chat UI only when it carried new messages.
+    /// Emit the delta to the chat UI only when it carried NEW bytes (non-empty
+    /// AND not byte-identical to the last emitted payload).
     emit: bool,
     /// Adaptive delay before the next poll.
     delay_ms: u64,
+    /// Signature to remember for the next tick: the new payload's signature when
+    /// a delta arrived, else the prior signature carried forward (so an idle gap
+    /// between two identical deltas still suppresses the second).
+    signature: Option<u64>,
 }
 
 /// Pure per-tick planning for the inbound poll loop: advance the cursor, decide
-/// whether to emit (non-empty delta only — idle ⇒ zero emit), and pick the next
-/// adaptive delay. Keeping this pure makes the loop's contract unit-testable
-/// without a live daemon/sink.
+/// whether to emit, and pick the next adaptive delay. Emit only when the delta
+/// is non-empty AND its payload differs from the last emitted one — a streaming
+/// message re-returned unchanged (cursor pinned at `liveFrom`) is suppressed to
+/// avoid redundant IPC + O(n²) re-transmission. Keeping this pure makes the
+/// loop's contract unit-testable without a live daemon/sink.
 fn plan_poll_tick(
     delta: &StructuredChat,
     prev_cursor: Option<String>,
     prev_delay: u64,
+    prev_signature: Option<u64>,
 ) -> PollTick {
     let had_delta = !delta.messages.is_empty();
+    let signature = if had_delta {
+        Some(delta_signature(delta))
+    } else {
+        prev_signature
+    };
     PollTick {
         cursor: delta.cursor.clone().or(prev_cursor),
-        emit: had_delta,
+        emit: had_delta && signature != prev_signature,
         delay_ms: next_poll_delay_ms(had_delta, prev_delay),
+        signature,
     }
 }
 
@@ -199,6 +228,9 @@ impl ServiceContext {
             // Start idle; the first non-empty delta snaps the loop to the fast
             // cadence (adaptive: near-token streaming while active, ~zero when idle).
             let mut delay_ms = POLL_IDLE_MS;
+            // Signature of the last emitted payload — a re-returned streaming
+            // message with no growth hashes the same and is suppressed.
+            let mut last_signature: Option<u64> = None;
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
                 if svc.mux.lock().get_pane(&pane_id).is_none() {
@@ -220,9 +252,10 @@ impl ServiceContext {
                 .await
                 {
                     Ok(Ok(delta)) => {
-                        let tick = plan_poll_tick(&delta, cursor.take(), delay_ms);
+                        let tick = plan_poll_tick(&delta, cursor.take(), delay_ms, last_signature);
                         cursor = tick.cursor;
                         delay_ms = tick.delay_ms;
+                        last_signature = tick.signature;
                         if tick.emit {
                             sink.emit(&pane_id, delta.messages, None);
                         }
@@ -246,7 +279,9 @@ mod tests {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    use super::{next_poll_delay_ms, plan_poll_tick, POLL_ACTIVE_MS, POLL_IDLE_MS};
+    use super::{
+        delta_signature, next_poll_delay_ms, plan_poll_tick, POLL_ACTIVE_MS, POLL_IDLE_MS,
+    };
     use crate::agent::chat_types::{ChatMsg, StructuredChat};
 
     fn delta(n: usize, cursor: Option<&str>) -> StructuredChat {
@@ -292,7 +327,7 @@ mod tests {
 
     #[test]
     fn tick_emits_and_advances_cursor_on_nonempty_delta() {
-        let tick = plan_poll_tick(&delta(2, Some("c2")), Some("c1".into()), POLL_IDLE_MS);
+        let tick = plan_poll_tick(&delta(2, Some("c2")), Some("c1".into()), POLL_IDLE_MS, None);
         assert!(tick.emit, "non-empty delta must emit");
         assert_eq!(tick.cursor.as_deref(), Some("c2"), "cursor advances");
         assert_eq!(tick.delay_ms, POLL_ACTIVE_MS, "active ⇒ fast next poll");
@@ -302,7 +337,7 @@ mod tests {
     fn tick_idle_does_not_emit_and_keeps_cursor() {
         // Empty delta with no fresh cursor ⇒ no emit, prior cursor retained,
         // cadence backs off.
-        let tick = plan_poll_tick(&delta(0, None), Some("c1".into()), POLL_ACTIVE_MS);
+        let tick = plan_poll_tick(&delta(0, None), Some("c1".into()), POLL_ACTIVE_MS, None);
         assert!(!tick.emit, "empty delta must NOT emit");
         assert_eq!(
             tick.cursor.as_deref(),
@@ -315,9 +350,62 @@ mod tests {
     #[test]
     fn tick_first_poll_no_cursor_emits_full_transcript() {
         // First tick: prev cursor None, plugin returns whole transcript + cursor.
-        let tick = plan_poll_tick(&delta(3, Some("c0")), None, POLL_IDLE_MS);
+        let tick = plan_poll_tick(&delta(3, Some("c0")), None, POLL_IDLE_MS, None);
         assert!(tick.emit);
         assert_eq!(tick.cursor.as_deref(), Some("c0"));
+    }
+
+    #[test]
+    fn tick_suppresses_byte_identical_delta() {
+        // MED-2: a live streaming message re-returned with no growth (cursor
+        // pinned at liveFrom) hashes identically and must NOT re-emit — redundant
+        // IPC + O(n²) bytes otherwise.
+        let d = delta(1, Some("liveFrom"));
+        let sig = delta_signature(&d);
+        // First sight: no prior signature → emit, remember the signature.
+        let t1 = plan_poll_tick(&d, Some("c0".into()), POLL_ACTIVE_MS, None);
+        assert!(t1.emit, "first delta must emit");
+        assert_eq!(t1.signature, Some(sig));
+        // Same delta again, prior signature matches → suppressed.
+        let t2 = plan_poll_tick(&d, t1.cursor.clone(), t1.delay_ms, t1.signature);
+        assert!(!t2.emit, "byte-identical re-returned delta must NOT emit");
+        assert_eq!(t2.signature, Some(sig), "signature unchanged");
+        assert_eq!(t2.delay_ms, POLL_ACTIVE_MS, "still active while streaming");
+    }
+
+    #[test]
+    fn tick_emits_when_delta_grows() {
+        // A streaming message that GREW (new tokens) changes its signature and
+        // must emit.
+        let d1 = delta(1, Some("c1"));
+        let t1 = plan_poll_tick(&d1, None, POLL_IDLE_MS, None);
+        assert!(t1.emit);
+        let d2 = delta(2, Some("c2"));
+        let t2 = plan_poll_tick(&d2, t1.cursor.clone(), t1.delay_ms, t1.signature);
+        assert!(t2.emit, "grown delta must emit");
+        assert_ne!(t2.signature, t1.signature, "signature reflects new content");
+    }
+
+    #[test]
+    fn tick_idle_preserves_last_signature_for_later_dedup() {
+        // An idle gap between two identical deltas must still suppress the second:
+        // the prior signature is carried across the empty tick.
+        let d = delta(1, Some("c1"));
+        let t1 = plan_poll_tick(&d, None, POLL_ACTIVE_MS, None);
+        assert!(t1.emit);
+        let idle = plan_poll_tick(
+            &delta(0, None),
+            t1.cursor.clone(),
+            t1.delay_ms,
+            t1.signature,
+        );
+        assert!(!idle.emit, "empty delta does not emit");
+        assert_eq!(idle.signature, t1.signature, "idle keeps prior signature");
+        let again = plan_poll_tick(&d, idle.cursor.clone(), idle.delay_ms, idle.signature);
+        assert!(
+            !again.emit,
+            "same content after an idle gap must stay suppressed"
+        );
     }
 
     /// Repro for the socket-RPC `agent.spawn <chatBackend>` panic. The poll loop

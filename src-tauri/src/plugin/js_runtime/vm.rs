@@ -311,6 +311,15 @@ impl PluginVm {
         self.inner.lock().sandbox.agent_commands_allowed()
     }
 
+    /// Re-stamp the plugin's user settings into the EXISTING sandbox without
+    /// rebuilding the VM. The hot-reload watcher calls this on a config-only
+    /// change so `host.settingsJson()` reflects the edit on its next call while
+    /// the plugin's in-memory state (open chatBackend sessions) survives. Mirrors
+    /// the `set_service` late-bind: mutate the shared sandbox in place.
+    pub fn reload_settings(&self, settings_json: String) {
+        self.inner.lock().sandbox.set_settings(settings_json);
+    }
+
     /// Re-load the plugin from a fresh source string. Used by the
     /// hot-reload path when `plugin.js` changes on disk.
     pub fn reload(&self, new_source: String) -> Result<(), VmError> {
