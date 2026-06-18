@@ -225,6 +225,8 @@ export function PaneSessionChat({
     <div
       ref={chatRootRef}
       className="w-full h-full flex flex-col relative"
+      data-testid="pane-session-chat"
+      data-pane-id={paneId}
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
@@ -251,6 +253,7 @@ export function PaneSessionChat({
           atBottomRef.current = dist < 50;
         }}
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3"
+        data-testid="pane-session-chat-messages"
       >
         {touchMode && (
           <div
@@ -263,6 +266,7 @@ export function PaneSessionChat({
           <div className="sticky top-0 z-10 flex justify-center pb-2">
             <button
               type="button"
+              data-testid="chat-load-older"
               onClick={() => void loadOlder()}
               className="rounded px-2.5 py-1 text-xs font-mono hover:brightness-125 disabled:opacity-50"
               style={{
@@ -276,7 +280,7 @@ export function PaneSessionChat({
           </div>
         )}
         {enrichedMessages.length === 0 && (
-          <div className="opacity-50 text-center py-8 text-sm">
+          <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-empty-state">
             No messages yet.
           </div>
         )}

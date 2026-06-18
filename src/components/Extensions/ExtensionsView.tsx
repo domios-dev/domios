@@ -172,11 +172,12 @@ export function ExtensionsView({
   );
 
   return (
-    <div className="h-full overflow-hidden" style={{ background: "var(--ct-bg)", color: "var(--ct-fg)" }}>
+    <div className="h-full overflow-hidden" style={{ background: "var(--ct-bg)", color: "var(--ct-fg)" }} data-testid="extensions-view">
       <div style={{ display: "flex", flexDirection: "column", height: "100%", maxWidth: 1100, margin: "0 auto", padding: "24px 24px 0" }}>
         {error && (
           <div
             role="alert"
+            data-testid="extensions-error"
             style={{ fontSize: 12.5, color: "var(--ct-err, #e57373)", border: "1px solid var(--ct-err, rgba(229,115,115,0.4))", borderRadius: 8, padding: "9px 12px", marginBottom: 12, flex: "none" }}
           >
             {error}
@@ -185,7 +186,7 @@ export function ExtensionsView({
 
         <div style={{ display: "flex", gap: 20, flex: 1, minHeight: 0 }}>
           {/* Left column */}
-          <div style={{ width: 320, flex: "none", display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div style={{ width: 320, flex: "none", display: "flex", flexDirection: "column", minHeight: 0 }} data-testid="extensions-sidebar">
             <div style={{ flex: 1, minHeight: 0 }}>
               <PluginList
                 entries={visibleEntries}
@@ -207,7 +208,7 @@ export function ExtensionsView({
           </div>
 
           {/* Right pane */}
-          <div style={{ flex: 1, minWidth: 0, overflowY: "auto", paddingBottom: 24, borderLeft: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.06))", paddingLeft: 20 }}>
+          <div style={{ flex: 1, minWidth: 0, overflowY: "auto", paddingBottom: 24, borderLeft: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.06))", paddingLeft: 20 }} data-testid="extensions-detail-pane">
             {selected ? (
               <PluginDetailPanel
                 entry={selected}
@@ -243,7 +244,7 @@ export function ExtensionsView({
 
 function EmptyState({ count }: { count: number }) {
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--ct-muted)", textAlign: "center", padding: 24 }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--ct-muted)", textAlign: "center", padding: 24 }} data-testid="extensions-empty-state">
       <div style={{ fontSize: 13.5, marginBottom: 4 }}>Select an extension</div>
       <div style={{ fontSize: 12 }}>
         {count} extension{count === 1 ? "" : "s"} available — pick one to see its details and actions.
