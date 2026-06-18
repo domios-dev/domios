@@ -29,6 +29,12 @@ pub(crate) fn list_agent_provider_values(
         let Some(shell) = shells.get(&id) else {
             continue;
         };
+        // Only user-spawnable shells belong in the new-session picker. A bare
+        // `chatBackend: true` plugin (e.g. the NPC backend) is registered for
+        // its host-/agent-driven pane but is not user-openable.
+        if !shell.spawnable() {
+            continue;
+        }
         let models = shell.list_models().unwrap_or_default();
         let presets = shell.list_presets().unwrap_or_default();
         let mut value = serde_json::json!({
@@ -497,10 +503,60 @@ mod tests {
         fn display_name(&self) -> &str {
             "Local Shell"
         }
+
+        fn spawnable(&self) -> bool {
+            true
+        }
+    }
+
+    /// A registered chatBackend that is NOT user-spawnable (bare
+    /// `chatBackend: true`) — e.g. the NPC backend. Must be hidden from the
+    /// new-session picker.
+    struct BackendOnlyShell;
+
+    impl crate::chatbackend::ChatBackendProvider for BackendOnlyShell {
+        fn id(&self) -> &str {
+            "npc"
+        }
+
+        fn open_session(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, crate::chatbackend::ChatBackendError> {
+            Ok("session".into())
+        }
+
+        fn send_message(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<(), crate::chatbackend::ChatBackendError> {
+            Ok(())
+        }
+
+        fn poll(
+            &self,
+            _: &str,
+        ) -> Result<Vec<crate::agent::chat_types::ChatMsg>, crate::chatbackend::ChatBackendError>
+        {
+            Ok(Vec::new())
+        }
+
+        fn close_session(&self, _: &str) -> Result<(), crate::chatbackend::ChatBackendError> {
+            Ok(())
+        }
+
+        fn list_models(
+            &self,
+        ) -> Result<Vec<crate::agent::provider::ModelInfo>, crate::chatbackend::ChatBackendError>
+        {
+            Ok(Vec::new())
+        }
+        // spawnable() defaults to false.
     }
 
     #[test]
-    fn provider_listing_includes_chatbackend_shells_tagged_shell() {
+    fn provider_listing_includes_spawnable_chatbackend_shells_tagged_shell() {
         let agents = crate::agent::registry::AgentRegistry::new();
         let shells = crate::chatbackend::ChatBackendRegistry::new();
         shells.register("local-shell", std::sync::Arc::new(ListingShell));
@@ -510,9 +566,34 @@ mod tests {
         let shell = listing
             .iter()
             .find(|p| p.get("id").and_then(|v| v.as_str()) == Some("local-shell"))
-            .expect("registered chatBackend shell is listed");
+            .expect("registered spawnable chatBackend shell is listed");
         assert_eq!(shell["kind"], "shell");
         assert_eq!(shell["display_name"], "Local Shell");
         assert_eq!(shell["available_models"][0]["id"], "qwen");
+    }
+
+    #[test]
+    fn provider_listing_hides_non_spawnable_chatbackends() {
+        // Regression: the NPC backend (bare `chatBackend: true`) wrongly showed
+        // in the new-session picker. Only spawnable shells are listed.
+        let agents = crate::agent::registry::AgentRegistry::new();
+        let shells = crate::chatbackend::ChatBackendRegistry::new();
+        shells.register("local-shell", std::sync::Arc::new(ListingShell));
+        shells.register("npc", std::sync::Arc::new(BackendOnlyShell));
+
+        let listing = super::list_agent_provider_values(&agents, &shells);
+
+        assert!(
+            listing
+                .iter()
+                .any(|p| p.get("id").and_then(|v| v.as_str()) == Some("local-shell")),
+            "spawnable shell is listed"
+        );
+        assert!(
+            !listing
+                .iter()
+                .any(|p| p.get("id").and_then(|v| v.as_str()) == Some("npc")),
+            "non-spawnable backend must NOT be listed"
+        );
     }
 }

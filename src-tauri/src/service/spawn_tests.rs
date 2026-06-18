@@ -734,6 +734,10 @@ impl ChatBackendProvider for SpawnRouteShell {
         self.id
     }
 
+    fn spawnable(&self) -> bool {
+        true
+    }
+
     fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
         Ok("session".into())
     }
@@ -782,6 +786,58 @@ fn spawn_agent_params_for_registered_chatbackend_routes_to_chatbackend_config() 
             assert_eq!(config["model"], "qwen");
         }
         other => panic!("expected chatBackend command, got {other:?}"),
+    }
+}
+
+struct BackendOnlyShell;
+
+impl ChatBackendProvider for BackendOnlyShell {
+    fn id(&self) -> &str {
+        "npc"
+    }
+
+    // spawnable() defaults to false — a bare `chatBackend: true` backend.
+
+    fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
+        Ok("session".into())
+    }
+
+    fn send_message(&self, _: &str, _: &str) -> Result<(), ChatBackendError> {
+        Ok(())
+    }
+
+    fn poll(&self, _: &str) -> Result<Vec<crate::agent::chat_types::ChatMsg>, ChatBackendError> {
+        Ok(Vec::new())
+    }
+
+    fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
+        Ok(())
+    }
+
+    fn list_models(&self) -> Result<Vec<crate::agent::provider::ModelInfo>, ChatBackendError> {
+        Ok(Vec::new())
+    }
+}
+
+#[test]
+fn spawn_agent_params_for_non_spawnable_chatbackend_does_not_route_to_chatbackend() {
+    // A registered-but-not-spawnable backend (bare `chatBackend: true`, e.g. the
+    // NPC plugin) must NOT be opened as a ChatBackend pane. It falls through to
+    // the Agent path, where validation rejects it as not user-spawnable.
+    let registry = crate::chatbackend::ChatBackendRegistry::new();
+    registry.register("npc", Arc::new(BackendOnlyShell));
+
+    let spec = SpawnPaneSpec::from_agent_params_with_chatbackends(
+        &registry,
+        SpawnAgentParams {
+            agent: Some("npc".into()),
+            ..spawn_params("npc")
+        },
+    );
+
+    match spec.command {
+        PaneCommand::Agent(agent) => assert_eq!(agent.provider, "npc"),
+        other => panic!("non-spawnable backend must not route to ChatBackend, got {other:?}"),
     }
 }
 

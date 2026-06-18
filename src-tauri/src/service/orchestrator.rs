@@ -270,6 +270,10 @@ impl ServiceContext {
             .clone()
             .or_else(|| params.agent_name.clone())
             .unwrap_or_else(|| agent.clone());
+        // Reject non-spawnable backends / unknown ids cleanly before building the
+        // spec, so the socket-RPC path errors identically to the HTTP path
+        // instead of falling through to a generic "Unknown agent provider".
+        self.classify_spawn_target(&agent)?;
         let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
             self.chatbackend_registry.as_ref(),
             params,
@@ -297,19 +301,10 @@ impl ServiceContext {
             .agent
             .clone()
             .unwrap_or_else(|| default_provider.clone());
-        let is_shell = self.chatbackend_registry.get(&agent_cmd).is_some();
-        if !is_shell
-            && self
-                .agent_registry
-                .with_provider(&agent_cmd, |_| ())
-                .is_none()
-        {
-            let available = self.available_agent_or_shell_ids().join(", ");
-            return Err(format!(
-                "Unknown agent provider: '{}'. Available: [{}]",
-                agent_cmd, available
-            ));
-        }
+        // Classify once: spawnable shell → ChatBackend path, ordinary agent →
+        // PTY path, anything else (non-spawnable backend or unknown id) → clean
+        // error. A spawnable shell id must never hit "Unknown agent provider".
+        let is_shell = self.classify_spawn_target(&agent_cmd)?;
         if is_shell {
             let role = params.role.clone();
             let title = params

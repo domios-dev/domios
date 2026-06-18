@@ -329,8 +329,8 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
             .and_then(|v| v.as_bool())
             .unwrap_or(false)
     };
-    // chatPreprocessor may be a bool OR an object (`{ match }`) — either form
-    // means enabled. chat_backend is a plain bool.
+    // chatPreprocessor and chatBackend may each be a bool OR an object
+    // (`{ match }` / `{ spawnable }`) — either form means enabled.
     let cap_present = |key: &str| caps.and_then(|c| c.get(key)).is_some_and(|v| !v.is_null());
     let cap_obj = serde_json::json!({
         "agent_provider": agent_provider,
@@ -339,7 +339,7 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         "glance_view": cap_bool("glanceView"),
         "status_bubble": cap_bool("statusBubble"),
         "view": cap_bool("view"),
-        "chat_backend": cap_bool("chatBackend"),
+        "chat_backend": cap_bool("chatBackend") || cap_present("chatBackend"),
         "chat_preprocessor": cap_bool("chatPreprocessor") || cap_present("chatPreprocessor"),
     });
     // Effective grants reflect the user's persisted grants.yaml override (§1.10),

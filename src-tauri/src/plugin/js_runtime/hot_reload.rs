@@ -86,7 +86,7 @@ impl CapabilityRegistries {
                 Arc::new(super::JsViewProvider::new(vm.clone(), id.clone())),
             );
         }
-        if caps.chat_backend {
+        if caps.chat_backend.enabled() {
             self.chatbackend.register(
                 id.clone(),
                 Arc::new(super::JsChatBackend::from_manifest(vm.clone(), manifest)),

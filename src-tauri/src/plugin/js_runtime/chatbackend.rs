@@ -32,6 +32,10 @@ pub struct JsChatBackend {
     icon_hint: Option<String>,
     icon_svg: Option<String>,
     icon_color: Option<String>,
+    /// `capabilities.chatBackend` was authored as `{ spawnable: true }` — the
+    /// backend is user-openable from the new-session picker. Bare
+    /// `chatBackend: true` ⇒ false (backend-only).
+    spawnable: bool,
 }
 
 impl JsChatBackend {
@@ -44,6 +48,7 @@ impl JsChatBackend {
             icon_hint: None,
             icon_svg: None,
             icon_color: None,
+            spawnable: false,
         }
     }
 
@@ -55,6 +60,7 @@ impl JsChatBackend {
             icon_hint: manifest.icon_hint.clone(),
             icon_svg: manifest.icon_svg.clone(),
             icon_color: manifest.icon_color.clone(),
+            spawnable: manifest.capabilities.chat_backend_spawnable(),
         }
     }
 }
@@ -106,6 +112,10 @@ impl ChatBackendProvider for JsChatBackend {
 
     fn display_name(&self) -> &str {
         &self.display_name
+    }
+
+    fn spawnable(&self) -> bool {
+        self.spawnable
     }
 
     fn icon_hint(&self) -> Option<&str> {
