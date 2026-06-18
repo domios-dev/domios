@@ -26,6 +26,7 @@ export interface MemoryInitialState {
   feedVisible: boolean;
   workerPanelVisible: boolean;
   activeTab?: MemoryTab;
+  inspectView?: "graph" | "list";
 }
 
 const TABS: MemoryTab[] = ["dreams", "inspect", "activity", "settings"];
@@ -53,6 +54,13 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
   const [selectedId, setSelectedId] = useState<string | null>(
     initialState?.selectedId ?? null,
   );
+
+  useEffect(() => {
+    if (!initialState) return;
+    setSelectedId(initialState.selectedId ?? null);
+    if (initialState.activeTab) setActiveTab(normalizeTab(initialState.activeTab));
+    if (initialState.inspectView) setInspectView(initialState.inspectView);
+  }, [initialState]);
 
   const [memStats, setMemStats] = useState<MemStats | null>(null);
 
