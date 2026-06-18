@@ -215,17 +215,33 @@ user; it is just the `defaultPreset.systemPrompt`.
 
 ---
 
-## Track S7 — docs + UX — branch `ops-s7-docs` (dep S2,S3,S4,S5)
+## Track S7 — docs + internal-prompt awareness — branch `ops-s7-docs` (dep S2,S3,S4,S5)
 
 **Role:** Docs engineer.
 
-**Files:**
+**User-facing docs:**
 - Modify: `docs/PLUGINS.md` (open-shell section: presets, system prompt, tools, how to spawn) — bump `<!-- revision -->`
-- Modify: `docs/API.md` / CLI docs (new `agent spawn --system/--preset`; chatBackend routing) — bump revision
+- Modify: `docs/API.md` / CLI docs (new `agent spawn --system/--preset`; chatBackend routing; shells in `agent providers`) — bump revision
 - Modify: lmstudio `README.md` + `configHelp` (how to point at LM Studio, pick/edit presets, what the system-prompt card is)
 
-- [ ] Step 1: write the docs reflecting the merged behavior.
-- [ ] Step 2: commit `docs: open provider shell — presets, system prompt, tools, spawn flags (S7)`.
+**Internal agent-facing prompts (so our own agents KNOW the capability exists —
+capability-CONDITIONAL, never assert a specific plugin is installed):**
+- Modify: `skills/codeterm/SKILL.md` "Spawning agents" section — document that
+  `codeterm agent spawn <id> [--system TEXT] [--preset ID]` can open an **open
+  agent shell** (a chatBackend plugin), that available shells are discovered via
+  `codeterm agent providers` (entries tagged `kind: shell`), and that this only
+  works **if such a chatBackend-shell plugin is installed**. Frame it as "check
+  `agent providers` first; if a shell is listed you can spawn it with a custom
+  `--system`/`--preset`."
+- Modify: `src-tauri/prompts/general_agent.md` — one or two lines: the agent may
+  spawn open agent shells with a custom system prompt / preset **when such a
+  plugin is present** (discover via `agent providers`). Keep it tight; do not
+  hardcode `lmstudio`.
+- Leave `plugin_agent_task_preamble.md` unless a shell-specific note is clearly needed.
+
+- [ ] Step 1: write user-facing docs reflecting the merged behavior.
+- [ ] Step 2: add the capability-conditional awareness to SKILL.md + general_agent.md (no hardcoded plugin id).
+- [ ] Step 3: commit `docs: open provider shell — user docs + internal-prompt awareness (S7)`.
 
 ---
 
