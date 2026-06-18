@@ -36,7 +36,9 @@ async function holdVoice(page: Page): Promise<void> {
   if (!box) throw new Error("voice button has no box");
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
-  await page.waitForTimeout(400);
+  await expect(page.locator('[data-testid="composer-voice-live-waveform"]')).toBeVisible({
+    timeout: 5_000,
+  });
   await page.mouse.up();
 }
 
@@ -80,7 +82,9 @@ test("@golden mic stream is warm: two recordings → getUserMedia called exactly
 
     // Second recording — must REUSE the warm stream, no new getUserMedia.
     await holdVoice(page);
-    await page.waitForTimeout(1500);
+    await expect(
+      page.locator('[data-testid="chat-message"]', { hasText: "warm mic transcript" }),
+    ).toHaveCount(2, { timeout: 8_000 });
     expect(await page.evaluate(() => (window as unknown as { __gumCalls: number }).__gumCalls)).toBe(1);
   } finally {
     if (agentPaneId) paneCleanup.track(agentPaneId);

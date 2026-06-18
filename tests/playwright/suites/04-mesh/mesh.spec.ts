@@ -11,6 +11,7 @@
  */
 import { expect, test } from "../../helpers/fixtures";
 import { MeshStub } from "../../helpers/mesh-stub";
+import { pollUntil } from "../../helpers/poll";
 
 interface MeshPeer {
   instance_id: string;
@@ -25,21 +26,6 @@ interface MeshPeers {
 async function pairedPeer(api: { get<T>(p: string): Promise<T> }, id: string): Promise<MeshPeer | undefined> {
   const peers = await api.get<MeshPeers>("/mesh/peers");
   return peers.paired.find((p) => p.instance_id === id);
-}
-
-async function pollUntil<T>(
-  label: string,
-  timeoutMs: number,
-  intervalMs: number,
-  probe: () => Promise<T | undefined>,
-): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const value = await probe();
-    if (value !== undefined) return value;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for: ${label}`);
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
 }
 
 test("@golden stub peer: pair → online → wedged → offline (hysteresis) → recovered, in API and Mesh-tab UI", async ({ api, ui }) => {
@@ -69,9 +55,13 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
     await api.post("/mesh/connect", { instance_id: peerId });
 
     // Pairing completes via the stub's async accept callback.
-    const paired = await pollUntil("stub appears in paired list", 20_000, 500, () =>
-      pairedPeer(api, peerId!),
+    const paired = await pollUntil(
+      () => pairedPeer(api, peerId!),
+      20_000,
+      500,
+      "stub appears in paired list",
     );
+    if (!paired) throw new Error("stub did not appear in paired list");
     expect(paired.online, "freshly paired peer must start online").toBe(true);
     expect(
       stub.requests.some((r) => r === "POST /api/mesh/pair/request"),
@@ -79,12 +69,11 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
     ).toBe(true);
 
     // Survive at least one full health-loop round while answering pings.
-    await new Promise((r) => setTimeout(r, 20_000));
+    await pollUntil(async () => {
+      const peer = await pairedPeer(api, peerId!);
+      return peer?.online === true && stub.requests.some((r) => r === "GET /api/mesh/ping");
+    }, 60_000, 2_000, "healthy peer answers at least one ping");
     expect((await pairedPeer(api, peerId))?.online, "healthy peer flapped offline").toBe(true);
-    expect(
-      stub.requests.some((r) => r === "GET /api/mesh/ping"),
-      "daemon never pinged the stub",
-    ).toBe(true);
 
     // Open the Mesh tab: peer row online, the stub's 3 services rendered
     // fresh (not stale) in the services drawer.
@@ -106,8 +95,11 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
     // must flip offline (2 consecutive missed rounds ≈ 30-45s), and must
     // do so without wedging the daemon itself.
     stub.mode = "wedged";
-    await pollUntil("wedged peer flips offline", 120_000, 3_000, async () =>
-      (await pairedPeer(api, peerId!))?.online === false ? true : undefined,
+    await pollUntil(
+      async () => (await pairedPeer(api, peerId!))?.online === false,
+      120_000,
+      3_000,
+      "wedged peer flips offline",
     );
 
     // Daemon is still responsive while the peer hangs (no event-loop wedge).
@@ -127,8 +119,11 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
     // Recovery: answering again brings it back online — and staleness
     // clears in the UI.
     stub.mode = "happy";
-    await pollUntil("recovered peer flips back online", 120_000, 3_000, async () =>
-      (await pairedPeer(api, peerId!))?.online === true ? true : undefined,
+    await pollUntil(
+      async () => (await pairedPeer(api, peerId!))?.online === true,
+      120_000,
+      3_000,
+      "recovered peer flips back online",
     );
     await expect(stubServices.first()).toHaveAttribute("data-stale", "false", {
       timeout: 30_000,
@@ -167,7 +162,7 @@ test("@golden liar peer: alive but its services endpoint errors honestly", async
     peerId = added.instance_id;
     stub.instanceId = peerId;
     await api.post("/mesh/connect", { instance_id: peerId });
-    await pollUntil("liar pairs", 20_000, 500, () => pairedPeer(api, peerId!));
+    await pollUntil(() => pairedPeer(api, peerId!), 20_000, 500, "liar pairs");
 
     // The stub's own surface behaves as scripted: ping fine, services 500.
     const ping = await fetch(`http://127.0.0.1:${stub.port}/api/mesh/ping`);

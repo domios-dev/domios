@@ -85,7 +85,9 @@ function writeChannel(version: string): void {
 }
 
 function setupChannel(version = "0.1.0"): string {
-  rmSync(CHANNEL_ROOT, { recursive: true, force: true });
+  if (existsSync(CHANNEL_ROOT)) {
+    rmSync(CHANNEL_ROOT, { recursive: true });
+  }
   mkdirSync(CHANNEL_ROOT, { recursive: true });
   bash(`git init --bare ${shQuote(BARE)} >/dev/null`);
   bash(`git clone ${shQuote(BARE)} ${shQuote(WORKTREE)} >/dev/null 2>&1`);
@@ -155,7 +157,7 @@ test.beforeEach(async () => {
 
 test.afterEach(() => {
   if (existsSync(CHANNEL_ROOT)) {
-    rmSync(CHANNEL_ROOT, { recursive: true, force: true });
+    rmSync(CHANNEL_ROOT, { recursive: true });
   }
 });
 
