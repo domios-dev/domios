@@ -62,15 +62,45 @@ function loadOpencodeWithHost(host: unknown) {
 }
 
 const ocHost = (over: Record<string, unknown>) => ({
-  manifestJson: () => "null",
+  manifestJson: () => JSON.stringify({
+    models: [
+      { id: "seed-opencode", displayName: "Seed OpenCode", description: "Manifest fallback" },
+    ],
+  }),
   homeDir: () => "/tmp",
   platform: () => "linux",
   expandHome: (v: string) => v,
   envGet: () => null,
+  exec: () => JSON.stringify({ code: 1, stdout: "", stderr: "not available" }),
   log: () => {},
   shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
   ...over,
 });
+
+console.log("\n--- discoverModels ---\n");
+
+{
+  const p = loadOpencodeWithHost(ocHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "opencode/live-a\nanthropic/claude-live-b\n" }),
+  }));
+  eq(
+    p.discoverModels(),
+    [
+      { id: "opencode/live-a", displayName: "OpenCode Live A" },
+      { id: "anthropic/claude-live-b", displayName: "Claude Live B" },
+    ],
+    "discoverModels surfaces the stubbed opencode models probe",
+  );
+}
+
+{
+  const p = loadOpencodeWithHost(ocHost({}));
+  eq(
+    p.discoverModels(),
+    [{ id: "seed-opencode", displayName: "Seed OpenCode", description: "Manifest fallback" }],
+    "discoverModels falls back to manifest seed when opencode models probe is unavailable",
+  );
+}
 
 // Install must write the x-codeterm-binding-nonce header into the generated
 // opencode plugin so the session-start report can prove pane ownership.

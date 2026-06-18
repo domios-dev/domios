@@ -3,7 +3,7 @@
 // QuickJS-compatible plugin.js by scripts/build-plugin.mjs. Detect/parse/slash
 // commands plus rollout-tree session discovery. The frontend ProviderPlugin
 // contract is the separate src/index.ts artifact the app imports.
-import type { LaunchParams, PluginModule } from "@codeterm/plugin-sdk";
+import type { LaunchParams, ModelInfo, PluginModule } from "@codeterm/plugin-sdk";
 
 const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 const TITLE_RE = /codex/i;
@@ -78,6 +78,12 @@ const plugin: PluginModule = {
       events.push("permission_request");
     }
     return events;
+  },
+
+  // Codex CLI has no account-model-list subcommand; its local cache is the only
+  // clean synchronous account-scoped source. Missing or stale cache => seed.
+  discoverModels(): ModelInfo[] {
+    return discoverCodexModelsFromCache() || manifestModels();
   },
 
   buildLaunchCommand(params: LaunchParams): string {
@@ -451,6 +457,9 @@ interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string
 interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
 interface CodexHookEntry { matcher?: string; hooks?: CodexHookCmd[] }
 interface CodexHooks { hooks?: { SessionStart?: CodexHookEntry[] } }
+interface CodexModelCache { models?: CodexCachedModel[] }
+interface CodexCachedModel { slug?: string; display_name?: string; description?: string }
+interface CodexManifest { models?: ModelInfo[] }
 
 // Use function declarations for QuickJS strict-mode compatibility with bundler rewrites.
 function endsWith(s: string, suffix: string): boolean {
@@ -472,6 +481,56 @@ function codexHooksPath(): string | null {
   if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
   return home + sep + ".codex" + sep + "hooks.json";
+}
+
+function codexModelsCachePath(): string | null {
+  const home = host.homeDir();
+  if (!home) return null;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  return home + sep + ".codex" + sep + "models_cache.json";
+}
+
+function discoverCodexModelsFromCache(): ModelInfo[] | null {
+  const path = codexModelsCachePath();
+  if (!path || !host.fs.fileExists(path)) return null;
+  const cache = host.fs.readJson<CodexModelCache>(path);
+  const raw = cache && cache.models;
+  if (!Array.isArray(raw)) return null;
+  const models: ModelInfo[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    const id = typeof item.slug === "string" ? item.slug.trim() : "";
+    if (!id) continue;
+    models.push({
+      id: id,
+      displayName: typeof item.display_name === "string" && item.display_name.trim()
+        ? item.display_name.trim()
+        : displayNameFromId(id),
+      description: typeof item.description === "string" && item.description.trim()
+        ? item.description.trim()
+        : undefined,
+    });
+  }
+  return models.length ? models : null;
+}
+
+function manifestModels(): ModelInfo[] {
+  try {
+    const m = JSON.parse(host.manifestJson() || "null") as CodexManifest | null;
+    return Array.isArray(m && m.models) ? m!.models! : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function displayNameFromId(id: string): string {
+  const parts = id.split("/");
+  const leaf = parts[parts.length - 1] || id;
+  return leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
+}
+
+function capitalizeToken(token: string): string {
+  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
 }
 
 function codexWindowsHookScriptPath(): string | null {

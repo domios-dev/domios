@@ -77,6 +77,11 @@ var plugin = {
     }
     return events;
   },
+  // Codex CLI has no account-model-list subcommand; its local cache is the only
+  // clean synchronous account-scoped source. Missing or stale cache => seed.
+  discoverModels() {
+    return discoverCodexModelsFromCache() || manifestModels();
+  },
   buildLaunchCommand(params) {
     const p = params || {};
     const parts = [];
@@ -415,6 +420,47 @@ function codexHooksPath() {
   if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
   return home + sep + ".codex" + sep + "hooks.json";
+}
+function codexModelsCachePath() {
+  const home = host.homeDir();
+  if (!home) return null;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  return home + sep + ".codex" + sep + "models_cache.json";
+}
+function discoverCodexModelsFromCache() {
+  const path = codexModelsCachePath();
+  if (!path || !host.fs.fileExists(path)) return null;
+  const cache = host.fs.readJson(path);
+  const raw = cache && cache.models;
+  if (!Array.isArray(raw)) return null;
+  const models = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    const id = typeof item.slug === "string" ? item.slug.trim() : "";
+    if (!id) continue;
+    models.push({
+      id,
+      displayName: typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : displayNameFromId(id),
+      description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0
+    });
+  }
+  return models.length ? models : null;
+}
+function manifestModels() {
+  try {
+    const m = JSON.parse(host.manifestJson() || "null");
+    return Array.isArray(m && m.models) ? m.models : [];
+  } catch (_) {
+    return [];
+  }
+}
+function displayNameFromId(id) {
+  const parts = id.split("/");
+  const leaf = parts[parts.length - 1] || id;
+  return leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
+}
+function capitalizeToken(token) {
+  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
 }
 function codexWindowsHookScriptPath() {
   const home = host.homeDir();

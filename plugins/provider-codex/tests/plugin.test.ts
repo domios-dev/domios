@@ -57,6 +57,38 @@ function loadHostPlugin() {
   return context.module.exports.default;
 }
 
+function loadCodexWithHost(host: unknown) {
+  const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
+  const source = fs.readFileSync(pluginPath, "utf8");
+  const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  return context.module.exports.default;
+}
+
+const manifestSeed = {
+  models: [
+    { id: "seed-model", displayName: "Seed Model", description: "Manifest fallback" },
+  ],
+};
+
+const baseHost = (over: Record<string, unknown>) => ({
+  manifestJson: () => JSON.stringify(manifestSeed),
+  homeDir: () => "/tmp/home",
+  platform: () => "linux",
+  expandHome: (v: string) => v.replace(/^~/, "/tmp/home"),
+  envGet: () => null,
+  log: () => {},
+  shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
+  fs: {
+    fileExists: () => false,
+    readFile: () => null,
+    readJson: () => null,
+    writeJson: () => true,
+    writeFile: () => true,
+  },
+  ...over,
+});
+
 console.log("\n--- meta ---\n");
 eq(plugin.meta.id, "codex", "meta.id is 'codex'");
 eq(plugin.meta.displayName, "Codex", "meta.displayName");
@@ -120,25 +152,33 @@ try {
 assert(parsed.messages.length === 1, "parseSessionDelta corrupted lines are skipped");
 assert(warned === 1, "parseSessionDelta emits one warning for a session with invalid entries");
 
-console.log("\n--- binding nonce (install + outdated detection) ---\n");
+console.log("\n--- discoverModels ---\n");
 
-function loadCodexWithHost(host: unknown) {
-  const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
-  const source = fs.readFileSync(pluginPath, "utf8");
-  const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
-  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
-  return context.module.exports.default;
+{
+  const p = loadCodexWithHost(baseHost({
+    fs: {
+      fileExists: (p: string) => p.endsWith("/.codex/models_cache.json"),
+      readFile: () => null,
+      readJson: (p: string) => p.endsWith("/.codex/models_cache.json")
+        ? { models: [{ slug: "gpt-live", display_name: "GPT Live", description: "from cache" }] }
+        : null,
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  eq(
+    p.discoverModels(),
+    [{ id: "gpt-live", displayName: "GPT Live", description: "from cache" }],
+    "discoverModels surfaces the stubbed Codex cache probe",
+  );
 }
 
-const baseHost = (over: Record<string, unknown>) => ({
-  manifestJson: () => "null",
-  homeDir: () => "/tmp",
-  platform: () => "linux",
-  expandHome: (v: string) => v,
-  log: () => {},
-  shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
-  ...over,
-});
+{
+  const p = loadCodexWithHost(baseHost({}));
+  eq(p.discoverModels(), manifestSeed.models, "discoverModels falls back to manifest seed when no Codex cache exists");
+}
+
+console.log("\n--- binding nonce (install + outdated detection) ---\n");
 
 // Install must emit the X-CodeTerm-Binding-Nonce header so the provider's
 // session-start report can prove pane ownership (release/1.4.6 binding-nonce).
