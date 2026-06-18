@@ -2,6 +2,34 @@ use crate::client::SocketClient;
 use crate::cmd::print::{handle_result, print_object};
 use crate::{build_http, read_api_config, resolve_pane, AgentAction};
 
+fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
+    let models = target.get("available_models").and_then(|v| v.as_array());
+    let Some(models) = models else {
+        return format!("No models advertised for provider '{}'.\n", provider);
+    };
+    let default_model = target.get("default_model").and_then(|v| v.as_str());
+    let mut out = String::new();
+    for m in models {
+        let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        let name = m.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
+        let marker = if default_model == Some(id) {
+            " (default)"
+        } else {
+            ""
+        };
+        let description = m.get("description").and_then(|v| v.as_str()).unwrap_or("");
+        if description.is_empty() {
+            out.push_str(&format!("{:<10} {}{}\n", id, name, marker));
+        } else {
+            out.push_str(&format!(
+                "{:<10} {}{}\n             {}\n",
+                id, name, marker, description
+            ));
+        }
+    }
+    out
+}
+
 pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) {
     let (base, token) = read_api_config();
     let http = match build_http(&token) {
@@ -80,35 +108,19 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         );
                         std::process::exit(1);
                     };
-                    let models = target.get("available_models").and_then(|v| v.as_array());
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&models).unwrap());
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(
+                                target
+                                    .get("available_models")
+                                    .unwrap_or(&serde_json::Value::Null)
+                            )
+                            .unwrap()
+                        );
                         return;
                     }
-                    let Some(models) = models else {
-                        println!("No models advertised for provider '{}'.", provider);
-                        return;
-                    };
-                    let default_model = target.get("default_model").and_then(|v| v.as_str());
-                    for m in models {
-                        let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                        let name = m.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
-                        let marker = if default_model == Some(id) {
-                            " (default)"
-                        } else {
-                            ""
-                        };
-                        let description =
-                            m.get("description").and_then(|v| v.as_str()).unwrap_or("");
-                        if description.is_empty() {
-                            println!("{:<10} {}{}", id, name, marker);
-                        } else {
-                            println!(
-                                "{:<10} {}{}\n             {}",
-                                id, name, marker, description
-                            );
-                        }
-                    }
+                    print!("{}", format_agent_models(target, &provider));
                 }
                 Err(e) => {
                     eprintln!("Error: {}", e);
@@ -420,5 +432,32 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_models_formats_descriptor_models_from_api_snapshot() {
+        let provider = serde_json::json!({
+            "id": "codex",
+            "default_model": "live-codex",
+            "available_models": [
+                {
+                    "id": "live-codex",
+                    "display_name": "Live Codex",
+                    "description": "catalog snapshot"
+                }
+            ]
+        });
+
+        let out = format_agent_models(&provider, "codex");
+
+        assert!(out.contains("live-codex"));
+        assert!(out.contains("Live Codex (default)"));
+        assert!(out.contains("catalog snapshot"));
+        assert!(!out.contains("static-codex"));
     }
 }

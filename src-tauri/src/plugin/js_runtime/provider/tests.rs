@@ -314,7 +314,7 @@ fn settings_schema_falls_back_to_manifest_when_plugin_silent() {
 }
 
 #[test]
-fn available_models_round_trip_through_manifest() {
+fn available_models_reads_catalog_snapshot_not_static_manifest() {
     let json = r#"{
             "id": "am",
             "version": "0.1.0",
@@ -330,9 +330,20 @@ fn available_models_round_trip_through_manifest() {
             ]
         }"#;
     let p = load(json, "module.exports.default = {};");
+    crate::agent::model_catalog::put_live(
+        "am",
+        vec![crate::agent::provider::ModelInfo {
+            id: "live".into(),
+            display_name: "Live".into(),
+            description: Some("from catalog".into()),
+        }],
+        Some("live".into()),
+    );
+
     let ms = p.available_models();
-    assert_eq!(ms.len(), 2);
-    assert_eq!(ms[1].description.as_deref(), Some("second"));
+    assert_eq!(ms.len(), 1);
+    assert_eq!(ms[0].id, "live");
+    assert_eq!(ms[0].description.as_deref(), Some("from catalog"));
 }
 
 #[tokio::test]
