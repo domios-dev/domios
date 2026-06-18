@@ -39,7 +39,9 @@ async function holdVoice(page: Page): Promise<void> {
   if (!box) throw new Error("voice button has no box");
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
-  await page.waitForTimeout(400);
+  await expect(page.locator('[data-testid="composer-voice-live-waveform"]')).toBeVisible({
+    timeout: 5_000,
+  });
   await page.mouse.up();
 }
 

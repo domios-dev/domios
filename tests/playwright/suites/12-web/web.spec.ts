@@ -6,6 +6,7 @@
  */
 import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 import { MeshStub } from "../../helpers/mesh-stub";
+import { pollUntil } from "../../helpers/poll";
 
 const WEB_URL = `${API_BASE}/web/`;
 
@@ -80,13 +81,10 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     peerId = added.instance_id;
     stub.instanceId = peerId;
     await api.post("/mesh/connect", { instance_id: peerId });
-    const deadline = Date.now() + 20_000;
-    for (;;) {
+    await pollUntil(async () => {
       const peers = await api.get<{ paired: { instance_id: string }[] }>("/mesh/peers");
-      if (peers.paired.some((p) => p.instance_id === peerId)) break;
-      if (Date.now() > deadline) throw new Error("stub never paired");
-      await new Promise((r) => setTimeout(r, 500));
-    }
+      return peers.paired.some((p) => p.instance_id === peerId);
+    }, 20_000, 500, "stub peer pairs for web switching");
 
     const page = await newWebPage(webBrowser);
     await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
@@ -150,6 +148,8 @@ test("@golden unreachable peer fails gracefully at the gate, back-to-self recove
   await page.waitForSelector('[data-testid="web-token-back-to-self"]', { timeout: 30_000 });
   await page.click('[data-testid="web-token-back-to-self"]');
   await passTokenGate(page);
+  await expect(page.locator('[data-testid="peer-picker-button"]')).toContainText("this host");
+  await expect(page.locator('[data-testid="workspace-item"]').first()).toBeVisible();
   await page.context().close();
 });
 
@@ -208,6 +208,7 @@ test("@golden fully live on mobile: General Agent responds, read from the render
     // Mobile defaults supported agent panes to chat mode, so the reply may
     // render as a chat bubble instead of xterm a11y text — accept either.
     await pollMarkerInDom(marker, { page, includeChatMessages: true });
+    await expect(page.locator(`[data-pane-id="${agentPaneId!}"]`)).toContainText(marker);
   } finally {
     if (agentPaneId) paneCleanup.track(agentPaneId);
     await page.context().close();
@@ -312,7 +313,10 @@ test("@golden close sync: web close updates the desktop window, desktop close up
 
     // 1) Close A through the WEB sidebar UI (⋮ → Close Tab).
     await webTab(a.tab_id).hover();
-    await webTab(a.tab_id).locator('[title="Tab actions"]').click({ force: true });
+    const webActions = webTab(a.tab_id).locator('[title="Tab actions"]');
+    await webActions.scrollIntoViewIfNeeded();
+    await expect(webActions).toBeVisible({ timeout: 5_000 });
+    await webActions.click();
     await page.getByText(/^Close (Tab|Session)$/).first().click();
     await expect(webTab(a.tab_id)).toHaveCount(0, { timeout: 15_000 });
     // …and the DESKTOP window follows via mux-state-changed.
@@ -320,7 +324,10 @@ test("@golden close sync: web close updates the desktop window, desktop close up
 
     // 2) Close B through the DESKTOP sidebar UI.
     await deskTab(b.tab_id).hover();
-    await deskTab(b.tab_id).locator('[title="Tab actions"]').click({ force: true });
+    const deskActions = deskTab(b.tab_id).locator('[title="Tab actions"]');
+    await deskActions.scrollIntoViewIfNeeded();
+    await expect(deskActions).toBeVisible({ timeout: 5_000 });
+    await deskActions.click();
     await ui.page.getByText(/^Close (Tab|Session)$/).first().click();
     await expect(deskTab(b.tab_id)).toHaveCount(0, { timeout: 15_000 });
     // …and the WEB mirror follows via SSE.
@@ -356,17 +363,15 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
   try {
     // The chat source is ready once the claude CLI has booted a session —
     // until then chat-raw/start 409s.
-    const ready = Date.now() + 120_000;
-    for (;;) {
+    await pollUntil(async () => {
       try {
         await api.post(`/panes/${paneId}/chat-raw/start`);
         await api.post(`/panes/${paneId}/chat-raw/stop`);
-        break;
-      } catch (e) {
-        if (Date.now() > ready) throw new Error(`spawned pane chat never became ready: ${e}`);
-        await new Promise((r) => setTimeout(r, 3_000));
+        return true;
+      } catch {
+        return undefined;
       }
-    }
+    }, 120_000, 3_000, "spawned pane chat becomes ready");
     await api.post(`/panes/${paneId}/chat-view`, { enabled: true });
 
     await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });

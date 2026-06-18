@@ -8,6 +8,7 @@
  * simulator; update mutates the install).
  */
 import { expect, test, API_BASE, readDevToken } from "../../helpers/fixtures";
+import { pollUntil } from "../../helpers/poll";
 
 async function raw(
   method: string,
@@ -69,20 +70,16 @@ test("@golden PTY echo round-trip: send a command, read it back from output", as
   const left = marker.slice(0, Math.floor(marker.length / 2));
   const right = marker.slice(Math.floor(marker.length / 2));
   try {
-    // Give the shell a moment to be ready, then echo a unique marker.
-    await new Promise((r) => setTimeout(r, 3_000));
     await api.post(`/panes/${created.id}/send`, {
       text: `node -e "console.log('${left}' + '${right}')"`,
       enter: true,
     });
 
-    let seen = false;
-    for (let i = 0; i < 30 && !seen; i++) {
-      await new Promise((r) => setTimeout(r, 1_000));
+    const seen = await pollUntil(async () => {
       const out = await api.get<{ text?: string } | string>(`/panes/${created.id}/output`);
       const text = typeof out === "string" ? out : (out.text ?? JSON.stringify(out));
-      seen = text.includes(marker);
-    }
+      return text.includes(marker);
+    }, 30_000, 1_000, `marker ${marker} appears in pane output`);
     expect(seen, `marker ${marker} never appeared in pane output`).toBe(true);
   } finally {
     await api.closePane(created.id).catch(() => {});

@@ -7,6 +7,7 @@
 import { expect, test } from "../../helpers/fixtures";
 import { type ApiClient } from "../../helpers/api-client";
 import { ensureDevConsole, killDevConsole } from "../../helpers/dev-console";
+import { pollUntil } from "../../helpers/poll";
 
 interface CronJob {
   id: string;
@@ -70,18 +71,17 @@ test("@golden oneshot cron fires via time travel and spawns a real run", async (
     const toFire = beforeFire.next_run! - now;
     expect(toFire).toBeGreaterThan(0);
     await api.post("/debug/clock/advance", { ms: toFire - 1 });
-    await new Promise((r) => setTimeout(r, 2_000));
     let history = await api.get<unknown[]>(`/crons/${created.id}/history`);
     expect(history.length, "fired 1ms early").toBe(0);
 
     // Cross the boundary: the scheduler is woken and must fire.
     await api.post("/debug/clock/advance", { ms: 2 });
-    const deadline = Date.now() + 60_000;
-    while (Date.now() < deadline) {
+    const firedHistory = await pollUntil(async () => {
       history = await api.get<unknown[]>(`/crons/${created.id}/history`);
-      if (history.length > 0) break;
-      await new Promise((r) => setTimeout(r, 1_000));
-    }
+      return history.length > 0 ? history : undefined;
+    }, 60_000, 1_000, "cron fires after crossing its fire time");
+    if (!firedHistory) throw new Error("cron history did not appear after crossing its fire time");
+    history = firedHistory;
     expect(history.length, "cron never fired after crossing its fire time").toBe(1);
 
     // Oneshot contract between fire and completion: disabled, no next_run.
@@ -98,17 +98,15 @@ test("@golden oneshot cron fires via time travel and spawns a real run", async (
     // The run is real: a hidden agent pane executes the task; the
     // completion path then auto-deletes the oneshot job. Deletion within
     // budget IS the proof the run completed.
-    const runDeadline = Date.now() + 180_000;
-    let gone = false;
-    while (Date.now() < runDeadline && !gone) {
+    const gone = await pollUntil(async () => {
       try {
         await api.get<CronJob>(`/crons/${created.id}`);
-        await new Promise((r) => setTimeout(r, 3_000));
+        return undefined;
       } catch (e) {
         expect(String(e)).toContain("404");
-        gone = true;
+        return true;
       }
-    }
+    }, 180_000, 3_000, "oneshot job auto-deletes after run");
     expect(gone, "oneshot never completed (job still present after 180s)").toBe(true);
   } finally {
     await api.request("DELETE", `/crons/${created.id}`).catch(() => {});

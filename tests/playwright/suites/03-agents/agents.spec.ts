@@ -14,6 +14,7 @@
  * on this machine) — no API key env needed for the claude provider.
  */
 import { expect, test, type SpawnAgent } from "../../helpers/fixtures";
+import { pollUntil } from "../../helpers/poll";
 
 // ── @smoke: no LLM involved ──────────────────────────────────────────
 
@@ -109,14 +110,11 @@ test("@golden real agent spawn → works → reports back (structural asserts)",
     // The agent runs the report command; poll the inbox. Single LLM call,
     // no retries — if the model never reports within budget, that is a
     // real finding, not flake to paper over.
-    let reportText = "";
-    const deadline = Date.now() + 240_000;
-    while (Date.now() < deadline) {
+    const reportText = await pollUntil(async () => {
       const reports = await api.get<unknown>(`/panes/${inbox.id}/reports`);
-      reportText = JSON.stringify(reports);
-      if (reportText.includes(marker)) break;
-      await new Promise((r) => setTimeout(r, 3_000));
-    }
+      const text = JSON.stringify(reports);
+      return text.includes(marker) ? text : undefined;
+    }, 240_000, 3_000, "agent report reaches inbox");
     expect(reportText, "agent report with marker never arrived").toContain(marker);
 
     // Session detection is async but should have landed by report time.
@@ -166,6 +164,9 @@ test("@golden multi-turn + tool round-trip observed in the live terminal DOM", a
       `Run exactly this command and nothing else, then stop: node -e "console.log('${toolLeft}' + '${toolRight}')"`,
     );
     await pollMarkerInDom(toolMarker);
+    const toolText = await api.get<{ text?: string } | string>(`/panes/${agentPaneId}/text`);
+    const toolBuffer = typeof toolText === "string" ? toolText : (toolText.text ?? JSON.stringify(toolText));
+    expect(toolBuffer, "tool command marker missing from pane buffer").toContain(toolMarker);
 
     // Same pane, same session — a real second turn.
     await api.post(`/panes/${agentPaneId}/send`, {
@@ -173,6 +174,9 @@ test("@golden multi-turn + tool round-trip observed in the live terminal DOM", a
       enter: true,
     });
     await pollMarkerInDom(turn2Marker);
+    const turn2Text = await api.get<{ text?: string } | string>(`/panes/${agentPaneId}/text`);
+    const turn2Buffer = typeof turn2Text === "string" ? turn2Text : (turn2Text.text ?? JSON.stringify(turn2Text));
+    expect(turn2Buffer, "second turn marker missing from pane buffer").toContain(turn2Marker);
   } finally {
     if (agentPaneId) paneCleanup.track(agentPaneId);
   }
@@ -207,18 +211,19 @@ test("@golden agent restart mid-session resumes and stays usable", async ({ api,
     expect(restart.restarting).toBe(true);
 
     // The pane must survive the restart and stay a claude agent pane.
-    const deadline = Date.now() + 120_000;
-    let pane: { agent_type?: string | null; agent_session_id?: string } | undefined;
-    while (Date.now() < deadline) {
-      pane = (await api.panes()).find((p) => p.id === agentPaneId);
-      if (pane?.agent_type === "claude") break;
-      await new Promise((r) => setTimeout(r, 2_000));
-    }
+    const pane = await pollUntil(async () => {
+      const found = (await api.panes()).find((p) => p.id === agentPaneId) as
+        | { agent_type?: string | null; agent_session_id?: string }
+        | undefined;
+      return found?.agent_type === "claude" ? found : undefined;
+    }, 120_000, 2_000, "agent pane survives restart");
     expect(pane?.agent_type, "pane lost its agent after restart").toBe("claude");
 
     // Usability after restart is the real bar: a fresh prompt round-trips.
-    // Give the resumed CLI a moment to be input-ready.
-    await new Promise((r) => setTimeout(r, 10_000));
+    await pollUntil(async () => {
+      const status = await api.get<Record<string, unknown>>(`/panes/${agentPaneId}/status`);
+      return status.agent_session_id || status.agent_type === "claude";
+    }, 120_000, 2_000, "restarted agent is input-ready");
     await api.post(`/panes/${agentPaneId}/send`, {
       text: `Reply with a single line containing exactly ${resumeMarker} and nothing else.`,
       enter: true,

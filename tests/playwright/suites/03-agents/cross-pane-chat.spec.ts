@@ -15,6 +15,7 @@
  */
 import { expect, test, type SpawnAgent } from "../../helpers/fixtures";
 import { type ApiClient } from "../../helpers/api-client";
+import { pollUntil } from "../../helpers/poll";
 
 interface ChatMsg {
   role?: string;
@@ -28,14 +29,14 @@ async function chatContains(api: ApiClient, paneId: string, needle: string): Pro
 }
 
 async function waitChatContains(api: ApiClient, paneId: string, needle: string, timeout = 120_000): Promise<ChatMsg> {
-  const deadline = Date.now() + timeout;
-  let last: ChatMsg | undefined;
-  while (Date.now() < deadline) {
-    last = await chatContains(api, paneId, needle);
-    if (last) return last;
-    await new Promise((r) => setTimeout(r, 2_000));
-  }
-  throw new Error(`pane ${paneId} chat never received "${needle}"`);
+  const msg = await pollUntil(
+    () => chatContains(api, paneId, needle),
+    timeout,
+    2_000,
+    `pane ${paneId} chat receives "${needle}"`,
+  );
+  if (!msg) throw new Error(`pane ${paneId} chat never received "${needle}"`);
+  return msg;
 }
 
 async function spawnChatAgent(api: ApiClient, spawnAgent: SpawnAgent, title: string): Promise<string> {
