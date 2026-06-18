@@ -86,6 +86,11 @@ var plugin = {
     }
     return events;
   },
+  // OpenCode exposes `opencode models`; host-side caching keeps this sync probe
+  // off hot reads. If the CLI is absent/offline, use the manifest seed.
+  discoverModels() {
+    return discoverOpencodeModels() || manifestModels();
+  },
   // Parse opencode's permission box. Its options are a single horizontal row
   // ("Allow once  Allow always  Reject") rather than a numbered list, so the
   // host's universal picker can't read it — the plugin owns its own format.
@@ -297,12 +302,51 @@ var plugin = {
     return { messages, cursor: String(maxTs) };
   }
 };
+function discoverOpencodeModels() {
+  const raw = host.exec(JSON.stringify({
+    bin: "opencode",
+    args: ["models"],
+    timeoutMs: 3e3
+  }));
+  const result = safeJson(raw);
+  if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
+  const lines = result.stdout.split("\n");
+  const models = [];
+  for (let i = 0; i < lines.length; i++) {
+    const id = lines[i].trim();
+    if (!isModelId(id)) continue;
+    models.push({ id, displayName: displayNameFromId(id) });
+  }
+  return models.length ? models : null;
+}
+function isModelId(value) {
+  return /^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/i.test(value);
+}
+function manifestModels() {
+  try {
+    const m = JSON.parse(host.manifestJson() || "null");
+    return Array.isArray(m && m.models) ? m.models : [];
+  } catch (_) {
+    return [];
+  }
+}
 function safeJson(s) {
   try {
-    return JSON.parse(s);
+    return JSON.parse(String(s || "null"));
   } catch (_) {
     return null;
   }
+}
+function displayNameFromId(id) {
+  const slash = id.split("/");
+  const provider = slash.length > 1 ? slash[0] : "";
+  const leaf = slash[slash.length - 1] || id;
+  const words = leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
+  if (provider.toLowerCase() === "opencode") return "OpenCode " + words;
+  return words;
+}
+function capitalizeToken(token) {
+  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
 }
 function partToChatMsg(part, role, id, tsMs) {
   const timestamp = String(tsMs);
