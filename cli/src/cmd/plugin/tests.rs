@@ -170,6 +170,40 @@ mod store_index_tests {
     }
 
     #[test]
+    fn install_message_offers_configuration_with_real_id() {
+        with_data_root(|root| {
+            let source = root.join("src-configurable");
+            std::fs::create_dir_all(&source).unwrap();
+            std::fs::write(
+                source.join("plugin.json"),
+                serde_json::json!({
+                    "id": "configurable",
+                    "version": "1.0.0",
+                    "displayName": "Configurable",
+                })
+                .to_string(),
+            )
+            .unwrap();
+            std::fs::write(source.join("plugin.js"), "module.exports = {};").unwrap();
+
+            let out = install_command(None, Some(source.display().to_string()), None, None)
+                .expect("install must succeed");
+            let msg = out
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            assert!(msg.contains("codeterm plugin get configurable"), "{msg}");
+            assert!(
+                msg.contains("codeterm plugin config configurable --set key=value"),
+                "{msg}"
+            );
+            assert!(msg.to_lowercase().contains("ask the user"), "{msg}");
+            // m5: must not double-prefix "Installed".
+            assert_eq!(msg.matches("Installed").count(), 1, "{msg}");
+        });
+    }
+
+    #[test]
     fn plugin_storage_roots_follow_code_term_data_dir_override() {
         let _guard = env_lock().lock().unwrap();
         let prev = std::env::var("CODETERM_DATA_DIR").ok();
