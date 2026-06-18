@@ -67,6 +67,16 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
     const peerId = marker.attrs.peer;
     if (peerId) return { origin: { kind: "mesh", peerId }, body: marker.payload };
   }
+  if (marker.kind === "plugin_config" && marker.attrs.plugin) {
+    return {
+      origin: {
+        kind: "plugin_config",
+        pluginId: marker.attrs.plugin,
+        name: marker.attrs.name ?? marker.attrs.plugin,
+      },
+      body: marker.payload,
+    };
+  }
   if (marker.attrs.user) {
     return {
       origin: { kind: "service", service: marker.kind, userId: marker.attrs.user },
@@ -193,6 +203,8 @@ export function labelFor(origin: ChatOrigin): string {
       return `Mesh · ${origin.peerId.slice(0, 10)}`;
     case "service":
       return `${origin.service} · ${origin.userId.slice(0, 12)}`;
+    case "plugin_config":
+      return `Configure · ${origin.name}`;
     case "command":
       return origin.commands.length === 1
         ? origin.commands[0].name

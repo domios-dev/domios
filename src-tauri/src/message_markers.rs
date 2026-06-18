@@ -163,6 +163,16 @@ pub fn voice(file: &str, transcript: Option<&str>, note: Option<&str>) -> String
     }
 }
 
+/// Configuration request for a plugin, carrying a core-wrapped (safety-enveloped)
+/// description. Rendered as a "Configure <plugin>" card in the chat UI.
+pub fn plugin_config(id: &str, name: &str, body: &str) -> String {
+    Marker::new("plugin_config")
+        .attr("plugin", id)
+        .attr("name", name)
+        .payload(body)
+        .build()
+}
+
 pub fn photo(file: &str, name: Option<&str>) -> String {
     Marker::new("photo")
         .attr("file", file)
