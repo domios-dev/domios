@@ -266,7 +266,7 @@ mod tests {
         // A delta arrived this tick ⇒ poll fast next, regardless of prior delay.
         assert_eq!(next_poll_delay_ms(true, POLL_IDLE_MS), POLL_ACTIVE_MS);
         assert_eq!(next_poll_delay_ms(true, POLL_ACTIVE_MS), POLL_ACTIVE_MS);
-        assert!(POLL_ACTIVE_MS <= 80, "active cadence must be near-token");
+        const { assert!(POLL_ACTIVE_MS <= 80, "active cadence must be near-token") };
     }
 
     #[test]
