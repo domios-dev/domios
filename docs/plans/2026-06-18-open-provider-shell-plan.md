@@ -270,14 +270,32 @@ Each iteration:
    INTERESTING alternative approaches/designs worth adopting — I want to learn from
    how it would have done it. It reports findings back to me (it does not fix).
 2. **I triage + plan the fixes** (fix at source, no patches, clean abstractions),
-   then dispatch fix workers (Codex for code, Opus-claude for architecture), gate +
-   merge each myself as usual.
+   then dispatch fix workers **on Opus** (`codeterm agent spawn claude --model opus`
+   — reviewers AND fix workers run on Opus for the whole hardening/perf phase; the
+   reasoning-heavy perf + architecture work wants Opus, and the budget is there),
+   gate + merge each myself as usual.
 3. **Ask the peer-Opus to re-review** the fixed state.
 4. **Track the iteration counter** in the queued heartbeat message (e.g.
    "REVIEW-LOOP iteration N/5") so it survives a context reset — re-stamp it each
    tick. Persist the running findings list there too if useful.
 5. **Stop** when a review returns clean (no actionable findings) OR after 5
    iterations, whichever first.
+
+**Performance mandate (dedicate AT LEAST 3 of the iterations to perf).** The
+peer-Opus must MEASURE, not guess — profile, get to the truth, fix at source:
+- **Tab / pane opening must be async and must NOT block or jank the UI.** No
+  stutter, no freeze, no dropped frames when opening a tab (shell pane, agent
+  pane, or chatBackend shell). Trace the open path end-to-end (frontend click →
+  command/IPC → spawn → first paint) and move any blocking work off the UI thread;
+  the tab should appear instantly and fill in asynchronously.
+- **Memory + CPU footprint must be reasonable** under realistic load (many panes
+  open). Specifically scrutinize: the chatBackend poll loop (500ms tick PER pane —
+  cost scales with pane count), the streaming re-emit (an assistant message
+  re-pushed per chunk → React re-render + IPC volume — batch/coalesce if hot), the
+  host streaming job buffers (S0 caps), and any per-tick allocation/serialization.
+- Each perf iteration: capture a baseline measurement, identify the real
+  bottleneck, optimize at source, then re-measure to PROVE the improvement (numbers
+  in the report). No micro-optimizations without a measured win; no band-aids.
 
 ## Phase F — final test handoff to Mac-Air (after Phase R converges)
 
