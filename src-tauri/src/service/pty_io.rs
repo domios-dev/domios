@@ -1,9 +1,7 @@
 //! PTY I/O helpers: send text, batch send, resize, wait-for-pty.
-
-use std::collections::HashMap;
-
 use super::ServiceContext;
 use serde::Deserialize;
+use std::collections::HashMap;
 
 const SHELL_BACKEND_COLS: u16 = 120;
 const SEND_AGENT_BACKEND_COLS: u16 = 240;
@@ -13,14 +11,12 @@ const SEND_AGENT_BACKEND_COLS: u16 = 240;
 /// through bash/cmd to start a process). On Unix we write the launch_cmd
 /// to a temp script and exec via `bash <path>` to bypass bracketed-paste
 /// markers entirely.
-///
 /// macOS system bash 3.2 has no bracketed-paste readline binding, so the
 /// markers leak as literal `00~` / `01~` text into the shell command and
 /// break spawn (mem worker spawns silently broken on Intel Mac mini hosts
 /// whose login shell is still /bin/bash). The script-file path is shell-
 /// agnostic — markers stay only in the interactive Claude TUI input path
 /// where they are still needed.
-///
 /// Script self-cleans via `trap 'rm -f $0' EXIT` so /tmp doesn't accumulate.
 /// Errors propagate — no fallback to known-broken bracketed paste.
 #[cfg(unix)]
@@ -419,22 +415,10 @@ impl ServiceContext {
                 if session_valid {
                     let params = crate::service::SpawnAgentParams {
                         agent: Some(provider_id.clone()),
-                        agent_name: None,
-                        args: None,
                         cwd,
-                        title: None,
-                        role: None,
-                        parent_pane_id: None,
-                        can_spawn: None,
-                        task: None,
-                        workspace_id: None,
-                        force_tab: None,
-                        report_target_pane_id: None,
                         skip_permissions: Some(auto_approve),
-                        spawned_by_pane_id: None,
-                        model: None,
                         resume_session_id: Some(session_id),
-                        activate: None,
+                        ..Default::default()
                     };
                     let launch_cmd = crate::service::orchestrator::build_agent_command(
                         &provider_id,
@@ -675,8 +659,8 @@ impl ServiceContext {
             // timeout (codex's 15s drain check) into a minute-long stall.
             const SETTLE_MS: [u64; 2] = [120, 800];
             let mut observed = false;
-            for attempt in 0..SETTLE_MS.len() {
-                std::thread::sleep(std::time::Duration::from_millis(SETTLE_MS[attempt]));
+            for (attempt, settle_ms) in SETTLE_MS.iter().enumerate() {
+                std::thread::sleep(std::time::Duration::from_millis(*settle_ms));
                 self.pty
                     .lock()
                     .write(pty_id, b"\r")
@@ -690,7 +674,7 @@ impl ServiceContext {
                     VerifySubmitStrategy::ShellPrompt { timeout } => wait_for_submit_shell(
                         &self.screen_state,
                         pty_id,
-                        hash_before.clone(),
+                        hash_before,
                         *timeout,
                         tail_rows,
                     ),

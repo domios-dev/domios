@@ -3,11 +3,12 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
-use super::orchestrator::{build_agent_command, launch_agent_in_background, SpawnAgentParams};
+use super::orchestrator::{build_agent_command, launch_agent_in_background};
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
 pub(crate) use super::spawn_cli::{cli_binary_on_path, provider_cli_install_warning};
+pub(crate) use super::spawn_params::chatbackend_spawn_config;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnPaneSpec {
@@ -34,9 +35,11 @@ pub enum PaneVisibility {
     Hidden,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PaneCommand {
+    #[default]
     Shell,
     Agent(AgentSpawnSpec),
     /// A pane driven by a plugin's `chatBackend` capability — no PTY, no shell.
@@ -45,12 +48,6 @@ pub enum PaneCommand {
         #[serde(default)]
         config: serde_json::Value,
     },
-}
-
-impl Default for PaneCommand {
-    fn default() -> Self {
-        PaneCommand::Shell
-    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -119,69 +116,6 @@ pub struct PaneHandle {
     pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
-}
-
-impl SpawnPaneSpec {
-    pub fn from_agent_params(params: SpawnAgentParams) -> Self {
-        Self {
-            workspace_id: params.workspace_id.clone(),
-            parent_pane_id: params.parent_pane_id.clone(),
-            cwd: params.cwd.clone(),
-            title: params.title.clone(),
-            visibility: PaneVisibility::Visible,
-            eager: false,
-            command: PaneCommand::Agent(AgentSpawnSpec {
-                provider: params.agent.clone().unwrap_or_default(),
-                model: params.model.clone(),
-                task: params.task.clone(),
-                agent_name: params.agent_name.clone(),
-                extra_args: params.args.clone().unwrap_or_default(),
-                role: params.role.clone(),
-                can_spawn: params.can_spawn,
-                auto_approve: params.skip_permissions.unwrap_or(true),
-                report_target_pane_id: params.report_target_pane_id.clone(),
-                worker_id: None,
-                extra_env: Default::default(),
-                task_preamble: None,
-                spawned_by: None,
-                spawned_by_pane_id: params.spawned_by_pane_id.clone(),
-                resume_session_id: params.resume_session_id.clone(),
-                activate: params.activate,
-            }),
-        }
-    }
-
-    pub(crate) fn to_agent_params(&self) -> Result<SpawnAgentParams, String> {
-        let agent = match &self.command {
-            PaneCommand::Agent(a) => a,
-            PaneCommand::Shell => {
-                return Err("to_agent_params called on Shell spec".into());
-            }
-            PaneCommand::ChatBackend { .. } => {
-                return Err("to_agent_params called on ChatBackend spec".into());
-            }
-        };
-        let args = agent.extra_args.clone();
-        Ok(SpawnAgentParams {
-            agent: Some(agent.provider.clone()),
-            agent_name: agent.agent_name.clone(),
-            args: if args.is_empty() { None } else { Some(args) },
-            cwd: self.cwd.clone(),
-            title: self.title.clone(),
-            role: agent.role.clone(),
-            parent_pane_id: self.parent_pane_id.clone(),
-            can_spawn: agent.can_spawn,
-            task: agent.task.clone(),
-            workspace_id: self.workspace_id.clone(),
-            force_tab: None,
-            report_target_pane_id: agent.report_target_pane_id.clone(),
-            skip_permissions: Some(agent.auto_approve),
-            spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
-            model: agent.model.clone(),
-            resume_session_id: agent.resume_session_id.clone(),
-            activate: agent.activate,
-        })
-    }
 }
 
 impl ServiceContext {
@@ -345,7 +279,7 @@ impl ServiceContext {
             .with_provider(&agent_cmd, |_| ())
             .is_none()
         {
-            let available = self.agent_registry.provider_ids().join(", ");
+            let available = self.available_agent_or_shell_ids().join(", ");
             return Err(format!(
                 "Unknown agent provider: '{}'. Available: [{}]",
                 agent_cmd, available
@@ -725,7 +659,7 @@ impl ServiceContext {
             .with_provider(&agent.provider, |_| ())
             .is_none()
         {
-            let available = self.agent_registry.provider_ids().join(", ");
+            let available = self.available_agent_or_shell_ids().join(", ");
             return Err(format!(
                 "Unknown agent provider: '{}'. Available: [{}]",
                 agent.provider, available

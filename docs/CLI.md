@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -88,7 +88,9 @@ Spawn a new agent (creates tab in workspace, linked in hierarchy)
 - `--cwd` — Working directory
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--parent` — Parent pane ID (for Workers)
+- `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
 - `--role` — Role: Orchestrator, Worker
+- `--system_prompt` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
 - `--title` — Tab title
 - `--workspace` — Target workspace ID (default: parent's workspace or active workspace)
@@ -1089,7 +1091,7 @@ List all panes as a workspace-grouped tree. `--agents` filters to agent panes on
 
 Plain shell pane. For an AI pane use `codeterm agent spawn` instead
 
-- `--chat_backend` — Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability, e.g. `lmstudio`). `codeterm send`/`get-output` then route to the plugin, not a shell
+- `--chat_backend` — Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`get-output` then route to the plugin, not a shell
 - `--cmd` — Command to run on pane start (e.g. `"poetry run backend"`). Sent into the PTY after the shell is ready
 - `--config` — JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`
 - `--cwd` — Working directory for the new pane

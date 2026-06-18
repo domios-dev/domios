@@ -20,6 +20,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use super::vm::{call_json, PluginVm, VmError};
+use super::PluginManifest;
 use crate::agent::chat_types::ChatMsg;
 use crate::agent::provider::ModelInfo;
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, PresetInfo};
@@ -27,11 +28,34 @@ use crate::chatbackend::{ChatBackendError, ChatBackendProvider, PresetInfo};
 pub struct JsChatBackend {
     vm: Arc<PluginVm>,
     id: String,
+    display_name: String,
+    icon_hint: Option<String>,
+    icon_svg: Option<String>,
+    icon_color: Option<String>,
 }
 
 impl JsChatBackend {
     pub fn new(vm: Arc<PluginVm>, id: impl Into<String>) -> Self {
-        Self { vm, id: id.into() }
+        let id = id.into();
+        Self {
+            vm,
+            display_name: id.clone(),
+            id,
+            icon_hint: None,
+            icon_svg: None,
+            icon_color: None,
+        }
+    }
+
+    pub fn from_manifest(vm: Arc<PluginVm>, manifest: &PluginManifest) -> Self {
+        Self {
+            vm,
+            id: manifest.id.clone(),
+            display_name: manifest.display_name.clone(),
+            icon_hint: manifest.icon_hint.clone(),
+            icon_svg: manifest.icon_svg.clone(),
+            icon_color: manifest.icon_color.clone(),
+        }
     }
 }
 
@@ -78,6 +102,22 @@ fn map_err(method: &str, e: super::vm::VmError) -> ChatBackendError {
 impl ChatBackendProvider for JsChatBackend {
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn display_name(&self) -> &str {
+        &self.display_name
+    }
+
+    fn icon_hint(&self) -> Option<&str> {
+        self.icon_hint.as_deref()
+    }
+
+    fn icon_svg(&self) -> Option<&str> {
+        self.icon_svg.as_deref()
+    }
+
+    fn icon_color(&self) -> Option<&str> {
+        self.icon_color.as_deref()
     }
 
     fn open_session(&self, ctx: serde_json::Value) -> Result<String, ChatBackendError> {
@@ -166,7 +206,7 @@ mod tests {
                 openSession(cfg) { return { sessionId: "s-" + (cfg.model || "x") }; }
             }"#,
         );
-        let b = JsChatBackend::new(vm, "lmstudio");
+        let b = JsChatBackend::new(vm, "local-shell");
         let sid = b.open_session(json!({ "model": "qwen" })).unwrap();
         assert_eq!(sid, "s-qwen");
     }
@@ -182,7 +222,7 @@ mod tests {
                 openSession(ctx) { return { sessionId: ctx.paneId }; }
             }"#,
         );
-        let b = JsChatBackend::new(vm, "lmstudio");
+        let b = JsChatBackend::new(vm, "local-shell");
         let sid = b
             .open_session(json!({ "paneId": "pane-7", "config": {} }))
             .unwrap();
@@ -205,7 +245,7 @@ mod tests {
                 }
             }"#,
         );
-        let b = JsChatBackend::new(vm, "lmstudio");
+        let b = JsChatBackend::new(vm, "local-shell");
         let sid = b
             .open_session(json!({
                 "paneId": "pane-7",
@@ -223,7 +263,7 @@ mod tests {
         let vm = vm_with(
             r#"module.exports.default = { openSession() { return { error: "no server" }; } }"#,
         );
-        let b = JsChatBackend::new(vm, "lmstudio");
+        let b = JsChatBackend::new(vm, "local-shell");
         assert!(matches!(
             b.open_session(json!({})),
             Err(ChatBackendError::Call(_))
@@ -242,7 +282,7 @@ mod tests {
                 ]; }
             }"#,
         );
-        let b = JsChatBackend::new(vm, "lmstudio");
+        let b = JsChatBackend::new(vm, "local-shell");
         let msgs = b.poll("s1").unwrap();
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0].kind, "user");
@@ -257,7 +297,7 @@ mod tests {
                 poll() { return { messages: [{ id: "1", type: "assistant", content: "ok" }] }; }
             }"#,
         );
-        let b = JsChatBackend::new(vm, "lmstudio");
+        let b = JsChatBackend::new(vm, "local-shell");
         let msgs = b.poll("s1").unwrap();
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].content, "ok");
@@ -273,7 +313,7 @@ mod tests {
                 ]; }
             }"#,
         );
-        let b = JsChatBackend::new(vm, "lmstudio");
+        let b = JsChatBackend::new(vm, "local-shell");
         let models = b.list_models().unwrap();
         assert_eq!(models[0].id, "qwen");
         assert_eq!(models[0].display_name, "Qwen 2.5");
@@ -292,7 +332,7 @@ mod tests {
                 ]; }
             }"#,
         );
-        let b = JsChatBackend::new(vm, "lmstudio");
+        let b = JsChatBackend::new(vm, "local-shell");
         let presets = b.list_presets().unwrap();
         assert_eq!(presets[0].id, "codeterm");
         assert_eq!(presets[0].name, "CodeTerm");
@@ -305,7 +345,7 @@ mod tests {
     #[test]
     fn list_presets_missing_export_returns_empty_list() {
         let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
-        let b = JsChatBackend::new(vm, "lmstudio");
+        let b = JsChatBackend::new(vm, "local-shell");
         assert!(b.list_presets().unwrap().is_empty());
     }
 
@@ -316,7 +356,7 @@ mod tests {
                 sendMessage(sid, text) { globalThis.__last = sid + ":" + text; }
             }"#,
         );
-        let b = JsChatBackend::new(vm, "lmstudio");
+        let b = JsChatBackend::new(vm, "local-shell");
         assert!(b.send_message("s1", "hello").is_ok());
     }
 
@@ -351,7 +391,7 @@ mod tests {
     #[test]
     fn close_session_missing_export_is_ok() {
         let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
-        let b = JsChatBackend::new(vm, "lmstudio");
+        let b = JsChatBackend::new(vm, "local-shell");
         assert!(b.close_session("s1").is_ok());
     }
 }

@@ -178,9 +178,9 @@ fn send_text_body_ignores_legacy_verify_field() {
 fn create_pane_body_parses_chat_backend_and_config() {
     // P1: the REST contract for opening a plugin-driven chat pane via
     // `POST /api/panes`. chat_backend + config map to PaneCommand::ChatBackend.
-    let json = r#"{"chat_backend": "lmstudio", "config": {"model": "llama"}}"#;
+    let json = r#"{"chat_backend": "local-shell", "config": {"model": "llama"}}"#;
     let body: CreateShellPaneBody = serde_json::from_str(json).unwrap();
-    assert_eq!(body.chat_backend.as_deref(), Some("lmstudio"));
+    assert_eq!(body.chat_backend.as_deref(), Some("local-shell"));
     assert_eq!(body.config.unwrap()["model"], "llama");
 }
 

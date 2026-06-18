@@ -34,6 +34,12 @@ pub struct CreateShellPaneBody {
     /// meaningful with `chat_backend`.
     #[serde(default)]
     pub config: Option<serde_json::Value>,
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub preset: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 pub async fn create_shell_pane(
@@ -48,10 +54,22 @@ pub async fn create_shell_pane(
     // spawn_chatbackend_impl (no PTY, plugin session, poll loop); otherwise a
     // plain shell pane.
     let command = match body.chat_backend {
-        Some(plugin_id) => PaneCommand::ChatBackend {
-            plugin_id,
-            config: body.config.unwrap_or(serde_json::Value::Null),
-        },
+        Some(plugin_id) => {
+            let mut config = body.config.unwrap_or(serde_json::Value::Null);
+            let overrides = crate::service::spawn::chatbackend_spawn_config(
+                body.system_prompt.as_deref(),
+                body.preset.as_deref(),
+                body.model.as_deref(),
+            );
+            if let (Some(base), Some(extra)) = (config.as_object_mut(), overrides.as_object()) {
+                for (key, value) in extra {
+                    base.insert(key.clone(), value.clone());
+                }
+            } else if !overrides.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+                config = overrides;
+            }
+            PaneCommand::ChatBackend { plugin_id, config }
+        }
         None => PaneCommand::Shell,
     };
     let handle = state

@@ -174,8 +174,8 @@ mod tests {
     #[test]
     fn parses_id_and_verb() {
         assert_eq!(
-            parse_method("plugin:lmstudio.say"),
-            Some(("lmstudio".into(), "say".into()))
+            parse_method("plugin:local-shell.say"),
+            Some(("local-shell".into(), "say".into()))
         );
         assert_eq!(
             parse_method("plugin:p.do.it"),

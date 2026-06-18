@@ -1,6 +1,8 @@
 use super::*;
-use crate::service::ServiceContext;
+use crate::chatbackend::{ChatBackendError, ChatBackendProvider};
+use crate::service::{ServiceContext, SpawnAgentParams};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[test]
@@ -26,6 +28,30 @@ fn agent_spec(provider: &str) -> SpawnPaneSpec {
             ..Default::default()
         }),
         ..Default::default()
+    }
+}
+
+fn spawn_params(provider: &str) -> SpawnAgentParams {
+    SpawnAgentParams {
+        agent: Some(provider.into()),
+        agent_name: None,
+        args: None,
+        cwd: None,
+        title: None,
+        role: None,
+        parent_pane_id: None,
+        can_spawn: None,
+        task: None,
+        workspace_id: None,
+        force_tab: None,
+        report_target_pane_id: None,
+        skip_permissions: None,
+        spawned_by_pane_id: None,
+        model: None,
+        system_prompt: None,
+        preset: None,
+        resume_session_id: None,
+        activate: None,
     }
 }
 
@@ -418,6 +444,8 @@ fn from_agent_params_carries_model_into_spec() {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: Some("gpt-5.4-mini".into()),
+        system_prompt: None,
+        preset: None,
         resume_session_id: None,
         activate: None,
     };
@@ -515,6 +543,8 @@ fn from_agent_params_preserves_can_spawn_option() {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,
+        system_prompt: None,
+        preset: None,
         resume_session_id: None,
         activate: None,
     };
@@ -552,6 +582,8 @@ fn from_agent_params_carries_activate_into_spec() {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,
+        system_prompt: None,
+        preset: None,
         resume_session_id: None,
         activate: Some(true),
     };
@@ -675,11 +707,11 @@ fn chat_default_on_hidden_agent_stays_terminal() {
 fn chatbackend_pane_command_deserializes() {
     // The spawn API contract for a chatBackend pane: kind "chat_backend" with a
     // plugin id and opaque config (B1.3 #1/#6).
-    let json = r#"{"kind":"chat_backend","plugin_id":"lmstudio","config":{"model":"qwen"}}"#;
+    let json = r#"{"kind":"chat_backend","plugin_id":"local-shell","config":{"model":"qwen"}}"#;
     let cmd: PaneCommand = serde_json::from_str(json).unwrap();
     match cmd {
         PaneCommand::ChatBackend { plugin_id, config } => {
-            assert_eq!(plugin_id, "lmstudio");
+            assert_eq!(plugin_id, "local-shell");
             assert_eq!(config["model"], "qwen");
         }
         _ => panic!("expected ChatBackend variant"),
@@ -688,7 +720,90 @@ fn chatbackend_pane_command_deserializes() {
 
 #[test]
 fn chatbackend_pane_command_config_defaults_to_null() {
-    let json = r#"{"kind":"chat_backend","plugin_id":"lmstudio"}"#;
+    let json = r#"{"kind":"chat_backend","plugin_id":"local-shell"}"#;
     let cmd: PaneCommand = serde_json::from_str(json).unwrap();
     assert!(matches!(cmd, PaneCommand::ChatBackend { config, .. } if config.is_null()));
+}
+
+struct SpawnRouteShell {
+    id: &'static str,
+}
+
+impl ChatBackendProvider for SpawnRouteShell {
+    fn id(&self) -> &str {
+        self.id
+    }
+
+    fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
+        Ok("session".into())
+    }
+
+    fn send_message(&self, _: &str, _: &str) -> Result<(), ChatBackendError> {
+        Ok(())
+    }
+
+    fn poll(&self, _: &str) -> Result<Vec<crate::agent::chat_types::ChatMsg>, ChatBackendError> {
+        Ok(Vec::new())
+    }
+
+    fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
+        Ok(())
+    }
+
+    fn list_models(&self) -> Result<Vec<crate::agent::provider::ModelInfo>, ChatBackendError> {
+        Ok(Vec::new())
+    }
+}
+
+#[test]
+fn spawn_agent_params_for_registered_chatbackend_routes_to_chatbackend_config() {
+    let registry = crate::chatbackend::ChatBackendRegistry::new();
+    registry.register(
+        "local-shell",
+        Arc::new(SpawnRouteShell { id: "local-shell" }),
+    );
+
+    let spec = SpawnPaneSpec::from_agent_params_with_chatbackends(
+        &registry,
+        SpawnAgentParams {
+            agent: Some("local-shell".into()),
+            system_prompt: Some("You are terse.".into()),
+            preset: Some("ops".into()),
+            model: Some("qwen".into()),
+            ..spawn_params("local-shell")
+        },
+    );
+
+    match spec.command {
+        PaneCommand::ChatBackend { plugin_id, config } => {
+            assert_eq!(plugin_id, "local-shell");
+            assert_eq!(config["systemPrompt"], "You are terse.");
+            assert_eq!(config["preset"], "ops");
+            assert_eq!(config["model"], "qwen");
+        }
+        other => panic!("expected chatBackend command, got {other:?}"),
+    }
+}
+
+#[test]
+fn spawn_agent_params_for_non_chatbackend_keeps_agent_path() {
+    let registry = crate::chatbackend::ChatBackendRegistry::new();
+
+    let spec = SpawnPaneSpec::from_agent_params_with_chatbackends(
+        &registry,
+        SpawnAgentParams {
+            agent: Some("pty-agent".into()),
+            system_prompt: Some("ignored by PTY providers".into()),
+            preset: Some("ignored".into()),
+            ..spawn_params("pty-agent")
+        },
+    );
+
+    match spec.command {
+        PaneCommand::Agent(agent) => {
+            assert_eq!(agent.provider, "pty-agent");
+            assert_eq!(agent.model, None);
+        }
+        other => panic!("expected PTY agent command, got {other:?}"),
+    }
 }
