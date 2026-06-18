@@ -415,6 +415,7 @@ export function TerminalPane({
   return (
     <div
       className="w-full h-full relative"
+      data-testid="terminal-pane"
       data-pane-id={paneId}
       style={{
         boxSizing: "border-box",
