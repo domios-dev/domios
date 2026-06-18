@@ -22,6 +22,7 @@ import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useAgentProviders } from "./hooks/useAgentProviders";
 import { UpdateProvider } from "./hooks/useUpdate";
+import { usePluginActivity } from "./lib/usePluginActivity";
 import {
   MultiplexerProvider,
   useMultiplexer,
@@ -49,6 +50,7 @@ function useStableJsonValue<T>(value: T): T {
 
 function AppInner() {
   useAgentProviders();
+  const { activities: pluginActivities } = usePluginActivity();
   // Phones start with the sidebar collapsed; the hamburger opens it as an overlay (see the wrapper at the render site).
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 640,
@@ -710,7 +712,7 @@ function AppInner() {
           )}
           {mountedExtensions && (
             <div className="absolute inset-0" style={viewLayerStyle(mainView === "extensions")}>
-              <ExtensionsView visible={mainView === "extensions"} />
+              <ExtensionsView visible={mainView === "extensions"} pluginActivities={pluginActivities} />
             </div>
           )}
           {pluginViewId && (
