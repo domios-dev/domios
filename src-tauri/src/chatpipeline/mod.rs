@@ -152,10 +152,33 @@ pub async fn run_voice_stage(
     path: &std::path::Path,
     language: &str,
 ) -> Result<crate::transcribe::Transcript, crate::transcribe::TranscribeError> {
-    match transcribers.get(active_id) {
+    match resolve_transcriber(transcribers, active_id) {
         Some(engine) => engine.transcribe(path, language).await,
         None => Err(crate::transcribe::TranscribeError::NoBackend),
     }
+}
+
+fn resolve_transcriber(
+    transcribers: &crate::transcribe::TranscribeRegistry,
+    active_id: &str,
+) -> Option<std::sync::Arc<dyn crate::transcribe::Transcriber>> {
+    if !active_id.is_empty() {
+        if let Some(engine) = transcribers.get(active_id) {
+            return Some(engine);
+        }
+    }
+
+    let mut ids = transcribers.ids();
+    ids.sort();
+    let id = match ids.as_slice() {
+        [] => return None,
+        [only] => only,
+        many => many
+            .iter()
+            .find(|id| id.as_str() == "transcriber")
+            .unwrap_or(&many[0]),
+    };
+    transcribers.get(id)
 }
 
 #[cfg(test)]
