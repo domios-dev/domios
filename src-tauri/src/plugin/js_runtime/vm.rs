@@ -350,6 +350,12 @@ impl PluginVm {
     }
 }
 
+impl Drop for PluginVm {
+    fn drop(&mut self) {
+        super::host_net::drop_plugin_jobs(&self.plugin_id);
+    }
+}
+
 /// Call a method on the plugin's default export.
 ///
 /// Arguments are serialized as JSON strings on the Rust side, parsed
