@@ -6,6 +6,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "../../lib/bridge";
+import { configureWithAI } from "../../lib/pluginConfigure";
+import type { DaemonApiConfig } from "../../lib/webApi";
 import { GearIcon } from "../Icons";
 import { GlanceBody, type GlanceView } from "./ViewNodeRenderer";
 
@@ -19,6 +21,7 @@ export interface GlanceAnchor {
 export function GlancePopover({
   pluginId,
   displayName,
+  configHelp,
   anchor,
   ctx,
   onClose,
@@ -26,6 +29,8 @@ export function GlancePopover({
 }: {
   pluginId: string;
   displayName: string;
+  /** Agent-facing help for the auto-appended "Configure with AI" button (Part D). */
+  configHelp?: string;
   anchor: GlanceAnchor;
   ctx?: Record<string, unknown>;
   onClose: () => void;
@@ -39,6 +44,12 @@ export function GlancePopover({
     async (action?: string) => {
       try {
         const v = await invoke<GlanceView>("plugin_glance", { pluginId, action, ctx: ctx ?? {} });
+        // Core auto-appends the universal "Configure with AI" button for every
+        // plugin (Part D) — intercepted in onAction, never seen by the plugin.
+        v.nodes = [
+          ...(v.nodes ?? []),
+          { kind: "button", label: "Configure with AI", action: "configure-with-ai" },
+        ];
         setView(v);
         setError(null);
       } catch (e) {
@@ -81,9 +92,23 @@ export function GlancePopover({
         onClose();
         return;
       }
+      if (action === "configure-with-ai") {
+        const help =
+          configHelp || `Help the user configure and use the ${displayName} plugin.`;
+        void (async () => {
+          // Free-function spawn needs the API base/token supplied by the caller
+          // (M2); read it from the daemon config at click time.
+          const cfg = await invoke<{ api?: DaemonApiConfig }>("get_config").catch(
+            () => ({}) as { api?: DaemonApiConfig },
+          );
+          await configureWithAI(pluginId, displayName, help, cfg.api ?? {});
+        })();
+        onClose();
+        return;
+      }
       void load(action);
     },
-    [pluginId, load, onOpenSettings, onClose, ctx],
+    [pluginId, displayName, configHelp, load, onOpenSettings, onClose, ctx],
   );
 
   return createPortal(

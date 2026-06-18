@@ -22,10 +22,12 @@ interface BubbleData {
 interface BubblePlugin {
   id: string;
   display_name?: string | null;
+  config_help?: string | null;
 }
 interface SnapPlugin {
   id: string;
   display_name?: string | null;
+  config_help?: string | null;
   capabilities?: { status_bubble?: boolean } | null;
 }
 
@@ -54,7 +56,7 @@ function openPanel(action: string, cwd: string | null) {
 export function PluginBubbles({ cwd, paneId }: { cwd: string | null; paneId: string }) {
   const [plugins, setPlugins] = useState<BubblePlugin[]>([]);
   const [pills, setPills] = useState<Record<string, BubbleData | null>>({});
-  const [open, setOpen] = useState<{ id: string; name: string; anchor: GlanceAnchor } | null>(null);
+  const [open, setOpen] = useState<{ id: string; name: string; configHelp?: string; anchor: GlanceAnchor } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [rightOffset, setRightOffset] = useState(EDGE);
 
@@ -67,7 +69,7 @@ export function PluginBubbles({ cwd, paneId }: { cwd: string | null; paneId: str
         setPlugins(
           (s?.plugins ?? [])
             .filter((p) => p.capabilities?.status_bubble)
-            .map((p) => ({ id: p.id, display_name: p.display_name })),
+            .map((p) => ({ id: p.id, display_name: p.display_name, config_help: p.config_help })),
         );
       })
       .catch(() => {});
@@ -123,6 +125,7 @@ export function PluginBubbles({ cwd, paneId }: { cwd: string | null; paneId: str
     setOpen({
       id: p.id,
       name: p.display_name || p.id,
+      configHelp: p.config_help ?? undefined,
       // Pane pills live at the top of the pane → open the popover downward.
       anchor: { right: window.innerWidth - r.right, top: r.bottom + 6 },
     });
@@ -176,6 +179,7 @@ export function PluginBubbles({ cwd, paneId }: { cwd: string | null; paneId: str
         <GlancePopover
           pluginId={open.id}
           displayName={open.name}
+          configHelp={open.configHelp}
           anchor={open.anchor}
           ctx={{ cwd, paneId }}
           onClose={() => setOpen(null)}
