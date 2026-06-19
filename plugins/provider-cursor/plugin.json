@@ -39,33 +39,38 @@
       "description": "Cursor's in-house fast coding model."
     },
     {
-      "id": "claude-4.6-sonnet",
-      "displayName": "Claude Sonnet 4.6",
+      "id": "claude-4.6-sonnet-medium",
+      "displayName": "Sonnet 4.6 1M",
       "description": "Anthropic Sonnet, balanced quality and speed."
     },
     {
-      "id": "claude-opus-4.8",
-      "displayName": "Claude Opus 4.8",
-      "description": "Anthropic Opus, frontier reasoning and coding."
+      "id": "claude-opus-4-8-thinking-high",
+      "displayName": "Opus 4.8 1M Thinking",
+      "description": "Anthropic Opus, frontier reasoning with high thinking."
     },
     {
-      "id": "gpt-5.5",
-      "displayName": "GPT-5.5",
+      "id": "claude-opus-4-8-thinking-low",
+      "displayName": "Opus 4.8 1M Low Thinking",
+      "description": "Anthropic Opus, frontier coding with low thinking."
+    },
+    {
+      "id": "gpt-5.5-high",
+      "displayName": "GPT-5.5 1M High",
       "description": "OpenAI frontier model for complex work."
     },
     {
       "id": "gpt-5.2-codex",
-      "displayName": "GPT-5.2 Codex",
+      "displayName": "Codex 5.2",
       "description": "OpenAI coding-optimized model."
     },
     {
-      "id": "gemini-3-pro",
-      "displayName": "Gemini 3 Pro",
+      "id": "gemini-3.1-pro",
+      "displayName": "Gemini 3.1 Pro",
       "description": "Google frontier multimodal model."
     },
     {
       "id": "grok-4.3",
-      "displayName": "Grok 4.3",
+      "displayName": "Grok 4.3 1M",
       "description": "xAI frontier model with large context."
     },
     {
@@ -75,6 +80,11 @@
     }
   ],
   "defaultModel": "auto",
+  "sessions": {
+    "rootDir": "~/.cursor/projects",
+    "cwdEncoding": "dash_encoded",
+    "fileExtension": "jsonl"
+  },
   "installer": {
     "macos": "curl https://cursor.com/install -fsS | bash",
     "linux": "curl https://cursor.com/install -fsS | bash",
