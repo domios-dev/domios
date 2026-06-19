@@ -300,6 +300,20 @@ Prose after."#;
     .unwrap();
     let native = super::toolcall_parse::parse_to_json(raw, schema);
     assert_eq!(via_js, native);
+
+    // Tri-state parity: a tool-call-shaped but unparseable block must surface the
+    // SAME malformed signal through the JS binding as native (not a silent null).
+    let malformed_raw = r#"{"tool":"exec","args":{"cmd":"ls"#;
+    let via_js_malformed: String = super::call_json(
+        js.vm(),
+        "parse",
+        &[serde_json::json!(malformed_raw), serde_json::json!(schema)],
+    )
+    .unwrap();
+    let native_malformed = super::toolcall_parse::parse_to_json(malformed_raw, schema);
+    assert_eq!(via_js_malformed, native_malformed);
+    let parsed: serde_json::Value = serde_json::from_str(&via_js_malformed).unwrap();
+    assert_eq!(parsed["status"], "malformed");
 }
 
 // Claude parity.

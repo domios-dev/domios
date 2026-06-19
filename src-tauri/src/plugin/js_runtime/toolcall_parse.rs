@@ -51,16 +51,43 @@ static CALL_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static UNQUOTED_KEY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?m)(^|[{\[,]\s*)([A-Za-z_][A-Za-z0-9_-]*)(\s*:)"#).unwrap());
+static TOOL_FENCE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)```[ \t]*codeterm-tool[^\r\n]*\r?\n(.*?)```").unwrap());
+static TOOL_KEY_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#""tool(_calls)?"\s*:"#).unwrap());
+
+/// Tri-state result of tolerant tool-call extraction.
+///
+/// Callers MUST distinguish `Malformed` (a tool-call-shaped block that survived
+/// neither parse nor repair — retry the model) from `None` (no tool call at all).
+/// The legacy bare-`null` collapsed those two and let weak-model breakage drop
+/// silently with no retry.
+enum ParseResult {
+    Ok(Value),
+    Malformed {
+        reason: String,
+        span: (usize, usize),
+    },
+    None,
+}
 
 pub(crate) fn parse_to_json(raw_text: &str, schema_json: &str) -> String {
     match parse(raw_text, schema_json) {
-        Some(value) => value.to_string(),
-        None => "null".to_string(),
+        ParseResult::Ok(value) => value.to_string(),
+        ParseResult::Malformed { reason, span } => serde_json::json!({
+            "status": "malformed",
+            "reason": reason,
+            "span": [span.0, span.1],
+        })
+        .to_string(),
+        ParseResult::None => serde_json::json!({ "status": "none" }).to_string(),
     }
 }
 
-fn parse(raw_text: &str, schema_json: &str) -> Option<Value> {
-    let schema = SchemaIndex::parse(schema_json)?;
+fn parse(raw_text: &str, schema_json: &str) -> ParseResult {
+    let Some(schema) = SchemaIndex::parse(schema_json) else {
+        return ParseResult::None;
+    };
     let mut best: Option<Candidate> = None;
 
     for segment in segments(raw_text) {
@@ -74,14 +101,63 @@ fn parse(raw_text: &str, schema_json: &str) -> Option<Value> {
         }
     }
 
-    best.map(|candidate| {
-        serde_json::json!({
+    if let Some(candidate) = best {
+        return ParseResult::Ok(serde_json::json!({
+            "status": "ok",
             "tool": candidate.tool,
             "args": Value::Object(candidate.args),
             "confidence": candidate.confidence.clamp(0.0, 1.0),
             "span": [candidate.span.0, candidate.span.1],
-        })
-    })
+        }));
+    }
+
+    // No schema-valid candidate: tell apart an unparseable tool-call attempt
+    // (retry) from genuinely-no-call prose (silent stop).
+    match malformed_signal(raw_text) {
+        Some((reason, span)) => ParseResult::Malformed { reason, span },
+        None => ParseResult::None,
+    }
+}
+
+/// Detect a tool-call-shaped block that yielded no valid JSON even after repair.
+///
+/// "Shaped" = a ```codeterm-tool fence OR a boundary-anchored `{...}` object
+/// carrying a top-level `"tool"`/`"tool_calls"` key. A block whose slice DID
+/// parse/repair into valid JSON (it merely failed schema validation — unknown
+/// tool, missing required arg) is NOT malformed; that is an honest `None`.
+fn malformed_signal(raw_text: &str) -> Option<(String, (usize, usize))> {
+    for caps in TOOL_FENCE_RE.captures_iter(raw_text) {
+        let Some(body) = caps.get(1) else { continue };
+        let span = (body.start(), body.end());
+        match body.as_str().find('{') {
+            Some(rel) => {
+                if parse_json_at(body.as_str(), rel).is_none() {
+                    return Some(("codeterm-tool fence: invalid JSON".to_string(), span));
+                }
+            }
+            None => return Some(("codeterm-tool fence: no JSON object".to_string(), span)),
+        }
+    }
+
+    for (start, ch) in raw_text.char_indices() {
+        if ch != '{' || !has_json_candidate_boundary(raw_text, start) {
+            continue;
+        }
+        let end = object_slice(raw_text, start)
+            .map(|(_, end, _)| end)
+            .unwrap_or(raw_text.len());
+        if !TOOL_KEY_RE.is_match(&raw_text[start..end]) {
+            continue;
+        }
+        if parse_json_at(raw_text, start).is_none() {
+            return Some((
+                "tool-call object failed to parse or repair".to_string(),
+                (start, end),
+            ));
+        }
+    }
+
+    None
 }
 
 impl SchemaIndex {
@@ -443,6 +519,8 @@ fn repair_json(input: &str) -> Option<String> {
         .replace(['\u{2018}', '\u{2019}'], "'");
     out = single_quoted_strings(&out);
     out = UNQUOTED_KEY_RE.replace_all(&out, "$1\"$2\"$3").to_string();
+    // Returns None on an ambiguous shape -> the whole repair aborts (no guess).
+    out = repair_dangling_after_string(&out)?;
 
     let open = out.as_bytes().iter().filter(|&&b| b == b'{').count();
     let close = out.as_bytes().iter().filter(|&&b| b == b'}').count();
@@ -451,6 +529,85 @@ fn repair_json(input: &str) -> Option<String> {
     }
 
     Some(out)
+}
+
+/// Repair the dominant weak-model breakage: a string value closed one quote
+/// early, leaving dangling tokens before the next structural delimiter — the
+/// `"…\"" --pane X}` shape. The dangling run is absorbed back into the string.
+///
+/// IRON RULE: only when the dangling run is unambiguous (no `"`/`{`/`[`/`:`,
+/// i.e. it cannot be a sibling field or nested structure). Anything ambiguous —
+/// or an unterminated string — returns `None`, aborting the repair so the caller
+/// never guesses a command. The reconstructed JSON is still re-validated against
+/// the schema by the normal candidate path (`schema.validate`).
+fn repair_dangling_after_string(input: &str) -> Option<String> {
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    let mut changed = false;
+
+    while i < input.len() {
+        let ch = input[i..].chars().next().unwrap();
+        if ch != '"' {
+            out.push(ch);
+            i += ch.len_utf8();
+            continue;
+        }
+
+        let end_q = string_literal_end(input, i)?;
+        let mut j = end_q;
+        while let Some(c) = input[j..].chars().next() {
+            if c.is_whitespace() {
+                j += c.len_utf8();
+            } else {
+                break;
+            }
+        }
+
+        if j >= input.len() || matches!(input.as_bytes()[j], b',' | b'}' | b']' | b':') {
+            out.push_str(&input[i..end_q]);
+            i = end_q;
+            continue;
+        }
+
+        let mut k = j;
+        while let Some(c) = input[k..].chars().next() {
+            match c {
+                '"' | '{' | '[' | ':' => return None,
+                ',' | '}' | ']' => break,
+                _ => k += c.len_utf8(),
+            }
+        }
+
+        let inner = &input[i + 1..end_q - 1];
+        let extra = input[end_q..k].trim_end().replace('"', "\\\"");
+        out.push('"');
+        out.push_str(inner);
+        out.push_str(&extra);
+        out.push('"');
+        changed = true;
+        i = k;
+    }
+
+    Some(if changed { out } else { input.to_string() })
+}
+
+/// Byte index just past the closing quote of the string literal opening at
+/// `start` (which must be a `"`), honoring `\` escapes. `None` if unterminated.
+fn string_literal_end(s: &str, start: usize) -> Option<usize> {
+    let mut i = start + 1;
+    let mut escape = false;
+    while let Some(ch) = s[i..].chars().next() {
+        let next = i + ch.len_utf8();
+        if escape {
+            escape = false;
+        } else if ch == '\\' {
+            escape = true;
+        } else if ch == '"' {
+            return Some(next);
+        }
+        i = next;
+    }
+    None
 }
 
 fn single_quoted_strings(input: &str) -> String {
@@ -497,17 +654,26 @@ mod tests {
         "tools": [
             {"name":"exec","args":["cmd"],"optional":[]},
             {"name":"read_file","args":["path"],"optional":[]},
-            {"name":"write_file","args":["path","content"],"optional":[]}
+            {"name":"write_file","args":["path","content"],"optional":[]},
+            {"name":"codeterm","args":["args"],"optional":[]}
         ],
         "aliases": {"command":"cmd","file":"path","filepath":"path"}
     }"#;
 
-    fn parsed(raw: &str) -> Option<Value> {
-        parse(raw, SCHEMA)
+    fn out_value(raw: &str) -> Value {
+        serde_json::from_str(&parse_to_json(raw, SCHEMA)).expect("parse_to_json emits JSON")
+    }
+
+    fn status(raw: &str) -> String {
+        out_value(raw)["status"]
+            .as_str()
+            .unwrap_or_else(|| panic!("no status field for {raw:?}"))
+            .to_string()
     }
 
     fn assert_call(raw: &str, tool: &str, key: &str, value: &str) {
-        let out = parsed(raw).unwrap_or_else(|| panic!("no call parsed from {raw:?}"));
+        let out = out_value(raw);
+        assert_eq!(out["status"], "ok", "expected ok for {raw:?}");
         assert_eq!(out["tool"], tool);
         assert_eq!(out["args"][key], value);
         assert!(out["confidence"].as_f64().unwrap() > 0.5);
@@ -584,15 +750,72 @@ mod tests {
 
     #[test]
     fn negative_corpus() {
+        // Genuinely-no-call (prose) and well-formed-but-not-our-tool blocks are
+        // `none`, never `malformed`: there is nothing to retry.
         let cases = [
             "plain prose with no call",
+            // single-quoted python dict in a non-tool fence — parser declines it
+            // (bad `{` boundary) and it must NOT be flagged malformed.
             "```python\nprint({'tool': 'exec', 'args': {'cmd': 'ls'}})\n```",
+            // truncated `{\"tool\":\"exec\"` repairs to valid JSON that just fails
+            // schema (no required cmd) -> none, not malformed.
             "{\"tool\":\"exec\"",
+            // unknown tool: valid JSON, schema rejects -> none.
             "{\"tool\":\"rm_rf\",\"args\":{\"cmd\":\"/\"}}",
+            // ambiguous, non-tool-shaped object: must not fabricate a call.
+            "{\"args\":\"send \\\"hi\\\"\" \"x\" \"y\"}",
         ];
 
         for raw in cases {
-            assert_eq!(parsed(raw), None, "unexpected call from {raw:?}");
+            assert_eq!(status(raw), "none", "expected none for {raw:?}");
         }
+    }
+
+
+
+    #[test]
+    fn gemma_premature_close_with_dangling_pane_repairs() {
+        // The live Gemma-26B failure: inner string closed one quote early, leaving
+        // `--pane 70d3bacd` dangling before the close. The disciplined repair
+        // absorbs the dangling run back into the string and re-validates.
+        let raw = "{\"tool\":\"codeterm\",\"args\":{\"args\":\"send \\\"hi\\\"\" --pane 70d3bacd}}";
+        let out = out_value(raw);
+        // Per spec: either a correct repair OR an honest malformed — never a
+        // silent null and never a guessed/wrong command.
+        assert_ne!(out["status"], "none", "must not silently drop: {raw:?}");
+        if out["status"] == "ok" {
+            assert_eq!(out["tool"], "codeterm");
+            assert_eq!(out["args"]["args"], "send \"hi\" --pane 70d3bacd");
+        } else {
+            assert_eq!(out["status"], "malformed");
+        }
+    }
+
+    #[test]
+    fn unparseable_tool_block_is_malformed_not_silent() {
+        // Tool-call-shaped (`"tool"` + `"args"`) but JSON cannot be recovered
+        // (unterminated string). Must signal malformed so the caller retries,
+        // instead of the legacy silent null.
+        let raw = "{\"tool\":\"exec\",\"args\":{\"cmd\":\"ls";
+        let out = out_value(raw);
+        assert_eq!(out["status"], "malformed", "expected malformed for {raw:?}");
+        assert!(out["reason"].as_str().unwrap().contains("parse"));
+        assert_eq!(out["span"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn empty_codeterm_tool_fence_is_malformed() {
+        let raw = "```codeterm-tool\nnot json at all\n```";
+        assert_eq!(status(raw), "malformed", "expected malformed for {raw:?}");
+    }
+
+    #[test]
+    fn ambiguous_repair_never_fabricates_a_command() {
+        // Dangling run after the premature close itself contains a quote: the
+        // repair is ambiguous, so we refuse it. Result must NOT be `ok` (a
+        // mis-repaired send to the wrong pane is worse than an honest fail).
+        let raw = "{\"tool\":\"codeterm\",\"args\":{\"args\":\"send \\\"hi\\\"\" \"--pane\" 70d3}}";
+        let out = out_value(raw);
+        assert_ne!(out["status"], "ok", "must not guess a command: {raw:?}");
     }
 }

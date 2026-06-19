@@ -244,9 +244,16 @@ export interface Host {
   secretGet(name: string): string | null;
   secretSet(name: string, value: string): boolean;
   secretDelete(name: string): boolean;
-  // Robust tolerant tool-call extractor (native Rust). Returns a JSON string:
-  // `{tool,args,confidence,span}` or the string "null" when no valid call is
-  // found. `schemaJson` describes the plugin's own tool set + arg aliases.
+  // Robust tolerant tool-call extractor (native Rust). Returns a JSON string
+  // with a tri-state `status` so callers never confuse "no call" with "broken
+  // call" (the latter must be retried, not silently dropped):
+  //   {"status":"ok","tool","args","confidence","span"}  — a valid call
+  //   {"status":"malformed","reason","span"}              — tool-call-shaped but
+  //       survived neither parse nor repair; re-prompt the model
+  //   {"status":"none"}                                   — no tool call present
+  // `schemaJson` describes the plugin's own tool set + arg aliases. Repairs are
+  // re-validated against the schema; an ambiguous repair degrades to malformed
+  // /none rather than guessing a command.
   toolcallParse(rawText: string, schemaJson: string): string;
 
   // ── Manifest (raw + parsed via preamble) ──
