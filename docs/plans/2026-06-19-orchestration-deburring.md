@@ -127,6 +127,35 @@ orchestrating in it (already in `docs/PLUGINS.md`). Extract, then delete from sk
    radius); model-scaling (cheap model for mechanical tracks, Opus for design/
    ambiguous/security).
 
+### Concrete worker-spawn recipe to LOCK INTO the rewrite (section 3+4)
+The current skill's spawn line (`--task '...'` inline + "no backticks" warning +
+"workspace per repo NOT worktrees") is the OLD pattern. The rewrite must replace
+it with the post-P1/P4 recipe battle-tested on 2026-06-19:
+
+1. **Integration branch** off the base (`git branch <integration> <base>`, push).
+   **Worktree per INDEPENDENT track** (`git worktree add -b <track> <path> <integration>`),
+   placed OUTSIDE the repo dir (e.g. `/Users/kandrey/Developer/wk-<track>`).
+   Single-checkout sequential ONLY for true data deps (A's SHA → B's base).
+2. Fresh worktree needs build stubs for cargo/tauri: `node scripts/prepare-embed-stub.js`
+   + `node scripts/prepare-cli-stub.js` + a `dist/index.html` stub. Gitignored,
+   NEVER committed. **NEVER run those scripts in the MAIN checkout** — they make
+   circular self-symlinks there (ELOOP breaks the pre-push hook). Safe in a worktree.
+3. Shared `CARGO_TARGET_DIR=/Users/kandrey/Developer/.psetup-target` across
+   worktrees (parallel cargo without lock contention).
+4. Spawn (post-P4): `codeterm agent spawn claude --model opus --role Worker
+   --parent $CODETERM_PANE_ID --title T --cwd <worktree> --task-file <path>`.
+   PRE-P4 fallback: `--task "$(cat <path>)"` — command substitution inside double
+   quotes passes backticks/`$()` literally; NEVER an inline backticked `--task`.
+5. Task file = self-contained English: the change + exact file anchors; the
+   build-stub setup; the GATE (fmt + build + targeted tests + pre-push hook clippy
+   `--all-targets` + the `.githooks/pre-push` CLIPPY_ALLOW `-A` flags for src-tauri
+   AND cli; `manual_range_contains`/`assertions_on_constants` are NOT allowed);
+   "commit before reporting, DO NOT push"; report via structured `agent report`
+   (P2 flags); "Worker NEVER spawns workers — report Blocked if decomposition needed."
+6. Gate-merge-yourself: `git checkout <integration>` in main, `git merge --no-ff
+   <track>`, re-run the track's targeted tests, push (pre-push hook = authoritative
+   gate). Then `git worktree remove <path>`; assert no stranded branches.
+
 ### New skill structure (provider-agnostic)
 1 pick tier · 2 model scaling · 3 worktree isolation · 4 worker contract +
 structured report + risk-based acceptance · 5 liveness & durable ledger
