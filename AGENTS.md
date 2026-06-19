@@ -208,7 +208,7 @@ SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structu
 
 ## Architecture (agent providers, detection)
 
-Agent integration is abstracted via providers (`src-tauri/src/agent/`, `src/components/ChatView/parser.ts`). Currently: Claude. Architecture-ready: Codex, Aider, Goose. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`docs/contributing/architecture.md`**.
+Agent integration is abstracted via providers (`src-tauri/src/agent/`, `src/components/ChatView/parser.ts`). Live: Claude, Codex, Opencode (PTY agents) + chatBackend plugins (non-PTY, e.g. LM Studio). Architecture-ready: Aider, Goose. Providers expose a unified capability descriptor (`transport` = pty | chat_backend, `behavior_config`, models, presets) — branch on capability, never a provider id. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`docs/contributing/architecture.md`**.
 
 ### Plugin & capability discipline (enforce on every provider change)
 
