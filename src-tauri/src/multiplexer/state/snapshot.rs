@@ -29,7 +29,11 @@ impl MultiplexerState {
             active_workspace_id: self.active_workspace_id.clone(),
             focused_pane_id: self.focused_pane_id.clone(),
             generation,
-            orphaned_closed: self.orphaned_closed.clone(),
+            // Bounded indexed query against the local sqlite store — cheap, not
+            // the multi-second blocking work the hot-path rule warns about, and
+            // strictly leaner than the old per-workspace+orphaned rings this
+            // replaces (which serialized up to thousands of entries per call).
+            recently_closed: self.recent_closed_view(),
         }
     }
 
@@ -83,7 +87,6 @@ impl MultiplexerState {
                     active_tab_id: ws.active_tab_id.clone(),
                     cwd: ws.cwd.clone(),
                     protected: ws.protected,
-                    recently_closed: ws.recently_closed.clone(),
                     tabs: ws
                         .tabs
                         .iter()
@@ -288,7 +291,6 @@ impl MultiplexerState {
                 }).collect(),
                 cwd: ws.cwd.clone(),
                 protected: ws.protected,
-                recently_closed: ws.recently_closed.clone(),
             }
         }).collect();
 
@@ -300,7 +302,9 @@ impl MultiplexerState {
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
             generation: std::sync::atomic::AtomicU64::new(0),
-            orphaned_closed: vec![],
+            // Closed history lives in the durable sqlite store (attached at
+            // startup), not the session snapshot.
+            closed_store: super::ClosedPanesStore::in_memory(),
         }
     }
 }
@@ -347,7 +351,6 @@ mod tests {
                 active_tab_id: Some("tab".into()),
                 cwd: None,
                 protected: false,
-                recently_closed: vec![],
                 tabs: vec![TabSnapshot {
                     id: "tab".into(),
                     title: "tab".into(),
@@ -514,57 +517,24 @@ mod tests {
     }
 
     #[test]
-    fn recently_closed_ring_round_trips_through_snapshot() {
-        use crate::multiplexer::types::PaneBacking;
-        // Close a chatBackend tab + an agent tab, then round-trip the snapshot.
+    fn session_snapshot_no_longer_carries_closed_history() {
+        // The closed-tab history moved to the sqlite store; the persisted
+        // session snapshot must stay lean and not round-trip it.
         let (mut state, _root) = MultiplexerState::new();
         let wsid = state.list_workspaces()[0].id.clone();
-
-        let (tab_a, pane_a) = state.create_tab(&wsid).unwrap();
-        if let Some(p) = state.get_pane_mut(&pane_a) {
-            p.backing = PaneBacking::ChatBackend {
-                plugin_id: "lmstudio".into(),
-                session_id: "cb-1".into(),
-            };
-            p.title = "Chat".into();
-        }
+        let (tab_a, _pane_a) = state.create_tab(&wsid).unwrap();
         state.close_tab(&wsid, &tab_a).unwrap();
-
-        let (_tab_b, pane_b) = state.create_tab(&wsid).unwrap();
-        if let Some(p) = state.get_pane_mut(&pane_b) {
-            p.agent_type = Some("claude".into());
-            p.agent_session_id = Some("ag-9".into());
-        }
-        state.close_pane(&pane_b).unwrap();
+        assert_eq!(
+            state.list_recently_closed(&wsid).len(),
+            1,
+            "recorded in sqlite"
+        );
 
         let snap = state.to_session_snapshot();
-        // Persisted on the workspace snapshot, newest first.
-        let ws_snap = &snap.workspaces[0];
-        assert_eq!(ws_snap.recently_closed.len(), 2);
-        assert_eq!(
-            ws_snap.recently_closed[0].agent_session_id.as_deref(),
-            Some("ag-9")
-        );
-
-        let restored = MultiplexerState::from_session_snapshot(&snap);
-        let ring = restored.list_recently_closed(&wsid);
-        assert_eq!(ring.len(), 2, "ring survives restart");
-        assert_eq!(ring[0].agent_type.as_deref(), Some("claude"));
-        assert_eq!(
-            ring[1].backing,
-            PaneBacking::ChatBackend {
-                plugin_id: "lmstudio".into(),
-                session_id: "cb-1".into(),
-            },
-            "chatBackend backing survives the snapshot round-trip"
-        );
-
-        // And reopen works against the restored ring.
-        let mut restored = restored;
-        let (_t, np) = restored.reopen_closed_pane(&wsid, None).unwrap();
-        assert_eq!(
-            restored.get_pane(&np).unwrap().agent_type.as_deref(),
-            Some("claude")
+        let json = serde_json::to_value(&snap).unwrap();
+        assert!(
+            json["workspaces"][0].get("recently_closed").is_none(),
+            "session snapshot must not carry the closed-history ring"
         );
     }
 

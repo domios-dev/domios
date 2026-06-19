@@ -112,6 +112,8 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/reopen-closed`, {
       index: a.index,
     }),
+  mux_reopen_closed_group: (a) =>
+    webJson("POST", `/api/closed-groups/${enc(s(a, "groupId"))}/reopen`),
   mux_restore_orphaned_pane: (a) =>
     webJson("POST", `/api/mux/restore-orphaned`, { pane_id: s(a, "paneId") }),
   mux_rename_tab: (a) =>
@@ -416,6 +418,13 @@ function isCommandNotFoundError(err: unknown): boolean {
  *  entry (0 = most recent, the default). Works in both Tauri and web modes. */
 export function reopenClosedPane(workspaceId: string, index = 0): Promise<TabInfo> {
   return invoke<TabInfo>("mux_reopen_closed_pane", { workspaceId, index });
+}
+
+/** Reopen a whole closed group (single / cascade subtree / workspace) by id.
+ *  Recreates the workspace if needed and restores every pane, relinking the
+ *  orchestration hierarchy. Returns workspace + tab ids of the activated tab. */
+export function reopenClosedGroup(groupId: string): Promise<{ workspace_id: string; tab_id: string; pane_id: string }> {
+  return invoke("mux_reopen_closed_group", { groupId });
 }
 
 /** Reopen a pane from the orphaned ring (its workspace was deleted). Recreates

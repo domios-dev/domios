@@ -142,6 +142,18 @@ pub async fn reopen_closed_pane(
     Ok(Json(result.into_json()))
 }
 
+pub async fn reopen_closed_group(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(group_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let cmd = crate::dispatch::Command::WorkspaceReopenClosedGroup { group_id };
+    let result = crate::dispatch::dispatch(&cmd, &state.svc)
+        .map_err(|_| (StatusCode::NOT_FOUND, "No closed group"))?;
+    Ok(Json(result.into_json()))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct MoveTabBody {
     to_workspace_id: String,

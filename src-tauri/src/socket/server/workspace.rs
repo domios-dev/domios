@@ -170,6 +170,19 @@ pub(super) fn dispatch(
             })
         }
 
+        "workspace.reopen_closed_group" => {
+            let group_id = get_string_param(params, "group_id")?;
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::WorkspaceReopenClosedGroup { group_id },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError {
+                code: -32602,
+                message: e,
+            })
+        }
+
         "workspace.move_tab" => {
             let tab_id = get_string_param(params, "tab_id")?;
             let from_id = get_string_param(params, "from_workspace_id")?;

@@ -718,24 +718,21 @@ export function Sidebar({
 
             {/* Recently closed — pinned above bottom nav, aggregated across all workspaces */}
             {!isCompact && (() => {
-              // Flatten all workspace rings + orphaned, sort newest-first.
-              type AggEntry = { entry: import("../../lib/types").ClosedPane; workspaceId: string; index: number; orphaned: boolean };
-              const agg: AggEntry[] = [];
-              for (const ws of state.workspaces) {
-                for (let i = 0; i < (ws.recently_closed?.length ?? 0); i++) {
-                  agg.push({ entry: ws.recently_closed![i], workspaceId: ws.id, index: i, orphaned: false });
-                }
-              }
-              for (const entry of (state.orphaned_closed ?? [])) {
-                agg.push({ entry, workspaceId: entry.workspace_id ?? "", index: -1, orphaned: true });
-              }
-              agg.sort((a, b) => b.entry.closed_at - a.entry.closed_at);
-              const visible = agg.slice(0, 100);
-              if (visible.length === 0) return null;
+              // Newest-first closed-history view, sourced from the sqlite store
+              // (already bounded + sorted server-side).
+              const views = state.recently_closed ?? [];
+              if (views.length === 0) return null;
+              const agg = views.map((entry) => ({
+                entry,
+                workspaceId: entry.workspace_id ?? "",
+                index: entry.index,
+                orphaned: entry.orphaned,
+              }));
+              const hasOrphaned = views.some((v) => v.orphaned);
               return (
                 <RecentlyClosed
-                  entries={visible}
-                  showWorkspace={state.workspaces.length > 1 || (state.orphaned_closed?.length ?? 0) > 0}
+                  entries={agg}
+                  showWorkspace={state.workspaces.length > 1 || hasOrphaned}
                   onReopen={(wsId, idx, orphaned, paneId) => {
                     if (orphaned) { restoreOrphaned(paneId); }
                     else { reopenClosed(wsId, idx); }

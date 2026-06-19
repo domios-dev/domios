@@ -12,21 +12,21 @@ pub struct Workspace {
     /// Protected workspaces cannot be closed via API or UI.
     #[serde(default)]
     pub protected: bool,
-    /// Browser-style "recently closed" ring, newest first, bounded at
-    /// `RECENTLY_CLOSED_CAP`. Lets a closed tab be reopened with its original
-    /// backing (PTY agent → resume, chatBackend → reload transcript).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub recently_closed: Vec<ClosedPane>,
 }
 
 /// A closed pane retained for browser-style reopen. Captures just enough to
 /// re-materialize the pane with the SAME backing — the `backing` reuses the
 /// existing `PaneBacking` serialization, and `agent_type` / `agent_session_id`
 /// carry the PTY-agent identity that lives outside `backing` so a reopened
-/// agent pane can resume its session (or launch fresh if it's gone).
+/// agent pane can resume its session (or launch fresh if it's gone). Persisted
+/// as one row in the sqlite closed-history store (`state::closed`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClosedPane {
     pub pane_id: String,
+    /// Original parent pane id — preserves the orchestration hierarchy so a
+    /// cascade reopen can relink the subtree.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub parent_pane_id: Option<String>,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
@@ -48,6 +48,32 @@ pub struct ClosedPane {
     /// Human-readable workspace name for display in the sidebar list.
     #[serde(default)]
     pub workspace_name: String,
+}
+
+impl From<&Pane> for ClosedPane {
+    /// Derive the closed record from a live pane. Captures every pane-owned
+    /// field in ONE place so adding a `Pane` field can't silently desync the
+    /// close path. The owning workspace + tab title/description are overlaid by
+    /// the close path (they aren't pane-local).
+    fn from(pane: &Pane) -> Self {
+        ClosedPane {
+            pane_id: pane.id.clone(),
+            parent_pane_id: pane.parent_pane_id.clone(),
+            title: pane.title.clone(),
+            description: pane.description.clone(),
+            backing: pane.backing.clone(),
+            cwd: pane.cwd.clone(),
+            agent_type: pane.agent_type.clone(),
+            agent_session_id: pane.agent_session_id.clone(),
+            model: pane.agent_session_model.clone(),
+            closed_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+            workspace_id: String::new(),
+            workspace_name: String::new(),
+        }
+    }
 }
 
 /// A tab holds exactly one pane.

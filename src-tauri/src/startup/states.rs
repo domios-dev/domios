@@ -138,6 +138,16 @@ pub(crate) fn init_states() -> AppStates {
     let general_config = config_state.lock().general_agent.clone();
     #[allow(unused_mut)]
     let mut mux_state_inner = mux_state_inner;
+
+    // Attach the durable closed-tab history store so reopen survives restarts.
+    // On failure keep the in-memory default (history just won't persist).
+    match crate::multiplexer::state::ClosedPanesStore::open(&crate::paths::data_dir()) {
+        Ok(store) => mux_state_inner.attach_closed_store(store),
+        Err(e) => log::warn!(
+            "[closed-history] open failed: {} — history will not persist",
+            e
+        ),
+    }
     if general_config.enabled {
         service::general_agent::ensure_directories();
         service::general_agent::generate_instructions(&general_config.agent_provider, None);
