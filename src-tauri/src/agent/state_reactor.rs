@@ -185,15 +185,9 @@ fn execute_action(svc: &ServiceState, pane_id: &str, action: PaneStateAction) {
 /// `send --actions`. Spawns a short-lived thread so the poll loop never blocks
 /// and so the pty lock is taken outside the loop's cadence.
 fn inject_keys(svc: &ServiceState, pane_id: &str, writes: Vec<Vec<u8>>) {
-    let Ok(pty_id) = svc.resolve_pty_id(pane_id) else {
+    if svc.inject_raw_keys_async(pane_id, writes).is_err() {
         return;
-    };
-    let pty = svc.pty.clone();
-    std::thread::spawn(move || {
-        for bytes in writes {
-            let _ = pty.lock().write(&pty_id, &bytes);
-        }
-    });
+    }
     log::info!("[state-reactor] injected keys into pane {}", pane_id);
 }
 

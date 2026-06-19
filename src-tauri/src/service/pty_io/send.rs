@@ -370,6 +370,24 @@ impl ServiceContext {
             .map_err(|e| e.to_string())
     }
 
+    /// Inject ordered raw key sequences into the pane's PTY off-thread. Resolves
+    /// the pane→pty once, then writes each sequence from a short-lived thread so
+    /// the caller (the state reactor's poll loop) never blocks on the pty lock.
+    /// Raw bytes, no bracket-paste — TUI keystrokes only. Keystroke injection is
+    /// inherently PTY-only (chatBackend panes have no keys), so this lives on the
+    /// PTY path rather than the `PaneTransport` seam. Returns Err if the pane has
+    /// no live PTY.
+    pub fn inject_raw_keys_async(&self, pane_id: &str, writes: Vec<Vec<u8>>) -> Result<(), String> {
+        let pty_id = self.resolve_pty_id(pane_id)?;
+        let pty = self.pty.clone();
+        std::thread::spawn(move || {
+            for bytes in writes {
+                let _ = pty.lock().write(&pty_id, &bytes);
+            }
+        });
+        Ok(())
+    }
+
     /// Feed `send_text`-style payloads to the typed-launch input parser so the
     /// CLI/API path triggers the same `agent_type` lock as a direct Tauri write.
     /// Skips locked panes; on match, sets and locks the detected provider.

@@ -137,7 +137,11 @@ fn no_new_resolve_pty_id_outside_allowlist() {
         // The transport seam itself — the canonical home for resolve_pty_id.
         "service/pane_transport.rs",
         // PTY-path internals + the PTY entry methods (guarded for chat).
-        "service/pty_io.rs",
+        // `pty_io` split by responsibility (send / lifecycle); resolve_pty_id is
+        // DEFINED in lifecycle.rs and the keystroke-injection helper that the
+        // state reactor delegates to lives in send.rs — both are PTY-path home.
+        "service/pty_io/send.rs",
+        "service/pty_io/lifecycle.rs",
         "service/pane.rs",
         "service/spawn.rs",
         // PTY-only / None-safe REST + bridge sites (each guarded or PTY-only).
