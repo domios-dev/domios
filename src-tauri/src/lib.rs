@@ -814,6 +814,9 @@ pub fn run() {
 
             service::sync_watcher::start(crate::paths::data_dir(), service_state.agent_registry.clone());
             startup::start_background_tasks(&app_handle, &states);
+            // Generic pane-state reactor (AS1): classify parked panes and
+            // auto-advance via the provider's recommendation.
+            agent::state_reactor::start(service_state.clone());
 
             // PTY read loops are started by spawn_pty command (initiated by frontend)
             Ok(())

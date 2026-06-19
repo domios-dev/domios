@@ -155,6 +155,121 @@ async fn discover_models_native_js_parity() {
     assert_eq!(js.discover_models().await, native.discover_models().await);
 }
 
+fn classify_pane_state_snapshot() -> crate::agent::pane_state::PaneStateSnapshot {
+    crate::agent::pane_state::PaneStateSnapshot {
+        pane_id: "pane-1".into(),
+        agent_type: "classify-fixture".into(),
+        session_id: None,
+        cwd: None,
+        screen_text: "Update available! 0.139.0 -> 0.141.0".into(),
+    }
+}
+
+fn classify_pane_state_fixture() -> crate::agent::pane_state::PaneStateClassification {
+    use crate::agent::pane_state::*;
+    PaneStateClassification {
+        state: PaneState::UpdatePrompt,
+        confidence: 1.0,
+        data: None,
+        action: Some(PaneStateAction {
+            keys: Some(vec!["down".into(), "enter".into()]),
+            delayed_resume: None,
+            surface: None,
+        }),
+    }
+}
+
+struct ClassifyNativeStub;
+
+#[async_trait::async_trait]
+impl AgentProvider for ClassifyNativeStub {
+    fn id(&self) -> &str {
+        "classify-fixture"
+    }
+    fn display_name(&self) -> &str {
+        "Classify Fixture"
+    }
+    fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+        String::new()
+    }
+    fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
+        crate::agent::provider::ReadinessStrategy::FixedDelay {
+            duration: std::time::Duration::ZERO,
+        }
+    }
+    fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
+        crate::agent::provider::TaskDelivery::PtyInput
+    }
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+    fn detect_from_output(&self, _: &str) -> bool {
+        false
+    }
+    fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
+        None
+    }
+    fn detect_session_id(
+        &self,
+        _: &str,
+        _: &[String],
+        _: Option<std::time::Duration>,
+    ) -> Option<String> {
+        None
+    }
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+    fn classify_pane_state(
+        &self,
+        _: &crate::agent::pane_state::PaneStateSnapshot,
+    ) -> Option<crate::agent::pane_state::PaneStateClassification> {
+        Some(classify_pane_state_fixture())
+    }
+}
+
+#[test]
+fn classify_pane_state_native_js_parity() {
+    let native = ClassifyNativeStub;
+    let js = load_inline_js(
+        "classify-fixture",
+        r#"
+            module.exports.default = {
+                classifyPaneState(snapshot) {
+                    return {
+                        state: 'update_prompt',
+                        confidence: 1.0,
+                        action: { keys: ['down', 'enter'] }
+                    };
+                }
+            };
+        "#,
+    );
+    let snap = classify_pane_state_snapshot();
+    assert_eq!(
+        native.classify_pane_state(&snap),
+        Some(classify_pane_state_fixture())
+    );
+    assert_eq!(
+        js.classify_pane_state(&snap),
+        native.classify_pane_state(&snap)
+    );
+}
+
+#[test]
+fn classify_pane_state_unimplemented_matches_native_default_none() {
+    // Discipline rule #2: a JS drop-in that doesn't export classifyPaneState
+    // returns the SAME default (None) as the native trait default.
+    let native_default = DiscoverModelsNativeStub; // does not override classify_pane_state
+    let js = load_inline_js(
+        "classify-none-fixture",
+        r#"module.exports.default = { detectFromTitle() { return false; } };"#,
+    );
+    let snap = classify_pane_state_snapshot();
+    assert_eq!(native_default.classify_pane_state(&snap), None);
+    assert_eq!(js.classify_pane_state(&snap), None);
+}
+
 #[test]
 fn host_toolcall_parse_native_js_parity() {
     let js = load_inline_js(
