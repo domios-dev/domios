@@ -136,6 +136,39 @@ already does. Keep the +/- gutter + line backgrounds; only the token colors are 
 - Gate: tsc + test:unit. Independent of CB-P2/P3 (different file) — dispatch after
   the CB-P2/P3 frontend batch merges to avoid chat-ui churn.
 
+## P6 — model-switch with load + VRAM confirm (PLUGIN-SIDE, generic UI seam) — branch `cb-p6-switch-load`
+
+**Role:** QuickJS plugin + small React/TS. **Hard rule: ALL switch/load/VRAM logic
+lives in the lmstudio PLUGIN; core stays generic (no hardcoded lmstudio/model logic
+— verified clean: core gets models via the `list_models` capability, switch via
+`setModel`).**
+
+The user wants: switching the model in the lmstudio shell should (auto-)load it in
+LM Studio, and if it would unload the current one / VRAM is tight, ASK "switch
+model? the current one will be unloaded" before doing it.
+
+Reality (probed live): LM Studio's `POST /api/v1/models/load` returns **404** on the
+current build — there is no explicit REST load. BUT LM Studio **JIT-loads** a model
+when a chat request references it (and unloads per its own limit). So:
+- **lmstudio plugin `setModel`**: sets the session model; the next `/api/v1/chat`
+  JIT-loads it. Catch a load failure (VRAM/insufficient) from that response and
+  surface a clean `system` message ("couldn't load <model>: not enough VRAM —
+  unload a model in LM Studio or pick a smaller one").
+- **Plugin decides if a confirm is needed** (the user's requirement: the PLUGIN
+  understands the cost): add a plugin method (e.g. `describeModelSwitch(sessionId,
+  model) -> { needsConfirm: bool, message: string }`) that returns whether the
+  switch will unload/load (e.g. target not currently loaded) + a human message.
+  The model bubble (CB-P3) calls it on pick; if `needsConfirm`, show a GENERIC
+  confirm dialog with the plugin's message; only on OK call `chatbackend_switch_model`.
+  The confirm UI is generic (any chatBackend shell can provide a switch message);
+  the DECISION + text come from the plugin → zero lmstudio specifics in core/UI.
+- If the explicit `/api/v1/models/load`/`/unload` becomes available (version/path),
+  the plugin can pre-load proactively — but keep JIT as the baseline.
+
+TDD: plugin describeModelSwitch returns needsConfirm when target unloaded; setModel
+surfaces a VRAM load-failure; bubble shows confirm + only switches on OK. Gate:
+plugin build/test/tsc + tsc/test:unit + hook clippy. Independent-ish; after CB-P3.
+
 ## Verify (orchestrator, live on dev + LM Studio)
 - Shell tab shows the lmstudio ICON + the running MODEL; tooltip = "LM Studio".
 - Model bubble at top: switch model → next reply uses it + tab badge updates.
