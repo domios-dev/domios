@@ -7,6 +7,19 @@ use crate::service::ServiceContext;
 
 const PROTECTED_PLUGIN_CHANNELS: [&str; 2] = ["codeterm-core", "codeterm-plugins"];
 
+// build_snapshot forks CLI subprocesses (plugin list + 3 channel calls, one hits the
+// network) — far too heavy to run on every tab switch. Cache it; rebuild on TTL or after
+// any mutating action. Invalidated by invalidate_plugin_snapshot().
+static SNAPSHOT_CACHE: std::sync::Mutex<Option<(std::time::Instant, Value)>> =
+    std::sync::Mutex::new(None);
+const SNAPSHOT_TTL: std::time::Duration = std::time::Duration::from_secs(15);
+
+pub(crate) fn invalidate_plugin_snapshot() {
+    if let Ok(mut c) = SNAPSHOT_CACHE.lock() {
+        *c = None;
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginManagerAction {
@@ -22,18 +35,39 @@ pub struct PluginManagerAction {
 }
 
 #[tauri::command]
-pub fn plugin_manager_snapshot(
+pub async fn plugin_manager_snapshot(
     svc: tauri::State<'_, crate::service::ServiceState>,
 ) -> Result<Value, String> {
-    build_snapshot(None, Some(svc.chatbackend_registry.as_ref()))
+    if let Ok(guard) = SNAPSHOT_CACHE.lock() {
+        if let Some((at, v)) = guard.as_ref() {
+            if at.elapsed() < SNAPSHOT_TTL {
+                return Ok(v.clone());
+            }
+        }
+    }
+    let svc = svc.inner().clone();
+    let snap = tokio::task::spawn_blocking(move || {
+        build_snapshot(None, Some(svc.chatbackend_registry.as_ref()))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if let Ok(mut guard) = SNAPSHOT_CACHE.lock() {
+        *guard = Some((std::time::Instant::now(), snap.clone()));
+    }
+    Ok(snap)
 }
 
 #[tauri::command]
-pub fn plugin_manager_action(
+pub async fn plugin_manager_action(
     svc: tauri::State<'_, crate::service::ServiceState>,
     action: PluginManagerAction,
 ) -> Result<Value, String> {
-    run_action(action, svc.inner().as_ref())
+    let svc = svc.inner().clone();
+    let out = tokio::task::spawn_blocking(move || run_action(action, svc.as_ref()))
+        .await
+        .map_err(|e| e.to_string())?;
+    invalidate_plugin_snapshot();
+    out
 }
 
 /// Render (or act on) a plugin's glance view. `action == None` renders fresh;
