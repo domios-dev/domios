@@ -111,6 +111,13 @@ pub enum AgentAction {
         #[arg(long)]
         limit: Option<usize>,
     },
+    /// List an orchestrator's workers from the durable ledger (survives daemon
+    /// restart): branch / model / status / last-seen, one row per worker.
+    Ledger {
+        /// Orchestrator pane ID (default: current focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+    },
     /// Compact agent context (sends /compact to Claude)
     Compact {
         /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
@@ -272,6 +279,31 @@ mod tests {
                 assert!(skipped.is_none());
             }
             _ => panic!("expected report action"),
+        }
+    }
+
+    #[test]
+    fn ledger_parses_pane_and_global_json() {
+        let cli =
+            Cli::try_parse_from(["codeterm", "--json", "agent", "ledger", "--pane", "orch-1"])
+                .expect("ledger should parse");
+        assert!(cli.json, "global --json applies to ledger output");
+        match cli.command {
+            crate::Commands::Agent {
+                action: AgentAction::Ledger { pane },
+            } => assert_eq!(pane.as_deref(), Some("orch-1")),
+            _ => panic!("expected agent ledger action"),
+        }
+    }
+
+    #[test]
+    fn ledger_pane_is_optional() {
+        let cli = Cli::try_parse_from(["codeterm", "agent", "ledger"]).expect("ledger w/o pane");
+        match cli.command {
+            crate::Commands::Agent {
+                action: AgentAction::Ledger { pane },
+            } => assert!(pane.is_none()),
+            _ => panic!("expected agent ledger action"),
         }
     }
 

@@ -404,6 +404,42 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
+        AgentAction::Ledger { pane } => {
+            let pane_id = resolve_pane(client, pane);
+            match client.call(
+                "agent.ledger",
+                Some(serde_json::json!({ "pane_id": pane_id })),
+            ) {
+                Ok(val) => {
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                    } else if let Some(arr) = val.as_array() {
+                        if arr.is_empty() {
+                            println!("No workers in ledger for {}.", pane_id);
+                        }
+                        for r in arr {
+                            let worker = r
+                                .get("worker_pane_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?");
+                            let title = r.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                            let status = r.get("status").and_then(|v| v.as_str()).unwrap_or("-");
+                            let branch = r.get("branch").and_then(|v| v.as_str()).unwrap_or("-");
+                            let model = r.get("model").and_then(|v| v.as_str()).unwrap_or("-");
+                            let seen = r.get("updated_at").and_then(|v| v.as_u64()).unwrap_or(0);
+                            println!(
+                                "{:<10} {:<6} {:<14} {:<10} seen={}  {}",
+                                worker, status, branch, model, seen, title
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
         AgentAction::Compact { pane } => {
             let pane_id = resolve_pane(client, pane);
             let cmd = "/compact\n";

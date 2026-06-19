@@ -1,8 +1,11 @@
 /// Inter-agent reporting system for orchestration hierarchy.
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+
+use super::ledger::{LedgerRow, OrchestrationLedger};
 
 /// Worker-declared outcome of a task. Optional — a freeform report (and the
 /// synthetic worker-death report) carries no status.
@@ -107,9 +110,15 @@ impl AgentReport {
 }
 
 /// Stores reports keyed by orchestrator pane ID.
+///
+/// The in-memory `reports` map is the live notification stream (fast reads,
+/// capped, wiped on restart). The optional durable [`OrchestrationLedger`] is
+/// the persistent truth: every recorded report also UPSERTs one row per worker
+/// so a restarted orchestrator can still see its workers.
 pub struct ReportStore {
     reports: HashMap<String, Vec<AgentReport>>,
     max_reports_per_orchestrator: usize,
+    ledger: Option<Arc<OrchestrationLedger>>,
 }
 
 impl ReportStore {
@@ -117,7 +126,27 @@ impl ReportStore {
         Self {
             reports: HashMap::new(),
             max_reports_per_orchestrator: max_per_orchestrator,
+            ledger: None,
         }
+    }
+
+    /// Build a store backed by a durable ledger. Reports recorded through this
+    /// store survive daemon restart in the ledger db.
+    pub fn with_ledger(max_per_orchestrator: usize, ledger: Arc<OrchestrationLedger>) -> Self {
+        Self {
+            reports: HashMap::new(),
+            max_reports_per_orchestrator: max_per_orchestrator,
+            ledger: Some(ledger),
+        }
+    }
+
+    /// Durable rows for an orchestrator (survive restart). Empty when no ledger
+    /// is attached (in-memory test stores) or the orchestrator has no workers.
+    pub fn ledger_rows(&self, orchestrator_pane_id: &str) -> Vec<LedgerRow> {
+        self.ledger
+            .as_ref()
+            .and_then(|l| l.list_for_orchestrator(orchestrator_pane_id).ok())
+            .unwrap_or_default()
     }
 
     /// Add a freeform (message-only) report under an orchestrator's pane ID.
@@ -134,11 +163,14 @@ impl ReportStore {
             from_title,
             message,
             ReportDetails::default(),
+            None,
         )
     }
 
     /// Add a report carrying optional structured fields. Message-only callers
     /// pass `ReportDetails::default()` (via [`add`]) for unchanged behaviour.
+    /// `model` is the worker's live session model (pane metadata, not part of
+    /// the report body) — recorded in the durable ledger only.
     pub fn add_detailed(
         &mut self,
         orchestrator_pane_id: &str,
@@ -146,6 +178,7 @@ impl ReportStore {
         from_title: &str,
         message: &str,
         details: ReportDetails,
+        model: Option<&str>,
     ) -> AgentReport {
         let report = AgentReport {
             id: uuid::Uuid::new_v4().to_string(),
@@ -157,13 +190,36 @@ impl ReportStore {
                 .unwrap_or_default()
                 .as_secs(),
             status: details.status,
-            branch: details.branch,
-            sha: details.sha,
-            changed_files: details.changed_files,
-            test_cmd: details.test_cmd,
-            test_result: details.test_result,
-            skipped: details.skipped,
+            branch: details.branch.clone(),
+            sha: details.sha.clone(),
+            changed_files: details.changed_files.clone(),
+            test_cmd: details.test_cmd.clone(),
+            test_result: details.test_result.clone(),
+            skipped: details.skipped.clone(),
         };
+
+        // Durable truth: UPSERT one row per (orchestrator, worker). Best-effort —
+        // a ledger write failure is logged, never blocks the live report path.
+        if let Some(ledger) = &self.ledger {
+            let row = LedgerRow {
+                orchestrator_pane_id: orchestrator_pane_id.to_string(),
+                worker_pane_id: from_pane_id.to_string(),
+                title: from_title.to_string(),
+                branch: details.branch.clone(),
+                model: model.map(str::to_string),
+                status: details.status,
+                message: message.to_string(),
+                sha: details.sha.clone(),
+                changed_files: details.changed_files.clone(),
+                test_cmd: details.test_cmd.clone(),
+                test_result: details.test_result.clone(),
+                skipped: details.skipped.clone(),
+                updated_at: report.timestamp,
+            };
+            if let Err(e) = ledger.upsert(&row) {
+                log::warn!("[ledger] upsert for worker {} failed: {}", from_pane_id, e);
+            }
+        }
 
         let entries = self
             .reports
@@ -312,7 +368,7 @@ mod tests {
             skipped: Some("e2e".to_string()),
         };
         let mut store = ReportStore::new(100);
-        let stored = store.add_detailed("orch", "w1", "Worker", "all done", details);
+        let stored = store.add_detailed("orch", "w1", "Worker", "all done", details, None);
 
         // Through the store, the typed fields survive.
         let listed = store.get("orch", false);
@@ -384,7 +440,7 @@ mod tests {
             skipped: Some("manual UI step".to_string()),
         };
         let mut store = ReportStore::new(100);
-        let report = store.add_detailed("orch", "w1", "Worker", "the freeform body", details);
+        let report = store.add_detailed("orch", "w1", "Worker", "the freeform body", details, None);
         let expected = "status: Done\n\
              branch: feature-x\n\
              sha: abc123\n\
@@ -405,6 +461,37 @@ mod tests {
             serde_json::from_str::<ReportStatus>("\"blocked\"").unwrap(),
             ReportStatus::Blocked
         );
+    }
+
+    #[test]
+    fn ledger_backed_report_persists_latest_status_across_reopen() {
+        use crate::agent::ledger::OrchestrationLedger;
+
+        let db = std::env::temp_dir().join(format!(
+            "reports-ledger-{}/orchestration.db",
+            ulid::Ulid::new()
+        ));
+        {
+            let ledger = std::sync::Arc::new(OrchestrationLedger::open_at(&db).unwrap());
+            let mut store = ReportStore::with_ledger(100, ledger);
+            // Same worker reports twice with changing status + model.
+            let mut d = ReportDetails::default();
+            d.status = Some(ReportStatus::Partial);
+            d.branch = Some("orch-p3-ledger".into());
+            store.add_detailed("orch", "w1", "Worker", "wip", d.clone(), Some("opus"));
+            d.status = Some(ReportStatus::Done);
+            store.add_detailed("orch", "w1", "Worker", "done", d, Some("opus"));
+        } // store + ledger Connection dropped — simulates restart.
+
+        // Reopen the same db: the durable ledger still has exactly one row,
+        // latest status.
+        let reopened = OrchestrationLedger::open_at(&db).unwrap();
+        let rows = reopened.list_for_orchestrator("orch").unwrap();
+        assert_eq!(rows.len(), 1, "one row per worker after re-report");
+        assert_eq!(rows[0].status, Some(ReportStatus::Done));
+        assert_eq!(rows[0].model.as_deref(), Some("opus"));
+        assert_eq!(rows[0].branch.as_deref(), Some("orch-p3-ledger"));
+        std::fs::remove_dir_all(db.parent().unwrap()).ok();
     }
 
     #[test]
