@@ -813,7 +813,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               {toolContent ? (
                 <CodeBlock text={toolContent} language={codeLanguage} maxHeight="24rem" />
               ) : edits.length > 0 ? (
-                <DiffView edits={edits} />
+                <DiffView edits={edits} language={codeLanguage} />
               ) : (
                 <pre
                   className={`${PRE_WRAP_CLASS} m-0 font-mono`}
