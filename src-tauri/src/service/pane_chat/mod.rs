@@ -10,6 +10,7 @@
 //! it) lives in plugins — this module only orchestrates
 //! start/stop and shuttles the bytes through.
 
+pub mod chatbackend_history;
 pub mod raw_text_sink;
 pub mod registry;
 pub mod structured_poller;
@@ -476,21 +477,39 @@ pub fn pane_chat_snapshot(
     }
 }
 
-/// Snapshot a chatBackend pane's transcript. The plugin session owns the full
-/// transcript; `poll(session_id)` (called with no cursor) returns it
-/// cumulatively, so we slice `[since..]` exactly like the agent path's
-/// [`session_chat_snapshot`]. Returns (messages[since..], total_count).
+/// Snapshot a chatBackend pane's transcript. The host-side JSONL is the DURABLE
+/// truth: a chatBackend shell has no provider-side store, so the live plugin Map
+/// is wiped on refresh / VM reload / daemon restart. We read the persisted JSONL
+/// first ([`chatbackend_history`]) and only fall back to a live `poll` when no
+/// JSONL exists yet (a brand-new session before the first delta was persisted).
+/// Returns (messages[since..], total_count).
 pub(crate) fn chatbackend_transcript_snapshot(
     provider: &dyn crate::chatbackend::ChatBackendProvider,
     session_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
-    // No cursor ⇒ the plugin returns the full cumulative transcript, which we
-    // slice `[since..]` exactly like the agent path.
-    let all = provider
-        .poll(session_id, None)
-        .map_err(|e| e.to_string())?
-        .messages;
+    let path = chatbackend_history::session_path(provider.id(), session_id);
+    chatbackend_snapshot_from(provider, session_id, since, &path)
+}
+
+/// Path-injectable core of [`chatbackend_transcript_snapshot`] (hermetic tests).
+fn chatbackend_snapshot_from(
+    provider: &dyn crate::chatbackend::ChatBackendProvider,
+    session_id: &str,
+    since: usize,
+    history_path: &std::path::Path,
+) -> Result<(Vec<ChatMsg>, usize), String> {
+    let from_disk = chatbackend_history::read_messages(history_path);
+    let all = if from_disk.is_empty() {
+        // No durable history yet ⇒ ask the live session (no cursor ⇒ the full
+        // cumulative transcript), exactly like the agent path.
+        provider
+            .poll(session_id, None)
+            .map_err(|e| e.to_string())?
+            .messages
+    } else {
+        from_disk
+    };
     let total = all.len();
     let slice = all.into_iter().skip(since).collect();
     Ok((slice, total))
@@ -629,6 +648,71 @@ mod chat_snapshot_tests {
         let (msgs, total) = chatbackend_transcript_snapshot(&backend, "sid", 5).unwrap();
         assert_eq!(total, 2);
         assert!(msgs.is_empty());
+    }
+
+    #[test]
+    fn chatbackend_snapshot_reads_hand_written_jsonl() {
+        // Durable JSONL is the source of truth: even when it differs from the
+        // live `poll`, the persisted file wins (refresh shows real history).
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        std::fs::write(
+            &path,
+            "{\"id\":\"u1\",\"type\":\"user\",\"content\":\"hi\"}\n\
+             {\"id\":\"a1\",\"type\":\"assistant\",\"content\":\"hello there\"}\n",
+        )
+        .unwrap();
+
+        let backend = SnapshotBackend::with_messages(0); // live Map empty
+        let (msgs, total) = super::chatbackend_snapshot_from(&backend, "sid", 0, &path).unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(msgs[0].content, "hi");
+        assert_eq!(msgs[1].content, "hello there");
+    }
+
+    #[test]
+    fn restored_pane_replays_history_from_jsonl_when_live_map_wiped() {
+        // Simulates a refresh / VM reload: the plugin's in-memory Map is empty
+        // (poll → 0 messages) but the JSONL persisted the full transcript.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let mut h = chatbackend_history::ChatBackendHistory::open_at(path.clone());
+        h.upsert(&[
+            ChatMsg {
+                id: "1".into(),
+                kind: "user".into(),
+                content: "remember me".into(),
+                ..Default::default()
+            },
+            ChatMsg {
+                id: "2".into(),
+                kind: "assistant".into(),
+                content: "i do".into(),
+                ..Default::default()
+            },
+        ]);
+
+        let wiped = SnapshotBackend::with_messages(0);
+        let (msgs, total) = super::chatbackend_snapshot_from(&wiped, "sid", 0, &path).unwrap();
+        assert_eq!(total, 2, "history replays from disk, not the wiped Map");
+        assert_eq!(msgs[0].content, "remember me");
+
+        // `since` is honored on the disk-backed slice too.
+        let (tail, _) = super::chatbackend_snapshot_from(&wiped, "sid", 1, &path).unwrap();
+        assert_eq!(tail.len(), 1);
+        assert_eq!(tail[0].content, "i do");
+    }
+
+    #[test]
+    fn chatbackend_snapshot_falls_back_to_live_poll_without_jsonl() {
+        // A brand-new session before the first delta was persisted: no JSONL on
+        // disk ⇒ read the live plugin transcript.
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("nope.jsonl");
+        let backend = SnapshotBackend::with_messages(2);
+        let (msgs, total) = super::chatbackend_snapshot_from(&backend, "sid", 0, &missing).unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(msgs[0].content, "m0");
     }
 
     #[test]
