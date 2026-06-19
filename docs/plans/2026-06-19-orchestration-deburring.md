@@ -112,8 +112,18 @@ orchestrating in it (already in `docs/PLUGINS.md`). Extract, then delete from sk
 3. Strict TDD as universal law is cargo-cult + unverifiable → risk-based acceptance
    per track (logic=tests, refactor=build+typecheck, schema=migration dry-run,
    UI=screenshot/e2e, docs=link-check). TDD is one option.
-4. Heartbeat self-send is polling dressed up + no durable ledger → kill it (P1) +
-   durable ledger (P3).
+4. Heartbeat self-send is polling dressed up + no durable ledger → **DEMOTE, do
+   NOT delete** (correction to Sagan's "kill it"). P1's watchdog replaces it ONLY
+   as the worker-DEATH signal, and P3's ledger replaces its STATE role. But a
+   SPARSE long-interval `codeterm send --delay` self-send still earns its place as
+   the backstop the watchdog cannot cover: (a) the orchestrator's OWN liveness —
+   re-wakes a stalled/compacted orchestrator session (watchdog can't wake a dead
+   orchestrator); (b) a HUNG-but-alive worker — PTY never died so the watchdog
+   never fires, but "no progress in N min" still needs catching; (c) external
+   polling the daemon can't push (CI, remote state). So: watchdog = primary
+   worker-death wake; ledger = durable state; sparse `--delay` = liveness backstop.
+   Proven live 2026-06-19: a heartbeat re-woke the orchestrator as a backstop after
+   a track had already merged — exactly the self-liveness case the watchdog misses.
 5. Branch hygiene reactive (`--no-merged` misses unpushed/dirty/squash/dup) →
    ledger is the source of truth (proactive).
 6. Worker report underspecified → enforce schema (P2): status/branch/sha/
@@ -158,10 +168,14 @@ it with the post-P1/P4 recipe battle-tested on 2026-06-19:
 
 ### New skill structure (provider-agnostic)
 1 pick tier · 2 model scaling · 3 worktree isolation · 4 worker contract +
-structured report + risk-based acceptance · 5 liveness & durable ledger
-(react-to-report, no self-send) · 6 integration gate (clean-checkout + per-merge
-smoke) · 7 rebase protocol · 8 protected areas · 9 slimmed provider-agnostic
-mechanics (no plugin-runtime / Rust build notes — those went to the dev facts).
+structured report + risk-based acceptance · 5 liveness & durable ledger —
+react-to-report is PRIMARY (native worker-death watchdog injects on PTY death),
+durable ledger holds state across restart/compaction, and a SPARSE long-interval
+`--delay` self-send stays as the liveness backstop (orchestrator self-wake on
+stall/compaction, hung-but-alive worker, external poll) — demote the heartbeat,
+don't delete it · 6 integration gate (clean-checkout + per-merge smoke) ·
+7 rebase protocol · 8 protected areas · 9 slimmed provider-agnostic mechanics
+(no plugin-runtime / Rust build notes — those went to the dev facts).
 
 **Reference for the skill rewrite (fetch when doing Problem A/B, NOT before):**
 the rollacode orchestrator's full proposal + both reviewers' per-flaw notes
