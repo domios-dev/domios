@@ -12,6 +12,9 @@ import plugin from "../src/index";
 
 const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures");
 const readFixture = (name: string) => fs.readFileSync(path.join(fixturesDir, name), "utf8");
+const manifest = JSON.parse(
+  fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"), "utf8"),
+);
 
 let passed = 0;
 let failed = 0;
@@ -68,6 +71,7 @@ const baseHost = (over: Record<string, unknown>) => ({
 console.log("\n--- meta ---\n");
 eq(plugin.meta.id, "cursor", "meta.id is 'cursor'");
 eq(plugin.meta.displayName, "Cursor", "meta.displayName");
+eq(manifest.hostApi, 2, "manifest declares hostApi 2");
 
 console.log("\n--- detect (frontend, structural fingerprints) ---\n");
 
