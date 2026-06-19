@@ -195,6 +195,32 @@ impl ServiceContext {
             .list_presets()
             .map_err(|e| e.to_string())
     }
+
+    /// Current live state of an open chatBackend session (the model it talks to).
+    pub fn chatbackend_session_info(
+        &self,
+        plugin_id: &str,
+        session_id: &str,
+    ) -> Result<crate::chatbackend::ChatSessionInfo, String> {
+        self.chatbackend_provider(plugin_id)?
+            .session_info(session_id)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Switch the model an open chatBackend session uses on its next turn, then
+    /// return the refreshed session info so the caller can reflect it immediately.
+    pub fn chatbackend_set_model(
+        &self,
+        plugin_id: &str,
+        session_id: &str,
+        model: &str,
+    ) -> Result<crate::chatbackend::ChatSessionInfo, String> {
+        let provider = self.chatbackend_provider(plugin_id)?;
+        provider
+            .set_model(session_id, model)
+            .map_err(|e| e.to_string())?;
+        provider.session_info(session_id).map_err(|e| e.to_string())
+    }
 }
 
 #[cfg(test)]

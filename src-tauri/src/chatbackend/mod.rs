@@ -24,6 +24,16 @@ pub struct PresetInfo {
     pub description: Option<String>,
 }
 
+/// Live state of an open chatBackend session, surfaced to the pane's tab/bubble.
+/// Currently just the model the session is talking to (a shell has no provider-
+/// side store, so the plugin's own view is the truth). `model: None` ⇒ the
+/// backend does not expose a session model (a bare backend with no `sessionInfo`).
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct ChatSessionInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
 #[derive(Debug)]
 pub enum ChatBackendError {
     /// The plugin's exported function threw, returned an error field, or the
@@ -118,6 +128,24 @@ pub trait ChatBackendProvider: Send + Sync {
     /// return an empty list.
     fn list_presets(&self) -> Result<Vec<PresetInfo>, ChatBackendError> {
         Ok(Vec::new())
+    }
+
+    /// Current live state of an open session (the model it is talking to).
+    /// Optional: a backend that does not expose a per-session model returns the
+    /// default (`model: None`). The plugin export is `sessionInfo(sessionId)`.
+    fn session_info(&self, session_id: &str) -> Result<ChatSessionInfo, ChatBackendError> {
+        let _ = session_id;
+        Ok(ChatSessionInfo::default())
+    }
+
+    /// Switch the model an open session uses on its next turn. Optional — a
+    /// backend that cannot switch returns an error (the default), which the
+    /// command surfaces. The plugin export is `setModel(sessionId, model)`.
+    fn set_model(&self, session_id: &str, model: &str) -> Result<(), ChatBackendError> {
+        let _ = (session_id, model);
+        Err(ChatBackendError::Call(
+            "this chatBackend does not support switching the model".into(),
+        ))
     }
 }
 

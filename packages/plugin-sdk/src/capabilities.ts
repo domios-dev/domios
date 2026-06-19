@@ -218,6 +218,13 @@ export interface ChatBackendOpenSessionCtx {
   model?: string;
 }
 
+// Live state of an open session, surfaced to the pane's tab/bubble. Mirrors the
+// Rust ChatSessionInfo (chatbackend/mod.rs). `model` absent ⇒ the backend does
+// not expose a per-session model.
+export interface ChatSessionInfo {
+  model?: string;
+}
+
 // Manifest declaration form for `capabilities.chatBackend` (mirrors the Rust
 // `ChatBackendCap` in plugin/js_runtime/manifest.rs). A bare `true` registers
 // the backend but it is NOT user-spawnable — a host-/agent-driven backend pane
@@ -241,6 +248,13 @@ export interface ChatBackend {
   closeSession(sessionId: string): void;
   listModels?(): Model[];
   listPresets?(): PresetInfo[];
+  // Optional: current live model of a session (the host's `chatbackend_session_info`
+  // command reads this). A backend that does not track a per-session model omits it.
+  sessionInfo?(sessionId: string): ChatSessionInfo;
+  // Optional: switch the model the session uses on its NEXT turn (the host's
+  // `chatbackend_switch_model` command routes here). A backend that cannot switch
+  // omits it; the host then surfaces an "unsupported" error.
+  setModel?(sessionId: string, model: string): void;
 }
 
 // ── chatPreprocessor (compose/send-time outbound stage) ──
