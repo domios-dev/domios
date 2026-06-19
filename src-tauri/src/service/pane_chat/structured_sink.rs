@@ -20,23 +20,27 @@ struct ChatMsgEvent<'a> {
     cursor: Option<&'a str>,
 }
 
+pub fn emit_chat_msgs(app: &AppHandle, pane_id: &str, messages: &[ChatMsg], cursor: Option<&str>) {
+    let event = format!("pane-chat-msg-{}", pane_id);
+    let payload = ChatMsgEvent {
+        pane_id,
+        messages,
+        cursor,
+    };
+    crate::api::events::emit_everywhere(
+        app,
+        &event,
+        serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
+    );
+}
+
 pub struct TauriStructuredSink {
     app: AppHandle,
 }
 
 impl StructuredSink for TauriStructuredSink {
     fn emit(&self, pane_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>) {
-        let event = format!("pane-chat-msg-{}", pane_id);
-        let payload = ChatMsgEvent {
-            pane_id,
-            messages: &messages,
-            cursor: cursor.as_deref(),
-        };
-        crate::api::events::emit_everywhere(
-            &self.app,
-            &event,
-            serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
-        );
+        emit_chat_msgs(&self.app, pane_id, &messages, cursor.as_deref());
     }
 }
 

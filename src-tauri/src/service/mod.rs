@@ -21,7 +21,7 @@ mod hierarchy;
 mod inject_safety;
 pub mod inject_verify;
 pub mod input_parser;
-pub mod msg_prefix;
+pub mod messenger;
 pub mod notification;
 mod orchestrator;
 mod output;

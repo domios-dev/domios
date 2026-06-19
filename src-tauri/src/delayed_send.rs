@@ -437,8 +437,8 @@ fn reminder_body(svc: &ServiceState, msg: &DelayedMessage) -> String {
     reminder_prefix(msg).wrap(&msg.text)
 }
 
-fn reminder_prefix(msg: &DelayedMessage) -> crate::service::msg_prefix::CtxPrefix {
-    crate::service::msg_prefix::CtxPrefix::reminder(
+fn reminder_prefix(msg: &DelayedMessage) -> crate::service::messenger::Messenger {
+    crate::service::messenger::Messenger::reminder(
         msg.created_by_label.clone().unwrap_or_default(),
         msg.created_by_pane.clone().unwrap_or_default(),
     )
