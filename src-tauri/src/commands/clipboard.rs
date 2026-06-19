@@ -23,6 +23,21 @@ pub async fn save_clipboard_file(bytes: Vec<u8>, filename: String) -> Result<Str
 }
 
 #[tauri::command]
+pub async fn materialize_dropped_files(paths: Vec<String>) -> Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        paths
+            .into_iter()
+            .map(|path| {
+                crate::attachments::materialize_dropped_path(std::path::Path::new(&path))
+                    .map(|p| p.to_string_lossy().to_string())
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| format!("materialize dropped files task failed: {}", e))?
+}
+
+#[tauri::command]
 pub fn save_temp_file(
     data: String,
     extension: String,

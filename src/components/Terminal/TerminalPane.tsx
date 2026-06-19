@@ -35,6 +35,7 @@ import {
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
+import { shouldShowDropOverlay } from "./dropOverlay";
 
 interface TerminalPaneProps {
   paneId: string;
@@ -61,6 +62,7 @@ export const TerminalPane = memo(function TerminalPane({
   terminalConfig,
   uiFontScale,
 }: TerminalPaneProps) {
+  const paneRootRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const fallbackShellRef = useRef<HTMLDivElement>(null);
   const connectedPtyRef = useRef<string | null>(null);
@@ -259,18 +261,22 @@ export const TerminalPane = memo(function TerminalPane({
   // Tauri file-drop uses the same `term.paste` path as keyboard paste.
   // Bracketed-paste rules stay active when chat is off.
   const { isDragOver: isFileDragOver } = useTauriFileDrop({
-    containerRef,
-    enabled: termReady && uiMode === "terminal",
+    containerRef: paneRootRef,
+    enabled: termReady,
     onPaths: (paths) => {
       const term = termRef.current;
-      if (!term || paths.length === 0) return;
+      if (!term || paths.length === 0 || uiMode !== "terminal") return;
       term.paste(paths.map(quotePathForPaste).join(" "));
     },
   });
 
   // Track non-file drag overlay too (browser text drags). Tauri handles files, HTML dragenter handles text.
   const [isTextDragOver, setIsTextDragOver] = useState(false);
-  const showDropOverlay = (isFileDragOver || isTextDragOver) && termReady && uiMode === "terminal";
+  const showDropOverlay = shouldShowDropOverlay({
+    isFileDragOver,
+    isTextDragOver,
+    termReady,
+  });
 
   // --- Input handling ---
   const { copySelection, pasteFromClipboard } = useTerminalInput({
@@ -414,6 +420,7 @@ export const TerminalPane = memo(function TerminalPane({
   // --- Render ---
   return (
     <div
+      ref={paneRootRef}
       className="w-full h-full relative"
       data-testid="terminal-pane"
       data-pane-id={paneId}
@@ -444,7 +451,7 @@ export const TerminalPane = memo(function TerminalPane({
         e.stopPropagation();
         setIsTextDragOver(false);
         const term = termRef.current;
-        if (!term) return;
+        if (!term || uiMode !== "terminal") return;
         const text = e.dataTransfer.getData("text/plain");
         if (text) term.paste(text);
       }}
