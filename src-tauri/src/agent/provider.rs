@@ -434,6 +434,35 @@ pub fn model_select_section(
     }
 }
 
+/// Which runtime drives a provider's pane: a PTY process or a JS chatBackend.
+/// Replaces the old injected `kind` string and is the spawn discriminant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderTransport {
+    Pty,
+    ChatBackend,
+}
+
+/// What behavior surface a provider exposes for configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(tag = "model", rename_all = "snake_case")]
+pub enum BehaviorConfig {
+    #[default]
+    None,
+    OwnPromptSet,
+    PresetsAndSystemPrompt,
+    Graph,
+}
+
+/// How a system prompt reaches the provider.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemPromptDelivery {
+    CliFlag(String),
+    SessionConfig,
+    External,
+}
+
 /// Wire format describing one agent provider to the frontend.
 /// Built from the trait via `AgentProvider::describe()`.
 ///
@@ -501,6 +530,16 @@ pub struct ProviderDescriptor {
     /// `unknown` = native (Rust-side) provider, no hash to check.
     #[serde(default)]
     pub trust: ProviderTrust,
+    /// Runtime backing this provider — the spawn discriminant (was the `kind` string).
+    pub transport: ProviderTransport,
+    /// Behavior surface the provider exposes for configuration.
+    #[serde(default)]
+    pub behavior_config: BehaviorConfig,
+    /// Named presets the provider offers (chat backends); agents default empty.
+    #[serde(default)]
+    pub presets: Vec<crate::chatbackend::PresetInfo>,
+    /// How a system prompt reaches the provider.
+    pub system_prompt_delivery: SystemPromptDelivery,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -514,7 +553,7 @@ pub enum ProviderTrust {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 5;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 6;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -994,7 +1033,23 @@ pub trait AgentProvider: Send + Sync {
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             trust: self.trust(),
+            transport: ProviderTransport::Pty,
+            behavior_config: self.behavior_config(),
+            presets: Vec::new(),
+            system_prompt_delivery: self.system_prompt_delivery(),
         }
+    }
+
+    /// Behavior surface exposed for configuration. PTY agents bring their own
+    /// prompt set by default.
+    fn behavior_config(&self) -> BehaviorConfig {
+        BehaviorConfig::OwnPromptSet
+    }
+
+    /// How a system prompt reaches this provider. Default `External` — PTY
+    /// agents carry their own prompts and take no system-prompt flag here.
+    fn system_prompt_delivery(&self) -> SystemPromptDelivery {
+        SystemPromptDelivery::External
     }
 
     /// Whether a pane running this provider can be shown as chat. Defaults

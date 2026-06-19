@@ -30,6 +30,7 @@ pub mod paths;
 pub mod plugin;
 pub mod process_util;
 pub mod prompts;
+pub mod provider;
 pub mod pty;
 pub mod resize_owner;
 pub mod secrets;
@@ -600,6 +601,10 @@ pub fn run() {
             let input_parser = Arc::new(
                 crate::service::input_parser::InputParser::new(agent_registry.clone()),
             );
+            let provider_registry = Arc::new(crate::provider::ProviderRegistry::new(
+                agent_registry.clone(),
+                chatbackend_registry.clone(),
+            ));
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
@@ -645,6 +650,7 @@ pub fn run() {
                 bubble_registry: bubble_registry.clone(),
                 view_registry: view_registry.clone(),
                 chatbackend_registry: chatbackend_registry.clone(),
+                provider_registry,
                 chat_preprocessor_registry: chat_preprocessor_registry.clone(),
                 agent_command_registry: agent_command_registry.clone(),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),

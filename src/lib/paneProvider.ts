@@ -27,7 +27,7 @@ export function resolvePaneProvider(pane: Pane | null | undefined): ResolvedPane
         iconSvg: d.icon_svg,
         iconColor: d.icon_color,
         iconHint: d.icon_hint,
-        kind: "agent",
+        kind: d.transport === "chat_backend" ? "shell" : "agent",
       };
     }
   }
