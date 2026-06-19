@@ -654,8 +654,13 @@ button,
 /* Model badge — visible by default, fades out on tab hover so the
    3-dot menu can take its slot without shifting layout. */
 .sidebar-tab-badge {
+  display: inline-block;
+  max-width: min(7.5rem, 38cqw);
+  overflow: hidden;
   opacity: 1;
+  text-overflow: ellipsis;
   transition: opacity 150ms ease;
+  white-space: nowrap;
 }
 .sidebar-tab:hover .sidebar-tab-badge {
   opacity: 0;
