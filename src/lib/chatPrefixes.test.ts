@@ -60,6 +60,32 @@ console.log("detectChatPrefix");
 }
 
 {
+  const r = detectChatPrefix(
+    "-=-codeterm:reminder from=Main pane=e8a0ac20 model=opus set_at=1000 fire_at=2000 id=dmsg-7-=-water the plants",
+  );
+  eq(
+    r?.origin,
+    {
+      kind: "reminder",
+      whoSet: "Main",
+      pane: "e8a0ac20",
+      model: "opus",
+      setAt: "1000",
+      fireAt: "2000",
+      id: "dmsg-7",
+    },
+    "ct reminder marker parses",
+  );
+  eq(r?.body, "water the plants", "ct reminder marker body stripped");
+}
+
+{
+  const r = detectChatPrefix("-=-codeterm:reminder set_at=5 fire_at=9-=-ping");
+  eq(r?.origin, { kind: "reminder", setAt: "5", fireAt: "9" }, "ct reminder marker without creator parses");
+  eq(r?.body, "ping", "ct reminder marker (no creator) body stripped");
+}
+
+{
   const r = splitChatPrefixedMessages(
     "-=-codeterm:pane label=Main pane=12e450b4 model=Sonnet-=-Hey" +
     "-=-codeterm:pane label=Claude pane=e8a0ac20-=-Rollo online",

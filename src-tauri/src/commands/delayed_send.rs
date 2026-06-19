@@ -14,8 +14,9 @@ pub fn delayed_send_create(
     pane_id: String,
     text: String,
     scheduled_at_ms: Option<u64>,
+    created_by_pane: Option<String>,
 ) -> Result<delayed_send::DelayedMessageView, String> {
-    delayed_send::create_message(&svc, pane_id, text, scheduled_at_ms)
+    delayed_send::create_message(&svc, pane_id, text, scheduled_at_ms, created_by_pane)
 }
 
 #[tauri::command]
