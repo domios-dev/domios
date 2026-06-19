@@ -39,11 +39,11 @@ mod spawn_cli;
 mod spawn_params;
 mod spawn_title;
 pub mod store;
-pub mod transport;
 pub mod sync_watcher;
 #[cfg(test)]
 mod tests;
 pub mod tokens;
+pub mod transport;
 mod workspace;
 
 use std::sync::atomic::{AtomicBool, Ordering};

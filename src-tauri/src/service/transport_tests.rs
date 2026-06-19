@@ -7,7 +7,10 @@ fn snapshot_generation_strictly_increases() {
     let g1 = state.snapshot().generation;
     let g2 = state.snapshot().generation;
     let g3 = state.snapshot().generation;
-    assert!(g1 < g2 && g2 < g3, "each snapshot stamps a higher generation");
+    assert!(
+        g1 < g2 && g2 < g3,
+        "each snapshot stamps a higher generation"
+    );
 }
 
 // Mirrors what `spawn_pane_atomic` does internally: create the pane, then the
@@ -17,7 +20,10 @@ fn snapshot_generation_strictly_increases() {
 #[test]
 fn create_then_snapshot_contains_pane_and_advances_generation() {
     let (mut state, _initial) = MultiplexerState::new();
-    let ws = state.snapshot().active_workspace_id.expect("default workspace");
+    let ws = state
+        .snapshot()
+        .active_workspace_id
+        .expect("default workspace");
     // A stale read captured before the new pane existed.
     let stale = state.snapshot();
     let (_tab, pane) = state.create_tab(&ws).expect("create_tab");
@@ -64,5 +70,8 @@ fn atomic_spawn_params_deserialize_camel_case() {
 fn atomic_spawn_params_skip_permissions_defaults_true() {
     let p: AtomicSpawnParams =
         serde_json::from_value(serde_json::json!({ "agentId": "claude" })).unwrap();
-    assert!(p.skip_permissions, "skipPermissions omitted → defaults to true");
+    assert!(
+        p.skip_permissions,
+        "skipPermissions omitted → defaults to true"
+    );
 }

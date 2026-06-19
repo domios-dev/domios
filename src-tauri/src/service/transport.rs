@@ -174,13 +174,25 @@ impl ServiceContext {
             Some(ProviderTransport::Pty) => {
                 self.require_agent_provider_ready(&provider)?;
                 let chat_view = self.default_agent_chat_view(&provider);
-                self.spawn_pane_atomic_with(&provider, &params, &PtyTransport, chat_view, Some(&provider))
+                self.spawn_pane_atomic_with(
+                    &provider,
+                    &params,
+                    &PtyTransport,
+                    chat_view,
+                    Some(&provider),
+                )
             }
             None => {
                 // Unknown id → honest readiness error (never a guess).
                 self.require_agent_provider_ready(&provider)?;
                 let chat_view = self.default_agent_chat_view(&provider);
-                self.spawn_pane_atomic_with(&provider, &params, &PtyTransport, chat_view, Some(&provider))
+                self.spawn_pane_atomic_with(
+                    &provider,
+                    &params,
+                    &PtyTransport,
+                    chat_view,
+                    Some(&provider),
+                )
             }
         }
     }

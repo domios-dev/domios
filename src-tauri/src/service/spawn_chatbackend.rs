@@ -164,7 +164,14 @@ impl ServiceContext {
         }
         self.emit_state_changed();
 
-        self.chatbackend_launch_async(plugin_id, pane_id.clone(), tab_id.clone(), ws_id.clone(), config, history_meta);
+        self.chatbackend_launch_async(
+            plugin_id,
+            pane_id.clone(),
+            tab_id.clone(),
+            ws_id.clone(),
+            config,
+            history_meta,
+        );
 
         Ok(PaneHandle {
             pane_id,
@@ -201,7 +208,11 @@ impl ServiceContext {
             {
                 Ok(Ok(s)) => s,
                 Ok(Err(e)) => {
-                    log::warn!("[spawn.chatbackend] openSession failed for {}: {}", pane_id, e);
+                    log::warn!(
+                        "[spawn.chatbackend] openSession failed for {}: {}",
+                        pane_id,
+                        e
+                    );
                     let _ = svc.mux.write().close_tab(&ws_id, &tab_id);
                     svc.emit_state_changed();
                     svc.create_notification(
@@ -222,7 +233,10 @@ impl ServiceContext {
             {
                 let mut mux = svc.mux.write();
                 if let Some(pane) = mux.get_pane_mut(&pane_id) {
-                    if let PaneBacking::ChatBackend { session_id: sid, .. } = &mut pane.backing {
+                    if let PaneBacking::ChatBackend {
+                        session_id: sid, ..
+                    } = &mut pane.backing
+                    {
                         *sid = session_id.clone();
                     }
                 }
