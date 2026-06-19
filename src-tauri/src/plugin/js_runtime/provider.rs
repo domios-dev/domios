@@ -329,6 +329,21 @@ impl AgentProvider for JsProvider {
             .flatten()
     }
 
+    fn classify_pane_state(
+        &self,
+        snapshot: &crate::agent::pane_state::PaneStateSnapshot,
+    ) -> Option<crate::agent::pane_state::PaneStateClassification> {
+        if !self.has_js("classifyPaneState") {
+            return self.native().and_then(|n| n.classify_pane_state(snapshot));
+        }
+        let arg = serde_json::to_value(snapshot).ok()?;
+        self.try_call::<Option<crate::agent::pane_state::PaneStateClassification>>(
+            "classifyPaneState",
+            &[arg],
+        )
+        .flatten()
+    }
+
     fn is_output_noise(&self, text: &str) -> bool {
         self.try_call::<bool>("isOutputNoise", &[json!(text)])
             .unwrap_or(false)
