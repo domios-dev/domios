@@ -115,7 +115,25 @@ sender metadata). All senders (send/report/mesh/delayed) go through it.
 - **WM.M2** (codex) — chatBackend inbound "from <label·model>" rendering (frontend).
 - **WM.M3** (codex) — route delayed/reminder + mesh through Messenger.
 - **WM.M4** (codex/plugin) — chatBackend reply-to-return-address.
-- **WM.M1b** (codex) — gateway ROBUSTNESS (live bugs): de-dup inbound (one entry not two), canonical -=-codeterm:-=- marker (not [CodeTerm inbound]), reply carries chatBackend pane identity. TDD. Spec: messenger-gateway.md M1b.
+- **WM.M1b** — ✅ MERGED (389ad403): dedup inbound + canonical -=-codeterm:inbound-=- marker + reply identity via per-session host.exec env (this likely SUBSUMES M4 reply-to-return-address — verify). ORIG: gateway ROBUSTNESS (live bugs): de-dup inbound (one entry not two), canonical -=-codeterm:-=- marker (not [CodeTerm inbound]), reply carries chatBackend pane identity. TDD. Spec: messenger-gateway.md M1b.
+
+## Wave TH — reopen closed tabs (history) — NEW 2026-06-19
+
+Remember closed tabs so they can be raised again (browser-style). Spec drafted.
+- **TH1** (codex, backend) — per-workspace "recently closed" ring (pane_id, title,
+  PaneBacking, cwd, model, closed_at); persist in snapshot (reuse CB-P4 backing
+  persistence); `reopen_closed_pane(workspace[,index])` command/REST. chatBackend
+  reopen replays JSONL history (restore-fix lazy-reopen). Bounded (~20).
+- **TH2** (codex, frontend) — "Recently closed" UI + Cmd+Shift+T.
+
+## Wave TD — tab description (≤200-char "what it's doing") — NEW 2026-06-19
+
+- **TD1** (codex, backend+CLI+FE) — pane `description: Option<String>`, server-side
+  VALIDATION reject >200 chars (+ CLI client-side); `codeterm pane describe "…"` +
+  `agent spawn --description "…"`; in pane list/status; persist in snapshot; show as
+  tab tooltip/subtitle. TDD: 200 ok / 201 rejected / snapshot round-trip / spawn sets it.
+- **TD2** (skill) — update the codeterm skill ("Auto-name your tab" section) to also
+  instruct agents to set a ≤200-char description (at spawn / on start).
 
 ## Wave E — emergence wiring (cross-pane reply semantics, NEW 2026-06-19)
 
