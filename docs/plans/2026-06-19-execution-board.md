@@ -183,3 +183,14 @@ fix/116-graph-edge-dedup, save/freeze-fix-*, perf-measure.
 - **WM.M1c** (opus) — gateway bugs round 2 (live): (A) inbound ChatMsg.content carried the raw -=-codeterm:inbound-=- marker -> store CLEAN body, marker only to model via staged; (B) two ChatBackendHistory writers (deliver_chatbackend + poll loop) clobber the inbound JSONL row -> single shared writer / merge-on-flush so inbound+reply survive refresh. TDD. Spec: messenger-gateway.md.
 
 - **WR.R8** (multi: core Rust + plugin) — tool-call resilience for weak-model broken JSON: measure corpus -> structural reply-tool (prevention) -> core repair_json strengthen + re-validate -> core malformed-signal + plugin feedback/retry (kill silent drop) -> tests -> metrics. Spec: chatbackend-robustness-ux.md R8. NOT started.
+
+## Wave CR — cascade + workspace restore (extends reopen-closed) — NEW 2026-06-19
+
+Builds ON the sqlite closed-history (task/closed-history-sqlite, cd751800) — SEQUENCE AFTER it merges (same area). Idea: restore GROUPS, not just single panes.
+- **CR1** (backend, Opus) — group the sqlite closed-history: a `closed_group` (group_id, kind = single|cascade|workspace, label, closed_at); closed_panes rows reference group_id + their parent_pane_id (cascade hierarchy) / workspace metadata.
+  - CASCADE close (orchestrator + spawned children closed together) -> record as ONE group preserving parent/child links; reopen restores the whole subtree + re-links hierarchy (parent_pane_id) + each pane's backing.
+  - WORKSPACE close (whole workspace + its tab list) -> record the workspace + its panes as a group; reopen re-creates the workspace with all tabs.
+  - New command/REST/socket: reopen_closed_group(group_id) (+ keep single reopen). Bounded + sqlite (no snapshot bloat).
+- **CR2** (frontend, frontend-design skill) — RecentlyClosed UI represents GROUPS: a cascade shows as one restorable entry ("Orchestrator + 3 workers"), a workspace as one ("Workspace 'General' — 5 tabs"); expandable to restore the whole group OR an individual item; visually distinct from single-pane closes. Use frontend-design sensibility (clear grouping, not templated).
+- TDD: cascade close records a group with hierarchy; reopen restores the subtree + parent links; workspace close+reopen round-trips the tab list; single closes unchanged. Gate: cargo + hook clippy + guards (CR1); tsc + test:unit + design self-review (CR2).
+- Sequence: cd751800 -> CR1 -> CR2.
