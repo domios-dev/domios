@@ -276,8 +276,11 @@ function TabItemInner({
           </span>
         )}
       </div>
-      {/* Right slot: model badge by default, 3-dot menu on hover (layered) */}
-      <div className="shrink-0 relative z-[1] flex items-center max-w-[40%] overflow-hidden">
+      {/* Right slot: model badge by default, 3-dot menu on hover (layered).
+          The menu is absolutely positioned, so NO overflow-hidden here (it would
+          clip the menu when there's no badge to size the slot). Badge truncation
+          lives on .sidebar-tab-badge (its own max-width + ellipsis). */}
+      <div className="shrink-0 relative z-[1] flex items-center min-w-5 justify-end">
         {tabModelBadge && !touchMode && (
           <span
             className="sidebar-tab-badge px-1 py-0 text-[8px] leading-tight rounded font-mono uppercase tracking-wider border border-[var(--ct-border)] text-[var(--ct-muted-fg)]"
