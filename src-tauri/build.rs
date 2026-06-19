@@ -11,6 +11,18 @@ fn main() {
         .unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=BUILD_HASH={}", hash.trim());
 
+    // Re-embed BUILD_HASH when HEAD moves; --git-path is worktree-safe, logs/HEAD changes on every commit/checkout.
+    for spec in ["HEAD", "logs/HEAD"] {
+        if let Some(path) = std::process::Command::new("git")
+            .args(["rev-parse", "--git-path", spec])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+        {
+            println!("cargo:rerun-if-changed={}", path.trim());
+        }
+    }
+
     generate_system_plugin_hashes();
 
     // Ensure all Windows targets (including test binaries) get the Common Controls v6 manifest.
