@@ -121,6 +121,22 @@ impl ServiceContext {
         Ok(())
     }
 
+    /// Atomically set active workspace and active tab in one lock acquisition,
+    /// emitting a single mux-state-changed instead of two sequential ones.
+    pub fn set_active_tab_and_workspace(
+        &self,
+        workspace_id: &str,
+        tab_id: &str,
+    ) -> Result<(), String> {
+        {
+            let mut mux = self.mux.lock();
+            mux.set_active_workspace(workspace_id)?;
+            mux.set_active_tab(workspace_id, tab_id)?;
+        }
+        self.emit_state_changed();
+        Ok(())
+    }
+
     pub fn rename_tab(&self, workspace_id: &str, tab_id: &str, title: &str) -> Result<(), String> {
         self.mux.lock().rename_tab(workspace_id, tab_id, title)?;
         self.emit_state_changed();
