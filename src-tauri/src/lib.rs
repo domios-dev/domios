@@ -655,6 +655,7 @@ pub fn run() {
                 bubble_registry: bubble_registry.clone(),
                 view_registry: view_registry.clone(),
                 chatbackend_registry: chatbackend_registry.clone(),
+                chatbackend_reopen_guards: Arc::new(Default::default()),
                 provider_registry,
                 chat_preprocessor_registry: chat_preprocessor_registry.clone(),
                 agent_command_registry: agent_command_registry.clone(),

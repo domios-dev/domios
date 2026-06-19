@@ -95,6 +95,65 @@ fn reopen_recreates_pane_with_same_backing() {
 }
 
 #[test]
+fn reopen_chatbackend_pane_opens_in_chat() {
+    // MED inconsistency fix: a chatBackend pane carries agent_type=None, so the
+    // old chat_view-from-agent_type rule left it terminal on reopen while the
+    // spawn path (service/transport.rs, spawn_chatbackend.rs) opens it in chat.
+    // Reopen must mirror spawn: backing == ChatBackend ⇒ chat_view = true, even
+    // with the chat-default preference OFF (empty capable set).
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = ws_id(&state);
+    let (tab_id, pane_id) = state.create_tab(&wsid).unwrap();
+    if let Some(p) = state.get_pane_mut(&pane_id) {
+        p.backing = PaneBacking::ChatBackend {
+            plugin_id: "lmstudio".into(),
+            session_id: "s1".into(),
+        };
+    }
+    state.rename_tab(&wsid, &tab_id, "Chat").unwrap();
+    state.close_tab(&wsid, &tab_id).unwrap();
+
+    let (_t, new_pane) = state
+        .reopen_closed_pane(&wsid, None, &HashSet::new())
+        .unwrap();
+    let pane = state.get_pane(&new_pane).unwrap();
+    assert!(pane.is_chat_backend(), "backing preserved on reopen");
+    assert!(
+        pane.chat_view,
+        "a chatBackend pane reopens in chat regardless of the chat-default pref"
+    );
+}
+
+#[test]
+fn reopen_cascade_group_activates_root_not_leaf() {
+    // LOW fix: closed_at DESC, id DESC surfaces the last-inserted (leaf) pane
+    // first, but the focused tab on reopen must be the cascade ROOT.
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = ws_id(&state);
+    let (orch_tab, orch_pane) = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&wsid, &orch_tab, "Orchestrator").unwrap();
+    let (w1_tab, worker1) = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&wsid, &w1_tab, "Worker").unwrap();
+    state.get_pane_mut(&worker1).unwrap().parent_pane_id = Some(orch_pane.clone());
+
+    state.close_pane(&orch_pane).unwrap();
+    let group_id = state.recent_closed_view()[0].group_id.clone();
+
+    let (_ws, _tab, activated) = state
+        .reopen_closed_group(&group_id, &HashSet::new())
+        .unwrap();
+    let pane = state.get_pane(&activated).expect("activated pane exists");
+    assert_eq!(
+        pane.title, "Orchestrator",
+        "the cascade root is activated, not a leaf worker"
+    );
+    assert!(
+        pane.parent_pane_id.is_none(),
+        "activated pane is the subtree root"
+    );
+}
+
+#[test]
 fn reopen_agent_pane_marks_for_resume() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
