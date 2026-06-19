@@ -126,6 +126,17 @@ pub fn mux_set_active_tab(
     svc.set_active_tab(&workspace_id, &tab_id)
 }
 
+/// Atomically switch active workspace and active tab in a single lock
+/// acquisition, emitting one mux-state-changed instead of two.
+#[tauri::command]
+pub fn mux_set_active_tab_and_workspace(
+    svc: State<'_, ServiceState>,
+    workspace_id: String,
+    tab_id: String,
+) -> Result<(), String> {
+    svc.set_active_tab_and_workspace(&workspace_id, &tab_id)
+}
+
 /// Rename a tab. Only path that changes a tab's title — pane renames don't propagate.
 #[tauri::command]
 pub fn mux_rename_tab(

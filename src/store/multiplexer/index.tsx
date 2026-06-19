@@ -394,7 +394,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   );
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
-    invoke("mux_set_active_tab", { workspaceId, tabId }).catch(() => {});
+    invoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).catch(() => {});
+    dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
     dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
   }, []);
 
