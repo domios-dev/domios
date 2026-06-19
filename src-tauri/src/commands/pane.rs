@@ -199,7 +199,10 @@ pub async fn chat_start(
     svc: tauri::State<'_, ServiceState>,
     pane_id: String,
 ) -> Result<ChatStartResult, String> {
-    chat_start_core(&svc, pane_id)
+    let svc_owned = svc.inner().clone();
+    tokio::task::spawn_blocking(move || chat_start_core(&svc_owned, pane_id))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Shared by the Tauri command and the web mirror's
@@ -332,12 +335,18 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     let path_ms = path_started.elapsed().as_millis();
 
-    // A missing file is NOT an error: the session id is detected from CLI output
-    // before the provider writes the first JSONL line. The tailer streams the
-    // history in as deltas the moment the file appears.
+    // Sessions over the cap skip the full parse to avoid blocking: return empty
+    // messages and start the tailer at offset 0 so history streams in as deltas.
+    // A missing file is not an error — session id may arrive before the first line.
+    const JSONL_SNAPSHOT_CAP: u64 = 10 * 1024 * 1024;
     let read_started = std::time::Instant::now();
-    let (messages, msg_count) =
-        crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
+    let (messages, msg_count, tailer_start_offset) = if total > JSONL_SNAPSHOT_CAP {
+        (vec![], 0usize, 0u64)
+    } else {
+        let (msgs, count) =
+            crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
+        (msgs, count, total)
+    };
     let read_ms = read_started.elapsed().as_millis();
 
     // Multiple webviews can attach to the same pane. The tailer is per pane, but subscriptions are per client; share the existing worker when one
@@ -354,7 +363,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                 provider_id: provider_id.clone(),
                 cwd: cwd.clone(),
                 session_id: session_id.clone(),
-                start_offset: total,
+                start_offset: tailer_start_offset,
                 poll_interval: crate::service::pane_chat::live_chat_poll_interval(),
             },
             svc.agent_registry.clone(),
