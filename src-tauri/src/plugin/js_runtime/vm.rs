@@ -102,6 +102,11 @@ const PLUGIN_PREAMBLE: &str = r#"
   host.fetch.stream = function (opts) { return parseJson(host.fetchStream(JSON.stringify(opts))); };
   host.fetch.streamPoll = function (jobId) { return parseJson(host.fetchStreamPoll(jobId)); };
   host.fetch.streamClose = function (jobId) { host.fetchStreamClose(jobId); };
+  // Async exec: job-id + poll, so a slow tool call never holds the VM lock for
+  // its whole duration (sibling panes share this VM). Mirrors fetch.stream.
+  host.exec.start = function (opts) { return parseJson(host.execStart(JSON.stringify(opts))); };
+  host.exec.poll = function (jobId) { return parseJson(host.execPoll(jobId)); };
+  host.exec.close = function (jobId) { host.execClose(jobId); };
 })();
 "#;
 
@@ -362,6 +367,7 @@ impl PluginVm {
 impl Drop for PluginVm {
     fn drop(&mut self) {
         super::host_net::drop_plugin_jobs(&self.plugin_id);
+        super::host_exec::drop_plugin_jobs(&self.plugin_id);
     }
 }
 

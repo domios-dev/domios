@@ -156,5 +156,20 @@ async function exercise() {
     void streamPoll.error;
     host.fetch.streamClose(stream.jobId);
   }
+
+  // exec: same sync job-id + poll shape — start, poll until done, then drained.
+  const rawExecResult = host.exec(JSON.stringify({ bin: "echo", args: ["hi"] }));
+  void rawExecResult;
+  const exec = host.exec.start({ bin: "echo", args: ["hi"] });
+  if (exec.jobId) {
+    const execPoll = host.exec.poll(exec.jobId);
+    if (execPoll.done) {
+      void execPoll.code;
+      void execPoll.stdout;
+      void execPoll.stderr;
+    }
+    void execPoll.error;
+    host.exec.close(exec.jobId);
+  }
 }
 void exercise;
