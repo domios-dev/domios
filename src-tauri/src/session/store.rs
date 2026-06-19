@@ -20,11 +20,6 @@ pub struct WorkspaceSnapshot {
     pub cwd: Option<String>,
     #[serde(default)]
     pub protected: bool,
-    /// Persisted browser-style "recently closed" ring (newest first). Reuses the
-    /// `ClosedPane` serialization, so the `PaneBacking` survives a restart and a
-    /// closed chatBackend / agent pane can still be reopened after a relaunch.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub recently_closed: Vec<crate::multiplexer::types::ClosedPane>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -302,7 +297,6 @@ mod tests {
                     active_tab_id: None,
                     cwd: None,
                     protected: false,
-                    recently_closed: vec![],
                 })
                 .collect(),
         }

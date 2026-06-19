@@ -1,4 +1,4 @@
-use super::{short_id, MultiplexerState, WorkspaceInfo, ORPHANED_CLOSED_CAP};
+use super::{short_id, MultiplexerState, WorkspaceInfo};
 use crate::multiplexer::types::Workspace;
 
 impl MultiplexerState {
@@ -12,7 +12,6 @@ impl MultiplexerState {
             active_tab_id: None,
             cwd: cwd.clone(),
             protected: false,
-            recently_closed: vec![],
         };
 
         self.workspaces.push(workspace);
@@ -90,34 +89,11 @@ impl MultiplexerState {
             return Err("Cannot close protected workspace".to_string());
         }
 
-        // Record every live tab into the ring before yanking the workspace so
-        // closing a whole workspace doesn't silently drop tabs from history.
-        let tab_pane_ids: Vec<String> = self.workspaces[idx]
-            .tabs
-            .iter()
-            .map(|t| t.pane_id.clone())
-            .collect();
-        for pid in &tab_pane_ids {
-            self.record_closed_pane(pid);
-        }
+        // Record the workspace + its live tabs as ONE closed group (kind =
+        // workspace) before yanking it, so the whole workspace can be reopened.
+        self.record_workspace_close(id);
 
         let workspace = self.workspaces.remove(idx);
-
-        // Preserve the workspace's recently-closed ring (which now also includes
-        // the just-recorded live tabs) into the orphaned ring.
-        if !workspace.recently_closed.is_empty() {
-            for entry in workspace.recently_closed {
-                // Avoid exact duplicates (same pane_id already in orphaned ring).
-                if !self
-                    .orphaned_closed
-                    .iter()
-                    .any(|e| e.pane_id == entry.pane_id)
-                {
-                    self.orphaned_closed.insert(0, entry);
-                }
-            }
-            self.orphaned_closed.truncate(ORPHANED_CLOSED_CAP);
-        }
 
         let pane_ids: Vec<String> = workspace
             .tabs

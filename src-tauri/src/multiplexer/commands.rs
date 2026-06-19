@@ -178,6 +178,21 @@ pub fn mux_reopen_closed_pane(
     })
 }
 
+/// Reopen a whole closed group (single / cascade subtree / workspace) by id.
+/// Recreates the workspace if needed, restores every pane, relinks hierarchy.
+#[tauri::command]
+pub fn mux_reopen_closed_group(
+    svc: State<'_, ServiceState>,
+    group_id: String,
+) -> Result<OrphanedRestoreInfo, String> {
+    let (workspace_id, tab_id, pane_id) = svc.reopen_closed_group(&group_id)?;
+    Ok(OrphanedRestoreInfo {
+        workspace_id,
+        tab_id,
+        pane_id,
+    })
+}
+
 /// Reopen a pane from the orphaned ring (its workspace was deleted). Recreates
 /// the workspace and materializes the pane into it. Returns workspace + tab ids.
 #[tauri::command]

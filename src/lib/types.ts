@@ -13,15 +13,16 @@ export interface Workspace {
   active_tab_id: string | null;
   cwd: string | null;
   protected?: boolean;
-  /** Bounded ring of recently-closed panes, newest first (index 0 = most
-   *  recent). Mirrors Rust `Workspace.recently_closed`. Omitted when empty. */
-  recently_closed?: ClosedPane[];
 }
 
 /** A pane that was closed and can be reopened. Mirrors Rust `ClosedPane`
- *  (serde snake_case). `closed_at` is a UNIX-millisecond timestamp. */
+ *  (serde snake_case). `closed_at` is a UNIX-millisecond timestamp. Now backed
+ *  by the sqlite closed-history store rather than the session snapshot. */
 export interface ClosedPane {
   pane_id: string;
+  /** Original parent pane id — preserves the orchestration hierarchy for a
+   *  cascade-group reopen. */
+  parent_pane_id?: string | null;
   title: string;
   description?: string | null;
   backing?: PaneBacking;
@@ -33,6 +34,16 @@ export interface ClosedPane {
   /** Workspace the pane belonged to. Empty string on old records. */
   workspace_id?: string;
   workspace_name?: string;
+}
+
+/** A closed pane enriched for the sidebar: the per-workspace reopen `index`, an
+ *  `orphaned` flag (its workspace no longer exists), and the group it belongs
+ *  to. Mirrors Rust `ClosedPaneView` (ClosedPane flattened + these fields). */
+export interface ClosedPaneView extends ClosedPane {
+  index: number;
+  orphaned: boolean;
+  group_id: string;
+  group_kind: "single" | "cascade" | "workspace";
 }
 
 export interface Tab {
@@ -96,8 +107,11 @@ export interface MultiplexerState {
   /** Monotonic snapshot generation stamped by the backend. The reducer ignores
    *  any incoming snapshot whose generation is `<=` the one already applied. */
   generation?: number;
-  /** Recently-closed entries from deleted workspaces; newest first. */
-  orphaned_closed?: ClosedPane[];
+  /** Bounded newest-first view of the closed-tab history across all
+   *  workspaces (sourced from the sqlite store, not the session snapshot).
+   *  Each entry carries its per-workspace reopen `index`, an `orphaned` flag,
+   *  and group metadata. */
+  recently_closed?: ClosedPaneView[];
 }
 
 /** Result of the one atomic spawn command (`mux_spawn_pane`). */
