@@ -50,6 +50,9 @@ const PLUGIN_PREAMBLE: &str = r#"
     quote:    host.shellQuote,
     quoteFor: host.shellQuoteFor,
   };
+  host.toolcall = {
+    parse: host.toolcallParse,
+  };
   // Normalize/slurp path variants (native vs forwarded slash forms) before comparisons.
   // Session detection depends on semantic equality, not raw string equality.
   host.path = {
@@ -639,6 +642,31 @@ mod tests {
         assert_eq!(id.as_deref(), Some("X"));
         let q: String = call_json(&vm, "wrap", &[json!("can't")]).unwrap();
         assert_eq!(q, "'can'\\''t'");
+    }
+
+    #[test]
+    fn preamble_exposes_host_toolcall_parse() {
+        let vm = fixture(
+            r#"
+            module.exports.default = {
+                parse(raw, schema) { return host.toolcall.parse(raw, schema); }
+            };
+            "#,
+        );
+        let schema = r#"{
+            "tools":[{"name":"exec","args":["cmd"]}],
+            "aliases":{"command":"cmd"}
+        }"#;
+        let raw = r#"```codeterm-tool
+{"tool":"exec","args":{"command":"ls"}}
+```"#;
+
+        let via_host: String = call_json(&vm, "parse", &[json!(raw), json!(schema)]).unwrap();
+        let native = super::super::toolcall_parse::parse_to_json(raw, schema);
+        assert_eq!(via_host, native);
+        let parsed: serde_json::Value = serde_json::from_str(&via_host).unwrap();
+        assert_eq!(parsed["tool"], "exec");
+        assert_eq!(parsed["args"]["cmd"], "ls");
     }
 
     #[test]

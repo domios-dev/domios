@@ -35,6 +35,7 @@ pub mod manifest;
 pub mod plugin_config;
 mod provider;
 mod secret_backend;
+pub(crate) mod toolcall_parse;
 mod transcriber;
 mod view;
 mod vm;
