@@ -105,6 +105,7 @@ start_dev_wait_process() {
 
 # /web browser clients are served the static dist/ bundle, NOT vite HMR.
 # Watch-rebuild it so phone/browser mirrors pick up frontend edits on reload.
+# Tauri's beforeDevCommand owns the live devUrl server on 1420.
 start_web_watch() {
   kill_web_watch
   nohup pnpm exec vite build --watch </dev/null >> /tmp/codeterm-web-watch.log 2>&1 &
@@ -228,10 +229,10 @@ case "$CMD" in
       : > "$LOG"
       DEV_PID=$(start_dev_wait_process "$LOG")
       echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
-      DEADLINE=$(( $(date +%s) + 300 ))
+      DEADLINE=$(( $(date +%s) + 600 ))
       while : ; do
         if [ "$(date +%s)" -gt "$DEADLINE" ]; then
-          echo "Timeout after 300s. Last log lines:"
+          echo "Timeout after 600s. Last log lines:"
           tail -25 "$LOG"
           exit 1
         fi
