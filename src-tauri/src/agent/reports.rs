@@ -75,6 +75,18 @@ impl ReportStore {
         }
     }
 
+    /// True when at least one report from `from_pane_id` is stored under
+    /// `orchestrator_pane_id`. Used by the worker-death watchdog to decide
+    /// whether a dying worker has already spoken (so no synthetic report is
+    /// needed). There is no separate terminal-report flag — any prior report
+    /// counts as the worker having reported up the chain.
+    pub fn has_report_from(&self, orchestrator_pane_id: &str, from_pane_id: &str) -> bool {
+        self.reports
+            .get(orchestrator_pane_id)
+            .map(|v| v.iter().any(|r| r.from_pane_id == from_pane_id))
+            .unwrap_or(false)
+    }
+
     /// Get report count for an orchestrator.
     pub fn count(&self, orchestrator_pane_id: &str) -> usize {
         self.reports
@@ -147,6 +159,18 @@ mod tests {
         assert_eq!(store.count("cond-1"), 3);
         let reports = store.get("cond-1", false);
         assert_eq!(reports[0].message, "B"); // A was evicted
+    }
+
+    #[test]
+    fn test_has_report_from() {
+        let mut store = ReportStore::new(100);
+        assert!(!store.has_report_from("cond-1", "w1"));
+        store.add("cond-1", "w1", "W1", "done");
+        assert!(store.has_report_from("cond-1", "w1"));
+        // Different reporter under the same target is not a match.
+        assert!(!store.has_report_from("cond-1", "w2"));
+        // Same reporter under a different target is not a match.
+        assert!(!store.has_report_from("cond-2", "w1"));
     }
 
     #[test]
