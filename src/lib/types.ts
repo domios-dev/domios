@@ -71,6 +71,19 @@ export interface MultiplexerState {
   panes: Record<string, Pane>;
   active_workspace_id: string | null;
   focused_pane_id: string | null;
+  /** Monotonic snapshot generation stamped by the backend. The reducer ignores
+   *  any incoming snapshot whose generation is `<=` the one already applied. */
+  generation?: number;
+}
+
+/** Result of the one atomic spawn command (`mux_spawn_pane`). */
+export interface AtomicSpawn {
+  snapshot: MultiplexerState;
+  pane_id: string;
+  tab_id: string;
+  workspace_id: string;
+  launch_command?: string;
+  warning?: string;
 }
 
 export interface WorkspaceInfo {

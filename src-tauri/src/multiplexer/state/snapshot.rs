@@ -14,13 +14,21 @@ fn derive_agent_type_from_title(title: Option<&str>) -> Option<String> {
 }
 
 impl MultiplexerState {
-    /// Return all data for frontend hydration.
+    /// Return all data for frontend hydration. Each call stamps a strictly
+    /// increasing `generation`; the stamp happens while the caller holds the
+    /// (read) lock, so it is serialized against writers and a snapshot with
+    /// newer content always carries a higher generation than an older one.
     pub fn snapshot(&self) -> MultiplexerSnapshot {
+        let generation = self
+            .generation
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            .wrapping_add(1);
         MultiplexerSnapshot {
             workspaces: self.workspaces.clone(),
             panes: self.panes.clone(),
             active_workspace_id: self.active_workspace_id.clone(),
             focused_pane_id: self.focused_pane_id.clone(),
+            generation,
         }
     }
 
@@ -272,6 +280,7 @@ impl MultiplexerState {
             focused_pane_id: None,
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
+            generation: std::sync::atomic::AtomicU64::new(0),
         }
     }
 }
