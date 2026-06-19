@@ -108,6 +108,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       return (
         <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto">
           <div
+            data-testid="chat-system-prompt-card"
             className="max-w-full min-w-0 rounded-md border"
             style={{
               background: "color-mix(in srgb, var(--ct-surface, #161b22) 92%, var(--ct-green, #3fb950) 8%)",
