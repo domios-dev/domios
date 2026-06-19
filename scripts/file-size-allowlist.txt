@@ -19,5 +19,3 @@ src-tauri/src/agent/provider.rs	1231
 src-tauri/src/mem/search.rs	1137
 # Mem store test module — test file, baselined.
 src-tauri/src/mem/store/tests.rs	1215
-# JS-runtime parity test — test file (grew with chat-parsing parity fixtures), baselined.
-src-tauri/src/plugin/js_runtime/parity_test.rs	1533
