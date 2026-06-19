@@ -199,6 +199,19 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
+  plugins/provider-cursor:
+    dependencies:
+      '@codeterm/chat-core':
+        specifier: workspace:*
+        version: link:../../packages/chat-core
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+    devDependencies:
+      '@codeterm/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
   plugins/provider-opencode:
     dependencies:
       react:
