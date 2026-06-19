@@ -181,3 +181,5 @@ fix/116-graph-edge-dedup, save/freeze-fix-*, perf-measure.
 - **CB182** (issue #182) — send to a lazy/not-materialized agent pane writes to the RAW shell. Fix send_text (pty_io.rs:~82): if backing=Agent and CLI not running, materialize+await readiness (reuse mount-time resume) BEFORE the PTY write; same guard for taskDelivery=pty_input, report-injection, mesh delivery, --delay fire. SEQUENCE AFTER M3 (both touch send/delayed/mesh paths).
 
 - **WM.M1c** (opus) — gateway bugs round 2 (live): (A) inbound ChatMsg.content carried the raw -=-codeterm:inbound-=- marker -> store CLEAN body, marker only to model via staged; (B) two ChatBackendHistory writers (deliver_chatbackend + poll loop) clobber the inbound JSONL row -> single shared writer / merge-on-flush so inbound+reply survive refresh. TDD. Spec: messenger-gateway.md.
+
+- **WR.R8** (multi: core Rust + plugin) — tool-call resilience for weak-model broken JSON: measure corpus -> structural reply-tool (prevention) -> core repair_json strengthen + re-validate -> core malformed-signal + plugin feedback/retry (kill silent drop) -> tests -> metrics. Spec: chatbackend-robustness-ux.md R8. NOT started.

@@ -110,3 +110,19 @@ authoring round-trip updates the bound prompt; init then uses it. Gate: tsc/test
   negative corpus" discipline — same testing philosophy.
 
 <!-- revision: 1 -->
+
+## R8 — tool-call resilience (weak-model broken JSON): core repair + malformed-signal + plugin feedback + structural tool
+
+> From a live Gemma-26B failure: `{"tool":"codeterm","args":{"args":"send \"…\"" --pane 70d3bacd}}` — the inner string closed one quote early, `--pane …` dangled before `}`, JSON invalid -> host.toolcall.parse returned "null" -> the plugin (parseToolEntries catch, plugin.ts:472) SILENTLY dropped it (log warn) -> the model never learned -> no retry -> the reply never arrived. Defense-in-depth, NOT one repairer.
+
+PLACEMENT (code-grounded): the parser+repair is already core (toolcall_parse.rs: parse_json_at -> object_slice -> serde -> repair_json+penalty). Repair belongs in CORE (generic — every plugin/provider that calls host.toolcall.parse benefits). The feedback/retry loop is inherently the PLUGIN (it owns the ReAct loop + pendingInputs). Prevention is the PLUGIN's tool schema.
+
+PHASES (prevention > repair > feedback; MEASURE before repairing):
+- **R8.0 measure** — in the plugin catch + (optionally) core, LOG the raw model output + fail reason when a tool-call-shaped block fails to parse. Build a corpus of real breakages per model. Don't guess which cases to repair — let data show the 1-2 dominant patterns (premature string close + dangling token is the prime suspect).
+- **R8.1 prevention (plugin, kills the class)** — replace the `codeterm` tool's single CLI-string `args` (toolContent: `codeterm ${args.args}`, which forces nested-quote escaping) with a STRUCTURAL reply/send tool: `{"tool":"reply","args":{"text":"…","pane":"…"}}` — no nested quotes; the plugin assembles `send "<text>" --pane <pane>` itself. Cheapest, hits the root for the common case.
+- **R8.2 core repair (disciplined)** — strengthen toolcall_parse.rs repair_json under the R8.0 catalog: premature string close + dangling tokens before `}`, trailing commas, single quotes, unescaped inner `"`, leaked markdown fence, literal newlines. IRON RULE: after repair, RE-VALIDATE against the schema; ambiguous/uncertain repair -> return null (never guess a command — a silently-mis-repaired send to the wrong pane is worse than an honest fail). Keep the confidence penalty.
+- **R8.3 core malformed-signal + plugin feedback (kills silent failure)** — host.toolcall.parse returns a RICHER result: parsed | malformed(reason, span) | none. "malformed" = a tool-call-shaped block (```codeterm-tool fence or {"tool":…}) that survived neither parse nor repair. The PLUGIN, on malformed, injects a pseudo tool_result into pendingInputs ("your tool-call JSON was invalid: <reason>; resend valid JSON") so the model self-corrects next step. Cap retries (1-2) to avoid loops.
+- **R8.4 tests** — the R8.0 corpus -> core unit tests (broken-in -> correct command OR explicit null) + plugin tests (malformed -> feedback injected, then a valid retry executes). Regression wall.
+- **R8.5 metrics/decision** — count repair-rate / retry-rate per model; data decides how aggressive repair should be and confirms core is the right home (qwen rarely breaks, gemma often).
+
+DECISIONS for Andrey: (a) repair in CORE confirmed (generic); (b) library vs vendored mini-repair — depends on the QuickJS/Rust constraints (Rust core can extend repair_json directly, no npm needed — favors core); (c) repair aggressiveness — conservative + mandatory re-validate (prefer retry over mis-send). Order: R8.0 -> R8.1 -> R8.2/R8.3 -> R8.4 -> R8.5. NOT started (plan only).
