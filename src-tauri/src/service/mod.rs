@@ -129,6 +129,9 @@ pub struct ServiceContext {
     /// Registry of chatBackend providers (plugins with `chatBackend`). Non-PTY
     /// panes route their I/O here via the `PaneTransport` seam.
     pub chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle,
+    /// Unified facade over the agent + chat-backend stores. Listing and
+    /// spawn-classify go through this so call-sites stop touching two registries.
+    pub provider_registry: Arc<crate::provider::ProviderRegistry>,
     /// Registry of chatPreprocessor providers (plugins with `chatPreprocessor`).
     /// `run_outbound_stages` runs these send-time text stages over every user
     /// turn before dispatching to transport.

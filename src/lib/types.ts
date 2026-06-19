@@ -457,6 +457,28 @@ export interface ModelInfo {
   description?: string;
 }
 
+export interface PresetInfo {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+/** Runtime backing a provider — the spawn discriminant (was the `kind` string). */
+export type ProviderTransport = "pty" | "chat_backend";
+
+/** Behavior surface a provider exposes for configuration. Tagged on `model`. */
+export type BehaviorConfig =
+  | { model: "none" }
+  | { model: "own_prompt_set" }
+  | { model: "presets_and_system_prompt" }
+  | { model: "graph" };
+
+/** How a system prompt reaches the provider. */
+export type SystemPromptDelivery =
+  | { cli_flag: string }
+  | "session_config"
+  | "external";
+
 export type NoteLevel = "info" | "warn" | "error";
 export type BadgeStyle = "green" | "orange" | "red" | "gray";
 export type ActionStyle = "primary" | "secondary" | "danger";
@@ -518,9 +540,14 @@ export interface ProviderDescriptor {
   schema_version: number;
   id: string;
   display_name: string;
-  /** "agent" = PTY agent provider (claude/codex/…); "shell" = chatBackend open
-   * shell (non-PTY, e.g. lmstudio). Drives how "+ new session" spawns it. */
-  kind?: "agent" | "shell";
+  /** Runtime backing — the spawn discriminant (replaces the old `kind` string). */
+  transport: ProviderTransport;
+  /** Behavior surface for configuration. Optional; defaults to `{ model: "none" }`. */
+  behavior_config?: BehaviorConfig;
+  /** Named presets (chat backends); agents default empty. */
+  presets?: PresetInfo[];
+  /** How a system prompt reaches the provider. */
+  system_prompt_delivery: SystemPromptDelivery;
   icon_hint?: string;
   icon_svg?: string;
   icon_color?: string;
