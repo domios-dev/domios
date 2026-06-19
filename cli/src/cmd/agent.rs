@@ -1,6 +1,35 @@
 use crate::client::SocketClient;
 use crate::cmd::print::{handle_result, print_object};
 use crate::{build_http, read_api_config, resolve_pane, AgentAction};
+use std::io::Read;
+
+/// Resolve the spawn task body from `--task` / `--task-file`. `--task-file`
+/// reads the file verbatim (or stdin when the value is `-`), so the body never
+/// passes through the caller's shell — backticks and $(...) survive byte-exact.
+pub fn resolve_spawn_task<R: Read>(
+    task: Option<String>,
+    task_file: Option<String>,
+    stdin: &mut R,
+) -> Result<Option<String>, String> {
+    match (task, task_file) {
+        (Some(_), Some(_)) => Err("pass either --task or --task-file, not both".into()),
+        (Some(t), None) => Ok(Some(t)),
+        (None, Some(path)) => {
+            if path == "-" {
+                let mut buf = String::new();
+                stdin
+                    .read_to_string(&mut buf)
+                    .map_err(|e| format!("failed to read --task-file from stdin: {}", e))?;
+                Ok(Some(buf))
+            } else {
+                std::fs::read_to_string(&path)
+                    .map(Some)
+                    .map_err(|e| format!("failed to read --task-file {}: {}", path, e))
+            }
+        }
+        (None, None) => Ok(None),
+    }
+}
 
 fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
     let models = target.get("available_models").and_then(|v| v.as_array());
@@ -264,12 +293,20 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             parent,
             can_spawn,
             task,
+            task_file,
             args,
             workspace,
             model,
             system_prompt,
             preset,
         } => {
+            let task = match resolve_spawn_task(task, task_file, &mut std::io::stdin()) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
             let mut body = serde_json::json!({
                 "agent": agent,
             });
@@ -468,5 +505,58 @@ mod tests {
         assert!(out.contains("Live Codex (default)"));
         assert!(out.contains("catalog snapshot"));
         assert!(!out.contains("static-codex"));
+    }
+
+    #[test]
+    fn task_file_round_trips_shell_metacharacters_byte_exact() {
+        let body = "run `whoami` then $(rm -rf /) and ${HOME}\nline two\twith tab\n";
+        let path = std::env::temp_dir().join(format!("ct-task-file-{}.txt", uuid::Uuid::new_v4()));
+        std::fs::write(&path, body).unwrap();
+
+        let resolved = resolve_spawn_task(
+            None,
+            Some(path.to_string_lossy().into_owned()),
+            &mut &b""[..],
+        )
+        .unwrap();
+
+        std::fs::remove_file(&path).ok();
+        assert_eq!(resolved, Some(body.to_string()));
+    }
+
+    #[test]
+    fn task_file_dash_reads_stdin_byte_exact() {
+        let body = "stdin `backticks` and $(date) survive\n";
+        let mut stdin = body.as_bytes();
+        let resolved = resolve_spawn_task(None, Some("-".to_string()), &mut stdin).unwrap();
+        assert_eq!(resolved, Some(body.to_string()));
+    }
+
+    #[test]
+    fn task_and_task_file_together_is_an_error() {
+        let err = resolve_spawn_task(
+            Some("inline".to_string()),
+            Some("-".to_string()),
+            &mut &b""[..],
+        )
+        .unwrap_err();
+        assert!(err.contains("not both"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn missing_task_file_reports_unreadable() {
+        let path = std::env::temp_dir().join(format!("ct-nope-{}.txt", uuid::Uuid::new_v4()));
+        let err = resolve_spawn_task(
+            None,
+            Some(path.to_string_lossy().into_owned()),
+            &mut &b""[..],
+        )
+        .unwrap_err();
+        assert!(err.contains("failed to read --task-file"));
+    }
+
+    #[test]
+    fn neither_task_nor_task_file_is_none() {
+        assert_eq!(resolve_spawn_task(None, None, &mut &b""[..]).unwrap(), None);
     }
 }
