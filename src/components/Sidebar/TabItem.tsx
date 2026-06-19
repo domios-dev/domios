@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { X, Pencil, UserMinus, MessageSquare, SquareTerminal } from "lucide-react";
 import { getAgentProvider } from "../../lib/agentProviders";
@@ -40,7 +40,7 @@ interface TabItemProps {
   uiFontScale?: number;
 }
 
-export function TabItem({
+function TabItemInner({
   tab,
   isActive,
   onClick,
@@ -296,3 +296,45 @@ export function TabItem({
     </div>
   );
 }
+
+// Pane objects are always new references after SET_STATE (reducer spreads panes
+// map). Comparing by value for the fields TabItem actually renders prevents
+// every tab from re-rendering on high-frequency events like pane-status-changed
+// and SET_PANE_TITLE. Function props (onClick/onClose/onRename) close over
+// stable IDs and stable callbacks (guaranteed after A2 context memo fix), so
+// skipping their reference check is safe.
+function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
+  if (
+    prev.isActive !== next.isActive ||
+    prev.status !== next.status ||
+    prev.canClose !== next.canClose ||
+    prev.paneCount !== next.paneCount ||
+    prev.hasAgent !== next.hasAgent ||
+    prev.isAppearing !== next.isAppearing ||
+    prev.isClosing !== next.isClosing ||
+    prev.touchMode !== next.touchMode ||
+    prev.uiFontScale !== next.uiFontScale ||
+    prev.index !== next.index ||
+    prev.tab.id !== next.tab.id ||
+    prev.tab.title !== next.tab.title
+  ) return false;
+
+  const pp = prev.pane;
+  const np = next.pane;
+  if (pp === np) return true;
+  if (!pp || !np) return false;
+  return (
+    pp.id === np.id &&
+    pp.agent_type === np.agent_type &&
+    pp.protected === np.protected &&
+    pp.role === np.role &&
+    pp.chat_view === np.chat_view &&
+    pp.pending_prompt === np.pending_prompt &&
+    pp.agent_session_model === np.agent_session_model &&
+    pp.parent_pane_id === np.parent_pane_id &&
+    pp.depth === np.depth &&
+    JSON.stringify(pp.connected_services) === JSON.stringify(np.connected_services)
+  );
+}
+
+export const TabItem = memo(TabItemInner, tabItemPropsEqual);
