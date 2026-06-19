@@ -5,7 +5,13 @@ import type {
   ChatAttachment as ImageAttachment,
 } from "@codeterm/chat-core";
 import {
-  Download, Image,
+  Bot,
+  CheckCircle2,
+  Clock,
+  Download, FileText, Image,
+  Pencil,
+  Search,
+  Terminal,
   // Origin icons
   ArrowRight,      // pane -> pane
   Send,            // generic chat (telegram / service)
@@ -67,6 +73,56 @@ interface MessageBubbleProps {
 // widget is unreliable. Disabled until the timing is fixed; the question then
 // renders as a plain tool-call pill instead.
 const INTERACTIVE_QUESTIONS_ENABLED = false;
+
+type CuratedToolKind = "exec" | "read_file" | "write_file" | "codeterm" | "mem_search" | "spawn_agent";
+
+function parsedToolInput(message: ChatMessage): Record<string, unknown> {
+  if (message.toolInput) return message.toolInput;
+  if (!message.toolArgs) return {};
+  try {
+    const parsed = JSON.parse(message.toolArgs);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function textArg(input: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim()) return value;
+    if (Array.isArray(value) && value.length > 0) return value.map(String).join(" ");
+  }
+  return null;
+}
+
+function contentSize(content: string): string {
+  const bytes = new TextEncoder().encode(content).length;
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+function previewLine(text: string, max = 90): string {
+  const line = text.replace(/\r/g, "").split("\n").find((part) => part.trim())?.trim() ?? "";
+  return line.length > max ? `${line.slice(0, max)}...` : line;
+}
+
+function curatedToolKind(name: string | undefined): CuratedToolKind | null {
+  const normalized = (name ?? "").trim().toLowerCase();
+  switch (normalized) {
+    case "exec":
+    case "read_file":
+    case "write_file":
+    case "codeterm":
+    case "mem_search":
+    case "spawn_agent":
+      return normalized;
+    default:
+      return null;
+  }
+}
 
 export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds, fontScale }: MessageBubbleProps) {
   // Auto-expand for Write-style tool input (the file body being written) and
@@ -476,6 +532,133 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           />
         );
       }
+    }
+
+    const curatedKind = curatedToolKind(message.toolName);
+    if (curatedKind) {
+      const input = parsedToolInput(message);
+      const phase = message.toolResult ? "result" : message.toolId ? "running" : "pending";
+      const Icon =
+        curatedKind === "exec" ? Terminal :
+        curatedKind === "read_file" ? FileText :
+        curatedKind === "write_file" ? Pencil :
+        curatedKind === "codeterm" ? Terminal :
+        curatedKind === "mem_search" ? Search :
+        Bot;
+      const PhaseIcon = phase === "result" ? CheckCircle2 : phase === "running" ? Clock : Clock;
+      const commandText =
+        curatedKind === "exec" ? textArg(input, ["cmd", "command"]) :
+        curatedKind === "codeterm" ? textArg(input, ["args", "command"]) :
+        null;
+      const pathText =
+        curatedKind === "read_file" || curatedKind === "write_file"
+          ? textArg(input, ["path", "file_path", "filePath"])
+          : null;
+      const queryText = curatedKind === "mem_search" ? textArg(input, ["query"]) : null;
+      const providerText = curatedKind === "spawn_agent" ? textArg(input, ["provider"]) : null;
+      const taskText = curatedKind === "spawn_agent" ? textArg(input, ["task"]) : null;
+      const workspaceText = curatedKind === "spawn_agent" ? textArg(input, ["workspace"]) : null;
+      const cwdText = curatedKind === "exec" ? textArg(input, ["cwd"]) : null;
+      const contentText = curatedKind === "write_file" ? textArg(input, ["content"]) : null;
+      const title =
+        curatedKind === "exec" ? "exec" :
+        curatedKind === "read_file" ? "read file" :
+        curatedKind === "write_file" ? "write file" :
+        curatedKind === "codeterm" ? "codeterm" :
+        curatedKind === "mem_search" ? "mem search" :
+        "spawn agent";
+      const primary =
+        commandText ?? pathText ?? queryText ?? taskText ?? message.toolArgs ?? message.content;
+      const secondary =
+        curatedKind === "exec" && cwdText ? `cwd ${cwdText}` :
+        curatedKind === "write_file" && contentText ? `${contentSize(contentText)} | ${previewLine(contentText)}` :
+        curatedKind === "spawn_agent"
+          ? [providerText, workspaceText ? `workspace ${workspaceText}` : null].filter(Boolean).join(" | ")
+          : null;
+
+      return (
+        <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
+          <div className="inline-flex flex-col max-w-[min(52rem,100%)]">
+            <button
+              data-testid={`chatbackend-tool-${curatedKind}`}
+              onClick={() => setExpanded(!expanded)}
+              className="inline-flex min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
+              style={{
+                background: "transparent",
+                borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+                color: "var(--ct-muted-fg)",
+              }}
+            >
+              <Icon
+                size={13}
+                strokeWidth={2}
+                className="flex-shrink-0"
+                style={{ color: "color-mix(in srgb, var(--ct-green, #3fb950) 75%, var(--ct-fg, #c9d1d9) 25%)" }}
+              />
+              <span className="font-medium font-mono" style={{ color: "var(--ct-muted-fg)" }}>
+                {title}
+              </span>
+              <span className="min-w-0 truncate opacity-70 font-mono text-[11px]">
+                {primary}
+              </span>
+              {secondary && (
+                <span className="hidden min-w-0 truncate opacity-45 font-mono text-[11px] sm:inline">
+                  {secondary}
+                </span>
+              )}
+              <span
+                className="ml-1 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono"
+                style={{
+                  background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 10%, transparent)",
+                  color: phase === "result" ? "var(--ct-green, #3fb950)" : "var(--ct-muted-fg)",
+                }}
+              >
+                <PhaseIcon size={10} strokeWidth={2} />
+                {phase}
+              </span>
+              <ChevronIcon expanded={expanded} className="ml-1 opacity-50" />
+            </button>
+
+            {message.toolResult && !expanded && (
+              <button
+                onClick={() => setExpanded(true)}
+                className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
+                style={{ color: "var(--ct-muted-fg)" }}
+                title="Show full output"
+              >
+                <span className="flex-shrink-0 opacity-40">{"->"}</span>
+                <span className="min-w-0 truncate opacity-70">{lastNonEmptyLine(message.toolResult)}</span>
+              </button>
+            )}
+
+            {expanded && (
+              <div
+                className="mt-1 w-full min-w-0 max-w-full rounded-md border border-[var(--ct-border)] p-2 text-xs"
+                style={{ background: "color-mix(in srgb, var(--ct-bg, #0d1117) 88%, black 4%)" }}
+              >
+                {curatedKind === "write_file" && contentText ? (
+                  <CodeBlock text={contentText} language={languageFromPath(pathText)} maxHeight="24rem" />
+                ) : (
+                  <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`} style={{ color: "var(--ct-fg)" }}>
+                    {JSON.stringify(input, null, 2) || message.content}
+                  </pre>
+                )}
+                {message.toolResult && (
+                  <div className="mt-2">
+                    <div
+                      className="mb-1 text-[10px] font-medium uppercase tracking-wide"
+                      style={{ color: "var(--ct-muted-fg)" }}
+                    >
+                      Result
+                    </div>
+                    <PlainOutput text={message.toolResult} maxHeight="12rem" />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
     }
 
     const detailText = message.toolArgs || message.content;
