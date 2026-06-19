@@ -552,7 +552,7 @@ pub(super) fn install(
     super::host_compute::install_handles(&host, &sandbox)?;
 
     ctx.globals()
-        .set("host", host)
+        .set(HOST_GLOBAL, host)
         .catch(ctx)
         .map_err(|e| VmError::Script(format!("set host global: {e:?}")))?;
     Ok(())
@@ -741,12 +741,8 @@ fn sqlite_query_all_json(db_path: &str, sql: &str, params_json: Option<&str>) ->
     serde_json::to_string(&rows).ok()
 }
 
-// Re-exported for VM bootstrap to know the host object is installed.
-#[allow(dead_code)]
+// Name of the global the host object is installed under (see install above).
 pub(super) const HOST_GLOBAL: &str = "host";
-
-#[allow(dead_code)]
-fn _link_path_buf_unused(_: PathBuf) {}
 
 #[cfg(test)]
 mod tests;

@@ -210,9 +210,12 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
         // Cron fallback: if agent died without calling cron complete, mark as failed.
         use tauri::Manager;
         if let Some(cron_state) = svc.app_handle.try_state::<crate::CronState>() {
-            let owner = cron_state.lock().get_pane_owner(pid).cloned();
+            // Hold the cron lock ACROSS owner-lookup and the read/write below.
+            // Acquiring it twice (lookup, then re-lock) opens a TOCTOU window in
+            // which a concurrent unregister makes (job_id, run_id) stale.
+            let mut store = cron_state.lock();
+            let owner = store.get_pane_owner(pid).cloned();
             if let Some((job_id, run_id)) = owner {
-                let mut store = cron_state.lock();
                 if store.read_log(&job_id, &run_id).is_none() {
                     let text = svc.output_buf.lock().get_text(pty_id).unwrap_or_default();
                     let clean = crate::pty::ansi::clean_terminal_output(&text);
