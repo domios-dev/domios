@@ -316,8 +316,10 @@ impl MultiplexerState {
         }
 
         let workspace_id = match group.kind {
-            GroupKind::Workspace => self
-                .restore_target_workspace(group.workspace_name.clone(), group.workspace_cwd.clone()),
+            GroupKind::Workspace => self.restore_target_workspace(
+                group.workspace_name.clone(),
+                group.workspace_cwd.clone(),
+            ),
             _ => {
                 if self.workspaces.iter().any(|w| w.id == group.workspace_id) {
                     group.workspace_id.clone()
