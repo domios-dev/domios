@@ -274,17 +274,7 @@ impl ServiceContext {
             agent.provider.clone()
         };
 
-        if self
-            .agent_registry
-            .with_provider(&agent_cmd, |_| ())
-            .is_none()
-        {
-            let available = self.available_agent_or_shell_ids().join(", ");
-            return Err(format!(
-                "Unknown agent provider: '{}'. Available: [{}]",
-                agent_cmd, available
-            ));
-        }
+        self.require_agent_provider_ready(&agent_cmd)?;
         let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent_cmd)?;
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
@@ -654,17 +644,7 @@ impl ServiceContext {
         if agent.provider.is_empty() {
             return Err("AgentSpawnSpec.provider is required for hidden spawns".into());
         }
-        if self
-            .agent_registry
-            .with_provider(&agent.provider, |_| ())
-            .is_none()
-        {
-            let available = self.available_agent_or_shell_ids().join(", ");
-            return Err(format!(
-                "Unknown agent provider: '{}'. Available: [{}]",
-                agent.provider, available
-            ));
-        }
+        self.require_agent_provider_ready(&agent.provider)?;
         let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent.provider)?;
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);
