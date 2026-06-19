@@ -409,10 +409,23 @@ pub fn start_scheduler(svc: ServiceState) {
 }
 
 async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), String> {
-    let body = reminder_body(svc, &msg);
-    let result = svc.send_text_when_ready(&msg.pane_id, &body, true).await;
+    // Route through the storage-aware Messenger gateway at fire time: a PTY
+    // recipient gets the reminder text prefix, a chatBackend recipient gets a
+    // structured inbound (canonical marker + sender fields) — same chokepoint
+    // as a live send. Messenger::deliver is synchronous and may block (PTY
+    // boot/link waits, chatBackend transcript IO), so keep it off the runtime.
+    let envelope = reminder_envelope(&msg);
+    let svc_for_deliver = svc.clone();
+    let pane_id = msg.pane_id.clone();
+    let body = msg.text.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        crate::service::messenger::Messenger::deliver(&svc_for_deliver, &pane_id, envelope, &body)
+    })
+    .await
+    .map_err(|e| format!("delayed delivery task failed: {e}"))
+    .and_then(|res| res);
     match result {
-        Ok(()) => {
+        Ok(_) => {
             svc.delayed_send.mark_sent(&msg.id)?;
             Ok(())
         }
@@ -423,22 +436,8 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
     }
 }
 
-fn reminder_body(svc: &ServiceState, msg: &DelayedMessage) -> String {
-    // Shells run injected bytes verbatim — only agents get the marker frame.
-    let target_is_agent = svc
-        .mux
-        .write()
-        .get_pane(&msg.pane_id)
-        .and_then(|p| p.agent_type.clone())
-        .is_some();
-    if !target_is_agent {
-        return msg.text.clone();
-    }
-    reminder_prefix(msg).wrap(&msg.text)
-}
-
-fn reminder_prefix(msg: &DelayedMessage) -> crate::service::messenger::Messenger {
-    crate::service::messenger::Messenger::reminder(
+fn reminder_envelope(msg: &DelayedMessage) -> crate::service::messenger::MessageEnvelope {
+    crate::service::messenger::MessageEnvelope::reminder(
         msg.created_by_label.clone().unwrap_or_default(),
         msg.created_by_pane.clone().unwrap_or_default(),
     )
@@ -545,8 +544,13 @@ mod tests {
             created_by_label: Some("Main".into()),
             created_by_model: Some("opus".into()),
         };
+        let envelope = reminder_envelope(&msg);
         assert_eq!(
-            reminder_prefix(&msg).wrap(&msg.text),
+            format!(
+                "{}{}",
+                crate::service::messenger::Messenger::pty_prefix(&envelope),
+                msg.text
+            ),
             "-=-codeterm:reminder from=Main pane=e8a0ac20 model=opus set_at=1000 fire_at=2000 id=dmsg-7-=-hi"
         );
     }
