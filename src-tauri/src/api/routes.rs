@@ -74,6 +74,10 @@ pub fn create_router(state: AppState) -> Router {
             post(workspace_routes::reopen_closed_pane),
         )
         .route(
+            "/api/closed-groups/{group_id}/reopen",
+            post(workspace_routes::reopen_closed_group),
+        )
+        .route(
             "/api/workspaces/{id}/tabs",
             post(workspace_routes::create_tab),
         )

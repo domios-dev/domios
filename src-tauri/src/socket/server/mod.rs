@@ -337,6 +337,7 @@ fn dispatch(
                     "workspace.list", "workspace.create", "workspace.focus",
                     "workspace.rename", "workspace.close", "workspace.move_tab",
                     "workspace.recently_closed", "workspace.reopen_closed",
+                    "workspace.reopen_closed_group",
                     "pane.list", "pane.focus", "pane.close", "pane.send_text",
                     "pane.get_output", "pane.rename", "pane.resize", "pane.kill_pty",
                     "browser.open",

@@ -95,6 +95,9 @@ pub enum Command {
         index: Option<usize>,
     },
 
+    /// Reopen a whole closed group (single / cascade subtree / workspace) by id.
+    WorkspaceReopenClosedGroup { group_id: String },
+
     /// Resize the PTY backing a pane.
     PtyResize {
         pane_id: String,
@@ -179,6 +182,9 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
             workspace_id,
             index,
         } => cmd_workspace_reopen_closed_pane(ctx, workspace_id, *index),
+        Command::WorkspaceReopenClosedGroup { group_id } => {
+            cmd_workspace_reopen_closed_group(ctx, group_id)
+        }
         Command::PtyResize {
             pane_id,
             cols,
@@ -373,6 +379,18 @@ fn cmd_workspace_reopen_closed_pane(
 ) -> Result<CommandResult, String> {
     let (tab_id, pane_id) = ctx.reopen_closed_pane(workspace_id, index)?;
     Ok(CommandResult::Json(serde_json::json!({
+        "tab_id": tab_id,
+        "pane_id": pane_id,
+    })))
+}
+
+fn cmd_workspace_reopen_closed_group(
+    ctx: &ServiceContext,
+    group_id: &str,
+) -> Result<CommandResult, String> {
+    let (workspace_id, tab_id, pane_id) = ctx.reopen_closed_group(group_id)?;
+    Ok(CommandResult::Json(serde_json::json!({
+        "workspace_id": workspace_id,
         "tab_id": tab_id,
         "pane_id": pane_id,
     })))

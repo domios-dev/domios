@@ -38,13 +38,13 @@ impl MultiplexerState {
 
     /// Close a tab and return PTY IDs that need to be killed.
     pub fn close_tab(&mut self, workspace_id: &str, tab_id: &str) -> Result<Vec<String>, String> {
-        // Record into the recently-closed ring while the pane still exists.
+        // Record into the closed-history store while the pane still exists.
         if let Some(pane_id) = self
             .get_workspace(workspace_id)
             .and_then(|ws| ws.tabs.iter().find(|t| t.id == tab_id))
             .map(|t| t.pane_id.clone())
         {
-            self.record_closed_pane(&pane_id);
+            self.record_single_close(&pane_id);
         }
 
         let workspace = self

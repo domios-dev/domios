@@ -168,6 +168,22 @@ impl ServiceContext {
         Ok((tab_id, pane_id))
     }
 
+    /// Reopen a whole closed group (single / cascade subtree / workspace) by id.
+    /// Recreates the workspace if needed, restores every pane in the group,
+    /// relinks the hierarchy, and activates the resulting tab/workspace.
+    /// Returns (workspace_id, tab_id, first_pane_id).
+    pub fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String, String), String> {
+        let result = {
+            let mut mux = self.mux.write();
+            let r = mux.reopen_closed_group(group_id)?;
+            let _ = mux.set_active_workspace(&r.0);
+            let _ = mux.set_active_tab(&r.0, &r.1);
+            r
+        };
+        self.emit_state_changed();
+        Ok(result)
+    }
+
     /// Reopen a pane from the orphaned ring. Recreates the workspace and
     /// activates it. Returns (workspace_id, tab_id, pane_id).
     pub fn reopen_orphaned_pane(&self, pane_id: &str) -> Result<(String, String, String), String> {
