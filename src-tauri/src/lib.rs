@@ -168,6 +168,7 @@ pub fn run() {
             commands::report_webgl_status,
             commands::save_clipboard_image,
             commands::save_clipboard_file,
+            commands::materialize_dropped_files,
             clipboard_files::read_clipboard_files,
             clipboard_files::read_clipboard_text,
             commands::save_temp_file,

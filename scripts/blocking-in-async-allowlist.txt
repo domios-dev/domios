@@ -6,7 +6,7 @@
 # spawn_blocking, tokio::time, or an async process helper.
 
 # Baselined 2026-06-19 (W2.guards): pre-existing async command blocking.
-src-tauri/src/commands/clipboard.rs:66:std::process::Command::new
-src-tauri/src/commands/clipboard.rs:86:std::process::Command::new
-src-tauri/src/commands/clipboard.rs:95:std::process::Command::new
-src-tauri/src/commands/clipboard.rs:108:std::process::Command::new
+src-tauri/src/commands/clipboard.rs:81:std::process::Command::new
+src-tauri/src/commands/clipboard.rs:101:std::process::Command::new
+src-tauri/src/commands/clipboard.rs:110:std::process::Command::new
+src-tauri/src/commands/clipboard.rs:123:std::process::Command::new
