@@ -247,10 +247,11 @@ impl Messenger {
         body: &str,
     ) -> Result<Delivery, String> {
         let message_id = format!("inbound-{}", uuid::Uuid::new_v4().simple());
+        let marked = inbound_model_context(&envelope, body);
         let msg = crate::agent::chat_types::ChatMsg {
             id: message_id.clone(),
             kind: "user".into(),
-            content: body.to_string(),
+            content: marked.clone(),
             timestamp: Some(chrono::Utc::now().to_rfc3339()),
             from_label: Some(clean_name(&envelope.from_label)).filter(|s| !s.is_empty()),
             from_pane: Some(short_id(&envelope.from_pane).to_string()).filter(|s| !s.is_empty()),
@@ -272,8 +273,7 @@ impl Messenger {
             None,
         );
 
-        let staged =
-            svc.run_outbound_stages(to_pane, format!("{}\n{}", model_context(&envelope), body));
+        let staged = svc.run_outbound_stages(to_pane, marked);
         svc.chatbackend_send(plugin_id, session_id, &staged)?;
         Ok(Delivery::ChatBackend { message_id })
     }
@@ -329,28 +329,26 @@ impl Messenger {
     }
 }
 
-fn model_context(envelope: &MessageEnvelope) -> String {
-    let mut parts = vec![
-        format!("kind={}", envelope.kind.inbound_kind()),
-        format!("from_label={}", clean_name(&envelope.from_label)),
-        format!("from_pane={}", short_id(&envelope.from_pane)),
-    ];
-    if let Some(model) = envelope
-        .from_model
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        parts.push(format!("from_model={}", model.trim()));
-    }
-    if let Some(mesh) = envelope
-        .from_mesh
-        .as_deref()
-        .or(envelope.peer.as_deref())
-        .filter(|s| !s.trim().is_empty())
-    {
-        parts.push(format!("from_mesh={}", mesh.trim()));
-    }
-    format!("[CodeTerm inbound {}]", parts.join(" "))
+fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
+    let label = clean_name(&envelope.from_label);
+    crate::message_markers::Marker::new("inbound")
+        .attr("kind", envelope.kind.inbound_kind())
+        .attr_opt("from_label", Some(label.as_str()).filter(|s| !s.is_empty()))
+        .attr_opt(
+            "from_pane",
+            Some(short_id(&envelope.from_pane)).filter(|s| !s.is_empty()),
+        )
+        .attr_opt("from_model", envelope.from_model.as_deref().map(str::trim))
+        .attr_opt(
+            "from_mesh",
+            envelope
+                .from_mesh
+                .as_deref()
+                .or(envelope.peer.as_deref())
+                .map(str::trim),
+        )
+        .payload(body)
+        .build()
 }
 
 /// The single canonical decision for every agent-to-agent delivery path
@@ -434,6 +432,25 @@ mod tests {
             p.wrap("hello"),
             "-=-codeterm:pane label=Edison pane=e8a0ac20-=-hello"
         );
+    }
+
+    #[test]
+    fn inbound_model_context_uses_canonical_marker() {
+        let envelope = MessageEnvelope::pane("Chat Backend", "abc12345-ffff")
+            .model(Some("qwen".into()))
+            .mesh(Some("mesh-a".into()));
+        let marked = inbound_model_context(&envelope, "hello");
+        let legacy = ["[CodeTerm", " inbound"].concat();
+
+        assert!(!marked.contains(&legacy));
+        let parsed = crate::message_markers::parse(&marked).expect("inbound marker parses");
+        assert_eq!(parsed.kind, "inbound");
+        assert_eq!(parsed.attr("kind"), Some("pane"));
+        assert_eq!(parsed.attr("from_label"), Some("Chat Backend"));
+        assert_eq!(parsed.attr("from_pane"), Some("abc12345"));
+        assert_eq!(parsed.attr("from_model"), Some("qwen"));
+        assert_eq!(parsed.attr("from_mesh"), Some("mesh-a"));
+        assert_eq!(parsed.payload, "hello");
     }
 
     #[test]
@@ -554,15 +571,21 @@ mod tests {
     }
 
     #[test]
-    fn model_context_has_sender_without_legacy_marker() {
+    fn inbound_context_has_sender_with_canonical_marker() {
         let envelope = MessageEnvelope::pane("Edison", "e8a0ac20-1111")
             .model(Some("opus".into()))
             .mesh(Some("BLACKSTAR".into()));
-        let ctx = model_context(&envelope);
-        assert_eq!(
-            ctx,
-            "[CodeTerm inbound kind=pane from_label=Edison from_pane=e8a0ac20 from_model=opus from_mesh=BLACKSTAR]"
-        );
-        assert!(!ctx.contains("-=-codeterm"));
+        let ctx = inbound_model_context(&envelope, "hello");
+        let parsed = crate::message_markers::parse(&ctx).expect("marker parses");
+        let legacy = ["[CodeTerm", " inbound"].concat();
+
+        assert!(!ctx.contains(&legacy));
+        assert_eq!(parsed.kind, "inbound");
+        assert_eq!(parsed.attr("kind"), Some("pane"));
+        assert_eq!(parsed.attr("from_label"), Some("Edison"));
+        assert_eq!(parsed.attr("from_pane"), Some("e8a0ac20"));
+        assert_eq!(parsed.attr("from_model"), Some("opus"));
+        assert_eq!(parsed.attr("from_mesh"), Some("BLACKSTAR"));
+        assert_eq!(parsed.payload, "hello");
     }
 }

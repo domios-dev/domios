@@ -3,6 +3,7 @@
 //! by the caller via `PluginSandbox::can_exec` before this is invoked. Secrets
 //! travel via `env`/`stdin`, never argv (visible to `ps`).
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
@@ -10,12 +11,37 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use wait_timeout::ChildExt;
 
 const MAX_EXEC_JOBS: usize = 128;
 
-#[derive(Deserialize)]
+thread_local! {
+    static HOST_EXEC_ENV: RefCell<Vec<HashMap<String, String>>> = const { RefCell::new(Vec::new()) };
+}
+
+pub(super) struct HostExecEnvGuard;
+
+impl Drop for HostExecEnvGuard {
+    fn drop(&mut self) {
+        HOST_EXEC_ENV.with(|stack| {
+            stack.borrow_mut().pop();
+        });
+    }
+}
+
+pub(super) fn host_env_scope(env: HashMap<String, String>) -> HostExecEnvGuard {
+    HOST_EXEC_ENV.with(|stack| {
+        stack.borrow_mut().push(env);
+    });
+    HostExecEnvGuard
+}
+
+pub(super) fn current_host_env() -> HashMap<String, String> {
+    HOST_EXEC_ENV.with(|stack| stack.borrow().last().cloned().unwrap_or_default())
+}
+
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ExecOpts {
     bin: String,
@@ -46,10 +72,15 @@ fn err(msg: &str) -> String {
 /// permission-checked. Resolves the binary via `which`, falling back to the bare
 /// name (PATH resolution by the OS).
 pub(super) fn run(opts_json: &str) -> String {
+    run_with_host_env(opts_json, &HashMap::new())
+}
+
+pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, String>) -> String {
     let opts: ExecOpts = match serde_json::from_str(opts_json) {
         Ok(o) => o,
         Err(e) => return err(&format!("bad exec opts: {e}")),
     };
+    let opts = with_host_env(opts, host_env);
     let resolved = which::which(&opts.bin).unwrap_or_else(|_| std::path::PathBuf::from(&opts.bin));
 
     if opts.detach {
@@ -178,6 +209,14 @@ fn normalize_plugin_id(plugin_id: &str) -> String {
 /// Start an async exec. The caller must run the same `subprocess.allow` gate
 /// (`PluginSandbox::can_exec`) that the blocking `run` callsite applies.
 pub(super) fn start(plugin_id: &str, opts_json: &str) -> String {
+    start_with_host_env(plugin_id, opts_json, &HashMap::new())
+}
+
+pub(super) fn start_with_host_env(
+    plugin_id: &str,
+    opts_json: &str,
+    host_env: &HashMap<String, String>,
+) -> String {
     if let Err(e) = serde_json::from_str::<ExecOpts>(opts_json) {
         return err(&format!("bad exec opts: {e}"));
     }
@@ -187,11 +226,29 @@ pub(super) fn start(plugin_id: &str, opts_json: &str) -> String {
         Err(e) => return err(&e),
     };
 
-    let owned = opts_json.to_string();
+    let owned = match inject_host_env_json(opts_json, host_env) {
+        Ok(json) => json,
+        Err(e) => return err(&e),
+    };
     let worker_job_id = job_id.clone();
     std::thread::spawn(move || run_exec_worker(worker_job_id, owned));
 
     serde_json::json!({ "jobId": job_id }).to_string()
+}
+
+fn inject_host_env_json(
+    opts_json: &str,
+    host_env: &HashMap<String, String>,
+) -> Result<String, String> {
+    let opts: ExecOpts =
+        serde_json::from_str(opts_json).map_err(|e| format!("bad exec opts: {e}"))?;
+    serde_json::to_string(&with_host_env(opts, host_env))
+        .map_err(|e| format!("serialize exec opts: {e}"))
+}
+
+fn with_host_env(mut opts: ExecOpts, host_env: &HashMap<String, String>) -> ExecOpts {
+    opts.env.extend(host_env.clone());
+    opts
 }
 
 pub(super) fn poll(plugin_id: &str, job_id: &str) -> String {
@@ -374,6 +431,41 @@ mod tests {
 
         let denied: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(denied["error"], "exec denied: rm");
+    }
+
+    #[test]
+    fn host_exec_env_overrides_plugin_env_for_identity() {
+        let opts = serde_json::json!({
+            "bin": "codeterm",
+            "env": {
+                "CODETERM_PANE_ID": "spoofed",
+                "PLUGIN_VAR": "kept"
+            }
+        })
+        .to_string();
+        let host_env = HashMap::from([
+            ("CODETERM_PANE_ID".to_string(), "chat-pane".to_string()),
+            (
+                "CODETERM_SOCKET_PATH".to_string(),
+                "/tmp/codeterm.sock".to_string(),
+            ),
+        ]);
+
+        let merged: ExecOpts =
+            serde_json::from_str(&inject_host_env_json(&opts, &host_env).unwrap()).unwrap();
+
+        assert_eq!(
+            merged.env.get("CODETERM_PANE_ID").map(String::as_str),
+            Some("chat-pane")
+        );
+        assert_eq!(
+            merged.env.get("CODETERM_SOCKET_PATH").map(String::as_str),
+            Some("/tmp/codeterm.sock")
+        );
+        assert_eq!(
+            merged.env.get("PLUGIN_VAR").map(String::as_str),
+            Some("kept")
+        );
     }
 
     #[test]
