@@ -18,6 +18,7 @@ export interface Workspace {
 export interface Tab {
   id: string;
   title: string;
+  description?: string | null;
   /** One pane per tab. Split layouts were removed. */
   pane_id: string;
 }
@@ -47,6 +48,7 @@ export interface Pane {
   backing?: PaneBacking;
   pane_type: "Terminal";
   title: string;
+  description?: string | null;
   cwd: string | null;
   title_level?: TitleLevel;
   agent_type?: string | null;

@@ -479,6 +479,7 @@ fn enqueue_agent_turn(
             let spec = SpawnPaneSpec {
                 visibility: PaneVisibility::Hidden,
                 title: Some(title),
+                description: None,
                 workspace_id,
                 command: PaneCommand::Agent(AgentSpawnSpec {
                     provider,

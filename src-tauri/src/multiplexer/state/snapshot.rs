@@ -53,6 +53,7 @@ impl MultiplexerState {
                 pane_id: pane_id.to_string(),
                 cwd: pane.and_then(|p| p.cwd.clone()),
                 title: pane.map(|p| p.title.clone()),
+                description: pane.and_then(|p| p.description.clone()),
                 title_level: pane.map(|p| format!("{:?}", p.title_level)),
                 agent_type: pane.and_then(|p| p.agent_type.clone()),
                 agent_type_locked: pane.map(|p| p.agent_type_locked).unwrap_or(false),
@@ -95,6 +96,10 @@ impl MultiplexerState {
                         .map(|tab| TabSnapshot {
                             id: tab.id.clone(),
                             title: tab.title.clone(),
+                            description: self
+                                .panes
+                                .get(&tab.pane_id)
+                                .and_then(|pane| pane.description.clone()),
                             split_tree: pane_to_leaf_snapshot(&tab.pane_id, &self.panes),
                         })
                         .collect(),
@@ -141,6 +146,7 @@ impl MultiplexerState {
                 pane_id,
                 cwd,
                 title,
+                description,
                 title_level,
                 agent_type,
                 agent_type_locked,
@@ -219,6 +225,7 @@ impl MultiplexerState {
                     backing: restored_backing,
                     pane_type: PaneType::Terminal,
                     title: restored_title,
+                    description: description.clone(),
                     cwd: cwd.clone(),
                     url: None,
                     agent_type: restored_agent_type,
@@ -271,6 +278,9 @@ impl MultiplexerState {
                     Some(Tab {
                         id: tab.id.clone(),
                         title: tab.title.clone(),
+                        description: panes
+                            .get(&pane_id)
+                            .and_then(|pane| pane.description.clone()),
                         pane_id,
                     })
                 }).collect(),
@@ -303,6 +313,7 @@ mod tests {
             pane_id: pane_id.into(),
             cwd: None,
             title: Some("LM Studio".into()),
+            description: None,
             title_level: Some("User".into()),
             agent_type: None,
             agent_type_locked: false,
@@ -335,6 +346,7 @@ mod tests {
                 tabs: vec![TabSnapshot {
                     id: "tab".into(),
                     title: "tab".into(),
+                    description: None,
                     split_tree: leaf,
                 }],
             }],
@@ -389,6 +401,7 @@ mod tests {
             pane_id: "p2".into(),
             cwd: None,
             title: Some("claude".into()),
+            description: None,
             title_level: Some("User".into()),
             agent_type: Some("claude".into()),
             agent_type_locked: true,
@@ -411,6 +424,50 @@ mod tests {
     }
 
     #[test]
+    fn pane_description_round_trips_through_snapshot() {
+        let leaf = SplitNodeSnapshot::Leaf {
+            pane_id: "p-desc".into(),
+            cwd: None,
+            title: Some("Worker".into()),
+            description: Some("running focused tests".into()),
+            title_level: Some("User".into()),
+            agent_type: Some("claude".into()),
+            agent_type_locked: true,
+            claude_session_id: None,
+            role: Some("Worker".into()),
+            parent_pane_id: None,
+            spawned_by_pane_id: None,
+            report_target_pane_id: None,
+            can_spawn: false,
+            depth: 2,
+            chat_view: Some(false),
+            auto_approve: false,
+            agent_session_model: None,
+            chatbackend_plugin_id: None,
+            chatbackend_session_id: None,
+        };
+        let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
+        let pane = state.panes.get("p-desc").expect("pane restored");
+        assert_eq!(pane.description.as_deref(), Some("running focused tests"));
+        assert_eq!(
+            state.workspaces[0].tabs[0].description.as_deref(),
+            Some("running focused tests")
+        );
+
+        let round = state.to_session_snapshot();
+        assert_eq!(
+            round.workspaces[0].tabs[0].description.as_deref(),
+            Some("running focused tests")
+        );
+        match &round.workspaces[0].tabs[0].split_tree {
+            SplitNodeSnapshot::Leaf { description, .. } => {
+                assert_eq!(description.as_deref(), Some("running focused tests"));
+            }
+            _ => panic!("expected a leaf"),
+        }
+    }
+
+    #[test]
     fn spawned_by_and_report_target_restore_intact_not_none() {
         // Regression for the snapshot.rs gap that hardcoded
         // spawned_by_pane_id: None / report_target_pane_id: None on restore,
@@ -419,6 +476,7 @@ mod tests {
             pane_id: "worker-1".into(),
             cwd: None,
             title: Some("Worker".into()),
+            description: None,
             title_level: Some("User".into()),
             agent_type: Some("claude".into()),
             agent_type_locked: true,
@@ -457,6 +515,7 @@ mod tests {
             pane_id: "w".into(),
             cwd: None,
             title: Some("Worker".into()),
+            description: None,
             title_level: Some("User".into()),
             agent_type: Some("claude".into()),
             agent_type_locked: true,

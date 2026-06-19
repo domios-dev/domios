@@ -138,6 +138,9 @@ impl ServiceContext {
                 }
                 let _ = mux.rename_tab(&ws_id, &result.0, title);
             }
+            if let Some(ref description) = spec.description {
+                let _ = mux.set_pane_description(&result.1, Some(description.clone()));
+            }
             result
         };
 
@@ -178,6 +181,7 @@ impl ServiceContext {
             tab_id,
             pty_id: None,
             workspace_id: ws_id,
+            description: spec.description,
             worker_id: None,
             warning: None,
         })

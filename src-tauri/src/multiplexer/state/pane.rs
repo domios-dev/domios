@@ -11,6 +11,7 @@ impl MultiplexerState {
             backing: PaneBacking::default(),
             pane_type: PaneType::Terminal,
             title: "Terminal".to_string(),
+            description: None,
             cwd: None,
             url: None,
             agent_type: None,
@@ -123,6 +124,25 @@ impl MultiplexerState {
         }
         pane.title = title.to_string();
         pane.title_level = level;
+        Ok(())
+    }
+
+    pub fn set_pane_description(
+        &mut self,
+        pane_id: &str,
+        description: Option<String>,
+    ) -> Result<(), String> {
+        let pane = self
+            .panes
+            .get_mut(pane_id)
+            .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
+        pane.description = description.clone();
+        for ws in &mut self.workspaces {
+            if let Some(tab) = ws.tabs.iter_mut().find(|t| t.pane_id == pane_id) {
+                tab.description = description;
+                break;
+            }
+        }
         Ok(())
     }
 

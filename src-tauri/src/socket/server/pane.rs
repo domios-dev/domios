@@ -198,6 +198,23 @@ pub(super) fn dispatch(
             })
         }
 
+        "pane.describe" => {
+            let pane_id = get_string_param(params, "pane_id")?;
+            let description = get_string_param(params, "description")?;
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::PaneDescribe {
+                    pane_id,
+                    description,
+                },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError {
+                code: -32602,
+                message: e,
+            })
+        }
+
         "pane.resize" => {
             let pane_id = get_string_param(params, "pane_id")?;
             let cols = params

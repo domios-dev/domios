@@ -2,6 +2,23 @@
 
 use super::ServiceContext;
 
+pub const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
+
+pub fn normalize_pane_description(value: &str) -> Result<Option<String>, String> {
+    let trimmed = value.trim();
+    if trimmed.chars().count() > MAX_PANE_DESCRIPTION_CHARS {
+        return Err(format!(
+            "description must be {} characters or fewer",
+            MAX_PANE_DESCRIPTION_CHARS
+        ));
+    }
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(trimmed.to_string()))
+    }
+}
+
 impl ServiceContext {
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
         // Tear down the chat tailer (if any) BEFORE pane state goes away — the tailer thread reads provider/cwd/session_id from the mux on its first
@@ -58,6 +75,15 @@ impl ServiceContext {
     pub fn set_pane_title(&self, pane_id: &str, title: &str) -> Result<(), String> {
         self.mux.write().rename_pane(pane_id, title)?;
         self.emit_pane_title_pinned(pane_id, title);
+        self.emit_state_changed();
+        Ok(())
+    }
+
+    pub fn set_pane_description(&self, pane_id: &str, description: &str) -> Result<(), String> {
+        let description = normalize_pane_description(description)?;
+        self.mux
+            .write()
+            .set_pane_description(pane_id, description)?;
         self.emit_state_changed();
         Ok(())
     }

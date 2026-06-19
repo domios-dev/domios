@@ -21,6 +21,8 @@ pub struct SpawnPaneSpec {
     #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
     pub visibility: PaneVisibility,
     #[serde(default)]
     pub eager: bool,
@@ -112,6 +114,8 @@ pub struct PaneHandle {
     pub tab_id: String,
     pub pty_id: Option<String>,
     pub workspace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -343,6 +347,9 @@ impl ServiceContext {
                     pane.cwd = Some(dir.clone());
                 }
             }
+            if let Some(ref description) = spec.description {
+                let _ = mux.set_pane_description(&result.1, Some(description.clone()));
+            }
             if let Some(ref rtid) = agent.report_target_pane_id {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.report_target_pane_id = Some(rtid.clone());
@@ -469,6 +476,7 @@ impl ServiceContext {
             tab_id,
             pty_id: None,
             workspace_id: ws_id,
+            description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning,
         })
@@ -502,6 +510,9 @@ impl ServiceContext {
                     pane.cwd = Some(dir.clone());
                 }
             }
+            if let Some(ref description) = spec.description {
+                let _ = mux.set_pane_description(&result.1, Some(description.clone()));
+            }
             if let Some(ref title) = spec.title {
                 if let Err(e) = mux.rename_pane(&result.1, title) {
                     log::warn!("[spawn.shell] rename_pane failed: {}", e);
@@ -527,6 +538,7 @@ impl ServiceContext {
             tab_id,
             pty_id,
             workspace_id: ws_id,
+            description: spec.description,
             worker_id: None,
             warning,
         })
@@ -625,6 +637,7 @@ impl ServiceContext {
             tab_id,
             pty_id: Some(pty_id),
             workspace_id: ws_id,
+            description: spec.description,
             worker_id: None,
             warning: None,
         })
@@ -877,6 +890,7 @@ impl ServiceContext {
             tab_id,
             pty_id: Some(pty_id),
             workspace_id: ws_id,
+            description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning: cli_warning,
         })
