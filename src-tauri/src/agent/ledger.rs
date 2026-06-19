@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 
 use super::reports::ReportStatus;
 
+const CURRENT_LEDGER_SCHEMA_VERSION: u32 = 1;
+
 /// One worker's latest state under an orchestrator. Mirrors the P2 structured
 /// report fields plus the orchestrator/worker identity and `model`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -52,8 +54,8 @@ pub struct OrchestrationLedger {
 
 impl OrchestrationLedger {
     /// Open (or create) the ledger db under `data_dir/orchestration.db`.
-    /// Idempotent: the migration is `CREATE TABLE IF NOT EXISTS`, so opening an
-    /// existing db is a no-op beyond pragma setup.
+    /// Idempotent: opening an existing db is a no-op beyond pragma setup and
+    /// any pending schema migrations.
     pub fn open(data_dir: &std::path::Path) -> Result<Self, String> {
         std::fs::create_dir_all(data_dir).map_err(|e| format!("create data dir: {}", e))?;
         let db_path = data_dir.join("orchestration.db");
@@ -87,7 +89,33 @@ impl OrchestrationLedger {
             r#"
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
+            "#,
+        )?;
+        let user_version = Self::user_version(conn)?;
+        Self::migrate(conn, user_version)?;
+        Ok(())
+    }
 
+    fn migrate(conn: &Connection, from_version: u32) -> rusqlite::Result<()> {
+        let mut version = from_version;
+        loop {
+            match version {
+                0 => {
+                    Self::create_v1_schema(conn)?;
+                    version = 1;
+                }
+                CURRENT_LEDGER_SCHEMA_VERSION => return Ok(()),
+                _ if version > CURRENT_LEDGER_SCHEMA_VERSION => {
+                    return Err(rusqlite::Error::InvalidQuery);
+                }
+                _ => return Err(rusqlite::Error::InvalidQuery),
+            }
+        }
+    }
+
+    fn create_v1_schema(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            r#"
             CREATE TABLE IF NOT EXISTS orchestration_ledger (
                 orchestrator_pane_id TEXT NOT NULL,
                 worker_pane_id       TEXT NOT NULL,
@@ -107,9 +135,17 @@ impl OrchestrationLedger {
 
             CREATE INDEX IF NOT EXISTS idx_ledger_orchestrator
                 ON orchestration_ledger(orchestrator_pane_id);
+
+            PRAGMA user_version = 1;
             "#,
-        )?;
-        Ok(())
+        )
+    }
+
+    fn user_version(conn: &Connection) -> rusqlite::Result<u32> {
+        conn.query_row("PRAGMA user_version", [], |r| {
+            let version = r.get::<_, i64>(0)?;
+            Ok(version as u32)
+        })
     }
 
     /// UPSERT a worker's latest state. The `(orchestrator, worker)` primary key
@@ -248,6 +284,54 @@ mod tests {
         ))
     }
 
+    fn create_pre_versioning_schema(conn: &Connection) {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE orchestration_ledger (
+                orchestrator_pane_id TEXT NOT NULL,
+                worker_pane_id       TEXT NOT NULL,
+                title                TEXT NOT NULL DEFAULT '',
+                branch               TEXT,
+                model                TEXT,
+                status               TEXT,
+                message              TEXT NOT NULL DEFAULT '',
+                sha                  TEXT,
+                changed_files_json   TEXT,
+                test_cmd             TEXT,
+                test_result          TEXT,
+                skipped              TEXT,
+                updated_at           INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (orchestrator_pane_id, worker_pane_id)
+            );
+            "#,
+        )
+        .unwrap();
+    }
+
+    fn insert_pre_versioning_row(conn: &Connection) {
+        conn.execute(
+            r#"
+            INSERT INTO orchestration_ledger (
+                orchestrator_pane_id, worker_pane_id, title, branch, model,
+                status, message, sha, changed_files_json, test_cmd,
+                test_result, skipped, updated_at
+            ) VALUES ('orch', 'w1', 'Worker', 'main', 'opus', 'done', 'msg',
+                      'deadbeef', '["a.rs"]', 'cargo test', 'ok', NULL, 42)
+            "#,
+            [],
+        )
+        .unwrap();
+    }
+
+    fn table_exists(conn: &Connection, table_name: &str) -> bool {
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+            params![table_name],
+            |r| r.get::<_, bool>(0),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn upsert_keeps_one_row_with_latest_status() {
         let db = temp_db();
@@ -292,6 +376,11 @@ mod tests {
         assert_eq!(listed[0].status, Some(ReportStatus::Blocked));
         assert_eq!(listed[1].worker_pane_id, "w1");
         assert_eq!(listed[1].status, Some(ReportStatus::Done));
+        let conn = Connection::open(&db).unwrap();
+        assert_eq!(
+            OrchestrationLedger::user_version(&conn).unwrap(),
+            CURRENT_LEDGER_SCHEMA_VERSION
+        );
         std::fs::remove_dir_all(db.parent().unwrap()).ok();
     }
 
@@ -333,6 +422,65 @@ mod tests {
         // wipe existing rows.
         let l2 = OrchestrationLedger::open_at(&db).unwrap();
         assert_eq!(l2.list_for_orchestrator("orch").unwrap().len(), 1);
+        let conn = l2.conn.lock();
+        assert_eq!(
+            OrchestrationLedger::user_version(&conn).unwrap(),
+            CURRENT_LEDGER_SCHEMA_VERSION
+        );
+        drop(conn);
         std::fs::remove_dir_all(db.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn fresh_db_migrates_to_current_schema_version() {
+        let db = temp_db();
+        let ledger = OrchestrationLedger::open_at(&db).unwrap();
+        let conn = ledger.conn.lock();
+        assert!(table_exists(&conn, "orchestration_ledger"));
+        assert_eq!(
+            OrchestrationLedger::user_version(&conn).unwrap(),
+            CURRENT_LEDGER_SCHEMA_VERSION
+        );
+        drop(conn);
+        std::fs::remove_dir_all(db.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn pre_versioning_db_migrates_to_v1_without_dropping_rows() {
+        let db = temp_db();
+        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+        {
+            let conn = Connection::open(&db).unwrap();
+            create_pre_versioning_schema(&conn);
+            insert_pre_versioning_row(&conn);
+            assert_eq!(OrchestrationLedger::user_version(&conn).unwrap(), 0);
+        }
+
+        let ledger = OrchestrationLedger::open_at(&db).unwrap();
+        let rows = ledger.list_for_orchestrator("orch").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].worker_pane_id, "w1");
+        assert_eq!(rows[0].updated_at, 42);
+        let conn = ledger.conn.lock();
+        assert_eq!(
+            OrchestrationLedger::user_version(&conn).unwrap(),
+            CURRENT_LEDGER_SCHEMA_VERSION
+        );
+        drop(conn);
+        std::fs::remove_dir_all(db.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn migrate_ladder_establishes_v1_from_zero() {
+        let conn = Connection::open_in_memory().unwrap();
+        assert_eq!(OrchestrationLedger::user_version(&conn).unwrap(), 0);
+
+        OrchestrationLedger::migrate(&conn, 0).unwrap();
+
+        assert!(table_exists(&conn, "orchestration_ledger"));
+        assert_eq!(
+            OrchestrationLedger::user_version(&conn).unwrap(),
+            CURRENT_LEDGER_SCHEMA_VERSION
+        );
     }
 }
