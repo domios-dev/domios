@@ -75,6 +75,40 @@ interface MessageBubbleProps {
 const INTERACTIVE_QUESTIONS_ENABLED = false;
 
 type CuratedToolKind = "exec" | "read_file" | "write_file" | "codeterm" | "mem_search" | "spawn_agent";
+type StructuredInboundKind = NonNullable<ChatMessage["inboundKind"]>;
+
+const INBOUND_KIND_LABELS: Record<StructuredInboundKind, string> = {
+  pane: "pane",
+  report: "report",
+  reminder: "reminder",
+  mesh: "mesh",
+  telegram: "telegram",
+};
+
+interface StructuredInbound {
+  origin: ChatOrigin;
+  kind: StructuredInboundKind;
+}
+
+function structuredInboundFromMessage(message: ChatMessage): StructuredInbound | null {
+  const fromLabel = message.fromLabel?.trim();
+  if (!fromLabel) return null;
+  const kind = message.inboundKind ?? (message.fromMesh ? "mesh" : "pane");
+  const title = kind === "mesh" && message.fromMesh
+    ? `${fromLabel}@${message.fromMesh}`
+    : fromLabel;
+  return {
+    kind,
+    origin: {
+      kind: "pane",
+      title,
+      paneIdShort: message.fromPane ?? "",
+      model: message.fromModel,
+      mesh: kind === "mesh" ? undefined : message.fromMesh,
+      report: kind === "report",
+    },
+  };
+}
 
 function parsedToolInput(message: ChatMessage): Record<string, unknown> {
   if (message.toolInput) return message.toolInput;
@@ -161,8 +195,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   if (message.type === "user") {
     const attachments = message.attachments;
     const userText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
+    const structuredInbound = structuredInboundFromMessage(message);
+    const effectiveOrigin = origin ?? structuredInbound?.origin;
+    const inboundKind = structuredInbound?.kind;
 
-    if (origin?.kind === "system_prompt") {
+    if (effectiveOrigin?.kind === "system_prompt") {
       return (
         <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto">
           <div
@@ -202,14 +239,14 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       );
     }
 
-    if (origin?.kind === "reminder") {
+    if (effectiveOrigin?.kind === "reminder") {
       return (
         <ReminderCard
-          whoSet={origin.whoSet}
-          model={origin.model}
-          setAt={origin.setAt}
-          fireAt={origin.fireAt}
-          id={origin.id}
+          whoSet={effectiveOrigin.whoSet}
+          model={effectiveOrigin.model}
+          setAt={effectiveOrigin.setAt}
+          fireAt={effectiveOrigin.fireAt}
+          id={effectiveOrigin.id}
           body={message.content}
         />
       );
@@ -217,11 +254,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
     // Origin header rendered above the bubble when the message came from a
     // codeterm channel (cross-pane, telegram, mesh) or wraps slash-commands.
-    const originHeader = origin ? (() => {
+    const originHeader = effectiveOrigin ? (() => {
       // Cross-pane / report: model-avatar + "from <Name>" + mesh·model subtitle.
-      if (origin.kind === "pane") {
-        const LeadIcon = origin.report ? CornerUpLeft : ArrowRight;
-        const subtitle = [origin.mesh ? `via ${origin.mesh}` : null, origin.model]
+      if (effectiveOrigin.kind === "pane") {
+        const LeadIcon = effectiveOrigin.report ? CornerUpLeft : ArrowRight;
+        const subtitle = [effectiveOrigin.mesh ? `via ${effectiveOrigin.mesh}` : null, effectiveOrigin.model]
           .filter(Boolean)
           .join(" · ");
         return (
@@ -239,7 +276,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             }}
             title={onOriginClick ? "Click to focus source pane" : undefined}
           >
-            {originAvatar ?? <ModelAvatar model={origin.model} />}
+            {originAvatar ?? <ModelAvatar model={effectiveOrigin.model} />}
             <span className="flex flex-col min-w-0" style={{ lineHeight: 1.1 }}>
               <span
                 className="flex items-center gap-1 text-xs uppercase tracking-wider"
@@ -247,9 +284,22 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               >
                 <LeadIcon size={11} style={{ opacity: 0.85 }} />
                 <span className="truncate">
-                  {origin.report ? "report · " : "from "}
-                  {origin.title}
+                  {effectiveOrigin.report ? "report · " : "from "}
+                  {effectiveOrigin.title}
                 </span>
+                {inboundKind && (
+                  <span
+                    data-testid="chat-inbound-kind-badge"
+                    className="rounded px-1 py-px text-[9px] font-mono uppercase"
+                    style={{
+                      background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 16%, transparent)",
+                      color: "var(--ct-muted-fg, #8b949e)",
+                      letterSpacing: 0,
+                    }}
+                  >
+                    {INBOUND_KIND_LABELS[inboundKind]}
+                  </span>
+                )}
               </span>
               {subtitle && (
                 <span
@@ -265,20 +315,20 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       }
 
       const OriginIcon =
-        origin.kind === "mesh"          ? Network :
-        origin.kind === "command"       ? ChevronsRight :
-        origin.kind === "plugin_config" ? Settings :
+        effectiveOrigin.kind === "mesh"          ? Network :
+        effectiveOrigin.kind === "command"       ? ChevronsRight :
+        effectiveOrigin.kind === "plugin_config" ? Settings :
         Send;
       const label =
-        origin.kind === "telegram"     ? `Telegram · ${origin.userId.slice(0, 12)}` :
-        origin.kind === "mesh"         ? `Mesh · ${origin.peerId.slice(0, 10)}` :
-        origin.kind === "plugin_config"? `Configure · ${origin.name}` :
-        origin.kind === "command" ? (
-          origin.commands.length === 1
-            ? origin.commands[0].name
-            : `${origin.commands.length} commands`
+        effectiveOrigin.kind === "telegram"     ? `Telegram · ${effectiveOrigin.userId.slice(0, 12)}` :
+        effectiveOrigin.kind === "mesh"         ? `Mesh · ${effectiveOrigin.peerId.slice(0, 10)}` :
+        effectiveOrigin.kind === "plugin_config"? `Configure · ${effectiveOrigin.name}` :
+        effectiveOrigin.kind === "command" ? (
+          effectiveOrigin.commands.length === 1
+            ? effectiveOrigin.commands[0].name
+            : `${effectiveOrigin.commands.length} commands`
         ) :
-        `${origin.service} · ${origin.userId.slice(0, 12)}`;
+        `${effectiveOrigin.service} · ${effectiveOrigin.userId.slice(0, 12)}`;
       return (
         <button
           type="button"
@@ -302,7 +352,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     })() : null;
 
     return (
-      <div className={`group flex mb-3 w-full max-w-4xl min-w-0 mx-auto ${origin ? "justify-start" : "justify-end"}`}>
+      <div className={`group flex mb-3 w-full max-w-4xl min-w-0 mx-auto ${effectiveOrigin ? "justify-start" : "justify-end"}`}>
         <div className="min-w-0 max-w-[75%] sm:max-w-[75%]">
           {originHeader}
           <div
@@ -310,17 +360,17 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             style={{
               // The user voice is the ONE filled element in the feed — a clear accent
               // tint so it never blends with tool traces or assistant prose.
-              background: origin
+              background: effectiveOrigin
                 ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, var(--ct-surface, #161b22) 88%)"
                 : "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, var(--ct-bg, #0d1117) 78%)",
-              borderColor: origin
+              borderColor: effectiveOrigin
                 ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)"
                 : "color-mix(in srgb, var(--ct-accent, #58a6ff) 45%, transparent)",
               color: "var(--ct-fg)",
             }}
           >
-            {origin?.kind === "command" ? (
-              <CommandBody commands={origin.commands} body={message.content} />
+            {effectiveOrigin?.kind === "command" ? (
+              <CommandBody commands={effectiveOrigin.commands} body={message.content} />
             ) : (
               renderUserContent(message.content)
             )}
@@ -382,7 +432,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             if (!ts) return null;
             return (
               <div
-                className={`mt-0.5 text-[10px] opacity-0 transition-opacity duration-150 group-hover:opacity-60 ${origin ? "text-left" : "text-right"}`}
+                className={`mt-0.5 text-[10px] opacity-0 transition-opacity duration-150 group-hover:opacity-60 ${effectiveOrigin ? "text-left" : "text-right"}`}
                 style={{ color: "var(--ct-muted-fg)" }}
                 title={ts.full}
               >

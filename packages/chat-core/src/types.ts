@@ -57,6 +57,11 @@ export interface NormalizedChatMessage {
   collapsed?: boolean;
   duration?: string;
   payload?: unknown;
+  fromLabel?: string;
+  fromPane?: string;
+  fromModel?: string;
+  fromMesh?: string;
+  inboundKind?: "pane" | "report" | "reminder" | "mesh" | "telegram";
   /** Interactive prompts the provider extracted from this message (answerable widgets). */
   interactive?: InteractiveElement[];
 }
