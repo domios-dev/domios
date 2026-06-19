@@ -158,18 +158,15 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       });
     }).then((unlisten) => unlisteners.push(unlisten));
 
-    listen("mux-state-changed", () => {
-      invoke<MultiplexerState>("mux_get_state")
-        .then((s) => {
-          if (s && s.workspaces.length > 0) {
-            dispatch({ type: "SET_STATE", state: s });
-            // Resize panes after layout changes so xterms fit new container sizes.
-            requestAnimationFrame(() => {
-              window.dispatchEvent(new Event("codeterm-pane-resize"));
-            });
-          }
-        })
-        .catch(() => {});
+    listen<MultiplexerState>("mux-state-changed", (event) => {
+      const s = event.payload;
+      if (s && s.workspaces.length > 0) {
+        dispatch({ type: "SET_STATE", state: s });
+        // Resize panes after layout changes so xterms fit new container sizes.
+        requestAnimationFrame(() => {
+          window.dispatchEvent(new Event("codeterm-pane-resize"));
+        });
+      }
     }).then((unlisten) => unlisteners.push(unlisten));
 
     const refreshMuxState = () => refreshFromBackend();
