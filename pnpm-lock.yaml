@@ -167,6 +167,12 @@ importers:
 
   packages/plugin-sdk: {}
 
+  plugins/git:
+    devDependencies:
+      '@codeterm/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
   plugins/provider-claude:
     dependencies:
       '@codeterm/chat-ui':
