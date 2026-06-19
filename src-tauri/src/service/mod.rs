@@ -28,7 +28,7 @@ mod output;
 mod pane;
 pub mod pane_chat;
 pub mod pane_transport;
-mod pane_transport_chat;
+pub mod pane_transport_chat;
 pub mod pty_io;
 pub mod pty_lifecycle;
 pub mod push;
@@ -131,6 +131,9 @@ pub struct ServiceContext {
     /// Registry of chatBackend providers (plugins with `chatBackend`). Non-PTY
     /// panes route their I/O here via the `PaneTransport` seam.
     pub chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle,
+    /// Per-pane locks serializing the chatBackend restore→reopen transition so a
+    /// concurrent send/deliver can't double-open one pane's plugin session.
+    pub chatbackend_reopen_guards: Arc<pane_transport_chat::PaneReopenGuards>,
     /// Unified facade over the agent + chat-backend stores. Listing and
     /// spawn-classify go through this so call-sites stop touching two registries.
     pub provider_registry: Arc<crate::provider::ProviderRegistry>,
