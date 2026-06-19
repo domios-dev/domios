@@ -30,6 +30,20 @@ Mainline: `plugins-rethink` (@ 0c8f884b at audit time). Gate: pre-push hook
   (cold-start 4x stampede; harmless but ugly).
 - **W2.host-net** (codex) — `host_net.rs` reuse a keep-alive client + drop the 30s
   fetch timeout to ~5s.
+- **W2.build-mismatch-guard** (codex) — fix the "Command <x> not found" footgun.
+  Root cause (hit live 2026-06-19: "Failed to spawn claude — Command
+  mux_spawn_pane not found"): the dev web-watcher hot-rebuilds the FRONTEND dist on
+  source change, but the Rust BACKEND (Tauri `generate_handler!` commands) only
+  updates on a full daemon restart. So adding/renaming a command makes the
+  frontend `invoke()` it before the backend registers it → cryptic "Command not
+  found" until restart (amplified by a branch switch under a running daemon). The
+  command WAS correctly registered (lib.rs:227) — pure build skew, not a code gap.
+  Fix: a frontend↔backend build-hash handshake (the health `build` hash is
+  trustworthy now after Kain's build.rs fix) — on connect / on an "unknown
+  command" invoke error, compare the dist build hash to `/api/health.build`; if
+  they differ, show a clear "backend is stale — restart dev (./build.sh dev)"
+  banner instead of the cryptic toast. Files: src/lib/bridge.ts (invoke error
+  path) + a small build-stamp emitted into the dist at build time.
 
 ## Wave 3 — bug fixes (Kain)
 
