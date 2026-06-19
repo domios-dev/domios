@@ -1,5 +1,5 @@
 /**
- * Top-of-pane model bubble for chatBackend SHELL panes (CB-P3).
+ * Composer-row model bubble for chatBackend SHELL panes (CB-P3).
  *
  * Mirrors the agent model-picker UX, but a shell resolves its identity from the
  * plugin (`backing.plugin_id`), not the agent registry: it shows the live model
@@ -60,35 +60,23 @@ export function ChatModelBubble({ pluginId, sessionId }: { pluginId: string; ses
 
   return (
     <div
+      className="relative inline-flex"
       style={{
-        position: "absolute",
-        top: "calc(6px + var(--ct-safe-top, 0px))",
-        left: 8,
-        zIndex: 6,
-        pointerEvents: "auto",
+        zIndex: 20,
       }}
     >
       <button
         type="button"
         data-testid="chat-model-bubble"
+        className="ct-chat-model-bubble inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs font-mono hover:brightness-110"
+        onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen((v) => !v)}
         disabled={busy}
         title="Switch model"
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 5,
-          height: 18,
-          fontSize: 10.5,
-          fontWeight: 560,
-          padding: "0 8px",
-          borderRadius: 999,
-          color: "var(--ct-accent, #5b8cff)",
-          background: "color-mix(in srgb, var(--ct-bg-elev, #1e1e2e) 80%, transparent)",
-          border: "1px solid color-mix(in srgb, var(--ct-accent, #5b8cff) 32%, transparent)",
-          backdropFilter: "blur(10px) saturate(140%)",
-          cursor: busy ? "default" : "pointer",
-          whiteSpace: "nowrap",
+          background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, transparent)",
+          borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)",
+          color: "var(--ct-muted-fg)",
           opacity: busy ? 0.6 : 1,
         }}
       >
@@ -97,11 +85,8 @@ export function ChatModelBubble({ pluginId, sessionId }: { pluginId: string; ses
       </button>
       {open && (
         <div
-          className="mt-1 grid gap-0.5 rounded-md border p-1 shadow-lg"
+          className="absolute bottom-full left-0 mb-1 grid gap-0.5 rounded-md border p-1 shadow-lg"
           style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
             minWidth: 180,
             maxHeight: 260,
             overflowY: "auto",

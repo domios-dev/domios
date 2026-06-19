@@ -9,6 +9,7 @@ import type { PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { useAttachments } from "./useAttachments";
 import { useChatSession } from "./useChatSession";
+import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 
 interface Props {
   paneId: string;
@@ -75,6 +76,7 @@ export function PaneSessionChat({
   const paneProvider = pane?.agent_type ?? null;
   const agentSessionId = pane?.agent_session_id ?? null;
   const currentPtyId = pane?.pty_id ?? null;
+  const chatBacking = pane?.backing?.kind === "chat_backend" ? pane.backing : null;
   const pendingPrompt: PendingPrompt | null = pane?.pending_prompt ?? null;
   const terminalHasAttention = terminalActive || Boolean(pendingPrompt);
 
@@ -339,6 +341,9 @@ export function PaneSessionChat({
         showComposerError={showComposerError}
         onOpenTerminalFallback={chatBackend ? undefined : onOpenTerminalFallback}
         onToggleTerminalFallback={chatBackend ? undefined : onToggleTerminalFallback}
+        modelBubble={chatBackend && chatBacking ? (
+          <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
+        ) : undefined}
       />
     </div>
   );
