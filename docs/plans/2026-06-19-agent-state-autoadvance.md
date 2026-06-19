@@ -120,6 +120,39 @@ de-burring liveness theme: watchdog = death, this = parked/stuck).
 - **Native+JS parity**: per the plugin-boundary discipline, a `parity_test.rs`
   case asserts the native and JS classifiers agree on the shared fixtures.
 
+## Case C — provider CLI not installed → install + auto-launch
+
+When a provider's CLI (claude / opencode / codex / …) isn't installed, launching
+the pane fails. Goal: detect "missing", install it (with consent), then relaunch
+automatically so the agent just starts.
+
+**Detection — by launch-error ground truth, NOT a PATH pre-check (this is the
+false-positive answer).** A `which`/PATH probe is unreliable: CLIs installed via
+npm-global under a custom prefix, nvm-managed node, Homebrew, a shell alias/
+function, or a non-PATH dir all read as "not installed" → a pre-check would
+auto-install a DUPLICATE (real harm). Instead, attempt the REAL launch command
+and classify the failure:
+- `command not found` / exit 127 / ENOENT on the launch binary → **`Missing`**
+  (high confidence: it's the exact command we'd run, so however it was installed,
+  if it runs it's installed; only a true not-found means missing).
+- any other failure (auth, crash, non-zero with output) → NOT missing — do not
+  install; classify separately (auth → surface; crash → surface).
+A config override (point us at a custom binary/path) short-circuits this so a
+user's non-standard install is honored, never clobbered.
+
+**Install is an outward, system-modifying action → confirm, don't silent-auto.**
+It runs an installer (network, possibly sudo, OS-specific). Flow: launch →
+`Missing` → show the EXACT per-OS install command + a confirm ("install <provider>
+CLI?") → run it in a visible pane → verify (re-probe / version) → **relaunch the
+agent automatically**. A config knob `agents.autoInstall = ask | yes | no`
+(default `ask`) gates the confirm. The PLUGIN owns the per-OS install recipe +
+the version-verify; core only orchestrates launch→classify→confirm→install→
+relaunch generically.
+
+Realistic? Yes — with the launch-error signal it's low-false-positive; the only
+care items are (a) confirm before modifying the system, (b) honor a config
+override, (c) classify the error precisely (not-found vs auth vs crash).
+
 ## Proposed tracks
 
 - **AS1** — capability + generic state enum/action types + the core reactor
@@ -136,6 +169,11 @@ de-burring liveness theme: watchdog = death, this = parked/stuck).
   running/waiting/idle-stuck/rate-limited, "should-be-working-but-isn't" detector.
 - **AS6** — no-false-positive corpus + voting-threshold harness + native/JS parity
   test; a CI gate that the negative corpus stays action-free.
+- **AS7** — provider-CLI-not-installed (Case C): classify launch failure as
+  `Missing` (not-found ground truth, not a PATH pre-check), plugin per-OS install
+  recipe + version-verify, generic confirm (`agents.autoInstall = ask|yes|no`) +
+  auto-relaunch, config override for custom installs. Fixtures: a not-found launch
+  error → `Missing`; an auth/crash launch error → NOT `Missing` (negative).
 
 ## Risks / guardrails
 
