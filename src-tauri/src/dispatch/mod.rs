@@ -56,6 +56,12 @@ pub enum Command {
     /// Rename a pane's title (pinned until the user clears it).
     PaneRename { pane_id: String, title: String },
 
+    /// Set or clear a pane's short description.
+    PaneDescribe {
+        pane_id: String,
+        description: String,
+    },
+
     /// List all registered agent providers as `ProviderDescriptor`s.
     /// First dispatch command for the plugin self-presentation system (Chunk B.3).
     ListAgentProviders,
@@ -140,6 +146,10 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
         Command::PaneClose { pane_id } => cmd_pane_close(ctx, pane_id),
         Command::PaneFocus { pane_id } => cmd_pane_focus(ctx, pane_id),
         Command::PaneRename { pane_id, title } => cmd_pane_rename(ctx, pane_id, title),
+        Command::PaneDescribe {
+            pane_id,
+            description,
+        } => cmd_pane_describe(ctx, pane_id, description),
         Command::ListAgentProviders => cmd_list_agent_providers(ctx),
         Command::WorkspaceCreate {
             name,
@@ -284,6 +294,15 @@ fn cmd_pane_rename(
     title: &str,
 ) -> Result<CommandResult, String> {
     ctx.rename_pane(pane_id, title)?;
+    Ok(CommandResult::Json(serde_json::json!({"ok": true})))
+}
+
+fn cmd_pane_describe(
+    ctx: &ServiceContext,
+    pane_id: &str,
+    description: &str,
+) -> Result<CommandResult, String> {
+    ctx.set_pane_description(pane_id, description)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 

@@ -160,6 +160,9 @@ pub enum AgentAction {
         /// Tab title
         #[arg(long)]
         title: Option<String>,
+        /// Short pane description (max 200 chars)
+        #[arg(long)]
+        description: Option<String>,
         /// Working directory
         #[arg(long)]
         cwd: Option<String>,

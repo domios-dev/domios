@@ -437,6 +437,7 @@ pub fn spawn_headless(
                 visibility: PaneVisibility::Hidden,
                 // Tag reports with worker intent in title so reports are identifiable (`mem:dreaming:rem`, etc.).
                 title: Some(format!("mem:{}", intent_title)),
+                description: None,
                 command: PaneCommand::Agent(AgentSpawnSpec {
                     provider: agent_for_spawn,
                     model: if model_for_spawn.is_empty() {

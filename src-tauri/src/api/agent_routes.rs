@@ -27,6 +27,7 @@ pub(crate) struct SpawnAgentBody {
     args: Option<Vec<String>>,
     cwd: Option<String>,
     title: Option<String>,
+    description: Option<String>,
     role: Option<String>,
     parent_pane_id: Option<String>,
     can_spawn: Option<bool>,
@@ -63,6 +64,7 @@ pub async fn spawn_agent(
         args: body.args,
         cwd: body.cwd,
         title: body.title,
+        description: body.description,
         role: body.role,
         parent_pane_id: body.parent_pane_id,
         can_spawn: body.can_spawn,
@@ -91,6 +93,7 @@ pub async fn spawn_agent(
         "pty_id": result.pty_id,
         "agent": result.agent,
         "title": result.title,
+        "description": result.description,
         "role": result.role,
     });
     if let Some(ref warning) = result.warning {

@@ -21,6 +21,7 @@ impl MultiplexerState {
         let tab = Tab {
             id: tab_id.clone(),
             title,
+            description: None,
             pane_id: pane_id.clone(),
         };
 

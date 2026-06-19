@@ -22,6 +22,7 @@ pub struct CreateShellPaneBody {
     pub workspace_id: Option<String>,
     pub cwd: Option<String>,
     pub title: Option<String>,
+    pub description: Option<String>,
     pub cmd: Option<String>,
     #[serde(default)]
     pub eager: bool,
@@ -78,6 +79,12 @@ pub async fn create_shell_pane(
             workspace_id: body.workspace_id,
             cwd: body.cwd,
             title: body.title,
+            description: body
+                .description
+                .map(|s| crate::service::normalize_pane_description(&s))
+                .transpose()
+                .map_err(|e| (StatusCode::BAD_REQUEST, e))?
+                .flatten(),
             visibility: PaneVisibility::Visible,
             eager: body.eager,
             command,
@@ -670,6 +677,30 @@ pub async fn rename_pane(
         &state.svc,
     )
     .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    Ok(Json(result.into_json()))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct DescribePaneBody {
+    description: String,
+}
+
+pub async fn describe_pane(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+    Json(body): Json<DescribePaneBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneDescribe {
+            pane_id,
+            description: body.description,
+        },
+        &state.svc,
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(result.into_json()))
 }
 

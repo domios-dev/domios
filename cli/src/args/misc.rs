@@ -103,6 +103,14 @@ pub enum PaneAction {
         #[arg(long, alias = "id")]
         pane: Option<String>,
     },
+    /// Set a short pane description (empty clears it)
+    Describe {
+        /// Short summary, max 200 chars
+        summary: String,
+        /// Pane ID to describe (default: current focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
+    },
     /// Get visible terminal text of a pane (what the user sees)
     #[command(alias = "get_text", alias = "screen")]
     GetText {

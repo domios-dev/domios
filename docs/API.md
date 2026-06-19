@@ -58,7 +58,7 @@ Then: `Authorization: Bearer your-secret-token`
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/panes` | — | List all panes |
-| POST | `/api/panes` | `{title?, cwd?, workspace_id?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a shell pane. When `cmd` is provided, CodeTerm sends it to the fresh pane through the same verified send path used by `/api/panes/{id}/send`, with Enter appended. When `chat_backend` names an installed `chatBackend` plugin id, an **open agent shell** pane is created instead of a PTY: `system_prompt` overrides the resolved preset's prompt, `preset` selects one (omit → the plugin's `defaultPreset`), `model` picks a model. These three are only meaningful with `chat_backend`. |
+| POST | `/api/panes` | `{title?, description?, cwd?, workspace_id?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a shell pane. `description` is trimmed, empty clears it, and values over 200 chars are rejected. When `cmd` is provided, CodeTerm sends it to the fresh pane through the same verified send path used by `/api/panes/{id}/send`, with Enter appended. When `chat_backend` names an installed `chatBackend` plugin id, an **open agent shell** pane is created instead of a PTY: `system_prompt` overrides the resolved preset's prompt, `preset` selects one (omit → the plugin's `defaultPreset`), `model` picks a model. These three are only meaningful with `chat_backend`. |
 | POST | `/api/panes/{id}/send` | `{text?, enter?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, enter?, delay_ms?}], source_pane?}` | Send text or terminal actions to PTY. Fire-and-forget — returns `{ok:true}` as soon as bytes are written or queued. `actions` supports keys (`enter`, `esc`, arrows, `tab`, `backspace`, `delete`, `home/end`, `pageup/pagedown`, `space`, `ctrl-c`) and millisecond delays. Verification fields were removed in v1.2.3 (#101): TUI agents (Claude/Codex) intercept input and don't echo per-character, so the old `verify` flag couldn't deliver on its name. For agent request/response, a future `codeterm agent send` will hook into provider semantics. |
 | POST | `/api/panes/{id}/stop` | — | Stop the pane's PTY process |
 | POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
@@ -70,6 +70,7 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/focus` | — | Focus pane |
 | POST | `/api/panes/{id}/close` | — | Close pane + kill PTY |
 | POST | `/api/panes/{id}/rename` | `{title}` | Rename pane/tab (pinned) |
+| POST | `/api/panes/{id}/describe` | `{description}` | Set or clear the pane/tab description. Server trims whitespace, treats empty as clear, and rejects values over 200 chars. |
 | POST | `/api/panes/{id}/resize` | `{cols, rows}` | Resize terminal |
 | GET | `/api/panes/{id}/chat` | — | Chat snapshot for the pane |
 | POST | `/api/panes/{id}/chat/start` | — | Start chat JSONL tailing |
@@ -99,7 +100,7 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/prompt/clear` | — | Clear a pending permission prompt |
 | GET | `/api/agents/providers` | — | List registered agent providers **and open agent shells**. Each entry carries `id`, `display_name`, `available_models`, `default_model`, `settings_schema`, etc. plus a **`kind`** field: `"agent"` (PTY providers — claude/codex/opencode) or `"shell"` (installed `chatBackend` plugins, e.g. lmstudio). Shell entries also carry `presets` and `supports_chat_ui: true`. Single source of truth for "what agents and shells does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
 | GET | `/api/providers` | — | Public provider list alias for agent/provider selectors |
-| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?, model?, system_prompt? (alias `system`), preset?}` | One-call agent spawn (see below). Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` into the shell's `openSession` ctx); otherwise the PTY agent path. An unknown id errors with the available agent **and** shell ids. |
+| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?, model?, system_prompt? (alias `system`), preset?}` | One-call agent spawn (see below). `description` follows the same trim/empty-clear/200-char validation as pane describe. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` into the shell's `openSession` ctx); otherwise the PTY agent path. An unknown id errors with the available agent **and** shell ids. |
 
 #### Interactive chat prompts (#162)
 
@@ -138,6 +139,7 @@ Fields returned by `GET /api/panes` for each pane:
 | `pty_id` | `string` | Associated PTY process ID |
 | `pane_type` | `string` | `"Terminal"` or `"Browser"` (canvas for visualizations) |
 | `title` | `string` | Display title (user-pinned or auto-detected) |
+| `description` | `string?` | Short pane/tab summary, max 200 chars. Shown in the sidebar tooltip/subtitle and persisted in session snapshots. |
 | `cwd` | `string?` | Current working directory (updated via OSC 7) |
 | `url` | `string?` | URL for canvas panes (localhost, data URLs) |
 | `agent_type` | `string?` | Agent running in pane, e.g. `"claude"` |
@@ -1183,4 +1185,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 64 -->
+<!-- revision: 65 -->

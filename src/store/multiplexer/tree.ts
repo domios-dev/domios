@@ -21,6 +21,7 @@ export function makeTab(pane: Pane): Tab {
   return {
     id: uid(),
     title: "Terminal",
+    description: pane.description ?? null,
     pane_id: pane.id,
   };
 }
