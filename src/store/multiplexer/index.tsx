@@ -6,7 +6,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { invoke } from "../../lib/bridge";
+import { invoke, reopenClosedPane } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
 import { IS_WEB, webJson } from "../../lib/webApi";
 import { uid } from "../../lib/uid";
@@ -251,6 +251,21 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       refreshFromBackend();
     } catch (e) {
       console.error("Failed to create tab:", e);
+    }
+  }, [refreshFromBackend]);
+
+  const reopenClosed = useCallback(async (workspaceId: string, index = 0) => {
+    try {
+      // Reuse the workspace for the reopened tab; backend creates + activates it.
+      invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
+      const tabInfo = await reopenClosedPane(workspaceId, index);
+      await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id }).catch(() => {});
+      dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
+      invoke("mux_set_focused_pane", { paneId: tabInfo.pane_id }).catch(() => {});
+      refreshFromBackend();
+    } catch (e) {
+      console.error("Failed to reopen closed pane:", e);
     }
   }, [refreshFromBackend]);
 
@@ -513,6 +528,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       moveTab,
       createTab,
       closeTab,
+      reopenClosed,
       setActiveTab,
       closePane,
       setFocusedPane,
@@ -539,6 +555,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       moveTab,
       createTab,
       closeTab,
+      reopenClosed,
       setActiveTab,
       closePane,
       setFocusedPane,

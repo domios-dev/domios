@@ -161,6 +161,7 @@ function AppInner() {
     createWorkspace,
     createTab,
     closeTab,
+    reopenClosed,
     setActiveTab,
     closePane,
     setFocusedPane,
@@ -359,6 +360,12 @@ function AppInner() {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Config-driven bindings (language-independent via e.code)
       if (matchesBinding(e, kb.new_tab)) { e.preventDefault(); handleNewTab(); return; }
+      // Browser-standard reopen-closed-tab. Most recent = ring index 0.
+      if (matchesBinding(e, kb.reopen_tab ?? "Ctrl+Shift+T")) {
+        e.preventDefault();
+        if (activeWs) reopenClosed(activeWs.id, 0);
+        return;
+      }
       if (matchesBinding(e, kb.close_tab)) { e.preventDefault(); handleCloseCurrentTab(); return; }
       if (matchesBinding(e, kb.close_pane)) { e.preventDefault(); handleCloseFocusedPane(); return; }
       if (matchesBinding(e, kb.new_workspace)) {
@@ -555,6 +562,7 @@ function AppInner() {
     handleNewTab,
     handleCloseCurrentTab,
     handleCloseFocusedPane,
+    reopenClosed,
     createWorkspace,
     setFocusedPane,
     activeWs,
