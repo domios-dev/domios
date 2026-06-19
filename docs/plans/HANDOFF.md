@@ -47,8 +47,9 @@ opencode — closes rule#2 gaps; no drift found).
 - **Local (macOS):** cargo `--lib` 1860/0 · tsc clean · test:unit 51/0 · test:plugins 31/0 · all 9
   `check-*.sh` green · pre-push hook (clippy --all-targets + fmt + guards) green on every push ·
   dev smoke: agent binds + replies, 0 rejections, F4 backgrounded build works.
-- **ROG (Windows):** cargo 1824/0 (pre-final) → final re-run **in progress**; test:plugins green
-  (CRLF fix confirmed); P0.2 verified.
+- **ROG (Windows), definitive final-tip run:** cargo `--lib` **1851/0** (−9 vs macOS = platform-gated
+  tests) · test:plugins 31/0 (CRLF F6 holds) · tsc 0 errors · dev build+health green, prod 7685
+  untouched throughout. P0.2 + F6 verified green on Windows.
 - **Playwright (ROG, Windows/WebView2 — the only place it runs):** smoke 18/10, golden 38/14 — every
   failure triaged to ENV (headless lacks LLM auth → live-agent cluster + chat-snapshot 400; no mic →
   getUserMedia; ROG's active `tailscale serve` → 2 web-access addr fails), Windows-timing (settings
@@ -73,7 +74,13 @@ plus a security fix (bitwarden master-pw), a deadlock fix (hot_reload), perf (as
 parity discipline restored. **Release remains PARKED** for your personal tests + go. When ready, the
 `release-pipeline` task un-parks (and the codeterm-plugins push/release decision is yours).
 
-<!-- revision: 1 -->
+## ✅ CAMPAIGN COMPLETE — cross-platform
+Windows layer CLOSED by ROG: cargo 1851/0, test:plugins 31/0, tsc 0 errors, ZERO branch regressions,
+prod 7685 untouched the entire campaign. macOS: cargo 1860/0 + all gates green. Candidate (3)
+extensions/addChannel confirmed harness-only by elimination (no reload in app code; only the PW/CDP
+window closes — a true repro needs a human GUI click). Release stays PARKED for Andrey's personal tests.
+
+<!-- revision: 2 -->
 
 ## ROG definitive final-tip re-run — 3 pre-existing Windows/test items (NOT branch regressions)
 All in areas the campaign did not touch; surfaced as bonus findings. Your call to fix:
