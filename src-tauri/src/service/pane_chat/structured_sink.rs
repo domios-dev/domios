@@ -55,27 +55,28 @@ pub fn make_sink(app: AppHandle) -> Arc<dyn StructuredSink> {
 /// (see [`super::chatbackend_history`]).
 pub struct ChatBackendStructuredSink {
     inner: Arc<dyn StructuredSink>,
-    history: parking_lot::Mutex<super::chatbackend_history::ChatBackendHistory>,
+    history: super::chatbackend_history::SharedHistory,
 }
 
 impl ChatBackendStructuredSink {
     /// `meta` is the openSession config persisted as the JSONL `_meta` header so
     /// a restored pane can lazily re-open and continue.
+    ///
+    /// The history is the SHARED per-session mirror (see
+    /// [`super::chatbackend_history::ChatBackendHistory::shared`]) — the same
+    /// instance the gateway upserts host inbound rows into, so a poll flush here
+    /// merges with (never clobbers) those rows.
     pub fn new(
         inner: Arc<dyn StructuredSink>,
         plugin_id: &str,
         session_id: &str,
         meta: Option<&serde_json::Value>,
     ) -> Self {
-        let mut history =
-            super::chatbackend_history::ChatBackendHistory::open(plugin_id, session_id);
+        let history = super::chatbackend_history::ChatBackendHistory::shared(plugin_id, session_id);
         if let Some(cfg) = meta {
-            history.ensure_meta(cfg);
+            history.lock().ensure_meta(cfg);
         }
-        Self {
-            inner,
-            history: parking_lot::Mutex::new(history),
-        }
+        Self { inner, history }
     }
 }
 
@@ -195,6 +196,53 @@ mod tests {
         let read = chatbackend_history::read_messages(&path);
         assert_eq!(read.len(), 1, "one line per message id");
         assert_eq!(read[0].content, "Hello");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn host_inbound_survives_poll_loop_flush() {
+        // BUG B regression: a host-written inbound row + the model's reply must
+        // both persist. Ordering reproduces the real bug — the poll-loop sink is
+        // a LONG-LIVED instance created at poll-loop startup (BEFORE any inbound),
+        // seeded once and never re-reading disk. Pre-fix it held a SEPARATE
+        // `ChatBackendHistory` from the gateway, so its flush rewrote the JSONL
+        // from its own state and clobbered a host inbound written after startup.
+        // With the single shared writer, both rows survive.
+        let plugin = "test-single-writer-unique";
+        let session = "sw-sid";
+        let path = chatbackend_history::session_path(plugin, session);
+        let _ = std::fs::remove_file(&path);
+
+        // 1) Poll loop starts FIRST: the sink seeds its mirror from the (empty)
+        //    JSONL and keeps it for the loop's lifetime.
+        let inner = Arc::new(CountingSink::default());
+        let sink = ChatBackendStructuredSink::new(inner, plugin, session, None);
+
+        // 2) Gateway writes the host inbound (clean body, structured sender)
+        //    AFTER the sink already exists.
+        chatbackend_history::ChatBackendHistory::shared(plugin, session)
+            .lock()
+            .upsert(&[ChatMsg {
+                id: "inbound-1".into(),
+                kind: "user".into(),
+                content: "ping from Gauss".into(),
+                from_label: Some("Gauss".into()),
+                inbound_kind: Some("pane".into()),
+                ..Default::default()
+            }]);
+
+        // 3) Poll-loop sink flushes the model's reply — a delta WITHOUT the
+        //    inbound row (the loop never saw it).
+        sink.emit("pane-1", vec![msg("reply-1", "pong")], None);
+
+        // 3) The JSONL retains BOTH rows, in order, inbound body still clean.
+        let read = chatbackend_history::read_messages(&path);
+        let ids: Vec<&str> = read.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, ["inbound-1", "reply-1"], "host inbound not clobbered");
+        assert_eq!(read[0].content, "ping from Gauss");
+        assert!(!read[0].content.contains("-=-codeterm"));
+        assert_eq!(read[1].content, "pong");
 
         let _ = std::fs::remove_file(&path);
     }
