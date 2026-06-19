@@ -352,6 +352,14 @@
               "aliases": []
             },
             {
+              "name": "description",
+              "positional": false,
+              "value_name": "DESCRIPTION",
+              "default": null,
+              "help": "Short pane description (max 200 chars)",
+              "aliases": []
+            },
+            {
               "name": "model",
               "positional": false,
               "value_name": "MODEL",
@@ -3820,6 +3828,30 @@
               "value_name": "LAST",
               "default": null,
               "help": "Return the last pane instead of the focused one",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "describe",
+          "about": "Set a short pane description (empty clears it)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Pane ID to describe (default: current focused pane)",
+              "aliases": []
+            },
+            {
+              "name": "summary",
+              "positional": true,
+              "value_name": "SUMMARY",
+              "default": null,
+              "help": "Short summary, max 200 chars",
               "aliases": []
             }
           ],

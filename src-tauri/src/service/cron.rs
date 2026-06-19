@@ -196,6 +196,7 @@ impl ServiceContext {
             parent_pane_id: None,
             cwd,
             title: Some(format!("cron:{}", job_name)),
+            description: None,
             visibility: PaneVisibility::Hidden,
             eager: false,
             command: PaneCommand::Agent(AgentSpawnSpec {

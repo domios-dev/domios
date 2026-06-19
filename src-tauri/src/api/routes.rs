@@ -86,6 +86,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/focus", post(pane_routes::focus_pane))
         .route("/api/panes/{id}/close", post(pane_routes::close_pane))
         .route("/api/panes/{id}/rename", post(pane_routes::rename_pane))
+        .route("/api/panes/{id}/describe", post(pane_routes::describe_pane))
         .route("/api/panes/{id}/output", get(pane_routes::get_pane_output))
         .route(
             "/api/panes/{id}/output/stream",

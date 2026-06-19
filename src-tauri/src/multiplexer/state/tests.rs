@@ -660,10 +660,12 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
                 tabs: vec![TabSnapshot {
                     id: "tab-1".to_string(),
                     title: "Tab".to_string(),
+                    description: None,
                     split_tree: SplitNodeSnapshot::Leaf {
                         pane_id: "pane-1".to_string(),
                         cwd: None,
                         title: Some(title.to_string()),
+                        description: None,
                         title_level: None,
                         agent_type: None,
                         agent_type_locked: false,
@@ -715,10 +717,12 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
             tabs: vec![TabSnapshot {
                 id: "tab-1".to_string(),
                 title: "Tab".to_string(),
+                description: None,
                 split_tree: SplitNodeSnapshot::Leaf {
                     pane_id: "pane-1".to_string(),
                     cwd: None,
                     title: Some("~/repo — zsh".to_string()),
+                    description: None,
                     title_level: None,
                     agent_type: None,
                     agent_type_locked: false,
@@ -776,10 +780,12 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
             tabs: vec![TabSnapshot {
                 id: "tab-1".to_string(),
                 title: "Tab".to_string(),
+                description: None,
                 split_tree: SplitNodeSnapshot::Leaf {
                     pane_id: "pane-1".to_string(),
                     cwd: None,
                     title: None,
+                    description: None,
                     title_level: None,
                     agent_type: Some("claude".to_string()),
                     agent_type_locked: false,

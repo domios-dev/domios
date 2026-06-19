@@ -101,6 +101,43 @@ fn test_spawn_agent_params_normalizes_msys_converted_title() {
 }
 
 #[test]
+fn pane_description_validation_accepts_200_and_rejects_201() {
+    let ok = "x".repeat(crate::service::MAX_PANE_DESCRIPTION_CHARS);
+    let too_long = "x".repeat(crate::service::MAX_PANE_DESCRIPTION_CHARS + 1);
+
+    assert_eq!(
+        crate::service::normalize_pane_description(&ok).unwrap(),
+        Some(ok)
+    );
+    assert!(crate::service::normalize_pane_description(&too_long).is_err());
+    assert_eq!(
+        crate::service::normalize_pane_description("  \t  ").unwrap(),
+        None
+    );
+    assert_eq!(
+        crate::service::normalize_pane_description("  running tests  ").unwrap(),
+        Some("running tests".into())
+    );
+}
+
+#[test]
+fn spawn_agent_params_from_json_validates_description() {
+    let ok = "x".repeat(crate::service::MAX_PANE_DESCRIPTION_CHARS);
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "description": format!("  {}  ", ok)
+    }))
+    .unwrap();
+    assert_eq!(params.description.as_deref(), Some(ok.as_str()));
+
+    let too_long = "x".repeat(crate::service::MAX_PANE_DESCRIPTION_CHARS + 1);
+    let err = SpawnAgentParams::from_json(&serde_json::json!({
+        "description": too_long
+    }))
+    .unwrap_err();
+    assert!(err.contains("description must be 200 characters or fewer"));
+}
+
+#[test]
 fn test_json_str() {
     let v = serde_json::json!({"name": "test", "count": 5});
     assert_eq!(json_str(&v, "name"), Some("test".to_string()));

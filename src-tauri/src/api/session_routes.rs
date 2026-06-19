@@ -214,6 +214,7 @@ pub async fn resume_session_api(
                 .clone()
                 .or_else(|| Some(format!("resumed {}", &meta.session_id[..8])))
         }),
+        description: None,
         role: None,
         parent_pane_id: None,
         can_spawn: None,

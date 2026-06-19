@@ -19,6 +19,8 @@ pub struct Workspace {
 pub struct Tab {
     pub id: String,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
     pub pane_id: String,
 }
 
@@ -91,6 +93,8 @@ pub struct Pane {
     pub backing: PaneBacking,
     pub pane_type: PaneType,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
     pub cwd: Option<String>,
     /// URL for browser panes.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -245,6 +249,7 @@ mod tests {
             backing,
             pane_type: PaneType::Terminal,
             title: "Terminal".to_string(),
+            description: None,
             cwd: None,
             url: None,
             agent_type: None,

@@ -31,6 +31,23 @@ pub fn resolve_spawn_task<R: Read>(
     }
 }
 
+pub(crate) const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
+
+pub(crate) fn normalize_pane_description(value: &str) -> Result<Option<String>, String> {
+    let trimmed = value.trim();
+    if trimmed.chars().count() > MAX_PANE_DESCRIPTION_CHARS {
+        return Err(format!(
+            "description must be {} characters or fewer",
+            MAX_PANE_DESCRIPTION_CHARS
+        ));
+    }
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(trimmed.to_string()))
+    }
+}
+
 fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
     let models = target.get("available_models").and_then(|v| v.as_array());
     let Some(models) = models else {
@@ -317,6 +334,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         AgentAction::Spawn {
             agent,
             title,
+            description,
             cwd,
             role,
             parent,
@@ -341,6 +359,16 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             });
             if let Some(t) = title {
                 body["title"] = serde_json::json!(t);
+            }
+            if let Some(d) = description {
+                match normalize_pane_description(&d) {
+                    Ok(Some(d)) => body["description"] = serde_json::json!(d),
+                    Ok(None) => body["description"] = serde_json::json!(""),
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
             }
             if let Some(c) = cwd {
                 body["cwd"] = serde_json::json!(c);
@@ -587,6 +615,20 @@ mod tests {
 
         std::fs::remove_file(&path).ok();
         assert_eq!(resolved, Some(body.to_string()));
+    }
+
+    #[test]
+    fn pane_description_validation_accepts_200_and_rejects_201() {
+        let ok = "x".repeat(MAX_PANE_DESCRIPTION_CHARS);
+        let too_long = "x".repeat(MAX_PANE_DESCRIPTION_CHARS + 1);
+
+        assert_eq!(normalize_pane_description(&ok).unwrap(), Some(ok));
+        assert!(normalize_pane_description(&too_long).is_err());
+        assert_eq!(normalize_pane_description("  ").unwrap(), None);
+        assert_eq!(
+            normalize_pane_description("  running tests  ").unwrap(),
+            Some("running tests".into())
+        );
     }
 
     #[test]

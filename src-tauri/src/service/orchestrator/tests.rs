@@ -9,6 +9,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         args: None,
         cwd: None,
         title: None,
+        description: None,
         role: None,
         parent_pane_id: None,
         can_spawn: None,

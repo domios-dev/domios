@@ -220,6 +220,19 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     Some(serde_json::json!({"title": title}).to_string()),
                 )
             }
+            crate::PaneAction::Describe { summary, pane } => {
+                let p = pane.as_deref().unwrap_or("general");
+                let description = match crate::cmd::agent::normalize_pane_description(summary) {
+                    Ok(Some(d)) => d,
+                    Ok(None) => String::new(),
+                    Err(e) => return unsupported(&e),
+                };
+                (
+                    "POST".into(),
+                    format!("/api/panes/{}/describe", p),
+                    Some(serde_json::json!({"description": description}).to_string()),
+                )
+            }
             crate::PaneAction::GetText { pane, formatted } => {
                 let p = pane.as_deref().unwrap_or("general");
                 (
@@ -338,6 +351,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             crate::AgentAction::Spawn {
                 agent,
                 title,
+                description,
                 task,
                 task_file,
                 role,
@@ -364,6 +378,13 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     "title": title,
                     "task": task,
                 });
+                if let Some(d) = description {
+                    match crate::cmd::agent::normalize_pane_description(d) {
+                        Ok(Some(d)) => body["description"] = serde_json::json!(d),
+                        Ok(None) => body["description"] = serde_json::json!(""),
+                        Err(e) => return unsupported(&e),
+                    }
+                }
                 if let Some(r) = role {
                     body["role"] = serde_json::json!(r.as_str());
                 }

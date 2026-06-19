@@ -44,6 +44,7 @@ pub(super) fn dispatch(
                 "tab_id": result.tab_id,
                 "agent": result.agent,
                 "title": result.title,
+                "description": result.description,
                 "role": result.role,
             });
             if let Some(ref warning) = result.warning {

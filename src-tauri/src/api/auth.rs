@@ -154,6 +154,7 @@ fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
                 "/reports",
                 "/respond",
                 "/clear",
+                "/describe",
                 "/can-spawn",
                 "/agent-type",
             ];

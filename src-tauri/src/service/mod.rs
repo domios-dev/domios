@@ -68,6 +68,7 @@ pub use inject_verify::{
     wait_for_submit_tui_drained, InjectionError, InjectionResult, VerifyOpts,
 };
 pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
+pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
 
 /// Shared service context — all state needed for multiplexer operations.
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
