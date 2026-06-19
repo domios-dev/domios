@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::{MultiplexerSnapshot, MultiplexerState};
 use crate::multiplexer::types::{Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace};
 
 fn derive_agent_type_from_title(title: Option<&str>) -> Option<String> {
     let t = title?.to_ascii_lowercase();
-    for id in ["claude", "codex", "opencode"] {
+    for id in ["claude", "codex", "opencode", "cursor"] {
         if t.contains(id) {
             return Some(id.to_string());
         }
@@ -34,6 +34,27 @@ impl MultiplexerState {
             // strictly leaner than the old per-workspace+orphaned rings this
             // replaces (which serialized up to thousands of entries per call).
             recently_closed: self.recent_closed_view(),
+        }
+    }
+
+    /// Re-apply the chat-UI default to restored agent panes after a session
+    /// restore (kill + restart) — a pane-creation path the fresh-spawn default
+    /// logic never runs through. `chat_capable` holds the chat-UI-capable
+    /// provider ids only when the `default_new_agent_pane_chat` preference is on
+    /// (empty otherwise → no-op). Only upgrades terminal→chat for capable
+    /// agents; never downgrades an already-chat pane.
+    pub fn apply_default_chat_view_for_capable(&mut self, chat_capable: &HashSet<String>) {
+        if chat_capable.is_empty() {
+            return;
+        }
+        for pane in self.panes.values_mut() {
+            if pane
+                .agent_type
+                .as_deref()
+                .is_some_and(|at| chat_capable.contains(at))
+            {
+                pane.chat_view = true;
+            }
         }
     }
 
