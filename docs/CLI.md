@@ -25,6 +25,12 @@ Compact agent context (sends /compact to Claude)
 
 - `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
 
+#### `codeterm agent ledger`
+
+List an orchestrator's workers from the durable ledger (survives daemon restart): branch / model / status / last-seen, one row per worker
+
+- `--pane` — Orchestrator pane ID (default: current focused pane)
+
 #### `codeterm agent link`
 
 Link a pane as worker under a parent

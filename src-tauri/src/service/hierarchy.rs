@@ -48,9 +48,13 @@ impl ServiceContext {
         message: &str,
         details: crate::agent::reports::ReportDetails,
     ) -> Result<ReportResult, String> {
-        let (from_title, target_opt) = {
-            let mux = self.mux.write();
-            resolve_report_target(&mux, pane_id)?
+        let (from_title, target_opt, model) = {
+            let mux = self.mux.read();
+            let (from_title, target_opt) = resolve_report_target(&mux, pane_id)?;
+            let model = mux
+                .get_pane(pane_id)
+                .and_then(|p| p.agent_session_model.clone());
+            (from_title, target_opt, model)
         };
 
         let storage_key = target_opt
@@ -62,6 +66,7 @@ impl ServiceContext {
             &from_title,
             message,
             details,
+            model.as_deref(),
         );
 
         self.events.broadcast(
@@ -97,13 +102,8 @@ impl ServiceContext {
                     },
                 );
                 if live {
-                    let model = self
-                        .mux
-                        .write()
-                        .get_pane(pane_id)
-                        .and_then(|p| p.agent_session_model.clone());
                     let pfx = crate::service::msg_prefix::CtxPrefix::report(&from_title, pane_id)
-                        .model(model);
+                        .model(model.clone());
                     if let Err(e) =
                         self.send_text(target_id, &pfx.wrap(&report.inject_body()), true)
                     {
@@ -126,7 +126,7 @@ impl ServiceContext {
     /// for the chat UI, so gating the PTY inject loses nothing.
     fn target_has_live_agent(&self, target_id: &str) -> bool {
         let pty_id = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             match mux.get_pane(target_id) {
                 Some(p) if p.agent_type.is_some() => p.pty_id.clone(),
                 _ => return false,
@@ -158,6 +158,13 @@ impl ServiceContext {
             .as_array()
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// Durable per-orchestrator ledger rows (survive daemon restart). One row
+    /// per worker, latest status. Unlike [`get_reports`](Self::get_reports),
+    /// which reads the in-memory live stream, this reads the sqlite ledger.
+    pub fn get_ledger(&self, orchestrator_pane_id: &str) -> Vec<crate::agent::ledger::LedgerRow> {
+        self.report_store.lock().ledger_rows(orchestrator_pane_id)
     }
 
     pub fn get_pane_status(&self, pane_id: &str) -> Result<PaneStatusInfo, String> {

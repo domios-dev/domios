@@ -58,6 +58,16 @@ pub enum SplitNodeSnapshot {
         /// Parent pane ID in hierarchy.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         parent_pane_id: Option<String>,
+        /// Agent that ran `agent spawn` for this pane. Persisted so a restarted
+        /// orchestrator keeps its parent/child map and reports still route to
+        /// the spawner even with no role parent. `None` for legacy snapshots.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        spawned_by_pane_id: Option<String>,
+        /// Non-hierarchy report target (cron / mem worker). Persisted alongside
+        /// `spawned_by_pane_id` so report routing survives restart. `None` for
+        /// legacy snapshots.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        report_target_pane_id: Option<String>,
         /// Can spawn children.
         #[serde(default)]
         can_spawn: bool,

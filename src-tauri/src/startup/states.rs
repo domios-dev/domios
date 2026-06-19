@@ -51,8 +51,19 @@ pub(crate) fn init_states() -> AppStates {
     let screen_state: ScreenStateHandle = Arc::new(Mutex::new(ScreenState::new()));
     let agent_tracker: AgentTrackerState =
         Arc::new(Mutex::new(agent::status::PaneStatusTracker::new()));
-    let report_store: ReportStoreState =
-        Arc::new(Mutex::new(agent::reports::ReportStore::new(200)));
+    // Durable orchestration ledger backs the report store so worker state
+    // survives daemon restart. If the db can't be opened, fall back to an
+    // in-memory-only store (live stream still works; only durability is lost).
+    let report_store: ReportStoreState = {
+        let store = match agent::ledger::OrchestrationLedger::open(&crate::paths::data_dir()) {
+            Ok(ledger) => agent::reports::ReportStore::with_ledger(200, Arc::new(ledger)),
+            Err(e) => {
+                log::warn!("[ledger] open failed: {} — reports will not persist", e);
+                agent::reports::ReportStore::new(200)
+            }
+        };
+        Arc::new(Mutex::new(store))
+    };
     let event_broadcaster: api::events::EventBroadcasterState =
         Arc::new(api::events::EventBroadcaster::new());
     let resize_owner: ResizeOwnerState = Arc::new(Mutex::new(

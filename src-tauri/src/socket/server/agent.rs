@@ -93,6 +93,16 @@ pub(super) fn dispatch(
             })
         }
 
+        "agent.ledger" => {
+            let pane_id = get_string_param(params, "pane_id")?;
+            let svc_ref = &**svc;
+            let rows = svc_ref.get_ledger(&pane_id);
+            serde_json::to_value(&rows).map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e.to_string(),
+            })
+        }
+
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
