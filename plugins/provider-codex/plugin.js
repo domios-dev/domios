@@ -404,8 +404,120 @@ var plugin = {
       out.push({ role, text: text2, ts, isMeta: false });
     }
     return out;
+  },
+  // AS2 (Case A) — classify a parked codex pane from its rendered screen.
+  // The core reactor (state_reactor.rs) only calls this on the idle/waiting edge
+  // and only auto-acts when confidence >= GLOBAL_THRESHOLD (0.8), the state is
+  // NOT waiting_on_auth, and an action is present. All codex-specific knowledge
+  // (the self-update fingerprint, Skip navigation, auth-guard) lives here; core
+  // stays generic.
+  //
+  // Two guarantees this method enforces:
+  //  1. Auth is sacred — a login/OAuth/API-key screen is classified
+  //     waiting_on_auth with NO keys, so it is surfaced, never auto-pressed.
+  //  2. No false positives — the update verdict is an ENSEMBLE of independent
+  //     structural signals; a single weak match stays below threshold. When it
+  //     does fire, the action navigates to "Skip", never the default
+  //     "Update now" highlight (a blind Enter would update mid-session).
+  classifyPaneState(snapshot) {
+    const screen = String(snapshot && snapshot.screenText || "");
+    if (!screen.trim()) return null;
+    const authConfidence = scoreAuthPrompt(screen);
+    if (authConfidence >= CLASSIFY_THRESHOLD) {
+      return {
+        state: "waiting_on_auth",
+        confidence: authConfidence,
+        action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
+      };
+    }
+    const upd = scoreUpdatePrompt(screen);
+    if (upd.confidence >= CLASSIFY_THRESHOLD && upd.skipKeys && upd.skipKeys.length > 0) {
+      return {
+        state: "update_prompt",
+        confidence: upd.confidence,
+        action: { keys: upd.skipKeys }
+      };
+    }
+    if (upd.confidence > 0) {
+      return { state: "unknown", confidence: upd.confidence };
+    }
+    return { state: "working", confidence: 0 };
   }
 };
+var CLASSIFY_THRESHOLD = 0.8;
+var MENU_OPTION_RE = /^[ \t]*([>❯▶➤])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
+function parseMenuOptions(screen) {
+  const lines = String(screen || "").split("\n");
+  const options = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = MENU_OPTION_RE.exec(lines[i]);
+    if (!m) continue;
+    options.push({ highlighted: !!m[1], label: m[3] });
+  }
+  return options;
+}
+function skipNavigationKeys(options) {
+  if (options.length === 0) return null;
+  let highlightIdx = -1;
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].highlighted) {
+      highlightIdx = i;
+      break;
+    }
+  }
+  if (highlightIdx === -1) highlightIdx = 0;
+  let skipIdx = -1;
+  for (let i = 0; i < options.length; i++) {
+    const label = options[i].label;
+    if (/\bskip\b/i.test(label) && !/\bupdate\b/i.test(label)) {
+      skipIdx = i;
+      break;
+    }
+  }
+  if (skipIdx === -1) return null;
+  const keys = [];
+  const delta = skipIdx - highlightIdx;
+  if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
+  else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
+  keys.push("enter");
+  return keys;
+}
+function scoreUpdatePrompt(screen) {
+  const options = parseMenuOptions(screen);
+  let hasUpdateOption = false;
+  let hasSkipOption = false;
+  for (let i = 0; i < options.length; i++) {
+    if (/\bupdate\b/i.test(options[i].label)) hasUpdateOption = true;
+    if (/\bskip\b/i.test(options[i].label)) hasSkipOption = true;
+  }
+  const sigUpdateSkipMenu = hasUpdateOption && hasSkipOption;
+  const sigAvailable = /\b(update|version)\s+available\b/i.test(screen);
+  const sigVersionArrow = /\d+\.\d+(?:\.\d+)?\s*(?:->|→|=>)\s*\d+\.\d+(?:\.\d+)?/.test(screen);
+  const sigPressEnter = /press\s+enter\s+to\s+continue/i.test(screen);
+  const sigReleaseNotes = /release\s+notes/i.test(screen);
+  let confidence = 0;
+  if (sigUpdateSkipMenu) confidence += 0.45;
+  if (sigAvailable) confidence += 0.2;
+  if (sigVersionArrow) confidence += 0.15;
+  if (sigPressEnter) confidence += 0.1;
+  if (sigReleaseNotes) confidence += 0.1;
+  if (confidence > 1) confidence = 1;
+  const skipKeys = sigUpdateSkipMenu ? skipNavigationKeys(options) : null;
+  return { confidence, skipKeys };
+}
+function scoreAuthPrompt(screen) {
+  const s = String(screen || "");
+  let score = 0;
+  if (/\bsign[ -]?in\b/i.test(s)) score += 0.5;
+  if (/\blog[ -]?in\b/i.test(s)) score += 0.5;
+  if (/\bauthenticat(?:e|ion|ing)\b/i.test(s)) score += 0.5;
+  if (/\bo\s?auth\b/i.test(s)) score += 0.6;
+  if (/\bapi key\b/i.test(s)) score += 0.6;
+  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(s)) score += 0.6;
+  if (/\bauthorization code\b/i.test(s)) score += 0.6;
+  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
+  return score > 1 ? 1 : score;
+}
 function endsWith(s, suffix) {
   return s.length >= suffix.length && s.substring(s.length - suffix.length) === suffix;
 }
