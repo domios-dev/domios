@@ -337,6 +337,9 @@ mod tests {
             },
             "restored as chatBackend, not Pty"
         );
+        // The frontend (TabContent.tsx) renders the chat UI iff this is true and
+        // never mounts a terminal — the "comes back as a terminal" guard.
+        assert!(pane.is_chat_backend(), "renders chat, not terminal");
         assert!(pane.restored_from_snapshot, "marked for lazy re-open");
     }
 

@@ -207,17 +207,21 @@ pub async fn chat_start(
 /// chat view renders the same in both shells.
 pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
     let started = std::time::Instant::now();
-    // chatBackend pane: it has no agent_type / JSONL session. Its transcript
-    // streams via the spawn poll loop's `pane-chat-msg-{id}` events, so return
-    // an empty, non-pending start — the frontend then attaches its listener and
-    // renders incoming messages (Track B #7).
+    // chatBackend pane: its transcript is the durable host-side JSONL, not an
+    // agent JSONL/sqlite session. Return that persisted snapshot so a pane shows
+    // its history immediately on (re)mount — a restored pane has no live poll
+    // loop until its first send, so without this it would render an empty chat.
+    // The frontend then attaches its `pane-chat-msg-{id}` listener for any live
+    // deltas (deduped by id), matching the agent path's start-then-stream shape.
     if svc.pane_chat_backing(&pane_id).is_some() {
+        let (messages, _total) =
+            crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
         return Ok(ChatStartResult {
             text: String::new(),
             start_offset: 0,
             offset: 0,
             pending: false,
-            messages: Some(vec![]),
+            messages: Some(messages),
             cursor: None,
         });
     }
