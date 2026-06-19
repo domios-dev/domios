@@ -9,10 +9,11 @@ import re
 import sys
 
 root = Path(sys.argv[1])
-claude = root / "CLAUDE.md"
+# AGENTS.md is the source of truth; CLAUDE.md just @-imports it.
+source = root / "AGENTS.md"
 evals = root / "evals"
 
-text = claude.read_text(encoding="utf-8")
+text = source.read_text(encoding="utf-8")
 actual = {p.name for p in evals.iterdir() if p.is_dir() and not p.name.startswith("_")}
 mentioned = {
     name
@@ -34,11 +35,11 @@ undocumented = sorted(actual - mentioned - experimental)
 
 errors = []
 if missing_dirs:
-    errors.append("CLAUDE.md mentions eval dirs that do not exist:")
+    errors.append("AGENTS.md mentions eval dirs that do not exist:")
     errors.extend(f"  evals/{name}/" for name in missing_dirs)
 
 if undocumented:
-    errors.append("evals dirs missing from CLAUDE.md or experimental/historical list:")
+    errors.append("evals dirs missing from AGENTS.md or experimental/historical list:")
     errors.extend(f"  evals/{name}/" for name in undocumented)
 
 if errors:
