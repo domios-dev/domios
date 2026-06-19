@@ -83,6 +83,20 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
       body: marker.payload,
     };
   }
+  if (marker.kind === "reminder") {
+    return {
+      origin: {
+        kind: "reminder",
+        ...(marker.attrs.from ? { whoSet: marker.attrs.from } : {}),
+        ...(marker.attrs.pane ? { pane: marker.attrs.pane } : {}),
+        ...(marker.attrs.model ? { model: marker.attrs.model } : {}),
+        ...(marker.attrs.set_at ? { setAt: marker.attrs.set_at } : {}),
+        ...(marker.attrs.fire_at ? { fireAt: marker.attrs.fire_at } : {}),
+        ...(marker.attrs.id ? { id: marker.attrs.id } : {}),
+      },
+      body: marker.payload,
+    };
+  }
   if (marker.attrs.user) {
     return {
       origin: { kind: "service", service: marker.kind, userId: marker.attrs.user },
@@ -213,6 +227,8 @@ export function labelFor(origin: ChatOrigin): string {
       return `Configure · ${origin.name}`;
     case "system_prompt":
       return "System prompt";
+    case "reminder":
+      return origin.whoSet ? `Reminder · ${origin.whoSet}` : "Reminder";
     case "command":
       return origin.commands.length === 1
         ? origin.commands[0].name
