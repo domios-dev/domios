@@ -15,6 +15,9 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock};
+
+use parking_lot::Mutex;
 
 use crate::agent::chat_types::ChatMsg;
 
@@ -99,6 +102,14 @@ pub fn migrate(plugin_id: &str, from_session: &str, to_session: &str) {
     }
 }
 
+/// A process-shared, lock-guarded history mirror. See [`ChatBackendHistory::shared`].
+pub type SharedHistory = Arc<Mutex<ChatBackendHistory>>;
+
+/// Registry of the single shared mirror per `(plugin_id, session_id)`. Lives for
+/// the daemon's lifetime; the per-session footprint is one transcript in memory.
+static SHARED: LazyLock<Mutex<HashMap<(String, String), SharedHistory>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// In-memory mirror of one session's JSONL. UPSERTs messages by id and rewrites
 /// the file only when content actually changed (the poll-loop dedup means this
 /// is rare). Best-effort, no fsync on the hot path.
@@ -130,6 +141,25 @@ impl ChatBackendHistory {
             order,
             by_id,
         }
+    }
+
+    /// The single shared in-memory mirror for `(plugin_id, session_id)`. BOTH the
+    /// poll-loop sink and the host-side gateway (`Messenger::deliver_chatbackend`)
+    /// upsert through THIS instance, so a host-written inbound row lives in the
+    /// same `by_id`/`order` the poll loop flushes — a later poll-loop flush can
+    /// never clobber a row it didn't author (single-writer invariant). Without
+    /// this, the two paths held separate instances and the poll flush rewrote the
+    /// JSONL from its own state, dropping the host inbound + reply on refresh.
+    pub fn shared(plugin_id: &str, session_id: &str) -> SharedHistory {
+        let key = (plugin_id.to_string(), session_id.to_string());
+        if let Some(h) = SHARED.lock().get(&key) {
+            return h.clone();
+        }
+        // Build OUTSIDE the registry lock — `open` reads the JSONL and we never
+        // hold the global lock across disk IO. Insert is idempotent: a racing
+        // builder's instance is discarded (first writer wins).
+        let built: SharedHistory = Arc::new(Mutex::new(Self::open(plugin_id, session_id)));
+        SHARED.lock().entry(key).or_insert(built).clone()
     }
 
     /// Seed the openSession config as the `_meta` header if not already present.
@@ -366,6 +396,33 @@ mod tests {
         assert_eq!(read_messages(&to)[0].content, "carry me");
 
         let _ = std::fs::remove_file(&to);
+    }
+
+    #[test]
+    fn shared_returns_one_instance_per_session() {
+        let plugin = "test-shared-registry-unique";
+        let session = "shared-sid";
+        let _ = std::fs::remove_file(session_path(plugin, session));
+
+        let a = ChatBackendHistory::shared(plugin, session);
+        let b = ChatBackendHistory::shared(plugin, session);
+        assert!(
+            Arc::ptr_eq(&a, &b),
+            "same (plugin, session) ⇒ the same shared instance"
+        );
+
+        // A different session is a distinct instance.
+        let c = ChatBackendHistory::shared(plugin, "other-sid");
+        assert!(!Arc::ptr_eq(&a, &c));
+
+        // Upserts through one handle are visible to the other (shared by_id).
+        a.lock().upsert(&[msg("1", "via a")]);
+        let read = read_messages(&session_path(plugin, session));
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].content, "via a");
+
+        let _ = std::fs::remove_file(session_path(plugin, session));
+        let _ = std::fs::remove_file(session_path(plugin, "other-sid"));
     }
 
     #[test]
