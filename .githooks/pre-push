@@ -22,6 +22,10 @@ if [ -f scripts/prepare-embed-stub.js ]; then
     node scripts/prepare-embed-stub.js >/dev/null
 fi
 
+echo "Pre-push: running shell guards..."
+bash scripts/check-mux-write.sh
+bash scripts/check-blocking-in-async.sh
+
 echo "Pre-push: running cargo check..."
 
 # Main crate

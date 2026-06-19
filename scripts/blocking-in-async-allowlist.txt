@@ -1,0 +1,12 @@
+# Baseline for scripts/check-blocking-in-async.sh.
+# Entries are exact findings: <relative-path>:<line>:<pattern>
+#
+# Rule: new direct blocking calls in async command/service code fail pre-push.
+# Existing entries keep the hook green until each site is moved behind
+# spawn_blocking, tokio::time, or an async process helper.
+
+# Baselined 2026-06-19 (W2.guards): pre-existing async command blocking.
+src-tauri/src/commands/clipboard.rs:66:std::process::Command::new
+src-tauri/src/commands/clipboard.rs:86:std::process::Command::new
+src-tauri/src/commands/clipboard.rs:95:std::process::Command::new
+src-tauri/src/commands/clipboard.rs:108:std::process::Command::new
