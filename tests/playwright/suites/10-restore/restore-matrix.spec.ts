@@ -69,7 +69,7 @@ test("@golden restore matrix markers are isolated in restored provider ChatViews
     ).toBeVisible({ timeout: 30_000 });
     await tab.click();
     await expect(
-      ui.page.locator(`[data-pane-id="${slot.pane_id}"]`),
+      ui.page.locator(`[data-testid="terminal-pane"][data-pane-id="${slot.pane_id}"]`),
       `pane mounted for provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id}`,
     ).toBeVisible({ timeout: 30_000 });
     await api.post(`/panes/${slot.pane_id!}/chat-view`, { enabled: true });
