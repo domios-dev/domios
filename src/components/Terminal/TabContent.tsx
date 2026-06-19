@@ -10,7 +10,6 @@ import type {
 } from "../../lib/types";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
-import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 
 interface TabContentProps {
   pane: Pane | undefined;
@@ -49,7 +48,6 @@ export function TabContent({
         <div className="relative w-full h-full" style={{ background: theme.background }}>
           <PaneSessionChat paneId={pane.id} chatBackend uiFontScale={uiFontScale} />
         </div>
-        <ChatModelBubble pluginId={pane.backing.plugin_id} sessionId={pane.backing.session_id} />
         <PluginBubbles cwd={pane.cwd ?? workspaceCwd ?? null} paneId={pane.id} />
       </PaneWrapper>
     );
