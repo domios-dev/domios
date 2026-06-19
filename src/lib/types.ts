@@ -13,6 +13,23 @@ export interface Workspace {
   active_tab_id: string | null;
   cwd: string | null;
   protected?: boolean;
+  /** Bounded ring of recently-closed panes, newest first (index 0 = most
+   *  recent). Mirrors Rust `Workspace.recently_closed`. Omitted when empty. */
+  recently_closed?: ClosedPane[];
+}
+
+/** A pane that was closed and can be reopened. Mirrors Rust `ClosedPane`
+ *  (serde snake_case). `closed_at` is a UNIX-millisecond timestamp. */
+export interface ClosedPane {
+  pane_id: string;
+  title: string;
+  description?: string | null;
+  backing?: PaneBacking;
+  cwd?: string | null;
+  agent_type?: string | null;
+  agent_session_id?: string | null;
+  model?: string | null;
+  closed_at: number;
 }
 
 export interface Tab {
@@ -290,6 +307,9 @@ export interface KeybindingsConfig {
   zoom_out: string;
   zoom_reset: string;
   open_settings: string;
+  /** Reopen the most-recently-closed tab in the active workspace. Optional so
+   *  configs predating this field don't break the keydown handler. */
+  reopen_tab?: string;
 }
 
 export interface SocketConfigSettings {
