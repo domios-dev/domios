@@ -353,6 +353,47 @@ fn reopen_orphaned_pane_recreates_workspace() {
 }
 
 #[test]
+fn reopen_workspace_group_matches_existing_workspace_by_path() {
+    let (mut state, _root) = MultiplexerState::new();
+    // A workspace rooted at /tmp/proj, with a tab, then fully closed.
+    let wsid = state.create_workspace("Proj".into(), Some("/tmp/proj".into())).id;
+    let (t1, _p1) = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&wsid, &t1, "Tab A").unwrap();
+    state.close_workspace(&wsid).unwrap();
+    let group_id = state.recent_closed_view()[0].group_id.clone();
+
+    // A DIFFERENT live workspace now points at the SAME folder (trailing slash
+    // must still match via normalize_cwd).
+    let live_id = state
+        .create_workspace("Proj Again".into(), Some("/tmp/proj/".into()))
+        .id;
+    let count_before = state.list_workspaces().len();
+
+    let (target_ws, _tab, _pane) = state.reopen_closed_group(&group_id).unwrap();
+    assert_eq!(
+        target_ws, live_id,
+        "restore into the live same-path workspace, not a duplicate"
+    );
+    assert_eq!(
+        state.list_workspaces().len(),
+        count_before,
+        "no new workspace created when one matches by path"
+    );
+    let info = state
+        .list_workspaces()
+        .into_iter()
+        .find(|w| w.id == live_id)
+        .unwrap();
+    let titles: HashSet<String> = info
+        .pane_ids
+        .iter()
+        .filter_map(|pid| state.get_pane(pid))
+        .map(|p| p.title.clone())
+        .collect();
+    assert!(titles.contains("Tab A"), "restored tab landed here: {:?}", titles);
+}
+
+#[test]
 fn single_close_still_works_alongside_groups() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
