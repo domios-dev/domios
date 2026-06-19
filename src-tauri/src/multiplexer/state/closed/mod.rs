@@ -209,10 +209,14 @@ impl MultiplexerState {
 
     /// Apply a closed record onto a freshly created tab's pane. Drives the
     /// existing restore path: PTY → resume-or-fresh, chatBackend → lazy reload.
+    /// `chat_capable` carries the chat-UI-capable provider ids when the
+    /// `default_new_agent_pane_chat` preference is on (empty otherwise) — a
+    /// reopened agent pane re-applies that default, mirroring fresh spawns.
     fn materialize_closed_pane(
         &mut self,
         workspace_id: &str,
         record: &ClosedPane,
+        chat_capable: &HashSet<String>,
     ) -> Result<(String, String), String> {
         let (tab_id, pane_id) = self.create_tab(workspace_id)?;
         if let Some(pane) = self.panes.get_mut(&pane_id) {
@@ -228,6 +232,14 @@ impl MultiplexerState {
             pane.agent_session_id = record.agent_session_id.clone();
             pane.agent_session_model = record.model.clone();
             pane.restored_from_snapshot = true;
+            // Reopen is a pane-creation path: a chat-capable agent pane opens in
+            // chat when the preference is on. chatBackend panes carry no
+            // `agent_type` (their chat UI is driven by `backing`) so they are
+            // untouched here.
+            pane.chat_view = record
+                .agent_type
+                .as_deref()
+                .is_some_and(|at| chat_capable.contains(at));
         }
         let _ = self.rename_tab(workspace_id, &tab_id, &record.title);
         if let Some(ws) = self.workspaces.iter_mut().find(|w| w.id == workspace_id) {
@@ -244,6 +256,7 @@ impl MultiplexerState {
         &mut self,
         workspace_id: &str,
         index: Option<usize>,
+        chat_capable: &HashSet<String>,
     ) -> Result<(String, String), String> {
         if !self.workspaces.iter().any(|w| w.id == workspace_id) {
             return Err(format!("Workspace not found: {}", workspace_id));
@@ -263,7 +276,7 @@ impl MultiplexerState {
             .closed_store
             .take_in_workspace(workspace_id, idx)
             .ok_or("No recently closed pane")?;
-        self.materialize_closed_pane(workspace_id, &record)
+        self.materialize_closed_pane(workspace_id, &record, chat_capable)
     }
 
     /// Resolve the workspace a restore should land in. If a LIVE workspace
@@ -287,6 +300,7 @@ impl MultiplexerState {
     pub fn reopen_orphaned_pane(
         &mut self,
         pane_id: &str,
+        chat_capable: &HashSet<String>,
     ) -> Result<(String, String, String), String> {
         let record = self
             .closed_store
@@ -294,7 +308,8 @@ impl MultiplexerState {
             .ok_or_else(|| format!("No orphaned entry for pane_id: {}", pane_id))?;
         let workspace_id =
             self.restore_target_workspace(record.workspace_name.clone(), record.cwd.clone());
-        let (tab_id, new_pane_id) = self.materialize_closed_pane(&workspace_id, &record)?;
+        let (tab_id, new_pane_id) =
+            self.materialize_closed_pane(&workspace_id, &record, chat_capable)?;
         Ok((workspace_id, tab_id, new_pane_id))
     }
 
@@ -306,6 +321,7 @@ impl MultiplexerState {
     pub fn reopen_closed_group(
         &mut self,
         group_id: &str,
+        chat_capable: &HashSet<String>,
     ) -> Result<(String, String, String), String> {
         let (group, panes) = self
             .closed_store
@@ -339,7 +355,8 @@ impl MultiplexerState {
         let mut id_map: HashMap<String, String> = HashMap::new();
         let mut first: Option<(String, String)> = None;
         for record in &panes {
-            let (tab_id, new_pane_id) = self.materialize_closed_pane(&workspace_id, record)?;
+            let (tab_id, new_pane_id) =
+                self.materialize_closed_pane(&workspace_id, record, chat_capable)?;
             id_map.insert(record.pane_id.clone(), new_pane_id.clone());
             if first.is_none() {
                 first = Some((tab_id, new_pane_id));

@@ -1,10 +1,39 @@
 //! Workspace & tab operations.
 
+use std::collections::HashSet;
+
+use tauri::Manager;
+
 use super::ServiceContext;
 use crate::multiplexer::state::WorkspaceInfo;
 use crate::multiplexer::types::ClosedPane;
 
 impl ServiceContext {
+    /// Chat-UI-capable provider ids — but only when the
+    /// `default_new_agent_pane_chat` preference is on (empty set otherwise).
+    /// Restoring a pane is a creation path too, so a reopened chat-capable agent
+    /// pane re-applies the same default a fresh spawn would. Computed off the
+    /// live registry (queried at runtime, not startup) so drop-in providers are
+    /// covered automatically. Built before taking the mux lock to keep the
+    /// config + registry locks off the mux critical section.
+    fn restore_chat_capable_providers(&self) -> HashSet<String> {
+        let enabled = self
+            .app_handle
+            .state::<crate::config::ConfigState>()
+            .lock()
+            .ui
+            .default_new_agent_pane_chat;
+        if !enabled {
+            return HashSet::new();
+        }
+        self.agent_registry
+            .list_descriptors()
+            .into_iter()
+            .filter(|d| d.supports_chat_ui)
+            .map(|d| d.id)
+            .collect()
+    }
+
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
         self.mux.read().list_workspaces()
     }
@@ -158,9 +187,10 @@ impl ServiceContext {
         workspace_id: &str,
         index: Option<usize>,
     ) -> Result<(String, String), String> {
+        let chat_capable = self.restore_chat_capable_providers();
         let (tab_id, pane_id) = {
             let mut mux = self.mux.write();
-            let result = mux.reopen_closed_pane(workspace_id, index)?;
+            let result = mux.reopen_closed_pane(workspace_id, index, &chat_capable)?;
             let _ = mux.set_active_tab(workspace_id, &result.0);
             result
         };
@@ -173,9 +203,10 @@ impl ServiceContext {
     /// relinks the hierarchy, and activates the resulting tab/workspace.
     /// Returns (workspace_id, tab_id, first_pane_id).
     pub fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String, String), String> {
+        let chat_capable = self.restore_chat_capable_providers();
         let result = {
             let mut mux = self.mux.write();
-            let r = mux.reopen_closed_group(group_id)?;
+            let r = mux.reopen_closed_group(group_id, &chat_capable)?;
             let _ = mux.set_active_workspace(&r.0);
             let _ = mux.set_active_tab(&r.0, &r.1);
             r
@@ -187,9 +218,10 @@ impl ServiceContext {
     /// Reopen a pane from the orphaned ring. Recreates the workspace and
     /// activates it. Returns (workspace_id, tab_id, pane_id).
     pub fn reopen_orphaned_pane(&self, pane_id: &str) -> Result<(String, String, String), String> {
+        let chat_capable = self.restore_chat_capable_providers();
         let result = {
             let mut mux = self.mux.write();
-            let r = mux.reopen_orphaned_pane(pane_id)?;
+            let r = mux.reopen_orphaned_pane(pane_id, &chat_capable)?;
             let _ = mux.set_active_workspace(&r.0);
             let _ = mux.set_active_tab(&r.0, &r.1);
             r
