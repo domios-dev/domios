@@ -151,5 +151,58 @@ console.log("\n--- discoverModels ---\n");
   );
 }
 
+// detectSessionModel keys off the pane's OWN session_id (capability rule #3),
+// never a "latest model in cwd" fallback that would surface a SIBLING's model.
+console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  // The session row carries no assistant message → the per-session scan finds
+  // nothing. A cwd-wide scan WOULD find a sibling's model — we assert it does
+  // not run by failing loudly if any query omits the session_id binding.
+  let cwdScanRan = false;
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      readJson: () => null,
+      readFile: () => null,
+      writeFile: () => true,
+      writeJson: () => true,
+      sqliteQuery: (_db: string, sql: string, params: unknown[]) => {
+        // The (forbidden) cwd fallback joins session ON message and filters by
+        // s.directory — never by the pane's session_id.
+        if (sql.indexOf("s.directory") !== -1 || sql.indexOf("JOIN session") !== -1) {
+          cwdScanRan = true;
+          return [{ data: JSON.stringify({ role: "assistant", modelID: "sibling/model" }) }];
+        }
+        // Per-session query bound to ?1 = sessionId, no matching rows.
+        void params;
+        return [];
+      },
+    },
+  }));
+  eq(
+    p.detectSessionModel("/some/cwd", "ses_owns_no_model"),
+    null,
+    "no model row for THIS session → null (no cwd fallback to a sibling's model)",
+  );
+  assert(!cwdScanRan, "must NOT run the cwd-wide model scan");
+
+  // Empty session id → null without touching the db scan.
+  eq(p.detectSessionModel("/some/cwd", ""), null, "empty sessionId → null");
+
+  // The happy path still works: this session's own assistant message wins.
+  const own = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      readJson: () => null,
+      readFile: () => null,
+      writeFile: () => true,
+      writeJson: () => true,
+      sqliteQuery: () => [{ data: JSON.stringify({ role: "assistant", modelID: "anthropic/claude-own" }) }],
+    },
+  }));
+  eq(own.detectSessionModel("/cwd", "ses_mine"), "anthropic/claude-own", "this session's own model is returned");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
