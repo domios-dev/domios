@@ -97,6 +97,9 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         active_workspace_id: action.state.active_workspace_id,
         toasts: [...state.toasts, ...newToasts],
         activeTabIds,
+        // Backend-authoritative, sqlite-sourced closed-tab history; carry it
+        // from the incoming snapshot or the list silently stays empty.
+        recently_closed: action.state.recently_closed ?? state.recently_closed,
         generation:
           typeof incomingGen === "number" ? incomingGen : state.generation,
       };
