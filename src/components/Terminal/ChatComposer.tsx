@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Clock3, Paperclip, Terminal, X } from "lucide-react";
 import { ComposerActions } from "./ComposerActions";
 import { invoke, listen } from "../../lib/bridge";
@@ -96,6 +96,7 @@ function ComposerBubbleRow({
   queuedCount,
   failedCount,
   onOpenDelayedQueue,
+  modelBubble,
 }: {
   attachments: string[];
   onRemove: (path: string) => void;
@@ -105,15 +106,17 @@ function ComposerBubbleRow({
   queuedCount: number;
   failedCount: number;
   onOpenDelayedQueue: () => void;
+  modelBubble?: ReactNode;
 }) {
-  if (attachments.length === 0 && !onToggleTerminalFallback && queuedCount === 0 && failedCount === 0) return null;
+  if (attachments.length === 0 && !onToggleTerminalFallback && queuedCount === 0 && failedCount === 0 && !modelBubble) return null;
   const visible = attachments.slice(0, 4);
   const overflow = attachments.length - visible.length;
   return (
     <div
       data-testid="composer-bubble-row"
-      className="mb-2 flex max-h-[3.6rem] flex-wrap items-center gap-1 overflow-hidden"
+      className="mb-2 flex max-h-[3.6rem] flex-wrap items-center gap-1 overflow-visible"
     >
+      {modelBubble}
       {onToggleTerminalFallback && (
         <button
           type="button"
@@ -252,6 +255,7 @@ export function ChatComposer({
   showComposerError,
   onOpenTerminalFallback,
   onToggleTerminalFallback,
+  modelBubble,
   chatBackend = false,
 }: {
   paneId: string;
@@ -272,6 +276,7 @@ export function ChatComposer({
   showComposerError: (message: string) => void;
   onOpenTerminalFallback?: () => void;
   onToggleTerminalFallback?: () => void;
+  modelBubble?: ReactNode;
 }) {
   const [input, setInput] = usePersistentDraft(`pane-session-chat:${paneId}`);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -742,6 +747,7 @@ export function ChatComposer({
         pendingPrompt={pendingPrompt}
         queuedCount={queuedCount}
         failedCount={failedCount}
+        modelBubble={modelBubble}
         onOpenDelayedQueue={() => {
           setDelayedQueueOpen((v) => !v);
           setScheduleOpen(false);

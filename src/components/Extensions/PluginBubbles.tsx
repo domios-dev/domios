@@ -1,7 +1,7 @@
 /**
  * Pane status pills contributed by `statusBubble` plugins (e.g. Git), shown in
- * the top-right row next to the primary pane pill (usage or chat model, tracking
- * its width so they sit just left of it; alone at the edge when there isn't one).
+ * the top-right row next to the usage/"spend" pill (tracking its width so they
+ * sit just left of it; alone at the edge when there's no usage pill).
  *
  * A pill with an `action` (e.g. Git → `openPanel:git`) opens that host view on
  * click; without one, it opens the plugin's glance popover.
@@ -100,29 +100,19 @@ export function PluginBubbles({ cwd, paneId }: { cwd: string | null; paneId: str
 
   const visible = plugins.filter((p) => pills[p.id]);
 
-  // Sit just left of the primary pane pill, tracking its real width.
+  // Sit just left of the usage/"spend" pill, tracking its real width.
   useLayoutEffect(() => {
     const pane = wrapRef.current?.closest("[data-pane-id]");
-    if (!pane) return;
-    let primary: HTMLElement | null = null;
-    const findPrimary = () => pane.querySelector(".ct-usage-bubble, .ct-chat-model-bubble") as HTMLElement | null;
-    const update = () => {
-      const next = findPrimary();
-      if (next !== primary) {
-        resizeObserver.disconnect();
-        primary = next;
-        if (primary) resizeObserver.observe(primary);
-      }
-      setRightOffset(primary ? EDGE + primary.offsetWidth + GAP : EDGE);
-    };
-    const resizeObserver = new ResizeObserver(update);
+    const usage = pane?.querySelector(".ct-usage-bubble") as HTMLElement | null;
+    if (!usage) {
+      setRightOffset(EDGE);
+      return;
+    }
+    const update = () => setRightOffset(EDGE + usage.offsetWidth + GAP);
     update();
-    const mutationObserver = new MutationObserver(update);
-    mutationObserver.observe(pane, { childList: true, subtree: true });
-    return () => {
-      mutationObserver.disconnect();
-      resizeObserver.disconnect();
-    };
+    const ro = new ResizeObserver(update);
+    ro.observe(usage);
+    return () => ro.disconnect();
   }, [visible.length]);
 
   const onClick = useCallback((p: BubblePlugin, e: React.MouseEvent) => {
