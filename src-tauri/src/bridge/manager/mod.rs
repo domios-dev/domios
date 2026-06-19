@@ -695,7 +695,7 @@ async fn inject_message(
     text_hooks_cfg: &TextHooksConfig,
 ) -> Result<(), String> {
     let (pane_id, agent_type) = {
-        let mux = svc.mux.lock();
+        let mux = svc.mux.write();
         let pid = mux
             .resolve_pane_id(general_agent::GENERAL_ALIAS)
             .ok_or("General Agent not found")?;

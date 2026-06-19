@@ -308,7 +308,7 @@ impl ServiceContext {
             .unwrap_or_else(|| agent_cmd.clone());
 
         let (ws_id, ws_cwd) = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             let from_parent = spec
                 .parent_pane_id
                 .as_ref()
@@ -340,7 +340,7 @@ impl ServiceContext {
         );
 
         let (tab_id, pane_id) = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             // Apply explicit --title to tab.title up-front (mirrors REST path).
             if let Some(ref t) = spec.title {
@@ -423,7 +423,7 @@ impl ServiceContext {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
         if let Some(ref model) = launch_model {
-            if let Some(pane) = self.mux.lock().get_pane_mut(&pane_id) {
+            if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
                 pane.agent_session_model = Some(model.clone());
             }
         }
@@ -489,7 +489,7 @@ impl ServiceContext {
         spec: SpawnPaneSpec,
     ) -> Result<PaneHandle, String> {
         let (ws_id, ws_cwd) = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             let from_parent = spec
                 .parent_pane_id
                 .as_ref()
@@ -505,7 +505,7 @@ impl ServiceContext {
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
 
         let (tab_id, pane_id) = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             if let Some(ref dir) = resolved_cwd {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
@@ -525,7 +525,7 @@ impl ServiceContext {
         let pty_id = if spec.eager {
             self.ensure_pane_pty_for_send(&pane_id)?;
             self.mux
-                .lock()
+                .write()
                 .get_pane(&pane_id)
                 .and_then(|p| p.pty_id.clone())
         } else {
@@ -549,7 +549,7 @@ impl ServiceContext {
         use std::collections::HashMap;
 
         let ws_id = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             spec.workspace_id
                 .clone()
                 .or_else(|| mux.snapshot().active_workspace_id.clone())
@@ -557,13 +557,13 @@ impl ServiceContext {
                 .ok_or("No workspace for hidden shell")?
         };
         let ws_cwd = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             mux.get_workspace(&ws_id).and_then(|ws| ws.cwd.clone())
         };
         let resolved_cwd = spec.cwd.clone().or(ws_cwd);
 
         let (tab_id, pane_id) = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             if let Some(pane) = mux.get_pane_mut(&result.1) {
                 pane.hidden = true;
@@ -604,7 +604,7 @@ impl ServiceContext {
             pty.spawn(None, resolved_cwd, 120, 40, env_vars)
                 .map(|(id, _)| id)?
         };
-        if let Some(orphan) = self.mux.lock().link_pty(&pane_id, pty_id.clone()) {
+        if let Some(orphan) = self.mux.write().link_pty(&pane_id, pty_id.clone()) {
             self.kill_ptys(&[orphan]);
         }
         self.emit_state_changed();
@@ -686,7 +686,7 @@ impl ServiceContext {
         }
 
         let ws_id = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             spec.workspace_id
                 .clone()
                 .or_else(|| mux.snapshot().active_workspace_id.clone())
@@ -694,13 +694,13 @@ impl ServiceContext {
                 .ok_or("No workspace for hidden spawn")?
         };
         let ws_cwd = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             mux.get_workspace(&ws_id).and_then(|ws| ws.cwd.clone())
         };
         let resolved_cwd = spec.cwd.clone().or(ws_cwd);
 
         let (tab_id, pane_id) = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             if let Some(pane) = mux.get_pane_mut(&result.1) {
                 pane.hidden = true;
@@ -766,7 +766,7 @@ impl ServiceContext {
                 .map(|(id, _)| id)?
         };
 
-        if let Some(orphan) = self.mux.lock().link_pty(&pane_id, pty_id.clone()) {
+        if let Some(orphan) = self.mux.write().link_pty(&pane_id, pty_id.clone()) {
             self.kill_ptys(&[orphan]);
         }
         self.agent_run_pty_map

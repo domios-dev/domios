@@ -814,7 +814,7 @@ pub fn run() {
                     app.try_state::<MuxState>(),
                     app.try_state::<SessionState>(),
                 ) {
-                    let snapshot = mux.lock().to_session_snapshot();
+                    let snapshot = mux.write().to_session_snapshot();
                     if let Err(e) = session.lock().save(&snapshot) {
                         log::error!("Failed to save session: {}", e);
                     } else {

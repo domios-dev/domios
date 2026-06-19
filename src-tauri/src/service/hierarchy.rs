@@ -15,7 +15,7 @@ impl ServiceContext {
         can_spawn: Option<bool>,
     ) -> Result<(), String> {
         let role = Self::parse_role(role_str)?;
-        let mut mux = self.mux.lock();
+        let mut mux = self.mux.write();
         mux.set_pane_role(pane_id, role, parent_pane_id)?;
         if let Some(cs) = can_spawn {
             if let Err(e) = mux.set_can_spawn(pane_id, cs) {
@@ -28,13 +28,13 @@ impl ServiceContext {
     }
 
     pub fn clear_pane_role(&self, pane_id: &str) -> Result<(), String> {
-        self.mux.lock().clear_pane_role(pane_id)?;
+        self.mux.write().clear_pane_role(pane_id)?;
         self.emit_state_changed();
         Ok(())
     }
 
     pub fn set_can_spawn(&self, pane_id: &str, can_spawn: bool) -> Result<(), String> {
-        self.mux.lock().set_can_spawn(pane_id, can_spawn)?;
+        self.mux.write().set_can_spawn(pane_id, can_spawn)?;
         self.emit_state_changed();
         Ok(())
     }
@@ -44,7 +44,7 @@ impl ServiceContext {
     /// → global system inbox. NEVER routes back to the reporter's own pane.
     pub fn submit_report(&self, pane_id: &str, message: &str) -> Result<ReportResult, String> {
         let (from_title, target_opt) = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             resolve_report_target(&mux, pane_id)?
         };
 
@@ -91,7 +91,7 @@ impl ServiceContext {
                 if live {
                     let model = self
                         .mux
-                        .lock()
+                        .write()
                         .get_pane(pane_id)
                         .and_then(|p| p.agent_session_model.clone());
                     let pfx = crate::service::msg_prefix::CtxPrefix::report(&from_title, pane_id)
@@ -116,7 +116,7 @@ impl ServiceContext {
     /// for the chat UI, so gating the PTY inject loses nothing.
     fn target_has_live_agent(&self, target_id: &str) -> bool {
         let pty_id = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             match mux.get_pane(target_id) {
                 Some(p) if p.agent_type.is_some() => p.pty_id.clone(),
                 _ => return false,
@@ -151,7 +151,7 @@ impl ServiceContext {
     }
 
     pub fn get_pane_status(&self, pane_id: &str) -> Result<PaneStatusInfo, String> {
-        let mux = self.mux.lock();
+        let mux = self.mux.write();
         let pane = mux
             .get_pane(pane_id)
             .ok_or(format!("Pane not found: {}", pane_id))?;

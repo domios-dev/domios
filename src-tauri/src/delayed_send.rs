@@ -385,13 +385,13 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
 
 fn resolve_pane_id(svc: &ServiceState, id_or_alias: &str) -> Result<String, String> {
     svc.mux
-        .lock()
+        .write()
         .resolve_pane_id(id_or_alias)
         .ok_or_else(|| "Pane not found".to_string())
 }
 
 fn pane_context(svc: &ServiceState, pane_id: &str) -> (Option<String>, Option<String>) {
-    let mux = svc.mux.lock();
+    let mux = svc.mux.write();
     let workspace_id = mux.find_workspace_for_pane(pane_id);
     let session_id = mux
         .get_pane(pane_id)
@@ -402,7 +402,7 @@ fn pane_context(svc: &ServiceState, pane_id: &str) -> (Option<String>, Option<St
 fn to_view(svc: &ServiceState, msg: DelayedMessage) -> DelayedMessageView {
     let current_session_id = svc
         .mux
-        .lock()
+        .write()
         .get_pane(&msg.pane_id)
         .and_then(|pane| pane.agent_session_id.clone());
     let session_changed = match (&msg.session_id_at_create, &current_session_id) {

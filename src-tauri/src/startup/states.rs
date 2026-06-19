@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 
 use crate::config::{self, ConfigState};
 use crate::multiplexer::commands::MuxState;
@@ -137,7 +137,7 @@ pub(crate) fn init_states() -> AppStates {
         service::general_agent::ensure_general_workspace(&mut mux_state_inner, default_chat_view);
     }
 
-    let mux_state: MuxState = Arc::new(Mutex::new(mux_state_inner));
+    let mux_state: MuxState = Arc::new(RwLock::new(mux_state_inner));
 
     AppStates {
         config: config_state,

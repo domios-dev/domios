@@ -78,7 +78,7 @@ pub(super) fn dispatch(
                         message: e,
                     })?;
                 svc.mux
-                    .lock()
+                    .write()
                     .get_pane(&pane_id)
                     .and_then(|p| p.pty_id.clone())
             } else {
@@ -94,7 +94,7 @@ pub(super) fn dispatch(
         "workspace.focus" => {
             let id = get_string_param(params, "workspace_id")?;
             {
-                let mut mux = mux.lock();
+                let mut mux = mux.write();
                 mux.set_active_workspace(&id).map_err(|e| JsonRpcError {
                     code: -32602,
                     message: e,
@@ -141,7 +141,7 @@ pub(super) fn dispatch(
             let from_id = get_string_param(params, "from_workspace_id")?;
             let to_id = get_string_param(params, "to_workspace_id")?;
             {
-                let mut mux = mux.lock();
+                let mut mux = mux.write();
                 mux.move_tab(&tab_id, &from_id, &to_id)
                     .map_err(|e| JsonRpcError {
                         code: -32602,

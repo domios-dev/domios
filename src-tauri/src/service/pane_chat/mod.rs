@@ -446,7 +446,7 @@ pub fn pane_chat_snapshot(
     // lives in the plugin session, not a JSONL/sqlite file. Branch on the pane
     // backing so `pane chat` / chat-ui work on these panes too (S9).
     let backing = {
-        let m = svc.mux.lock();
+        let m = svc.mux.write();
         m.get_pane(pane_id).ok_or("pane not found")?.backing.clone()
     };
     match backing {
@@ -462,7 +462,7 @@ pub fn pane_chat_snapshot(
         }
         crate::multiplexer::types::PaneBacking::Pty => {
             let (provider_id, cwd, session_id) = {
-                let m = svc.mux.lock();
+                let m = svc.mux.write();
                 let pane = m.get_pane(pane_id).ok_or("pane not found")?;
                 let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
                 let cwd = pane.cwd.clone().unwrap_or_default();

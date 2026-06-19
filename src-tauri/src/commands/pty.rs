@@ -25,7 +25,7 @@ pub async fn spawn_pty(
     // Protected panes reuse their backend PTY; wait briefly to avoid duplicate launch.
     if let Some(ref pid) = pane_id {
         let (is_protected, existing) = {
-            let m = mux_state.lock();
+            let m = mux_state.write();
             let p = m.get_pane(pid);
             (
                 p.map(|p| p.protected).unwrap_or(false),
@@ -48,7 +48,7 @@ pub async fn spawn_pty(
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             loop {
                 if let Some(existing) = mux_state
-                    .lock()
+                    .write()
                     .get_pane(pid)
                     .and_then(|p| p.pty_id.clone())
                 {
@@ -83,7 +83,7 @@ pub async fn spawn_pty(
     if let Some(ref pid) = pane_id {
         env_vars.insert("CODETERM_PANE_ID".to_string(), pid.clone());
         // Pass role/parent info so agents know their place in hierarchy
-        let mux = mux_state.lock();
+        let mux = mux_state.write();
         if let Some(pane) = mux.get_pane(pid) {
             if let Some(ref role) = pane.role {
                 env_vars.insert("CODETERM_ROLE".to_string(), format!("{:?}", role));
@@ -143,7 +143,7 @@ pub async fn spawn_pty(
     // Auto-resume pane session after shell is ready.
     if let Some(ref pid) = pane_id {
         let (session_id, is_protected, pane_cwd, restored_from_snapshot, agent_type, pane_model) = {
-            let m = mux_state.lock();
+            let m = mux_state.write();
             let pane = m.get_pane(pid);
             (
                 pane.and_then(|p| p.agent_session_id.clone()),
@@ -436,7 +436,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
 
             // Emit status change event to frontend
             if now != prev {
-                let pane_id = mux.lock().pane_id_for_pty(&pty_id);
+                let pane_id = mux.write().pane_id_for_pty(&pty_id);
                 if let Some(ref pid) = pane_id {
                     crate::api::events::emit_everywhere(
                         &app,
@@ -454,7 +454,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
         Err(e) => {
             // PTY died
             tracker.lock().set_dead(&pty_id);
-            let pane_id = mux.lock().pane_id_for_pty(&pty_id);
+            let pane_id = mux.write().pane_id_for_pty(&pty_id);
             if let Some(ref pid) = pane_id {
                 crate::api::events::emit_everywhere(
                     &app,
@@ -579,7 +579,7 @@ fn mark_user_activity(
     mux: &crate::multiplexer::commands::MuxState,
     pty_id: &str,
 ) {
-    let pane_id = mux.lock().pane_id_for_pty(pty_id);
+    let pane_id = mux.write().pane_id_for_pty(pty_id);
     if let Some(pid) = pane_id {
         svc.usage_activity.mark(&pid);
     }
@@ -595,7 +595,7 @@ fn parse_pty_input(
     bytes: &[u8],
 ) {
     let (pane_id, locked) = {
-        let m = mux.lock();
+        let m = mux.write();
         let pid = m.pane_id_for_pty(pty_id);
         let locked = pid
             .as_ref()
@@ -690,7 +690,7 @@ pub async fn kill_pty(
     // Protected panes (General Agent) own backend PTYs. Ignore kill_pty
     // if it targets an already-owned PTY to avoid tearing GA down mid-launch.
     let owned_by_protected = {
-        let mux = mux_state.lock();
+        let mux = mux_state.write();
         mux.pane_id_for_pty(&pty_id)
             .and_then(|pid| mux.get_pane(&pid).map(|p| p.protected))
             .unwrap_or(false)

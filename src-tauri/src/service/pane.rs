@@ -16,9 +16,9 @@ impl ServiceContext {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
         }
 
-        let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
-        let pty_ids = self.mux.lock().close_pane(pane_id)?;
-        let post_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
+        let pre_focus = self.mux.write().get_focused_pane_id().map(str::to_string);
+        let pty_ids = self.mux.write().close_pane(pane_id)?;
+        let post_focus = self.mux.write().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.prompt_detector.lock().remove_pane(pane_id);
         self.emit_state_changed();
@@ -33,7 +33,7 @@ impl ServiceContext {
     pub fn rename_pane(&self, pane_id: &str, title: &str) -> Result<(), String> {
         // Sync tab.title so the sidebar label matches.
         let tab_sync = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             let mut sync = None;
             'outer: for ws in mux.snapshot().workspaces.iter() {
                 for tab in &ws.tabs {
@@ -45,9 +45,9 @@ impl ServiceContext {
             }
             sync
         };
-        self.mux.lock().rename_pane(pane_id, title)?;
+        self.mux.write().rename_pane(pane_id, title)?;
         if let Some((ws_id, tab_id)) = tab_sync {
-            let _ = self.mux.lock().rename_tab(&ws_id, &tab_id, title);
+            let _ = self.mux.write().rename_tab(&ws_id, &tab_id, title);
         }
         self.emit_pane_title_pinned(pane_id, title);
         self.emit_state_changed();
@@ -56,21 +56,21 @@ impl ServiceContext {
 
     /// Label only the pane, leaving the tab's (auto-generated, unique) name untouched.
     pub fn set_pane_title(&self, pane_id: &str, title: &str) -> Result<(), String> {
-        self.mux.lock().rename_pane(pane_id, title)?;
+        self.mux.write().rename_pane(pane_id, title)?;
         self.emit_pane_title_pinned(pane_id, title);
         self.emit_state_changed();
         Ok(())
     }
 
     pub fn focus_pane(&self, pane_id: &str) -> Result<(), String> {
-        self.mux.lock().set_focused_pane(pane_id)?;
+        self.mux.write().set_focused_pane(pane_id)?;
         self.emit_pane_focus_changed(pane_id);
         self.refresh_focused_pane_model();
         Ok(())
     }
 
     pub fn link_pty(&self, pane_id: &str, pty_id: String) {
-        if let Some(orphan) = self.mux.lock().link_pty(pane_id, pty_id) {
+        if let Some(orphan) = self.mux.write().link_pty(pane_id, pty_id) {
             log::warn!(
                 "[link_pty] pane {} relinked — killing orphan pty {}",
                 pane_id,
@@ -82,13 +82,13 @@ impl ServiceContext {
     }
 
     pub fn update_pane_cwd(&self, pane_id: &str, cwd: String) {
-        if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
+        if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
             pane.cwd = Some(cwd);
         }
     }
 
     pub fn clear_pane_restored_flag(&self, pane_id: &str) {
-        let mut mux = self.mux.lock();
+        let mut mux = self.mux.write();
         if let Some(pane) = mux.get_pane_mut(pane_id) {
             pane.restored_from_snapshot = false;
         }
@@ -108,7 +108,7 @@ impl ServiceContext {
     /// Release the lock without changing `agent_type`. Public so a future Tauri
     /// command can disconnect an agent identity without clearing it.
     pub fn unlock_pane_agent_type(&self, pane_id: &str) {
-        let mut mux = self.mux.lock();
+        let mut mux = self.mux.write();
         if let Some(pane) = mux.get_pane_mut(pane_id) {
             pane.agent_type_locked = false;
         }
@@ -116,7 +116,7 @@ impl ServiceContext {
 
     fn write_pane_agent_type(&self, pane_id: &str, agent_type: Option<String>, lock: bool) {
         let transition = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let Some(pane) = mux.get_pane_mut(pane_id) else {
                 return;
             };
@@ -150,7 +150,7 @@ impl ServiceContext {
             }
         } else {
             // Drop friendly name on agent clear; keep the last-seen model so the tab doesn't flicker blank between sessions.
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             if let Some(pane) = mux.get_pane_mut(pane_id) {
                 pane.agent_session_name = None;
             }
@@ -163,7 +163,7 @@ impl ServiceContext {
     /// Also kicks the global focused-pane model poller — one thread total.
     pub fn kick_off_pollers_for_existing_agents(&self) {
         let restored: Vec<(String, String, bool)> = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             mux.snapshot()
                 .panes
                 .values()
@@ -176,7 +176,7 @@ impl ServiceContext {
         };
         for (pane_id, agent_id, needs_session) in restored {
             if needs_session {
-                let mut mux = self.mux.lock();
+                let mut mux = self.mux.write();
                 if let Some(pane) = mux.get_pane_mut(&pane_id) {
                     if pane.agent_session_id.is_none() && pane.agent_set_at.is_none() {
                         pane.agent_set_at = Some(std::time::Instant::now());
@@ -200,7 +200,7 @@ impl ServiceContext {
             loop {
                 std::thread::sleep(step);
                 let target = {
-                    let mux = svc.mux.lock();
+                    let mux = svc.mux.write();
                     let focused = mux.snapshot().focused_pane_id;
                     focused.and_then(|id| {
                         mux.get_pane(&id)
@@ -219,7 +219,7 @@ impl ServiceContext {
     /// instant the user switches tabs, instead of waiting up to one tick.
     pub fn refresh_focused_pane_model(&self) {
         let target: Option<(String, String)> = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             mux.snapshot().focused_pane_id.and_then(|id| {
                 mux.get_pane(&id)
                     .and_then(|p| p.agent_type.clone())
@@ -233,7 +233,7 @@ impl ServiceContext {
 
     fn refresh_session_model_once(&self, pane_id: &str, agent_id: &str) {
         let (cwd, session_id, current_model) = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             let Some(p) = mux.get_pane(pane_id) else {
                 return;
             };
@@ -252,7 +252,7 @@ impl ServiceContext {
                 .flatten()
             {
                 let claimed = {
-                    let mut mux = self.mux.lock();
+                    let mut mux = self.mux.write();
                     if mux.other_session_ids(pane_id).contains(&new_sid) {
                         false
                     } else if let Some(p) = mux.get_pane_mut(pane_id) {
@@ -280,7 +280,7 @@ impl ServiceContext {
         }
         // Model badge needs a bound session. Binding is provider-reported only — we never guess one from the filesystem here; an unbound pane just has no model badge yet.
         let sid = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             mux.get_pane(pane_id)
                 .and_then(|p| p.agent_session_id.clone())
         };
@@ -297,7 +297,7 @@ impl ServiceContext {
             return;
         }
         let model = Some(model);
-        let mut mux = self.mux.lock();
+        let mut mux = self.mux.write();
         if let Some(p) = mux.get_pane_mut(pane_id) {
             if p.agent_type.as_deref() == Some(agent_id) {
                 log::info!(
@@ -330,7 +330,7 @@ impl ServiceContext {
             for _ in 0..30u32 {
                 std::thread::sleep(step);
                 let (pty_id, already, current_agent) = {
-                    let mux = svc.mux.lock();
+                    let mux = svc.mux.write();
                     let Some(p) = mux.get_pane(&pane_id) else {
                         return;
                     };
@@ -360,7 +360,7 @@ impl ServiceContext {
                     .with_provider(&agent_id, |p| p.extract_session_name(&screen))
                     .flatten();
                 if let Some(name) = name {
-                    let mut mux = svc.mux.lock();
+                    let mut mux = svc.mux.write();
                     if let Some(p) = mux.get_pane_mut(&pane_id) {
                         if p.agent_type.as_deref() == Some(agent_id.as_str())
                             && p.agent_session_name.is_none()
@@ -431,7 +431,7 @@ impl ServiceContext {
     /// atomically. Resume/snapshot rehydrate paths intentionally re-set the
     /// same id on the same pane and are unaffected.
     pub fn set_agent_session_id(&self, pane_id: &str, session_id: Option<String>) {
-        let mut mux = self.mux.lock();
+        let mut mux = self.mux.write();
         if let Some(ref new_sid) = session_id {
             let conflict = mux
                 .pane_ids_with_session(new_sid)
@@ -452,7 +452,7 @@ impl ServiceContext {
 
     /// Per-launch binding nonce for a pane, generated once and reused. Injected as CODETERM_SESSION_BINDING_NONCE so a provider's session-start report can prove it owns this pane; a report carrying a different nonce is a stale/foreign claim and gets rejected.
     pub fn ensure_session_binding_nonce(&self, pane_id: &str) -> String {
-        let mut mux = self.mux.lock();
+        let mut mux = self.mux.write();
         if let Some(pane) = mux.get_pane_mut(pane_id) {
             if let Some(ref n) = pane.session_binding_nonce {
                 return n.clone();
@@ -467,7 +467,7 @@ impl ServiceContext {
 
     /// Set chat view state on a pane.
     pub fn set_chat_view(&self, pane_id: &str, enabled: bool) {
-        if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
+        if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
             pane.chat_view = enabled;
         }
     }
@@ -490,7 +490,7 @@ impl ServiceContext {
     /// Clear pending_prompt state without sending anything to PTY.
     /// Used for test cleanup and state reset.
     pub fn clear_prompt(&self, pane_id: &str) -> Result<(), String> {
-        if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
+        if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
             pane.pending_prompt = None;
         }
         // Reset PromptDetector state so next inject is accepted (not blocked by same_options check)
@@ -503,7 +503,7 @@ impl ServiceContext {
     /// Only sends to PTY if there's actually a pending prompt (avoids phantom input).
     pub fn respond_prompt(&self, pane_id: &str, value: &str) -> Result<(), String> {
         let had_prompt = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let pane = mux
                 .get_pane_mut(pane_id)
                 .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
@@ -532,7 +532,7 @@ impl ServiceContext {
 
                 let agent_type = self
                     .mux
-                    .lock()
+                    .write()
                     .get_pane(pane_id)
                     .and_then(|p| p.agent_type.clone());
                 let steps = if let Some(ref at) = agent_type {

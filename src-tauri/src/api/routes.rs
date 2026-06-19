@@ -721,7 +721,7 @@ pub(crate) fn resolve_pane(
     state: &AppState,
     raw_id: &str,
 ) -> Result<String, (StatusCode, &'static str)> {
-    let mux = state.svc.mux.lock();
+    let mux = state.svc.mux.write();
     mux.resolve_pane_id(raw_id)
         .ok_or((StatusCode::NOT_FOUND, "Pane not found"))
 }

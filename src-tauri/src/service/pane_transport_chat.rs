@@ -163,7 +163,7 @@ impl ServiceContext {
         use crate::multiplexer::types::PaneBacking;
 
         let (plugin_id, old_session) = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             let Some(resolved) = mux.resolve_pane_id(pane_id) else {
                 return Ok(None);
             };
@@ -195,7 +195,7 @@ impl ServiceContext {
         );
 
         {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             if let Some(resolved) = mux.resolve_pane_id(pane_id) {
                 if let Some(pane) = mux.get_pane_mut(&resolved) {
                     pane.backing = PaneBacking::ChatBackend {

@@ -132,7 +132,7 @@ impl ServiceContext {
     /// methods use to short-circuit to the plugin transport before touching a
     /// PTY.
     pub(crate) fn pane_chat_backing(&self, pane_id: &str) -> Option<(String, String)> {
-        let mux = self.mux.lock();
+        let mux = self.mux.write();
         let resolved = mux.resolve_pane_id(pane_id)?;
         match mux.get_pane(&resolved)?.backing.clone() {
             PaneBacking::ChatBackend {
@@ -148,7 +148,7 @@ impl ServiceContext {
     /// agent recipients only (BUG A): a plain shell pane must never receive an
     /// injected `<context>` block.
     pub(crate) fn pane_has_agent(&self, pane_id: &str) -> bool {
-        let mux = self.mux.lock();
+        let mux = self.mux.write();
         mux.resolve_pane_id(pane_id)
             .and_then(|resolved| mux.get_pane(&resolved).and_then(|p| p.agent_type.clone()))
             .is_some()
@@ -179,7 +179,7 @@ impl ServiceContext {
     /// unknown.
     pub fn pane_transport(&self, pane_id: &str) -> Result<Box<dyn PaneTransport + '_>, String> {
         let (resolved, backing) = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             let resolved = mux
                 .resolve_pane_id(pane_id)
                 .ok_or_else(|| format!("Pane {} not found", pane_id))?;

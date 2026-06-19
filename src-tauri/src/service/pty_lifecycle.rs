@@ -133,7 +133,7 @@ async fn backend_read_loop(
                 // a background tab may stay unmounted forever.
                 if data.windows(4).any(|w| w == b"\x1b[6n") {
                     let is_hidden = {
-                        let mux = svc.mux.lock();
+                        let mux = svc.mux.write();
                         mux.pane_id_for_pty(&pty_id)
                             .and_then(|pid| mux.get_pane(&pid).map(|p| p.hidden))
                             .unwrap_or(false)
@@ -155,7 +155,7 @@ async fn backend_read_loop(
                 let _ = frontend_tx.try_send(data.clone());
 
                 if now != prev {
-                    let pane_id = svc.mux.lock().pane_id_for_pty(&pty_id);
+                    let pane_id = svc.mux.write().pane_id_for_pty(&pty_id);
                     if let Some(ref pid) = pane_id {
                         crate::api::events::emit_everywhere(
                             &svc.app_handle,
@@ -194,7 +194,7 @@ async fn backend_read_loop(
 
 /// Mark PTY as dead and emit events — mirrors the Err branch in read_pty.
 fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
-    let pane_id = svc.mux.lock().pane_id_for_pty(pty_id);
+    let pane_id = svc.mux.write().pane_id_for_pty(pty_id);
     svc.agent_tracker.lock().set_dead(pty_id);
 
     if let Some(ref pid) = pane_id {

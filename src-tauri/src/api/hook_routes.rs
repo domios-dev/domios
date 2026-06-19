@@ -18,7 +18,7 @@ struct SessionStartClaim {
 fn ensure_agent_state(state: &AppState, pane_id: &str) {
     log::info!("[ensure_agent_state] called for pane {}", pane_id);
     let agent_type = {
-        let mux = state.svc.mux.lock();
+        let mux = state.svc.mux.write();
         let pane = match mux.get_pane(pane_id) {
             Some(p) => p,
             None => return,
@@ -86,13 +86,13 @@ pub async fn hook_permission(
         let pty_id = state
             .svc
             .mux
-            .lock()
+            .write()
             .get_pane(&pane_id)
             .and_then(|p| p.pty_id.clone());
         let agent_type = state
             .svc
             .mux
-            .lock()
+            .write()
             .get_pane(&pane_id)
             .and_then(|p| p.agent_type.clone());
 
@@ -170,7 +170,7 @@ pub async fn hook_permission(
         let title = state
             .svc
             .mux
-            .lock()
+            .write()
             .get_pane(&pane_id)
             .map(|p| p.title.clone());
         if let Some(title) = title {
@@ -198,7 +198,7 @@ pub async fn hook_stop(
     let title = state
         .svc
         .mux
-        .lock()
+        .write()
         .get_pane(&pane_id)
         .map(|p| p.title.clone());
     if let Some(title) = title {
@@ -215,7 +215,7 @@ pub async fn hook_stop(
     // Stop = turn boundary, not exit — agent_type stays; PTY-close clears it.
     state.svc.prompt_detector.lock().clear(&pane_id);
     {
-        let mut mux = state.svc.mux.lock();
+        let mut mux = state.svc.mux.write();
         if let Some(pane) = mux.get_pane_mut(&pane_id) {
             pane.pending_prompt = None;
         }
@@ -279,7 +279,7 @@ pub async fn hook_session_start(
         let existing = state
             .svc
             .mux
-            .lock()
+            .write()
             .get_pane(&pane_id)
             .and_then(|p| p.agent_type.clone());
         provider_id
@@ -288,7 +288,7 @@ pub async fn hook_session_start(
     };
 
     let claim = {
-        let mut mux = state.svc.mux.lock();
+        let mut mux = state.svc.mux.write();
         bind_reported_session(
             &mut mux,
             state.svc.agent_registry.as_ref(),
@@ -330,7 +330,7 @@ fn propagate_run_session(state: &AppState, pane_id: &str, sid: &str) {
     use tauri::{Emitter, Manager};
 
     let (worker_id, cwd) = {
-        let mux = state.svc.mux.lock();
+        let mux = state.svc.mux.write();
         let pane = mux.get_pane(pane_id);
         (
             pane.and_then(|p| p.worker_id.clone()),
