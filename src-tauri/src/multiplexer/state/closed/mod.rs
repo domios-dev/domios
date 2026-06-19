@@ -266,8 +266,23 @@ impl MultiplexerState {
         self.materialize_closed_pane(workspace_id, &record)
     }
 
-    /// Reopen a pane whose original workspace was deleted: recreate the
-    /// workspace from the stored name + cwd, then materialize the pane.
+    /// Resolve the workspace a restore should land in. If a LIVE workspace
+    /// already points at the same folder (`cwd`), reopen into it rather than
+    /// spawning a duplicate — a closed tab from `/foo` returns to the user's
+    /// existing `/foo` workspace. Falls back to a fresh workspace from the
+    /// stored name + cwd when nothing matches.
+    fn restore_target_workspace(&mut self, name: String, cwd: Option<String>) -> String {
+        if let Some(path) = cwd.as_deref() {
+            if let Some(ws) = self.find_workspace_by_cwd(path) {
+                return ws.id.clone();
+            }
+        }
+        self.create_workspace(name, cwd).id
+    }
+
+    /// Reopen a pane whose original workspace was deleted: reuse a live
+    /// workspace at the same path if one exists, else recreate from the stored
+    /// name + cwd, then materialize the pane.
     /// Returns `(workspace_id, tab_id, pane_id)`.
     pub fn reopen_orphaned_pane(
         &mut self,
@@ -277,8 +292,8 @@ impl MultiplexerState {
             .closed_store
             .take_by_pane_id(pane_id)
             .ok_or_else(|| format!("No orphaned entry for pane_id: {}", pane_id))?;
-        let ws_info = self.create_workspace(record.workspace_name.clone(), record.cwd.clone());
-        let workspace_id = ws_info.id;
+        let workspace_id =
+            self.restore_target_workspace(record.workspace_name.clone(), record.cwd.clone());
         let (tab_id, new_pane_id) = self.materialize_closed_pane(&workspace_id, &record)?;
         Ok((workspace_id, tab_id, new_pane_id))
     }
@@ -301,16 +316,20 @@ impl MultiplexerState {
         }
 
         let workspace_id = match group.kind {
-            GroupKind::Workspace => {
-                self.create_workspace(group.workspace_name.clone(), group.workspace_cwd.clone())
-                    .id
-            }
+            GroupKind::Workspace => self
+                .restore_target_workspace(group.workspace_name.clone(), group.workspace_cwd.clone()),
             _ => {
                 if self.workspaces.iter().any(|w| w.id == group.workspace_id) {
                     group.workspace_id.clone()
                 } else {
-                    self.create_workspace(group.workspace_name.clone(), group.workspace_cwd.clone())
-                        .id
+                    // Origin workspace is gone: match a live one by path. Fall
+                    // back to the lead pane's cwd when the group never recorded
+                    // a workspace cwd (single/cascade closes).
+                    let cwd = group
+                        .workspace_cwd
+                        .clone()
+                        .or_else(|| panes.iter().find_map(|p| p.cwd.clone()));
+                    self.restore_target_workspace(group.workspace_name.clone(), cwd)
                 }
             }
         };
