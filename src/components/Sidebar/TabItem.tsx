@@ -19,6 +19,7 @@ import { TelegramIcon, TerminalIcon } from "../Icons";
 import { ProviderGlyph } from "../ProviderGlyph";
 import type { Pane, PaneStatus, Tab } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
+import { formatModelBadge } from "../../lib/formatModelBadge";
 
 interface TabItemProps {
   tab: Tab;
@@ -66,6 +67,7 @@ function TabItemInner({
   // Agent panes carry the model on the pane record; shell panes don't — fall
   // back to the live chatBackend session model (fetched/cached out of band).
   const tabModel = pane?.agent_session_model ?? shellSessionModel;
+  const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
   const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
@@ -193,7 +195,7 @@ function TabItemInner({
           }}
         />
       )}
-      <div className={`flex items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
+      <div className={`flex flex-1 items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
         {provider ? (
           // Agent (descriptor) OR chatBackend shell (plugin snapshot) — both
           // resolve through usePaneProvider, so shell panes get their plugin
@@ -275,13 +277,13 @@ function TabItemInner({
         )}
       </div>
       {/* Right slot: model badge by default, 3-dot menu on hover (layered) */}
-      <div className="shrink-0 relative z-[1] flex items-center">
-        {tabModel && !touchMode && (
+      <div className="shrink-0 relative z-[1] flex items-center max-w-[40%] overflow-hidden">
+        {tabModelBadge && !touchMode && (
           <span
             className="sidebar-tab-badge px-1 py-0 text-[8px] leading-tight rounded font-mono uppercase tracking-wider border border-[var(--ct-border)] text-[var(--ct-muted-fg)]"
-            title={tabModel}
+            title={tabModel ?? undefined}
           >
-            {tabModel}
+            {tabModelBadge}
           </span>
         )}
         {menuItems.length > 0 && (
