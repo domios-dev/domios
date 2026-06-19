@@ -334,7 +334,11 @@ for r in rows:
         r[6] = pane.get('agent_session_id') or ''
 pathlib.Path(slots_path).write_text('\n'.join('\t'.join(r) for r in rows) + '\n', encoding='utf-8')
 PY
-  while IFS=$'\t' read -r provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model; do
+  local line line_usv provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    line_usv=${line//$'\t'/$'\034'}
+    IFS=$'\034' read -r provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model <<< "$line_usv"
     if [ -n "${pane_id:-}" ]; then
       replace_slot_field "$provider" "$idx" booted_model "$(detect_booted_model_evidence "$provider" "$pane_id")"
     fi
@@ -467,8 +471,11 @@ prepare_slots() {
 }
 
 spawn_all_slots() {
-  local pids=() provider idx model marker
-  while IFS=$'\t' read -r provider idx model _pane _tab marker _sid_before _sid_after _skipped _reason _booted_model; do
+  local pids=() line line_usv provider idx model marker _pane _tab _sid_before _sid_after _skipped _reason _booted_model
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    line_usv=${line//$'\t'/$'\034'}
+    IFS=$'\034' read -r provider idx model _pane _tab marker _sid_before _sid_after _skipped _reason _booted_model <<< "$line_usv"
     (
       spawn_slot "$provider" "$idx" "$model" "$marker"
     ) &
@@ -480,8 +487,11 @@ spawn_all_slots() {
 }
 
 send_all_markers() {
-  local pids=() provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model
-  while IFS=$'\t' read -r provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model; do
+  local pids=() line line_usv provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    line_usv=${line//$'\t'/$'\034'}
+    IFS=$'\034' read -r provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model <<< "$line_usv"
     if [ -n "${pane_id:-}" ] && [ "${skipped:-0}" != "1" ]; then
       (
         send_marker_and_wait "$provider" "$idx" "$pane_id" "$marker"
