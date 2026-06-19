@@ -26,6 +26,8 @@ const manifest = manifestPath
   ? JSON.parse(readFileSync(manifestPath, "utf8")) as MatrixManifest
   : null;
 
+test.describe.configure({ retries: 0 });
+
 async function visibleChatTextForPane(ui: ManagedUiSession, paneId: string): Promise<string> {
   const chat = ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`);
   if ((await chat.count()) === 0) return "";
@@ -59,7 +61,6 @@ test("@golden restore matrix markers are isolated in restored provider ChatViews
     expect(slot.pane_id, `slot ${slot.provider}/${slot.index} missing pane_id`).toBeTruthy();
     expect(slot.tab_id, `slot ${slot.provider}/${slot.index} missing tab_id`).toBeTruthy();
 
-    await api.post(`/panes/${slot.pane_id!}/chat-view`, { enabled: true });
     await api.focusPane(slot.pane_id!);
     const tab = ui.page.locator(`[data-testid="tab-item"][data-tab-id="${slot.tab_id}"]`);
     await expect(
@@ -67,6 +68,11 @@ test("@golden restore matrix markers are isolated in restored provider ChatViews
       `tab visible for provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id}`,
     ).toBeVisible({ timeout: 30_000 });
     await tab.click();
+    await expect(
+      ui.page.locator(`[data-pane-id="${slot.pane_id}"]`),
+      `pane mounted for provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id}`,
+    ).toBeVisible({ timeout: 30_000 });
+    await api.post(`/panes/${slot.pane_id!}/chat-view`, { enabled: true });
     const chat = ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${slot.pane_id}"]`);
     await expect(
       chat,
