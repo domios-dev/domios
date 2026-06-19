@@ -8,17 +8,13 @@
 Mainline: `plugins-rethink` (@ 0c8f884b at audit time). Gate: pre-push hook
 (clippy --all-targets + CLIPPY_ALLOW + fmt), authoritative.
 
-## Wave 1 — CI red / hygiene (small, isolated, unblock CI)
+## Wave 1 — CI red / hygiene (small, isolated, unblock CI) — ✅ DONE
 
-- **W1.CI-green** (codex) — `scripts/check-prompts-doc.sh` calls `python` (missing;
-  only python3) → use python3; AND document `src-tauri/prompts/plugin_agent_task_preamble.md`
-  in `docs/PROMPTS.md` (the gap it flags). Bump PROMPTS.md revision. Files:
-  scripts/check-prompts-doc.sh, docs/PROMPTS.md. STATUS: dispatched.
-- **W1.T10** (codex) — split 4 oversized files by responsibility + fix
-  `check-file-sizes.sh` bash-3.2 compat (`declare -A`) + update allowlist baselines:
-  `mem/graph_repair/tests.rs` 1320, `mem/graph_repair.rs` 1077,
-  `commands/plugins.rs` 1289, `plugin/js_runtime/manifest.rs` 1007 → each <1000.
-  (Coupled: fixing the script reveals these violations.)
+- **W1.CI-green** (codex) — ✅ MERGED (55f1ba19): check-prompts-doc.sh → python3 +
+  documented plugin_agent_task_preamble.md in PROMPTS.md.
+- **W1.T10** (codex) — ✅ MERGED (0c69fb6a): split plugins.rs/graph_repair.rs/
+  graph_repair tests/manifest.rs into 15+ files (all <1000) + bash-3.2-compatible
+  check-file-sizes.sh + allowlist cleanup. 1731 lib + 8 pty tests green.
 
 ## Wave 2 — perf follow-ups (Kain) + guard wiring
 
@@ -62,7 +58,25 @@ Mainline: `plugins-rethink` (@ 0c8f884b at audit time). Gate: pre-push hook
   `describeModelSwitch` + generic UI confirm). Spec: same doc P6.
 - **W4.S9-verify** (manager) — confirm `GET /api/panes/{id}/chat` no longer 400s
   for chatBackend + system_prompt card renders (mostly done by restore-fix). Live.
-- **W4.D1-4** (codex) — preset-manager UX (frontend-design). Spec: same doc.
+- **W4.D1-4** (codex) — preset-manager UX (frontend-design). **SUPERSEDED by Wave R
+  (R5)** — do not run separately.
+
+## Wave R — chatBackend / LM Studio robustness + UX (NEW, Andrey 2026-06-19)
+
+Spec: `docs/plans/2026-06-19-chatbackend-robustness-ux.md`. Small local models
+can't hold a strict tool-call format → tolerant Rust parser + nicer render +
+simpler example-led prompt + flexible preset↔model binding + UX. Sequencing:
+R1 → R2/R3 → R4 → R5 → R6.
+
+- **WR.R1** (codex) — robust tool-call extractor in Rust (generic `host.toolcall.parse`,
+  de-fence, native-syntax-tolerant, JSON-repair, alias-normalize, schema-validate,
+  golden+negative corpus, native/JS parity). FIRST — unblocks R2/R3.
+- **WR.R2** (codex) — structured per-tool styled rendering in chat-ui.
+- **WR.R3** (codex/plugin) — simpler example-led lmstudio prompt + per-model variant.
+- **WR.R4** (codex/plugin) — flexible preset↔model binding (plugin-side).
+- **WR.R5** (codex, frontend-design skill) — model bubble → terminal-bubble spot +
+  preset manager (replaces W4.D1-4) + system-prompt card polish.
+- **WR.R6** (codex/plugin) — author/refine a pane's system prompt via another pane.
 
 ## Wave 5 — big subsystems (design done, schedule after 1-4)
 
