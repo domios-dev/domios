@@ -2,8 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_BIN="$(command -v python3 || command -v python)"
 
-python - "$ROOT" <<'PY'
+"$PYTHON_BIN" - "$ROOT" <<'PY'
 from pathlib import Path
 import re
 import sys
