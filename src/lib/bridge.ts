@@ -26,6 +26,11 @@ export { IS_WEB };
 type Args = Record<string, unknown>;
 type Mapper = (args: Args) => Promise<unknown>;
 const webPtyOffsets = new Map<string, number>();
+let invokeForTest: (<T>(cmd: string, args?: Args) => Promise<T>) | null = null;
+
+export function __setInvokeForTest(fn: (<T>(cmd: string, args?: Args) => Promise<T>) | null): void {
+  invokeForTest = fn;
+}
 
 /** Drop the tail cursor so the next read_pty replays retained history from 0. */
 export function resetWebPtyTail(ptyId: string): void {
@@ -370,6 +375,7 @@ if (typeof PerformanceObserver !== "undefined") {
 }
 
 export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
+  if (invokeForTest) return invokeForTest<T>(cmd, args);
   const t0 = performance.now();
   try {
     return await invokeRaw<T>(cmd, args);
