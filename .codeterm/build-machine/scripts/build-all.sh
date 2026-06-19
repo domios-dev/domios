@@ -34,6 +34,15 @@ echo "### creating auth-free source bundle for $TAG"
 git -C "$REPO" bundle create "/tmp/codeterm-${TAG}.bundle" "$TAG"
 cp "/tmp/codeterm-${TAG}.bundle" "$LWORK/${TAG}.bundle"
 
+# Pre-warm the Windows VM so it cold-boots in parallel with wave-1's mac/linux compiles instead of
+# starting from cold under full CPU contention when the windows engine first reaches it (that
+# starves the boot and the stability gate times out). build-windows.sh's gate waits for it.
+VM_DIR="$HOME/VMs/codeterm-win11-arm"
+if [ -x "$VM_DIR/vm.sh" ] && ! pgrep -f qemu-system-aarch64 >/dev/null 2>&1; then
+  echo "### pre-warming Windows VM (background) so it is ready by the time the windows engine needs it"
+  ( cd "$VM_DIR" && nohup ./vm.sh run >/tmp/win-vm-boot.log 2>&1 & ) 2>/dev/null || true
+fi
+
 # Run N engine commands concurrently, wait for all (a failing engine doesn't abort the wave).
 run_wave() {
   local label="$1"; shift

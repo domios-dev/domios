@@ -17,6 +17,11 @@ jobs:
   release:
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 180
+    # gh in the runner's launchd service session can't reach the keychain-stored login, and a
+    # release touches TWO repos (codeterm + codeterm-releases), so the default GITHUB_TOKEN
+    # (single-repo) isn't enough — use a PAT (repo scope on both) provided as GH_RELEASE_TOKEN.
+    env:
+      GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
     steps:
       - name: Parse + validate version
         id: ver
