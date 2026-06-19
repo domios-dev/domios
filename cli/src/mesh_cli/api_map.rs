@@ -339,6 +339,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 agent,
                 title,
                 task,
+                task_file,
                 role,
                 parent,
                 workspace,
@@ -349,6 +350,14 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 system_prompt,
                 preset,
             } => {
+                let task = match crate::cmd::agent::resolve_spawn_task(
+                    task.clone(),
+                    task_file.clone(),
+                    &mut std::io::stdin(),
+                ) {
+                    Ok(t) => t,
+                    Err(e) => return unsupported(&format!("agent spawn task input error: {}", e)),
+                };
                 let agent_name = agent.as_str();
                 let mut body = serde_json::json!({
                     "agent": agent_name,
