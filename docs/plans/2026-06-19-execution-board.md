@@ -68,15 +68,30 @@ can't hold a strict tool-call format → tolerant Rust parser + nicer render +
 simpler example-led prompt + flexible preset↔model binding + UX. Sequencing:
 R1 → R2/R3 → R4 → R5 → R6.
 
-- **WR.R1** (codex) — robust tool-call extractor in Rust (generic `host.toolcall.parse`,
-  de-fence, native-syntax-tolerant, JSON-repair, alias-normalize, schema-validate,
-  golden+negative corpus, native/JS parity). FIRST — unblocks R2/R3.
+- **WR.R1** (codex) — ✅ MERGED (7ae2f4c1) generic `host.toolcall.parse` (de-fence,
+  native-syntax, JSON-repair, alias, schema-validate, golden+negative corpus,
+  parity) + SDK type follow-up (8c64ef07). Plugin-wiring (lmstudio calls it) is
+  **R1b**, queued below.
+- **WR.R1b** (codex, plugins repo) — wire the lmstudio plugin to call
+  host.toolcall.parse (pass its tool schema) instead of its fragile JS parser; emit
+  structured tool calls. Repo: /Users/kandrey/Developer/codeterm-plugins (isolated
+  checkout — no collision with codeterm-alpha). Pairs with R3.
 - **WR.R2** (codex) — structured per-tool styled rendering in chat-ui.
 - **WR.R3** (codex/plugin) — simpler example-led lmstudio prompt + per-model variant.
 - **WR.R4** (codex/plugin) — flexible preset↔model binding (plugin-side).
 - **WR.R5** (codex, frontend-design skill) — model bubble → terminal-bubble spot +
   preset manager (replaces W4.D1-4) + system-prompt card polish.
 - **WR.R6** (codex/plugin) — author/refine a pane's system prompt via another pane.
+- **WR.channels-ux** (codex, frontend-design skill; INDEPENDENT — plugins panel, not
+  chat pane) — collapse the flat channel list into a master-detail "Channels" tab
+  in the plugins panel (row: Search / All / Installed / Marketplace / Updates →
+  add **Channels** next to Updates; default keep Updates). Click Channels → compact
+  collapsed channel list (name + trust/official badge + plugin count). Select a
+  channel → attributes in the RIGHT preview pane (url, version, trust, #plugins,
+  last refresh). "Add channel" button → expands INLINE into an add form (name+url
+  → validate → add), not a modal. Reuse existing channel data/API (verify channel-add
+  exists in CLI/REST; wire the form). Seam: the T1 plugins-panel component. Gate:
+  tsc + test:unit + design self-review.
 
 ## Wave 5 — big subsystems (design done, schedule after 1-4)
 
