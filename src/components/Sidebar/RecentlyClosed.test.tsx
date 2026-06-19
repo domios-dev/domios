@@ -3,7 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { RecentlyClosed, groupClosedViews, describeGroup } from "./RecentlyClosed";
+import { RecentlyClosed, groupClosedViews, describeGroup, closedAgo } from "./RecentlyClosed";
 import { reopenClosedPane, reopenClosedGroup, __setInvokeForTest } from "../../lib/bridge";
 import type { ClosedPaneView } from "../../lib/types";
 
@@ -90,13 +90,22 @@ test("describeGroup labels cascade and workspace groups", () => {
     view({ pane_id: "w2", group_id: "g", group_kind: "cascade", parent_pane_id: "orch" }),
     view({ pane_id: "w3", group_id: "g", group_kind: "cascade", parent_pane_id: "orch" }),
   ])[0];
-  assert(describeGroup(cascade) === "Orchestrator + 3 workers", `cascade label: ${describeGroup(cascade)}`);
+  assert(describeGroup(cascade) === "Orchestrator", `cascade label: ${describeGroup(cascade)}`);
 
   const ws = groupClosedViews([
     view({ pane_id: "t1", group_id: "w", group_kind: "workspace", workspace_name: "General" }),
     view({ pane_id: "t2", group_id: "w", group_kind: "workspace", workspace_name: "General" }),
   ])[0];
-  assert(describeGroup(ws) === 'Workspace "General" — 2 tabs', `workspace label: ${describeGroup(ws)}`);
+  assert(describeGroup(ws) === "General", `workspace label: ${describeGroup(ws)}`);
+});
+
+test("closedAgo formats relative age, empty for a missing stamp", () => {
+  const now = 1_000_000_000_000;
+  assert(closedAgo(0, now) === "", "zero stamp -> empty");
+  assert(closedAgo(now - 5_000, now) === "now", `5s -> now, got ${closedAgo(now - 5_000, now)}`);
+  assert(closedAgo(now - 5 * 60_000, now) === "5m", `5m, got ${closedAgo(now - 5 * 60_000, now)}`);
+  assert(closedAgo(now - 3 * 3_600_000, now) === "3h", `3h, got ${closedAgo(now - 3 * 3_600_000, now)}`);
+  assert(closedAgo(now - 2 * 86_400_000, now) === "2d", `2d, got ${closedAgo(now - 2 * 86_400_000, now)}`);
 });
 
 test("renders a row per single close with title and model", async () => {
@@ -171,7 +180,7 @@ test("a cascade renders as one collapsed group entry, distinct from singles", as
   const groupEls = host.querySelectorAll('[data-testid="recently-closed-group"]');
   assert(groupEls.length === 1, `expected 1 group entry, got ${groupEls.length}`);
   const restore = host.querySelector('[data-testid="recently-closed-group-restore"]');
-  assert(restore?.textContent?.includes("Orchestrator + 2 workers"), `group label: ${restore?.textContent}`);
+  assert(restore?.textContent?.includes("Orchestrator"), `group label: ${restore?.textContent}`);
   // collapsed by default — child panes not rendered
   assert(
     host.querySelectorAll('[data-testid="recently-closed-item"]').length === 0,

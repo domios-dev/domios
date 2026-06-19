@@ -30,17 +30,35 @@ export function groupClosedViews(views: ClosedPaneView[]): ClosedGroup[] {
   return order.map((id) => byId.get(id) as ClosedGroup);
 }
 
-/** Header label for a multi-pane group, e.g. `Orchestrator + 3 workers` or
- *  `Workspace "General" — 5 tabs`. */
+/** Compact relative age from a `closed_at` unix-millis stamp: `now`, `5m`,
+ *  `3h`, `2d`, then an absolute date. Empty for a missing/zero stamp. */
+export function closedAgo(closedAtMs: number, nowMs: number = Date.now()): string {
+  if (!closedAtMs) return "";
+  const s = Math.max(0, Math.round((nowMs - closedAtMs) / 1000));
+  if (s < 45) return "now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.round(h / 24);
+  if (d < 7) return `${d}d`;
+  return new Date(closedAtMs).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** Newest `closed_at` within a group (panes aren't guaranteed ordered). */
+function groupClosedAt(group: ClosedGroup): number {
+  return group.panes.reduce((max, p) => Math.max(max, p.closed_at ?? 0), 0);
+}
+
+/** Header label for a multi-pane group — just the workspace name or the
+ *  orchestrator's title. The pane count lives in the adjacent count pill, so
+ *  it's deliberately left out of the text. */
 export function describeGroup(group: ClosedGroup): string {
-  const n = group.panes.length;
   if (group.kind === "workspace") {
-    const name = group.panes.find((p) => p.workspace_name)?.workspace_name ?? "Workspace";
-    return `Workspace "${name}" — ${n} ${n === 1 ? "tab" : "tabs"}`;
+    return group.panes.find((p) => p.workspace_name)?.workspace_name ?? "Workspace";
   }
   const lead = group.panes.find((p) => !p.parent_pane_id) ?? group.panes[0];
-  const workers = n - 1;
-  return `${lead.title || "Orchestrator"} + ${workers} ${workers === 1 ? "worker" : "workers"}`;
+  return lead.title || "Orchestrator";
 }
 
 interface RecentlyClosedProps {
@@ -125,6 +143,11 @@ function RecentlyClosedInner({
           {view.model}
         </span>
       )}
+      {view.closed_at ? (
+        <span className={`${metaText} shrink-0 text-[var(--ct-muted)] tabular-nums w-7 text-right`}>
+          {closedAgo(view.closed_at)}
+        </span>
+      ) : null}
     </button>
   );
 
@@ -186,6 +209,9 @@ function RecentlyClosedInner({
                       className={`${metaText} shrink-0 px-1.5 rounded-full border border-[var(--ct-border)] text-[var(--ct-muted)] tabular-nums`}
                     >
                       {group.panes.length}
+                    </span>
+                    <span className={`${metaText} shrink-0 text-[var(--ct-muted)] tabular-nums w-7 text-right`}>
+                      {closedAgo(groupClosedAt(group))}
                     </span>
                   </button>
                 </div>
