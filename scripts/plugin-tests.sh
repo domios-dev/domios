@@ -14,6 +14,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/plugin.test.ts
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/provider-helper-parity.test.ts
+      plugins/provider-codex/tests/classify-pane-state.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
       src/lib/plugins/__tests__/registry.test.ts
       packages/chat-ui/src/codeterm/recognize.test.ts
@@ -24,6 +25,13 @@ case "${1:-all}" in
       plugins/provider-claude/tests/detect.test.ts
       plugins/provider-claude/tests/status.test.ts
       plugins/provider-claude/tests/plugin.test.ts
+    )
+    ;;
+  provider-codex)
+    tests=(
+      plugins/provider-codex/tests/plugin.test.ts
+      plugins/provider-codex/tests/provider-helper-parity.test.ts
+      plugins/provider-codex/tests/classify-pane-state.test.ts
     )
     ;;
   *)

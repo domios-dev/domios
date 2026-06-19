@@ -441,7 +441,188 @@ const plugin: PluginModule = {
     }
     return out;
   },
+
+  // AS2 (Case A) — classify a parked codex pane from its rendered screen.
+  // The core reactor (state_reactor.rs) only calls this on the idle/waiting edge
+  // and only auto-acts when confidence >= GLOBAL_THRESHOLD (0.8), the state is
+  // NOT waiting_on_auth, and an action is present. All codex-specific knowledge
+  // (the self-update fingerprint, Skip navigation, auth-guard) lives here; core
+  // stays generic.
+  //
+  // Two guarantees this method enforces:
+  //  1. Auth is sacred — a login/OAuth/API-key screen is classified
+  //     waiting_on_auth with NO keys, so it is surfaced, never auto-pressed.
+  //  2. No false positives — the update verdict is an ENSEMBLE of independent
+  //     structural signals; a single weak match stays below threshold. When it
+  //     does fire, the action navigates to "Skip", never the default
+  //     "Update now" highlight (a blind Enter would update mid-session).
+  classifyPaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
+    const screen = String((snapshot && snapshot.screenText) || "");
+    if (!screen.trim()) return null;
+
+    // Auth first — sacred, and takes precedence over any update-looking menu.
+    const authConfidence = scoreAuthPrompt(screen);
+    if (authConfidence >= CLASSIFY_THRESHOLD) {
+      return {
+        state: "waiting_on_auth",
+        confidence: authConfidence,
+        action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } },
+      };
+    }
+
+    // Ensemble vote for the codex self-update prompt.
+    const upd = scoreUpdatePrompt(screen);
+    if (upd.confidence >= CLASSIFY_THRESHOLD && upd.skipKeys && upd.skipKeys.length > 0) {
+      return {
+        state: "update_prompt",
+        confidence: upd.confidence,
+        action: { keys: upd.skipKeys },
+      };
+    }
+
+    // Some update signal, but not a confident actionable verdict (below
+    // threshold, or no Skip option to navigate to) → no action, so the reactor
+    // never fires on a partial read.
+    if (upd.confidence > 0) {
+      return { state: "unknown", confidence: upd.confidence };
+    }
+
+    return { state: "working", confidence: 0 };
+  },
 };
+
+// ── AS2 pane-state classification (Case A: codex self-update prompt) ──────────
+//
+// Wire shapes mirror src-tauri/src/agent/pane_state.rs (camelCase JS boundary,
+// snake_case PaneState strings). Declared locally because the published
+// @codeterm/plugin-sdk PluginModule exposes classifyPaneState only via its
+// index signature, not a named type.
+
+interface PaneStateSnapshot {
+  paneId: string;
+  agentType: string;
+  sessionId?: string | null;
+  cwd?: string | null;
+  screenText: string;
+}
+
+type PaneState =
+  | "working"
+  | "waiting_on_auth"
+  | "update_prompt"
+  | "rate_limited"
+  | "clarifying_question"
+  | "idle_stuck"
+  | "unknown";
+
+interface PaneStateAction {
+  keys?: string[];
+  delayedResume?: { at: string; text: string; thenKeys?: string[] };
+  surface?: { kind: string; payload: unknown };
+}
+
+interface PaneStateClassification {
+  state: PaneState;
+  confidence: number;
+  data?: { resetAt?: string; questions?: string[] };
+  action?: PaneStateAction;
+}
+
+// Match the core reactor's GLOBAL_THRESHOLD (state_reactor.rs). The plugin only
+// emits an actionable verdict at/above this confidence, so it never recommends
+// a key-press the reactor would itself reject.
+const CLASSIFY_THRESHOLD = 0.8;
+
+interface MenuOption { highlighted: boolean; label: string }
+
+// A line of the form `> 1. Label` / `❯ 2. Label` / `  3. Label`. The leading
+// glyph (when present) marks the currently-highlighted option.
+const MENU_OPTION_RE = /^[ \t]*([>❯▶➤])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
+
+function parseMenuOptions(screen: string): MenuOption[] {
+  const lines = String(screen || "").split("\n");
+  const options: MenuOption[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = MENU_OPTION_RE.exec(lines[i]);
+    if (!m) continue;
+    options.push({ highlighted: !!m[1], label: m[3] });
+  }
+  return options;
+}
+
+// The keys to navigate from the highlighted option to the "Skip" option, then
+// confirm. Returns null when there is no distinct Skip option to land on (so we
+// never blindly press Enter on the default "Update now").
+function skipNavigationKeys(options: MenuOption[]): string[] | null {
+  if (options.length === 0) return null;
+  let highlightIdx = -1;
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].highlighted) { highlightIdx = i; break; }
+  }
+  if (highlightIdx === -1) highlightIdx = 0; // codex defaults to option 1
+  let skipIdx = -1;
+  for (let i = 0; i < options.length; i++) {
+    const label = options[i].label;
+    if (/\bskip\b/i.test(label) && !/\bupdate\b/i.test(label)) { skipIdx = i; break; }
+  }
+  if (skipIdx === -1) return null;
+  const keys: string[] = [];
+  const delta = skipIdx - highlightIdx;
+  if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
+  else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
+  keys.push("enter");
+  return keys;
+}
+
+interface UpdateScore { confidence: number; skipKeys: string[] | null }
+
+// Independent structural signals for the codex self-update prompt; their
+// weights sum to 1.0. The actionable core is the numbered menu carrying BOTH an
+// "update" and a "skip" option — the corroborating header/footer lines push a
+// real prompt comfortably over threshold while a lone signal stays well under.
+function scoreUpdatePrompt(screen: string): UpdateScore {
+  const options = parseMenuOptions(screen);
+  let hasUpdateOption = false;
+  let hasSkipOption = false;
+  for (let i = 0; i < options.length; i++) {
+    if (/\bupdate\b/i.test(options[i].label)) hasUpdateOption = true;
+    if (/\bskip\b/i.test(options[i].label)) hasSkipOption = true;
+  }
+  const sigUpdateSkipMenu = hasUpdateOption && hasSkipOption;          // 0.45
+  const sigAvailable = /\b(update|version)\s+available\b/i.test(screen); // 0.20
+  const sigVersionArrow = /\d+\.\d+(?:\.\d+)?\s*(?:->|→|=>)\s*\d+\.\d+(?:\.\d+)?/.test(screen); // 0.15
+  const sigPressEnter = /press\s+enter\s+to\s+continue/i.test(screen); // 0.10
+  const sigReleaseNotes = /release\s+notes/i.test(screen);             // 0.10
+
+  let confidence = 0;
+  if (sigUpdateSkipMenu) confidence += 0.45;
+  if (sigAvailable) confidence += 0.2;
+  if (sigVersionArrow) confidence += 0.15;
+  if (sigPressEnter) confidence += 0.1;
+  if (sigReleaseNotes) confidence += 0.1;
+  if (confidence > 1) confidence = 1;
+
+  // Only compute Skip navigation when the actionable menu signal is present.
+  const skipKeys = sigUpdateSkipMenu ? skipNavigationKeys(options) : null;
+  return { confidence: confidence, skipKeys: skipKeys };
+}
+
+// Auth ensemble. Weighted so no single casual mention fires, but a real
+// login/OAuth/API-key screen clears threshold. Auth false positives are the
+// SAFE direction (surface, never auto-act) — so this leans inclusive.
+function scoreAuthPrompt(screen: string): number {
+  const s = String(screen || "");
+  let score = 0;
+  if (/\bsign[ -]?in\b/i.test(s)) score += 0.5;
+  if (/\blog[ -]?in\b/i.test(s)) score += 0.5;
+  if (/\bauthenticat(?:e|ion|ing)\b/i.test(s)) score += 0.5;
+  if (/\bo\s?auth\b/i.test(s)) score += 0.6;
+  if (/\bapi key\b/i.test(s)) score += 0.6;
+  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(s)) score += 0.6;
+  if (/\bauthorization code\b/i.test(s)) score += 0.6;
+  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
+  return score > 1 ? 1 : score;
+}
 
 // --- types shared by the parsers above ---
 
