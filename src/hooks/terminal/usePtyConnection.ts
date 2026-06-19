@@ -45,6 +45,8 @@ export function usePtyConnection({
   const localFitEnabledRef = useRef(localFitEnabled);
   // Web resets the tail cursor once per mount; toggles resume it.
   const webReplayedPtysRef = useRef<Set<string>>(new Set());
+  // xterm instance is keep-alive (never destroyed on tab switch); replay scrollback only once per pane lifetime.
+  const replayDoneRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     localFitEnabledRef.current = localFitEnabled;
@@ -75,45 +77,51 @@ export function usePtyConnection({
       const predictedId = ptyId || uid();
       connectedPtyRef.current = predictedId;
 
-      // Replay full ANSI history on mount so scrollback survives remounts.
-      // Web replays via the tail: cursor reset makes the first read return history.
+      // Replay scrollback only on first mount — xterm is keep-alive (never destroyed on tab switch),
+      // so re-sending up to 2MB of ANSI on every tab activation is wasteful.
+      // On remount a single resize is enough to make the PTY re-emit its current screen.
       if (ptyId && IS_WEB) {
         if (!webReplayedPtysRef.current.has(ptyId)) {
           webReplayedPtysRef.current.add(ptyId);
           resetWebPtyTail(ptyId);
         }
       } else if (ptyId) {
-        let restored = false;
-        try {
-          const raw = await invoke<string>("get_pane_history_raw", { paneId });
-          if (raw) {
-            term.write(raw);
-            restored = true;
-          }
-        } catch { /* fall back to screen dump */ }
+        if (!replayDoneRef.current.has(ptyId)) {
+          replayDoneRef.current.add(ptyId);
 
-        if (!restored) {
+          let restored = false;
           try {
-            const formatted = await invoke<string>(
-              "get_pane_text",
-              { paneId, formatted: true },
-            );
-            if (formatted) term.write(formatted);
-          } catch {
+            const raw = await invoke<string>("get_pane_history_raw", { paneId });
+            if (raw) {
+              term.write(raw);
+              restored = true;
+            }
+          } catch { /* fall back to screen dump */ }
+
+          if (!restored) {
             try {
-              const text = await invoke<string>(
+              const formatted = await invoke<string>(
                 "get_pane_text",
-                { paneId, formatted: false },
+                { paneId, formatted: true },
               );
-              if (text) term.write(text);
-            } catch { /* ignore */ }
+              if (formatted) term.write(formatted);
+            } catch {
+              try {
+                const text = await invoke<string>(
+                  "get_pane_text",
+                  { paneId, formatted: false },
+                );
+                if (text) term.write(text);
+              } catch { /* ignore */ }
+            }
           }
         }
+        // One fit() + resize on every (re)connect to sync PTY dimensions.
         requestAnimationFrame(() => {
           if (!localFitEnabledRef.current) return;
           try {
             fitAddonRef.current?.fit();
-            if (ptyId) jiggleResize(ptyId);
+            jiggleResize(ptyId);
           } catch { /* ignore */ }
         });
       }
@@ -171,10 +179,6 @@ export function usePtyConnection({
 
         if (firstData) {
           firstData = false;
-          requestAnimationFrame(() => {
-            if (!localFitEnabledRef.current) return;
-            try { fitAddonRef.current?.fit(); } catch { /* ignore */ }
-          });
         }
       };
 
