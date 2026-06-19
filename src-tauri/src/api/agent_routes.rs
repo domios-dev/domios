@@ -506,7 +506,10 @@ mod tests {
     }
 
     fn facade_with(
-        shells: &[(&str, std::sync::Arc<dyn crate::chatbackend::ChatBackendProvider>)],
+        shells: &[(
+            &str,
+            std::sync::Arc<dyn crate::chatbackend::ChatBackendProvider>,
+        )],
     ) -> crate::provider::ProviderRegistry {
         let agents = std::sync::Arc::new(crate::agent::registry::AgentRegistry::new());
         let backends = std::sync::Arc::new(crate::chatbackend::ChatBackendRegistry::new());
@@ -527,7 +530,10 @@ mod tests {
             .find(|p| p.get("id").and_then(|v| v.as_str()) == Some("local-shell"))
             .expect("registered spawnable chatBackend shell is listed");
         // `kind` is gone — transport is the discriminant now.
-        assert!(shell.get("kind").is_none(), "no `kind` key in serialized output");
+        assert!(
+            shell.get("kind").is_none(),
+            "no `kind` key in serialized output"
+        );
         assert_eq!(shell["transport"], "chat_backend");
         assert_eq!(shell["display_name"], "Local Shell");
         assert_eq!(shell["available_models"][0]["id"], "qwen");
