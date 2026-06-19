@@ -140,14 +140,23 @@ and classify the failure:
 A config override (point us at a custom binary/path) short-circuits this so a
 user's non-standard install is honored, never clobbered.
 
-**Install is an outward, system-modifying action → confirm, don't silent-auto.**
-It runs an installer (network, possibly sudo, OS-specific). Flow: launch →
-`Missing` → show the EXACT per-OS install command + a confirm ("install <provider>
-CLI?") → run it in a visible pane → verify (re-probe / version) → **relaunch the
-agent automatically**. A config knob `agents.autoInstall = ask | yes | no`
-(default `ask`) gates the confirm. The PLUGIN owns the per-OS install recipe +
-the version-verify; core only orchestrates launch→classify→confirm→install→
-relaunch generically.
+**Install is an outward action → confirm, don't silent-auto.** It runs an
+installer (network, OS-specific). Flow: launch → `Missing` → show the EXACT
+per-OS install command + a confirm ("install <provider> CLI?") → run it in a
+visible pane → verify (re-probe / version) → **relaunch the agent
+automatically**. A config knob `agents.autoInstall = ask | yes | no` (default
+`ask`) gates the confirm. The PLUGIN owns the per-OS install recipe + the
+version-verify; core only orchestrates launch→classify→confirm→install→relaunch
+generically.
+
+**HARD RULE — NO sudo, ever.** Agent CLI installs are **user-space only**: no
+`sudo`, no privilege escalation, no system-wide writes, and the confirm flow
+NEVER asks for / runs sudo. Recipes use user-scoped methods only (e.g. npm/pnpm
+global under a user prefix, the official user-space install script that writes to
+`~/.local`/`~/.codeterm/bin`/`~/bin`, Homebrew on macOS which is already
+user-owned). If the ONLY available install path for a provider would require
+sudo, do NOT attempt it — surface to the user with the command to run themselves.
+A recipe that contains `sudo` is invalid and must be rejected at the seam.
 
 Realistic? Yes — with the launch-error signal it's low-false-positive; the only
 care items are (a) confirm before modifying the system, (b) honor a config
@@ -172,8 +181,10 @@ override, (c) classify the error precisely (not-found vs auth vs crash).
 - **AS7** — provider-CLI-not-installed (Case C): classify launch failure as
   `Missing` (not-found ground truth, not a PATH pre-check), plugin per-OS install
   recipe + version-verify, generic confirm (`agents.autoInstall = ask|yes|no`) +
-  auto-relaunch, config override for custom installs. Fixtures: a not-found launch
-  error → `Missing`; an auth/crash launch error → NOT `Missing` (negative).
+  auto-relaunch, config override for custom installs. **NO sudo / user-space
+  only** — reject any recipe containing `sudo`, surface-to-user instead. Fixtures:
+  a not-found launch error → `Missing`; an auth/crash launch error → NOT `Missing`
+  (negative); a sudo-containing recipe → rejected at the seam.
 
 ## Risks / guardrails
 
