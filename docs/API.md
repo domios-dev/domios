@@ -50,9 +50,50 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
 | POST | `/api/workspaces/{id}/close` | — | Delete workspace |
+| GET | `/api/workspaces/{id}/recently-closed` | — | List recently-closed pane entries for this workspace. Returns `ClosedPane[]` (see [Closed History & Restore](#closed-history--restore)). |
+| POST | `/api/workspaces/{id}/reopen-closed` | `{index?}` | Reopen a recently-closed pane (browser Ctrl+Shift+T). `index` selects the ring entry (0 = most recent, default). Returns `TabInfo {id, title, pane_id}`. |
 | POST | `/api/workspaces/{id}/tabs` | — | Create tab |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/rename` | `{name}` | Rename tab |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/move` | `{to_workspace_id}` | Move tab between workspaces |
+
+#### Closed History & Restore
+
+Closed panes and workspaces are recorded in a persistent ring. Every close action is bucketed into a *group* — a `single` tab close, a `cascade` (orchestrator + its spawned subtree), or a `workspace` close. Groups are identified by an opaque `group_id` (ULID). The ring is bounded (`RECENTLY_CLOSED_CAP` entries); oldest entries are evicted first.
+
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| POST | `/api/closed-groups/{group_id}/reopen` | — | Reopen an entire closed group by its `group_id` (from the `recently_closed` snapshot). Recreates the workspace if it no longer exists; if a live workspace already exists at the same `cwd` it is reused — no duplicate is created. Returns `{workspace_id, tab_id, pane_id}` for the activated tab. |
+
+**Path-match restore behavior.** When reopening any group or orphaned pane that records a `cwd`, CodeTerm calls `find_workspace_by_cwd` (normalised via `paths::normalize_cwd` — trailing slashes and case-folded) before creating a new workspace. If a live workspace already points at the same folder the pane(s) are inserted there instead of spawning a duplicate. This applies to `reopen_closed_group`, `reopen_closed_pane`, and `mux_restore_orphaned_pane` (commit 6115030e).
+
+**`ClosedPane` fields** (returned by `GET /api/workspaces/{id}/recently-closed`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pane_id` | `string` | Original pane id |
+| `title` | `string` | Tab title at close time |
+| `description` | `string?` | Pane description at close time |
+| `cwd` | `string?` | Working directory at close time |
+| `backing` | `string` | `"pty"` or `"chat_backend"` |
+| `agent_type` | `string?` | Agent provider at close time (e.g. `"claude"`) |
+| `agent_session_id` | `string?` | Provider session id for resume |
+| `model` | `string?` | Model in use at close time |
+| `closed_at` | `u64` | Unix milliseconds |
+| `workspace_id` | `string` | Workspace the pane belonged to when closed |
+| `workspace_name` | `string` | Human-readable workspace name |
+| `parent_pane_id` | `string?` | Parent pane in hierarchy (preserved for cascade restore) |
+
+**`ClosedPaneView` fields** — `ClosedPane` enriched for the sidebar. Returned in `mux_get_state` → `recently_closed[]` and in the `GET /api/mux/state` snapshot:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| *(all ClosedPane fields above)* | | Flattened via `#[serde(flatten)]` |
+| `index` | `number` | Position in the per-workspace reopen ring (`0` = most recent) |
+| `orphaned` | `bool` | `true` when the original workspace no longer exists |
+| `group_id` | `string` | Opaque group identifier (ULID) — pass to reopen-group endpoints |
+| `group_kind` | `string` | `"single"` \| `"cascade"` \| `"workspace"` |
+
+**`mux_get_state` / `GET /api/mux/state` snapshot** now includes a top-level `recently_closed: ClosedPaneView[]` field. The list is the union of all groups across all workspaces, sorted newest-first, with `orphaned` computed live against the current workspace set. Sidebar and web-mirror clients consume this field to render the closed-history panel.
 
 #### Panes
 | Method | Path | Body / Query | Description |
@@ -1039,6 +1080,9 @@ Newline-delimited JSON:
 | `workspace.focus` | `{workspace_id}` | Focus workspace |
 | `workspace.rename` | `{workspace_id, name}` | Rename workspace |
 | `workspace.close` | `{workspace_id}` | Close workspace |
+| `workspace.recently_closed` | `{workspace_id}` | List recently-closed pane entries for a workspace. Returns `ClosedPane[]`. |
+| `workspace.reopen_closed` | `{workspace_id, index?}` | Reopen the nth recently-closed pane in a workspace (`index` 0 = most recent). Returns `TabInfo`. |
+| `workspace.reopen_closed_group` | `{group_id}` | Reopen a closed group by `group_id`. Returns `{workspace_id, tab_id, pane_id}`. |
 | `workspace.move_tab` | `{tab_id, from_workspace_id, to_workspace_id}` | Move tab |
 | `pane.list` | — | List panes |
 | `pane.focus` | `{pane_id}` | Focus pane |
@@ -1092,6 +1136,9 @@ These are Tauri IPC commands (invoked from frontend via `invoke()`), not REST en
 
 | Command | Params | Description |
 |---------|--------|-------------|
+| `mux_reopen_closed_pane` | `workspace_id: String, index: Option<usize>` | Reopen the nth recently-closed pane in a workspace (`index` 0 = most recent, default). Returns `TabInfo {id, title, pane_id}`. |
+| `mux_reopen_closed_group` | `group_id: String` | Reopen a closed group (single/cascade/workspace) by `group_id` from the snapshot. Returns `{workspace_id, tab_id, pane_id}`. |
+| `mux_restore_orphaned_pane` | `pane_id: String` | Reopen a pane from the orphaned ring (its original workspace was deleted). Reuses a live workspace at the same `cwd` if one exists, else recreates from the stored name + cwd. Returns `{workspace_id, tab_id, pane_id}`. Desktop (Tauri) only — no REST route; in web mode bridged via `mux_restore_orphaned_pane` invoke alias. |
 | `mux_update_pane_cwd` | `pane_id, cwd` | Updates pane's current working directory (called by OSC 7 handler in frontend) |
 | `mux_set_pane_agent_type` | `pane_id, agent_type` | Marks pane as running an agent (e.g. `"claude"`) |
 | `detect_claude_session_id` | `cwd, exclude?, max_age_secs?` | Finds Claude Code session ID by scanning `~/.claude/projects/` directory structure |
@@ -1185,4 +1232,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 65 -->
+<!-- revision: 66 -->
