@@ -617,9 +617,16 @@ pub async fn plugin_snapshot(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    crate::commands::plugins::snapshot(Some(state.svc.chatbackend_registry.as_ref()))
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+    // snapshot() forks subprocesses + clones channels over the network — never
+    // on the async runtime (mirrors the Tauri command's spawn_blocking wrap).
+    let svc = state.svc.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::commands::plugins::snapshot(Some(svc.chatbackend_registry.as_ref()))
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map(Json)
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
 /// Web-mirror twin of the `plugin_manager_action` Tauri command.
@@ -629,7 +636,12 @@ pub async fn plugin_action(
     Json(action): Json<crate::commands::plugins::PluginManagerAction>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    crate::commands::plugins::run_action(action, &state.svc)
+    // run_action shells the CLI (Command::new) — keep it off the async runtime
+    // (mirrors the Tauri command's spawn_blocking wrap).
+    let svc = state.svc.clone();
+    tokio::task::spawn_blocking(move || crate::commands::plugins::run_action(action, svc.as_ref()))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
@@ -825,8 +837,9 @@ pub async fn plugin_ui(
         }
     }
     let file = dir.join(rel);
-    let bytes =
-        std::fs::read(&file).map_err(|_| (StatusCode::NOT_FOUND, "not found".to_string()))?;
+    let bytes = tokio::fs::read(&file)
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, "not found".to_string()))?;
 
     use axum::http::{header, HeaderValue};
     let mut resp = if rel.ends_with(".html") {

@@ -43,6 +43,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 async-stream = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
+futures-executor = "0.3"
 png = "0.17"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 cron = "0.13"

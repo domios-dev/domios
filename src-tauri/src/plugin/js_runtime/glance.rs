@@ -30,20 +30,28 @@ impl GlanceProvider for JsGlanceProvider {
     }
 
     async fn render(&self, ctx: Value) -> Result<GlanceView, GlanceError> {
-        call_json::<GlanceView>(&self.vm, "renderGlance", &[ctx])
+        // The VM lock + JS execution are synchronous and must never run on the
+        // async runtime (starves all IPC) — hop to the blocking pool.
+        let vm = self.vm.clone();
+        tokio::task::spawn_blocking(move || call_json::<GlanceView>(&vm, "renderGlance", &[ctx]))
+            .await
+            .map_err(|e| GlanceError::Render(format!("glance render task failed: {e}")))?
             .map_err(|e| GlanceError::Render(format!("{e:?}")))
     }
 
     async fn action(&self, action: &str, ctx: Value) -> Result<GlanceView, GlanceError> {
-        // `glanceAction` is optional — without it, a button just re-renders.
-        if !has_method(&self.vm, "glanceAction") {
-            return self.render(ctx).await;
-        }
-        call_json::<GlanceView>(
-            &self.vm,
-            "glanceAction",
-            &[Value::String(action.to_string()), ctx],
-        )
+        let vm = self.vm.clone();
+        let action = action.to_string();
+        tokio::task::spawn_blocking(move || {
+            // `glanceAction` is optional — without it, a button just re-renders.
+            if has_method(&vm, "glanceAction") {
+                call_json::<GlanceView>(&vm, "glanceAction", &[Value::String(action), ctx])
+            } else {
+                call_json::<GlanceView>(&vm, "renderGlance", &[ctx])
+            }
+        })
+        .await
+        .map_err(|e| GlanceError::Render(format!("glance action task failed: {e}")))?
         .map_err(|e| GlanceError::Render(format!("{e:?}")))
     }
 }
