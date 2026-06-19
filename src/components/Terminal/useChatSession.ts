@@ -1,6 +1,7 @@
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
+  attachToolResults,
   lastSessionResetIndex,
   mergeTimelineMessages,
   matchedOptimisticEchoes,
@@ -163,31 +164,6 @@ function timestampMs(ts: string | undefined): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function groupToolResults(messages: ChatMessage[]): ChatMessage[] {
-  const grouped: ChatMessage[] = [];
-  const toolIndex = new Map<string, number>();
-  for (const message of messages) {
-    if (message.type === "tool_call" && message.toolId) {
-      toolIndex.set(message.toolId, grouped.length);
-      grouped.push(message);
-      continue;
-    }
-    if (message.type === "tool_result" && message.toolId) {
-      const index = toolIndex.get(message.toolId);
-      if (index != null) {
-        const existing = grouped[index];
-        const toolResult = existing.toolResult
-          ? `${existing.toolResult}\n${message.content}`
-          : message.content;
-        grouped[index] = { ...existing, toolResult };
-        continue;
-      }
-    }
-    grouped.push(message);
-  }
-  return grouped;
-}
-
 export function useChatSession({
   paneId,
   agentSessionId,
@@ -264,7 +240,7 @@ export function useChatSession({
   }, [optimistic, resetCutoffMs]);
 
   const allMessages = useMemo(() => {
-    const grouped = groupToolResults(resetParsed);
+    const grouped = attachToolResults(resetParsed);
     if (liveOptimistic.length === 0) return grouped;
     // Render every real user turn (mergeById already dedupes by stable id — no
     // content-collapse that would swallow a legitimately repeated message).

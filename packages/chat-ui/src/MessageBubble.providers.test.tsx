@@ -3,10 +3,12 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { MessageBubble } from "./MessageBubble";
+import { attachToolResults } from "@codeterm/chat-core";
 import {
   providerTranscriptFixtures,
   type ProviderTranscriptFixture,
 } from "./providerTranscriptFixtures.testdata";
+import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 type TestCase = {
   name: string;
@@ -91,6 +93,26 @@ async function renderTranscript(fixture: ProviderTranscriptFixture): Promise<{
     root.render(
       <div>
         {fixture.messages.map((message) => (
+          <MessageBubble key={message.id} message={message} />
+        ))}
+      </div>,
+    );
+  });
+  await waitForEffects();
+  return { host, root };
+}
+
+async function renderMessages(messages: NormalizedChatMessage[]): Promise<{
+  host: HTMLElement;
+  root: Root;
+}> {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <div>
+        {attachToolResults(messages).map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
       </div>,
@@ -202,6 +224,100 @@ for (const fixture of providerTranscriptFixtures) {
     }
   });
 }
+
+test("chatBackend exec tool_call renders command card and attached result", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "cb-tool-call-1",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "exec",
+      toolId: "call-1",
+      toolInput: { cmd: "npm test -- --runInBand", cwd: "/repo/app" },
+      toolArgs: JSON.stringify({ cmd: "npm test -- --runInBand", cwd: "/repo/app" }),
+    },
+    {
+      id: "cb-tool-result-1",
+      provider: "lmstudio",
+      type: "tool_result",
+      content: "Exit code: 0\nTests passed",
+      toolResult: "Exit code: 0\nTests passed",
+      toolId: "call-1",
+    },
+  ]);
+  try {
+    assert(host.querySelector('[data-testid="chatbackend-tool-exec"]'), "expected exec card");
+    assertIncludes(host, "npm test -- --runInBand", "exec card command");
+    assertIncludes(host, "cwd /repo/app", "exec card cwd");
+    assertIncludes(host, "result", "exec card phase");
+    assertIncludes(host, "Tests passed", "exec card result preview");
+    assert(
+      !buttons(host).some((button) => (button.textContent ?? "").includes("Exit code: 0")),
+      "paired tool_result should not render as a separate result button",
+    );
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("chatBackend read_file and write_file render file cards", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "cb-read-file",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "read_file",
+      toolId: "read-1",
+      toolInput: { path: "src/main.ts" },
+      toolArgs: JSON.stringify({ path: "src/main.ts" }),
+    },
+    {
+      id: "cb-write-file",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "write_file",
+      toolId: "write-1",
+      toolInput: { path: "src/out.ts", content: "export const ready = true;\n" },
+      toolArgs: JSON.stringify({ path: "src/out.ts" }),
+    },
+  ]);
+  try {
+    assert(host.querySelector('[data-testid="chatbackend-tool-read_file"]'), "expected read_file card");
+    assert(host.querySelector('[data-testid="chatbackend-tool-write_file"]'), "expected write_file card");
+    assertIncludes(host, "src/main.ts", "read_file path");
+    assertIncludes(host, "src/out.ts", "write_file path");
+    assertIncludes(host, "export const ready = true;", "write_file preview");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("chatBackend unknown tool falls back gracefully", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "cb-unknown-tool",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "mystery_tool({\"value\":1})",
+      toolName: "mystery_tool",
+      toolId: "unknown-1",
+      toolInput: { value: 1 },
+      toolArgs: JSON.stringify({ value: 1 }),
+    },
+  ]);
+  try {
+    assert(!host.querySelector('[data-testid^="chatbackend-tool-"]'), "unknown tool should not use curated card");
+    assertToolIcon(host, "mystery_tool");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 
 async function run() {
   const startedAt = performance.now();

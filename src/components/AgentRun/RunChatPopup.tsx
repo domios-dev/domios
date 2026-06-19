@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MessageBubble } from "@codeterm/chat-ui";
-import type { NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
+import { attachToolResults, type NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
 import { invoke } from "../../lib/bridge";
 
 interface Props {
@@ -128,7 +128,7 @@ export function RunChatPopup({
           {loaded && !error && messages.length === 0 && (
             <div className="text-[var(--ct-muted-fg)] text-[11px]">No transcript for this run.</div>
           )}
-          {messages.map((m) => (
+          {attachToolResults(messages).map((m) => (
             <MessageBubble key={m.id} message={m} />
           ))}
         </div>
