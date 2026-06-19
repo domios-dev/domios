@@ -155,6 +155,38 @@ async fn discover_models_native_js_parity() {
     assert_eq!(js.discover_models().await, native.discover_models().await);
 }
 
+#[test]
+fn host_toolcall_parse_native_js_parity() {
+    let js = load_inline_js(
+        "toolcall-fixture",
+        r#"
+            module.exports.default = {
+                parse(raw, schema) {
+                    return host.toolcall.parse(raw, schema);
+                }
+            };
+        "#,
+    );
+    let schema = r#"{
+        "tools":[{"name":"exec","args":["cmd"]}],
+        "aliases":{"command":"cmd"}
+    }"#;
+    let raw = r#"Prose before.
+```tool
+{"tool":"exec","args":{"command":"ls"}}
+```
+Prose after."#;
+
+    let via_js: String = super::call_json(
+        js.vm(),
+        "parse",
+        &[serde_json::json!(raw), serde_json::json!(schema)],
+    )
+    .unwrap();
+    let native = super::toolcall_parse::parse_to_json(raw, schema);
+    assert_eq!(via_js, native);
+}
+
 // Claude parity.
 
 mod claude {

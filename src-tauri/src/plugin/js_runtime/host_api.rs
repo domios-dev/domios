@@ -411,6 +411,11 @@ pub(super) fn install(
      -> Option<String> {
         write_temp_file(&contents, suffix.as_deref())
     });
+    bind!("toolcallParse", |raw_text: String,
+                            schema_json: String|
+     -> String {
+        super::toolcall_parse::parse_to_json(&raw_text, &schema_json)
+    });
 
     // Crypto helpers.
     // MD5 hex digest of a string. Use case: cursor stores chats under
