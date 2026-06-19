@@ -44,6 +44,13 @@ export type Action =
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
     case "SET_STATE": {
+      // Monotonic guard: drop a stale snapshot (older generation) that resolved
+      // after a newer one — kills the spawn-then-blink race where a pre-pane
+      // `mux_get_state` clobbers the just-created tab.
+      const incomingGen = action.state.generation;
+      if (typeof incomingGen === "number" && incomingGen <= state.generation) {
+        return state;
+      }
       // Backend is authoritative; one pane per tab means no split ratio.
       const mergedWorkspaces = action.state.workspaces;
       const mergedPanes = { ...action.state.panes };
@@ -90,6 +97,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         active_workspace_id: action.state.active_workspace_id,
         toasts: [...state.toasts, ...newToasts],
         activeTabIds,
+        generation:
+          typeof incomingGen === "number" ? incomingGen : state.generation,
       };
     }
 

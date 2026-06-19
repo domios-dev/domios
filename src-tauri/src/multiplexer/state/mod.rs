@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::AtomicU64;
 
 use serde::Serialize;
 use uuid::Uuid;
@@ -51,6 +52,11 @@ pub struct MultiplexerState {
     pty_to_pane: HashMap<String, String>,
     /// Alias registry: human-readable name -> pane_id.
     pane_aliases: HashMap<String, String>,
+    /// Monotonic snapshot generation. Every `snapshot()` stamps a strictly
+    /// increasing value so the frontend reducer can ignore a stale snapshot
+    /// (older generation) that resolves after a newer one — kills the
+    /// spawn-then-blink race where a pre-pane `mux_get_state` clobbers the tab.
+    generation: AtomicU64,
 }
 
 /// Full state snapshot for frontend hydration.
@@ -60,6 +66,9 @@ pub struct MultiplexerSnapshot {
     pub panes: HashMap<String, Pane>,
     pub active_workspace_id: Option<String>,
     pub focused_pane_id: Option<String>,
+    /// Monotonic generation; the reducer drops any snapshot whose value is
+    /// `<=` the one already applied.
+    pub generation: u64,
 }
 
 impl MultiplexerState {
@@ -73,6 +82,7 @@ impl MultiplexerState {
             focused_pane_id: None,
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
+            generation: AtomicU64::new(0),
         }
     }
 
@@ -143,6 +153,7 @@ impl MultiplexerState {
             focused_pane_id: Some(pane_id.clone()),
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
+            generation: AtomicU64::new(0),
         };
 
         (state, pane_id)
