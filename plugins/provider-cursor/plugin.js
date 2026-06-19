@@ -78,9 +78,11 @@ var plugin = {
     return discoverCursorModels() || manifestModels();
   },
   // The cursor-agent TUI gates every cwd behind a one-time "Workspace Trust
-  // Required" prompt that --force does NOT satisfy (only --print/--trust does).
-  // Pre-write cursor's own trust marker (`~/.cursor/projects/<slug>/.workspace-trusted`)
-  // from the launch shell — deterministic, works for the TUI, and persists.
+  // Required" prompt. Pre-writing cursor's own trust marker
+  // (`~/.cursor/projects/<slug>/.workspace-trusted`) from the launch shell
+  // silently bypasses that gate — so only do it when the user opted into
+  // skip-permissions (`--force`); that is their intentional "trust everything"
+  // flow. Without it, let cursor show its own trust prompt.
   buildLaunchCommand(params) {
     const p = params || {};
     const parts = ["cursor-agent"];
@@ -90,12 +92,12 @@ var plugin = {
         parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
       }
     }
-    return trustPrefix() + parts.join(" ");
+    return (p.skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
     const parts = ["cursor-agent", "--resume", host.shell.quote(String(sessionId || ""))];
     if (skipPermissions) parts.push("--force");
-    return trustPrefix() + parts.join(" ");
+    return (skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },
   // ── Session discovery (sqlite metadata under ~/.cursor/chats/<md5(cwd)>) ──
   sessionExists(cwd, sessionId) {
@@ -112,8 +114,11 @@ var plugin = {
     const ms = meta.createdAtMs;
     return typeof ms === "number" ? ms : null;
   },
-  // Newest session dir under the cwd-hash dir, excluding `exclude`, within the
-  // recency window — used to re-attach a restarted cursor pane.
+  // Re-attach a restarted cursor pane to its session dir under the cwd-hash dir.
+  // Identity-bound, never "newest-for-cwd" (capability rule #3): when 2+ viable
+  // candidates remain after sibling exclusions, refuse — return null instead of
+  // handing the pane a SIBLING's session. The exclude list collapses the set as
+  // siblings get bound, so the last unclaimed session still resolves cleanly.
   detectSessionId(cwd, exclude, maxAgeMs) {
     const dir = cursorChatsDir(cwd);
     if (!dir || !host.fs.fileExists(dir)) return null;
@@ -121,9 +126,8 @@ var plugin = {
     const ex = toExcludeList(exclude);
     const now = host.unixNowMs ? host.unixNowMs() : 0;
     const maxAge = typeof maxAgeMs === "number" && maxAgeMs > 0 ? maxAgeMs : 0;
-    let bestId = null;
-    let bestTs = -1;
     const sep = pathSep();
+    const candidates = [];
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
       if (!e || !e.isDir) continue;
@@ -133,12 +137,10 @@ var plugin = {
       const meta = readMetaJson(e.path + sep + "meta.json");
       const ts = meta ? meta.updatedAtMs || meta.createdAtMs || 0 : 0;
       if (maxAge && now && ts && now - ts > maxAge) continue;
-      if (ts > bestTs) {
-        bestTs = ts;
-        bestId = sid;
-      }
+      candidates.push({ id: sid, ts });
     }
-    return bestId;
+    if (candidates.length !== 1) return null;
+    return candidates[0].id;
   },
   detectActiveSession(_cwd, _currentSid) {
     return null;

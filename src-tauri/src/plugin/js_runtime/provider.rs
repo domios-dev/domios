@@ -526,8 +526,16 @@ impl AgentProvider for JsProvider {
             let sort_key = meta.created().or_else(|_| meta.modified()).ok()?;
             candidates.push((stem.to_string(), sort_key));
         }
-        candidates.sort_by(|a, b| b.1.cmp(&a.1));
-        candidates.into_iter().next().map(|(id, _)| id)
+        // Identity-bound, never "newest-for-cwd" (capability rule #3): mirror
+        // Claude's native guard. When 2+ recent sessions are viable candidates
+        // (none pinned by the exclude list), refuse — handing the pane the
+        // newest would bind it to a SIBLING's session. The exclude list
+        // collapses the set as siblings get bound, so the last unclaimed
+        // session still resolves cleanly.
+        match candidates.as_slice() {
+            [(id, _)] => Some(id.clone()),
+            _ => None,
+        }
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
