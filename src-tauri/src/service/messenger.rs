@@ -225,9 +225,12 @@ impl Messenger {
                 .get_pane(&resolved_target)
                 .and_then(|p| p.agent_type.as_ref())
                 .is_some();
-            target_is_agent
-                && !envelope.from_pane.is_empty()
-                && envelope.from_pane != resolved_target
+            should_prefix_pty(
+                envelope.kind,
+                target_is_agent,
+                &envelope.from_pane,
+                &resolved_target,
+            )
         };
         let text = if should_prefix {
             Self::from(envelope).wrap(body)
@@ -349,6 +352,29 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
         )
         .payload(body)
         .build()
+}
+
+/// Whether the PTY recipient should get a `-=-codeterm:…-=-` source prefix.
+///
+/// Shells (`target_is_agent == false`) run bytes verbatim → never. A fired
+/// reminder ALWAYS carries its marker for an agent recipient — even when it is
+/// self-addressed (`from_pane == target`) or has an unknown creator
+/// (`from_pane` empty); it is a system-injected event, not a peer message, so
+/// the recipient must be able to tell it apart from typed input. Every other
+/// kind keeps the self-send / empty-source guard.
+fn should_prefix_pty(
+    kind: MessageKind,
+    target_is_agent: bool,
+    from_pane: &str,
+    resolved_target: &str,
+) -> bool {
+    if !target_is_agent {
+        return false;
+    }
+    if kind == MessageKind::Reminder {
+        return true;
+    }
+    !from_pane.is_empty() && from_pane != resolved_target
 }
 
 /// The single canonical decision for every agent-to-agent delivery path
@@ -568,6 +594,83 @@ mod tests {
             delivery_prefix(true, "", "ce9bce56", "Edison", None, None),
             None
         );
+    }
+
+    #[test]
+    fn reminder_inbound_context_is_canonical_with_sender_fields() {
+        // A fired reminder delivered to a chatBackend pane stores a structured
+        // inbound carrying kind=reminder + the creator's identity, via the same
+        // canonical marker used for live sends.
+        let envelope = MessageEnvelope::reminder("Main", "e8a0ac20-1111")
+            .model(Some("opus".into()))
+            .set_at(1000)
+            .fire_at(2000)
+            .id(Some("dmsg-1".into()));
+        let ctx = inbound_model_context(&envelope, "ping");
+        let parsed = crate::message_markers::parse(&ctx).expect("reminder inbound marker parses");
+        let legacy = ["[CodeTerm", " inbound"].concat();
+
+        assert!(!ctx.contains(&legacy));
+        assert_eq!(parsed.kind, "inbound");
+        assert_eq!(parsed.attr("kind"), Some("reminder"));
+        assert_eq!(parsed.attr("from_label"), Some("Main"));
+        assert_eq!(parsed.attr("from_pane"), Some("e8a0ac20"));
+        assert_eq!(parsed.attr("from_model"), Some("opus"));
+        assert_eq!(parsed.payload, "ping");
+    }
+
+    #[test]
+    fn should_prefix_reminder_always_marks_agent_recipient() {
+        // Self-addressed reminder (creator == target) still gets the marker.
+        assert!(should_prefix_pty(
+            MessageKind::Reminder,
+            true,
+            "e8a0ac20",
+            "e8a0ac20"
+        ));
+        // Unknown-creator reminder still gets the marker.
+        assert!(should_prefix_pty(
+            MessageKind::Reminder,
+            true,
+            "",
+            "e8a0ac20"
+        ));
+    }
+
+    #[test]
+    fn should_prefix_reminder_skips_shell_recipient() {
+        // Shells run injected bytes verbatim — no marker, even for a reminder.
+        assert!(!should_prefix_pty(
+            MessageKind::Reminder,
+            false,
+            "abc",
+            "e8a0ac20"
+        ));
+    }
+
+    #[test]
+    fn should_prefix_message_keeps_self_send_guard() {
+        // A plain message to itself is NOT prefixed.
+        assert!(!should_prefix_pty(
+            MessageKind::Message,
+            true,
+            "e8a0ac20",
+            "e8a0ac20"
+        ));
+        // Empty source → no prefix.
+        assert!(!should_prefix_pty(
+            MessageKind::Message,
+            true,
+            "",
+            "e8a0ac20"
+        ));
+        // Distinct agent sender → prefix.
+        assert!(should_prefix_pty(
+            MessageKind::Message,
+            true,
+            "e8a0ac20",
+            "ce9bce56"
+        ));
     }
 
     #[test]
