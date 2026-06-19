@@ -10,6 +10,7 @@ import { ChatComposer } from "./ChatComposer";
 import { useAttachments } from "./useAttachments";
 import { useChatSession } from "./useChatSession";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
+import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 
 interface Props {
   paneId: string;
@@ -342,7 +343,10 @@ export function PaneSessionChat({
         onOpenTerminalFallback={chatBackend ? undefined : onOpenTerminalFallback}
         onToggleTerminalFallback={chatBackend ? undefined : onToggleTerminalFallback}
         modelBubble={chatBackend && chatBacking ? (
-          <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
+          <>
+            <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
+            <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
+          </>
         ) : undefined}
       />
     </div>
