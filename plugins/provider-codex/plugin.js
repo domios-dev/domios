@@ -420,7 +420,7 @@ var plugin = {
   //     does fire, the action navigates to "Skip", never the default
   //     "Update now" highlight (a blind Enter would update mid-session).
   classifyPaneState(snapshot) {
-    const screen = String(snapshot && snapshot.screenText || "");
+    const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
     if (!screen.trim()) return null;
     const authConfidence = scoreAuthPrompt(screen);
     if (authConfidence >= CLASSIFY_THRESHOLD) {
