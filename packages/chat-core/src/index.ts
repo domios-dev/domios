@@ -16,6 +16,7 @@ export {
 } from "./normalize";
 export { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
 export { mergeTimelineMessages } from "./timeline";
+export { attachToolResults } from "./toolResults";
 export { lastSessionResetIndex, trimAfterSessionReset } from "./sessionReset";
 export {
   MARKER_OPEN,
