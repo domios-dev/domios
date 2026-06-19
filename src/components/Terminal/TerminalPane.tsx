@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo, useState } from "react";
+import { memo, useEffect, useRef, useCallback, useMemo, useState } from "react";
 import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { IS_WEB, listen } from "../../lib/bridge";
@@ -49,7 +49,7 @@ interface TerminalPaneProps {
   uiFontScale?: number;
 }
 
-export function TerminalPane({
+export const TerminalPane = memo(function TerminalPane({
   paneId,
   ptyId,
   isFocused = false,
@@ -761,4 +761,4 @@ export function TerminalPane({
       )}
     </div>
   );
-}
+});

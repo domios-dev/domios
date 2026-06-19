@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useMemo,
   useReducer,
   useEffect,
   useRef,
@@ -207,17 +208,16 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const findContext = useCallback(
     (paneId: string) => {
-      for (const ws of state.workspaces) {
+      for (const ws of stateRef.current.workspaces) {
         for (const tab of ws.tabs) {
-          const ids = [tab.pane_id];
-          if (ids.includes(paneId)) {
+          if (tab.pane_id === paneId) {
             return { workspaceId: ws.id, tabId: tab.id };
           }
         }
       }
       return null;
     },
-    [state.workspaces],
+    [],
   );
 
   const refreshFromBackend = useCallback(() => {
@@ -273,11 +273,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const closeWorkspace = useCallback(
     (id: string) => {
-      const ws = state.workspaces.find((w) => w.id === id);
+      const { workspaces, panes } = stateRef.current;
+      const ws = workspaces.find((w) => w.id === id);
       if (ws) {
-        const paneIds = ws.tabs.flatMap((t) => [t.pane_id]);
+        const paneIds = ws.tabs.map((t) => t.pane_id);
         for (const pid of paneIds) {
-          const pane = state.panes[pid];
+          const pane = panes[pid];
           if (pane?.pty_id) {
             invoke("kill_pty", { ptyId: pane.pty_id }).catch(() => {});
           }
@@ -286,7 +287,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       invoke("mux_close_workspace", { workspaceId: id }).catch(() => {});
       dispatch({ type: "CLOSE_WORKSPACE", id });
     },
-    [state],
+    [],
   );
 
   const renameWorkspace = useCallback((id: string, name: string) => {
@@ -371,7 +372,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const closeTab = useCallback(
     (workspaceId: string, tabId: string) => {
-      const ws = state.workspaces.find((w) => w.id === workspaceId);
+      const { workspaces, panes } = stateRef.current;
+      const ws = workspaces.find((w) => w.id === workspaceId);
       const tab = ws?.tabs.find((t) => t.id === tabId);
       if (!tab) return;
       const removedPaneIds = [tab.pane_id];
@@ -380,7 +382,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       }
       const allRemoved = new Set(removedPaneIds);
       const collectChildren = (parentId: string) => {
-        for (const [id, p] of Object.entries(state.panes)) {
+        for (const [id, p] of Object.entries(panes)) {
           if (p.parent_pane_id === parentId && !allRemoved.has(id)) {
             allRemoved.add(id);
             collectChildren(id);
@@ -391,7 +393,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedPaneIds: [...allRemoved] });
       refreshFromBackend();
     },
-    [state, refreshFromBackend],
+    [refreshFromBackend],
   );
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
@@ -403,12 +405,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     (paneId: string) => {
       const ctx = findContext(paneId);
       if (!ctx) return;
-      const pane = state.panes[paneId];
+      const { panes, workspaces } = stateRef.current;
+      const pane = panes[paneId];
       if (pane?.pty_id) {
         invoke("kill_pty", { ptyId: pane.pty_id }).catch(() => {});
       }
       invoke("mux_close_pane", { paneId }).catch(() => {});
-      const ws = state.workspaces.find((w) => w.id === ctx.workspaceId);
+      const ws = workspaces.find((w) => w.id === ctx.workspaceId);
       const tab = ws?.tabs.find((t) => t.id === ctx.tabId);
       if (tab) {
         const allPanes = [tab.pane_id];
@@ -433,7 +436,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         window.dispatchEvent(new CustomEvent("codeterm-pane-resize"));
       });
     },
-    [findContext, state],
+    [findContext],
   );
 
   const setFocusedPane = useCallback((paneId: string) => {
@@ -508,32 +511,60 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "UPDATE_PANE_STATUS", paneId, status });
   }, []);
 
-  const value: MultiplexerContextType = {
-    state,
-    createWorkspace,
-    setActiveWorkspace,
-    closeWorkspace,
-    renameWorkspace,
-    moveTab,
-    createTab,
-    closeTab,
-    setActiveTab,
-    closePane,
-    setFocusedPane,
-    setPanePty,
-    addNotification,
-    upsertToast,
-    markRead,
-    markAllRead,
-    clearNotifications,
-    dismissToast,
-    setPaneTitle,
-    setTabTitle,
-    setAgentType,
-    updatePaneStatus,
-    spawnClaudeTab,
-    spawnAgentTab,
-  };
+  const value = useMemo<MultiplexerContextType>(
+    () => ({
+      state,
+      createWorkspace,
+      setActiveWorkspace,
+      closeWorkspace,
+      renameWorkspace,
+      moveTab,
+      createTab,
+      closeTab,
+      setActiveTab,
+      closePane,
+      setFocusedPane,
+      setPanePty,
+      addNotification,
+      upsertToast,
+      markRead,
+      markAllRead,
+      clearNotifications,
+      dismissToast,
+      setPaneTitle,
+      setTabTitle,
+      setAgentType,
+      updatePaneStatus,
+      spawnClaudeTab,
+      spawnAgentTab,
+    }),
+    [
+      state,
+      createWorkspace,
+      setActiveWorkspace,
+      closeWorkspace,
+      renameWorkspace,
+      moveTab,
+      createTab,
+      closeTab,
+      setActiveTab,
+      closePane,
+      setFocusedPane,
+      setPanePty,
+      addNotification,
+      upsertToast,
+      markRead,
+      markAllRead,
+      clearNotifications,
+      dismissToast,
+      setPaneTitle,
+      setTabTitle,
+      setAgentType,
+      updatePaneStatus,
+      spawnClaudeTab,
+      spawnAgentTab,
+    ],
+  );
 
   return (
     <MultiplexerContext.Provider value={value}>
