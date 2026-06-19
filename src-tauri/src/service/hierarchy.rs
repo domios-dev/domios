@@ -48,9 +48,13 @@ impl ServiceContext {
         message: &str,
         details: crate::agent::reports::ReportDetails,
     ) -> Result<ReportResult, String> {
-        let (from_title, target_opt) = {
+        let (from_title, target_opt, model) = {
             let mux = self.mux.write();
-            resolve_report_target(&mux, pane_id)?
+            let (from_title, target_opt) = resolve_report_target(&mux, pane_id)?;
+            let model = mux
+                .get_pane(pane_id)
+                .and_then(|p| p.agent_session_model.clone());
+            (from_title, target_opt, model)
         };
 
         let storage_key = target_opt
@@ -62,6 +66,7 @@ impl ServiceContext {
             &from_title,
             message,
             details,
+            model.as_deref(),
         );
 
         self.events.broadcast(
@@ -158,6 +163,13 @@ impl ServiceContext {
             .as_array()
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// Durable per-orchestrator ledger rows (survive daemon restart). One row
+    /// per worker, latest status. Unlike [`get_reports`](Self::get_reports),
+    /// which reads the in-memory live stream, this reads the sqlite ledger.
+    pub fn get_ledger(&self, orchestrator_pane_id: &str) -> Vec<crate::agent::ledger::LedgerRow> {
+        self.report_store.lock().ledger_rows(orchestrator_pane_id)
     }
 
     pub fn get_pane_status(&self, pane_id: &str) -> Result<PaneStatusInfo, String> {

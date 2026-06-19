@@ -68,6 +68,22 @@
           "subcommands": []
         },
         {
+          "name": "ledger",
+          "about": "List an orchestrator's workers from the durable ledger (survives daemon restart): branch / model / status / last-seen, one row per worker",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Orchestrator pane ID (default: current focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "link",
           "about": "Link a pane as worker under a parent",
           "aliases": [],
