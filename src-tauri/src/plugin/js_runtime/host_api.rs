@@ -466,6 +466,27 @@ pub(super) fn install(
         super::host_exec::run(&opts_json)
     });
 
+    // Async exec (job-id + poll) — same `subprocess.allow` gate as blocking
+    // `exec`, but the command runs on a background thread so the VM lock is held
+    // only for the sub-ms start/poll calls, never the command duration.
+    let sb = sandbox.clone();
+    bind!("execStart", move |opts_json: String| -> String {
+        let bin = super::host_exec::bin_of(&opts_json).unwrap_or_default();
+        if !sb.can_exec(&bin) {
+            log::warn!("[plugin] denied exec.start({bin}) — not in subprocess.allow");
+            return serde_json::json!({ "error": format!("exec denied: {bin}") }).to_string();
+        }
+        super::host_exec::start(sb.plugin_id(), &opts_json)
+    });
+    let sb = sandbox.clone();
+    bind!("execPoll", move |job_id: String| -> String {
+        super::host_exec::poll(sb.plugin_id(), &job_id)
+    });
+    let sb = sandbox.clone();
+    bind!("execClose", move |job_id: String| {
+        super::host_exec::close(sb.plugin_id(), &job_id);
+    });
+
     let sb = sandbox.clone();
     bind!("fetch", move |opts_json: String| -> String {
         let host = super::host_net::host_of(&opts_json).unwrap_or_default();
