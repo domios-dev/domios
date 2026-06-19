@@ -6,6 +6,28 @@ use std::collections::HashMap;
 const SHELL_BACKEND_COLS: u16 = 120;
 const SEND_AGENT_BACKEND_COLS: u16 = 240;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RestoredAgentMaterialization {
+    Resume,
+    Fresh,
+}
+
+pub(crate) fn restored_agent_materialization(
+    restored_from_snapshot: bool,
+    protected: bool,
+    agent_type: Option<&str>,
+    session_id: Option<&str>,
+    session_valid: bool,
+) -> Option<RestoredAgentMaterialization> {
+    if !restored_from_snapshot || protected || agent_type.is_none() {
+        return None;
+    }
+    match session_id {
+        Some(_) if session_valid => Some(RestoredAgentMaterialization::Resume),
+        _ => Some(RestoredAgentMaterialization::Fresh),
+    }
+}
+
 /// Build the byte sequence written to a freshly-attached pty to launch a
 /// shell-level command (agent spawn, mem worker spawn, anything that goes
 /// through bash/cmd to start a process). On Unix we write the launch_cmd
@@ -356,22 +378,16 @@ impl ServiceContext {
             .resolve_pane_id(pane_id)
             .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
         if self.resolve_pty_id(&resolved).is_ok() {
+            self.materialize_restored_agent_for_send(&resolved)?;
             return Ok(());
         }
 
-        let (cwd, protected, restored, agent_type, session_id, auto_approve) = {
+        let (cwd, protected, agent_type) = {
             let mux = self.mux.read();
             let pane = mux
                 .get_pane(&resolved)
                 .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
-            (
-                pane.cwd.clone(),
-                pane.protected,
-                pane.restored_from_snapshot,
-                pane.agent_type.clone(),
-                pane.agent_session_id.clone(),
-                pane.auto_approve,
-            )
+            (pane.cwd.clone(), pane.protected, pane.agent_type.clone())
         };
         if protected {
             return Err(format!(
@@ -398,47 +414,91 @@ impl ServiceContext {
         self.link_pty(&resolved, pty_id.clone());
         self.start_backend_reader_for(pty_id);
 
-        if restored {
-            if let (Some(provider_id), Some(session_id), Some((ws_id, tab_id))) =
-                (agent_type, session_id, self.restored_tab_context(&resolved))
-            {
-                let session_valid = cwd
-                    .as_deref()
-                    .map(|dir| {
-                        self.agent_registry
-                            .with_provider(&provider_id, |p| p.session_exists(dir, &session_id))
-                            .unwrap_or(false)
-                    })
-                    .unwrap_or(false);
-                if session_valid {
-                    let params = crate::service::SpawnAgentParams {
-                        agent: Some(provider_id.clone()),
-                        cwd,
-                        skip_permissions: Some(auto_approve),
-                        resume_session_id: Some(session_id),
-                        ..Default::default()
-                    };
-                    let launch_cmd = crate::service::orchestrator::build_agent_command(
-                        &provider_id,
-                        &params,
-                        None,
-                        None,
-                        &self.agent_registry,
-                    );
-                    crate::service::orchestrator::launch_agent_in_background(
-                        self.clone(),
-                        resolved.clone(),
-                        tab_id,
-                        ws_id,
-                        launch_cmd,
-                        provider_id,
-                        None,
-                        None,
-                    );
-                    self.clear_pane_restored_flag(&resolved);
+        self.materialize_restored_agent_for_send(&resolved)?;
+        Ok(())
+    }
+
+    fn materialize_restored_agent_for_send(&self, pane_id: &str) -> Result<(), String> {
+        let (provider_id, session_id, cwd, protected, restored, model) = {
+            let mux = self.mux.read();
+            let pane = mux
+                .get_pane(pane_id)
+                .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
+            (
+                pane.agent_type.clone(),
+                pane.agent_session_id.clone(),
+                pane.cwd.clone(),
+                pane.protected,
+                pane.restored_from_snapshot,
+                pane.agent_session_model.clone(),
+            )
+        };
+        let Some(provider_id) = provider_id else {
+            return Ok(());
+        };
+        let session_valid = session_id
+            .as_deref()
+            .zip(cwd.as_deref())
+            .map(|(sid, dir)| {
+                self.agent_registry
+                    .with_provider(&provider_id, |p| p.session_exists(dir, sid))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        let Some(mode) = restored_agent_materialization(
+            restored,
+            protected,
+            Some(&provider_id),
+            session_id.as_deref(),
+            session_valid,
+        ) else {
+            return Ok(());
+        };
+        let (ws_id, tab_id) = self.restored_tab_context(pane_id).ok_or_else(|| {
+            format!(
+                "Pane {} is a restored agent pane but has no tab context for materialization",
+                pane_id
+            )
+        })?;
+
+        let pc = crate::config::provider_config(&provider_id);
+        let skip_permissions = pc.resume_skip_permissions.unwrap_or(true);
+        let launch_session_id = match mode {
+            RestoredAgentMaterialization::Resume => session_id.clone(),
+            RestoredAgentMaterialization::Fresh => {
+                if session_id.is_some() {
+                    self.set_agent_session_id(pane_id, None);
                 }
+                None
             }
-        }
+        };
+        let params = crate::service::SpawnAgentParams {
+            agent: Some(provider_id.clone()),
+            cwd,
+            skip_permissions: Some(skip_permissions),
+            model,
+            resume_session_id: launch_session_id,
+            ..Default::default()
+        };
+        let launch_cmd = crate::service::orchestrator::build_agent_command(
+            &provider_id,
+            &params,
+            None,
+            None,
+            &self.agent_registry,
+        );
+        crate::service::orchestrator::launch_agent_in_background(
+            self.clone(),
+            pane_id.to_string(),
+            tab_id,
+            ws_id,
+            launch_cmd,
+            provider_id,
+            None,
+            None,
+        );
+        self.clear_pane_restored_flag(pane_id);
+        self.emit_state_changed();
         Ok(())
     }
 
@@ -857,7 +917,9 @@ impl ServiceContext {
             }
             return Ok(());
         }
-        let pty_id = self.resolve_pty_id(pane_id)?;
+        self.ensure_pane_pty_for_send(pane_id)?;
+        self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
+        let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
         let pty = self.pty.clone();
         tokio::spawn(async move {
             for item in batch {
