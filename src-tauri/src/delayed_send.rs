@@ -32,6 +32,12 @@ pub struct DelayedMessage {
     pub state: DelayedMessageState,
     pub error: Option<String>,
     pub session_id_at_create: Option<String>,
+    #[serde(default)]
+    pub created_by_pane: Option<String>,
+    #[serde(default)]
+    pub created_by_label: Option<String>,
+    #[serde(default)]
+    pub created_by_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +48,16 @@ pub struct DelayedMessageView {
     pub current_session_id: Option<String>,
     pub session_changed: bool,
 }
+
+/// Who queued a reminder, resolved from the caller pane at enqueue time.
+#[derive(Debug, Default, Clone)]
+pub struct ReminderCreator {
+    pub pane: Option<String>,
+    pub label: Option<String>,
+    pub model: Option<String>,
+}
+
+const QUEUE_VERSION: u32 = 2;
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,7 +89,7 @@ impl DelayedSendQueue {
                 .map_err(|e| format!("parse {}: {}", path.display(), e))?
         } else {
             QueueFile {
-                version: 1,
+                version: QUEUE_VERSION,
                 messages: Vec::new(),
             }
         };
@@ -106,6 +122,7 @@ impl DelayedSendQueue {
         messages
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn enqueue(
         &self,
         pane_id: String,
@@ -113,6 +130,7 @@ impl DelayedSendQueue {
         session_id_at_create: Option<String>,
         text: String,
         scheduled_at_ms: Option<u64>,
+        creator: ReminderCreator,
     ) -> Result<DelayedMessage, String> {
         if text.trim().is_empty() {
             return Err("Message text is empty".into());
@@ -131,6 +149,9 @@ impl DelayedSendQueue {
             state,
             error: None,
             session_id_at_create,
+            created_by_pane: creator.pane,
+            created_by_label: creator.label,
+            created_by_model: creator.model,
         };
         {
             let mut inner = self.inner.lock();
@@ -270,7 +291,7 @@ impl DelayedSendQueue {
         write_queue_file(
             &self.path,
             &QueueFile {
-                version: 1,
+                version: QUEUE_VERSION,
                 messages,
             },
         )
@@ -305,18 +326,38 @@ pub fn create_message(
     pane_id: String,
     text: String,
     scheduled_at_ms: Option<u64>,
+    created_by_pane: Option<String>,
 ) -> Result<DelayedMessageView, String> {
     let resolved = resolve_pane_id(svc, &pane_id)?;
     let (workspace_id, session_id_at_create) = pane_context(svc, &resolved);
+    let creator = resolve_creator(svc, created_by_pane);
     let msg = svc.delayed_send.enqueue(
         resolved.clone(),
         workspace_id,
         session_id_at_create,
         text,
         scheduled_at_ms,
+        creator,
     )?;
     emit_changed(svc, &resolved);
     Ok(to_view(svc, msg))
+}
+
+fn resolve_creator(svc: &ServiceState, created_by_pane: Option<String>) -> ReminderCreator {
+    let Some(raw) = created_by_pane.filter(|p| !p.trim().is_empty()) else {
+        return ReminderCreator::default();
+    };
+    let mux = svc.mux.write();
+    let pane = mux.resolve_pane_id(&raw).unwrap_or(raw);
+    let label = mux.display_label_for_pane(&pane);
+    let model = mux
+        .get_pane(&pane)
+        .and_then(|p| p.agent_session_model.clone());
+    ReminderCreator {
+        pane: Some(pane),
+        label: Some(label).filter(|s| !s.trim().is_empty()),
+        model,
+    }
 }
 
 pub fn update_message(
@@ -368,9 +409,8 @@ pub fn start_scheduler(svc: ServiceState) {
 }
 
 async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), String> {
-    let result = svc
-        .send_text_when_ready(&msg.pane_id, &msg.text, true)
-        .await;
+    let body = reminder_body(svc, &msg);
+    let result = svc.send_text_when_ready(&msg.pane_id, &body, true).await;
     match result {
         Ok(()) => {
             svc.delayed_send.mark_sent(&msg.id)?;
@@ -381,6 +421,31 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
             Err(e)
         }
     }
+}
+
+fn reminder_body(svc: &ServiceState, msg: &DelayedMessage) -> String {
+    // Shells run injected bytes verbatim — only agents get the marker frame.
+    let target_is_agent = svc
+        .mux
+        .write()
+        .get_pane(&msg.pane_id)
+        .and_then(|p| p.agent_type.clone())
+        .is_some();
+    if !target_is_agent {
+        return msg.text.clone();
+    }
+    reminder_prefix(msg).wrap(&msg.text)
+}
+
+fn reminder_prefix(msg: &DelayedMessage) -> crate::service::msg_prefix::CtxPrefix {
+    crate::service::msg_prefix::CtxPrefix::reminder(
+        msg.created_by_label.clone().unwrap_or_default(),
+        msg.created_by_pane.clone().unwrap_or_default(),
+    )
+    .model(msg.created_by_model.clone())
+    .set_at(msg.created_at_ms)
+    .fire_at(msg.scheduled_at_ms)
+    .id(Some(msg.id.clone()))
 }
 
 fn resolve_pane_id(svc: &ServiceState, id_or_alias: &str) -> Result<String, String> {
@@ -465,6 +530,28 @@ mod tests {
     }
 
     #[test]
+    fn reminder_envelope_carries_creator_metadata() {
+        let msg = DelayedMessage {
+            id: "dmsg-7".into(),
+            pane_id: "target-pane".into(),
+            workspace_id: None,
+            text: "hi".into(),
+            scheduled_at_ms: 2000,
+            created_at_ms: 1000,
+            state: DelayedMessageState::Sending,
+            error: None,
+            session_id_at_create: None,
+            created_by_pane: Some("e8a0ac20-aaaa".into()),
+            created_by_label: Some("Main".into()),
+            created_by_model: Some("opus".into()),
+        };
+        assert_eq!(
+            reminder_prefix(&msg).wrap(&msg.text),
+            "-=-codeterm:reminder from=Main pane=e8a0ac20 model=opus set_at=1000 fire_at=2000 id=dmsg-7-=-hi"
+        );
+    }
+
+    #[test]
     fn persists_and_restores_messages() {
         let (dir, queue) = queue();
         let msg = queue
@@ -474,6 +561,7 @@ mod tests {
                 Some("sid-1".into()),
                 "hello".into(),
                 Some(100),
+                ReminderCreator::default(),
             )
             .unwrap();
         drop(queue);
@@ -490,10 +578,24 @@ mod tests {
     fn claim_due_uses_schedule_then_creation_order() {
         let (_dir, queue) = queue();
         let second = queue
-            .enqueue("pane".into(), None, None, "second".into(), Some(100))
+            .enqueue(
+                "pane".into(),
+                None,
+                None,
+                "second".into(),
+                Some(100),
+                ReminderCreator::default(),
+            )
             .unwrap();
         let first = queue
-            .enqueue("pane".into(), None, None, "first".into(), Some(50))
+            .enqueue(
+                "pane".into(),
+                None,
+                None,
+                "first".into(),
+                Some(50),
+                ReminderCreator::default(),
+            )
             .unwrap();
         let due = queue.claim_due(100).unwrap();
         assert_eq!(
@@ -510,7 +612,14 @@ mod tests {
     fn failed_message_can_be_updated_back_to_queued() {
         let (_dir, queue) = queue();
         let msg = queue
-            .enqueue("pane".into(), None, None, "old".into(), Some(100))
+            .enqueue(
+                "pane".into(),
+                None,
+                None,
+                "old".into(),
+                Some(100),
+                ReminderCreator::default(),
+            )
             .unwrap();
         queue.mark_failed(&msg.id, "missing pane".into()).unwrap();
         let updated = queue
@@ -526,7 +635,14 @@ mod tests {
     fn stashed_messages_are_never_claimed_by_scheduler() {
         let (_dir, queue) = queue();
         let stashed = queue
-            .enqueue("pane".into(), None, None, "park me".into(), None)
+            .enqueue(
+                "pane".into(),
+                None,
+                None,
+                "park me".into(),
+                None,
+                ReminderCreator::default(),
+            )
             .unwrap();
         assert_eq!(stashed.state, DelayedMessageState::Stashed);
         let due = queue.claim_due(now_ms() + 60_000).unwrap();
@@ -541,7 +657,14 @@ mod tests {
     fn stashed_message_reschedules_into_queue() {
         let (_dir, queue) = queue();
         let stashed = queue
-            .enqueue("pane".into(), None, None, "later".into(), None)
+            .enqueue(
+                "pane".into(),
+                None,
+                None,
+                "later".into(),
+                None,
+                ReminderCreator::default(),
+            )
             .unwrap();
         let queued = queue.update(&stashed.id, None, Some(500), None).unwrap();
         assert_eq!(queued.state, DelayedMessageState::Queued);
@@ -552,7 +675,14 @@ mod tests {
     fn queued_message_can_be_stashed() {
         let (_dir, queue) = queue();
         let msg = queue
-            .enqueue("pane".into(), None, None, "hold".into(), Some(500))
+            .enqueue(
+                "pane".into(),
+                None,
+                None,
+                "hold".into(),
+                Some(500),
+                ReminderCreator::default(),
+            )
             .unwrap();
         let stashed = queue.update(&msg.id, None, None, Some(true)).unwrap();
         assert_eq!(stashed.state, DelayedMessageState::Stashed);
@@ -564,7 +694,14 @@ mod tests {
     fn sending_messages_reset_to_queued_on_open() {
         let (dir, queue) = queue();
         let msg = queue
-            .enqueue("pane".into(), None, None, "hello".into(), Some(100))
+            .enqueue(
+                "pane".into(),
+                None,
+                None,
+                "hello".into(),
+                Some(100),
+                ReminderCreator::default(),
+            )
             .unwrap();
         queue.claim_now(&msg.id).unwrap();
         drop(queue);

@@ -12,6 +12,7 @@ use crate::api::routes::{check_auth, resolve_pane, AppState};
 pub struct CreateDelayedMessageBody {
     text: String,
     scheduled_at_ms: Option<u64>,
+    created_by_pane: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -42,9 +43,14 @@ pub async fn create(
 ) -> Result<Json<crate::delayed_send::DelayedMessageView>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
-    let msg =
-        crate::delayed_send::create_message(&state.svc, pane_id, body.text, body.scheduled_at_ms)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let msg = crate::delayed_send::create_message(
+        &state.svc,
+        pane_id,
+        body.text,
+        body.scheduled_at_ms,
+        body.created_by_pane,
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(msg))
 }
 

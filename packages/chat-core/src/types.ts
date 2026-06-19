@@ -84,6 +84,20 @@ export type ChatOrigin =
   | { kind: "service"; service: string; userId: string }
   | { kind: "plugin_config"; pluginId: string; name: string }
   | { kind: "system_prompt" }
+  | {
+      kind: "reminder";
+      /** Display name of whoever queued the reminder, when resolvable. */
+      whoSet?: string;
+      /** Creator pane short id. */
+      pane?: string;
+      model?: string;
+      /** Queued-at, ms since epoch (string on the wire). */
+      setAt?: string;
+      /** Scheduled fire time, ms since epoch (string on the wire). */
+      fireAt?: string;
+      /** Originating delayed-message id. */
+      id?: string;
+    }
   | { kind: "command"; commands: SlashCommand[] };
 
 export interface SlashCommand {
