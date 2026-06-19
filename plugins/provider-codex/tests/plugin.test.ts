@@ -152,6 +152,41 @@ try {
 assert(parsed.messages.length === 1, "parseSessionDelta corrupted lines are skipped");
 assert(warned === 1, "parseSessionDelta emits one warning for a session with invalid entries");
 
+{
+  const sparseChunk = [
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-01-01T00:00:00Z",
+      payload: {
+        type: "function_call",
+        name: "exec_command",
+        arguments: JSON.stringify({ cmd: "npm test" }),
+      },
+    }),
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-01-01T00:00:01Z",
+      payload: { type: "function_call", arguments: "{}" },
+    }),
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-01-01T00:00:02Z",
+      payload: {
+        type: "function_call",
+        name: "exec_command",
+        arguments: JSON.stringify({ cmd: "npm run build" }),
+      },
+    }),
+  ].join("\n");
+  const sparseParsed = hostPlugin.parseSessionDelta(sparseChunk) as { messages: any[] };
+  eq(sparseParsed.messages.length, 2, "parseSessionDelta filters empty sparse function_call rows");
+  eq(
+    sparseParsed.messages.map((message) => message.blocks[0].data.input.command),
+    ["npm test", "npm run build"],
+    "parseSessionDelta keeps real exec_command rows",
+  );
+}
+
 console.log("\n--- discoverModels ---\n");
 
 {
