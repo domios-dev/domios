@@ -42,19 +42,32 @@ impl ServiceContext {
     /// Send report to the resolved target. Routing priority:
     /// `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`
     /// → global system inbox. NEVER routes back to the reporter's own pane.
-    pub fn submit_report(&self, pane_id: &str, message: &str) -> Result<ReportResult, String> {
-        let (from_title, target_opt) = {
-            let mux = self.mux.write();
-            resolve_report_target(&mux, pane_id)?
+    pub fn submit_report(
+        &self,
+        pane_id: &str,
+        message: &str,
+        details: crate::agent::reports::ReportDetails,
+    ) -> Result<ReportResult, String> {
+        let (from_title, target_opt, model) = {
+            let mux = self.mux.read();
+            let (from_title, target_opt) = resolve_report_target(&mux, pane_id)?;
+            let model = mux
+                .get_pane(pane_id)
+                .and_then(|p| p.agent_session_model.clone());
+            (from_title, target_opt, model)
         };
 
         let storage_key = target_opt
             .clone()
             .unwrap_or_else(|| SYSTEM_INBOX_PANE_ID.to_string());
-        let report = self
-            .report_store
-            .lock()
-            .add(&storage_key, pane_id, &from_title, message);
+        let report = self.report_store.lock().add_detailed(
+            &storage_key,
+            pane_id,
+            &from_title,
+            message,
+            details,
+            model.as_deref(),
+        );
 
         self.events.broadcast(
             "agent.report",
@@ -89,14 +102,11 @@ impl ServiceContext {
                     },
                 );
                 if live {
-                    let model = self
-                        .mux
-                        .write()
-                        .get_pane(pane_id)
-                        .and_then(|p| p.agent_session_model.clone());
                     let pfx = crate::service::msg_prefix::CtxPrefix::report(&from_title, pane_id)
-                        .model(model);
-                    if let Err(e) = self.send_text(target_id, &pfx.wrap(message), true) {
+                        .model(model.clone());
+                    if let Err(e) =
+                        self.send_text(target_id, &pfx.wrap(&report.inject_body()), true)
+                    {
                         log::warn!("[report] PTY inject failed for {}: {}", target_id, e);
                     }
                 }
@@ -116,7 +126,7 @@ impl ServiceContext {
     /// for the chat UI, so gating the PTY inject loses nothing.
     fn target_has_live_agent(&self, target_id: &str) -> bool {
         let pty_id = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             match mux.get_pane(target_id) {
                 Some(p) if p.agent_type.is_some() => p.pty_id.clone(),
                 _ => return false,
@@ -148,6 +158,13 @@ impl ServiceContext {
             .as_array()
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// Durable per-orchestrator ledger rows (survive daemon restart). One row
+    /// per worker, latest status. Unlike [`get_reports`](Self::get_reports),
+    /// which reads the in-memory live stream, this reads the sqlite ledger.
+    pub fn get_ledger(&self, orchestrator_pane_id: &str) -> Vec<crate::agent::ledger::LedgerRow> {
+        self.report_store.lock().ledger_rows(orchestrator_pane_id)
     }
 
     pub fn get_pane_status(&self, pane_id: &str) -> Result<PaneStatusInfo, String> {
@@ -217,6 +234,33 @@ pub fn resolve_report_target(
     Ok((title, target))
 }
 
+/// Decide whether a dying pane needs a synthetic worker-death report, and to
+/// whom. Mirrors the cron death-fallback for the hierarchy: a worker whose PTY
+/// dies WITHOUT having emitted a report leaves its orchestrator blind, forced
+/// to poll. Returns `(target_pane_id, message)` when the pane is a hierarchy
+/// worker (resolves to a real report target via the same chain as
+/// [`resolve_report_target`]) that has NOT already reported to that target.
+///
+/// Returns `None` for non-hierarchy panes (no parent / report_target / spawner,
+/// so no routing target) and for workers that already emitted at least one
+/// report up the chain — `report_store.has_report_from` is the "already
+/// reported" signal, since there is no separate terminal-report flag.
+pub fn worker_death_report(
+    mux: &crate::multiplexer::state::MultiplexerState,
+    report_store: &crate::agent::reports::ReportStore,
+    pane_id: &str,
+) -> Option<(String, String)> {
+    let (_from_title, target) = resolve_report_target(mux, pane_id).ok()?;
+    let target_id = target?;
+    if report_store.has_report_from(&target_id, pane_id) {
+        return None;
+    }
+    Some((
+        target_id,
+        format!("WORKER {} EXITED without reporting (dead)", pane_id),
+    ))
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PaneStatusInfo {
     pub pane_id: String,
@@ -233,7 +277,7 @@ pub struct PaneStatusInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_report_target;
+    use super::{resolve_report_target, worker_death_report};
     use crate::agent::reports::ReportStore;
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::{AgentRole, Orientation};
@@ -395,6 +439,66 @@ mod tests {
         let (mux, _orch) = MultiplexerState::new();
         let err = resolve_report_target(&mux, "nonexistent").unwrap_err();
         assert!(err.contains("Pane not found"), "got: {}", err);
+    }
+
+    // ── Worker-death watchdog ──
+
+    #[test]
+    fn dead_worker_without_report_routes_synthetic_to_parent() {
+        let (mux, orch, worker) = build_orchestrator_with_worker("Worker-Dead");
+        let store = ReportStore::new(100);
+
+        let (target, msg) = worker_death_report(&mux, &store, &worker)
+            .expect("dead unreported worker must synthesize a report");
+        assert_eq!(target, orch, "synthetic dead-report routes to the parent");
+        assert_eq!(
+            msg,
+            format!("WORKER {} EXITED without reporting (dead)", worker)
+        );
+    }
+
+    #[test]
+    fn dead_worker_that_already_reported_gets_no_synthetic() {
+        let (mux, orch, worker) = build_orchestrator_with_worker("Worker-Reported");
+        let mut store = ReportStore::new(100);
+        // Worker already spoke to its parent before dying.
+        store.add(&orch, &worker, "Worker-Reported", "task done");
+
+        assert!(
+            worker_death_report(&mux, &store, &worker).is_none(),
+            "a worker that already reported must NOT get a synthetic dead-report"
+        );
+    }
+
+    #[test]
+    fn dead_non_hierarchy_pane_gets_no_synthetic() {
+        // Plain pane: no parent, no report_target, no spawner → no routing
+        // target → no synthetic report.
+        let (mut mux, _orch) = MultiplexerState::new();
+        let plain = mux.create_pane();
+        let store = ReportStore::new(100);
+
+        assert!(
+            worker_death_report(&mux, &store, &plain).is_none(),
+            "a non-hierarchy pane must NOT get a synthetic dead-report"
+        );
+    }
+
+    #[test]
+    fn dead_worker_routes_via_spawned_by_when_no_parent() {
+        // Top-level pane spawned by another agent (no role parent) still routes
+        // its death up to whoever spawned it.
+        let (mut mux, _orch) = MultiplexerState::new();
+        let spawner = mux.create_pane();
+        let worker = mux.create_pane();
+        if let Some(pane) = mux.get_pane_mut(&worker) {
+            pane.spawned_by_pane_id = Some(spawner.clone());
+        }
+        let store = ReportStore::new(100);
+
+        let (target, _msg) =
+            worker_death_report(&mux, &store, &worker).expect("spawned_by gives a target");
+        assert_eq!(target, spawner);
     }
 
     // ── Report message format ── submit_report builds the notify body without a trailing CR — Enter is sent as a separate delayed raw write by send_text's bracket-paste path.

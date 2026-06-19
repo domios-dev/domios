@@ -187,6 +187,8 @@ pub async fn get_pane_status(
 #[derive(Deserialize)]
 pub(crate) struct ReportBody {
     message: String,
+    #[serde(flatten)]
+    details: crate::agent::reports::ReportDetails,
 }
 
 pub async fn submit_report(
@@ -198,7 +200,7 @@ pub async fn submit_report(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let result = state
         .svc
-        .submit_report(&id, &body.message)
+        .submit_report(&id, &body.message, body.details)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(
         serde_json::json!({"ok": true, "report_id": result.report_id}),

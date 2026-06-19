@@ -112,8 +112,18 @@ orchestrating in it (already in `docs/PLUGINS.md`). Extract, then delete from sk
 3. Strict TDD as universal law is cargo-cult + unverifiable → risk-based acceptance
    per track (logic=tests, refactor=build+typecheck, schema=migration dry-run,
    UI=screenshot/e2e, docs=link-check). TDD is one option.
-4. Heartbeat self-send is polling dressed up + no durable ledger → kill it (P1) +
-   durable ledger (P3).
+4. Heartbeat self-send is polling dressed up + no durable ledger → **DEMOTE, do
+   NOT delete** (correction to Sagan's "kill it"). P1's watchdog replaces it ONLY
+   as the worker-DEATH signal, and P3's ledger replaces its STATE role. But a
+   SPARSE long-interval `codeterm send --delay` self-send still earns its place as
+   the backstop the watchdog cannot cover: (a) the orchestrator's OWN liveness —
+   re-wakes a stalled/compacted orchestrator session (watchdog can't wake a dead
+   orchestrator); (b) a HUNG-but-alive worker — PTY never died so the watchdog
+   never fires, but "no progress in N min" still needs catching; (c) external
+   polling the daemon can't push (CI, remote state). So: watchdog = primary
+   worker-death wake; ledger = durable state; sparse `--delay` = liveness backstop.
+   Proven live 2026-06-19: a heartbeat re-woke the orchestrator as a backstop after
+   a track had already merged — exactly the self-liveness case the watchdog misses.
 5. Branch hygiene reactive (`--no-merged` misses unpushed/dirty/squash/dup) →
    ledger is the source of truth (proactive).
 6. Worker report underspecified → enforce schema (P2): status/branch/sha/
@@ -127,12 +137,45 @@ orchestrating in it (already in `docs/PLUGINS.md`). Extract, then delete from sk
    radius); model-scaling (cheap model for mechanical tracks, Opus for design/
    ambiguous/security).
 
+### Concrete worker-spawn recipe to LOCK INTO the rewrite (section 3+4)
+The current skill's spawn line (`--task '...'` inline + "no backticks" warning +
+"workspace per repo NOT worktrees") is the OLD pattern. The rewrite must replace
+it with the post-P1/P4 recipe battle-tested on 2026-06-19:
+
+1. **Integration branch** off the base (`git branch <integration> <base>`, push).
+   **Worktree per INDEPENDENT track** (`git worktree add -b <track> <path> <integration>`),
+   placed OUTSIDE the repo dir (e.g. `/Users/kandrey/Developer/wk-<track>`).
+   Single-checkout sequential ONLY for true data deps (A's SHA → B's base).
+2. Fresh worktree needs build stubs for cargo/tauri: `node scripts/prepare-embed-stub.js`
+   + `node scripts/prepare-cli-stub.js` + a `dist/index.html` stub. Gitignored,
+   NEVER committed. **NEVER run those scripts in the MAIN checkout** — they make
+   circular self-symlinks there (ELOOP breaks the pre-push hook). Safe in a worktree.
+3. Shared `CARGO_TARGET_DIR=/Users/kandrey/Developer/.psetup-target` across
+   worktrees (parallel cargo without lock contention).
+4. Spawn (post-P4): `codeterm agent spawn claude --model opus --role Worker
+   --parent $CODETERM_PANE_ID --title T --cwd <worktree> --task-file <path>`.
+   PRE-P4 fallback: `--task "$(cat <path>)"` — command substitution inside double
+   quotes passes backticks/`$()` literally; NEVER an inline backticked `--task`.
+5. Task file = self-contained English: the change + exact file anchors; the
+   build-stub setup; the GATE (fmt + build + targeted tests + pre-push hook clippy
+   `--all-targets` + the `.githooks/pre-push` CLIPPY_ALLOW `-A` flags for src-tauri
+   AND cli; `manual_range_contains`/`assertions_on_constants` are NOT allowed);
+   "commit before reporting, DO NOT push"; report via structured `agent report`
+   (P2 flags); "Worker NEVER spawns workers — report Blocked if decomposition needed."
+6. Gate-merge-yourself: `git checkout <integration>` in main, `git merge --no-ff
+   <track>`, re-run the track's targeted tests, push (pre-push hook = authoritative
+   gate). Then `git worktree remove <path>`; assert no stranded branches.
+
 ### New skill structure (provider-agnostic)
 1 pick tier · 2 model scaling · 3 worktree isolation · 4 worker contract +
-structured report + risk-based acceptance · 5 liveness & durable ledger
-(react-to-report, no self-send) · 6 integration gate (clean-checkout + per-merge
-smoke) · 7 rebase protocol · 8 protected areas · 9 slimmed provider-agnostic
-mechanics (no plugin-runtime / Rust build notes — those went to the dev facts).
+structured report + risk-based acceptance · 5 liveness & durable ledger —
+react-to-report is PRIMARY (native worker-death watchdog injects on PTY death),
+durable ledger holds state across restart/compaction, and a SPARSE long-interval
+`--delay` self-send stays as the liveness backstop (orchestrator self-wake on
+stall/compaction, hung-but-alive worker, external poll) — demote the heartbeat,
+don't delete it · 6 integration gate (clean-checkout + per-merge smoke) ·
+7 rebase protocol · 8 protected areas · 9 slimmed provider-agnostic mechanics
+(no plugin-runtime / Rust build notes — those went to the dev facts).
 
 **Reference for the skill rewrite (fetch when doing Problem A/B, NOT before):**
 the rollacode orchestrator's full proposal + both reviewers' per-flaw notes
