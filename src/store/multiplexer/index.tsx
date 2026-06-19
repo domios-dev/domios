@@ -6,7 +6,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { invoke, reopenClosedPane, restoreOrphanedPane } from "../../lib/bridge";
+import { invoke, reopenClosedPane, reopenClosedGroup, restoreOrphanedPane } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
 import { IS_WEB, webJson } from "../../lib/webApi";
 import { uid } from "../../lib/uid";
@@ -252,6 +252,19 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       refreshFromBackend();
     } catch (e) {
       console.error("Failed to reopen closed pane:", e);
+    }
+  }, [refreshFromBackend]);
+
+  const reopenGroup = useCallback(async (groupId: string) => {
+    try {
+      const result = await reopenClosedGroup(groupId);
+      invoke("mux_set_active_workspace", { workspaceId: result.workspace_id }).catch(() => {});
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: result.workspace_id });
+      dispatch({ type: "SET_ACTIVE_TAB", workspaceId: result.workspace_id, tabId: result.tab_id });
+      invoke("mux_set_focused_pane", { paneId: result.pane_id }).catch(() => {});
+      refreshFromBackend();
+    } catch (e) {
+      console.error("Failed to reopen closed group:", e);
     }
   }, [refreshFromBackend]);
 
@@ -528,6 +541,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       createTab,
       closeTab,
       reopenClosed,
+      reopenGroup,
       restoreOrphaned,
       setActiveTab,
       closePane,
@@ -556,6 +570,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       createTab,
       closeTab,
       reopenClosed,
+      reopenGroup,
       restoreOrphaned,
       setActiveTab,
       closePane,
