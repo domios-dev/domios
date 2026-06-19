@@ -5,9 +5,9 @@ import type { CatalogEntry, CatalogFilter } from "./pluginCatalog";
 import { catalogKindLabel } from "./pluginCatalog";
 import { PluginIcon } from "./PluginIcon";
 import { iconOf } from "./shared";
-import { PinIcon } from "../Icons";
+import type { ChannelRecord } from "./types";
 import { DropdownMenu } from "../shared/DropdownMenu";
-import { ChevronRight, Ellipsis, Trash2 } from "lucide-react";
+import { ChevronRight, Ellipsis, Pin, Trash2 } from "lucide-react";
 import type { PluginActivity } from "../../lib/types";
 import { resolvePluginActivityDisplay, type PluginActivityDisplayMap } from "../../lib/usePluginActivity";
 import { PluginActivityInline } from "./PluginActivityInline";
@@ -21,6 +21,7 @@ const FILTERS: Array<{ key: CatalogFilter; label: string }> = [
   { key: "installed", label: "Installed" },
   { key: "marketplace", label: "Marketplace" },
   { key: "updates", label: "Updates" },
+  { key: "channels", label: "Channels" },
 ];
 
 export function PluginList({
@@ -37,6 +38,10 @@ export function PluginList({
   onRemoveChannel,
   activities,
   activityDisplayMap,
+  channels,
+  selectedChannel,
+  channelPluginCounts,
+  onSelectChannel,
 }: {
   entries: CatalogEntry[];
   selectedId: string | null;
@@ -51,8 +56,13 @@ export function PluginList({
   onRemoveChannel: (channel: string, installedCount: number) => void;
   activities: Map<string, PluginActivity>;
   activityDisplayMap: PluginActivityDisplayMap;
+  channels: ChannelRecord[];
+  selectedChannel: string | null;
+  channelPluginCounts: Map<string, number>;
+  onSelectChannel: (name: string) => void;
 }) {
   const sections = groupBySource(entries);
+  const channelRows = filterChannels(channels, query);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const toggleSection = (key: string) => {
     setCollapsed((prev) => {
@@ -108,93 +118,183 @@ export function PluginList({
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 4, overflowY: "auto", minHeight: 0 }} data-testid="extensions-list">
-        {sections.map((section) => (
-          <div key={section.key} data-testid="extensions-section" data-extension-section={section.key}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "8px 4px 5px", color: "var(--ct-muted)", fontSize: 10.5, fontWeight: 650 }}>
-              <button
-                type="button"
-                data-testid="extensions-section-toggle"
-                data-extension-section={section.key}
-                onClick={() => toggleSection(section.key)}
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  border: "none",
-                  background: "transparent",
-                  color: "inherit",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                  padding: 0,
-                  font: "inherit",
-                  textAlign: "left",
-                }}
-              >
-                <ChevronRight
-                  size={12}
-                  style={{ transform: collapsed.has(section.key) ? "none" : "rotate(90deg)", transition: "transform 0.12s", flex: "none" }}
-                />
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{section.label}</span>
-                <span style={{ opacity: 0.65 }}>({section.entries.length})</span>
-              </button>
-              {section.channel && !PROTECTED_CHANNELS.has(section.channel) && (
-                <DropdownMenu
-                  items={[
-                    {
-                      label: "Delete channel",
-                      icon: <Trash2 size={12} />,
-                      danger: true,
-                      onClick: () => onRemoveChannel(section.channel ?? "", section.installedCount),
-                    },
-                  ]}
-                  className="ml-auto"
-                  trigger={
-                    <button
-                      type="button"
-                      data-testid="extensions-channel-actions"
-                      data-channel-name={section.channel}
-                      title={`Channel ${section.channel} actions`}
-                      style={{
-                        width: 20,
-                        height: 20,
-                        border: "none",
-                        borderRadius: 5,
-                        background: "transparent",
-                        color: "var(--ct-muted)",
-                        cursor: "pointer",
-                        display: "grid",
-                        placeItems: "center",
-                      }}
-                    >
-                      <Ellipsis size={14} />
-                    </button>
-                  }
-                />
-              )}
-            </div>
-            {!collapsed.has(section.key) && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {section.entries.map((e) => (
-                  <PluginRow
-                    key={e.id}
-                    entry={e}
-                    selected={e.id === selectedId}
-                    pinned={pinned.has(e.id)}
-                    activity={activities.get(e.id)}
-                    display={resolvePluginActivityDisplay(e.id, activityDisplayMap)}
-                    onSelect={() => onSelect(e.id)}
-                    onTogglePin={() => onTogglePin(e.id)}
-                  />
-                ))}
+        {filter === "channels" ? (
+          <ChannelRows
+            channels={channelRows}
+            selectedChannel={selectedChannel}
+            pluginCounts={channelPluginCounts}
+            onSelect={onSelectChannel}
+          />
+        ) : (
+          <>
+            {sections.map((section) => (
+              <div key={section.key} data-testid="extensions-section" data-extension-section={section.key}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "8px 4px 5px", color: "var(--ct-muted)", fontSize: 10.5, fontWeight: 650 }}>
+                  <button
+                    type="button"
+                    data-testid="extensions-section-toggle"
+                    data-extension-section={section.key}
+                    onClick={() => toggleSection(section.key)}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      border: "none",
+                      background: "transparent",
+                      color: "inherit",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      padding: 0,
+                      font: "inherit",
+                      textAlign: "left",
+                    }}
+                  >
+                    <ChevronRight
+                      size={12}
+                      style={{ transform: collapsed.has(section.key) ? "none" : "rotate(90deg)", transition: "transform 0.12s", flex: "none" }}
+                    />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{section.label}</span>
+                    <span style={{ opacity: 0.65 }}>({section.entries.length})</span>
+                  </button>
+                  {section.channel && !PROTECTED_CHANNELS.has(section.channel) && (
+                    <DropdownMenu
+                      items={[
+                        {
+                          label: "Delete channel",
+                          icon: <Trash2 size={12} />,
+                          danger: true,
+                          onClick: () => onRemoveChannel(section.channel ?? "", section.installedCount),
+                        },
+                      ]}
+                      className="ml-auto"
+                      trigger={
+                        <button
+                          type="button"
+                          data-testid="extensions-channel-actions"
+                          data-channel-name={section.channel}
+                          title={`Channel ${section.channel} actions`}
+                          style={{
+                            width: 20,
+                            height: 20,
+                            border: "none",
+                            borderRadius: 5,
+                            background: "transparent",
+                            color: "var(--ct-muted)",
+                            cursor: "pointer",
+                            display: "grid",
+                            placeItems: "center",
+                          }}
+                        >
+                          <Ellipsis size={14} />
+                        </button>
+                      }
+                    />
+                  )}
+                </div>
+                {!collapsed.has(section.key) && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {section.entries.map((e) => (
+                      <PluginRow
+                        key={e.id}
+                        entry={e}
+                        selected={e.id === selectedId}
+                        pinned={pinned.has(e.id)}
+                        activity={activities.get(e.id)}
+                        display={resolvePluginActivityDisplay(e.id, activityDisplayMap)}
+                        onSelect={() => onSelect(e.id)}
+                        onTogglePin={() => onTogglePin(e.id)}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
+            ))}
+            {entries.length === 0 && (
+              <div style={{ color: "var(--ct-muted)", fontSize: 12.5, padding: "8px 4px" }} data-testid="extensions-list-empty">No plugins match.</div>
             )}
-          </div>
-        ))}
-        {entries.length === 0 && (
-          <div style={{ color: "var(--ct-muted)", fontSize: 12.5, padding: "8px 4px" }} data-testid="extensions-list-empty">No plugins match.</div>
+          </>
         )}
       </div>
+    </div>
+  );
+}
+
+function filterChannels(channels: ChannelRecord[], query: string): ChannelRecord[] {
+  const q = query.trim().toLowerCase();
+  return [...channels]
+    .filter((channel) => {
+      if (!q) return true;
+      return `${channel.name} ${channel.url} ${channel.kind}`.toLowerCase().includes(q);
+    })
+    .sort((a, b) => channelRank(a).localeCompare(channelRank(b)));
+}
+
+function channelRank(channel: ChannelRecord): string {
+  if (channel.name === CORE_CHANNEL) return "0";
+  if (channel.name === PLUGINS_CHANNEL) return "1";
+  if (channel.system) return `2:${channel.name}`;
+  return `3:${channel.name}`;
+}
+
+function ChannelRows({
+  channels,
+  selectedChannel,
+  pluginCounts,
+  onSelect,
+}: {
+  channels: ChannelRecord[];
+  selectedChannel: string | null;
+  pluginCounts: Map<string, number>;
+  onSelect: (name: string) => void;
+}) {
+  if (channels.length === 0) {
+    return <div style={{ color: "var(--ct-muted)", fontSize: 12.5, padding: "8px 4px" }} data-testid="extensions-channel-list-empty">No channels match.</div>;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }} data-testid="extensions-channel-list">
+      {channels.map((channel) => {
+        const selected = channel.name === selectedChannel;
+        const count = pluginCounts.get(channel.name) ?? 0;
+        return (
+          <button
+            key={channel.name}
+            type="button"
+            data-testid="extensions-channel-row"
+            data-channel-name={channel.name}
+            onClick={() => onSelect(channel.name)}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr auto",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+              minWidth: 0,
+              border: "none",
+              borderRadius: 8,
+              padding: "8px 10px",
+              background: selected ? "var(--ct-bg-selected)" : "transparent",
+              color: "var(--ct-fg)",
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+            onMouseEnter={(e) => {
+              if (!selected) e.currentTarget.style.background = "var(--ct-bg-hover)";
+            }}
+            onMouseLeave={(e) => {
+              if (!selected) e.currentTarget.style.background = "transparent";
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 560, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{channel.name}</span>
+              <ChannelBadge channel={channel} />
+            </span>
+            <span style={{ color: "var(--ct-muted)", fontSize: 11, whiteSpace: "nowrap" }}>
+              {count} plugin{count === 1 ? "" : "s"}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -310,10 +410,32 @@ function PluginRow({
           title={pinned ? "Unpin from titlebar" : "Pin to titlebar"}
           style={{ background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", color: pinned ? "var(--ct-accent, #6366f1)" : "var(--ct-muted)", padding: 3 }}
         >
-          <PinIcon size={13} filled={pinned} />
+          <Pin size={13} fill={pinned ? "currentColor" : "none"} />
         </button>
       )}
     </div>
+  );
+}
+
+function ChannelBadge({ channel }: { channel: ChannelRecord }) {
+  return (
+    <span
+      data-testid="extensions-channel-badge"
+      style={{
+        fontSize: 9.5,
+        fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+        letterSpacing: 0,
+        textTransform: "uppercase",
+        borderRadius: 4,
+        padding: "1px 5px",
+        flex: "none",
+        color: "var(--ct-muted)",
+        border: "1px solid var(--ct-border-default)",
+        background: channel.system ? "var(--ct-bg-active)" : "transparent",
+      }}
+    >
+      {channel.name === CORE_CHANNEL || channel.system ? "Official" : "Custom"}
+    </span>
   );
 }
 

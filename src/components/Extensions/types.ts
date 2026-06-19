@@ -58,6 +58,12 @@ export interface ChannelRecord {
   kind: "local" | "git";
   system?: boolean;
   removable?: boolean;
+  version?: string | null;
+  verified?: boolean | null;
+  trusted?: boolean | null;
+  last_refresh?: string | number | null;
+  last_refreshed?: string | number | null;
+  refreshed_at?: string | number | null;
 }
 
 /** Channel diff row — the raw `snapshot.diff`. */
