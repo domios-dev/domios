@@ -771,8 +771,6 @@ mod tests {
         }
     }
 
-
-
     #[test]
     fn gemma_premature_close_with_dangling_pane_repairs() {
         // The live Gemma-26B failure: inner string closed one quote early, leaving
