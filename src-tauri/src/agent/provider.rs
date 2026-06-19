@@ -780,6 +780,20 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// Classify a parked pane's state from a generic snapshot (AS1 seam).
+    ///
+    /// Optional capability: the default returns `None` (no opinion) so most
+    /// providers opt out. A provider that opts in runs its own ensemble of
+    /// matchers and returns a generic [`PaneStateClassification`] — core never
+    /// sees the provider's fingerprints, only the generic verdict + action.
+    /// Called by the core reactor ONLY when the pane is parked (idle/waiting).
+    fn classify_pane_state(
+        &self,
+        _snapshot: &crate::agent::pane_state::PaneStateSnapshot,
+    ) -> Option<crate::agent::pane_state::PaneStateClassification> {
+        None
+    }
+
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
     fn is_output_noise(&self, text: &str) -> bool {
         let _ = text;
