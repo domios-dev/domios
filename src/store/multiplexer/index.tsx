@@ -6,7 +6,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { invoke, reopenClosedPane } from "../../lib/bridge";
+import { invoke, reopenClosedPane, restoreOrphanedPane } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
 import { IS_WEB, webJson } from "../../lib/webApi";
 import { uid } from "../../lib/uid";
@@ -256,7 +256,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const reopenClosed = useCallback(async (workspaceId: string, index = 0) => {
     try {
-      // Reuse the workspace for the reopened tab; backend creates + activates it.
       invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       const tabInfo = await reopenClosedPane(workspaceId, index);
@@ -266,6 +265,19 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       refreshFromBackend();
     } catch (e) {
       console.error("Failed to reopen closed pane:", e);
+    }
+  }, [refreshFromBackend]);
+
+  const restoreOrphaned = useCallback(async (paneId: string) => {
+    try {
+      const result = await restoreOrphanedPane(paneId);
+      invoke("mux_set_active_workspace", { workspaceId: result.workspace_id }).catch(() => {});
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: result.workspace_id });
+      dispatch({ type: "SET_ACTIVE_TAB", workspaceId: result.workspace_id, tabId: result.tab_id });
+      invoke("mux_set_focused_pane", { paneId: result.pane_id }).catch(() => {});
+      refreshFromBackend();
+    } catch (e) {
+      console.error("Failed to restore orphaned pane:", e);
     }
   }, [refreshFromBackend]);
 
@@ -529,6 +541,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       createTab,
       closeTab,
       reopenClosed,
+      restoreOrphaned,
       setActiveTab,
       closePane,
       setFocusedPane,
@@ -556,6 +569,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       createTab,
       closeTab,
       reopenClosed,
+      restoreOrphaned,
       setActiveTab,
       closePane,
       setFocusedPane,

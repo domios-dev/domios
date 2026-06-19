@@ -85,6 +85,7 @@ export function Sidebar({
     createTab,
     closeTab,
     reopenClosed,
+    restoreOrphaned,
     setActiveTab,
     setTabTitle,
     spawnAgentTab,
@@ -674,12 +675,6 @@ export function Sidebar({
                               />
                             );
                           })()}
-                          <RecentlyClosed
-                            workspace={ws}
-                            onReopen={(index) => reopenClosed(ws.id, index)}
-                            touchMode={touchMode}
-                            uiFontScale={uiFontScale}
-                          />
                         </>
                       </div>
                     </div>
@@ -721,6 +716,35 @@ export function Sidebar({
               })}
             </div>
 
+            {/* Recently closed — pinned above bottom nav, aggregated across all workspaces */}
+            {!isCompact && (() => {
+              // Flatten all workspace rings + orphaned, sort newest-first.
+              type AggEntry = { entry: import("../../lib/types").ClosedPane; workspaceId: string; index: number; orphaned: boolean };
+              const agg: AggEntry[] = [];
+              for (const ws of state.workspaces) {
+                for (let i = 0; i < (ws.recently_closed?.length ?? 0); i++) {
+                  agg.push({ entry: ws.recently_closed![i], workspaceId: ws.id, index: i, orphaned: false });
+                }
+              }
+              for (const entry of (state.orphaned_closed ?? [])) {
+                agg.push({ entry, workspaceId: entry.workspace_id ?? "", index: -1, orphaned: true });
+              }
+              agg.sort((a, b) => b.entry.closed_at - a.entry.closed_at);
+              const visible = agg.slice(0, 100);
+              if (visible.length === 0) return null;
+              return (
+                <RecentlyClosed
+                  entries={visible}
+                  showWorkspace={state.workspaces.length > 1 || (state.orphaned_closed?.length ?? 0) > 0}
+                  onReopen={(wsId, idx, orphaned, paneId) => {
+                    if (orphaned) { restoreOrphaned(paneId); }
+                    else { reopenClosed(wsId, idx); }
+                  }}
+                  touchMode={touchMode}
+                  uiFontScale={uiFontScale}
+                />
+              );
+            })()}
             {/* Memory + Settings buttons at bottom */}
             <div className={`border-t border-[var(--ct-border)] mt-auto ${isCompact ? "px-1 py-2 flex flex-col items-center gap-1" : "px-3 py-2 flex flex-col gap-1"}`}>
               {(config?.ui?.memory_tab_enabled ?? true) && (

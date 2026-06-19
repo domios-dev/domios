@@ -47,7 +47,7 @@ pub struct WorkspaceInfo {
 
 /// Cap on entries preserved from deleted workspaces. Prevents unbounded growth
 /// when many workspaces are created and deleted.
-pub const ORPHANED_CLOSED_CAP: usize = 50;
+pub const ORPHANED_CLOSED_CAP: usize = 1000;
 
 /// Central multiplexer state: workspaces, tabs, panes, and their relationships.
 pub struct MultiplexerState {

@@ -6,7 +6,7 @@ import { Window } from "happy-dom";
 import { RecentlyClosed } from "./RecentlyClosed";
 import { reopenClosedPane } from "../../lib/bridge";
 import { __setInvokeForTest } from "../../lib/bridge";
-import type { Workspace } from "../../lib/types";
+import type { ClosedPane } from "../../lib/types";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -50,25 +50,20 @@ async function expand(host: HTMLElement) {
   }
 }
 
-function wsWith(recently_closed: Workspace["recently_closed"]): Workspace {
-  return {
-    id: "ws1",
-    name: "Project",
-    tabs: [],
-    active_tab_id: null,
-    cwd: "/proj",
-    recently_closed,
-  };
+function makeEntries(panes: ClosedPane[], wsId = "ws1") {
+  return panes.map((entry, index) => ({ entry, workspaceId: wsId, index, orphaned: false }));
 }
 
 setupDom();
 
 test("renders a row per recently-closed entry with title and model", async () => {
-  const ws = wsWith([
+  const entries = makeEntries([
     { pane_id: "p1", title: "claude — fix bug", model: "Opus", closed_at: 1000, backing: { kind: "pty" } },
     { pane_id: "p2", title: "build logs", closed_at: 900, backing: { kind: "pty" } },
   ]);
-  const { host, root } = await render(<RecentlyClosed workspace={ws} onReopen={() => {}} />);
+  const { host, root } = await render(
+    <RecentlyClosed entries={entries} showWorkspace={false} onReopen={() => {}} />,
+  );
   await expand(host);
 
   const rows = Array.from(host.querySelectorAll('[data-testid="recently-closed-item"]'));
@@ -86,13 +81,16 @@ test("clicking an entry reopens that index via the bridge", async () => {
     calls.push({ cmd, args });
     return { id: "t9", title: "x", pane_id: "p9" } as T;
   });
-  const ws = wsWith([
+  const entries = makeEntries([
     { pane_id: "p1", title: "newest", closed_at: 1000, backing: { kind: "pty" } },
     { pane_id: "p2", title: "older", closed_at: 900, backing: { kind: "pty" } },
   ]);
-  // onReopen wired to the real bridge wrapper (the production path), bridge mocked.
   const { host, root } = await render(
-    <RecentlyClosed workspace={ws} onReopen={(i) => { void reopenClosedPane(ws.id, i); }} />,
+    <RecentlyClosed
+      entries={entries}
+      showWorkspace={false}
+      onReopen={(wsId, idx) => { void reopenClosedPane(wsId, idx); }}
+    />,
   );
   await expand(host);
 
@@ -111,13 +109,11 @@ test("clicking an entry reopens that index via the bridge", async () => {
 });
 
 test("renders nothing when there are no recently-closed entries", async () => {
-  const { host: empty, root: r1 } = await render(<RecentlyClosed workspace={wsWith([])} onReopen={() => {}} />);
+  const { host: empty, root: r1 } = await render(
+    <RecentlyClosed entries={[]} showWorkspace={false} onReopen={() => {}} />,
+  );
   assert(!empty.querySelector('[data-testid="recently-closed"]'), "empty ring renders no panel");
   await act(async () => r1.unmount());
-
-  const { host: undef, root: r2 } = await render(<RecentlyClosed workspace={wsWith(undefined)} onReopen={() => {}} />);
-  assert(!undef.querySelector('[data-testid="recently-closed"]'), "absent ring renders no panel");
-  await act(async () => r2.unmount());
 });
 
 async function main() {

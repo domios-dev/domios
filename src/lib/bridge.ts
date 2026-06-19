@@ -112,6 +112,8 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/reopen-closed`, {
       index: a.index,
     }),
+  mux_restore_orphaned_pane: (a) =>
+    webJson("POST", `/api/mux/restore-orphaned`, { pane_id: s(a, "paneId") }),
   mux_rename_tab: (a) =>
     webJson(
       "POST",
@@ -414,6 +416,12 @@ function isCommandNotFoundError(err: unknown): boolean {
  *  entry (0 = most recent, the default). Works in both Tauri and web modes. */
 export function reopenClosedPane(workspaceId: string, index = 0): Promise<TabInfo> {
   return invoke<TabInfo>("mux_reopen_closed_pane", { workspaceId, index });
+}
+
+/** Reopen a pane from the orphaned ring (its workspace was deleted). Recreates
+ *  the workspace automatically. Returns workspace + tab ids. */
+export function restoreOrphanedPane(paneId: string): Promise<{ workspace_id: string; tab_id: string; pane_id: string }> {
+  return invoke("mux_restore_orphaned_pane", { paneId });
 }
 
 export async function listen<T>(

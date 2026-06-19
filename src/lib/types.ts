@@ -30,6 +30,9 @@ export interface ClosedPane {
   agent_session_id?: string | null;
   model?: string | null;
   closed_at: number;
+  /** Workspace the pane belonged to. Empty string on old records. */
+  workspace_id?: string;
+  workspace_name?: string;
 }
 
 export interface Tab {
@@ -93,6 +96,8 @@ export interface MultiplexerState {
   /** Monotonic snapshot generation stamped by the backend. The reducer ignores
    *  any incoming snapshot whose generation is `<=` the one already applied. */
   generation?: number;
+  /** Recently-closed entries from deleted workspaces; newest first. */
+  orphaned_closed?: ClosedPane[];
 }
 
 /** Result of the one atomic spawn command (`mux_spawn_pane`). */
