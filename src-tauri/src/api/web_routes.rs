@@ -617,7 +617,7 @@ pub async fn plugin_snapshot(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    crate::commands::plugins::snapshot()
+    crate::commands::plugins::snapshot(Some(state.svc.chatbackend_registry.as_ref()))
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
@@ -712,6 +712,49 @@ pub async fn plugin_view_call(
     .await
     .map(Json)
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatBackendSessionReq {
+    pub plugin_id: String,
+    pub session_id: String,
+}
+
+/// Web-mirror twin of the `chatbackend_session_info` Tauri command.
+pub async fn chatbackend_session_info(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<ChatBackendSessionReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let info = state
+        .svc
+        .chatbackend_session_info(&req.plugin_id, &req.session_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::to_value(info).unwrap_or_default()))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatBackendSwitchModelReq {
+    pub plugin_id: String,
+    pub session_id: String,
+    pub model: String,
+}
+
+/// Web-mirror twin of the `chatbackend_switch_model` Tauri command.
+pub async fn chatbackend_switch_model(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<ChatBackendSwitchModelReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let info = state
+        .svc
+        .chatbackend_set_model(&req.plugin_id, &req.session_id, &req.model)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::to_value(info).unwrap_or_default()))
 }
 
 /// The `ct` bridge shim injected (nonce'd) into every plugin iframe. The iframe's

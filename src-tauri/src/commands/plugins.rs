@@ -22,8 +22,10 @@ pub struct PluginManagerAction {
 }
 
 #[tauri::command]
-pub fn plugin_manager_snapshot() -> Result<Value, String> {
-    build_snapshot(None)
+pub fn plugin_manager_snapshot(
+    svc: tauri::State<'_, crate::service::ServiceState>,
+) -> Result<Value, String> {
+    build_snapshot(None, Some(svc.chatbackend_registry.as_ref()))
 }
 
 #[tauri::command]
@@ -163,7 +165,7 @@ pub(crate) fn run_action(
                 .ok_or("remove requires pluginId")?;
             crate::config::cleanup_removed_plugin_config(plugin_id)?;
         }
-        build_snapshot(Some(output))
+        build_snapshot(Some(output), Some(svc.chatbackend_registry.as_ref()))
     })();
 
     let finished = svc
@@ -279,8 +281,10 @@ fn remove_channel_plugins(channel: &str, force: bool) -> Result<(), String> {
 
 /// Build the plugin snapshot. Shared by the Tauri command and the web-mirror
 /// REST route (`GET /api/plugins/snapshot`).
-pub(crate) fn snapshot() -> Result<Value, String> {
-    build_snapshot(None)
+pub(crate) fn snapshot(
+    chatbackends: Option<&crate::chatbackend::ChatBackendRegistry>,
+) -> Result<Value, String> {
+    build_snapshot(None, chatbackends)
 }
 
 /// Scan the real plugin roots (workspace `plugins/` in dev + `data_dir/plugins`)
@@ -432,6 +436,12 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
                 obj.insert("version".into(), v.clone());
             }
         }
+        // chatBackend catalog hint: the manifest may declare a default model the
+        // shell opens with. Live `available_models` are joined separately from the
+        // registry (`enrich_chat_backend_models`); this is the static default.
+        if let Some(default_model) = m.get("defaultModel") {
+            obj.insert("default_model".into(), default_model.clone());
+        }
         // Documentation surface for the detail pane. `description`/`homepage` are
         // plain manifest strings; `readme` is a relative markdown path (default
         // README.md) loaded into a bounded `readme_markdown` field so the UI can
@@ -473,7 +483,10 @@ fn read_bounded_text(path: &std::path::Path) -> Option<String> {
     Some(text)
 }
 
-fn build_snapshot(last_output: Option<Value>) -> Result<Value, String> {
+fn build_snapshot(
+    last_output: Option<Value>,
+    chatbackends: Option<&crate::chatbackend::ChatBackendRegistry>,
+) -> Result<Value, String> {
     let mut plugins = run_plugin_cli(&["plugin", "list", "--json"])?;
     let manifests = scan_plugin_manifests();
     // Plugins installed after daemon start that declared requiresReload and so
@@ -490,6 +503,7 @@ fn build_snapshot(last_output: Option<Value>) -> Result<Value, String> {
                 if let Some((dir, m)) = manifests.get(&id) {
                     enrich_from_manifest(entry, dir, m);
                 }
+                enrich_chat_backend_models(entry, chatbackends);
                 if let Some(obj) = entry.as_object_mut() {
                     obj.insert(
                         "pending_reload".into(),
@@ -519,6 +533,7 @@ fn build_snapshot(last_output: Option<Value>) -> Result<Value, String> {
                 "install_path": dir.to_string_lossy(),
             });
             enrich_from_manifest(&mut entry, dir, m);
+            enrich_chat_backend_models(&mut entry, chatbackends);
             arr.push(entry);
         }
     }
@@ -604,6 +619,43 @@ fn build_marketplace(
         out.push(entry);
     }
     out
+}
+
+/// Enrich a chatBackend plugin entry with its live `available_models` (from the
+/// registered provider's `list_models()`). Core asks the capability by the
+/// entry's own id — never a hardcoded plugin id. A non-chatBackend entry, an
+/// absent registry, or a plugin not registered in the registry is a no-op, so a
+/// shell with its server offline simply yields no models (the picker falls back).
+fn enrich_chat_backend_models(
+    entry: &mut Value,
+    chatbackends: Option<&crate::chatbackend::ChatBackendRegistry>,
+) {
+    let Some(registry) = chatbackends else {
+        return;
+    };
+    let is_chat_backend = entry
+        .get("capabilities")
+        .and_then(|c| c.get("chat_backend"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !is_chat_backend {
+        return;
+    }
+    let Some(id) = entry.get("id").and_then(|v| v.as_str()).map(String::from) else {
+        return;
+    };
+    let Some(provider) = registry.get(&id) else {
+        return;
+    };
+    let Ok(models) = provider.list_models() else {
+        return;
+    };
+    if let Some(obj) = entry.as_object_mut() {
+        obj.insert(
+            "available_models".into(),
+            serde_json::to_value(models).unwrap_or_default(),
+        );
+    }
 }
 
 /// Locate a channel plugin's on-disk dir + parsed manifest from the channel cache.
@@ -1060,6 +1112,93 @@ mod tests {
             "revoked grant must not appear: {granted:?}"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn enrich_exposes_default_model_from_manifest() {
+        let dir = std::env::temp_dir().join(format!("ct-defmodel-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = serde_json::json!({
+            "id": "lmstudio",
+            "displayName": "LM Studio",
+            "defaultModel": "qwen-2.5",
+            "capabilities": { "chatBackend": { "spawnable": true } },
+        });
+        let mut entry = serde_json::json!({ "id": "lmstudio" });
+        enrich_from_manifest(&mut entry, &dir, &manifest);
+        assert_eq!(entry["default_model"], serde_json::json!("qwen-2.5"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn enrich_chat_backend_models_pulls_live_list_models() {
+        use crate::agent::provider::ModelInfo;
+        use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
+        use std::sync::Arc;
+
+        struct ModelShell;
+        impl ChatBackendProvider for ModelShell {
+            fn id(&self) -> &str {
+                "lmstudio"
+            }
+            fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
+                Ok("s".into())
+            }
+            fn send_message(&self, _: &str, _: &str) -> Result<(), ChatBackendError> {
+                Ok(())
+            }
+            fn poll(
+                &self,
+                _: &str,
+                _: Option<&str>,
+            ) -> Result<crate::agent::chat_types::StructuredChat, ChatBackendError> {
+                Ok(Default::default())
+            }
+            fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
+                Ok(())
+            }
+            fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError> {
+                Ok(vec![ModelInfo {
+                    id: "qwen-2.5".into(),
+                    display_name: "Qwen 2.5".into(),
+                    description: None,
+                }])
+            }
+        }
+
+        let registry = ChatBackendRegistry::new();
+        registry.register("lmstudio", Arc::new(ModelShell));
+
+        // A chatBackend entry resolves its live models by its own id.
+        let mut entry = serde_json::json!({
+            "id": "lmstudio",
+            "capabilities": { "chat_backend": true },
+        });
+        enrich_chat_backend_models(&mut entry, Some(&registry));
+        assert_eq!(
+            entry["available_models"][0]["id"],
+            serde_json::json!("qwen-2.5")
+        );
+        assert_eq!(
+            entry["available_models"][0]["display_name"],
+            serde_json::json!("Qwen 2.5")
+        );
+
+        // A non-chatBackend entry is untouched (no hardcoded id matching).
+        let mut other = serde_json::json!({
+            "id": "lmstudio",
+            "capabilities": { "chat_backend": false },
+        });
+        enrich_chat_backend_models(&mut other, Some(&registry));
+        assert!(other.get("available_models").is_none());
+
+        // No registry ⇒ no-op (the snapshot still builds without a live registry).
+        let mut no_reg = serde_json::json!({
+            "id": "lmstudio",
+            "capabilities": { "chat_backend": true },
+        });
+        enrich_chat_backend_models(&mut no_reg, None);
+        assert!(no_reg.get("available_models").is_none());
     }
 
     #[test]
