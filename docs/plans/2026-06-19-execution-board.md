@@ -115,6 +115,7 @@ sender metadata). All senders (send/report/mesh/delayed) go through it.
 - **WM.M2** (codex) — chatBackend inbound "from <label·model>" rendering (frontend).
 - **WM.M3** (codex) — route delayed/reminder + mesh through Messenger.
 - **WM.M4** (codex/plugin) — chatBackend reply-to-return-address.
+- **WM.M1b** (codex) — gateway ROBUSTNESS (live bugs): de-dup inbound (one entry not two), canonical -=-codeterm:-=- marker (not [CodeTerm inbound]), reply carries chatBackend pane identity. TDD. Spec: messenger-gateway.md M1b.
 
 ## Wave E — emergence wiring (cross-pane reply semantics, NEW 2026-06-19)
 

@@ -86,4 +86,62 @@ carries who-set/set_at/fire_at).
 - Boundary: generic — the gateway branches on STORAGE (PTY vs host), never on a
   provider id.
 
-<!-- revision: 1 -->
+## M1b — gateway robustness (live bugs, TDD, NO band-aids)
+
+Three bugs found in live testing (Andrey 2026-06-19) — the gateway is close but
+not solid yet. Investigated in `service/messenger.rs`:
+
+**B1 — duplicate inbound.** `deliver_chatbackend` (messenger.rs:241) writes the
+message TWICE: (a) `history.upsert(structured_msg)` + `emit_chat_msgs` (:265-268)
+— the structured "from X" entry the renderer shows; AND (b) `chatbackend_send(staged)`
+(:277) where `staged` = the `[CodeTerm inbound …]` header + body → the plugin
+records it → the poll loop re-emits it as a SECOND transcript entry. The user sees
+the message twice (structured card + raw-header copy).
+FIX: exactly ONE inbound transcript entry. The plugin must receive the message for
+the MODEL's context WITHOUT producing a duplicate line — e.g. the structured upsert
+IS the model's message (tag it so the poll loop does not re-store), or
+`chatbackend_send` is given an "already-stored inbound" mode that feeds the model
+but does not re-emit. Single write, single render.
+
+**B2 — non-canonical marker.** The model header is `format!("[CodeTerm inbound {}]")`
+(messenger.rs:353) — square brackets, NOT the project-canonical
+`-=-codeterm:<kind> k=v…-=-payload` from `message_markers.rs` (OPEN=`-=-codeterm:`,
+CLOSE=`-=-`). Every other channel uses the canonical marker; this one drifted.
+FIX: build the inbound header via `message_markers::Marker` (kind e.g. `inbound`
+or `pane`, attrs from_label/from_pane/from_model/from_mesh) so it's consistent and
+round-trips through the same parser (`message_markers::parse` + chat-core/markers.ts).
+
+**B3 — reply loses sender prefix.** When the chatBackend model replies via the
+codeterm tool (`codeterm send --pane <from_pane>`), the recipient's PTY gets the
+reply with NO `-=-codeterm:pane from=…-=-` prefix — the codeterm-tool exec
+subprocess doesn't carry the chatBackend pane's identity (`$CODETERM_PANE_ID`), so
+the daemon can't stamp the sender. The return path is asymmetric.
+FIX: the chatBackend pane's tool exec (where host runs the curated `codeterm`/`exec`
+tools) must run with the pane's identity in env (CODETERM_PANE_ID=<chatBackend pane>
++ workspace + socket), so `codeterm send` from the tool is stamped "from
+<chatBackend label>" by Messenger exactly like any pane. Investigate the
+chatBackend tool-exec path (host.exec / the ReAct loop's exec) and thread the
+pane identity. (Symmetry: PTY→chatBackend already carries identity after M1; this
+makes chatBackend→PTY carry it too.)
+
+**Design principle (solid gateway):** Messenger.deliver is the SINGLE chokepoint;
+chatBackend inbound = exactly ONE entry carrying BOTH structured sender fields
+(render) AND the canonical marker (model); chatBackend→anything replies carry the
+pane identity so routing is symmetric. Canonical marker, single-write, threaded
+identity — no band-aids.
+
+**TDD (mandatory):**
+- deliver to a chatBackend pane → transcript gains EXACTLY ONE inbound entry
+  (assert count == 1, not 2), with structured sender fields AND a canonical
+  `-=-codeterm:…-=-` marker (assert NO `[CodeTerm inbound]`).
+- the inbound marker round-trips through `message_markers::parse`.
+- a reply from a chatBackend pane's codeterm-tool `send` to a PTY pane → the PTY
+  recipient's injected text carries `-=-codeterm:pane from=<chatBackend label>
+  pane=<id>…-=-` (assert prefix present + correct sender).
+- existing PTY-path delivery tests stay byte-identical.
+
+Track: **WM.M1b** (codex, alpha backend; + the chatBackend tool-exec identity may
+touch the exec/ReAct path). Gate: cargo build/test (messenger + pane_chat) + hook
+clippy src+cli. Run AFTER the alpha checkout is free.
+
+<!-- revision: 2 -->
