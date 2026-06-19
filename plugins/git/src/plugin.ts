@@ -366,7 +366,7 @@ function branchLineStats(cwd: string, branch: string | null): BranchStats {
   if (!ok(ns)) return {};
   let added = 0;
   let deleted = 0;
-  (ns.stdout || "").split("\n").forEach((l) => {
+  (ns.stdout || "").split("\n").forEach((l: string) => {
     if (!l) return;
     const p = l.split("\t");
     if (p.length < 2) return;
@@ -487,7 +487,7 @@ function listChildDirs(cwd: string): string[] {
       : { bin: "ls", args: ["-1", cwd] };
   const r = exec(cmd);
   if (!ok(r)) return [];
-  return (r.stdout || "").split(/\r?\n/).filter((l) => l.length > 0);
+  return (r.stdout || "").split(/\r?\n/).filter((l: string) => l.length > 0);
 }
 
 interface Repo {
