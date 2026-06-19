@@ -45,7 +45,8 @@ sound = false
 toast_duration = 5  # seconds
 
 [keybindings]
-new_tab = "Ctrl+Shift+T"
+new_tab = "Ctrl+T"
+reopen_tab = "Ctrl+Shift+T"
 close_tab = "Ctrl+Shift+W"
 close_pane = "Ctrl+Shift+Q"
 

@@ -12,6 +12,8 @@ export interface MultiplexerContextType {
   moveTab: (tabId: string, fromWorkspaceId: string, toWorkspaceId: string) => void;
   createTab: (workspaceId: string, cwd?: string) => void;
   closeTab: (workspaceId: string, tabId: string) => void;
+  /** Reopen a recently-closed pane (index 0 = most recent). */
+  reopenClosed: (workspaceId: string, index?: number) => void;
   setActiveTab: (workspaceId: string, tabId: string) => void;
   closePane: (paneId: string) => void;
   setFocusedPane: (paneId: string) => void;
