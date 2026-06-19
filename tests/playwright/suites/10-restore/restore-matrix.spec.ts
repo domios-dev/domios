@@ -26,17 +26,12 @@ const manifest = manifestPath
   ? JSON.parse(readFileSync(manifestPath, "utf8")) as MatrixManifest
   : null;
 
-async function visibleTerminalTextForPane(ui: ManagedUiSession, paneId: string): Promise<string> {
-  return ui.page.evaluate((id) => {
-    const pane = document.querySelector(`[data-pane-id="${id}"]`);
-    const roots = pane
-      ? Array.from(pane.querySelectorAll(".xterm-rows, .xterm-accessibility-tree"))
-      : Array.from(document.querySelectorAll(".xterm-rows, .xterm-accessibility-tree"));
-    return roots
-      .filter((el) => el.tagName !== "STYLE" && el.tagName !== "SCRIPT")
-      .map((el) => (el as HTMLElement).innerText || el.textContent || "")
-      .join("\n");
-  }, paneId);
+test.describe.configure({ retries: 0 });
+
+async function visibleChatTextForPane(ui: ManagedUiSession, paneId: string): Promise<string> {
+  const chat = ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`);
+  if ((await chat.count()) === 0) return "";
+  return await chat.first().innerText({ timeout: 5_000 }).catch(() => "");
 }
 
 function markerNeedle(text: string): string {
@@ -47,7 +42,7 @@ function isAssertableSlot(slot: MatrixSlot): boolean {
   return !slot.skipped;
 }
 
-test("@golden restore matrix markers are visible in their restored provider panes", async ({ api, ui, pollMarkerInDom }) => {
+test("@golden restore matrix markers are isolated in restored provider ChatViews", async ({ api, ui, pollMarkerInDom }) => {
   test.skip(!manifest || !manifestPath, "RESTORE_MATRIX_MANIFEST is required for restore-matrix golden");
   const activeManifest = manifest!;
   test.setTimeout(600_000);
@@ -73,31 +68,42 @@ test("@golden restore matrix markers are visible in their restored provider pane
       `tab visible for provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id}`,
     ).toBeVisible({ timeout: 30_000 });
     await tab.click();
+    await expect(
+      ui.page.locator(`[data-testid="terminal-pane"][data-pane-id="${slot.pane_id}"]`),
+      `pane mounted for provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id}`,
+    ).toBeVisible({ timeout: 30_000 });
+    await api.post(`/panes/${slot.pane_id!}/chat-view`, { enabled: true });
+    const chat = ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${slot.pane_id}"]`);
+    await expect(
+      chat,
+      `ChatView visible for provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id}`,
+    ).toBeVisible({ timeout: 30_000 });
 
     try {
       await pollMarkerInDom(slot.marker, {
         paneId: slot.pane_id!,
         timeout: 120_000,
         normalize: true,
+        includeChatMessages: true,
       });
     } catch (error) {
-      const visibleText = await visibleTerminalTextForPane(ui, slot.pane_id!);
+      const visibleText = await visibleChatTextForPane(ui, slot.pane_id!);
       throw new Error(
-        `marker timeout provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id} tab=${slot.tab_id} marker=${slot.marker} visibleTail=${JSON.stringify(visibleText.slice(-1000))}: ${String(error)}`,
+        `ChatView marker timeout provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id} tab=${slot.tab_id} marker=${slot.marker} visibleTail=${JSON.stringify(visibleText.slice(-1000))}: ${String(error)}`,
       );
     }
 
-    const visibleText = await visibleTerminalTextForPane(ui, slot.pane_id!);
+    const visibleText = await visibleChatTextForPane(ui, slot.pane_id!);
     const normalizedVisible = markerNeedle(visibleText);
     expect(
       normalizedVisible,
-      `marker visible provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id} marker=${slot.marker}`,
+      `ChatView marker visible provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id} marker=${slot.marker}`,
     ).toContain(markerNeedle(slot.marker));
 
     for (const other of allMarkers.filter((m) => m !== slot.marker)) {
       expect(
         normalizedVisible.includes(markerNeedle(other)),
-        `cross-marker contamination provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id} own=${slot.marker} other=${other}`,
+        `ChatView cross-marker contamination provider=${slot.provider} slot=${slot.index} pane=${slot.pane_id} own=${slot.marker} other=${other}`,
       ).toBe(false);
     }
   }

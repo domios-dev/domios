@@ -1,0 +1,4 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\nRun the shell command 'echo hello123' and tell me what it printed.\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"[REDACTED]"},{"type":"tool_use","name":"Shell","input":{"command":"echo hello123","description":"Run echo hello123 command"}}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"The command printed:\n\n```\nhello123\n```\n\n[REDACTED]"}]}}
+{"type":"turn_ended","status":"success"}

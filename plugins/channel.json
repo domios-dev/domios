@@ -21,6 +21,12 @@
       "path": "provider-opencode",
       "version": "1.4.6",
       "minCodeterm": "1.0.0"
+    },
+    {
+      "id": "cursor",
+      "path": "provider-cursor",
+      "version": "1.4.6",
+      "minCodeterm": "1.0.0"
     }
   ]
 }

@@ -42,7 +42,7 @@ Files: 20. Tests: 78. Findings: 0 (0 errors, 0 warnings).
 | good | @smoke debug clock reports mocked state and advances | tests/playwright/suites/07-cron/cron.spec.ts:38 | 0 |
 | good | @golden oneshot cron fires via time travel and spawns a real run | tests/playwright/suites/07-cron/cron.spec.ts:45 | 0 |
 | good | @golden recurring cron fires exactly per boundary, not per advance call | tests/playwright/suites/07-cron/cron.spec.ts:116 | 0 |
-| good | @golden restore matrix markers are visible in their restored provider panes | tests/playwright/suites/10-restore/restore-matrix.spec.ts:50 | 0 |
+| good | @golden restore matrix markers are isolated in restored provider ChatViews | tests/playwright/suites/10-restore/restore-matrix.spec.ts:43 | 0 |
 | good | @smoke protected routes reject a missing bearer with 401 | tests/playwright/suites/11-api/api-core.spec.ts:35 | 0 |
 | good | @smoke protected routes reject a garbage bearer with 401 | tests/playwright/suites/11-api/api-core.spec.ts:42 | 0 |
 | good | @smoke public liveness routes answer without auth | tests/playwright/suites/11-api/api-core.spec.ts:49 | 0 |
@@ -109,4 +109,3 @@ Trace ZIPs: 10. Parsed records: 10. Errors: 0.
 | good | 100 | 17-open-shell/lmstudio.spec.ts:122 › @smoke lmstudio open shell spawns through the web mirror | 3 | 9 | 10 | 0 | 28 | [trace.zip](tests/playwright/artifacts/test-results/17-open-shell-lmstudio--sm-3efab-awns-through-the-web-mirror-smoke/trace.zip) |
 | good | 100 | 17-open-shell/lmstudio.spec.ts:248 › @smoke lmstudio config edit preserves open shell transcript | 3 | 10 | 11 | 0 | 28 | [trace.zip](tests/playwright/artifacts/test-results/17-open-shell-lmstudio--sm-50809-erves-open-shell-transcript-smoke/trace.zip) |
 | good | 100 | 17-open-shell/lmstudio.spec.ts:174 › @smoke lmstudio mocked streaming assistant reply updates in place | 3 | 9 | 10 | 0 | 13 | [trace.zip](tests/playwright/artifacts/test-results/17-open-shell-lmstudio--sm-a565b-tant-reply-updates-in-place-smoke/trace.zip) |
-
