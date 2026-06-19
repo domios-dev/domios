@@ -565,7 +565,7 @@ var plugin = {
   //  4. Clarifying question → surface the extracted question(s); NEVER auto-answer
   //     (no keys), so the user decides.
   classifyPaneState(snapshot) {
-    const screen = String(snapshot && snapshot.screenText || "");
+    const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
     if (!screen.trim()) return null;
     const authConfidence = scoreAuthPrompt(screen);
     if (authConfidence >= CLASSIFY_THRESHOLD) {
