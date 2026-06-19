@@ -133,6 +133,21 @@ If you are a Worker, you received exactly ONE concrete task. Do it and stop.
 - Run verification (`./build.sh check`, `cargo test --lib`, `npx tsc --noEmit`) before reporting done.
 - Report structured via `codeterm agent report "..."` and exit.
 
+## Pane type awareness
+
+When an agent needs to talk to another pane, it must know what kind of pane it's addressing. `codeterm pane list` includes a `backing` field on each entry:
+
+| `backing.kind` | What it is | Has shell? | How to address |
+|----------------|-----------|------------|----------------|
+| `pty` | PTY pane — terminal or agent (Claude, Codex, plain shell) | Yes | `codeterm send "cmd" --pane X` — can include shell commands |
+| `chat_backend` | LLM chat pane (local model via plugin, no PTY) | **No** | `codeterm send "message" --pane X` — delivers as a chat turn; the peer replies via its own tools |
+
+**The live bug this prevents:** a PTY agent telling a `chat_backend` peer "run `codeterm send ... --pane main` in your shell" — the chatBackend peer has no shell and cannot comply. The Messenger already stamps inbound messages with the sender's return address so the peer can reply; just send the message and let its tool loop handle the rest.
+
+Discover backing type: `codeterm pane list | jq '.[] | {id, kind: .backing.kind, title}'`
+
+Note: `codeterm pane status` does not yet expose `backing` — use `pane list`.
+
 ## Dogfooding (applies to everyone)
 
 This project IS CodeTerm. You're running inside CodeTerm. Every spawn via `codeterm agent spawn` is both productive work AND a test of the system. If something feels clunky — the codeterm CLI, the mesh, the reports, the panes — note it in your report. We improve CodeTerm by using it.
@@ -149,5 +164,5 @@ Prompt templates compiled into the binary via `include_str!()`. Edit `.md` files
 - `src-tauri/prompts/cron_complete_suffix.md` — Appended to cron tasks (completion instruction)
 - `src-tauri/src/prompts.rs` — Rust module that loads all templates
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
 

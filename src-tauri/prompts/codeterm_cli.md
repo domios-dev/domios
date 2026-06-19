@@ -69,6 +69,19 @@ Delayed sends are not the normal send path. Use `--delay` / `--at` only for
 future delivery the user asked for; plain `codeterm send` is immediate and
 must not be buffered by the agent.
 
+### Pane types — address peers correctly
+
+`codeterm pane list` includes a `backing` field on each pane:
+
+| `backing.kind` | What it is | Has shell? | Correct instruction style |
+|----------------|-----------|------------|--------------------------|
+| `pty` | Terminal / PTY agent (Claude, Codex, plain shell) | Yes | `codeterm send "cmd" --pane X` injects into the shell; you can tell it to run commands |
+| `chat_backend` | LLM chat pane (local model via plugin) | **No** | `codeterm send "message" --pane X` delivers a chat message; the peer replies via its own tool loop |
+
+**Critical:** never tell a `chat_backend` peer to "run `codeterm send ...` in your shell" or any other shell command — it has no shell. Send your message; it will see it and respond via its tools. Quick type probe: `codeterm pane list | jq '.[] | {id, kind: .backing.kind, title}'`
+
+Gap: `codeterm pane status` does not yet expose backing type — use `pane list` to check.
+
 ## Spawning agents
 
 Provider is the first positional argument (`claude`, `codex`, `opencode`, ...).
