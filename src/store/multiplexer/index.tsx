@@ -15,8 +15,6 @@ import { loadDefaultNewAgentPaneChat } from "../../lib/chatUiMode";
 import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
-  Workspace,
-  Pane,
   Notification,
   PaneStatus,
   AtomicSpawn,
@@ -54,23 +52,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   // Load initial state from Rust backend (which already spawned PTY)
   useEffect(() => {
-    invoke<{
-      workspaces: Workspace[];
-      panes: Record<string, Pane>;
-      active_workspace_id: string | null;
-      focused_pane_id: string | null;
-    }>("mux_get_state")
+    invoke<MultiplexerState>("mux_get_state")
       .then((backendState) => {
         if (backendState && backendState.workspaces.length > 0) {
-          dispatch({
-            type: "SET_STATE",
-            state: {
-              workspaces: backendState.workspaces,
-              panes: backendState.panes,
-              active_workspace_id: backendState.active_workspace_id,
-              focused_pane_id: backendState.focused_pane_id,
-            },
-          });
+          // Pass the FULL snapshot (incl. recently_closed) — cherry-picking
+          // fields here silently dropped the closed-history on every reload.
+          dispatch({ type: "SET_STATE", state: backendState });
         }
       })
       .catch((err) => {
