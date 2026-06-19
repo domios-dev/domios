@@ -568,6 +568,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/plugins/glance", post(web_routes::plugin_glance))
         .route("/api/plugins/bubble", post(web_routes::plugin_bubble))
         .route("/api/plugins/view-call", post(web_routes::plugin_view_call))
+        .route(
+            "/api/plugins/chatbackend/session-info",
+            post(web_routes::chatbackend_session_info),
+        )
+        .route(
+            "/api/plugins/chatbackend/switch-model",
+            post(web_routes::chatbackend_switch_model),
+        )
         .route("/api/plugins/{id}/ui/{*path}", get(web_routes::plugin_ui))
         .route("/api/secrets/status", get(crate::secrets::api::status))
         .route("/api/secrets/unlock", post(crate::secrets::api::unlock))
