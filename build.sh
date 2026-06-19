@@ -139,6 +139,9 @@ dev_listener_pid() {
 ensure_deps() {
   if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules/.package-lock.json ] 2>/dev/null; then
     echo "Installing dependencies..."
+    # In no-TTY shells (agents, CI) pnpm aborts when it needs to remove node_modules
+    # without a terminal to confirm. CI=true disables that interactive guard.
+    [ -t 0 ] || export CI=true
     pnpm install --frozen-lockfile 2>/dev/null || pnpm install
   fi
 }
