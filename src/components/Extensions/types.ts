@@ -54,6 +54,7 @@ export interface InstalledPlugin {
 export interface ChannelRecord {
   name: string;
   url: string;
+  path?: string;
   kind: "local" | "git";
   system?: boolean;
   removable?: boolean;

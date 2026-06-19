@@ -69,7 +69,7 @@ export function PluginList({
         data-testid="extensions-search"
         value={query}
         onChange={(e) => onQuery(e.target.value)}
-        placeholder="Search extensions…"
+        placeholder="Search plugins..."
         style={{
           fontSize: 12.5,
           borderRadius: 6,
@@ -192,7 +192,7 @@ export function PluginList({
           </div>
         ))}
         {entries.length === 0 && (
-          <div style={{ color: "var(--ct-muted)", fontSize: 12.5, padding: "8px 4px" }} data-testid="extensions-list-empty">No extensions match.</div>
+          <div style={{ color: "var(--ct-muted)", fontSize: 12.5, padding: "8px 4px" }} data-testid="extensions-list-empty">No plugins match.</div>
         )}
       </div>
     </div>
