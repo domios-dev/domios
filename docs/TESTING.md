@@ -84,6 +84,15 @@ npx tsx src/lib/colors.test.ts
 ./build.sh test:all   # every non-LLM layer (see Runbook)
 ```
 
+**Windows: cargo test target isolation**
+Running `cargo test` against the app crate while a dev build occupies the same
+`target/` directory fails with `Os error 5` — tauri-build cannot overwrite the
+in-use `.exe`. Isolate with a separate target directory:
+
+```bash
+CARGO_TARGET_DIR=target-test cargo test --manifest-path src-tauri/Cargo.toml --lib
+```
+
 ## E2E tests
 
 Test full stack via REST API against a running dev instance. Create panes, send text, check output, verify prompt lifecycle.
@@ -353,4 +362,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

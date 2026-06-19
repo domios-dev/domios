@@ -192,6 +192,42 @@ test("Add channel toggles the inline form", async () => {
   __setInvokeForTest(null);
 });
 
+test("TTL guard: second open within 60s skips channel refresh", async () => {
+  const calls = installInvokeMock();
+  const { root } = await render(
+    <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
+  );
+  await flush();
+
+  const refreshCalls = () =>
+    calls.filter((c) => {
+      const a = c.args?.action as { kind?: string } | undefined;
+      return c.cmd === "plugin_manager_action" && a?.kind === "refresh-channel";
+    });
+
+  assert(refreshCalls().length === 1, `expected 1 refresh-channel on first open, got ${refreshCalls().length}`);
+
+  // Hide then immediately re-show (within 60s TTL) — channel refresh must be skipped.
+  await act(async () => {
+    root.render(<ExtensionsView visible={false} pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />);
+  });
+  await flush();
+  const before = calls.length;
+  await act(async () => {
+    root.render(<ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />);
+  });
+  await flush();
+
+  const newRefreshes = calls.slice(before).filter((c) => {
+    const a = c.args?.action as { kind?: string } | undefined;
+    return c.cmd === "plugin_manager_action" && a?.kind === "refresh-channel";
+  });
+  assert(newRefreshes.length === 0, `expected 0 refresh-channel on re-open within TTL, got ${newRefreshes.length}`);
+
+  await act(async () => root.unmount());
+  __setInvokeForTest(null);
+});
+
 test("submitting Add channel calls the add-channel API action", async () => {
   const { host, root, calls } = await renderExtensions();
   await openChannels(host);

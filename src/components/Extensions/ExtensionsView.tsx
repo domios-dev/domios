@@ -9,7 +9,7 @@
  * Backend: `plugin_manager_snapshot` / `plugin_manager_action` (web-mirrored via
  * bridge HTTP_MAP). Pinning is stored in `config.plugins.<id>.pinned`.
  */
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "../../lib/bridge";
 import {
   buildCatalog,
@@ -25,9 +25,10 @@ import type { ChannelRecord, PluginSnapshot } from "./types";
 import type { AppConfig, PluginActivity } from "../../lib/types";
 import type { PluginActivityDisplayMap } from "../../lib/usePluginActivity";
 import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
-import { Plus } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 
 const EMPTY_SNAPSHOT: PluginSnapshot = { plugins: [], channels: [], diff: [], marketplace: [] };
+const CHANNEL_REFRESH_TTL = 60_000;
 
 function normalizeSnapshot(snap: PluginSnapshot | null | undefined): PluginSnapshot {
   return {
@@ -71,6 +72,7 @@ export function ExtensionsView({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [addChannelOpen, setAddChannelOpen] = useState(false);
+  const lastChannelRefreshAt = useRef<number>(0);
 
   const refresh = useCallback(async (refreshChannels = false) => {
     if (refreshChannels) setBusy("refresh-channel");
@@ -81,6 +83,7 @@ export function ExtensionsView({
           : invoke<PluginSnapshot>("plugin_manager_snapshot"),
         invoke<AppConfigShape>("get_config"),
       ]);
+      if (refreshChannels) lastChannelRefreshAt.current = Date.now();
       setSnapshot(normalizeSnapshot(snap));
       setConfig(cfg ?? {});
       setError(null);
@@ -100,7 +103,9 @@ export function ExtensionsView({
   }, []);
 
   useEffect(() => {
-    if (visible) void refresh(true);
+    if (!visible) return;
+    const stale = Date.now() - lastChannelRefreshAt.current >= CHANNEL_REFRESH_TTL;
+    void refresh(stale);
   }, [visible, refresh]);
 
   // Deep-link: the titlebar tray dispatches this to jump straight to a plugin.
@@ -251,6 +256,30 @@ export function ExtensionsView({
         <div style={{ display: "flex", gap: 20, flex: 1, minHeight: 0 }}>
           {/* Left column */}
           <div style={{ width: 320, flex: "none", display: "flex", flexDirection: "column", minHeight: 0 }} data-testid="extensions-sidebar">
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+              <button
+                data-testid="extensions-refresh"
+                title="Force refresh channels"
+                disabled={busy === "refresh-channel"}
+                onClick={() => {
+                  lastChannelRefreshAt.current = 0;
+                  void refresh(true);
+                }}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: busy === "refresh-channel" ? "default" : "pointer",
+                  color: "var(--ct-muted)",
+                  padding: 4,
+                  borderRadius: 4,
+                  display: "flex",
+                  alignItems: "center",
+                  opacity: busy === "refresh-channel" ? 0.4 : 1,
+                }}
+              >
+                <RefreshCw size={13} />
+              </button>
+            </div>
             <div style={{ flex: 1, minHeight: 0 }}>
               <PluginList
                 entries={visibleEntries}
