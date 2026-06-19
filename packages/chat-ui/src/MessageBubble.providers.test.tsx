@@ -262,6 +262,63 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
   }
 });
 
+test("codex sparse tool_call rows between exec commands do not render ghost buttons", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "codex-exec-1",
+      provider: "codex",
+      type: "tool_call",
+      content: "",
+      toolName: "exec_command",
+      toolId: "call-1",
+      toolInput: { cmd: "npm test" },
+      toolArgs: "npm test",
+    },
+    {
+      id: "codex-ghost-1",
+      provider: "codex",
+      type: "tool_call",
+      content: "",
+    },
+    {
+      id: "codex-empty-result",
+      provider: "codex",
+      type: "tool_result",
+      content: "",
+    },
+    {
+      id: "codex-exec-2",
+      provider: "codex",
+      type: "tool_call",
+      content: "",
+      toolName: "exec_command",
+      toolId: "call-2",
+      toolInput: { cmd: "npm run build" },
+      toolArgs: "npm run build",
+    },
+  ]);
+  try {
+    assertIncludes(host, "npm test", "first codex exec command");
+    assertIncludes(host, "npm run build", "second codex exec command");
+    const toolButtons = Array.from(host.querySelectorAll('[data-testid="chat-tool-call"]'));
+    assert(
+      toolButtons.length === 2,
+      `only real codex exec rows should render tool buttons (${toolButtons.length}: ${toolButtons.map((button) => button.textContent ?? "").join(" | ")})`,
+    );
+    assert(
+      toolButtons.every((button) => (button.textContent ?? "").trim()),
+      "sparse codex rows should not render chevron-only buttons",
+    );
+    assert(
+      toolButtons.filter((button) => (button.textContent ?? "").includes("exec_command")).length === 2,
+      "real codex exec rows still render",
+    );
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test("chatBackend read_file and write_file render file cards", async () => {
   const { host, root } = await renderMessages([
     {

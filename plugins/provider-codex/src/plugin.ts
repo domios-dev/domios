@@ -189,9 +189,11 @@ const plugin: PluginModule = {
         let input: Record<string, unknown> = {};
         try { input = JSON.parse(p.arguments || "{}"); } catch (_) { input = { raw: p.arguments }; }
         if (input && input.cmd && !input.command) input.command = input.cmd; // surface for generic readers
+        const name = typeof p.name === "string" ? p.name.trim() : "";
+        if (!hasUsefulFunctionCall(name, input, p.arguments)) continue;
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name: p.name || "tool", input: input } }],
+          blocks: [{ kind: "tool_use", data: { name: name || "tool", input: input } }],
           ts: ts,
         });
       } else if (p.type === "function_call_output") {
@@ -689,6 +691,12 @@ function isValidCodexSessionDelta(v: CodexEntry): boolean {
 
 function validateEntry(v: CodexEntry): boolean {
   return isValidCodexSessionDelta(v);
+}
+
+function hasUsefulFunctionCall(name: string, input: Record<string, unknown>, args: string | undefined): boolean {
+  if (name) return true;
+  if (typeof args === "string" && args.trim() && args.trim() !== "{}") return true;
+  return Object.keys(input || {}).length > 0;
 }
 
 function isValidCodexSessionMessage(v: CodexEntry): boolean {
