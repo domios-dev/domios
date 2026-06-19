@@ -356,7 +356,9 @@ fn reopen_orphaned_pane_recreates_workspace() {
 fn reopen_workspace_group_matches_existing_workspace_by_path() {
     let (mut state, _root) = MultiplexerState::new();
     // A workspace rooted at /tmp/proj, with a tab, then fully closed.
-    let wsid = state.create_workspace("Proj".into(), Some("/tmp/proj".into())).id;
+    let wsid = state
+        .create_workspace("Proj".into(), Some("/tmp/proj".into()))
+        .id;
     let (t1, _p1) = state.create_tab(&wsid).unwrap();
     state.rename_tab(&wsid, &t1, "Tab A").unwrap();
     state.close_workspace(&wsid).unwrap();
@@ -390,7 +392,11 @@ fn reopen_workspace_group_matches_existing_workspace_by_path() {
         .filter_map(|pid| state.get_pane(pid))
         .map(|p| p.title.clone())
         .collect();
-    assert!(titles.contains("Tab A"), "restored tab landed here: {:?}", titles);
+    assert!(
+        titles.contains("Tab A"),
+        "restored tab landed here: {:?}",
+        titles
+    );
 }
 
 #[test]
