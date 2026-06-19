@@ -206,6 +206,8 @@ pub fn run() {
             commands::chat_backfill,
             commands::chat_send_text,
             commands::open_chat_backend_pane,
+            commands::chatbackend_session_info,
+            commands::chatbackend_switch_model,
             commands::transcribe_voice_attachment,
             commands::delayed_send_list,
             commands::delayed_send_create,

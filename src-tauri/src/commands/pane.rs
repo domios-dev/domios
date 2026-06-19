@@ -567,3 +567,28 @@ pub async fn open_chat_backend_pane(
     })?;
     Ok(handle.pane_id)
 }
+
+/// P1: current live state of an open chatBackend session — the model it is
+/// talking to — so the tab/bubble can show it. Core asks the capability
+/// resolved by `plugin_id`; never a hardcoded id.
+#[tauri::command]
+pub fn chatbackend_session_info(
+    svc: tauri::State<'_, ServiceState>,
+    plugin_id: String,
+    session_id: String,
+) -> Result<crate::chatbackend::ChatSessionInfo, String> {
+    svc.chatbackend_session_info(&plugin_id, &session_id)
+}
+
+/// P1: switch the model an open chatBackend shell session uses on its next turn,
+/// returning the refreshed session info. Backends that cannot switch surface an
+/// error (the capability's `setModel` is optional).
+#[tauri::command]
+pub fn chatbackend_switch_model(
+    svc: tauri::State<'_, ServiceState>,
+    plugin_id: String,
+    session_id: String,
+    model: String,
+) -> Result<crate::chatbackend::ChatSessionInfo, String> {
+    svc.chatbackend_set_model(&plugin_id, &session_id, &model)
+}

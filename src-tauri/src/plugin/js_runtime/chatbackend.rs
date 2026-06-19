@@ -23,7 +23,7 @@ use super::vm::{call_json, PluginVm, VmError};
 use super::PluginManifest;
 use crate::agent::chat_types::{ChatMsg, StructuredChat};
 use crate::agent::provider::ModelInfo;
-use crate::chatbackend::{ChatBackendError, ChatBackendProvider, PresetInfo};
+use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatSessionInfo, PresetInfo};
 
 pub struct JsChatBackend {
     vm: Arc<PluginVm>,
@@ -102,6 +102,12 @@ struct PluginPreset {
     name: String,
     #[serde(default)]
     description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PluginSessionInfo {
+    #[serde(default)]
+    model: Option<String>,
 }
 
 fn map_err(method: &str, e: super::vm::VmError) -> ChatBackendError {
@@ -208,6 +214,42 @@ impl ChatBackendProvider for JsChatBackend {
                 description: p.description,
             })
             .collect())
+    }
+
+    fn session_info(&self, session_id: &str) -> Result<ChatSessionInfo, ChatBackendError> {
+        // Optional export — a bare backend with no `sessionInfo` reports no model
+        // (honest null), mirroring the `listPresets` missing-export handling.
+        let info =
+            match call_json::<PluginSessionInfo>(&self.vm, "sessionInfo", &[json!(session_id)]) {
+                Ok(info) => info,
+                Err(VmError::MissingFunction(_)) => return Ok(ChatSessionInfo::default()),
+                Err(VmError::Script(msg)) if msg.contains("not a function") => {
+                    return Ok(ChatSessionInfo::default())
+                }
+                Err(e) => return Err(map_err("sessionInfo", e)),
+            };
+        Ok(ChatSessionInfo { model: info.model })
+    }
+
+    fn set_model(&self, session_id: &str, model: &str) -> Result<(), ChatBackendError> {
+        // Required for a switch — a missing export is surfaced as an error so the
+        // command reports "unsupported" rather than silently no-op'ing.
+        match call_json::<serde_json::Value>(
+            &self.vm,
+            "setModel",
+            &[json!(session_id), json!(model)],
+        ) {
+            Ok(_) => Ok(()),
+            Err(VmError::MissingFunction(_)) => Err(ChatBackendError::Call(
+                "this chatBackend does not support switching the model".into(),
+            )),
+            Err(VmError::Script(msg)) if msg.contains("not a function") => {
+                Err(ChatBackendError::Call(
+                    "this chatBackend does not support switching the model".into(),
+                ))
+            }
+            Err(e) => Err(map_err("setModel", e)),
+        }
     }
 }
 
@@ -463,5 +505,45 @@ mod tests {
         let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
         let b = JsChatBackend::new(vm, "local-shell");
         assert!(b.close_session("s1").is_ok());
+    }
+
+    #[test]
+    fn set_model_then_session_info_round_trips_via_exports() {
+        // P1 contract: switch_model routes to the plugin's `setModel` export and
+        // `session_info` reads the live model back via `sessionInfo`. Mirrors the
+        // lmstudio shell where the session model drives the next /api/v1/chat.
+        let vm = vm_with(
+            r#"let model = "init";
+               module.exports.default = {
+                 setModel(sid, m) { model = m; },
+                 sessionInfo(sid) { return { model }; }
+               }"#,
+        );
+        let b = JsChatBackend::new(vm, "local-shell");
+        assert_eq!(b.session_info("s").unwrap().model.as_deref(), Some("init"));
+        b.set_model("s", "qwen-2.5").unwrap();
+        assert_eq!(
+            b.session_info("s").unwrap().model.as_deref(),
+            Some("qwen-2.5"),
+            "setModel must update the model session_info surfaces"
+        );
+    }
+
+    #[test]
+    fn session_info_missing_export_is_empty() {
+        // A bare backend with no `sessionInfo` export reports no model (honest
+        // null), never an error.
+        let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
+        let b = JsChatBackend::new(vm, "local-shell");
+        assert!(b.session_info("s").unwrap().model.is_none());
+    }
+
+    #[test]
+    fn set_model_missing_export_errors() {
+        // A backend that cannot switch surfaces an error so the command reports
+        // "unsupported" rather than silently doing nothing.
+        let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
+        let b = JsChatBackend::new(vm, "local-shell");
+        assert!(b.set_model("s", "m").is_err());
     }
 }
