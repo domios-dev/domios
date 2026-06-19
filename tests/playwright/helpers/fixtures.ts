@@ -153,8 +153,9 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
           const roots = pane
             ? Array.from(pane.querySelectorAll(rootSelectors))
             : Array.from(document.querySelectorAll(rootSelectors));
+          const chatScope = pane ?? document;
           const chatMessages = includeChatMessages
-            ? Array.from(document.querySelectorAll('[data-testid="chat-message"]'))
+            ? Array.from(chatScope.querySelectorAll('[data-testid="chat-message"]'))
             : [];
           return roots
             .concat(chatMessages)
