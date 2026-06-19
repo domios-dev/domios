@@ -169,6 +169,31 @@ TDD: plugin describeModelSwitch returns needsConfirm when target unloaded; setMo
 surfaces a VRAM load-failure; bubble shows confirm + only switches on OK. Gate:
 plugin build/test/tsc + tsc/test:unit + hook clippy. Independent-ish; after CB-P3.
 
+## S9 — chat_start/snapshot returns the chatBackend transcript (system_prompt card + late-attach race) — branch `cb-s9-chatstart`
+
+**Role:** Rust backend. **Sequence AFTER the restore-fix merge** (both touch
+`commands/pane.rs` chat_start + `service/pane_chat/mod.rs`).
+
+Surfaced by the Mac-Air Phase F worker (real bug, not a test gap):
+- `GET /api/panes/{id}/chat` **400s** for a chatBackend pane (no agent session) —
+  it must return the chatBackend transcript snapshot instead of erroring.
+- `chat_start` returns **empty** for chatBackend, so a spawn-seeded `system_prompt`
+  card (the `-=-codeterm:system_prompt-=-` marker line the plugin seeds on
+  openSession) is **missed if the UI listener attaches late** → the system-prompt
+  card silently never renders. Race, not just a missing feature.
+
+Fix: make the live `chat_start` path for a chatBackend pane return the same
+snapshot `chatbackend_transcript_snapshot` already produces (CB-P4 made it read
+JSONL durable-truth) — incl. the system_prompt marker line — so a late attach
+replays the card. Keep the live path and the restore/snapshot path consistent
+(single source = the JSONL/transcript snapshot). The web endpoint maps to the
+same snapshot (no 400).
+- TDD: chat_start for a chatBackend pane returns the seeded system_prompt line;
+  GET /api/panes/{id}/chat returns the card (not 400); late-attach replays it.
+- Gate: cargo fmt/build/test (pane_chat, chatbackend) + hook clippy + tsc (web).
+- Mac-Air Phase F asserts the RENDERED card in the web-mirror DOM (test-only, no
+  backend coupling); after S9 merges they can also assert the API card.
+
 ## Verify (orchestrator, live on dev + LM Studio)
 - Shell tab shows the lmstudio ICON + the running MODEL; tooltip = "LM Studio".
 - Model bubble at top: switch model → next reply uses it + tab badge updates.
@@ -176,4 +201,4 @@ plugin build/test/tsc + tsc/test:unit + hook clippy. Independent-ish; after CB-P
   shell pane comes back with its history (+ can continue).
 - `+ new session` → lmstudio opens (T1). codeterm-npc still excluded from spawn.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
