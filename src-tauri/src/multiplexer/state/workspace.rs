@@ -1,4 +1,4 @@
-use super::{short_id, MultiplexerState, WorkspaceInfo};
+use super::{short_id, MultiplexerState, WorkspaceInfo, ORPHANED_CLOSED_CAP};
 use crate::multiplexer::types::Workspace;
 
 impl MultiplexerState {
@@ -91,6 +91,23 @@ impl MultiplexerState {
         }
 
         let workspace = self.workspaces.remove(idx);
+
+        // Preserve the workspace's recently-closed ring so tabs closed before
+        // the workspace was deleted can still be reopened. Newest entries win
+        // when the orphaned ring is already full.
+        if !workspace.recently_closed.is_empty() {
+            for entry in workspace.recently_closed {
+                // Avoid exact duplicates (same pane_id already in orphaned ring).
+                if !self
+                    .orphaned_closed
+                    .iter()
+                    .any(|e| e.pane_id == entry.pane_id)
+                {
+                    self.orphaned_closed.insert(0, entry);
+                }
+            }
+            self.orphaned_closed.truncate(ORPHANED_CLOSED_CAP);
+        }
 
         let pane_ids: Vec<String> = workspace
             .tabs

@@ -9,7 +9,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::MultiplexerState;
+use super::{MultiplexerState, ORPHANED_CLOSED_CAP};
 use crate::multiplexer::types::{ClosedPane, TitleLevel};
 
 /// Per-workspace cap on the recently-closed ring. Browser-style: oldest entries
@@ -34,22 +34,45 @@ impl MultiplexerState {
         if pane.hidden || pane.protected {
             return;
         }
-        let record = ClosedPane {
-            pane_id: pane.id.clone(),
-            title: pane.title.clone(),
-            description: pane.description.clone(),
-            backing: pane.backing.clone(),
-            cwd: pane.cwd.clone(),
-            agent_type: pane.agent_type.clone(),
-            agent_session_id: pane.agent_session_id.clone(),
-            model: pane.agent_session_model.clone(),
-            closed_at: now_millis(),
-        };
+
+        // Snapshot pane fields before the mutable workspace borrow.
+        let pane_id_owned = pane.id.clone();
+        let pane_backing = pane.backing.clone();
+        let pane_cwd = pane.cwd.clone();
+        let pane_agent_type = pane.agent_type.clone();
+        let pane_agent_session_id = pane.agent_session_id.clone();
+        let pane_model = pane.agent_session_model.clone();
+        let pane_title = pane.title.clone();
+        let pane_description = pane.description.clone();
 
         let Some(ws_id) = self.find_workspace_for_pane(pane_id) else {
             return;
         };
+
         if let Some(ws) = self.workspaces.iter_mut().find(|w| w.id == ws_id) {
+            // Prefer the tab's title/description — that's what the user sees in
+            // the sidebar. Pane title can lag (agent sets tab title via OSC but
+            // pane.title wasn't synced yet).
+            let tab = ws.tabs.iter().find(|t| t.pane_id == pane_id);
+            let title = tab
+                .map(|t| t.title.clone())
+                .filter(|t| !t.is_empty())
+                .unwrap_or(pane_title);
+            let description = tab.and_then(|t| t.description.clone()).or(pane_description);
+
+            let record = ClosedPane {
+                pane_id: pane_id_owned,
+                title,
+                description,
+                backing: pane_backing,
+                cwd: pane_cwd,
+                agent_type: pane_agent_type,
+                agent_session_id: pane_agent_session_id,
+                model: pane_model,
+                closed_at: now_millis(),
+                workspace_id: ws.id.clone(),
+                workspace_name: ws.name.clone(),
+            };
             ws.recently_closed.insert(0, record);
             ws.recently_closed.truncate(RECENTLY_CLOSED_CAP);
         }
@@ -120,6 +143,47 @@ impl MultiplexerState {
         }
 
         Ok((tab_id, pane_id))
+    }
+
+    /// Reopen a pane from the orphaned ring (its original workspace was deleted).
+    /// Recreates the workspace with the stored name and the pane's cwd, then
+    /// materializes the pane into it. Returns `(workspace_id, tab_id, pane_id)`.
+    pub fn reopen_orphaned_pane(
+        &mut self,
+        pane_id: &str,
+    ) -> Result<(String, String, String), String> {
+        let idx = self
+            .orphaned_closed
+            .iter()
+            .position(|e| e.pane_id == pane_id)
+            .ok_or_else(|| format!("No orphaned entry for pane_id: {}", pane_id))?;
+        let record = self.orphaned_closed.remove(idx);
+
+        // Recreate the workspace with the original name. Always creates a new
+        // workspace (we don't deduplicate by name — same name ≠ same workspace).
+        let ws_info = self.create_workspace(record.workspace_name.clone(), record.cwd.clone());
+        let workspace_id = ws_info.id;
+
+        let (tab_id, new_pane_id) = self.create_tab(&workspace_id)?;
+        if let Some(pane) = self.panes.get_mut(&new_pane_id) {
+            pane.backing = record.backing.clone();
+            pane.cwd = record.cwd.clone();
+            pane.title = record.title.clone();
+            pane.title_level = TitleLevel::User;
+            pane.description = record.description.clone();
+            pane.agent_type = record.agent_type.clone();
+            pane.agent_type_locked = record.agent_type.is_some();
+            pane.agent_session_id = record.agent_session_id.clone();
+            pane.agent_session_model = record.model.clone();
+            pane.restored_from_snapshot = true;
+        }
+        let _ = self.rename_tab(&workspace_id, &tab_id, &record.title);
+        if let Some(ws) = self.workspaces.iter_mut().find(|w| w.id == workspace_id) {
+            if let Some(tab) = ws.tabs.iter_mut().find(|t| t.id == tab_id) {
+                tab.description = record.description.clone();
+            }
+        }
+        Ok((workspace_id, tab_id, new_pane_id))
     }
 }
 

@@ -4,7 +4,9 @@ use std::sync::atomic::AtomicU64;
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::types::{AgentRole, Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace};
+use super::types::{
+    AgentRole, ClosedPane, Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace,
+};
 
 mod alias;
 mod closed;
@@ -43,6 +45,10 @@ pub struct WorkspaceInfo {
     pub existing: Option<bool>,
 }
 
+/// Cap on entries preserved from deleted workspaces. Prevents unbounded growth
+/// when many workspaces are created and deleted.
+pub const ORPHANED_CLOSED_CAP: usize = 50;
+
 /// Central multiplexer state: workspaces, tabs, panes, and their relationships.
 pub struct MultiplexerState {
     workspaces: Vec<Workspace>,
@@ -58,6 +64,10 @@ pub struct MultiplexerState {
     /// (older generation) that resolves after a newer one — kills the
     /// spawn-then-blink race where a pre-pane `mux_get_state` clobbers the tab.
     generation: AtomicU64,
+    /// Ring entries from workspaces that were deleted. Newest first. Bounded at
+    /// ORPHANED_CLOSED_CAP. Lets the user reopen a tab even after its workspace
+    /// was closed (workspace is recreated on demand).
+    pub(super) orphaned_closed: Vec<ClosedPane>,
 }
 
 /// Full state snapshot for frontend hydration.
@@ -70,6 +80,10 @@ pub struct MultiplexerSnapshot {
     /// Monotonic generation; the reducer drops any snapshot whose value is
     /// `<=` the one already applied.
     pub generation: u64,
+    /// Recently closed entries from workspaces that have since been deleted.
+    /// Sorted newest-first. Bounded at ORPHANED_CLOSED_CAP total.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub orphaned_closed: Vec<ClosedPane>,
 }
 
 impl MultiplexerState {
@@ -84,6 +98,7 @@ impl MultiplexerState {
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
             generation: AtomicU64::new(0),
+            orphaned_closed: vec![],
         }
     }
 
@@ -158,6 +173,7 @@ impl MultiplexerState {
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
             generation: AtomicU64::new(0),
+            orphaned_closed: vec![],
         };
 
         (state, pane_id)

@@ -29,6 +29,7 @@ impl MultiplexerState {
             active_workspace_id: self.active_workspace_id.clone(),
             focused_pane_id: self.focused_pane_id.clone(),
             generation,
+            orphaned_closed: self.orphaned_closed.clone(),
         }
     }
 
@@ -299,6 +300,7 @@ impl MultiplexerState {
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
             generation: std::sync::atomic::AtomicU64::new(0),
+            orphaned_closed: vec![],
         }
     }
 }

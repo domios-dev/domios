@@ -167,4 +167,18 @@ impl ServiceContext {
         self.emit_state_changed();
         Ok((tab_id, pane_id))
     }
+
+    /// Reopen a pane from the orphaned ring. Recreates the workspace and
+    /// activates it. Returns (workspace_id, tab_id, pane_id).
+    pub fn reopen_orphaned_pane(&self, pane_id: &str) -> Result<(String, String, String), String> {
+        let result = {
+            let mut mux = self.mux.write();
+            let r = mux.reopen_orphaned_pane(pane_id)?;
+            let _ = mux.set_active_workspace(&r.0);
+            let _ = mux.set_active_tab(&r.0, &r.1);
+            r
+        };
+        self.emit_state_changed();
+        Ok(result)
+    }
 }
