@@ -209,6 +209,32 @@ mod tests {
     }
 
     #[test]
+    fn inbound_sender_metadata_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let mut h = ChatBackendHistory::open_at(path.clone());
+        h.upsert(&[ChatMsg {
+            id: "inbound-1".into(),
+            kind: "user".into(),
+            content: "hello".into(),
+            from_label: Some("Edison".into()),
+            from_pane: Some("e8a0ac20".into()),
+            from_model: Some("opus".into()),
+            inbound_kind: Some("pane".into()),
+            ..Default::default()
+        }]);
+
+        let read = read_messages(&path);
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].content, "hello");
+        assert_eq!(read[0].from_label.as_deref(), Some("Edison"));
+        assert_eq!(read[0].from_pane.as_deref(), Some("e8a0ac20"));
+        assert_eq!(read[0].from_model.as_deref(), Some("opus"));
+        assert_eq!(read[0].inbound_kind.as_deref(), Some("pane"));
+        assert!(!read[0].content.contains("-=-codeterm"));
+    }
+
+    #[test]
     fn streaming_message_yields_one_final_line_not_n() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("s.jsonl");
