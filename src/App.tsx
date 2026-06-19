@@ -21,6 +21,7 @@ import { HamburgerIcon } from "./components/Icons";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useAgentProviders } from "./hooks/useAgentProviders";
+import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
 import { UpdateProvider } from "./hooks/useUpdate";
 import { usePluginActivity } from "./lib/usePluginActivity";
 import {
@@ -50,6 +51,7 @@ function useStableJsonValue<T>(value: T): T {
 
 function AppInner() {
   useAgentProviders();
+  usePluginProviderMetaSync();
   const { activities: pluginActivities, displayMap: pluginActivityDisplayMap } = usePluginActivity();
   // Phones start with the sidebar collapsed; the hamburger opens it as an overlay (see the wrapper at the render site).
   const [sidebarOpen, setSidebarOpen] = useState(

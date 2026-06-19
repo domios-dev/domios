@@ -1,6 +1,7 @@
-import { useSyncExternalStore } from "react";
 import type { ProviderDescriptor } from "./types";
 
+// React-free store so pure helpers (chatUiMode, paneProvider) can read it under
+// the tsx unit-test runner. The React hook lives in `useAgentDescriptor.ts`.
 let cache: Record<string, ProviderDescriptor> = {};
 const subscribers = new Set<() => void>();
 
@@ -16,17 +17,9 @@ export function getAgentDescriptor(id: string | null | undefined): ProviderDescr
   return cache[id];
 }
 
-function subscribe(fn: () => void): () => void {
+export function subscribeAgentDescriptors(fn: () => void): () => void {
   subscribers.add(fn);
   return () => {
     subscribers.delete(fn);
   };
-}
-
-export function useAgentDescriptor(id: string | null | undefined): ProviderDescriptor | undefined {
-  return useSyncExternalStore(
-    subscribe,
-    () => (id ? cache[id] : undefined),
-    () => undefined,
-  );
 }
