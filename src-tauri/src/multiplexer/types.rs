@@ -41,6 +41,13 @@ pub struct ClosedPane {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model: Option<String>,
     pub closed_at: u64,
+    /// Workspace the pane belonged to when it was closed. Empty string on old
+    /// records (pre-field snapshots) — treat as "unknown workspace".
+    #[serde(default)]
+    pub workspace_id: String,
+    /// Human-readable workspace name for display in the sidebar list.
+    #[serde(default)]
+    pub workspace_name: String,
 }
 
 /// A tab holds exactly one pane.

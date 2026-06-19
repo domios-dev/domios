@@ -178,6 +178,28 @@ pub fn mux_reopen_closed_pane(
     })
 }
 
+/// Reopen a pane from the orphaned ring (its workspace was deleted). Recreates
+/// the workspace and materializes the pane into it. Returns workspace + tab ids.
+#[tauri::command]
+pub fn mux_restore_orphaned_pane(
+    svc: State<'_, ServiceState>,
+    pane_id: String,
+) -> Result<OrphanedRestoreInfo, String> {
+    let (workspace_id, tab_id, new_pane_id) = svc.reopen_orphaned_pane(pane_id.as_str())?;
+    Ok(OrphanedRestoreInfo {
+        workspace_id,
+        tab_id,
+        pane_id: new_pane_id,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct OrphanedRestoreInfo {
+    pub workspace_id: String,
+    pub tab_id: String,
+    pub pane_id: String,
+}
+
 /// Set the focused pane.
 #[tauri::command]
 pub fn mux_set_focused_pane(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
