@@ -172,8 +172,12 @@ pub async fn refresh_live(
 ) -> Option<Vec<ModelInfo>> {
     let provider_id = provider.id().to_string();
     let default = provider.default_model();
-    let handle = tokio::runtime::Handle::current();
-    let task = tokio::task::spawn_blocking(move || handle.block_on(provider.discover_models()));
+    // `discover_models` may run synchronous JS (the JS provider calls `call_json`
+    // under the VM lock), so it must stay off the async runtime. Drive it on the
+    // blocking pool with an independent executor — NOT the tokio runtime's
+    // `Handle::block_on`, which can deadlock when nested inside `spawn_blocking`.
+    let task =
+        tokio::task::spawn_blocking(move || futures_executor::block_on(provider.discover_models()));
     match tokio::time::timeout(timeout_duration, task).await {
         Ok(Ok(Some(models))) => {
             put_live(&provider_id, models.clone(), default);

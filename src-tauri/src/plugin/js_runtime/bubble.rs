@@ -29,8 +29,14 @@ impl BubbleProvider for JsBubbleProvider {
     }
 
     async fn bubble(&self, ctx: Value) -> Result<Option<BubbleData>, BubbleError> {
-        call_json::<Option<BubbleData>>(&self.vm, "statusBubble", &[ctx])
-            .map_err(|e| BubbleError::Render(format!("{e:?}")))
+        // VM lock + JS execution are synchronous — keep them off the async runtime.
+        let vm = self.vm.clone();
+        tokio::task::spawn_blocking(move || {
+            call_json::<Option<BubbleData>>(&vm, "statusBubble", &[ctx])
+        })
+        .await
+        .map_err(|e| BubbleError::Render(format!("bubble task failed: {e}")))?
+        .map_err(|e| BubbleError::Render(format!("{e:?}")))
     }
 }
 
