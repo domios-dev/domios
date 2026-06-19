@@ -1,5 +1,6 @@
 pub mod chat_types;
 pub mod detector;
+pub mod ledger;
 pub mod model_catalog;
 pub mod models;
 pub mod prompt;
