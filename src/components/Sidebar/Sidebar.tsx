@@ -85,6 +85,7 @@ export function Sidebar({
     createTab,
     closeTab,
     reopenClosed,
+    reopenGroup,
     restoreOrphaned,
     setActiveTab,
     setTabTitle,
@@ -722,21 +723,16 @@ export function Sidebar({
               // (already bounded + sorted server-side).
               const views = state.recently_closed ?? [];
               if (views.length === 0) return null;
-              const agg = views.map((entry) => ({
-                entry,
-                workspaceId: entry.workspace_id ?? "",
-                index: entry.index,
-                orphaned: entry.orphaned,
-              }));
               const hasOrphaned = views.some((v) => v.orphaned);
               return (
                 <RecentlyClosed
-                  entries={agg}
+                  views={views}
                   showWorkspace={state.workspaces.length > 1 || hasOrphaned}
                   onReopen={(wsId, idx, orphaned, paneId) => {
                     if (orphaned) { restoreOrphaned(paneId); }
                     else { reopenClosed(wsId, idx); }
                   }}
+                  onReopenGroup={reopenGroup}
                   touchMode={touchMode}
                   uiFontScale={uiFontScale}
                 />
