@@ -145,26 +145,15 @@ impl ServiceContext {
         // daemon restart can lazily re-open from the same systemPrompt/preset.
         let history_meta = config.clone();
 
-        // Open the plugin session AFTER the pane exists so the SDK `openSession`
-        // ctx carries the real `paneId` (a plugin may key its session on it,
-        // e.g. LM Studio). On failure, tear down the just-created tab so a bad
-        // config leaves no dangling empty pane.
-        let session_id = match self.chatbackend_open_session(&plugin_id, &pane_id, config) {
-            Ok(s) => s,
-            Err(e) => {
-                let _ = self.mux.write().close_tab(&ws_id, &tab_id);
-                self.emit_state_changed();
-                return Err(e);
-            }
-        };
-
-        // Mark the backing — pty_id stays None permanently, no backend reader.
+        // Pane shows instantly in a connecting state (empty session id). The
+        // network `openSession` runs on a background task — pane visibility
+        // never waits on it (the old synchronous path blocked the spawn 3-5s).
         {
             let mut mux = self.mux.write();
             if let Some(pane) = mux.get_pane_mut(&pane_id) {
                 pane.backing = PaneBacking::ChatBackend {
                     plugin_id: plugin_id.clone(),
-                    session_id: session_id.clone(),
+                    session_id: String::new(),
                 };
                 // Render as chat (the frontend also branches on `backing`).
                 pane.chat_view = true;
@@ -175,37 +164,7 @@ impl ServiceContext {
         }
         self.emit_state_changed();
 
-        log::info!(
-            "[spawn.chatbackend] pane {} backed by plugin '{}' session '{}'",
-            pane_id,
-            plugin_id,
-            session_id
-        );
-
-        // Best-effort: publish the backend's models into the catalog so the
-        // pane model picker can resolve them. Off-thread — listModels may hit a
-        // network backend (e.g. LM Studio) and must never block the spawn.
-        {
-            let svc2 = self.clone();
-            let plugin2 = plugin_id.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                if let Ok(models) = svc2.chatbackend_list_models(&plugin2) {
-                    if !models.is_empty() {
-                        crate::agent::model_catalog::register(
-                            &plugin2,
-                            crate::agent::model_catalog::RegisteredDefaults {
-                                models,
-                                default: None,
-                            },
-                        );
-                    }
-                }
-            });
-        }
-
-        // Inbound transcript arrives via poll → StructuredSink (no PTY reader).
-        // The sink also UPSERTs each delta into the session JSONL for durability.
-        self.spawn_chatbackend_poll_loop(pane_id.clone(), plugin_id, session_id, history_meta);
+        self.chatbackend_launch_async(plugin_id, pane_id.clone(), tab_id.clone(), ws_id.clone(), config, history_meta);
 
         Ok(PaneHandle {
             pane_id,
@@ -215,6 +174,92 @@ impl ServiceContext {
             worker_id: None,
             warning: None,
         })
+    }
+
+    /// Background launch for a chatBackend pane: open the plugin session, stamp
+    /// the resolved session id onto the pane backing, publish models, and start
+    /// the inbound poll loop. Runs entirely off the spawn path so the pane is
+    /// visible immediately. On `openSession` failure the just-created tab is torn
+    /// down (a bad config leaves no dangling empty pane) and a warning surfaces.
+    pub(crate) fn chatbackend_launch_async(
+        &self,
+        plugin_id: String,
+        pane_id: String,
+        tab_id: String,
+        ws_id: String,
+        config: serde_json::Value,
+        history_meta: serde_json::Value,
+    ) {
+        let svc = self.clone();
+        spawn_bg(async move {
+            let (open_svc, open_plugin, open_pane, open_cfg) =
+                (svc.clone(), plugin_id.clone(), pane_id.clone(), config);
+            let session_id = match tokio::task::spawn_blocking(move || {
+                open_svc.chatbackend_open_session(&open_plugin, &open_pane, open_cfg)
+            })
+            .await
+            {
+                Ok(Ok(s)) => s,
+                Ok(Err(e)) => {
+                    log::warn!("[spawn.chatbackend] openSession failed for {}: {}", pane_id, e);
+                    let _ = svc.mux.write().close_tab(&ws_id, &tab_id);
+                    svc.emit_state_changed();
+                    svc.create_notification(
+                        format!("Failed to open {} session", plugin_id),
+                        Some(e),
+                        Some("error"),
+                    );
+                    return;
+                }
+                Err(e) => {
+                    log::warn!("[spawn.chatbackend] openSession task join error: {}", e);
+                    let _ = svc.mux.write().close_tab(&ws_id, &tab_id);
+                    svc.emit_state_changed();
+                    return;
+                }
+            };
+
+            {
+                let mut mux = svc.mux.write();
+                if let Some(pane) = mux.get_pane_mut(&pane_id) {
+                    if let PaneBacking::ChatBackend { session_id: sid, .. } = &mut pane.backing {
+                        *sid = session_id.clone();
+                    }
+                }
+            }
+            svc.emit_state_changed();
+
+            log::info!(
+                "[spawn.chatbackend] pane {} backed by plugin '{}' session '{}'",
+                pane_id,
+                plugin_id,
+                session_id
+            );
+
+            // Best-effort: publish the backend's models into the catalog so the
+            // pane model picker can resolve them. listModels may hit a network
+            // backend (e.g. LM Studio) so it runs on a blocking task.
+            {
+                let svc2 = svc.clone();
+                let plugin2 = plugin_id.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Ok(models) = svc2.chatbackend_list_models(&plugin2) {
+                        if !models.is_empty() {
+                            crate::agent::model_catalog::register(
+                                &plugin2,
+                                crate::agent::model_catalog::RegisteredDefaults {
+                                    models,
+                                    default: None,
+                                },
+                            );
+                        }
+                    }
+                });
+            }
+
+            // Inbound transcript arrives via poll → StructuredSink (no PTY reader).
+            svc.spawn_chatbackend_poll_loop(pane_id, plugin_id, session_id, history_meta);
+        });
     }
 
     /// Background loop: poll the plugin for new transcript and emit it on the

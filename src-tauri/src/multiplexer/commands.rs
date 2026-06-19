@@ -325,6 +325,19 @@ pub fn build_agent_launch_command(
         .ok_or_else(|| format!("Unknown agent provider: {}", agent_id))
 }
 
+/// The one atomic spawn command (T3): create + cwd + agent_type + activate +
+/// focus a pane and return the resulting snapshot, picking the transport via the
+/// unified registry. Launch runs on a background task — pane visibility never
+/// waits on it. The frontend dispatches `SET_STATE` from `snapshot` exactly once
+/// (no refetch, no blink) and, for PTY, delivers `launch_command` to the pane.
+#[tauri::command]
+pub fn mux_spawn_pane(
+    svc: State<'_, ServiceState>,
+    params: crate::service::transport::AtomicSpawnParams,
+) -> Result<crate::service::transport::AtomicSpawn, String> {
+    svc.spawn_pane_atomic(params)
+}
+
 // ── Agent Hierarchy Commands ─────────────────────────────────────────
 
 /// Set a pane's orchestration role.
