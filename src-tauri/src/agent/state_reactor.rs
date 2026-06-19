@@ -97,13 +97,24 @@ pub fn start(svc: ServiceState) {
         let mut reacted: HashSet<String> = HashSet::new();
         loop {
             std::thread::sleep(POLL_INTERVAL);
-            let ids = svc.agent_tracker.lock().all_ids();
-            for pty_id in &ids {
-                let status = svc.agent_tracker.lock().get_status(pty_id);
+            // Snapshot ids + statuses under a SINGLE lock acquisition per tick
+            // instead of re-locking agent_tracker once per pane (N+1 acquires).
+            let snapshot: Vec<(String, PaneStatus)> = {
+                let tracker = svc.agent_tracker.lock();
+                tracker
+                    .all_ids()
+                    .into_iter()
+                    .map(|id| {
+                        let status = tracker.get_status(&id);
+                        (id, status)
+                    })
+                    .collect()
+            };
+            for (pty_id, status) in &snapshot {
                 match status {
                     PaneStatus::Idle | PaneStatus::Waiting => {
                         if reacted.insert(pty_id.clone()) {
-                            react(&svc, pty_id, status);
+                            react(&svc, pty_id, *status);
                         }
                     }
                     _ => {
@@ -111,7 +122,7 @@ pub fn start(svc: ServiceState) {
                     }
                 }
             }
-            reacted.retain(|id| ids.contains(id));
+            reacted.retain(|id| snapshot.iter().any(|(sid, _)| sid == id));
         }
     });
 }
