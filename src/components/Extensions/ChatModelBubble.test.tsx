@@ -100,6 +100,24 @@ test("renders the current model from session_info", async () => {
   await act(async () => root.unmount());
 });
 
+test("uses the terminal top-right pane bubble slot", async () => {
+  const { api } = fakeApi();
+  __setChatModelBubbleApiForTest(api);
+  const { host, root } = await render(<ChatModelBubble pluginId="lmstudio" sessionId="s1" />);
+  await flush();
+
+  const b = bubble(host);
+  assert(b, "bubble should render");
+  assert(b.classList.contains("ct-chat-model-bubble"), "bubble should expose the pane primary bubble class");
+  const slot = b.parentElement as HTMLDivElement | null;
+  assert(slot, "bubble should have a positioned slot parent");
+  assert(slot.style.right === "8px", `bubble slot should use the terminal right edge, got: ${slot.style.right}`);
+  assert(slot.style.left === "", `bubble slot should not use the old left edge, got: ${slot.style.left}`);
+
+  __setChatModelBubbleApiForTest(null);
+  await act(async () => root.unmount());
+});
+
 test("opens a dropdown listing the available models", async () => {
   const { api } = fakeApi();
   __setChatModelBubbleApiForTest(api);
