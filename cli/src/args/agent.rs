@@ -127,6 +127,11 @@ pub enum AgentAction {
         /// Task to send after agent starts
         #[arg(long)]
         task: Option<String>,
+        /// Read the task body from a file (or `-` for stdin) instead of --task.
+        /// Bypasses the caller's shell, so backticks / $(...) in the body are
+        /// never evaluated. Mutually exclusive with --task.
+        #[arg(long, value_name = "PATH")]
+        task_file: Option<String>,
         /// Extra args for the agent
         #[arg(long, num_args = 1..)]
         args: Option<Vec<String>>,

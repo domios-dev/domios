@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -92,6 +92,7 @@ Spawn a new agent (creates tab in workspace, linked in hierarchy)
 - `--role` — Role: Orchestrator, Worker
 - `--system_prompt` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
+- `--task_file` — Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task
 - `--title` — Tab title
 - `--workspace` — Target workspace ID (default: parent's workspace or active workspace)
 

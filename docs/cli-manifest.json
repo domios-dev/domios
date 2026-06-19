@@ -328,6 +328,14 @@
               "aliases": []
             },
             {
+              "name": "task_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task",
+              "aliases": []
+            },
+            {
               "name": "title",
               "positional": false,
               "value_name": "TITLE",
