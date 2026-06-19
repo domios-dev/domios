@@ -165,29 +165,18 @@ CodeTerm has a 2-level hierarchy: **Orchestrator → Worker**. Your role comes f
 - **Orchestrator** — top of the chain, no parent. Delegates by spawning generic claude agents with explicit role prompts (see below).
 - **Worker** — does ONE concrete task, runs `codeterm agent report`, exits. **NEVER spawns other agents.** If decomposition is needed → report blocked, and the Orchestrator splits it further or spins up a separate Orchestrator in its own workspace.
 
-### We dogfood our own `codeterm mem` instead of `.claude/agents/`
+### Agent roles: `docs/contributing/agents.md`, assigned inline at spawn
 
-CodeTerm is the project that builds the mem system — so we **use mem as the single source of truth for role definitions and procedural skills**, instead of `.claude/agents/*.md`. The `.claude/agents/` folder has been emptied on purpose. Reasons:
+`.claude/agents/*.md` is NOT used — that folder is empty on purpose. The role
+hierarchy (Orchestrator → Worker) and each role's remit (backend-dev,
+frontend-dev, code-reviewer, docs-sync, release) live in
+**`docs/contributing/agents.md`**. When you spawn a worker, give it its role
+**inline in the task prompt** (e.g. "You are a Rust backend engineer working in
+`src-tauri/`; your task: …") — there are no per-role `codeterm mem` entries to
+fetch (do not try `codeterm mem get skill_<role>_role` — those do not exist).
 
-- One canonical place per role. No drift between an `.md` file and a mem entry.
-- Mem can be fetched **fragmentally** via multiple `mem search` calls — agents pull only what they need, when they need it, instead of pre-loading a giant system prompt.
-- Updates propagate across all CodeTerm instances on this machine automatically (mem is global).
-- Any peer or sub-agent on any mesh peer can pull the same role guidance.
-
-Role skills currently in mem (search by role name or fetch by id):
-
-| Role | Mem id | Use for |
-|------|--------|---------|
-| Backend dev | `skill_backend_dev_role_rust_src_tauri_for_codeterm` | Rust changes in `src-tauri/` |
-| Frontend dev | `skill_frontend_dev_role_react_typescript_src_for_codeterm` | React/TS changes in `src/` |
-| Docs sync | `skill_docs_sync_role_keep_docs_in_sync_with_code_for_codeterm` | Keep docs in sync after backend/frontend work |
-| Code reviewer | `skill_code_reviewer_role_read_only_review_for_codeterm` | Read-only diff review, severity ranking |
-| Prompt evaluator | `skill_prompt_evaluator_role_a_b_and_regression_testing_for_codeterm` | A/B regression test prompt changes via `.claude/skills/prompt-evaluator/runner.py` |
-| End-to-end release | `skill_end_to_end_github_release_for_codeterm` | Full release pipeline (bump→tag→build→sign→notarize→publish→mirror) |
-
-**How to spawn:** instead of `codeterm agent spawn claude (role: backend-dev)`, use `codeterm agent spawn claude --task "codeterm mem get skill_backend_dev_role_rust_src_tauri_for_codeterm — that is your role definition. Read it then: <concrete task>"`. Same for `codeterm agent spawn claude --task "first run codeterm mem get <skill_id>, then: <task>"`.
-
-**`.claude/skills/`** still exists for skills with runnable code (e.g. `prompt-evaluator/runner.py`). Mem doesn't store executable scripts — only markdown content. Skills with code stay on disk; their `SKILL.md` is the entry point the role-skill in mem points to.
+**`.claude/skills/`** holds skills with runnable code (e.g.
+`prompt-evaluator/runner.py`) — their `SKILL.md` is the on-disk entry point.
 
 ### Where the codeterm-specific skill folders live
 
