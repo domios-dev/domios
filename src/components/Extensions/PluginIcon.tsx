@@ -1,4 +1,4 @@
-import { PuzzleIcon } from "../Icons";
+import { Puzzle } from "lucide-react";
 
 export interface PluginIconData {
   icon_svg?: string | null;
@@ -28,5 +28,5 @@ export function PluginIcon({ plugin, size = 18 }: { plugin: PluginIconData; size
   if (plugin.icon_hint && !/^[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(plugin.icon_hint)) {
     return <span style={{ fontSize: size - 2, color }}>{plugin.icon_hint}</span>;
   }
-  return <PuzzleIcon size={size} style={{ color }} />;
+  return <Puzzle size={size} style={{ color }} />;
 }
