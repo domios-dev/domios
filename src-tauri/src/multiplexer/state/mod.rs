@@ -99,6 +99,7 @@ impl MultiplexerState {
             backing: PaneBacking::default(),
             pane_type: PaneType::Terminal,
             title: "Terminal".to_string(),
+            description: None,
             cwd: None,
             url: None,
             agent_type: None,
@@ -131,6 +132,7 @@ impl MultiplexerState {
         let tab = Tab {
             id: tab_id.clone(),
             title: names::generate_tab_name(),
+            description: None,
             pane_id: pane_id.clone(),
         };
 

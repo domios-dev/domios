@@ -193,6 +193,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         parent_pane_id: None,
         cwd: cwd.map(|s| s.to_string()),
         title: Some(pane_title),
+        description: None,
         // Hidden — user observes cron runs via the cron history log viewer, not as a live tab. Mirrors the mem worker pattern.
         visibility: PaneVisibility::Hidden,
         eager: false,

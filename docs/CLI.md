@@ -99,6 +99,7 @@ Spawn a new agent (creates tab in workspace, linked in hierarchy)
 - `--args` — Extra args for the agent
 - `--can_spawn` — Allow spawning children
 - `--cwd` — Working directory
+- `--description` — Short pane description (max 200 chars)
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--parent` — Parent pane ID (for Workers)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
@@ -1073,6 +1074,13 @@ Close a pane by ID
 Print the current (focused) pane ID — no JSON parsing needed
 
 - `--last` — Return the last pane instead of the focused one
+
+#### `codeterm pane describe`
+
+Set a short pane description (empty clears it)
+
+- `--pane` — Pane ID to describe (default: current focused pane)
+- `<summary>` — Short summary, max 200 chars
 
 #### `codeterm pane exec`
 

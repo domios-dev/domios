@@ -66,6 +66,7 @@ impl UsageProbe {
                 parent_pane_id: None,
                 cwd: None,
                 title: Some(format!("[usage-probe] {}", provider_for_spawn)),
+                description: None,
                 visibility: PaneVisibility::Hidden,
                 eager: false,
                 command: PaneCommand::Agent(AgentSpawnSpec {

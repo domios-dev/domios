@@ -26,6 +26,8 @@ pub struct WorkspaceSnapshot {
 pub struct TabSnapshot {
     pub id: String,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
     pub split_tree: SplitNodeSnapshot,
 }
 
@@ -38,6 +40,9 @@ pub enum SplitNodeSnapshot {
         /// Pane title.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         title: Option<String>,
+        /// Short pane description shown as tab tooltip/subtitle.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        description: Option<String>,
         /// Title priority level.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         title_level: Option<String>,

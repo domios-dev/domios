@@ -38,6 +38,7 @@ fn spawn_params(provider: &str) -> SpawnAgentParams {
         args: None,
         cwd: None,
         title: None,
+        description: None,
         role: None,
         parent_pane_id: None,
         can_spawn: None,
@@ -434,6 +435,7 @@ fn from_agent_params_carries_model_into_spec() {
         args: None,
         cwd: None,
         title: None,
+        description: Some("triage failing snapshot".into()),
         role: None,
         parent_pane_id: None,
         can_spawn: None,
@@ -450,6 +452,7 @@ fn from_agent_params_carries_model_into_spec() {
         activate: None,
     };
     let spec = SpawnPaneSpec::from_agent_params(params);
+    assert_eq!(spec.description.as_deref(), Some("triage failing snapshot"));
     match spec.command {
         PaneCommand::Agent(a) => assert_eq!(a.model.as_deref(), Some("gpt-5.4-mini")),
         _ => panic!("expected Agent"),
@@ -533,6 +536,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         args: None,
         cwd: None,
         title: None,
+        description: None,
         role: Some("Orchestrator".into()),
         parent_pane_id: None,
         can_spawn: None,
@@ -572,6 +576,7 @@ fn from_agent_params_carries_activate_into_spec() {
         args: None,
         cwd: None,
         title: None,
+        description: None,
         role: None,
         parent_pane_id: None,
         can_spawn: None,

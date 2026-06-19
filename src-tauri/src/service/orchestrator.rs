@@ -137,6 +137,8 @@ pub struct SpawnResult {
     pub pty_id: String,
     pub agent: String,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub role: Option<String>,
     /// Warning when agent cwd differs from workspace cwd
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -150,6 +152,7 @@ pub struct SpawnAgentParams {
     pub args: Option<Vec<String>>,
     pub cwd: Option<String>,
     pub title: Option<String>,
+    pub description: Option<String>,
     pub role: Option<String>,
     pub parent_pane_id: Option<String>,
     pub can_spawn: Option<bool>,
@@ -183,6 +186,10 @@ impl SpawnAgentParams {
             }),
             cwd: json_str(params, "cwd"),
             title: super::spawn_title::normalize_agent_title(json_str(params, "title")),
+            description: json_str(params, "description")
+                .map(|s| crate::service::normalize_pane_description(&s))
+                .transpose()?
+                .flatten(),
             role: json_str(params, "role"),
             parent_pane_id: json_str(params, "parent_pane_id")
                 .or_else(|| json_str(params, "parent")),
@@ -286,6 +293,7 @@ impl ServiceContext {
             pty_id: handle.pty_id.unwrap_or_default(),
             agent,
             title,
+            description: handle.description,
             role,
             warning: handle.warning,
         })
@@ -324,6 +332,7 @@ impl ServiceContext {
                 pty_id: handle.pty_id.unwrap_or_default(),
                 agent: agent_cmd,
                 title,
+                description: handle.description,
                 role,
                 warning: handle.warning,
             });
@@ -527,6 +536,7 @@ impl ServiceContext {
             pty_id: String::new(), // PTY not yet assigned — happens async
             agent: agent_cmd,
             title,
+            description: params.description,
             role: params.role,
             warning,
         })

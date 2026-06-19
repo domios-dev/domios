@@ -68,6 +68,8 @@ function TabItemInner({
   // back to the live chatBackend session model (fetched/cached out of band).
   const tabModel = pane?.agent_session_model ?? shellSessionModel;
   const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
+  const description = pane?.description ?? tab.description ?? null;
+  const displayTitle = hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title;
   const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
@@ -164,6 +166,7 @@ function TabItemInner({
       ref={tabRef}
       data-testid="tab-item"
       data-tab-id={tab.id}
+      title={description ? `${displayTitle}\n${description}` : displayTitle}
       onClick={onClick}
       draggable={!touchMode}
       onDragStart={(e) => {
@@ -233,16 +236,23 @@ function TabItemInner({
             className={`${tabText} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none`}
           />
         ) : (
-          <span
-            className={`${touchMode ? tabTouchText : tabText} truncate ${isActive ? "font-medium" : ""}`}
-            onDoubleClick={(e) => {
-              if (pane?.protected) return; // Main is unrenameable
-              e.stopPropagation();
-              setEditName(tab.title);
-              setEditing(true);
-            }}
-          >
-            {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
+          <span className="min-w-0 flex-1">
+            <span
+              className={`${touchMode ? tabTouchText : tabText} block truncate ${isActive ? "font-medium" : ""}`}
+              onDoubleClick={(e) => {
+                if (pane?.protected) return; // Main is unrenameable
+                e.stopPropagation();
+                setEditName(tab.title);
+                setEditing(true);
+              }}
+            >
+              {displayTitle}
+            </span>
+            {description && (
+              <span className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">
+                {description}
+              </span>
+            )}
           </span>
         )}
         {/* Connected services */}
@@ -338,7 +348,8 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.uiFontScale !== next.uiFontScale ||
     prev.index !== next.index ||
     prev.tab.id !== next.tab.id ||
-    prev.tab.title !== next.tab.title
+    prev.tab.title !== next.tab.title ||
+    prev.tab.description !== next.tab.description
   ) return false;
 
   const pp = prev.pane;
@@ -347,6 +358,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
   if (!pp || !np) return false;
   return (
     pp.id === np.id &&
+    pp.description === np.description &&
     pp.agent_type === np.agent_type &&
     // backing drives the shell icon/tooltip/model badge + chat gating; the live
     // shell model itself comes from a hook (useShellSessionModel), not a prop.
