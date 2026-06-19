@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use serde::Serialize;
 use tauri::State;
 
 use super::state::{MultiplexerSnapshot, MultiplexerState, WorkspaceInfo};
 use crate::service::{BatchOp, ServiceState};
 
-/// Shared multiplexer state, thread-safe.
-pub type MuxState = Arc<Mutex<MultiplexerState>>;
+/// Shared multiplexer state, thread-safe. RwLock allows concurrent reads from
+/// multiple PTY output handlers; writers still get exclusive access.
+pub type MuxState = Arc<RwLock<MultiplexerState>>;
 
 // ── Response types ───────────────────────────────────────────────────
 
@@ -25,7 +26,7 @@ pub struct TabInfo {
 /// Returns the full multiplexer state for frontend hydration (read-only).
 #[tauri::command]
 pub fn mux_get_state(state: State<'_, MuxState>) -> Result<MultiplexerSnapshot, String> {
-    Ok(state.lock().snapshot())
+    Ok(state.read().snapshot())
 }
 
 /// Create a new workspace.
@@ -94,7 +95,7 @@ pub fn mux_create_tab(
     // Read tab title from state
     let title = svc
         .mux
-        .lock()
+        .write()
         .get_workspace(&workspace_id)
         .and_then(|ws| ws.tabs.iter().find(|t| t.id == tab_id))
         .map(|t| t.title.clone())

@@ -280,7 +280,7 @@ pub async fn send_text(
     // Prefix only for agent recipients; shells run the bytes verbatim. One
     // canonical builder serves both local and mesh-relayed deliveries.
     let source_prefix: Option<String> = body.source_pane.as_deref().and_then(|src| {
-        let mux = state.svc.mux.lock();
+        let mux = state.svc.mux.write();
         let target_is_agent = mux
             .get_pane(&pane_id)
             .and_then(|p| p.agent_type.as_ref())
@@ -469,7 +469,7 @@ pub async fn stop_pane(
     let agent_id = state
         .svc
         .mux
-        .lock()
+        .write()
         .get_pane(&pane_id)
         .and_then(|p| p.agent_type.clone());
     let bytes: Option<String> = agent_id.and_then(|aid| {
@@ -858,7 +858,7 @@ pub async fn get_pane_usage(
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
     let (agent_type, session_id, cwd) = {
-        let mux = state.svc.mux.lock();
+        let mux = state.svc.mux.write();
         let pane = mux
             .get_pane(&pane_id)
             .ok_or((StatusCode::NOT_FOUND, "Pane not found"))?;

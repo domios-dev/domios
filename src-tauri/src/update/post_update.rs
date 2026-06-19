@@ -50,13 +50,13 @@ async fn run(svc: &ServiceState) -> Result<(), String> {
     let mut pane_id: Option<String> = None;
     while std::time::Instant::now() < deadline {
         let candidate = {
-            let mux = svc.mux.lock();
+            let mux = svc.mux.write();
             mux.resolve_pane_id(crate::service::general_agent::GENERAL_ALIAS)
         };
         if let Some(id) = candidate {
             let has_pty = svc
                 .mux
-                .lock()
+                .write()
                 .get_pane(&id)
                 .and_then(|p| p.pty_id.clone())
                 .is_some();

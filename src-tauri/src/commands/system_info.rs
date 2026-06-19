@@ -202,7 +202,7 @@ pub fn suggest_install_pwsh(
             }
             let pty_id = svc_arc
                 .mux
-                .lock()
+                .write()
                 .get_pane(&pane_id_bg)
                 .and_then(|p| p.pty_id.clone());
             if let Some(pid) = pty_id {
