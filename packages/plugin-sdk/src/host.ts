@@ -22,6 +22,28 @@ export interface ExecResult {
   error?: string;
 }
 
+export interface ExecStartResult {
+  jobId?: string;
+  error?: string;
+}
+
+export interface ExecPollResult {
+  done: boolean;
+  code?: number;
+  stdout?: string;
+  stderr?: string;
+  error?: string;
+}
+
+export interface HostExec {
+  (optsJson: string): string;
+  // Async exec: start the command, poll until done. The VM lock is held only
+  // for the sub-ms start/poll calls, not the command's whole duration.
+  start(opts: ExecOpts): ExecStartResult;
+  poll(jobId: string): ExecPollResult;
+  close(jobId: string): void;
+}
+
 export interface FetchOpts {
   url: string;
   method?: string;
@@ -211,7 +233,10 @@ export interface Host {
 
   // ── host_api v2: subprocess / network / secrets / settings ──
   settingsJson(): string;
-  exec(optsJson: string): string;
+  exec: HostExec;
+  execStart(optsJson: string): string;
+  execPoll(jobId: string): string;
+  execClose(jobId: string): void;
   fetch: HostFetch;
   fetchStream(optsJson: string): string;
   fetchStreamPoll(jobId: string): string;
