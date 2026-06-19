@@ -297,6 +297,7 @@ pub fn build_agent_launch_command(
     agent_id: String,
     skip_permissions: bool,
 ) -> Result<String, String> {
+    svc.require_agent_provider_ready(&agent_id)?;
     let model_args = crate::service::spawn::resolve_fresh_agent_model(
         &svc.agent_registry,
         &agent_id,

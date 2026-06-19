@@ -123,6 +123,23 @@ pub(crate) fn chatbackend_spawn_config(
 }
 
 impl ServiceContext {
+    pub(crate) fn require_agent_provider_ready(&self, provider_id: &str) -> Result<(), String> {
+        match self.agent_registry.wait_for_provider_startup(provider_id) {
+            crate::agent::registry::ProviderStartupStatus::Ready => Ok(()),
+            crate::agent::registry::ProviderStartupStatus::LoadingTimedOut => Err(format!(
+                "Agent provider '{}' is still loading; retry shortly",
+                provider_id
+            )),
+            crate::agent::registry::ProviderStartupStatus::Unknown => {
+                let available = self.available_agent_or_shell_ids().join(", ");
+                Err(format!(
+                    "Unknown agent provider: '{}'. Available: [{}]",
+                    provider_id, available
+                ))
+            }
+        }
+    }
+
     pub(crate) fn available_agent_or_shell_ids(&self) -> Vec<String> {
         let mut ids = self.agent_registry.provider_ids();
         // Only user-spawnable shells are offered to callers; backend-only
@@ -161,17 +178,7 @@ impl ServiceContext {
                 agent_cmd
             ));
         }
-        if self
-            .agent_registry
-            .with_provider(agent_cmd, |_| ())
-            .is_none()
-        {
-            let available = self.available_agent_or_shell_ids().join(", ");
-            return Err(format!(
-                "Unknown agent provider: '{}'. Available: [{}]",
-                agent_cmd, available
-            ));
-        }
+        self.require_agent_provider_ready(agent_cmd)?;
         Ok(false)
     }
 }
