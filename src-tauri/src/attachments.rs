@@ -78,6 +78,42 @@ pub fn save_with_prefixed_name(
     save(bucket, &filename, bytes, policy)
 }
 
+/// Copy a source file into a durable attachment bucket, preserving its filename
+/// behind a short UUID prefix.
+pub fn save_file_with_prefixed_name(
+    bucket: &str,
+    source: &Path,
+    policy: EvictionPolicy,
+) -> Result<PathBuf, String> {
+    let dir = bucket_dir(bucket);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create bucket dir: {}", e))?;
+    let prefix = &uuid::Uuid::new_v4().to_string()[..8];
+    let name = source
+        .file_name()
+        .map(|n| n.to_string_lossy().trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "drop".to_string());
+    let path = dir.join(format!("{}-{}", prefix, name));
+    std::fs::copy(source, &path).map_err(|e| format!("copy dropped file: {}", e))?;
+    evict(&dir, policy);
+    Ok(path)
+}
+
+pub fn materialize_dropped_path(path: &Path) -> Result<PathBuf, String> {
+    if !is_volatile_macos_screenshot_path(path) {
+        return Ok(path.to_path_buf());
+    }
+    save_file_with_prefixed_name("drops", path, EvictionPolicy::MaxBytes(DEFAULT_MAX_BYTES))
+}
+
+fn is_volatile_macos_screenshot_path(path: &Path) -> bool {
+    path.components()
+        .any(|c| c.as_os_str().to_string_lossy() == "TemporaryItems")
+        && path
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with("NSIRD_screencaptureui_"))
+}
+
 /// Apply eviction policy to a directory.
 pub fn evict(dir: &Path, policy: EvictionPolicy) {
     let entries: Vec<_> = match std::fs::read_dir(dir) {
@@ -262,5 +298,33 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("nonexistent-{}", uuid::Uuid::new_v4()));
         // Should not panic
         evict(&dir, EvictionPolicy::MaxCount(10));
+    }
+
+    #[test]
+    fn test_materialize_dropped_temp_screenshot_to_durable_path() {
+        let temp_root =
+            std::env::temp_dir().join(format!("codeterm-source-{}", uuid::Uuid::new_v4()));
+        let temp_dir = temp_root.join("TemporaryItems");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let source = temp_dir.join("NSIRD_screencaptureui_abc123.png");
+        std::fs::write(&source, b"screenshot").unwrap();
+        let materialized = materialize_dropped_path(&source).unwrap();
+
+        assert!(materialized.exists());
+        assert_ne!(materialized, source);
+        assert_eq!(std::fs::read(&materialized).unwrap(), b"screenshot");
+        assert!(materialized.starts_with(bucket_dir("drops")));
+
+        let _ = std::fs::remove_dir_all(bucket_dir("drops"));
+        let _ = std::fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn test_non_temp_drop_path_is_referenced_raw() {
+        let source = std::env::temp_dir().join(format!("normal-drop-{}.txt", uuid::Uuid::new_v4()));
+        std::fs::write(&source, b"normal").unwrap();
+        let referenced = materialize_dropped_path(&source).unwrap();
+        assert_eq!(referenced, source);
+        let _ = std::fs::remove_file(source);
     }
 }
