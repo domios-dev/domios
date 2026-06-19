@@ -319,6 +319,77 @@ test("chatBackend unknown tool falls back gracefully", async () => {
   }
 });
 
+test("chatBackend structured inbound renders sender header and kind badge", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "inbound-pane-1",
+      provider: "lmstudio",
+      type: "user",
+      content: "Please inspect the last run.",
+      fromLabel: "Worker A",
+      fromPane: "abc12345",
+      fromModel: "gpt-5",
+      inboundKind: "pane",
+    },
+  ]);
+  try {
+    assertIncludes(host, "from Worker A", "structured inbound sender");
+    assertIncludes(host, "gpt-5", "structured inbound model");
+    const badge = host.querySelector('[data-testid="chat-inbound-kind-badge"]');
+    assert(badge, "expected inbound kind badge");
+    assert((badge.textContent ?? "").includes("pane"), "expected pane badge");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("chatBackend structured mesh inbound renders peer in sender header", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "inbound-mesh-1",
+      provider: "lmstudio",
+      type: "user",
+      content: "Remote status is green.",
+      fromLabel: "Edison",
+      fromPane: "mesh1234",
+      fromModel: "sonnet",
+      fromMesh: "BLACKSTAR",
+      inboundKind: "mesh",
+    },
+  ]);
+  try {
+    assertIncludes(host, "from Edison@BLACKSTAR", "structured mesh sender");
+    assertIncludes(host, "sonnet", "structured mesh model");
+    const badge = host.querySelector('[data-testid="chat-inbound-kind-badge"]');
+    assert(badge, "expected mesh inbound kind badge");
+    assert((badge.textContent ?? "").includes("mesh"), "expected mesh badge");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("normal user message does not render inbound sender affordance", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "normal-user-1",
+      provider: "lmstudio",
+      type: "user",
+      content: "Plain local prompt",
+    },
+  ]);
+  try {
+    assertIncludes(host, "Plain local prompt", "normal user content");
+    assert(!host.querySelector('[data-testid="chat-inbound-kind-badge"]'), "normal user should not have inbound badge");
+    assert(!textOf(host).includes("from Plain"), "normal user should not have from header");
+    assert(host.querySelector(".justify-end"), "normal user should keep right alignment");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 async function run() {
   const startedAt = performance.now();
   let passed = 0;
