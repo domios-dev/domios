@@ -442,6 +442,60 @@ fn build_resume_command_dispatches_to_js_with_two_args() {
 }
 
 #[test]
+fn generic_detect_session_id_refuses_to_guess_when_ambiguous() {
+    // Capability rule #3: the generic manifest-driven fallback (no JS
+    // detectSessionId) must mirror Claude's native guard — when 2+ recent
+    // sessions are viable candidates for the cwd, return None instead of
+    // handing the pane the newest (a SIBLING's session). Excluding the sibling
+    // collapses the set to one → that unique candidate binds.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().to_string_lossy().to_string();
+    let json = format!(
+        r#"{{
+            "id": "ds",
+            "version": "0.1.0",
+            "displayName": "DS",
+            "spawn": {{
+                "readinessStrategy": {{ "kind": "fixed_delay", "durationMs": 0 }},
+                "taskDelivery": "pty_input",
+                "verifySubmit": {{ "kind": "none" }}
+            }},
+            "sessions": {{
+                "rootDir": "{}",
+                "cwdEncoding": "none",
+                "fileExtension": "jsonl"
+            }}
+        }}"#,
+        root.replace('\\', "\\\\")
+    );
+    // No detectSessionId export → falls through to the generic dir walk.
+    let p = load(&json, "module.exports.default = {};");
+
+    let cwd = "proj";
+    let dir = tmp.path().join(cwd);
+    std::fs::create_dir_all(&dir).unwrap();
+    let s1 = "aaaa1111-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    let s2 = "bbbb2222-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    std::fs::write(dir.join(format!("{s1}.jsonl")), "{}\n").unwrap();
+    std::fs::write(dir.join(format!("{s2}.jsonl")), "{}\n").unwrap();
+
+    // Two recent sibling sessions, nothing excluded → ambiguous → refuse.
+    assert_eq!(
+        p.detect_session_id(cwd, &[], Some(Duration::from_secs(300))),
+        None,
+        "must refuse to guess when 2+ sibling sessions are viable candidates",
+    );
+
+    // Excluding the sibling disambiguates → the unique candidate binds.
+    assert_eq!(
+        p.detect_session_id(cwd, &[s2.to_string()], Some(Duration::from_secs(300)))
+            .as_deref(),
+        Some(s1),
+        "with the sibling excluded there is exactly one candidate → bind it",
+    );
+}
+
+#[test]
 fn _unused_import_guard() {
     // Keep the encode helper exercised so the test suite reflects its production use in sessions_dir().
     let _ = encode_cwd_dashed("/home/x/proj");

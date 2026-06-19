@@ -278,22 +278,16 @@ const plugin: PluginModule = {
     return null;
   },
 
-  detectSessionModel(cwd: string, sessionId: string): string | null {
+  // Detection keys off the pane's OWN session (capability rule #3): read only
+  // the model recorded against this session_id. No "latest model in cwd"
+  // fallback — that would hand the pane a SIBLING agent's model. Unknown → null.
+  detectSessionModel(_cwd: string, sessionId: string): string | null {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return null;
-    // Prefer explicit session model; fall back to latest model in cwd.
-    if (sessionId) {
-      const model = scanMessagesForModel(db,
-        "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-        [sessionId]);
-      if (model) return model;
-    }
+    if (!sessionId) return null;
     return scanMessagesForModel(db,
-      "SELECT m.data AS data FROM message m " +
-        "JOIN session s ON s.id = m.session_id " +
-        "WHERE (s.directory = ?1 OR s.directory = ?2) " +
-        "ORDER BY m.time_created DESC LIMIT 50",
-      [cwd.replace(/\\/g, "/"), cwd.replace(/\//g, "\\")]);
+      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+      [sessionId]);
   },
 
   // opencode keeps chat in opencode.db (part JOIN message), not a JSONL the

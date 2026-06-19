@@ -135,35 +135,70 @@ console.log("\n--- runtime detect (plugin.js, structural) ---\n");
 console.log("\n--- buildLaunchCommand (workspace-trust pre-write + invocation) ---\n");
 {
   const p = loadCursorWithHost(baseHost({}));
+  // Without skipPermissions: NO trust pre-write — let cursor show its own trust
+  // gate. Pre-writing it unconditionally would silently bypass that gate.
   const bare = p.buildLaunchCommand({});
-  assert(bare.indexOf(".workspace-trusted") !== -1, "bare launch pre-writes the trust marker");
-  assert(/(^|; )cursor-agent$/.test(bare), "bare launch ends with the cursor-agent invocation");
+  assert(bare.indexOf(".workspace-trusted") === -1, "bare launch does NOT pre-write the trust marker (gate honored)");
+  eq(bare, "cursor-agent", "bare launch is just the invocation, no trust prefix");
+  // With skipPermissions (--force, the user's intentional 'trust everything'
+  // flow): pre-write the marker so the TUI doesn't block on it.
   const forced = p.buildLaunchCommand({ skipPermissions: true });
+  assert(forced.indexOf(".workspace-trusted") !== -1, "skipPermissions pre-writes the trust marker");
   assert(forced.endsWith("cursor-agent --force"), "skipPermissions adds --force after the trust prefix");
   const withModel = p.buildLaunchCommand({ skipPermissions: true, args: ["--model", "auto"] });
   assert(withModel.endsWith("cursor-agent --force --model auto"), "force + model args applied");
   assert(withModel.indexOf("pwd -P") !== -1, "POSIX trust prefix resolves symlinks via pwd -P");
 }
 
-console.log("\n--- buildResumeCommand (trust pre-write + --resume) ---\n");
+console.log("\n--- buildResumeCommand (trust pre-write GATED behind skipPermissions) ---\n");
 {
   const p = loadCursorWithHost(baseHost({}));
   const r = p.buildResumeCommand("1a7e8655-f97a-0000-0000-000000000000");
-  assert(r.indexOf(".workspace-trusted") !== -1, "resume pre-writes the trust marker");
-  assert(r.endsWith("cursor-agent --resume 1a7e8655-f97a-0000-0000-000000000000"), "resume by session uuid");
-  assert(
-    p.buildResumeCommand("abc", true).endsWith("cursor-agent --resume abc --force"),
-    "resume carries --force when skipPermissions",
-  );
+  assert(r.indexOf(".workspace-trusted") === -1, "resume without skipPermissions does NOT pre-write the trust marker");
+  assert(r === "cursor-agent --resume 1a7e8655-f97a-0000-0000-000000000000", "resume by session uuid, no trust prefix");
+  const forced = p.buildResumeCommand("abc", true);
+  assert(forced.indexOf(".workspace-trusted") !== -1, "resume with skipPermissions pre-writes the trust marker");
+  assert(forced.endsWith("cursor-agent --resume abc --force"), "resume carries --force when skipPermissions");
 }
 
-console.log("\n--- buildLaunchCommand (windows trust prefix) ---\n");
+console.log("\n--- buildLaunchCommand (windows trust prefix, gated) ---\n");
 {
   const p = loadCursorWithHost(baseHost({ platform: () => "windows" }));
+  const bare = p.buildLaunchCommand({});
+  assert(bare.indexOf(".workspace-trusted") === -1, "windows bare launch does NOT pre-write the trust marker");
   const cmd = p.buildLaunchCommand({ skipPermissions: true });
-  assert(cmd.indexOf(".workspace-trusted") !== -1, "windows launch pre-writes the trust marker");
+  assert(cmd.indexOf(".workspace-trusted") !== -1, "windows launch with skipPermissions pre-writes the trust marker");
   assert(cmd.indexOf("Get-Location") !== -1, "windows trust prefix uses PowerShell Get-Location");
   assert(cmd.endsWith("cursor-agent --force"), "windows launch ends with the invocation");
+}
+
+console.log("\n--- detectSessionId (identity-bound: refuse when ambiguous) ---\n");
+{
+  const sep = "/";
+  const chatsDir = "/home/u/.cursor/chats/HASH";
+  const s1 = "11111111-1111-4111-8111-111111111111";
+  const s2 = "22222222-2222-4222-8222-222222222222";
+  // Two viable sibling sessions under the cwd hash, both recent.
+  const p = loadCursorWithHost(baseHost({
+    homeDir: () => "/home/u",
+    md5: () => "HASH",
+    unixNowMs: () => 1000000,
+    fs: {
+      ...baseHost({}).fs,
+      fileExists: (pth: string) => pth === chatsDir || pth.indexOf("meta.json") !== -1,
+      readDir: (pth: string) => pth === chatsDir
+        ? [
+            { name: s1, path: chatsDir + sep + s1, isDir: true, isFile: false },
+            { name: s2, path: chatsDir + sep + s2, isDir: true, isFile: false },
+          ]
+        : [],
+      readJson: () => ({ updatedAtMs: 999999 }),
+    },
+  }));
+  eq(p.detectSessionId("/proj"), null, "2+ viable candidates → refuse (null), never newest-for-cwd");
+  // Excluding the sibling collapses the set to one → that unique candidate binds.
+  eq(p.detectSessionId("/proj", s2), s1, "with the sibling excluded exactly one candidate → bind it");
+  eq(p.detectSessionId("/proj", [s1, s2]), null, "all excluded → no candidate → null");
 }
 
 console.log("\n--- discoverModels (live --list-models, manifest fallback) ---\n");
