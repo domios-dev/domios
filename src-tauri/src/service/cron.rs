@@ -267,7 +267,7 @@ impl ServiceContext {
             .map(|(j, p)| (j.to_string(), p.to_string()));
         if let Some((job_id, pane_id)) = owner {
             let (pty_id, session_id, run_cwd) = {
-                let mux = self.mux.lock();
+                let mux = self.mux.write();
                 let pane = mux.get_pane(&pane_id);
                 (
                     pane.and_then(|p| p.pty_id.clone()),

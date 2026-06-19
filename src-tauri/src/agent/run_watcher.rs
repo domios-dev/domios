@@ -337,7 +337,7 @@ fn screen_is_bare_shell(text: &str) -> bool {
 /// isn't known yet (let idle / timeout handle that case).
 fn resume_hidden_run(svc: &ServiceContext, pane_id: &str, pty_id: &str) {
     let (provider, session_id) = {
-        let mux = svc.mux.lock();
+        let mux = svc.mux.write();
         let pane = mux.get_pane(pane_id);
         (
             pane.and_then(|p| p.agent_type.clone()),
@@ -374,7 +374,7 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
 
     // Bound to the pane by the SessionStart hook; capture session_id + cwd before close_pane so the run stays renderable in the read-only chat-ui.
     let (session_id, run_cwd) = {
-        let mux = svc.mux.lock();
+        let mux = svc.mux.write();
         let pane = mux.get_pane(&state.pane_id);
         (
             pane.and_then(|p| p.agent_session_id.clone()),

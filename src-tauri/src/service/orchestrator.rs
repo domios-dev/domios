@@ -362,7 +362,7 @@ impl ServiceContext {
 
         // 1. Find workspace — lock once, resolve everything
         let (ws_id, ws_cwd) = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             let from_parent = params
                 .parent_pane_id
                 .as_ref()
@@ -402,7 +402,7 @@ impl ServiceContext {
 
         // 2. Create new tab in the workspace (each agent gets its own tab)
         let (tab_id, pane_id) = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             // Pin the sidebar label up-front (rename_pane sync runs later too).
             if let Some(ref t) = params.title {
@@ -453,7 +453,7 @@ impl ServiceContext {
 
         // 3b. Set auto_approve if spawned with skip_permissions
         if params.skip_permissions.unwrap_or(true) {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             if let Some(pane) = mux.get_pane_mut(&pane_id) {
                 pane.auto_approve = true;
             }
@@ -486,7 +486,7 @@ impl ServiceContext {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
         if let Some(model) = params.model.as_ref().filter(|m| !m.trim().is_empty()) {
-            if let Some(pane) = self.mux.lock().get_pane_mut(&pane_id) {
+            if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
                 pane.agent_session_model = Some(model.trim().to_string());
             }
         }
@@ -533,7 +533,7 @@ impl ServiceContext {
 
     /// Origin prefix for a spawned agent's first task, derived from the target pane's recorded spawner (spawned_by/parent) — same canonical attribution as cross-pane sends. None for raw spawns (no spawner).
     pub(crate) fn spawn_task_prefix(&self, target_pane: &str) -> Option<String> {
-        let mux = self.mux.lock();
+        let mux = self.mux.write();
         let src = mux.get_pane(target_pane).and_then(|p| {
             p.spawned_by_pane_id
                 .clone()
@@ -576,12 +576,12 @@ pub(crate) fn launch_agent_in_background(
     let registry = svc.agent_registry.clone();
     // A booting TUI silently swallows bracket-paste — gate sends (send_text_when_ready) until the background launch clears this. Set BEFORE the
     // thread spawns: callers get the pane id immediately and may send right away.
-    if let Some(p) = svc.mux.lock().get_pane_mut(&pane_id) {
+    if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
         p.agent_booting = true;
     }
     std::thread::spawn(move || {
         let set_booting = |value: bool| {
-            if let Some(p) = svc.mux.lock().get_pane_mut(&pane_id) {
+            if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
                 p.agent_booting = value;
             }
         };
@@ -590,7 +590,7 @@ pub(crate) fn launch_agent_in_background(
         let pty_id = loop {
             if let Some(pid) = svc
                 .mux
-                .try_lock()
+                .try_write()
                 .and_then(|m| m.get_pane(&pane_id).and_then(|p| p.pty_id.clone()))
             {
                 break pid;
@@ -600,7 +600,7 @@ pub(crate) fn launch_agent_in_background(
                 log::info!("launch_agent: backend PTY spawn for {}", pane_id);
                 let cwd = svc
                     .mux
-                    .lock()
+                    .write()
                     .get_pane(&pane_id)
                     .and_then(|p| p.cwd.clone());
                 let mut env_vars: std::collections::HashMap<String, String> =
@@ -629,7 +629,7 @@ pub(crate) fn launch_agent_in_background(
                 }
                 match svc.pty.lock().spawn(None, cwd, 120, 40, env_vars) {
                     Ok((pid, _)) => {
-                        if let Some(orphan) = svc.mux.lock().link_pty(&pane_id, pid.clone()) {
+                        if let Some(orphan) = svc.mux.write().link_pty(&pane_id, pid.clone()) {
                             svc.kill_ptys(&[orphan]);
                         }
                         // Start backend reader

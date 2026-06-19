@@ -721,7 +721,7 @@ pub async fn mem_flush(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let pty_id = {
-        let mux = state.svc.mux.lock();
+        let mux = state.svc.mux.write();
         mux.resolve_pane_id(&b.pane)
             .ok_or((StatusCode::NOT_FOUND, format!("pane not found: {}", b.pane)))?
     };

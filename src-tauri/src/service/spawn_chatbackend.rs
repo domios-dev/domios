@@ -114,7 +114,7 @@ impl ServiceContext {
         };
 
         let (ws_id, ws_cwd) = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             let from_parent = spec
                 .parent_pane_id
                 .as_ref()
@@ -130,7 +130,7 @@ impl ServiceContext {
         let resolved_cwd = spec.cwd.clone().or(ws_cwd);
 
         let (tab_id, pane_id) = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             if let Some(ref title) = spec.title {
                 if let Err(e) = mux.rename_pane(&result.1, title) {
@@ -152,7 +152,7 @@ impl ServiceContext {
         let session_id = match self.chatbackend_open_session(&plugin_id, &pane_id, config) {
             Ok(s) => s,
             Err(e) => {
-                let _ = self.mux.lock().close_tab(&ws_id, &tab_id);
+                let _ = self.mux.write().close_tab(&ws_id, &tab_id);
                 self.emit_state_changed();
                 return Err(e);
             }
@@ -160,7 +160,7 @@ impl ServiceContext {
 
         // Mark the backing — pty_id stays None permanently, no backend reader.
         {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             if let Some(pane) = mux.get_pane_mut(&pane_id) {
                 pane.backing = PaneBacking::ChatBackend {
                     plugin_id: plugin_id.clone(),
@@ -257,7 +257,7 @@ impl ServiceContext {
             let mut last_signature: Option<u64> = None;
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                if svc.mux.lock().get_pane(&pane_id).is_none() {
+                if svc.mux.write().get_pane(&pane_id).is_none() {
                     break;
                 }
                 let (svc2, plugin2, sid2, cur) = (

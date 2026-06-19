@@ -134,7 +134,7 @@ pub async fn workers_report(
     let (pty_id, session_id, run_cwd) = worker_pane_id
         .as_ref()
         .map(|pid| {
-            let mux = state.svc.mux.lock();
+            let mux = state.svc.mux.write();
             let pane = mux.get_pane(pid);
             (
                 pane.and_then(|p| p.pty_id.clone()),
@@ -231,7 +231,7 @@ pub async fn workers_log(
         let pty_id = state
             .svc
             .mux
-            .lock()
+            .write()
             .get_pane(&worker.pane_id)
             .and_then(|p| p.pty_id.clone());
         if let Some(pty_id) = pty_id {

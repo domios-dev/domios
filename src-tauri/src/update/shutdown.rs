@@ -65,7 +65,7 @@ struct AgentPaneInfo {
 }
 
 fn collect_agent_panes(svc: &ServiceState) -> Vec<AgentPaneInfo> {
-    let snapshot = svc.mux.lock().snapshot();
+    let snapshot = svc.mux.write().snapshot();
     let mut out = Vec::new();
     for (_, pane) in snapshot.panes.iter() {
         let (Some(provider_id), Some(pty_id)) = (pane.agent_type.as_ref(), pane.pty_id.as_ref())
@@ -207,7 +207,7 @@ pub(crate) fn persist_session(app: &tauri::AppHandle, svc: &ServiceState) -> Res
         .ok_or_else(|| "SessionState not registered".to_string())?
         .inner()
         .clone();
-    let snapshot = svc.mux.lock().to_session_snapshot();
+    let snapshot = svc.mux.write().to_session_snapshot();
     session
         .lock()
         .save(&snapshot)

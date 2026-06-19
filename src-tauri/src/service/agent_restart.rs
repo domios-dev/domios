@@ -114,7 +114,7 @@ impl ServiceContext {
         &self,
         pane_id: &str,
     ) -> Result<PaneRestartSnapshot, AgentRestartError> {
-        let mux = self.mux.lock();
+        let mux = self.mux.write();
         let resolved = mux
             .resolve_pane_id(pane_id)
             .ok_or_else(|| AgentRestartError::NotFound(format!("pane {} not found", pane_id)))?;

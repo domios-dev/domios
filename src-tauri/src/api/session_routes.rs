@@ -135,7 +135,7 @@ pub async fn resume_session_api(
     // Idempotency: if a live pane already holds this session_id, return it as-is. Two concurrent resume calls (UI reconnect, CLI retry) must not
     // both spawn.
     {
-        let mux = state.svc.mux.lock();
+        let mux = state.svc.mux.write();
         let existing_pane = mux.pane_ids_with_session(&session_id).into_iter().next();
         if let Some(pane_id) = existing_pane {
             let snap = mux.snapshot();
@@ -167,11 +167,11 @@ pub async fn resume_session_api(
             let existing_id = state
                 .svc
                 .mux
-                .lock()
+                .write()
                 .find_workspace_info_by_cwd(&cwd)
                 .map(|w| w.id);
             if let Some(id) = existing_id {
-                if let Err(e) = state.svc.mux.lock().set_active_workspace(&id) {
+                if let Err(e) = state.svc.mux.write().set_active_workspace(&id) {
                     log::warn!("[session_resume] set_active_workspace({id}) failed: {e}; workspace may have been concurrently closed");
                 }
                 state.svc.emit_state_changed();
