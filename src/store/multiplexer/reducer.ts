@@ -78,6 +78,10 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           });
         }
       }
+      const activeTabIds: Record<string, string> = {};
+      for (const w of mergedWorkspaces) {
+        if (w.active_tab_id) activeTabIds[w.id] = w.active_tab_id;
+      }
       // `focused_pane_id` comes only from backend `pane-focused` events.
       return {
         ...state,
@@ -85,6 +89,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         panes: mergedPanes,
         active_workspace_id: action.state.active_workspace_id,
         toasts: [...state.toasts, ...newToasts],
+        activeTabIds,
       };
     }
 
@@ -110,12 +115,15 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         delete newStatuses[pid];
       }
       const remaining = state.workspaces.filter((w) => w.id !== action.id);
+      const newActiveTabIds = { ...state.activeTabIds };
+      delete newActiveTabIds[action.id];
       // keep focused_pane_id untouched; close_workspace emits fallback focus separately.
       return {
         ...state,
         workspaces: remaining,
         panes: newPanes,
         paneStatuses: newStatuses,
+        activeTabIds: newActiveTabIds,
         active_workspace_id:
           state.active_workspace_id === action.id
             ? (remaining[0]?.id ?? null)
@@ -136,6 +144,19 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       const fromWs = state.workspaces.find((w) => w.id === action.fromWorkspaceId);
       const tab = fromWs?.tabs.find((t) => t.id === action.tabId);
       if (!fromWs || !tab || fromWs.tabs.length <= 1) return state;
+
+      const newActiveTabIds = { ...state.activeTabIds };
+      const fromActiveTabId = newActiveTabIds[action.fromWorkspaceId];
+      if (fromActiveTabId === action.tabId) {
+        const remaining = fromWs.tabs.filter((t) => t.id !== action.tabId);
+        const fallback = remaining[remaining.length - 1]?.id;
+        if (fallback) {
+          newActiveTabIds[action.fromWorkspaceId] = fallback;
+        } else {
+          delete newActiveTabIds[action.fromWorkspaceId];
+        }
+      }
+      newActiveTabIds[action.toWorkspaceId] = action.tabId;
 
       return {
         ...state,
@@ -159,6 +180,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           }
           return ws;
         }),
+        activeTabIds: newActiveTabIds,
         active_workspace_id: action.toWorkspaceId,
       };
     }
@@ -173,6 +195,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             : ws,
         ),
         panes: { ...state.panes, [action.pane.id]: action.pane },
+        activeTabIds: { ...state.activeTabIds, [action.workspaceId]: action.tab.id },
       };
     }
 
@@ -183,12 +206,22 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         delete newPanes[pid];
         delete newStatuses[pid];
       }
+      const newActiveTabIds = { ...state.activeTabIds };
       // focused_pane_id intentionally untouched — see CLOSE_WORKSPACE comment.
       return {
         ...state,
         workspaces: state.workspaces.map((ws) => {
           if (ws.id !== action.workspaceId) return ws;
           const remaining = ws.tabs.filter((t) => t.id !== action.tabId);
+          const currentActive = newActiveTabIds[action.workspaceId];
+          if (currentActive === action.tabId) {
+            const fallback = remaining[remaining.length - 1]?.id;
+            if (fallback) {
+              newActiveTabIds[action.workspaceId] = fallback;
+            } else {
+              delete newActiveTabIds[action.workspaceId];
+            }
+          }
           return {
             ...ws,
             tabs: remaining,
@@ -200,17 +233,14 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         }),
         panes: newPanes,
         paneStatuses: newStatuses,
+        activeTabIds: newActiveTabIds,
       };
     }
 
     case "SET_ACTIVE_TAB":
       return {
         ...state,
-        workspaces: state.workspaces.map((ws) =>
-          ws.id === action.workspaceId
-            ? { ...ws, active_tab_id: action.tabId }
-            : ws,
-        ),
+        activeTabIds: { ...state.activeTabIds, [action.workspaceId]: action.tabId },
       };
 
     case "CLOSE_PANE": {
