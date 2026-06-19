@@ -11,10 +11,7 @@ import { listen } from "../../lib/bridge";
 import { IS_WEB, webJson } from "../../lib/webApi";
 import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
-import {
-  loadDefaultNewAgentPaneChat,
-  shouldDefaultNewAgentPaneToChat,
-} from "../../lib/chatUiMode";
+import { loadDefaultNewAgentPaneChat } from "../../lib/chatUiMode";
 import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
@@ -22,13 +19,13 @@ import type {
   Pane,
   Notification,
   PaneStatus,
+  AtomicSpawn,
 } from "../../lib/types";
 import {
   type ExtendedState,
 } from "./tree";
 import { reducer } from "./reducer";
 import { MultiplexerContext, type MultiplexerContextType } from "./context";
-import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
 
 export { useMultiplexer } from "./context";
 export { highestTitleLevel } from "./tree";
@@ -43,6 +40,7 @@ function buildInitialState(): ExtendedState {
     paneStatuses: {},
     toasts: [],
     activeTabIds: {},
+    generation: 0,
   };
 }
 
@@ -50,6 +48,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, null, buildInitialState);
   const stateRef = useRef(state);
   stateRef.current = state;
+  // Per-button in-flight guard: a 2nd click while a spawn is pending is ignored
+  // so one click = exactly one tab (no duplicate on double-fire).
+  const spawnInFlight = useRef<Set<string>>(new Set());
 
   // Load initial state from Rust backend (which already spawned PTY)
   useEffect(() => {
@@ -299,9 +300,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const spawnAgentTab = useCallback(async (workspaceId: string, agentId: string, skipPermissions: boolean, cwd?: string) => {
-    try {
-      // Web UI delegates full agent spawn to the daemon.
-      if (IS_WEB) {
+    // Web UI delegates full agent spawn to the daemon (REST path, unchanged).
+    if (IS_WEB) {
+      try {
         await webJson<{ pane_id: string }>("POST", "/api/agents/spawn", {
           agent: agentId,
           workspace_id: workspaceId,
@@ -310,39 +311,29 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           activate: true,
         });
         refreshFromBackend();
-        return;
+      } catch (e) {
+        console.error(`Failed to spawn ${agentId} tab:`, e);
       }
-      // chatBackend open shells are non-PTY: open a chat pane via the plugin
-      // rather than building a CLI launch command (which exists only for PTY
-      // agent providers) — otherwise "+ new session" errors "Unknown agent provider".
-      if (getAgentDescriptor(agentId)?.transport === "chat_backend") {
-        invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
-        dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
-        const shellPaneId = await invoke<string>("open_chat_backend_pane", { pluginId: agentId, workspaceId });
-        invoke("mux_set_focused_pane", { paneId: shellPaneId }).catch(() => {});
-        refreshFromBackend();
-        return;
+      return;
+    }
+    const guardKey = `${workspaceId}:${agentId}`;
+    if (spawnInFlight.current.has(guardKey)) return;
+    spawnInFlight.current.add(guardKey);
+    try {
+      // One atomic backend command: create + cwd + agent_type + chat_view +
+      // activate + focus, picking the transport (PTY vs chat) on the backend.
+      // It returns the authoritative snapshot (applied once — no refetch, no
+      // blink) and, for PTY, the launch command the terminal delivers.
+      const res = await invoke<AtomicSpawn>("mux_spawn_pane", {
+        params: { agentId, workspaceId, cwd, skipPermissions },
+      });
+      dispatch({ type: "SET_STATE", state: res.snapshot });
+      if (res.launch_command) {
+        if (cwd) setPendingCwd(res.pane_id, cwd);
+        setPendingCommand(res.pane_id, res.launch_command);
       }
-      const cmd = await invoke<string>("build_agent_launch_command", { agentId, skipPermissions });
-      invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
-      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
-      const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId, activate: true });
-      if (cwd) {
-        setPendingCwd(tabInfo.pane_id, cwd);
-        await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd });
-      }
-      // Set `agent_type` early so detect_from_output can save session IDs.
-      invoke("mux_set_pane_agent_type", { paneId: tabInfo.pane_id, agentType: agentId }).catch(() => {});
-      await loadDefaultNewAgentPaneChat().catch(() => false);
-      if (shouldDefaultNewAgentPaneToChat(agentId)) {
-        invoke("mux_set_chat_view", { paneId: tabInfo.pane_id, enabled: true }).catch(() => {});
-      }
-      setPendingCommand(tabInfo.pane_id, cmd);
-      await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
-      dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
-      // User-initiated spawns should focus the new tab.
-      invoke("mux_set_focused_pane", { paneId: tabInfo.pane_id }).catch(() => {});
-      refreshFromBackend();
+      // Snappy local focus; backend also emits the authoritative pane-focused.
+      dispatch({ type: "SET_FOCUSED_PANE", paneId: res.pane_id });
     } catch (e) {
       const message = e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
       const providerMissing = message.includes("Provider not installed:");
@@ -361,6 +352,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         },
       });
       console.error(`Failed to spawn ${agentId} tab:`, e);
+    } finally {
+      spawnInFlight.current.delete(guardKey);
     }
   }, [refreshFromBackend]);
 
