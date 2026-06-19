@@ -7,6 +7,7 @@ use uuid::Uuid;
 use super::types::{AgentRole, Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace};
 
 mod alias;
+mod closed;
 mod names;
 mod pane;
 mod role;
@@ -143,6 +144,7 @@ impl MultiplexerState {
             active_tab_id: Some(tab_id),
             cwd: None,
             protected: false,
+            recently_closed: vec![],
         };
 
         let mut panes = HashMap::new();

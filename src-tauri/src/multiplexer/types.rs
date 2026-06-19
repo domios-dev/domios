@@ -12,6 +12,35 @@ pub struct Workspace {
     /// Protected workspaces cannot be closed via API or UI.
     #[serde(default)]
     pub protected: bool,
+    /// Browser-style "recently closed" ring, newest first, bounded at
+    /// `RECENTLY_CLOSED_CAP`. Lets a closed tab be reopened with its original
+    /// backing (PTY agent → resume, chatBackend → reload transcript).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recently_closed: Vec<ClosedPane>,
+}
+
+/// A closed pane retained for browser-style reopen. Captures just enough to
+/// re-materialize the pane with the SAME backing — the `backing` reuses the
+/// existing `PaneBacking` serialization, and `agent_type` / `agent_session_id`
+/// carry the PTY-agent identity that lives outside `backing` so a reopened
+/// agent pane can resume its session (or launch fresh if it's gone).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClosedPane {
+    pub pane_id: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub backing: PaneBacking,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub model: Option<String>,
+    pub closed_at: u64,
 }
 
 /// A tab holds exactly one pane.

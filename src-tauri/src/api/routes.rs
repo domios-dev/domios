@@ -66,6 +66,14 @@ pub fn create_router(state: AppState) -> Router {
             post(workspace_routes::close_workspace),
         )
         .route(
+            "/api/workspaces/{id}/recently-closed",
+            get(workspace_routes::list_recently_closed),
+        )
+        .route(
+            "/api/workspaces/{id}/reopen-closed",
+            post(workspace_routes::reopen_closed_pane),
+        )
+        .route(
             "/api/workspaces/{id}/tabs",
             post(workspace_routes::create_tab),
         )
