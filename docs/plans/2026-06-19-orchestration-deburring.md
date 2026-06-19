@@ -134,6 +134,15 @@ structured report + risk-based acceptance · 5 liveness & durable ledger
 smoke) · 7 rebase protocol · 8 protected areas · 9 slimmed provider-agnostic
 mechanics (no plugin-runtime / Rust build notes — those went to the dev facts).
 
+**Reference for the skill rewrite (fetch when doing Problem A/B, NOT before):**
+the rollacode orchestrator's full proposal + both reviewers' per-flaw notes
+(Reviewer A / Opus = 9 cost+correctness items; Reviewer B / Codex = 12
+adversarial items; + consolidation table of agreements vs unique catches + the
+2 earned invariants to keep) is in a mesh paste:
+`codeterm paste get --mesh Mac-Air 4y6v8c` (24h TTL from 2026-06-19 ~morning —
+re-request from the Mac-Air orchestrator if expired). Fold its nuance into the
+B-flaw fixes + the new structure.
+
 Note the deliciously recursive bit: this skill upgrade is GATED on the code
 changes landing (the skill can only drop the heartbeat once P1 ships, the manual
 ledger once P3 ships). So: code first (P1/P4 → P2/P3), then rewrite the skill to
