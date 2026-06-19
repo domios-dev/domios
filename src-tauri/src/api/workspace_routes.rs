@@ -164,7 +164,7 @@ pub async fn create_tab(
         state
             .svc
             .mux
-            .lock()
+            .write()
             .get_pane(&pane_id)
             .and_then(|p| p.pty_id.clone())
     } else {
@@ -173,7 +173,7 @@ pub async fn create_tab(
     let title = state
         .svc
         .mux
-        .lock()
+        .write()
         .get_workspace(&workspace_id)
         .and_then(|ws| ws.tabs.iter().find(|tab| tab.id == tab_id))
         .map(|tab| tab.title.clone())

@@ -85,7 +85,7 @@ pub async fn wait_shell_ready(
     timeout_ms: Option<u64>,
 ) -> Result<bool, String> {
     let pty_id = {
-        let m = mux.lock();
+        let m = mux.write();
         m.get_pane(&pane_id)
             .and_then(|p| p.pty_id.clone())
             .ok_or_else(|| "Pane not found or has no PTY".to_string())?
@@ -110,7 +110,7 @@ pub fn read_session_jsonl(
 ) -> Result<String, String> {
     // 1. Get agent_session_id, agent_type, and cwd from pane
     let (session_id, cwd, agent_type) = {
-        let m = mux.lock();
+        let m = mux.write();
         let pane = m
             .get_pane(&pane_id)
             .ok_or_else(|| "Pane not found".to_string())?;
@@ -226,7 +226,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     }
     let (provider_id, cwd, mut session_id, mux_ms) = {
         let t = std::time::Instant::now();
-        let m = svc.mux.lock();
+        let m = svc.mux.write();
         let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
         let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
         let cwd = pane.cwd.clone().unwrap_or_default();
@@ -253,7 +253,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         .flatten()
     {
         let claimed = {
-            let mut mux = svc.mux.lock();
+            let mut mux = svc.mux.write();
             if mux.other_session_ids(&pane_id).contains(&active_sid) {
                 false
             } else if let Some(pane) = mux.get_pane_mut(&pane_id) {
@@ -473,7 +473,7 @@ pub fn chat_backfill_core(
     max_bytes: Option<u64>,
 ) -> Result<ChatBackfillResult, String> {
     let (provider_id, cwd, session_id) = {
-        let m = svc.mux.lock();
+        let m = svc.mux.write();
         let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
         (
             pane.agent_type.clone().ok_or("no agent_type")?,

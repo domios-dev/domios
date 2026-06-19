@@ -163,7 +163,7 @@ fn cmd_health() -> Result<CommandResult, String> {
 }
 
 fn cmd_pane_list(ctx: &ServiceContext) -> Result<CommandResult, String> {
-    let mux = ctx.mux.lock();
+    let mux = ctx.mux.write();
     let snapshot = mux.snapshot();
     let panes = build_pane_list_json(&snapshot);
     Ok(CommandResult::Json(serde_json::json!(panes)))

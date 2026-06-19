@@ -38,7 +38,7 @@ pub fn start_general_agent(
     // cosmetically restored — verify with screen markers and tear down the bare shell if no agent is running.
     {
         let (pane_id_opt, current_agent, current_pty_id) = {
-            let m = mux.lock();
+            let m = mux.write();
             match m.resolve_pane_id(GENERAL_ALIAS) {
                 Some(pid) => {
                     let pane = m.get_pane(&pid);
@@ -74,7 +74,7 @@ pub fn start_general_agent(
                             // survive, restore it from durable state so chat finds the
                             // session — no relaunch, the running agent keeps its history.
                             let unbound = mux
-                                .lock()
+                                .write()
                                 .get_pane(&pid)
                                 .and_then(|p| p.agent_session_id.clone())
                                 .is_none();
@@ -94,7 +94,7 @@ pub fn start_general_agent(
                         log::info!("[general-agent] Pane has live PTY {} but no agent markers after 3s grace — killing bare shell and relaunching", pty_id);
                         let _ = pty.lock().kill(&pty_id);
                         svc.set_pane_agent_type(&pid, None);
-                        if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+                        if let Some(pane) = mux.write().get_pane_mut(&pid) {
                             pane.pty_id = None;
                         }
                         std::thread::sleep(std::time::Duration::from_millis(300));
@@ -104,7 +104,7 @@ pub fn start_general_agent(
                             "[general-agent] Clearing stale pty_id {} (session not in PtyManager)",
                             pty_id
                         );
-                        if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+                        if let Some(pane) = mux.write().get_pane_mut(&pid) {
                             pane.pty_id = None;
                         }
                     }
@@ -121,7 +121,7 @@ pub fn start_general_agent(
                 svc.set_pane_agent_type(&pid, None);
                 svc.set_agent_session_id(&pid, None);
                 state::clear_session_id();
-                if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+                if let Some(pane) = mux.write().get_pane_mut(&pid) {
                     pane.pty_id = None;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(300));
@@ -131,7 +131,7 @@ pub fn start_general_agent(
 
     // Find General pane (already created by ensure_general_workspace in init_states)
     let (pane_id, snapshot_session_id) = {
-        let m = mux.lock();
+        let m = mux.write();
         let pane = m.resolve_pane_id(GENERAL_ALIAS).or_else(|| {
             m.list_workspaces()
                 .iter()
@@ -163,7 +163,7 @@ pub fn start_general_agent(
         // If no session_id from snapshot or durable GA state, try detecting a GA-marked session from filesystem (covers first launch, new
         // machine, or wiped session store). This is intentionally stricter than generic provider detection so worker JSONLs in the GA cwd
         // cannot win by recency.
-        let exclude = mux.lock().other_session_ids(&pane_id);
+        let exclude = mux.write().other_session_ids(&pane_id);
         let detected = state::detect_owned_session_id(
             &svc.agent_registry,
             provider_name,
@@ -194,7 +194,7 @@ pub fn start_general_agent(
             log::info!("[general-agent] Session '{}' not valid or not GA-owned for provider '{}' — clearing, will detect fresh", id, provider_name);
             svc.set_agent_session_id(&pane_id, None);
             state::clear_session_id();
-            let exclude = mux.lock().other_session_ids(&pane_id);
+            let exclude = mux.write().other_session_ids(&pane_id);
             let fresh = state::detect_owned_session_id(
                 &svc.agent_registry,
                 provider_name,
@@ -234,7 +234,7 @@ pub fn start_general_agent(
     };
 
     let displaced = {
-        let mut m = mux.lock();
+        let mut m = mux.write();
         let d = m.link_pty(&pane_id, pty_id.clone());
         if let Some(pane) = m.get_pane_mut(&pane_id) {
             pane.auto_approve = true;
@@ -417,7 +417,7 @@ pub fn start_general_agent(
     if !use_resume {
         for _ in 0..20 {
             let bound = mux
-                .lock()
+                .write()
                 .get_pane(&pane_id)
                 .and_then(|p| p.agent_session_id.clone());
             if let Some(sid) = bound {
@@ -451,7 +451,7 @@ pub fn restart_general_agent(
 
     // Find general pane and kill its PTY
     {
-        let m = mux.lock();
+        let m = mux.write();
         if let Some(pid) = m.resolve_pane_id(GENERAL_ALIAS) {
             if let Some(pane) = m.get_pane(&pid) {
                 if let Some(ref pty_id) = pane.pty_id {
@@ -463,7 +463,7 @@ pub fn restart_general_agent(
             svc.set_pane_agent_type(&pid, None);
             svc.set_agent_session_id(&pid, None);
             state::clear_session_id();
-            if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+            if let Some(pane) = mux.write().get_pane_mut(&pid) {
                 pane.pty_id = None;
             }
         }

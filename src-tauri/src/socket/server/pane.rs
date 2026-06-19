@@ -113,7 +113,7 @@ pub(super) fn dispatch(
             // Resolve target via the alias-aware lookup so short ids (`--pane ce9bce56`) and tab labels both work. get_pane() takes only exact UUIDs, so
             // prior to this we'd silently drop the [from...] prefix whenever the user passed a short id.
             let (resolved_target, target_has_agent) = {
-                let m = mux.lock();
+                let m = mux.write();
                 let resolved = m
                     .resolve_pane_id(&raw_pane_id)
                     .unwrap_or_else(|| raw_pane_id.clone());
@@ -128,13 +128,13 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("source_pane"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
-                .and_then(|s| mux.lock().resolve_pane_id(&s));
+                .and_then(|s| mux.write().resolve_pane_id(&s));
             // Local delivery: resolve the source label/model from the mux, then
             // route through the one canonical prefix builder (peer = None).
             let text = match source_pane.as_deref() {
                 Some(src) => {
                     let (from_label, model) = {
-                        let m = mux.lock();
+                        let m = mux.write();
                         (
                             m.display_label_for_pane(src),
                             m.get_pane(src).and_then(|p| p.agent_session_model.clone()),

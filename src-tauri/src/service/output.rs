@@ -34,14 +34,28 @@ impl ServiceContext {
             );
         }
 
-        let (pane_id, agent_type) = {
-            let mux = self.mux.lock();
+        // Single read lock captures all pane data needed for this chunk.
+        // Concurrent PTY handlers for different panes can read in parallel.
+        let (
+            pane_id,
+            agent_type,
+            in_grace_cached,
+            locked_cached,
+            has_active_prompt,
+            is_auto_approve,
+        ) = {
+            let mux = self.mux.read();
             let pid = mux.pane_id_for_pty(pty_id);
-            let at = pid
-                .as_ref()
-                .and_then(|id| mux.get_pane(id))
-                .and_then(|p| p.agent_type.clone());
-            (pid, at)
+            let pane = pid.as_ref().and_then(|id| mux.get_pane(id));
+            let at = pane.and_then(|p| p.agent_type.clone());
+            let grace = pane
+                .and_then(|p| p.agent_set_at)
+                .map(|t| t.elapsed().as_secs() < 30)
+                .unwrap_or(false);
+            let locked = pane.map(|p| p.agent_type_locked).unwrap_or(false);
+            let active_prompt = pane.and_then(|p| p.pending_prompt.as_ref()).is_some();
+            let auto_approve = pane.map(|p| p.auto_approve).unwrap_or(false);
+            (pid, at, grace, locked, active_prompt, auto_approve)
         };
 
         let exclude_rows = agent_type
@@ -87,17 +101,7 @@ impl ServiceContext {
             if count % 50 == 0 {
                 // Keep a short grace after session-tagging so early prompt snapshots don't trigger false exits.
                 // Locked panes skip output-based clearing because slow startup can leave stale prompt text visible.
-                let (in_grace, locked) = {
-                    let mux = self.mux.lock();
-                    let pane = mux.get_pane(pid);
-                    let grace = pane
-                        .and_then(|p| p.agent_set_at)
-                        .map(|t| t.elapsed().as_secs() < 30)
-                        .unwrap_or(false);
-                    let locked = pane.map(|p| p.agent_type_locked).unwrap_or(false);
-                    (grace, locked)
-                };
-                if in_grace || locked {
+                if in_grace_cached || locked_cached {
                     agent_type
                 } else {
                     // Debounce window: a still-running TUI can flash a marker-less,
@@ -115,7 +119,7 @@ impl ServiceContext {
                         && screen_ends_in_shell_prompt(&screen);
                     if suspected_exit {
                         let confirmed = {
-                            let mut mux = self.mux.lock();
+                            let mut mux = self.mux.write();
                             match mux.get_pane_mut(pid) {
                                 Some(pane) => {
                                     let (clear, next) = exit_debounce(
@@ -137,7 +141,7 @@ impl ServiceContext {
                             self.set_pane_agent_type(pid, None);
                             self.prompt_detector.lock().clear(pid);
                             {
-                                let mut mux = self.mux.lock();
+                                let mut mux = self.mux.write();
                                 if let Some(pane) = mux.get_pane_mut(pid) {
                                     pane.pending_prompt = None;
                                 }
@@ -149,7 +153,7 @@ impl ServiceContext {
                         }
                     } else {
                         // Agent markers present (or no shell prompt) — still alive; clear suspicion.
-                        if let Some(pane) = self.mux.lock().get_pane_mut(pid) {
+                        if let Some(pane) = self.mux.write().get_pane_mut(pid) {
                             pane.exit_suspected_at = None;
                         }
                         agent_type
@@ -169,14 +173,6 @@ impl ServiceContext {
 
                 // Read screen text if markers found OR if there's an active prompt (need screen text to detect when user answers prompt in terminal). For
                 // auto_approve panes (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
-                let (has_active_prompt, is_auto_approve) = {
-                    let mux = self.mux.lock();
-                    let pane = mux.get_pane(pid);
-                    (
-                        pane.and_then(|p| p.pending_prompt.as_ref()).is_some(),
-                        pane.map(|p| p.auto_approve).unwrap_or(false),
-                    )
-                };
                 let check_screen = has_markers || has_active_prompt || is_auto_approve;
                 let clean_text = if check_screen {
                     self.screen_state.lock().get_screen_text(pty_id)
@@ -232,7 +228,7 @@ impl ServiceContext {
             | PromptDecision::PromptUpdated { pane_id, prompt } => {
                 // Auto-approve: if pane has auto_approve set, respond immediately
                 let (auto_approve, agent_type, pty_id, is_general_pane) = {
-                    let mux = self.mux.lock();
+                    let mux = self.mux.read();
                     let is_general_pane = mux
                         .resolve_pane_id(crate::service::general_agent::GENERAL_ALIAS)
                         .as_deref()
@@ -300,7 +296,7 @@ impl ServiceContext {
                     );
                 }
                 {
-                    let mut mux = self.mux.lock();
+                    let mut mux = self.mux.write();
                     if let Some(pane) = mux.get_pane_mut(pane_id) {
                         pane.pending_prompt = Some(prompt.clone());
                     }
@@ -314,7 +310,7 @@ impl ServiceContext {
                     }),
                 );
                 self.emit_state_changed();
-                let title = self.mux.lock().get_pane(pane_id).map(|p| p.title.clone());
+                let title = self.mux.read().get_pane(pane_id).map(|p| p.title.clone());
                 if let Some(title) = title {
                     self.notify_event(
                         "agent.permission_request",
@@ -327,7 +323,7 @@ impl ServiceContext {
                 }
             }
             PromptDecision::PromptCleared { pane_id } => {
-                let mut mux = self.mux.lock();
+                let mut mux = self.mux.write();
                 if let Some(pane) = mux.get_pane_mut(pane_id) {
                     pane.pending_prompt = None;
                 }
@@ -367,7 +363,7 @@ impl ServiceContext {
             AgentEvent::PermissionRequest => {}
             AgentEvent::TaskComplete => {
                 if prev_status == PaneStatus::Working {
-                    let title = self.mux.lock().get_pane(pane_id).map(|p| p.title.clone());
+                    let title = self.mux.read().get_pane(pane_id).map(|p| p.title.clone());
                     if let Some(title) = title {
                         self.notify_event(
                             "agent.task_complete",

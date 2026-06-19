@@ -67,7 +67,7 @@ pub fn start_watchdog(
 
             // Find the General pane and check its state
             let needs_restart = {
-                let m = mux.lock();
+                let m = mux.write();
                 m.resolve_pane_id(GENERAL_ALIAS).and_then(|pid| {
                     let pane = m.get_pane(&pid)?;
                     let in_grace = pane
@@ -104,7 +104,7 @@ pub fn start_watchdog(
                         general_config.max_restart_attempts
                     );
                     // Clear stale agent_type so start_general_agent doesn't skip with "Already running"
-                    let pid = mux.lock().resolve_pane_id(GENERAL_ALIAS);
+                    let pid = mux.write().resolve_pane_id(GENERAL_ALIAS);
                     if let Some(pid) = pid {
                         svc.set_pane_agent_type(&pid, None);
                     }
