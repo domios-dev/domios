@@ -184,9 +184,11 @@ var plugin = {
           input = { raw: p.arguments };
         }
         if (input && input.cmd && !input.command) input.command = input.cmd;
+        const name = typeof p.name === "string" ? p.name.trim() : "";
+        if (!hasUsefulFunctionCall(name, input, p.arguments)) continue;
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name: p.name || "tool", input } }],
+          blocks: [{ kind: "tool_use", data: { name: name || "tool", input } }],
           ts
         });
       } else if (p.type === "function_call_output") {
@@ -619,6 +621,11 @@ function isValidCodexSessionDelta(v) {
 }
 function validateEntry(v) {
   return isValidCodexSessionDelta(v);
+}
+function hasUsefulFunctionCall(name, input, args) {
+  if (name) return true;
+  if (typeof args === "string" && args.trim() && args.trim() !== "{}") return true;
+  return Object.keys(input || {}).length > 0;
 }
 function isValidCodexSessionMessage(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;

@@ -158,6 +158,37 @@ function curatedToolKind(name: string | undefined): CuratedToolKind | null {
   }
 }
 
+function hasRenderableValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return true;
+}
+
+function hasRenderableText(value: string | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isRenderableMessage(message: ChatMessage): boolean {
+  if (message.type === "tool_call") {
+    return (
+      hasRenderableText(message.content) ||
+      hasRenderableText(message.toolName) ||
+      hasRenderableText(message.toolArgs) ||
+      hasRenderableText(message.toolResult) ||
+      hasRenderableValue(message.toolInput) ||
+      Boolean(message.interactive?.length)
+    );
+  }
+
+  if (message.type === "tool_result") {
+    return hasRenderableText(message.content) || hasRenderableText(message.toolResult);
+  }
+
+  return true;
+}
+
 export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds, fontScale }: MessageBubbleProps) {
   // Auto-expand for Write-style tool input (the file body being written) and
   // for Edit/MultiEdit (always show the diff). A bash/grep result must NOT
@@ -181,6 +212,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   useEffect(() => {
     if (shouldAutoExpand) setExpanded(true);
   }, [shouldAutoExpand]);
+
+  if (!isRenderableMessage(message)) {
+    return null;
+  }
 
   // Image message (standalone, legacy) — compact placeholder
   if (message.type === "image") {
@@ -719,6 +754,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
         <div className="inline-flex flex-col max-w-[min(52rem,100%)]">
           <button
+            data-testid="chat-tool-call"
             onClick={() => setExpanded(!expanded)}
             // De-bubbled on purpose: tool activity is a thin terminal trace (hairline border,
             // no fill, green exec glyph) so it visually recedes behind user/assistant voices.
