@@ -232,5 +232,27 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
                 let _ = svc.app_handle.emit("cron-state-changed", ());
             }
         }
+
+        // Worker-death watchdog (parallel to the cron fallback): a hierarchy
+        // worker whose PTY dies WITHOUT having emitted a report leaves its
+        // orchestrator blind — it only learns by polling. Synthesize a
+        // dead-report and route it up the same chain submit_report resolves
+        // (parent -> report_target -> spawner). Decision is computed under the
+        // locks, guards dropped before submit_report re-acquires them.
+        let watchdog = {
+            let mux = svc.mux.read();
+            let store = svc.report_store.lock();
+            crate::service::hierarchy::worker_death_report(&mux, &store, pid)
+        };
+        if let Some((target_id, msg)) = watchdog {
+            match svc.submit_report(pid, &msg) {
+                Ok(_) => log::info!(
+                    "[worker-death] synthesized dead-report for worker {} -> {}",
+                    pid,
+                    target_id
+                ),
+                Err(e) => log::warn!("[worker-death] synthetic report failed for {}: {}", pid, e),
+            }
+        }
     }
 }
