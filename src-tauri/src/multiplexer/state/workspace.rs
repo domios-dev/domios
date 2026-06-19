@@ -90,11 +90,21 @@ impl MultiplexerState {
             return Err("Cannot close protected workspace".to_string());
         }
 
+        // Record every live tab into the ring before yanking the workspace so
+        // closing a whole workspace doesn't silently drop tabs from history.
+        let tab_pane_ids: Vec<String> = self.workspaces[idx]
+            .tabs
+            .iter()
+            .map(|t| t.pane_id.clone())
+            .collect();
+        for pid in &tab_pane_ids {
+            self.record_closed_pane(pid);
+        }
+
         let workspace = self.workspaces.remove(idx);
 
-        // Preserve the workspace's recently-closed ring so tabs closed before
-        // the workspace was deleted can still be reopened. Newest entries win
-        // when the orphaned ring is already full.
+        // Preserve the workspace's recently-closed ring (which now also includes
+        // the just-recorded live tabs) into the orphaned ring.
         if !workspace.recently_closed.is_empty() {
             for entry in workspace.recently_closed {
                 // Avoid exact duplicates (same pane_id already in orphaned ring).

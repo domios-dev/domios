@@ -229,6 +229,7 @@ impl MultiplexerState {
         }
 
         for cid in child_ids {
+            self.record_closed_pane(&cid);
             if let Ok(child_ptys) = self.close_pane_inner(&cid) {
                 pty_ids.extend(child_ptys);
             }

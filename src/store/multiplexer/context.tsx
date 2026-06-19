@@ -14,6 +14,8 @@ export interface MultiplexerContextType {
   closeTab: (workspaceId: string, tabId: string) => void;
   /** Reopen a recently-closed pane (index 0 = most recent). */
   reopenClosed: (workspaceId: string, index?: number) => void;
+  /** Reopen a pane from the orphaned ring (workspace was deleted). */
+  restoreOrphaned: (paneId: string) => void;
   setActiveTab: (workspaceId: string, tabId: string) => void;
   closePane: (paneId: string) => void;
   setFocusedPane: (paneId: string) => void;

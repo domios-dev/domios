@@ -1,22 +1,48 @@
-import { memo, useState } from "react";
+import { memo, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { RotateCcw, ChevronRight } from "lucide-react";
-import type { Workspace } from "../../lib/types";
+import type { ClosedPane } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 
+interface AggEntry {
+  entry: ClosedPane;
+  workspaceId: string;
+  index: number;
+  orphaned: boolean;
+}
+
 interface RecentlyClosedProps {
-  workspace: Workspace;
-  /** Reopen the ring entry at `index` (0 = most recent). */
-  onReopen: (index: number) => void;
+  entries: AggEntry[];
+  showWorkspace: boolean;
+  onReopen: (workspaceId: string, index: number, orphaned: boolean, paneId: string) => void;
   touchMode?: boolean;
   uiFontScale?: number;
 }
 
-/** Compact, collapsible "Recently closed" list rendered under a workspace's
- *  tab list. Newest first (matches the backend ring). Renders nothing when the
- *  ring is empty — no dead affordance. */
-function RecentlyClosedInner({ workspace, onReopen, touchMode = false, uiFontScale }: RecentlyClosedProps) {
-  const entries = workspace.recently_closed ?? [];
+interface TooltipState {
+  text: string;
+  x: number;
+  y: number;
+}
+
+function RecentlyClosedInner({
+  entries,
+  showWorkspace,
+  onReopen,
+  touchMode = false,
+  uiFontScale,
+}: RecentlyClosedProps) {
   const [open, setOpen] = useState(false);
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+
+  const handleMouseMove = useCallback((text: string, e: React.MouseEvent) => {
+    setTooltip({ text, x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setTooltip(null);
+  }, []);
+
   if (entries.length === 0) return null;
 
   const text = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
@@ -37,23 +63,31 @@ function RecentlyClosedInner({ workspace, onReopen, touchMode = false, uiFontSca
         />
         <RotateCcw size={10} strokeWidth={1.5} className="shrink-0" />
         <span className={`${metaText} font-medium uppercase tracking-wide`}>
-          Recently closed ({entries.length})
+          Recently closed
         </span>
       </button>
       {open && (
-        <div className="mt-0.5">
-          {entries.map((entry, i) => (
+        <div
+          className="mt-0.5 overflow-y-auto"
+          style={{ maxHeight: 125 }}
+        >
+          {entries.map(({ entry, workspaceId, index, orphaned }) => (
             <button
-              key={`${entry.pane_id}-${i}`}
+              key={`${entry.pane_id}-${workspaceId}-${index}`}
               data-testid="recently-closed-item"
-              data-index={i}
-              onClick={() => onReopen(i)}
-              title={`Reopen "${entry.title || "Untitled"}"`}
+              onClick={() => { setTooltip(null); onReopen(workspaceId, index, orphaned, entry.pane_id); }}
+              onMouseMove={entry.description ? (e) => handleMouseMove(entry.description!, e) : undefined}
+              onMouseLeave={entry.description ? handleMouseLeave : undefined}
               className={`flex items-center gap-2 w-full pl-6 pr-2 ${touchMode ? "py-2" : "py-1"} rounded-md text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors`}
             >
               <span className={`${text} truncate min-w-0 flex-1 text-left`}>
                 {entry.title || "Untitled"}
               </span>
+              {showWorkspace && entry.workspace_name && (
+                <span className={`${metaText} shrink-0 text-[var(--ct-muted)] truncate max-w-[60px]`}>
+                  {entry.workspace_name}
+                </span>
+              )}
               {entry.model && (
                 <span className={`${metaText} shrink-0 px-1 rounded bg-[var(--ct-active)] text-[var(--ct-muted)]`}>
                   {entry.model}
@@ -62,6 +96,15 @@ function RecentlyClosedInner({ workspace, onReopen, touchMode = false, uiFontSca
             </button>
           ))}
         </div>
+      )}
+      {tooltip && createPortal(
+        <div
+          className="fixed z-[9999] pointer-events-none px-2 py-1 rounded text-[11px] text-[var(--ct-fg)] bg-[var(--ct-surface)] border border-[var(--ct-border)] shadow-lg max-w-[240px] break-words"
+          style={{ left: tooltip.x + 14, top: tooltip.y - 8 }}
+        >
+          {tooltip.text}
+        </div>,
+        document.body,
       )}
     </div>
   );

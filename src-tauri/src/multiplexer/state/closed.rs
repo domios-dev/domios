@@ -14,7 +14,7 @@ use crate::multiplexer::types::{ClosedPane, TitleLevel};
 
 /// Per-workspace cap on the recently-closed ring. Browser-style: oldest entries
 /// fall off the back once exceeded.
-pub const RECENTLY_CLOSED_CAP: usize = 20;
+pub const RECENTLY_CLOSED_CAP: usize = 1000;
 
 fn now_millis() -> u64 {
     SystemTime::now()
@@ -76,6 +76,11 @@ impl MultiplexerState {
             ws.recently_closed.insert(0, record);
             ws.recently_closed.truncate(RECENTLY_CLOSED_CAP);
         }
+    }
+
+    /// Orphaned entries (from deleted workspaces), newest first.
+    pub fn list_orphaned_closed(&self) -> &[ClosedPane] {
+        &self.orphaned_closed
     }
 
     /// Snapshot of a workspace's recently-closed ring (newest first).
@@ -207,8 +212,8 @@ mod tests {
                 plugin_id: "lmstudio".into(),
                 session_id: "s1".into(),
             };
-            p.title = "My Chat".into();
         }
+        state.rename_tab(&wsid, &tab_id, "My Chat").unwrap();
         state.close_tab(&wsid, &tab_id).unwrap();
 
         let ring = state.list_recently_closed(&wsid);
@@ -255,8 +260,8 @@ mod tests {
                 plugin_id: "lmstudio".into(),
                 session_id: "s7".into(),
             };
-            p.title = "Restored Chat".into();
         }
+        state.rename_tab(&wsid, &tab_id, "Restored Chat").unwrap();
         state.close_tab(&wsid, &tab_id).unwrap();
 
         let (new_tab, new_pane) = state.reopen_closed_pane(&wsid, None).unwrap();
@@ -313,11 +318,11 @@ mod tests {
     fn ring_is_newest_first() {
         let (mut state, _root) = MultiplexerState::new();
         let wsid = ws_id(&state);
-        let (t1, p1) = state.create_tab(&wsid).unwrap();
-        state.rename_pane(&p1, "first").unwrap();
+        let (t1, _p1) = state.create_tab(&wsid).unwrap();
+        state.rename_tab(&wsid, &t1, "first").unwrap();
         state.close_tab(&wsid, &t1).unwrap();
-        let (t2, p2) = state.create_tab(&wsid).unwrap();
-        state.rename_pane(&p2, "second").unwrap();
+        let (t2, _p2) = state.create_tab(&wsid).unwrap();
+        state.rename_tab(&wsid, &t2, "second").unwrap();
         state.close_tab(&wsid, &t2).unwrap();
 
         let ring = state.list_recently_closed(&wsid);
@@ -329,11 +334,11 @@ mod tests {
     fn reopen_by_index_selects_older_entry() {
         let (mut state, _root) = MultiplexerState::new();
         let wsid = ws_id(&state);
-        let (t1, p1) = state.create_tab(&wsid).unwrap();
-        state.rename_pane(&p1, "older").unwrap();
+        let (t1, _p1) = state.create_tab(&wsid).unwrap();
+        state.rename_tab(&wsid, &t1, "older").unwrap();
         state.close_tab(&wsid, &t1).unwrap();
-        let (t2, p2) = state.create_tab(&wsid).unwrap();
-        state.rename_pane(&p2, "newer").unwrap();
+        let (t2, _p2) = state.create_tab(&wsid).unwrap();
+        state.rename_tab(&wsid, &t2, "newer").unwrap();
         state.close_tab(&wsid, &t2).unwrap();
 
         // index 1 = the older "first"-closed entry.
@@ -361,6 +366,84 @@ mod tests {
         state.close_tab(&wsid, &tab_id).unwrap();
         let err = state.reopen_closed_pane(&wsid, Some(5)).unwrap_err();
         assert!(err.contains("index 5"));
+    }
+
+    // ── new behaviour tests (TDD) ────────────────────────────────────
+
+    #[test]
+    fn close_workspace_records_all_live_tabs_into_orphaned_ring() {
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = ws_id(&state);
+
+        let (t1, _p1) = state.create_tab(&wsid).unwrap();
+        state.rename_tab(&wsid, &t1, "Tab A").unwrap();
+        let (t2, _p2) = state.create_tab(&wsid).unwrap();
+        state.rename_tab(&wsid, &t2, "Tab B").unwrap();
+
+        state.close_workspace(&wsid).unwrap();
+
+        let titles: Vec<String> = state
+            .list_orphaned_closed()
+            .iter()
+            .map(|e| e.title.clone())
+            .collect();
+        assert!(
+            titles.iter().any(|t| t == "Tab A"),
+            "Tab A must land in orphaned ring, got: {:?}",
+            titles
+        );
+        assert!(
+            titles.iter().any(|t| t == "Tab B"),
+            "Tab B must land in orphaned ring, got: {:?}",
+            titles
+        );
+    }
+
+    #[test]
+    fn cascade_close_records_worker_panes_into_ring() {
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = ws_id(&state);
+
+        // Create orchestrator tab + two worker panes as children
+        let (orch_tab, orch_pane) = state.create_tab(&wsid).unwrap();
+        state.rename_tab(&wsid, &orch_tab, "Orchestrator").unwrap();
+
+        let (w1_tab, worker1) = state.create_tab(&wsid).unwrap();
+        state.rename_tab(&wsid, &w1_tab, "Worker 1").unwrap();
+        state.get_pane_mut(&worker1).unwrap().parent_pane_id = Some(orch_pane.clone());
+
+        let (w2_tab, worker2) = state.create_tab(&wsid).unwrap();
+        state.rename_tab(&wsid, &w2_tab, "Worker 2").unwrap();
+        state.get_pane_mut(&worker2).unwrap().parent_pane_id = Some(orch_pane.clone());
+
+        // Closing the orchestrator should cascade-record workers too
+        state.close_pane(&orch_pane).unwrap();
+
+        let titles: Vec<String> = state
+            .list_recently_closed(&wsid)
+            .iter()
+            .map(|e| e.title.clone())
+            .collect();
+        assert!(
+            titles.iter().any(|t| t == "Orchestrator"),
+            "orchestrator in ring, got: {:?}",
+            titles
+        );
+        assert!(
+            titles.iter().any(|t| t == "Worker 1"),
+            "Worker 1 must be in ring, got: {:?}",
+            titles
+        );
+        assert!(
+            titles.iter().any(|t| t == "Worker 2"),
+            "Worker 2 must be in ring, got: {:?}",
+            titles
+        );
+    }
+
+    #[test]
+    fn ring_cap_is_1000() {
+        assert_eq!(RECENTLY_CLOSED_CAP, 1000, "ring cap must be 1000");
     }
 
     #[test]
