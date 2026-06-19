@@ -141,6 +141,10 @@ impl ServiceContext {
             result
         };
 
+        // Persisted as the JSONL `_meta` header so a pane restored after a
+        // daemon restart can lazily re-open from the same systemPrompt/preset.
+        let history_meta = config.clone();
+
         // Open the plugin session AFTER the pane exists so the SDK `openSession`
         // ctx carries the real `paneId` (a plugin may key its session on it,
         // e.g. LM Studio). On failure, tear down the just-created tab so a bad
@@ -200,7 +204,8 @@ impl ServiceContext {
         }
 
         // Inbound transcript arrives via poll → StructuredSink (no PTY reader).
-        self.spawn_chatbackend_poll_loop(pane_id.clone(), plugin_id, session_id);
+        // The sink also UPSERTs each delta into the session JSONL for durability.
+        self.spawn_chatbackend_poll_loop(pane_id.clone(), plugin_id, session_id, history_meta);
 
         Ok(PaneHandle {
             pane_id,
@@ -216,11 +221,30 @@ impl ServiceContext {
     /// `pane-chat-msg-{id}` event the frontend already consumes. Ends when the
     /// pane is closed. The poll runs on a blocking thread so a slow plugin
     /// `poll` can't stall the async runtime (the VM lock is per-plugin).
-    fn spawn_chatbackend_poll_loop(&self, pane_id: String, plugin_id: String, session_id: String) {
+    pub(crate) fn spawn_chatbackend_poll_loop(
+        &self,
+        pane_id: String,
+        plugin_id: String,
+        session_id: String,
+        history_meta: serde_json::Value,
+    ) {
         let svc = self.clone();
         let app = self.app_handle.clone();
         spawn_bg(async move {
-            let sink = crate::service::pane_chat::structured_sink::make_sink(app);
+            let inner = crate::service::pane_chat::structured_sink::make_sink(app);
+            // Durable wrapper: forwards to the UI sink AND persists each delta to
+            // the session JSONL (UPSERT by id — a streaming message rewrites its
+            // own line, never duplicates).
+            let sink: std::sync::Arc<
+                dyn crate::service::pane_chat::structured_sink::StructuredSink,
+            > = std::sync::Arc::new(
+                crate::service::pane_chat::structured_sink::ChatBackendStructuredSink::new(
+                    inner,
+                    &plugin_id,
+                    &session_id,
+                    Some(&history_meta),
+                ),
+            );
             // Per-session cursor: the plugin returns only the DELTA after this
             // bookmark plus the next cursor. None on the first tick ⇒ the plugin
             // returns the whole transcript and seeds the cursor.
