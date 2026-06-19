@@ -174,3 +174,8 @@ release/1.1.13, feat/project-map (23 commits), feat/mesh*, feat/secrets-store,
 fix/116-graph-edge-dedup, save/freeze-fix-*, perf-measure.
 
 <!-- revision: 1 -->
+
+## Wave CB — core bugs from Kain (cursor-provider work) — NEW 2026-06-19
+
+- **CB181** (issue #181) — agent session-bind cross-contaminated by foreign provider sids -> blank chat. Fix bind_reported_session (hook_routes.rs:~365): verify sid BELONGS to provider_id (provider.session_exists), reject cross-provider, tighten missing-nonce tolerance. DISPATCHED (codex, wk-cb181). Disjoint from in-flight.
+- **CB182** (issue #182) — send to a lazy/not-materialized agent pane writes to the RAW shell. Fix send_text (pty_io.rs:~82): if backing=Agent and CLI not running, materialize+await readiness (reuse mount-time resume) BEFORE the PTY write; same guard for taskDelivery=pty_input, report-injection, mesh delivery, --delay fire. SEQUENCE AFTER M3 (both touch send/delayed/mesh paths).
