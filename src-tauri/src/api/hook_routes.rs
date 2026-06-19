@@ -377,21 +377,25 @@ fn bind_reported_session(
         ));
     }
 
-    // A report carrying a nonce that disagrees with the pane's launch nonce is a stale or foreign reporter (relaunch, /new in another process, reused pane id). A missing report nonce is tolerated only after provider-owned session validation below.
-    if let Some(expected) = mux
+    // A report carrying a nonce that disagrees with the pane's launch nonce is a stale or foreign reporter (relaunch, /new in another process, reused pane id). A matching nonce is proof we launched this session ourselves — it's authoritative even before the session file lands on disk. A missing report nonce is tolerated only after provider-owned session validation below.
+    let nonce_verified = if let Some(expected) = mux
         .get_pane(pane_id)
         .and_then(|p| p.session_binding_nonce.clone())
     {
-        if let Some(got) = report_nonce {
-            if got != expected {
+        match report_nonce {
+            Some(got) if got != expected => {
                 log::warn!(
                     "[hook_session_start] rejecting sid {} for pane {} provider={}: binding nonce mismatch",
                     sid, pane_id, provider_id,
                 );
                 return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
             }
+            Some(_) => true,
+            None => false,
         }
-    }
+    } else {
+        false
+    };
 
     let Some(pane) = mux.get_pane(pane_id) else {
         return Err((StatusCode::NOT_FOUND, "pane not found".to_string()));
@@ -409,9 +413,14 @@ fn bind_reported_session(
     }
     let cwd = pane.cwd.clone().unwrap_or_default();
 
-    let exists = registry
-        .with_provider(provider_id, |p| p.session_exists(&cwd, sid))
-        .unwrap_or(false);
+    // A verified launch nonce already proves ownership; the session file just hasn't
+    // been persisted yet (fresh agent spawn at session_start). Only gate nonce-less /
+    // unverified reports on provider-owned session existence — that's the CB181
+    // cross-contamination guard for genuinely *reported* (not launched) sessions.
+    let exists = nonce_verified
+        || registry
+            .with_provider(provider_id, |p| p.session_exists(&cwd, sid))
+            .unwrap_or(false);
     if !exists {
         log::warn!(
             "[hook_session_start] rejecting sid {} for pane {} provider={}: session does not belong to provider",
@@ -720,6 +729,86 @@ mod tests {
         let pane = mux.get_pane(&pane_id).unwrap();
         assert_eq!(pane.agent_type.as_deref(), Some("claude"));
         assert_eq!(pane.agent_session_id.as_deref(), Some("claude-real"));
+    }
+
+    #[test]
+    fn fresh_launch_with_matching_nonce_accepts_unpersisted_session() {
+        // P0.2 regression: a session WE just launched carries a valid per-launch
+        // nonce but is not yet on disk at session_start time. A matching nonce is
+        // proof-of-ownership — it must be accepted even though session_exists==false.
+        let (mut mux, pane_id) = MultiplexerState::new();
+        let pane = mux.get_pane_mut(&pane_id).unwrap();
+        pane.cwd = Some("/tmp/project".into());
+        pane.session_binding_nonce = Some("launch-nonce".into());
+        // Provider knows of NO persisted session for this sid.
+        let registry = registry_with_sessions(vec![("claude", vec![])]);
+
+        let claim = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "claude",
+            "fresh-unpersisted-sid",
+            Some("launch-nonce"),
+        )
+        .expect("fresh launch with matching nonce must be accepted");
+        assert!(claim.changed);
+
+        let pane = mux.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.agent_type.as_deref(), Some("claude"));
+        assert_eq!(
+            pane.agent_session_id.as_deref(),
+            Some("fresh-unpersisted-sid")
+        );
+    }
+
+    #[test]
+    fn pane_with_nonce_but_nonceless_report_rejects_unpersisted_session() {
+        // CB181 preserved: without a matching nonce, an unknown/unpersisted sid is
+        // still gated by session_exists — a nonce-less report is not proof-of-ownership.
+        let (mut mux, pane_id) = MultiplexerState::new();
+        let pane = mux.get_pane_mut(&pane_id).unwrap();
+        pane.cwd = Some("/tmp/project".into());
+        pane.session_binding_nonce = Some("launch-nonce".into());
+        let registry = registry_with_sessions(vec![("claude", vec![])]);
+
+        let err =
+            bind_reported_session(&mut mux, &registry, &pane_id, "claude", "unknown-sid", None)
+                .unwrap_err();
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        let pane = mux.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.agent_session_id.as_deref(), None);
+    }
+
+    #[test]
+    fn fresh_launch_with_matching_nonce_still_rejects_already_claimed_sid() {
+        // A valid nonce skips session_exists, but the already-claimed guard must
+        // still fire — two panes cannot own the same live session.
+        let (mut mux, pane_a) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_a).unwrap().cwd = Some("/tmp/project".into());
+        let pane_b = mux.create_pane();
+        {
+            let pane = mux.get_pane_mut(&pane_b).unwrap();
+            pane.cwd = Some("/tmp/project".into());
+            pane.session_binding_nonce = Some("launch-nonce".into());
+        }
+        let registry = registry_with_sessions(vec![("claude", vec!["ses_shared"])]);
+
+        bind_reported_session(&mut mux, &registry, &pane_a, "claude", "ses_shared", None).unwrap();
+        let err = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_b,
+            "claude",
+            "ses_shared",
+            Some("launch-nonce"),
+        )
+        .unwrap_err();
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        assert_eq!(
+            mux.get_pane(&pane_b).unwrap().agent_session_id.as_deref(),
+            None
+        );
     }
 
     #[test]
