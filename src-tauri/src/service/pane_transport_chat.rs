@@ -228,6 +228,22 @@ impl ServiceContext {
             .map_err(|e| e.to_string())
     }
 
+    /// Deliver one user turn to a chatBackend pane, re-opening a restored
+    /// pane's plugin session first. After a daemon restart a pane carries
+    /// `backing: ChatBackend { .. }` but the plugin VM has no live session and
+    /// no poll loop — so the raw [`chatbackend_send`] would hit a dead session
+    /// and never stream a reply. [`chatbackend_reopen_if_restored`] rewrites the
+    /// backing to the live session id and starts the poll loop; we then read the
+    /// (possibly new) backing and send. A no-op re-open for a live pane.
+    pub(crate) fn chatbackend_pane_send(&self, pane_id: &str, text: &str) -> Result<(), String> {
+        self.chatbackend_reopen_if_restored(pane_id)?;
+        let (plugin_id, session_id) = self
+            .pane_chat_backing(pane_id)
+            .ok_or("chatBackend pane lost its backing")?;
+        let staged = self.run_outbound_stages(pane_id, text.to_string());
+        self.chatbackend_send(&plugin_id, &session_id, &staged)
+    }
+
     /// Advance an async chatBackend's in-flight work for a session (Item 6).
     /// Called each poll-loop tick before `chatbackend_poll`; best-effort.
     pub fn chatbackend_pump(&self, plugin_id: &str, session_id: &str) -> Result<(), String> {

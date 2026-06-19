@@ -326,4 +326,34 @@ mod tests {
         let back: PaneBacking = serde_json::from_value(v).unwrap();
         assert_eq!(back, backing);
     }
+
+    #[test]
+    fn backing_matches_frontend_ts_contract_shape() {
+        // The TS type is `{ kind: 'chat_backend'; plugin_id: string;
+        // session_id: string }` (internally tagged, snake_case) — plugin_id and
+        // session_id are TOP-LEVEL siblings of `kind`, never nested under a
+        // variant key. TabContent.tsx branches on `pane.backing?.kind`, so a
+        // shape drift (e.g. externally-tagged `{ChatBackend:{..}}`) would make
+        // `kind` undefined and silently render a restored chat pane as a
+        // terminal.
+        let v = serde_json::to_value(PaneBacking::ChatBackend {
+            plugin_id: "lmstudio".into(),
+            session_id: "s7".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({
+                "kind": "chat_backend",
+                "plugin_id": "lmstudio",
+                "session_id": "s7",
+            })
+        );
+        // The default (Pty) variant is a bare tag — what TabContent treats as
+        // "not a chat pane".
+        assert_eq!(
+            serde_json::to_value(PaneBacking::Pty).unwrap(),
+            serde_json::json!({ "kind": "pty" })
+        );
+    }
 }
