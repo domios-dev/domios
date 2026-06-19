@@ -1,20 +1,56 @@
 import { memo, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { RotateCcw, ChevronRight } from "lucide-react";
-import type { ClosedPane } from "../../lib/types";
+import { RotateCcw, ChevronRight, GitBranch, Layers } from "lucide-react";
+import type { ClosedPaneView } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 
-interface AggEntry {
-  entry: ClosedPane;
-  workspaceId: string;
-  index: number;
-  orphaned: boolean;
+/** A render group collapsed from the flat closed-history view. A `single`
+ *  close is one pane; `cascade` is an orchestrator subtree; `workspace` is a
+ *  whole closed workspace. */
+export interface ClosedGroup {
+  id: string;
+  kind: "single" | "cascade" | "workspace";
+  panes: ClosedPaneView[];
+}
+
+/** Collapse the flat newest-first view into render groups, preserving server
+ *  order by each group's first appearance. */
+export function groupClosedViews(views: ClosedPaneView[]): ClosedGroup[] {
+  const order: string[] = [];
+  const byId = new Map<string, ClosedGroup>();
+  for (const v of views) {
+    let g = byId.get(v.group_id);
+    if (!g) {
+      g = { id: v.group_id, kind: v.group_kind, panes: [] };
+      byId.set(v.group_id, g);
+      order.push(v.group_id);
+    }
+    g.panes.push(v);
+  }
+  return order.map((id) => byId.get(id) as ClosedGroup);
+}
+
+/** Header label for a multi-pane group, e.g. `Orchestrator + 3 workers` or
+ *  `Workspace "General" — 5 tabs`. */
+export function describeGroup(group: ClosedGroup): string {
+  const n = group.panes.length;
+  if (group.kind === "workspace") {
+    const name = group.panes.find((p) => p.workspace_name)?.workspace_name ?? "Workspace";
+    return `Workspace "${name}" — ${n} ${n === 1 ? "tab" : "tabs"}`;
+  }
+  const lead = group.panes.find((p) => !p.parent_pane_id) ?? group.panes[0];
+  const workers = n - 1;
+  return `${lead.title || "Orchestrator"} + ${workers} ${workers === 1 ? "worker" : "workers"}`;
 }
 
 interface RecentlyClosedProps {
-  entries: AggEntry[];
+  /** Flat newest-first closed-history view; grouped here for display. */
+  views: ClosedPaneView[];
   showWorkspace: boolean;
+  /** Reopen a single pane (or one pane inside a group). */
   onReopen: (workspaceId: string, index: number, orphaned: boolean, paneId: string) => void;
+  /** Reopen an entire cascade/workspace group at once. */
+  onReopenGroup: (groupId: string) => void;
   touchMode?: boolean;
   uiFontScale?: number;
 }
@@ -26,13 +62,15 @@ interface TooltipState {
 }
 
 function RecentlyClosedInner({
-  entries,
+  views,
   showWorkspace,
   onReopen,
+  onReopenGroup,
   touchMode = false,
   uiFontScale,
 }: RecentlyClosedProps) {
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 
   const handleMouseMove = useCallback((text: string, e: React.MouseEvent) => {
@@ -43,10 +81,52 @@ function RecentlyClosedInner({
     setTooltip(null);
   }, []);
 
-  if (entries.length === 0) return null;
+  const toggleGroup = useCallback((id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
+  if (views.length === 0) return null;
+
+  const groups = groupClosedViews(views);
   const text = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const metaText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
+  const rowPad = touchMode ? "py-2" : "py-1";
+
+  const paneRow = (view: ClosedPaneView, child: boolean) => (
+    <button
+      key={`${view.group_id}-${view.pane_id}-${view.index}`}
+      data-testid="recently-closed-item"
+      onClick={() => {
+        setTooltip(null);
+        onReopen(view.workspace_id ?? "", view.index, view.orphaned, view.pane_id);
+      }}
+      onMouseMove={view.description ? (e) => handleMouseMove(view.description as string, e) : undefined}
+      onMouseLeave={view.description ? handleMouseLeave : undefined}
+      className={`flex items-center gap-2 w-full ${child ? "pl-9" : "pl-6"} pr-2 ${rowPad} rounded-md text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors`}
+    >
+      {child && (
+        <span className="shrink-0 -ml-3 mr-0.5 text-[var(--ct-border)] select-none" aria-hidden>
+          └
+        </span>
+      )}
+      <span className={`${text} truncate min-w-0 flex-1 text-left`}>{view.title || "Untitled"}</span>
+      {showWorkspace && view.workspace_name && (
+        <span className={`${metaText} shrink-0 text-[var(--ct-muted)] truncate max-w-[60px]`}>
+          {view.workspace_name}
+        </span>
+      )}
+      {view.model && (
+        <span className={`${metaText} shrink-0 px-1 rounded bg-[var(--ct-active)] text-[var(--ct-muted)]`}>
+          {view.model}
+        </span>
+      )}
+    </button>
+  );
 
   return (
     <div data-testid="recently-closed" className="mx-2 mt-0.5 mb-1">
@@ -62,50 +142,69 @@ function RecentlyClosedInner({
           style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
         />
         <RotateCcw size={10} strokeWidth={1.5} className="shrink-0" />
-        <span className={`${metaText} font-medium uppercase tracking-wide`}>
-          Recently closed
-        </span>
+        <span className={`${metaText} font-medium uppercase tracking-wide`}>Recently closed</span>
       </button>
       {open && (
-        <div
-          className="mt-0.5 overflow-y-auto"
-          style={{ maxHeight: 125 }}
-        >
-          {entries.map(({ entry, workspaceId, index, orphaned }) => (
-            <button
-              key={`${entry.pane_id}-${workspaceId}-${index}`}
-              data-testid="recently-closed-item"
-              onClick={() => { setTooltip(null); onReopen(workspaceId, index, orphaned, entry.pane_id); }}
-              onMouseMove={entry.description ? (e) => handleMouseMove(entry.description!, e) : undefined}
-              onMouseLeave={entry.description ? handleMouseLeave : undefined}
-              className={`flex items-center gap-2 w-full pl-6 pr-2 ${touchMode ? "py-2" : "py-1"} rounded-md text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors`}
-            >
-              <span className={`${text} truncate min-w-0 flex-1 text-left`}>
-                {entry.title || "Untitled"}
-              </span>
-              {showWorkspace && entry.workspace_name && (
-                <span className={`${metaText} shrink-0 text-[var(--ct-muted)] truncate max-w-[60px]`}>
-                  {entry.workspace_name}
-                </span>
-              )}
-              {entry.model && (
-                <span className={`${metaText} shrink-0 px-1 rounded bg-[var(--ct-active)] text-[var(--ct-muted)]`}>
-                  {entry.model}
-                </span>
-              )}
-            </button>
-          ))}
+        <div className="mt-0.5 overflow-y-auto" style={{ maxHeight: 125 }}>
+          {groups.map((group) => {
+            if (group.kind === "single") return paneRow(group.panes[0], false);
+
+            const isOpen = expanded.has(group.id);
+            const KindIcon = group.kind === "workspace" ? Layers : GitBranch;
+            const label = describeGroup(group);
+            return (
+              <div key={group.id} data-testid="recently-closed-group">
+                <div
+                  className={`group/grp flex items-center w-full pr-2 rounded-md text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors`}
+                >
+                  <button
+                    data-testid="recently-closed-group-toggle"
+                    onClick={() => toggleGroup(group.id)}
+                    aria-expanded={isOpen}
+                    aria-label={isOpen ? "Collapse group" : "Expand group"}
+                    className={`flex items-center justify-center shrink-0 pl-2 pr-1 ${rowPad} text-[var(--ct-muted)] hover:text-[var(--ct-fg)]`}
+                  >
+                    <ChevronRight
+                      size={11}
+                      strokeWidth={1.75}
+                      className="transition-transform duration-200"
+                      style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}
+                    />
+                  </button>
+                  <button
+                    data-testid="recently-closed-group-restore"
+                    onClick={() => {
+                      setTooltip(null);
+                      onReopenGroup(group.id);
+                    }}
+                    title="Restore all"
+                    className={`flex items-center gap-2 min-w-0 flex-1 pr-1 ${rowPad} text-left hover:text-[var(--ct-fg)]`}
+                  >
+                    <KindIcon size={12} strokeWidth={1.75} className="shrink-0 text-[var(--ct-accent)]" />
+                    <span className={`${text} font-medium truncate min-w-0 flex-1`}>{label}</span>
+                    <span
+                      className={`${metaText} shrink-0 px-1.5 rounded-full border border-[var(--ct-border)] text-[var(--ct-muted)] tabular-nums`}
+                    >
+                      {group.panes.length}
+                    </span>
+                  </button>
+                </div>
+                {isOpen && group.panes.map((pane) => paneRow(pane, true))}
+              </div>
+            );
+          })}
         </div>
       )}
-      {tooltip && createPortal(
-        <div
-          className="fixed z-[9999] pointer-events-none px-2 py-1 rounded text-[11px] text-[var(--ct-fg)] bg-[var(--ct-surface)] border border-[var(--ct-border)] shadow-lg max-w-[240px] break-words"
-          style={{ left: tooltip.x + 14, top: tooltip.y - 8 }}
-        >
-          {tooltip.text}
-        </div>,
-        document.body,
-      )}
+      {tooltip &&
+        createPortal(
+          <div
+            className="fixed z-[9999] pointer-events-none px-2 py-1 rounded text-[11px] text-[var(--ct-fg)] bg-[var(--ct-surface)] border border-[var(--ct-border)] shadow-lg max-w-[240px] break-words"
+            style={{ left: tooltip.x + 14, top: tooltip.y - 8 }}
+          >
+            {tooltip.text}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
