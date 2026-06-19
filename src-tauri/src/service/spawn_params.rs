@@ -141,26 +141,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn available_agent_or_shell_ids(&self) -> Vec<String> {
-        let mut ids = self.agent_registry.provider_ids();
-        // Only user-spawnable shells are offered to callers; backend-only
-        // chatBackends (bare `chatBackend: true`) are not openable as panes.
-        ids.extend(
-            self.chatbackend_registry
-                .ids()
-                .into_iter()
-                .filter(|id| self.is_spawnable_shell(id)),
-        );
-        ids.sort();
-        ids.dedup();
-        ids
-    }
-
-    /// Whether `id` names a registered chatBackend that is user-spawnable.
-    pub(crate) fn is_spawnable_shell(&self, id: &str) -> bool {
-        self.chatbackend_registry
-            .get(id)
-            .map(|s| s.spawnable())
-            .unwrap_or(false)
+        self.provider_registry.spawnable_ids()
     }
 
     /// Validate a user-requested spawn target so the sync (socket-RPC) and async
@@ -169,16 +150,25 @@ impl ServiceContext {
     /// agent provider, and a clean `Err` for a registered-but-not-spawnable
     /// chatBackend (e.g. the NPC backend) or an unknown id.
     pub(crate) fn classify_spawn_target(&self, agent_cmd: &str) -> Result<bool, String> {
-        if self.is_spawnable_shell(agent_cmd) {
-            return Ok(true);
+        match self.provider_registry.transport_of(agent_cmd) {
+            Some(crate::agent::provider::ProviderTransport::ChatBackend) => {
+                if self.provider_registry.is_spawnable_chat_backend(agent_cmd) {
+                    Ok(true)
+                } else {
+                    Err(format!(
+                        "'{}' is a chat backend that is not user-spawnable",
+                        agent_cmd
+                    ))
+                }
+            }
+            Some(crate::agent::provider::ProviderTransport::Pty) => {
+                self.require_agent_provider_ready(agent_cmd)?;
+                Ok(false)
+            }
+            None => {
+                self.require_agent_provider_ready(agent_cmd)?;
+                Ok(false)
+            }
         }
-        if self.chatbackend_registry.get(agent_cmd).is_some() {
-            return Err(format!(
-                "'{}' is a chat backend that is not user-spawnable",
-                agent_cmd
-            ));
-        }
-        self.require_agent_provider_ready(agent_cmd)?;
-        Ok(false)
     }
 }

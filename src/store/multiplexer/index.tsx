@@ -315,7 +315,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       // chatBackend open shells are non-PTY: open a chat pane via the plugin
       // rather than building a CLI launch command (which exists only for PTY
       // agent providers) — otherwise "+ new session" errors "Unknown agent provider".
-      if (getAgentDescriptor(agentId)?.kind === "shell") {
+      if (getAgentDescriptor(agentId)?.transport === "chat_backend") {
         invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
         dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
         const shellPaneId = await invoke<string>("open_chat_backend_pane", { pluginId: agentId, workspaceId });
