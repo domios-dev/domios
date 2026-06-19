@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/private/tmp/ct_cw2_probe","session_id":"cbf7919a-ce25-423d-8e18-1aaae2d82701","model":"Auto","permissionMode":"default"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Run the shell command 'echo hello123' and tell me what it printed."}]},"session_id":"cbf7919a-ce25-423d-8e18-1aaae2d82701"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The command printed:\n\n```\nhello123\n```"}]},"session_id":"cbf7919a-ce25-423d-8e18-1aaae2d82701"}
+{"type":"result","subtype":"success","duration_ms":23119,"duration_api_ms":23119,"is_error":false,"result":"The command printed:\n\n```\nhello123\n```","session_id":"cbf7919a-ce25-423d-8e18-1aaae2d82701","request_id":"f3425389-ad9d-4074-b34e-8095aecd3fd0","usage":{"inputTokens":11604,"outputTokens":92,"cacheReadTokens":23073,"cacheWriteTokens":0}}
