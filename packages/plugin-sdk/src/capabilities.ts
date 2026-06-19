@@ -191,6 +191,11 @@ export interface NormalizedChatMessage {
   id: string;
   type: string;
   content: string;
+  fromLabel?: string;
+  fromPane?: string;
+  fromModel?: string;
+  fromMesh?: string;
+  inboundKind?: "pane" | "report" | "reminder" | "mesh" | "telegram";
 }
 
 export interface ModelInfo {
