@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { X, TerminalSquare, FolderOpen } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
@@ -29,7 +29,7 @@ interface WorkspaceItemProps {
   uiFontScale?: number;
 }
 
-export function WorkspaceItem({
+function WorkspaceItemInner({
   workspace,
   isActive,
   isExpanded,
@@ -216,3 +216,24 @@ export function WorkspaceItem({
     </div>
   );
 }
+
+// Workspace objects are new references after every SET_STATE. Compare by value
+// for display-relevant fields so a pane-status tick on a different workspace
+// does not re-render this component.
+function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps): boolean {
+  return (
+    prev.isActive === next.isActive &&
+    prev.isExpanded === next.isExpanded &&
+    prev.status === next.status &&
+    prev.hasWaiting === next.hasWaiting &&
+    prev.canClose === next.canClose &&
+    prev.touchMode === next.touchMode &&
+    prev.uiFontScale === next.uiFontScale &&
+    prev.workspace.id === next.workspace.id &&
+    prev.workspace.name === next.workspace.name &&
+    prev.workspace.cwd === next.workspace.cwd &&
+    prev.workspace.tabs.length === next.workspace.tabs.length
+  );
+}
+
+export const WorkspaceItem = memo(WorkspaceItemInner, workspacePropsEqual);
