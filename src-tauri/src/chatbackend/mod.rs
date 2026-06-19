@@ -13,7 +13,10 @@
 use std::sync::Arc;
 
 use crate::agent::chat_types::StructuredChat;
-use crate::agent::provider::ModelInfo;
+use crate::agent::provider::{
+    BehaviorConfig, ModelInfo, ProviderDescriptor, ProviderTransport, ProviderTrust,
+    SystemPromptDelivery, PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
+};
 use crate::plugin::capability::CapabilityRegistry;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -146,6 +149,36 @@ pub trait ChatBackendProvider: Send + Sync {
         Err(ChatBackendError::Call(
             "this chatBackend does not support switching the model".into(),
         ))
+    }
+
+    /// Build the unified wire descriptor for this chat backend. Transport is
+    /// always `ChatBackend`; models/presets come from the live getters.
+    fn describe(&self) -> ProviderDescriptor {
+        ProviderDescriptor {
+            schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
+            id: self.id().to_string(),
+            display_name: self.display_name().to_string(),
+            icon_hint: self.icon_hint().map(|s| s.to_string()),
+            icon_svg: self.icon_svg().map(|s| s.to_string()),
+            icon_color: self.icon_color().map(|s| s.to_string()),
+            available_models: self.list_models().unwrap_or_default(),
+            default_model: None,
+            settings_schema: Vec::new(),
+            notifications_schema: Vec::new(),
+            supports_lazy_skills: false,
+            has_hooks: false,
+            preserves_context_on_resume: true,
+            cli_binary: None,
+            install_command: None,
+            model_switch_format: None,
+            supports_stop: false,
+            supports_chat_ui: true,
+            trust: ProviderTrust::Unknown,
+            transport: ProviderTransport::ChatBackend,
+            behavior_config: BehaviorConfig::PresetsAndSystemPrompt,
+            presets: self.list_presets().unwrap_or_default(),
+            system_prompt_delivery: SystemPromptDelivery::SessionConfig,
+        }
     }
 }
 

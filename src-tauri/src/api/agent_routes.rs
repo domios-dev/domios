@@ -8,63 +8,13 @@ use serde::Deserialize;
 use crate::api::routes::{check_auth, resolve_pane, AppState};
 
 pub(crate) fn list_agent_provider_values(
-    agents: &crate::agent::registry::AgentRegistry,
-    shells: &crate::chatbackend::ChatBackendRegistry,
+    registry: &crate::provider::ProviderRegistry,
 ) -> Vec<serde_json::Value> {
-    let mut out: Vec<serde_json::Value> = agents
-        .list_descriptors()
+    registry
+        .describe_all()
         .into_iter()
-        .filter_map(|descriptor| {
-            let mut value = serde_json::to_value(descriptor).ok()?;
-            if let Some(obj) = value.as_object_mut() {
-                obj.insert("kind".into(), serde_json::json!("agent"));
-            }
-            Some(value)
-        })
-        .collect();
-
-    let mut shell_ids = shells.ids();
-    shell_ids.sort();
-    for id in shell_ids {
-        let Some(shell) = shells.get(&id) else {
-            continue;
-        };
-        // Only user-spawnable shells belong in the new-session picker. A bare
-        // `chatBackend: true` plugin (e.g. the NPC backend) is registered for
-        // its host-/agent-driven pane but is not user-openable.
-        if !shell.spawnable() {
-            continue;
-        }
-        let models = shell.list_models().unwrap_or_default();
-        let presets = shell.list_presets().unwrap_or_default();
-        let mut value = serde_json::json!({
-            "schema_version": 1,
-            "kind": "shell",
-            "id": id,
-            "display_name": shell.display_name(),
-            "available_models": models,
-            "default_model": null,
-            "settings_schema": [],
-            "notifications_schema": [],
-            "supports_lazy_skills": false,
-            "has_hooks": false,
-            "preserves_context_on_resume": true,
-            "supports_chat_ui": true,
-            "supports_stop": false,
-            "presets": presets,
-        });
-        if let Some(icon_hint) = shell.icon_hint() {
-            value["icon_hint"] = serde_json::json!(icon_hint);
-        }
-        if let Some(icon_svg) = shell.icon_svg() {
-            value["icon_svg"] = serde_json::json!(icon_svg);
-        }
-        if let Some(icon_color) = shell.icon_color() {
-            value["icon_color"] = serde_json::json!(icon_color);
-        }
-        out.push(value);
-    }
-    out
+        .filter_map(|descriptor| serde_json::to_value(descriptor).ok())
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -422,8 +372,7 @@ pub async fn list_agent_providers(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     Ok(Json(serde_json::Value::Array(list_agent_provider_values(
-        &state.svc.agent_registry,
-        &state.svc.chatbackend_registry,
+        &state.svc.provider_registry,
     ))))
 }
 
@@ -434,8 +383,7 @@ pub async fn list_agent_providers_public(
     AxumState(state): AxumState<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     Ok(Json(serde_json::Value::Array(list_agent_provider_values(
-        &state.svc.agent_registry,
-        &state.svc.chatbackend_registry,
+        &state.svc.provider_registry,
     ))))
 }
 
@@ -557,19 +505,30 @@ mod tests {
         // spawnable() defaults to false.
     }
 
-    #[test]
-    fn provider_listing_includes_spawnable_chatbackend_shells_tagged_shell() {
-        let agents = crate::agent::registry::AgentRegistry::new();
-        let shells = crate::chatbackend::ChatBackendRegistry::new();
-        shells.register("local-shell", std::sync::Arc::new(ListingShell));
+    fn facade_with(
+        shells: &[(&str, std::sync::Arc<dyn crate::chatbackend::ChatBackendProvider>)],
+    ) -> crate::provider::ProviderRegistry {
+        let agents = std::sync::Arc::new(crate::agent::registry::AgentRegistry::new());
+        let backends = std::sync::Arc::new(crate::chatbackend::ChatBackendRegistry::new());
+        for (id, shell) in shells {
+            backends.register(*id, shell.clone());
+        }
+        crate::provider::ProviderRegistry::new(agents, backends)
+    }
 
-        let listing = super::list_agent_provider_values(&agents, &shells);
+    #[test]
+    fn provider_listing_includes_spawnable_chatbackend_tagged_transport() {
+        let registry = facade_with(&[("local-shell", std::sync::Arc::new(ListingShell))]);
+
+        let listing = super::list_agent_provider_values(&registry);
 
         let shell = listing
             .iter()
             .find(|p| p.get("id").and_then(|v| v.as_str()) == Some("local-shell"))
             .expect("registered spawnable chatBackend shell is listed");
-        assert_eq!(shell["kind"], "shell");
+        // `kind` is gone — transport is the discriminant now.
+        assert!(shell.get("kind").is_none(), "no `kind` key in serialized output");
+        assert_eq!(shell["transport"], "chat_backend");
         assert_eq!(shell["display_name"], "Local Shell");
         assert_eq!(shell["available_models"][0]["id"], "qwen");
     }
@@ -578,12 +537,12 @@ mod tests {
     fn provider_listing_hides_non_spawnable_chatbackends() {
         // Regression: the NPC backend (bare `chatBackend: true`) wrongly showed
         // in the new-session picker. Only spawnable shells are listed.
-        let agents = crate::agent::registry::AgentRegistry::new();
-        let shells = crate::chatbackend::ChatBackendRegistry::new();
-        shells.register("local-shell", std::sync::Arc::new(ListingShell));
-        shells.register("npc", std::sync::Arc::new(BackendOnlyShell));
+        let registry = facade_with(&[
+            ("local-shell", std::sync::Arc::new(ListingShell)),
+            ("npc", std::sync::Arc::new(BackendOnlyShell)),
+        ]);
 
-        let listing = super::list_agent_provider_values(&agents, &shells);
+        let listing = super::list_agent_provider_values(&registry);
 
         assert!(
             listing

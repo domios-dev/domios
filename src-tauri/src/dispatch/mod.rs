@@ -326,10 +326,7 @@ fn cmd_pty_kill(ctx: &ServiceContext, pane_id: &str) -> Result<CommandResult, St
 
 fn cmd_list_agent_providers(ctx: &ServiceContext) -> Result<CommandResult, String> {
     Ok(CommandResult::Json(serde_json::Value::Array(
-        crate::api::agent_routes::list_agent_provider_values(
-            &ctx.agent_registry,
-            &ctx.chatbackend_registry,
-        ),
+        crate::api::agent_routes::list_agent_provider_values(&ctx.provider_registry),
     )))
 }
 

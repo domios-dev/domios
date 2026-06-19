@@ -96,6 +96,14 @@ fn provider_descriptor_round_trip() {
             supports_stop: true,
             supports_chat_ui: true,
             trust: ProviderTrust::System,
+            transport: ProviderTransport::ChatBackend,
+            behavior_config: BehaviorConfig::PresetsAndSystemPrompt,
+            presets: vec![crate::chatbackend::PresetInfo {
+                id: "p1".into(),
+                name: "Preset One".into(),
+                description: Some("a preset".into()),
+            }],
+            system_prompt_delivery: SystemPromptDelivery::CliFlag("--system".into()),
         };
 
     let json = serde_json::to_string(&original).expect("serialize");
@@ -174,4 +182,15 @@ fn default_describe_assembles_from_methods() {
     assert!(desc.preserves_context_on_resume); // default true
     assert!(!desc.supports_lazy_skills); // default false
     assert!(!desc.has_hooks); // default false
+    assert_eq!(desc.transport, ProviderTransport::Pty);
+    assert_eq!(desc.behavior_config, BehaviorConfig::OwnPromptSet);
+    assert!(desc.presets.is_empty());
+    assert_eq!(desc.system_prompt_delivery, SystemPromptDelivery::External);
+}
+
+#[test]
+fn serialized_descriptor_has_transport_not_kind() {
+    let value = serde_json::to_value(StubProvider.describe()).unwrap();
+    assert!(value.get("kind").is_none(), "`kind` must not be serialized");
+    assert_eq!(value["transport"], "pty");
 }
