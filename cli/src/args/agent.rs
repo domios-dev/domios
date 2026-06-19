@@ -17,6 +17,26 @@ impl SpawnRole {
     }
 }
 
+/// Worker-declared outcome for `agent report --status`. Lowercase value names
+/// match the daemon's `ReportStatus` serde representation, so the parsed value
+/// is sent over the wire as-is. clap rejects anything outside the three.
+#[derive(clap::ValueEnum, Clone, Copy, Debug)]
+pub enum ReportStatusArg {
+    Done,
+    Blocked,
+    Partial,
+}
+
+impl ReportStatusArg {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ReportStatusArg::Done => "done",
+            ReportStatusArg::Blocked => "blocked",
+            ReportStatusArg::Partial => "partial",
+        }
+    }
+}
+
 #[derive(Subcommand)]
 pub enum AgentAction {
     /// Mark a pane as orchestrator (top-level, can spawn workers)
@@ -57,6 +77,27 @@ pub enum AgentAction {
         /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
         #[arg(long)]
         pane: Option<String>,
+        /// Task outcome: done | blocked | partial
+        #[arg(long)]
+        status: Option<ReportStatusArg>,
+        /// Git branch the work landed on
+        #[arg(long)]
+        branch: Option<String>,
+        /// Commit SHA produced
+        #[arg(long)]
+        sha: Option<String>,
+        /// Changed files (comma-separated or repeat the flag)
+        #[arg(long, value_delimiter = ',')]
+        changed_files: Option<Vec<String>>,
+        /// Test command that was run
+        #[arg(long)]
+        test_cmd: Option<String>,
+        /// Result of the test command (e.g. "42 passed")
+        #[arg(long)]
+        test_result: Option<String>,
+        /// Anything deliberately skipped
+        #[arg(long)]
+        skipped: Option<String>,
     },
     /// Read reports (for orchestrator panes)
     Reports {
@@ -155,8 +196,84 @@ pub enum AgentAction {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::Cli;
-    use clap::CommandFactory;
+    use clap::{CommandFactory, Parser};
+
+    fn parse_report(args: &[&str]) -> Result<AgentAction, clap::Error> {
+        let mut full = vec!["codeterm", "agent", "report"];
+        full.extend_from_slice(args);
+        let cli = Cli::try_parse_from(full)?;
+        match cli.command {
+            crate::Commands::Agent { action } => Ok(action),
+            _ => panic!("expected agent subcommand"),
+        }
+    }
+
+    #[test]
+    fn report_status_accepts_done_blocked_partial() {
+        for (input, expected) in [
+            ("done", "done"),
+            ("blocked", "blocked"),
+            ("partial", "partial"),
+        ] {
+            let action = parse_report(&["msg", "--status", input]).expect("status should parse");
+            match action {
+                AgentAction::Report { status, .. } => {
+                    assert_eq!(status.expect("status set").as_str(), expected);
+                }
+                _ => panic!("expected report action"),
+            }
+        }
+    }
+
+    #[test]
+    fn report_status_rejects_garbage() {
+        match parse_report(&["msg", "--status", "frobnicate"]) {
+            Err(e) => assert_eq!(e.kind(), clap::error::ErrorKind::InvalidValue),
+            Ok(_) => panic!("garbage --status must be rejected"),
+        }
+    }
+
+    #[test]
+    fn report_changed_files_splits_on_comma() {
+        let action = parse_report(&["msg", "--changed-files", "a.rs,b.rs,c.rs"]).unwrap();
+        match action {
+            AgentAction::Report { changed_files, .. } => {
+                assert_eq!(
+                    changed_files,
+                    Some(vec!["a.rs".into(), "b.rs".into(), "c.rs".into()])
+                );
+            }
+            _ => panic!("expected report action"),
+        }
+    }
+
+    #[test]
+    fn report_without_flags_leaves_structured_fields_unset() {
+        let action = parse_report(&["just a message"]).unwrap();
+        match action {
+            AgentAction::Report {
+                status,
+                branch,
+                sha,
+                changed_files,
+                test_cmd,
+                test_result,
+                skipped,
+                ..
+            } => {
+                assert!(status.is_none());
+                assert!(branch.is_none());
+                assert!(sha.is_none());
+                assert!(changed_files.is_none());
+                assert!(test_cmd.is_none());
+                assert!(test_result.is_none());
+                assert!(skipped.is_none());
+            }
+            _ => panic!("expected report action"),
+        }
+    }
 
     #[test]
     fn set_orchestrator_help_mentions_workers_not_leads() {

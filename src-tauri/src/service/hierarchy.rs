@@ -42,7 +42,12 @@ impl ServiceContext {
     /// Send report to the resolved target. Routing priority:
     /// `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`
     /// → global system inbox. NEVER routes back to the reporter's own pane.
-    pub fn submit_report(&self, pane_id: &str, message: &str) -> Result<ReportResult, String> {
+    pub fn submit_report(
+        &self,
+        pane_id: &str,
+        message: &str,
+        details: crate::agent::reports::ReportDetails,
+    ) -> Result<ReportResult, String> {
         let (from_title, target_opt) = {
             let mux = self.mux.write();
             resolve_report_target(&mux, pane_id)?
@@ -51,10 +56,13 @@ impl ServiceContext {
         let storage_key = target_opt
             .clone()
             .unwrap_or_else(|| SYSTEM_INBOX_PANE_ID.to_string());
-        let report = self
-            .report_store
-            .lock()
-            .add(&storage_key, pane_id, &from_title, message);
+        let report = self.report_store.lock().add_detailed(
+            &storage_key,
+            pane_id,
+            &from_title,
+            message,
+            details,
+        );
 
         self.events.broadcast(
             "agent.report",
@@ -96,7 +104,9 @@ impl ServiceContext {
                         .and_then(|p| p.agent_session_model.clone());
                     let pfx = crate::service::msg_prefix::CtxPrefix::report(&from_title, pane_id)
                         .model(model);
-                    if let Err(e) = self.send_text(target_id, &pfx.wrap(message), true) {
+                    if let Err(e) =
+                        self.send_text(target_id, &pfx.wrap(&report.inject_body()), true)
+                    {
                         log::warn!("[report] PTY inject failed for {}: {}", target_id, e);
                     }
                 }
