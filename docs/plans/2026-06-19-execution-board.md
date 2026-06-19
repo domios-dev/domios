@@ -102,6 +102,20 @@ R1 → R2/R3 → R4 → R5 → R6.
   (codex update auto-skip, claude rate-limit auto-resume, question/auth surfacing,
   missing-CLI install no-sudo). Spec: 2026-06-19-agent-state-autoadvance.md.
 
+## Wave M — Messenger gateway (storage-aware inter-pane routing, NEW 2026-06-19)
+
+Spec: `docs/plans/2026-06-19-messenger-gateway.md`. Bug: a `send --pane` into a
+chatBackend (non-PTY) pane arrives as a BARE bubble — sender identity/return
+address lost (the prefix is stripped along with the `<context>` block). Fix:
+promote `CtxPrefix` → a `Messenger` gateway that routes on WHERE the chat is
+stored (PTY=inject text prefix; chatBackend=store structured inbound msg with
+sender metadata). All senders (send/report/mesh/delayed) go through it.
+- **WM.M1** (codex) — Messenger gateway backend (rename msg_prefix→messenger,
+  MessageEnvelope, deliver(), recipient-storage branch, route send+report).
+- **WM.M2** (codex) — chatBackend inbound "from <label·model>" rendering (frontend).
+- **WM.M3** (codex) — route delayed/reminder + mesh through Messenger.
+- **WM.M4** (codex/plugin) — chatBackend reply-to-return-address.
+
 ## Manager-only (mem / live, not delegated)
 
 - **SR** — orchestration-skill rewrite + 2 dev-facts. Spec: 2026-06-19-orchestration-deburring.md.
