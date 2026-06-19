@@ -250,7 +250,7 @@ export function primaryAction(entry: CatalogEntry): PrimaryAction {
   if (entry.system || !entry.removable) {
     return {
       kind: "none",
-      label: entry.system ? "System extension" : "Built in",
+      label: entry.system ? "System plugin" : "Built in",
       disabled: true,
       reason: entry.system ? "Bundled provider — managed by CodeTerm" : undefined,
     };

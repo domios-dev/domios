@@ -771,10 +771,10 @@ export function Sidebar({
                     ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                     : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
                 }`}
-                title="Extensions"
+                title="Plugins"
               >
                 <ExtensionsIcon size={touchMode ? 18 : 14} className="shrink-0" />
-                {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Extensions</span>}
+                {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Plugins</span>}
               </button>
               <button
                 data-testid="nav-settings"
