@@ -2,6 +2,7 @@
   "id": "codex",
   "version": "1.4.6",
   "minCodeterm": "1.0.0",
+  "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",
   "cliBinary": "codex",

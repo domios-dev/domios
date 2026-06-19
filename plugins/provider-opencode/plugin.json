@@ -2,6 +2,7 @@
   "id": "opencode",
   "version": "1.4.6",
   "minCodeterm": "1.0.0",
+  "hostApi": 2,
   "displayName": "OpenCode",
   "binaryName": "opencode",
   "cliBinary": "opencode",
