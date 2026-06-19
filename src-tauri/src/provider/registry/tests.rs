@@ -4,9 +4,7 @@ use super::ProviderRegistry;
 use crate::agent::chat_types::StructuredChat;
 use crate::agent::provider::{ModelInfo, ProviderTransport};
 use crate::agent::registry::AgentRegistry;
-use crate::chatbackend::{
-    ChatBackendError, ChatBackendProvider, ChatBackendRegistry, PresetInfo,
-};
+use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry, PresetInfo};
 
 struct Shell {
     id: &'static str,
@@ -73,7 +71,10 @@ fn describe_all_tags_chat_backend_transport_and_filters_spawnable() {
     let reg = registry();
     let descs = reg.describe_all();
 
-    let shell = descs.iter().find(|d| d.id == "shell").expect("spawnable listed");
+    let shell = descs
+        .iter()
+        .find(|d| d.id == "shell")
+        .expect("spawnable listed");
     assert_eq!(shell.transport, ProviderTransport::ChatBackend);
     assert_eq!(shell.presets.len(), 1);
     assert!(shell.supports_chat_ui);
@@ -90,7 +91,10 @@ fn transport_of_routes_by_store() {
         reg.transport_of("shell"),
         Some(ProviderTransport::ChatBackend)
     );
-    assert_eq!(reg.transport_of("npc"), Some(ProviderTransport::ChatBackend));
+    assert_eq!(
+        reg.transport_of("npc"),
+        Some(ProviderTransport::ChatBackend)
+    );
     assert_eq!(reg.transport_of("unknown"), None);
 }
 

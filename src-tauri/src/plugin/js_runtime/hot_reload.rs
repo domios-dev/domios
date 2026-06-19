@@ -232,9 +232,10 @@ impl HotReloadRegistry {
     fn emit_agent_provider_changed(&self) {
         let svc = self.service.lock().clone().and_then(|w| w.upgrade());
         if let Some(svc) = svc {
-            svc.events.publish(crate::api::events::SystemEvent::ContributionsChanged {
-                kind: "agent_provider".to_string(),
-            });
+            svc.events
+                .publish(crate::api::events::SystemEvent::ContributionsChanged {
+                    kind: "agent_provider".to_string(),
+                });
         }
     }
 
