@@ -34,6 +34,13 @@ impl MultiplexerState {
             panes: &HashMap<String, Pane>,
         ) -> SplitNodeSnapshot {
             let pane = panes.get(pane_id);
+            let (chatbackend_plugin_id, chatbackend_session_id) = match pane.map(|p| &p.backing) {
+                Some(PaneBacking::ChatBackend {
+                    plugin_id,
+                    session_id,
+                }) => (Some(plugin_id.clone()), Some(session_id.clone())),
+                _ => (None, None),
+            };
             SplitNodeSnapshot::Leaf {
                 pane_id: pane_id.to_string(),
                 cwd: pane.and_then(|p| p.cwd.clone()),
@@ -49,6 +56,8 @@ impl MultiplexerState {
                 chat_view: pane.map(|p| p.chat_view),
                 auto_approve: pane.map(|p| p.auto_approve).unwrap_or(false),
                 agent_session_model: pane.and_then(|p| p.agent_session_model.clone()),
+                chatbackend_plugin_id,
+                chatbackend_session_id,
             }
         }
 
@@ -133,9 +142,22 @@ impl MultiplexerState {
                 chat_view,
                 auto_approve,
                 agent_session_model,
+                chatbackend_plugin_id,
+                chatbackend_session_id,
             } = leaf
             else {
                 return None;
+            };
+
+            // Re-attach a chatBackend backing so the pane restores as a chat
+            // shell (not a PTY). On first send the transport lazily re-opens the
+            // plugin session (R3 restore-gap fix).
+            let restored_backing = match (chatbackend_plugin_id, chatbackend_session_id) {
+                (Some(plugin_id), Some(session_id)) => PaneBacking::ChatBackend {
+                    plugin_id: plugin_id.clone(),
+                    session_id: session_id.clone(),
+                },
+                _ => PaneBacking::default(),
             };
 
             let parsed_role = role.as_deref().and_then(|r| match r {
@@ -178,12 +200,11 @@ impl MultiplexerState {
                 Pane {
                     id: pane_id.clone(),
                     pty_id: None,
-                    // R3 restore-gap: `backing` is NOT persisted in the snapshot,
-                    // so a restored chatBackend pane comes back as Pty and would
-                    // spawn a shell on next send. chatBackend panes are
-                    // intentionally not restored yet; persisting the backing
-                    // field (+ lazy openSession on first send) is a follow-up.
-                    backing: PaneBacking::default(),
+                    // R3 restore-gap fix: `backing` is persisted now, so a
+                    // chatBackend (shell) pane restores as a chatBackend and
+                    // lazily re-opens its plugin session on first send instead of
+                    // wrongly spawning a PTY.
+                    backing: restored_backing,
                     pane_type: PaneType::Terminal,
                     title: restored_title,
                     cwd: cwd.clone(),
@@ -252,5 +273,118 @@ impl MultiplexerState {
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::store::{
+        SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
+    };
+
+    fn chatbackend_leaf(pane_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
+        SplitNodeSnapshot::Leaf {
+            pane_id: pane_id.into(),
+            cwd: None,
+            title: Some("LM Studio".into()),
+            title_level: Some("User".into()),
+            agent_type: None,
+            agent_type_locked: false,
+            claude_session_id: None,
+            role: None,
+            parent_pane_id: None,
+            can_spawn: false,
+            depth: 0,
+            chat_view: Some(true),
+            auto_approve: false,
+            agent_session_model: None,
+            chatbackend_plugin_id: Some(plugin_id.into()),
+            chatbackend_session_id: Some(session_id.into()),
+        }
+    }
+
+    fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
+        SessionSnapshot {
+            version: "test".into(),
+            timestamp: 0,
+            active_workspace_id: Some("ws".into()),
+            workspaces: vec![WorkspaceSnapshot {
+                id: "ws".into(),
+                name: "ws".into(),
+                active_tab_id: Some("tab".into()),
+                cwd: None,
+                protected: false,
+                tabs: vec![TabSnapshot {
+                    id: "tab".into(),
+                    title: "tab".into(),
+                    split_tree: leaf,
+                }],
+            }],
+        }
+    }
+
+    #[test]
+    fn chatbackend_backing_restores_from_snapshot() {
+        let snap = snapshot_with(chatbackend_leaf("p1", "lmstudio", "sess-7"));
+        let state = MultiplexerState::from_session_snapshot(&snap);
+        let pane = state.panes.get("p1").expect("pane restored");
+        assert_eq!(
+            pane.backing,
+            PaneBacking::ChatBackend {
+                plugin_id: "lmstudio".into(),
+                session_id: "sess-7".into(),
+            },
+            "restored as chatBackend, not Pty"
+        );
+        assert!(pane.restored_from_snapshot, "marked for lazy re-open");
+    }
+
+    #[test]
+    fn chatbackend_backing_round_trips_through_snapshot() {
+        // snapshot → state → snapshot must preserve the chatBackend backing.
+        let snap = snapshot_with(chatbackend_leaf("p1", "lmstudio", "sess-7"));
+        let state = MultiplexerState::from_session_snapshot(&snap);
+        let round = state.to_session_snapshot();
+
+        let leaf = &round.workspaces[0].tabs[0].split_tree;
+        match leaf {
+            SplitNodeSnapshot::Leaf {
+                chatbackend_plugin_id,
+                chatbackend_session_id,
+                ..
+            } => {
+                assert_eq!(chatbackend_plugin_id.as_deref(), Some("lmstudio"));
+                assert_eq!(chatbackend_session_id.as_deref(), Some("sess-7"));
+            }
+            _ => panic!("expected a leaf"),
+        }
+    }
+
+    #[test]
+    fn pty_pane_round_trips_without_chatbackend_fields() {
+        // A plain PTY pane (agent_type, no backing) must NOT gain a chatBackend
+        // backing on round-trip.
+        let leaf = SplitNodeSnapshot::Leaf {
+            pane_id: "p2".into(),
+            cwd: None,
+            title: Some("claude".into()),
+            title_level: Some("User".into()),
+            agent_type: Some("claude".into()),
+            agent_type_locked: true,
+            claude_session_id: Some("c-1".into()),
+            role: None,
+            parent_pane_id: None,
+            can_spawn: false,
+            depth: 0,
+            chat_view: Some(false),
+            auto_approve: false,
+            agent_session_model: None,
+            chatbackend_plugin_id: None,
+            chatbackend_session_id: None,
+        };
+        let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
+        let pane = state.panes.get("p2").expect("pane restored");
+        assert_eq!(pane.backing, PaneBacking::Pty);
     }
 }

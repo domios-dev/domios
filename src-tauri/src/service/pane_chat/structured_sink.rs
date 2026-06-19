@@ -44,6 +44,45 @@ pub fn make_sink(app: AppHandle) -> Arc<dyn StructuredSink> {
     Arc::new(TauriStructuredSink { app })
 }
 
+/// Durable wrapper for chatBackend (shell) panes: forwards every emitted delta
+/// to the wrapped UI sink AND UPSERTs it into the session's JSONL so the
+/// transcript survives a refresh / VM reload / daemon restart. chatBackend panes
+/// have no provider-side store, so this host-side JSONL IS the durable truth
+/// (see [`super::chatbackend_history`]).
+pub struct ChatBackendStructuredSink {
+    inner: Arc<dyn StructuredSink>,
+    history: parking_lot::Mutex<super::chatbackend_history::ChatBackendHistory>,
+}
+
+impl ChatBackendStructuredSink {
+    /// `meta` is the openSession config persisted as the JSONL `_meta` header so
+    /// a restored pane can lazily re-open and continue.
+    pub fn new(
+        inner: Arc<dyn StructuredSink>,
+        plugin_id: &str,
+        session_id: &str,
+        meta: Option<&serde_json::Value>,
+    ) -> Self {
+        let mut history =
+            super::chatbackend_history::ChatBackendHistory::open(plugin_id, session_id);
+        if let Some(cfg) = meta {
+            history.ensure_meta(cfg);
+        }
+        Self {
+            inner,
+            history: parking_lot::Mutex::new(history),
+        }
+    }
+}
+
+impl StructuredSink for ChatBackendStructuredSink {
+    fn emit(&self, pane_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>) {
+        // Persist first (cheap, deduped), then forward to the UI sink.
+        self.history.lock().upsert(&messages);
+        self.inner.emit(pane_id, messages, cursor);
+    }
+}
+
 /// Adapter that turns a JSONL [`DeltaSink`] (RichMessage) into the structured
 /// `pane-chat-msg-{id}` stream: it flattens each RichMessage via
 /// `rich_to_chat_msgs` and emits `ChatMsg`s — the SAME shape the snapshot and
@@ -87,4 +126,54 @@ pub fn make_flatten_sink(app: AppHandle, base_start: usize) -> Arc<dyn super::ta
         app,
         base: std::sync::atomic::AtomicUsize::new(base_start),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service::pane_chat::chatbackend_history;
+
+    #[derive(Default)]
+    struct CountingSink {
+        emits: std::sync::atomic::AtomicUsize,
+    }
+    impl StructuredSink for CountingSink {
+        fn emit(&self, _pane_id: &str, _messages: Vec<ChatMsg>, _cursor: Option<String>) {
+            self.emits
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    fn msg(id: &str, content: &str) -> ChatMsg {
+        ChatMsg {
+            id: id.into(),
+            kind: "assistant".into(),
+            content: content.into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn chatbackend_sink_persists_and_forwards() {
+        let plugin = "test-sink-plugin-unique";
+        let session = "sink-sid";
+        let path = chatbackend_history::session_path(plugin, session);
+        let _ = std::fs::remove_file(&path);
+
+        let inner = Arc::new(CountingSink::default());
+        let sink = ChatBackendStructuredSink::new(inner.clone(), plugin, session, None);
+
+        // A streaming message grows in place across two emits.
+        sink.emit("pane-1", vec![msg("m1", "He")], None);
+        sink.emit("pane-1", vec![msg("m1", "Hello")], None);
+
+        // Forwarded to the UI sink each time.
+        assert_eq!(inner.emits.load(std::sync::atomic::Ordering::Relaxed), 2);
+        // But the JSONL holds ONE line (UPSERT by id), with the final content.
+        let read = chatbackend_history::read_messages(&path);
+        assert_eq!(read.len(), 1, "one line per message id");
+        assert_eq!(read[0].content, "Hello");
+
+        let _ = std::fs::remove_file(&path);
+    }
 }
