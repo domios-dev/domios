@@ -12,12 +12,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronUp } from "lucide-react";
 import type { ModelInfo } from "../../lib/types";
 import { getChatModelBubbleApi } from "./chatModelBubbleApi";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 export function ChatModelBubble({ pluginId, sessionId }: { pluginId: string; sessionId: string }) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [currentModel, setCurrentModel] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<{ model: ModelInfo; message: string } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -39,9 +41,8 @@ export function ChatModelBubble({ pluginId, sessionId }: { pluginId: string; ses
     return models.find((m) => m.id === currentModel)?.display_name ?? currentModel;
   }, [currentModel, models]);
 
-  const choose = useCallback(
+  const doSwitch = useCallback(
     async (model: ModelInfo) => {
-      setOpen(false);
       setBusy(true);
       try {
         const info = await getChatModelBubbleApi().switchModel(pluginId, sessionId, model.id);
@@ -54,6 +55,33 @@ export function ChatModelBubble({ pluginId, sessionId }: { pluginId: string; ses
     },
     [pluginId, sessionId],
   );
+
+  const choose = useCallback(
+    async (model: ModelInfo) => {
+      setOpen(false);
+      if (model.id === currentModel) return;
+      // Let the plugin decide whether this switch is disruptive enough to confirm
+      // and supply the message. Absent hook / rejection → switch directly.
+      let desc = null;
+      try {
+        desc = (await getChatModelBubbleApi().describeModelSwitch?.(pluginId, sessionId, model.id)) ?? null;
+      } catch {
+        desc = null;
+      }
+      if (desc?.needsConfirm) {
+        setPending({ model, message: desc.message });
+        return;
+      }
+      await doSwitch(model);
+    },
+    [pluginId, sessionId, currentModel, doSwitch],
+  );
+
+  const confirmPending = useCallback(() => {
+    const model = pending?.model;
+    setPending(null);
+    if (model) void doSwitch(model);
+  }, [pending, doSwitch]);
 
   // Generalized gate: only shells that publish switchable models get the bubble.
   if (models.length === 0) return null;
@@ -123,6 +151,16 @@ export function ChatModelBubble({ pluginId, sessionId }: { pluginId: string; ses
             );
           })}
         </div>
+      )}
+      {pending && (
+        <ConfirmDialog
+          testId="chat-model-switch-confirm"
+          title="Switch model?"
+          message={pending.message}
+          confirmLabel="Switch"
+          onConfirm={confirmPending}
+          onCancel={() => setPending(null)}
+        />
       )}
     </div>
   );

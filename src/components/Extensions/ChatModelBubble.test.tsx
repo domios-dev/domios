@@ -84,6 +84,24 @@ function options(host: HTMLElement): HTMLButtonElement[] {
   return Array.from(host.querySelectorAll('[data-testid="chat-model-option"]'));
 }
 
+// The confirm overlay is rendered into document.body via fixed positioning, but
+// it lives inside the bubble's wrapper subtree — query the whole document.
+function confirmDialog(): HTMLElement | null {
+  return document.querySelector('[data-testid="chat-model-switch-confirm"]');
+}
+
+async function pick(host: HTMLElement, modelId: string) {
+  await act(async () => {
+    bubble(host)!.click();
+  });
+  const opt = options(host).find((o) => o.getAttribute("data-model-id") === modelId);
+  assert(opt, `option ${modelId} should render`);
+  await act(async () => {
+    opt.click();
+  });
+  await flush();
+}
+
 setupDom();
 
 test("renders the current model from session_info", async () => {
@@ -164,6 +182,104 @@ test("picking a model invokes switch_model and updates the bubble", async () => 
   );
   assert(bubble(host)?.textContent?.includes("Llama 3"), "bubble should reflect the newly selected model");
   assert(options(host).length === 0, "dropdown should close after picking");
+
+  __setChatModelBubbleApiForTest(null);
+  await act(async () => root.unmount());
+});
+
+test("picking a model that needsConfirm shows the plugin confirm and only switches on OK", async () => {
+  const describeCalls: string[] = [];
+  const { api, switchCalls } = fakeApi({
+    describeModelSwitch: async (_p, _s, model) => {
+      describeCalls.push(model);
+      return { needsConfirm: true, message: "Loading Llama 3 will unload Qwen 2.5 (VRAM-tight)." };
+    },
+  });
+  __setChatModelBubbleApiForTest(api);
+  const { host, root } = await render(<ChatModelBubble pluginId="lmstudio" sessionId="s1" />);
+  await flush();
+
+  await pick(host, "llama-3");
+
+  assert(describeCalls.length === 1 && describeCalls[0] === "llama-3", `describeModelSwitch should be asked first, got ${JSON.stringify(describeCalls)}`);
+  const switchesBeforeOk = switchCalls.length;
+  assert(switchesBeforeOk === 0, "switch must NOT fire before the user confirms");
+  const dialog = confirmDialog();
+  assert(dialog, "confirm dialog should appear when needsConfirm");
+  assert(
+    dialog.textContent?.includes("Loading Llama 3 will unload Qwen 2.5"),
+    `dialog should show the PLUGIN message, got: ${dialog.textContent}`,
+  );
+
+  const ok = document.querySelector('[data-testid="chat-model-switch-confirm-confirm"]') as HTMLButtonElement | null;
+  assert(ok, "confirm OK button should render");
+  await act(async () => {
+    ok.click();
+  });
+  await flush();
+
+  assert(switchCalls.length === 1 && switchCalls[0].model === "llama-3", `switch should fire once on OK, got ${JSON.stringify(switchCalls)}`);
+  assert(!confirmDialog(), "confirm dialog should close after OK");
+  assert(bubble(host)?.textContent?.includes("Llama 3"), "bubble should reflect the switched model");
+
+  __setChatModelBubbleApiForTest(null);
+  await act(async () => root.unmount());
+});
+
+test("cancelling the confirm leaves the model unchanged", async () => {
+  const { api, switchCalls } = fakeApi({
+    describeModelSwitch: async () => ({ needsConfirm: true, message: "disruptive" }),
+  });
+  __setChatModelBubbleApiForTest(api);
+  const { host, root } = await render(<ChatModelBubble pluginId="lmstudio" sessionId="s1" />);
+  await flush();
+
+  await pick(host, "llama-3");
+  const cancel = document.querySelector('[data-testid="chat-model-switch-confirm-cancel"]') as HTMLButtonElement | null;
+  assert(cancel, "confirm cancel button should render");
+  await act(async () => {
+    cancel.click();
+  });
+  await flush();
+
+  assert(switchCalls.length === 0, "switch must NOT fire on cancel");
+  assert(!confirmDialog(), "confirm dialog should close after cancel");
+  assert(bubble(host)?.textContent?.includes("Qwen 2.5"), "bubble should keep the original model");
+
+  __setChatModelBubbleApiForTest(null);
+  await act(async () => root.unmount());
+});
+
+test("needsConfirm=false switches directly with no confirm dialog", async () => {
+  const { api, switchCalls } = fakeApi({
+    describeModelSwitch: async () => ({ needsConfirm: false, message: "" }),
+  });
+  __setChatModelBubbleApiForTest(api);
+  const { host, root } = await render(<ChatModelBubble pluginId="lmstudio" sessionId="s1" />);
+  await flush();
+
+  await pick(host, "llama-3");
+
+  assert(!confirmDialog(), "no confirm dialog when needsConfirm=false");
+  assert(switchCalls.length === 1 && switchCalls[0].model === "llama-3", `switch should fire directly, got ${JSON.stringify(switchCalls)}`);
+  assert(bubble(host)?.textContent?.includes("Llama 3"), "bubble should reflect the switched model");
+
+  __setChatModelBubbleApiForTest(null);
+  await act(async () => root.unmount());
+});
+
+test("a plugin without describeModelSwitch falls back to a direct switch (no crash)", async () => {
+  // No describeModelSwitch on the api at all — the optional hook is simply absent.
+  const { api, switchCalls } = fakeApi();
+  assert(api.describeModelSwitch === undefined, "this case models the hook being absent");
+  __setChatModelBubbleApiForTest(api);
+  const { host, root } = await render(<ChatModelBubble pluginId="bare" sessionId="s1" />);
+  await flush();
+
+  await pick(host, "llama-3");
+
+  assert(!confirmDialog(), "no confirm dialog without the hook");
+  assert(switchCalls.length === 1 && switchCalls[0].model === "llama-3", `switch should fire directly, got ${JSON.stringify(switchCalls)}`);
 
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
