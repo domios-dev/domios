@@ -27,6 +27,7 @@ import {
 } from "./tree";
 import { reducer } from "./reducer";
 import { MultiplexerContext, type MultiplexerContextType } from "./context";
+import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
 
 export { useMultiplexer } from "./context";
 export { highestTitleLevel } from "./tree";
@@ -309,6 +310,17 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           skip_permissions: skipPermissions,
           activate: true,
         });
+        refreshFromBackend();
+        return;
+      }
+      // chatBackend open shells are non-PTY: open a chat pane via the plugin
+      // rather than building a CLI launch command (which exists only for PTY
+      // agent providers) — otherwise "+ new session" errors "Unknown agent provider".
+      if (getAgentDescriptor(agentId)?.kind === "shell") {
+        invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
+        dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
+        const shellPaneId = await invoke<string>("open_chat_backend_pane", { pluginId: agentId, workspaceId });
+        invoke("mux_set_focused_pane", { paneId: shellPaneId }).catch(() => {});
         refreshFromBackend();
         return;
       }
