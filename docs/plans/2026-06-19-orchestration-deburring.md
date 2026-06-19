@@ -12,6 +12,37 @@ code → the skill becomes a clean, general usage playbook.
 
 ---
 
+## Status / tracked tasks
+
+| Task | What | Owner | Status |
+|------|------|-------|--------|
+| P1 | Native worker-death watchdog | worker (Opus) | ✅ MERGED (f3f81077) |
+| P4 | `agent spawn --task-file`/stdin | worker (Opus) | ✅ MERGED (b33b3e25) |
+| P2 | Structured `agent report` | worker (Opus) | ✅ MERGED (acb40d6c) |
+| P3 | Durable sqlite ledger + persist spawned_by | worker (Opus) | ✅ MERGED (911c768d), adversarial-reviewed SAFE |
+| **SR** | **Rewrite the orchestration skill** (extract 2 dev-facts → mem, cut the leakage, apply the 9 flaw-fixes + new 9-section structure + locked spawn recipe + demote-not-delete heartbeat) | **Dante (this orchestrator)** | **⏳ IN PROGRESS — unblocked (all 4 code tracks landed). Fact files drafted.** |
+| P5 | Optional `parity_test.rs` for `is_agent_pane` (native vs JS) | Dante | ⏳ queued (optional) |
+| FU1 | `PRAGMA user_version` migration ladder for the ledger (before any future schema change) | Dante | ⏳ queued (non-blocking follow-up) |
+
+All four code tracks are merged into `plugins-rethink` (currently @ `cfa9a829`).
+SR is the remaining headline deliverable — it is the WHOLE POINT (fix the code so
+the skill can drop its hacks, then actually rewrite the skill). **SR is assigned
+to Dante** and done directly via `codeterm mem` (skill + facts live in mem, not
+files), not delegated to a worker.
+
+### SR sub-steps (Dante)
+1. Save `fact_codeterm_plugin_runtime_sharp_edges` + `fact_codeterm_dev_push_hooks`
+   to mem (kind=fact, area=codeterm) — the leakage extracted from the skill.
+2. Rewrite the skill body: cut the 4 MECHANICS dev bullets (now in the facts),
+   apply the 9 flaw-fixes, the new 9-section structure, the locked spawn recipe,
+   and demote-not-delete for the heartbeat.
+3. Save via `codeterm mem save --kind skill --replace` against the existing id
+   `skill_multi_agent_orchestration_pattern_codeterm_orchestrator_per` (upsert in
+   place; old version stays in mem history).
+4. Verify recall (`codeterm mem search`) surfaces the rewritten skill.
+
+---
+
 ## Code changes (ranked by skill-simplification × feasibility)
 
 ### P1 — Native worker-death watchdog (kills the 25-min heartbeat self-send). HIGH/HIGH
