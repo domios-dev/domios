@@ -12,6 +12,7 @@ export interface ExtendedState extends MultiplexerState {
   notifications: Notification[];
   paneStatuses: Record<string, PaneStatus>;
   toasts: Notification[];
+  activeTabIds: Record<string, string>;
 }
 
 export function makeTab(pane: Pane): Tab {

@@ -247,8 +247,8 @@ function AppInner() {
   );
 
   const activeTab = useMemo(
-    () => activeWs?.tabs.find((t) => t.id === activeWs.active_tab_id),
-    [activeWs],
+    () => activeWs?.tabs.find((t) => t.id === state.activeTabIds[activeWs.id]),
+    [activeWs, state.activeTabIds],
   );
   useEffect(() => {
     if (!activeTab?.id) return;
@@ -394,7 +394,7 @@ function AppInner() {
         // switched tabs — pasting there means the text lands in an invisible terminal. The active tab's pane is what the user perceives as "the selected one" they're looking at.
         const st = stateRef.current;
         const ws = st.workspaces.find((w) => w.id === st.active_workspace_id);
-        const tab = ws?.tabs.find((t) => t.id === ws.active_tab_id);
+        const tab = ws?.tabs.find((t) => t.id === st.activeTabIds[ws?.id ?? ""]);
         const targetId = tab?.pane_id;
         if (!targetId) return;
         if (pasteToPane(targetId)) {
@@ -480,7 +480,8 @@ function AppInner() {
       if (matchesBinding(e, kb.next_tab)) {
         e.preventDefault();
         if (activeWs && activeWs.tabs.length > 1) {
-          const idx = activeWs.tabs.findIndex((t) => t.id === activeWs.active_tab_id);
+          const activeTabId = stateRef.current.activeTabIds[activeWs.id];
+          const idx = activeWs.tabs.findIndex((t) => t.id === activeTabId);
           setActiveTab(activeWs.id, activeWs.tabs[(idx + 1) % activeWs.tabs.length].id);
         }
         return;
@@ -488,7 +489,8 @@ function AppInner() {
       if (matchesBinding(e, kb.prev_tab)) {
         e.preventDefault();
         if (activeWs && activeWs.tabs.length > 1) {
-          const idx = activeWs.tabs.findIndex((t) => t.id === activeWs.active_tab_id);
+          const activeTabId = stateRef.current.activeTabIds[activeWs.id];
+          const idx = activeWs.tabs.findIndex((t) => t.id === activeTabId);
           setActiveTab(activeWs.id, activeWs.tabs[(idx - 1 + activeWs.tabs.length) % activeWs.tabs.length].id);
         }
         return;
@@ -734,7 +736,7 @@ function AppInner() {
           {state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
-                const isActiveTab = ws.id === state.active_workspace_id && tab.id === ws.active_tab_id;
+                const isActiveTab = ws.id === state.active_workspace_id && tab.id === state.activeTabIds[ws.id];
                 // Main (protected pane in the protected workspace) is never
                 // lazy — mount it on boot so its chat/SSE state is live.
                 const isMainTab =

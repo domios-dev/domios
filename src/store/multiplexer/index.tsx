@@ -42,6 +42,7 @@ function buildInitialState(): ExtendedState {
     notifications: [],
     paneStatuses: {},
     toasts: [],
+    activeTabIds: {},
   };
 }
 
