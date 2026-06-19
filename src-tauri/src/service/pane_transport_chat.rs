@@ -28,6 +28,7 @@ fn chatbackend_should_stage(pane_has_agent: bool) -> bool {
 
 fn build_chatbackend_open_session_ctx(
     pane_id: &str,
+    workspace_id: Option<&str>,
     config: serde_json::Value,
 ) -> serde_json::Value {
     let mut ctx = serde_json::Map::new();
@@ -35,6 +36,12 @@ fn build_chatbackend_open_session_ctx(
         "paneId".into(),
         serde_json::Value::String(pane_id.to_string()),
     );
+    if let Some(workspace_id) = workspace_id.filter(|id| !id.is_empty()) {
+        ctx.insert(
+            "workspaceId".into(),
+            serde_json::Value::String(workspace_id.to_string()),
+        );
+    }
     for key in ["systemPrompt", "preset", "model"] {
         if let Some(value) = config.get(key).and_then(|v| v.as_str()) {
             ctx.insert(key.into(), serde_json::Value::String(value.to_string()));
@@ -143,10 +150,22 @@ impl ServiceContext {
         pane_id: &str,
         config: serde_json::Value,
     ) -> Result<String, String> {
-        let ctx = build_chatbackend_open_session_ctx(pane_id, config);
+        let workspace_id = self.workspace_id_for_pane(pane_id);
+        let ctx = build_chatbackend_open_session_ctx(pane_id, workspace_id.as_deref(), config);
         self.chatbackend_provider(plugin_id)?
             .open_session(ctx)
             .map_err(|e| e.to_string())
+    }
+
+    fn workspace_id_for_pane(&self, pane_id: &str) -> Option<String> {
+        let snapshot = self.mux.read().snapshot();
+        snapshot.workspaces.iter().find_map(|workspace| {
+            workspace
+                .tabs
+                .iter()
+                .any(|tab| tab.pane_id == pane_id)
+                .then(|| workspace.id.clone())
+        })
     }
 
     /// Lazily re-open a chatBackend pane's plugin session after a daemon
@@ -338,6 +357,7 @@ mod tests {
     fn chatbackend_open_session_ctx_promotes_open_shell_fields() {
         let ctx = super::build_chatbackend_open_session_ctx(
             "pane-7",
+            Some("ws-1"),
             json!({
                 "systemPrompt": "You are CodeTerm.",
                 "preset": "codeterm",
@@ -347,6 +367,7 @@ mod tests {
         );
 
         assert_eq!(ctx["paneId"], "pane-7");
+        assert_eq!(ctx["workspaceId"], "ws-1");
         assert_eq!(ctx["config"]["temperature"], 0.2);
         assert_eq!(ctx["systemPrompt"], "You are CodeTerm.");
         assert_eq!(ctx["preset"], "codeterm");
@@ -355,9 +376,10 @@ mod tests {
 
     #[test]
     fn chatbackend_open_session_ctx_omits_absent_open_shell_fields() {
-        let ctx = super::build_chatbackend_open_session_ctx("pane-7", json!({}));
+        let ctx = super::build_chatbackend_open_session_ctx("pane-7", None, json!({}));
 
         assert_eq!(ctx["paneId"], "pane-7");
+        assert!(ctx.get("workspaceId").is_none());
         assert_eq!(ctx["config"], json!({}));
         assert!(ctx.get("systemPrompt").is_none());
         assert!(ctx.get("preset").is_none());
