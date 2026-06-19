@@ -1,12 +1,5 @@
-//! Background poller that watches the plugin roots for `plugin.js` /
-//! `plugin.json` changes and either hot-reloads the existing VM or
-//! discovers + registers a brand-new plugin folder — all without
-//! restarting the daemon.
-//!
-//! Polling (every 2s) instead of inotify/ReadDirectoryChangesW because
-//! the cross-platform `notify` backend config in this crate currently
-//! only enables macos_fsevent. Polling N files at 2s intervals is
-//! trivially cheap for the volumes here (1-10 plugins).
+//! Background poller for plugin root changes. It hot-reloads modified plugins
+//! and registers or deregisters plugin folders without restarting the daemon.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
@@ -32,10 +25,6 @@ struct Tracked {
     config_mtime: SystemTime,
 }
 
-/// The non-agent capability registries the watcher re-registers a (re)loaded
-/// plugin's capabilities into live — mirroring the startup arms in `lib.rs`
-/// (plan §1.8). The shared `register_plugin`/`deregister_plugin` seam keeps the
-/// startup loop and the hot-reload watcher in lockstep.
 #[derive(Clone)]
 pub struct CapabilityRegistries {
     pub secret: Arc<crate::secrets::SecretRegistry>,
@@ -49,10 +38,6 @@ pub struct CapabilityRegistries {
 }
 
 impl CapabilityRegistries {
-    /// Re-register a (re)loaded plugin's capability adapters live, mirroring the
-    /// startup arms in `lib.rs`. Runs for both agent and capability-only plugins
-    /// — a plugin may be both. `register` replaces any same-id entry, so this is
-    /// also the reload path. (§1.8 P1: install → capability appears, no restart.)
     pub fn register_plugin(&self, manifest: &PluginManifest, vm: &Arc<super::PluginVm>) {
         let id = &manifest.id;
         let caps = &manifest.capabilities;
@@ -98,9 +83,6 @@ impl CapabilityRegistries {
                 Arc::new(super::JsChatPreprocessor::new(vm.clone(), id.clone())),
             );
         }
-        // Inverse seam: register an agent-command handler when the grant is live
-        // in the sandbox (the enforcement source). The dispatch re-checks
-        // `granted()`, so an ungranted handler can never route.
         if vm.agent_commands_allowed() {
             self.agent_command.register(
                 id.clone(),
@@ -111,15 +93,11 @@ impl CapabilityRegistries {
                 )),
             );
         }
-        // Conflict guard (plan §6): warn when the `voice` slot is grabbed by >1
-        // stage. Warn-and-allow.
         if caps.transcriber || caps.chat_preprocessor.enabled() {
             crate::chatpipeline::warn_stage_conflicts(&self.transcribe, &self.chat_preprocessor);
         }
     }
 
-    /// Deregister every capability adapter for `id` — uninstall must leave no
-    /// ghost (bubble/view/chatBackend gone). Unregister is idempotent.
     pub fn deregister_plugin(&self, id: &str) {
         self.transcribe.unregister(id);
         self.secret.unregister(id);
@@ -137,31 +115,11 @@ impl CapabilityRegistries {
 pub struct HotReloadRegistry {
     roots: Vec<PathBuf>,
     agent_registry: Arc<AgentRegistry>,
-    /// Capability registry handles, carried so a later track can re-register
-    /// reloaded plugins' capabilities without a daemon restart (§1.8).
     caps: CapabilityRegistries,
-    /// Plugin id → tracked state. Mutex because the watcher mutates
-    /// from a background thread.
     state: Mutex<HashMap<String, Tracked>>,
-    /// Plugin id → weak handle to its live VM. Populated for both startup-loaded
-    /// plugins (seeded by `lib.rs` via [`register_vm`]) and hot-loaded ones (in
-    /// `full_load`). A config-only change re-stamps settings into THIS VM instead
-    /// of rebuilding — preserving the plugin's in-memory sessions. `Weak` so the
-    /// watcher never keeps a torn-down plugin's VM alive; a dead weak falls back
-    /// to a full rebuild.
     vms: Mutex<HashMap<String, std::sync::Weak<super::PluginVm>>>,
-    /// Plugins that were present (and registered by `lib.rs`) at the full daemon
-    /// start. A `requiresReload` plugin in this set is already active, so a later
-    /// reload of it must NOT be marked pending (§1.8).
     activated_startup: Mutex<HashSet<String>>,
-    /// Plugins installed/enabled after start that declared `requiresReload` and so
-    /// could not hot-activate — the UI/CLI surface "reload to activate" for these.
     pending_reload: Mutex<HashSet<String>>,
-    /// Weak `ServiceContext` ref, late-bound after service init (the watcher is
-    /// built before `ServiceContext` exists — same ordering wall as the startup
-    /// `plugin_vms` loop, C0). Threaded into every freshly (re)loaded plugin VM
-    /// so `host.mem`/`worker`/`agent` work without a daemon restart (P4). `Weak`
-    /// so a plugin VM never keeps the service alive past teardown.
     service: Mutex<Option<std::sync::Weak<crate::service::ServiceContext>>>,
     #[cfg(test)]
     load_count: std::sync::atomic::AtomicUsize,
@@ -210,17 +168,10 @@ impl HotReloadRegistry {
         })
     }
 
-    /// Late-bind the `ServiceContext` (C0 ordering: the watcher is constructed
-    /// before the service exists). After this, every plugin the watcher
-    /// (re)loads gets the service threaded into its VM (P4).
     pub fn set_service_ref(&self, svc: std::sync::Weak<crate::service::ServiceContext>) {
         *self.service.lock() = Some(svc);
     }
 
-    /// Thread the late-bound service ref into a freshly loaded plugin VM. Returns
-    /// whether it bound (false when no service ref is set yet, or the VM already
-    /// has one). Called from `full_load` so hot-installed plugins reach
-    /// `host.mem`/`worker`/`agent` exactly like startup-loaded ones (P4).
     fn bind_service(&self, vm: &Arc<super::PluginVm>) -> bool {
         let svc = self.service.lock().clone();
         match svc {
@@ -229,11 +180,6 @@ impl HotReloadRegistry {
         }
     }
 
-    /// Track a startup-loaded plugin's live VM so a later config-only change can
-    /// re-stamp settings into it instead of rebuilding (which would wipe its
-    /// in-memory sessions). `lib.rs` calls this once per startup plugin after
-    /// `seed()`; hot-loaded plugins are tracked in `full_load`. `Weak` so the
-    /// watcher never pins a torn-down VM alive.
     pub fn register_vm(&self, id: &str, vm: &Arc<super::PluginVm>) {
         self.vms.lock().insert(id.to_string(), Arc::downgrade(vm));
     }
@@ -244,11 +190,6 @@ impl HotReloadRegistry {
         self.vms.lock().get(id).and_then(std::sync::Weak::upgrade)
     }
 
-    /// Record every plugin already present (and registered by `lib.rs`) at full
-    /// daemon start as activated, seeding `state` mtimes so the first real tick
-    /// is a no-op. Call ONCE after startup registration, in place of a warm-up
-    /// `tick()` — re-loading here would double-register and wrongly flag startup
-    /// `requiresReload` plugins as pending.
     pub fn seed(&self) {
         let candidates = self.discover_candidates();
         let mut state = self.state.lock();
@@ -288,6 +229,15 @@ impl HotReloadRegistry {
         &self.caps
     }
 
+    fn emit_agent_provider_changed(&self) {
+        let svc = self.service.lock().clone().and_then(|w| w.upgrade());
+        if let Some(svc) = svc {
+            svc.events.publish(crate::api::events::SystemEvent::ContributionsChanged {
+                kind: "agent_provider".to_string(),
+            });
+        }
+    }
+
     /// Spawn the background poller. The handle owns itself — no need
     /// for callers to keep it.
     pub fn start(self: &Arc<Self>) {
@@ -302,8 +252,6 @@ impl HotReloadRegistry {
             .ok();
     }
 
-    /// Run one scan-and-reconcile pass. Public so callers can force a
-    /// rescan (tests; manual reload command).
     pub fn tick(&self) {
         let mut seen: Vec<String> = Vec::new();
         let candidates = self.discover_candidates();
@@ -316,6 +264,7 @@ impl HotReloadRegistry {
             }
         }
         // Anything we used to track that's no longer present → unregister.
+        let mut provider_changed = false;
         let mut state = self.state.lock();
         let removed: Vec<String> = state
             .keys()
@@ -325,11 +274,16 @@ impl HotReloadRegistry {
         for id in removed {
             state.remove(&id);
             self.vms.lock().remove(&id);
-            self.agent_registry.unregister_provider(&id);
+            provider_changed |= self.agent_registry.unregister_provider(&id);
+            provider_changed |= self.caps.chatbackend.contains(&id);
             self.caps.deregister_plugin(&id);
             self.pending_reload.lock().remove(&id);
             self.activated_startup.lock().remove(&id);
             log::info!("[plugin-watcher] unregistered {id} (folder removed)");
+        }
+        drop(state);
+        if provider_changed {
+            self.emit_agent_provider_changed();
         }
     }
 
@@ -489,7 +443,11 @@ impl HotReloadRegistry {
                     provider.set_registry(self.agent_registry.clone());
                     self.agent_registry.register_provider(Box::new(provider));
                     log::info!("[plugin-watcher] registered {id}");
+                    self.emit_agent_provider_changed();
                 } else {
+                    if provider.manifest().capabilities.chat_backend_spawnable() {
+                        self.emit_agent_provider_changed();
+                    }
                     log::info!(
                         "[plugin-watcher] {id} capability registered live; not an agent provider — skipped agent registry"
                     );

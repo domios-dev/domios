@@ -80,7 +80,7 @@ export function ExtensionsTray({ onOpen }: { onOpen: () => void }) {
 
   if (pinned.length === 0) {
     return (
-      <button type="button" data-testid="titlebar-extensions" onClick={() => open(null)} title="Extensions" className={iconBtn}>
+      <button type="button" data-testid="titlebar-extensions" onClick={() => open(null)} title="Plugins" className={iconBtn}>
         <ExtensionsIcon size={14} />
       </button>
     );
@@ -106,7 +106,7 @@ export function ExtensionsTray({ onOpen }: { onOpen: () => void }) {
         type="button"
         data-testid="titlebar-extensions"
         onClick={() => open(null)}
-        title="Extensions"
+        title="Plugins"
         className="flex items-center justify-center w-6 h-6 rounded-full transition-colors hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)]"
       >
         <ExtensionsIcon size={14} />

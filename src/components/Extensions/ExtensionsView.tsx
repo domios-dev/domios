@@ -29,6 +29,15 @@ import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 
 const EMPTY_SNAPSHOT: PluginSnapshot = { plugins: [], channels: [], diff: [], marketplace: [] };
 
+function normalizeSnapshot(snap: PluginSnapshot | null | undefined): PluginSnapshot {
+  return {
+    plugins: snap?.plugins ?? [],
+    channels: snap?.channels ?? [],
+    diff: snap?.diff ?? [],
+    marketplace: snap?.marketplace ?? [],
+  };
+}
+
 function actionPayload(
   kind: ActionKind,
   entry: CatalogEntry,
@@ -62,27 +71,35 @@ export function ExtensionsView({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [channelsOpen, setChannelsOpen] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (refreshChannels = false) => {
+    if (refreshChannels) setBusy("refresh-channel");
     try {
       const [snap, cfg] = await Promise.all([
-        invoke<PluginSnapshot>("plugin_manager_snapshot"),
+        refreshChannels
+          ? invoke<PluginSnapshot>("plugin_manager_action", { action: { kind: "refresh-channel" } })
+          : invoke<PluginSnapshot>("plugin_manager_snapshot"),
         invoke<AppConfigShape>("get_config"),
       ]);
-      setSnapshot({
-        plugins: snap?.plugins ?? [],
-        channels: snap?.channels ?? [],
-        diff: snap?.diff ?? [],
-        marketplace: snap?.marketplace ?? [],
-      });
+      setSnapshot(normalizeSnapshot(snap));
       setConfig(cfg ?? {});
       setError(null);
     } catch (e) {
-      setError(String(e));
+      setError(refreshChannels ? `Couldn't refresh channels: ${String(e)}` : String(e));
+      if (refreshChannels) {
+        try {
+          const snap = await invoke<PluginSnapshot>("plugin_manager_snapshot");
+          setSnapshot(normalizeSnapshot(snap));
+        } catch {
+          // Keep the channel-refresh error visible.
+        }
+      }
+    } finally {
+      if (refreshChannels) setBusy(null);
     }
   }, []);
 
   useEffect(() => {
-    if (visible) void refresh();
+    if (visible) void refresh(true);
   }, [visible, refresh]);
 
   // Deep-link: the titlebar tray dispatches this to jump straight to a plugin.
@@ -105,6 +122,14 @@ export function ExtensionsView({
     for (const [id, p] of Object.entries(config?.plugins ?? {})) if (p?.pinned) s.add(id);
     return s;
   }, [config]);
+
+  const channelInstalledCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const entry of catalog) {
+      if (entry.installed && entry.channel) counts.set(entry.channel, (counts.get(entry.channel) ?? 0) + 1);
+    }
+    return counts;
+  }, [catalog]);
 
   const saveSetting = useCallback(async (pluginId: string, key: string, value: unknown) => {
     try {
@@ -135,19 +160,16 @@ export function ExtensionsView({
   }, []);
 
   const runAction = useCallback(
-    async (key: string, action: Record<string, unknown>) => {
+    async (key: string, action: Record<string, unknown>): Promise<boolean> => {
       setBusy(key);
       setError(null);
       try {
         const snap = await invoke<PluginSnapshot>("plugin_manager_action", { action });
-        setSnapshot({
-          plugins: snap?.plugins ?? [],
-          channels: snap?.channels ?? [],
-          diff: snap?.diff ?? [],
-          marketplace: snap?.marketplace ?? [],
-        });
+        setSnapshot(normalizeSnapshot(snap));
+        return true;
       } catch (e) {
         setError(String(e));
+        return false;
       } finally {
         setBusy(null);
       }
@@ -204,7 +226,15 @@ export function ExtensionsView({
                 activityDisplayMap={pluginActivityDisplayMap}
               />
             </div>
-            <ChannelManager busy={busy} onAction={runAction} open={channelsOpen} onOpenChange={setChannelsOpen} />
+            <ChannelManager
+              busy={busy}
+              onAction={runAction}
+              channels={snapshot.channels}
+              installedCounts={channelInstalledCounts}
+              onRemoveChannel={onRemoveChannel}
+              open={channelsOpen}
+              onOpenChange={setChannelsOpen}
+            />
           </div>
 
           {/* Right pane */}
@@ -245,9 +275,9 @@ export function ExtensionsView({
 function EmptyState({ count }: { count: number }) {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--ct-muted)", textAlign: "center", padding: 24 }} data-testid="extensions-empty-state">
-      <div style={{ fontSize: 13.5, marginBottom: 4 }}>Select an extension</div>
+      <div style={{ fontSize: 13.5, marginBottom: 4 }}>Select a plugin</div>
       <div style={{ fontSize: 12 }}>
-        {count} extension{count === 1 ? "" : "s"} available — pick one to see its details and actions.
+        {count} plugin{count === 1 ? "" : "s"} available - pick one to see its details and actions.
       </div>
     </div>
   );
