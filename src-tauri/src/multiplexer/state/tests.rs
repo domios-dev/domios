@@ -657,7 +657,6 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
                 active_tab_id: Some("tab-1".to_string()),
                 cwd: None,
                 protected: false,
-                recently_closed: vec![],
                 tabs: vec![TabSnapshot {
                     id: "tab-1".to_string(),
                     title: "Tab".to_string(),
@@ -715,7 +714,6 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
             active_tab_id: Some("tab-1".to_string()),
             cwd: None,
             protected: false,
-            recently_closed: vec![],
             tabs: vec![TabSnapshot {
                 id: "tab-1".to_string(),
                 title: "Tab".to_string(),
@@ -779,7 +777,6 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
             active_tab_id: Some("tab-1".to_string()),
             cwd: None,
             protected: false,
-            recently_closed: vec![],
             tabs: vec![TabSnapshot {
                 id: "tab-1".to_string(),
                 title: "Tab".to_string(),
