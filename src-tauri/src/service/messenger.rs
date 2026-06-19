@@ -250,25 +250,16 @@ impl Messenger {
         body: &str,
     ) -> Result<Delivery, String> {
         let message_id = format!("inbound-{}", uuid::Uuid::new_v4().simple());
-        let marked = inbound_model_context(&envelope, body);
-        let msg = crate::agent::chat_types::ChatMsg {
-            id: message_id.clone(),
-            kind: "user".into(),
-            content: marked.clone(),
-            timestamp: Some(chrono::Utc::now().to_rfc3339()),
-            from_label: Some(clean_name(&envelope.from_label)).filter(|s| !s.is_empty()),
-            from_pane: Some(short_id(&envelope.from_pane).to_string()).filter(|s| !s.is_empty()),
-            from_model: envelope.from_model.clone(),
-            from_mesh: envelope.from_mesh.clone().or(envelope.peer.clone()),
-            inbound_kind: Some(envelope.kind.inbound_kind().to_string()),
-            ..Default::default()
-        };
+        let (msg, marked) = build_chatbackend_inbound(&envelope, body, message_id.clone());
 
-        let path =
-            crate::service::pane_chat::chatbackend_history::session_path(plugin_id, session_id);
-        let mut history =
-            crate::service::pane_chat::chatbackend_history::ChatBackendHistory::open_at(path);
-        history.upsert(std::slice::from_ref(&msg));
+        // Upsert into the SHARED per-session mirror — the same instance the poll
+        // loop's sink flushes — so this host row survives later poll flushes
+        // (single-writer invariant). Lock is a leaf, dropped before send/await.
+        crate::service::pane_chat::chatbackend_history::ChatBackendHistory::shared(
+            plugin_id, session_id,
+        )
+        .lock()
+        .upsert(std::slice::from_ref(&msg));
         crate::service::pane_chat::structured_sink::emit_chat_msgs(
             &svc.app_handle,
             to_pane,
@@ -276,6 +267,8 @@ impl Messenger {
             None,
         );
 
+        // The model still gets the marker (sender identity + return address); the
+        // stored/rendered row above carries only the clean body.
         let staged = svc.run_outbound_stages(to_pane, marked);
         svc.chatbackend_send(plugin_id, session_id, &staged)?;
         Ok(Delivery::ChatBackend { message_id })
@@ -330,6 +323,33 @@ impl Messenger {
     pub fn wrap(&self, body: &str) -> String {
         format!("{}{}", self.build(), body)
     }
+}
+
+/// Build the `(stored_row, model_facing_string)` pair for a chatBackend inbound.
+/// The stored/rendered `ChatMsg` carries the CLEAN body plus the structured
+/// `from_*` sender fields (they drive the "FROM X" header); the returned string
+/// is the marker-wrapped body fed to the model so it learns the sender and return
+/// address. Pure so the clean-body/marker split is unit-testable without a
+/// `ServiceContext`.
+fn build_chatbackend_inbound(
+    envelope: &MessageEnvelope,
+    body: &str,
+    message_id: String,
+) -> (crate::agent::chat_types::ChatMsg, String) {
+    let marked = inbound_model_context(envelope, body);
+    let msg = crate::agent::chat_types::ChatMsg {
+        id: message_id,
+        kind: "user".into(),
+        content: body.to_string(),
+        timestamp: Some(chrono::Utc::now().to_rfc3339()),
+        from_label: Some(clean_name(&envelope.from_label)).filter(|s| !s.is_empty()),
+        from_pane: Some(short_id(&envelope.from_pane).to_string()).filter(|s| !s.is_empty()),
+        from_model: envelope.from_model.clone(),
+        from_mesh: envelope.from_mesh.clone().or(envelope.peer.clone()),
+        inbound_kind: Some(envelope.kind.inbound_kind().to_string()),
+        ..Default::default()
+    };
+    (msg, marked)
 }
 
 fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
@@ -671,6 +691,35 @@ mod tests {
             "e8a0ac20",
             "ce9bce56"
         ));
+    }
+
+    #[test]
+    fn chatbackend_inbound_stores_clean_body_model_gets_marker() {
+        // BUG A: the rendered/stored chatBackend row must be the CLEAN body — no
+        // raw `-=-codeterm:inbound …-=-` marker inline. The structured from_*
+        // fields carry the sender (they drive the "FROM X" header). The marker
+        // goes ONLY to the model-facing string.
+        let envelope = MessageEnvelope::pane("Gauss", "abc12345-ffff")
+            .model(Some("qwen".into()))
+            .mesh(Some("Mac-Air".into()));
+        let (msg, marked) = build_chatbackend_inbound(&envelope, "ship it", "inbound-x".into());
+
+        assert_eq!(msg.content, "ship it", "stored row is the clean body");
+        assert!(
+            !msg.content.contains("-=-codeterm"),
+            "no raw marker leaks into the rendered body"
+        );
+        assert_eq!(msg.kind, "user");
+        assert_eq!(msg.from_label.as_deref(), Some("Gauss"));
+        assert_eq!(msg.from_pane.as_deref(), Some("abc12345"));
+        assert_eq!(msg.from_model.as_deref(), Some("qwen"));
+        assert_eq!(msg.from_mesh.as_deref(), Some("Mac-Air"));
+        assert_eq!(msg.inbound_kind.as_deref(), Some("pane"));
+
+        // The model still learns the sender + return address via the marker.
+        assert!(marked.contains("-=-codeterm:inbound"));
+        assert!(marked.contains("from_label=Gauss"));
+        assert!(marked.contains("ship it"));
     }
 
     #[test]

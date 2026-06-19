@@ -704,6 +704,43 @@ mod chat_snapshot_tests {
     }
 
     #[test]
+    fn snapshot_after_poll_flush_includes_host_inbound_and_reply() {
+        // BUG B end-to-end at the snapshot layer: after the gateway writes a host
+        // inbound and the poll loop flushes the reply through the SHARED mirror,
+        // a refresh (snapshot reads JSONL) returns BOTH the inbound and the reply.
+        let plugin = "test-snapshot-single-writer-unique";
+        let session = "snap-sw-sid";
+        let path = chatbackend_history::session_path(plugin, session);
+        let _ = std::fs::remove_file(&path);
+
+        let shared = chatbackend_history::ChatBackendHistory::shared(plugin, session);
+        shared.lock().upsert(&[ChatMsg {
+            id: "inbound-1".into(),
+            kind: "user".into(),
+            content: "ping from Gauss".into(),
+            from_label: Some("Gauss".into()),
+            inbound_kind: Some("pane".into()),
+            ..Default::default()
+        }]);
+        // Poll-loop flush of the reply (delta without the inbound row).
+        shared.lock().upsert(&[ChatMsg {
+            id: "reply-1".into(),
+            kind: "assistant".into(),
+            content: "pong".into(),
+            ..Default::default()
+        }]);
+
+        let wiped = SnapshotBackend::with_messages(0); // live Map empty (refresh)
+        let (msgs, total) = super::chatbackend_snapshot_from(&wiped, session, 0, &path).unwrap();
+        assert_eq!(total, 2, "inbound + reply both survive to the snapshot");
+        assert_eq!(msgs[0].content, "ping from Gauss");
+        assert_eq!(msgs[0].from_label.as_deref(), Some("Gauss"));
+        assert_eq!(msgs[1].content, "pong");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn chatbackend_snapshot_falls_back_to_live_poll_without_jsonl() {
         // A brand-new session before the first delta was persisted: no JSONL on
         // disk ⇒ read the live plugin transcript.
