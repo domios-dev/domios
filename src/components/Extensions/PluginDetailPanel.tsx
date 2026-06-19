@@ -12,6 +12,8 @@ import {
 } from "./pluginCatalog";
 import { CapabilityChip, capabilityLabel } from "./CapabilityChip";
 import { SchemaRenderer } from "../Settings/SchemaRenderer";
+import { PresetManager } from "./PresetManager";
+import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { AgentProviderScreen } from "../Settings/AgentsTab";
 import { SecretBackendDetail } from "./SecretBackendDetail";
 import { MarkdownDescription } from "./MarkdownDescription";
@@ -50,6 +52,10 @@ export function PluginDetailPanel({
 }) {
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [removeData, setRemoveData] = useState(true);
+  // Capability-gated: a chatBackend whose behaviour declares presets gets the
+  // manager. Keys off the transport-tagged descriptor, never a provider id.
+  const descriptor = useAgentDescriptor(entry.id);
+  const supportsPresets = descriptor?.behavior_config?.model === "presets_and_system_prompt";
 
   // Agent plugins render their real provider settings via the shared screen.
   if (entry.capabilities?.agent_provider && config) {
@@ -295,6 +301,10 @@ export function PluginDetailPanel({
             hidePathLinks
           />
         </div>
+      )}
+
+      {entry.installed && !entry.pendingReload && supportsPresets && (
+        <PresetManager pluginId={entry.id} models={descriptor?.available_models ?? []} />
       )}
 
       <GroupLabel>About</GroupLabel>
