@@ -1,0 +1,175 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChatPreprocessorCap {
+    pub enabled: bool,
+    /// Declared pipeline slot (`match`). `None` ⇒ the text slot, the only slot a
+    /// preprocessor may grab today (the SDK fixes `match: "text"`).
+    pub match_slot: Option<String>,
+}
+
+impl ChatPreprocessorCap {
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+}
+
+impl<'de> Deserialize<'de> for ChatPreprocessorCap {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Flag(bool),
+            Obj {
+                #[serde(default, rename = "match")]
+                match_slot: Option<String>,
+            },
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::Flag(enabled) => Self {
+                enabled,
+                match_slot: None,
+            },
+            Raw::Obj { match_slot } => Self {
+                enabled: true,
+                match_slot,
+            },
+        })
+    }
+}
+
+impl Serialize for ChatPreprocessorCap {
+    /// Symmetric with `Deserialize`: a slot ⇒ object, otherwise the bare bool —
+    /// so a disabled cap round-trips to `false`, never silently re-enabling.
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match &self.match_slot {
+            Some(slot) if self.enabled => {
+                use serde::ser::SerializeMap;
+                let mut m = s.serialize_map(Some(1))?;
+                m.serialize_entry("match", slot)?;
+                m.end()
+            }
+            _ => s.serialize_bool(self.enabled),
+        }
+    }
+}
+
+/// `chatBackend` capability declaration. Authors write either a bare bool
+/// (`true` — the backend is registered but NOT user-spawnable, e.g. a
+/// host-/agent-driven NPC pane) or an object (`{ "spawnable": true }` — a
+/// user-openable "open shell" that appears in the new-session picker). Both
+/// forms mean "enabled"; the object also carries whether a user may spawn it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChatBackendCap {
+    pub enabled: bool,
+    /// Whether a user may open this backend as a pane from the new-session
+    /// picker. Bare `chatBackend: true` ⇒ false (backend-only); the object form
+    /// `{ spawnable: true }` opts in.
+    pub spawnable: bool,
+}
+
+impl ChatBackendCap {
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn spawnable(&self) -> bool {
+        self.spawnable
+    }
+}
+
+impl<'de> Deserialize<'de> for ChatBackendCap {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Flag(bool),
+            Obj {
+                #[serde(default)]
+                spawnable: bool,
+            },
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::Flag(enabled) => Self {
+                enabled,
+                spawnable: false,
+            },
+            Raw::Obj { spawnable } => Self {
+                enabled: true,
+                spawnable,
+            },
+        })
+    }
+}
+
+impl Serialize for ChatBackendCap {
+    /// Symmetric with `Deserialize`: a spawnable backend ⇒ object, otherwise the
+    /// bare bool — so a disabled cap round-trips to `false`, never silently
+    /// re-enabling.
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if self.enabled && self.spawnable {
+            use serde::ser::SerializeMap;
+            let mut m = s.serialize_map(Some(1))?;
+            m.serialize_entry("spawnable", &true)?;
+            m.end()
+        } else {
+            s.serialize_bool(self.enabled)
+        }
+    }
+}
+
+/// The core capability traits a plugin can implement. Drives which adapters the
+/// loader builds (`JsProvider` / `JsSecretBackend` / `JsTranscriber` /
+/// `JsGlanceProvider` / `JsBubbleProvider`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Capabilities {
+    #[serde(default)]
+    pub agent_provider: bool,
+    #[serde(default)]
+    pub secret_backend: bool,
+    #[serde(default)]
+    pub transcriber: bool,
+    /// Renders a read-only "glance" popover (ViewNode tree) when pinned.
+    #[serde(default)]
+    pub glance_view: bool,
+    /// Contributes a status pill into the pane-footer bubble row.
+    #[serde(default)]
+    pub status_bubble: bool,
+    /// Ships a full HTML/JS/CSS UI (`ui/index.html`), rendered in a sandboxed
+    /// iframe (VS Code/Figma webview model). Talks to the host only through the
+    /// permission-gated `ct.invoke` postMessage bridge → the plugin's QuickJS
+    /// exports. Behind a loud install grant.
+    #[serde(default)]
+    pub view: bool,
+    /// Drives a non-PTY pane as a full conversational backend (e.g. LM Studio).
+    /// The pane routes send/read through the plugin instead of a terminal.
+    /// Bool (registered, backend-only) or `{ spawnable }` object (user-openable).
+    #[serde(default)]
+    pub chat_backend: ChatBackendCap,
+    /// Send-time text stage of the outbound pipeline (`chatPreprocess`). Matches
+    /// final text and augments it (mem recall / worker / Groq) before transport.
+    /// Bool or `{ match }` object (the §6 slot).
+    #[serde(default)]
+    pub chat_preprocessor: ChatPreprocessorCap,
+}
+
+impl Capabilities {
+    /// Whether the `chatBackend` capability is a user-openable shell (the
+    /// `{ spawnable: true }` form). Bare `chatBackend: true` is backend-only.
+    pub fn chat_backend_spawnable(&self) -> bool {
+        self.chat_backend.spawnable()
+    }
+}
