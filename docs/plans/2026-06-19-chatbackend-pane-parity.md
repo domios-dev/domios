@@ -117,6 +117,25 @@ snapshot/parse path; no schema; human-readable). Decision locked: JSONL, not SQL
 snapshot.rs — P1 must NOT touch pane_chat). Then **P2 + P3** (frontend, dep P1).
 Orchestrator gates + merges each (hook clippy); rebuild dev + live-verify after each.
 
+## P5 — syntax-highlight code inside diffs — branch `cb-p5-diff-hl` (frontend, independent)
+
+**Role:** React/TS.
+
+`DiffView` (`packages/chat-ui/src/MarkdownBody.tsx:198`) renders Edit/MultiEdit
+diffs with line-level +/- coloring (red removed / green added) but the code inside
+is plain monospace — no token highlighting. `CodeBlock.tsx` already uses Prism
+(`react-syntax-highlighter`, vscDarkPlus) for fenced blocks, so the highlighter is
+already a dependency. FIX: in DiffView, run each line's content through the same
+Prism highlighter (strip the +/- marker, highlight the content, keep the +/- line
+background), with the LANGUAGE inferred from the edited file's extension (the Edit
+tool carries the path; e.g. `TabItem.tsx` → `tsx`). Performance: highlight the
+hunk content once (not per-render); for very large diffs cap/virtualize as CodeBlock
+already does. Keep the +/- gutter + line backgrounds; only the token colors are added.
+- TDD: DiffView renders a tsx diff with highlighted tokens on +/- backgrounds; an
+  unknown extension falls back to plain (no crash); large-diff cap respected.
+- Gate: tsc + test:unit. Independent of CB-P2/P3 (different file) — dispatch after
+  the CB-P2/P3 frontend batch merges to avoid chat-ui churn.
+
 ## Verify (orchestrator, live on dev + LM Studio)
 - Shell tab shows the lmstudio ICON + the running MODEL; tooltip = "LM Studio".
 - Model bubble at top: switch model → next reply uses it + tab badge updates.
