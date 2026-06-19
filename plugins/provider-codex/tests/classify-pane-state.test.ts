@@ -119,5 +119,18 @@ console.log("\n--- ensemble: a single weak signal must NOT reach threshold ---\n
   assert(!fires, "weak single-signal screen does not produce an actionable update verdict", JSON.stringify(r));
 }
 
+console.log("\n--- CRLF robustness: Windows pane output (\\r\\n) classifies identically to LF ---\n");
+// Real Windows agent panes emit CRLF; the classifier must normalize internally
+// so the verdict (state + confidence + actions) is byte-identical to the LF read.
+const toCrlf = (s: string) => s.replace(/\r\n?/g, "\n").replace(/\n/g, "\r\n");
+for (const f of ["update-prompt-skip-option2.txt", "update-prompt-skip-option3.txt", "auth-login.txt"]) {
+  const lf = fixture(f).replace(/\r\n?/g, "\n");
+  const crlf = toCrlf(lf);
+  assert(crlf.includes("\r\n"), `${f}: CRLF variant actually contains \\r\\n`);
+  const rLf = classify(plugin, lf);
+  const rCrlf = classify(plugin, crlf);
+  eq(rCrlf, rLf, `${f}: CRLF classification equals LF classification`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -457,7 +457,9 @@ const plugin: PluginModule = {
   //     does fire, the action navigates to "Skip", never the default
   //     "Update now" highlight (a blind Enter would update mid-session).
   classifyPaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
-    const screen = String((snapshot && snapshot.screenText) || "");
+    // Normalize CRLF/CR → LF: Windows pane output is CRLF, and every structural
+    // pattern below matches on \n boundaries — a trailing \r breaks the matches.
+    const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
     if (!screen.trim()) return null;
 
     // Auth first — sacred, and takes precedence over any update-looking menu.
