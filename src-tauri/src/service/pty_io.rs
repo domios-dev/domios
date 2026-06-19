@@ -80,9 +80,8 @@ impl ServiceContext {
     /// link the PTY). resolve_pty_id is wrapped in a 15s retry so scripts
     /// can chain `spawn → send` without hitting "no PTY".
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
-            let staged = self.run_outbound_stages(pane_id, text.to_string());
-            return self.chatbackend_send(&plugin_id, &session_id, &staged);
+        if self.pane_chat_backing(pane_id).is_some() {
+            return self.chatbackend_pane_send(pane_id, text);
         }
         self.ensure_pane_pty_for_send(pane_id)?;
         self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
@@ -211,9 +210,8 @@ impl ServiceContext {
         text: &str,
         enter: bool,
     ) -> Result<(), String> {
-        if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
-            let staged = self.run_outbound_stages(pane_id, text.to_string());
-            return self.chatbackend_send(&plugin_id, &session_id, &staged);
+        if self.pane_chat_backing(pane_id).is_some() {
+            return self.chatbackend_pane_send(pane_id, text);
         }
         self.ensure_pane_pty_for_send(pane_id)?;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
