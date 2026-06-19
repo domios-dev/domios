@@ -19,6 +19,7 @@ import {
 import { IS_WEB, webJson } from "./webApi";
 import { webListen } from "./webEvents";
 import { setClientPaneUiMode } from "./clientPaneUiMode";
+import { checkBuildMismatch } from "./buildMismatchGuard";
 import type { TabInfo } from "./types";
 
 export type UnlistenFn = TauriUnlistenFn;
@@ -380,20 +381,33 @@ if (typeof PerformanceObserver !== "undefined") {
 }
 
 export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
-  if (invokeForTest) return invokeForTest<T>(cmd, args);
   const t0 = performance.now();
   try {
-    return await invokeRaw<T>(cmd, args);
+    return invokeForTest
+      ? await invokeForTest<T>(cmd, args)
+      : await invokeRaw<T>(cmd, args);
+  } catch (err) {
+    if (isCommandNotFoundError(err)) {
+      checkBuildMismatch().catch(() => {});
+    }
+    throw err;
   } finally {
-    const ms = performance.now() - t0;
-    if (ms >= IPC_SLOW_MS) {
-      // eslint-disable-next-line no-console
-      console.warn(`[SLOW-IPC] ${cmd} ${ms.toFixed(0)}ms`, args);
-      const w = window as unknown as { __ctPerf?: IpcSample[] };
-      (w.__ctPerf ??= []).push({ cmd, ms, at: Date.now() });
-      if (w.__ctPerf.length > 200) w.__ctPerf.shift();
+    if (!invokeForTest) {
+      const ms = performance.now() - t0;
+      if (ms >= IPC_SLOW_MS) {
+        // eslint-disable-next-line no-console
+        console.warn(`[SLOW-IPC] ${cmd} ${ms.toFixed(0)}ms`, args);
+        const w = window as unknown as { __ctPerf?: IpcSample[] };
+        (w.__ctPerf ??= []).push({ cmd, ms, at: Date.now() });
+        if (w.__ctPerf.length > 200) w.__ctPerf.shift();
+      }
     }
   }
+}
+
+function isCommandNotFoundError(err: unknown): boolean {
+  const msg = String(err);
+  return /command.*not found/i.test(msg);
 }
 
 /** Reopen a recently-closed pane in a workspace. `index` selects the ring

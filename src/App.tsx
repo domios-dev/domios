@@ -15,6 +15,7 @@ import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { CrashReportToast } from "./components/CrashReportToast";
+import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { ChatUiDefaultPrompt } from "./components/ChatUiDefaultPrompt";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { HamburgerIcon } from "./components/Icons";
@@ -803,6 +804,8 @@ function AppInner() {
       <CommandPalette commands={paletteCommands} />
 
       <CrashReportToast />
+
+      <StaleBuildBanner />
 
       <ChatUiDefaultPrompt />
 
