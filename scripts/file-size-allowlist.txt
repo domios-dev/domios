@@ -15,13 +15,9 @@ cli/src/cmd/plugin.rs	1743
 # Chat session god-component — split task E3 (useChatSession/ChatComposer/useAttachments).
 # Agent provider abstraction — no split task yet; baselined to unblock CI.
 src-tauri/src/agent/provider.rs	1231
-# Graph-repair test module — test file, baselined.
-src-tauri/src/mem/graph_repair/tests.rs	1040
 # Mem hybrid search — no split task yet; baselined to unblock CI.
 src-tauri/src/mem/search.rs	1137
 # Mem store test module — test file, baselined.
 src-tauri/src/mem/store/tests.rs	1215
 # JS-runtime parity test — test file (grew with chat-parsing parity fixtures), baselined.
 src-tauri/src/plugin/js_runtime/parity_test.rs	1533
-# JS-runtime provider — no split task yet; baselined to unblock CI.
-src-tauri/src/plugin/js_runtime/provider.rs	1395
