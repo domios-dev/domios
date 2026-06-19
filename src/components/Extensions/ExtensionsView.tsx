@@ -350,7 +350,7 @@ function ChannelDetailPanel({
         <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, minWidth: 0 }}>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 21, fontWeight: 650, letterSpacing: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{channel.name}</div>
+              <div style={{ fontSize: 17, fontWeight: 640, letterSpacing: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{channel.name}</div>
               <div style={{ color: "var(--ct-muted)", fontSize: 12.5, marginTop: 3 }}>{channel.system ? "Official channel" : "Custom channel"}</div>
             </div>
             <span style={{
