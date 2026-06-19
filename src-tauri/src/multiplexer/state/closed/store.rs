@@ -376,10 +376,21 @@ impl ClosedPanesStore {
     /// Take (fetch + delete) the `index`-th newest pane in a workspace.
     /// `index` 0 = most recent. Returns `None` if out of range.
     pub fn take_in_workspace(&self, workspace_id: &str, index: usize) -> Option<ClosedPane> {
+        let (row_id, pane) = self.peek_in_workspace(workspace_id, index)?;
+        self.delete_pane_row(row_id);
+        Some(pane)
+    }
+
+    /// Fetch (WITHOUT deleting) the `index`-th newest pane in a workspace and
+    /// its sqlite row id. Reopen materializes from this, then calls
+    /// [`delete_pane_row`] only on success, so a failed materialize never loses
+    /// the history entry (MED data-loss fix).
+    ///
+    /// [`delete_pane_row`]: Self::delete_pane_row
+    pub fn peek_in_workspace(&self, workspace_id: &str, index: usize) -> Option<(i64, ClosedPane)> {
         let conn = self.conn.lock();
-        let (row_id, pane) = conn
-            .query_row(
-                r#"
+        conn.query_row(
+            r#"
                 SELECT id, pane_id, parent_pane_id, title, description, backing_json, cwd,
                        agent_type, agent_session_id, model, workspace_id, workspace_name, closed_at
                 FROM closed_pane
@@ -387,13 +398,21 @@ impl ClosedPanesStore {
                 ORDER BY closed_at DESC, id DESC
                 LIMIT 1 OFFSET ?2
                 "#,
-                params![workspace_id, index as i64],
-                |r| Ok((r.get::<_, i64>(0)?, Self::pane_from_row_offset(r, 1))),
-            )
-            .ok()?;
+            params![workspace_id, index as i64],
+            |r| Ok((r.get::<_, i64>(0)?, Self::pane_from_row_offset(r, 1))),
+        )
+        .ok()
+    }
+
+    /// Delete a single pane row by sqlite id, then prune any now-empty group.
+    /// Paired with [`peek_in_workspace`]/[`peek_by_pane_id`] for delete-after-success.
+    ///
+    /// [`peek_in_workspace`]: Self::peek_in_workspace
+    /// [`peek_by_pane_id`]: Self::peek_by_pane_id
+    pub fn delete_pane_row(&self, row_id: i64) {
+        let conn = self.conn.lock();
         Self::delete_pane(&conn, row_id);
         Self::prune_empty_groups(&conn).ok();
-        Some(pane)
     }
 
     /// Count of retained panes in a workspace (for range error messages).
@@ -411,10 +430,20 @@ impl ClosedPanesStore {
     /// Take (fetch + delete) the newest pane with a given original `pane_id`,
     /// regardless of workspace. Used by orphaned reopen.
     pub fn take_by_pane_id(&self, pane_id: &str) -> Option<ClosedPane> {
+        let (row_id, pane) = self.peek_by_pane_id(pane_id)?;
+        self.delete_pane_row(row_id);
+        Some(pane)
+    }
+
+    /// Fetch (WITHOUT deleting) the newest pane with a given original `pane_id`
+    /// and its sqlite row id. Orphaned reopen materializes from this, then
+    /// deletes via [`delete_pane_row`] only on success.
+    ///
+    /// [`delete_pane_row`]: Self::delete_pane_row
+    pub fn peek_by_pane_id(&self, pane_id: &str) -> Option<(i64, ClosedPane)> {
         let conn = self.conn.lock();
-        let (row_id, pane) = conn
-            .query_row(
-                r#"
+        conn.query_row(
+            r#"
                 SELECT id, pane_id, parent_pane_id, title, description, backing_json, cwd,
                        agent_type, agent_session_id, model, workspace_id, workspace_name, closed_at
                 FROM closed_pane
@@ -422,18 +451,28 @@ impl ClosedPanesStore {
                 ORDER BY closed_at DESC, id DESC
                 LIMIT 1
                 "#,
-                params![pane_id],
-                |r| Ok((r.get::<_, i64>(0)?, Self::pane_from_row_offset(r, 1))),
-            )
-            .ok()?;
-        Self::delete_pane(&conn, row_id);
-        Self::prune_empty_groups(&conn).ok();
-        Some(pane)
+            params![pane_id],
+            |r| Ok((r.get::<_, i64>(0)?, Self::pane_from_row_offset(r, 1))),
+        )
+        .ok()
     }
 
     /// Take (fetch + delete) a whole group: its meta + every pane, newest-first.
     pub fn take_group(&self, group_id: &str) -> Option<(ClosedGroup, Vec<ClosedPane>)> {
-        let mut conn = self.conn.lock();
+        let res = self.peek_group(group_id)?;
+        self.delete_group(group_id);
+        Some(res)
+    }
+
+    /// Fetch (WITHOUT deleting) a whole group: its meta + every pane,
+    /// newest-first. Group reopen materializes every pane from this and only
+    /// then calls [`delete_group`]; a mid-loop materialize failure thus leaves
+    /// the whole group intact in history instead of dropping it (MED data-loss
+    /// fix — earlier panes materialized but the group can be retried).
+    ///
+    /// [`delete_group`]: Self::delete_group
+    pub fn peek_group(&self, group_id: &str) -> Option<(ClosedGroup, Vec<ClosedPane>)> {
+        let conn = self.conn.lock();
         let group = conn
             .query_row(
                 r#"
@@ -472,19 +511,33 @@ impl ClosedPanesStore {
                 .unwrap_or_default()
         };
 
-        let tx = conn.transaction().ok()?;
-        tx.execute(
-            "DELETE FROM closed_pane WHERE group_id = ?1",
-            params![group_id],
-        )
-        .ok()?;
-        tx.execute(
-            "DELETE FROM closed_group WHERE group_id = ?1",
-            params![group_id],
-        )
-        .ok()?;
-        tx.commit().ok()?;
         Some((group, panes))
+    }
+
+    /// Delete a whole group (its panes + meta) in one transaction. Paired with
+    /// [`peek_group`] for delete-after-success on reopen.
+    ///
+    /// [`peek_group`]: Self::peek_group
+    pub fn delete_group(&self, group_id: &str) {
+        let mut conn = self.conn.lock();
+        let Ok(tx) = conn.transaction() else {
+            return;
+        };
+        if tx
+            .execute(
+                "DELETE FROM closed_pane WHERE group_id = ?1",
+                params![group_id],
+            )
+            .and_then(|_| {
+                tx.execute(
+                    "DELETE FROM closed_group WHERE group_id = ?1",
+                    params![group_id],
+                )
+            })
+            .is_ok()
+        {
+            let _ = tx.commit();
+        }
     }
 
     fn delete_pane(conn: &Connection, row_id: i64) {
@@ -648,6 +701,67 @@ mod tests {
             .any(|p| p.parent_pane_id.as_deref() == Some("root")));
         // consumed
         assert!(store.list_for_workspace("w").is_empty());
+    }
+
+    #[test]
+    fn peek_group_is_non_destructive_until_delete() {
+        // MED data-loss fix: reopen now peeks the group, materializes every
+        // pane, and only THEN deletes. A reopen that fails before delete_group
+        // must leave the whole group in history (nothing lost, retry possible).
+        let store = ClosedPanesStore::in_memory();
+        let root = pane("root", "w", "Orchestrator", 10);
+        let mut child = pane("child", "w", "Worker", 10);
+        child.parent_pane_id = Some("root".into());
+        store
+            .insert_group(&group("g1", GroupKind::Cascade, "w", 10), &[root, child])
+            .unwrap();
+
+        // Peeking (what reopen does first) does NOT consume the group.
+        let (_g, panes) = store.peek_group("g1").expect("group present");
+        assert_eq!(panes.len(), 2);
+        assert_eq!(
+            store.peek_group("g1").map(|(_, p)| p.len()),
+            Some(2),
+            "a second peek still sees the group — a failed materialize loses nothing"
+        );
+        assert_eq!(
+            store.list_for_workspace("w").len(),
+            2,
+            "both panes remain in history until delete"
+        );
+
+        // Only an explicit delete (after a fully successful materialize) drops it.
+        store.delete_group("g1");
+        assert!(
+            store.peek_group("g1").is_none(),
+            "group consumed only after delete_group"
+        );
+        assert!(store.list_for_workspace("w").is_empty());
+    }
+
+    #[test]
+    fn peek_in_workspace_then_delete_row_is_a_split_take() {
+        // The single-pane reopen path peeks (no delete) → materializes → deletes
+        // by row id only on success.
+        let store = ClosedPanesStore::in_memory();
+        store
+            .insert_group(
+                &group("g1", GroupKind::Single, "w", 1),
+                &[pane("p1", "w", "kept", 1)],
+            )
+            .unwrap();
+        let (row_id, peeked) = store.peek_in_workspace("w", 0).expect("peeked");
+        assert_eq!(peeked.pane_id, "p1");
+        assert_eq!(
+            store.list_for_workspace("w").len(),
+            1,
+            "peek leaves the pane in history"
+        );
+        store.delete_pane_row(row_id);
+        assert!(
+            store.list_for_workspace("w").is_empty(),
+            "delete_pane_row removes only after success"
+        );
     }
 
     #[test]
