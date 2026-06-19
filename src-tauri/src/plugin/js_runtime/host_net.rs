@@ -2,9 +2,9 @@
 //! returns `{status, headers, body}` as JSON. Host allowlist (`network.allow`)
 //! is enforced by the caller via `PluginSandbox::can_reach`.
 //!
-//! Uses `reqwest::blocking`, which runs on its own internal thread pool, so it
-//! is safe to call synchronously from a VM call even when a tokio runtime is
-//! active on the calling thread.
+//! Uses a shared async `reqwest::Client`. Synchronous VM calls run the request
+//! on a dedicated OS thread with a current-thread tokio runtime so the caller
+//! never constructs a blocking HTTP client on a tokio worker.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -16,6 +16,11 @@ use serde::Deserialize;
 
 const MAX_STREAM_JOBS: usize = 128;
 const MAX_STREAM_JOB_BUFFERED_BYTES: usize = 4 * 1024 * 1024;
+const DEFAULT_FETCH_TIMEOUT_MS: u64 = 5_000;
+const FETCH_CLIENT_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+const FETCH_CLIENT_TCP_KEEPALIVE: Duration = Duration::from_secs(60);
+
+static FETCH_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(build_fetch_client);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +48,8 @@ struct StreamJob {
 
 static STREAM_JOBS: LazyLock<Mutex<HashMap<String, StreamJob>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+#[cfg(test)]
+static FETCH_CLIENT_BUILDS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 fn err(msg: &str) -> String {
     serde_json::json!({ "error": msg }).to_string()
@@ -61,13 +68,11 @@ pub(super) fn host_of(opts_json: &str) -> Option<String> {
 
 /// Perform the request described by `opts_json`. The host is already allowlisted.
 ///
-/// Runs on a dedicated OS thread: `reqwest::blocking` panics if constructed while
-/// a tokio runtime is active on the calling thread, and plugin VM calls happen on
-/// tokio workers. The thread isolates the blocking client from that runtime; the
-/// caller blocks on `join`, which is fine — the VM call is synchronous anyway.
+/// Runs on a dedicated OS thread with its own current-thread runtime. The caller
+/// blocks on `join`, which is fine because the VM call is synchronous anyway.
 pub(super) fn run(opts_json: &str) -> String {
     let owned = opts_json.to_string();
-    match std::thread::spawn(move || run_blocking(&owned)).join() {
+    match std::thread::spawn(move || run_sync(&owned)).join() {
         Ok(s) => s,
         Err(_) => err("fetch worker panicked"),
     }
@@ -147,20 +152,27 @@ pub(super) fn drop_plugin_jobs(plugin_id: &str) {
         .retain(|_, job| job.plugin_id != plugin_id);
 }
 
-fn run_blocking(opts_json: &str) -> String {
-    let opts: FetchOpts = match serde_json::from_str(opts_json) {
-        Ok(o) => o,
-        Err(e) => return err(&format!("bad fetch opts: {e}")),
-    };
-    let timeout = Duration::from_millis(opts.timeout_ms.unwrap_or(30_000).max(1));
-    let client = match reqwest::blocking::Client::builder()
-        .timeout(timeout)
+fn build_fetch_client() -> Result<reqwest::Client, String> {
+    #[cfg(test)]
+    FETCH_CLIENT_BUILDS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+    reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
+        .pool_idle_timeout(FETCH_CLIENT_IDLE_TIMEOUT)
+        .tcp_keepalive(Some(FETCH_CLIENT_TCP_KEEPALIVE))
         .build()
-    {
-        Ok(c) => c,
-        Err(e) => return err(&format!("client: {e}")),
-    };
+        .map_err(|e| format!("client: {e}"))
+}
+
+fn fetch_client() -> Result<&'static reqwest::Client, String> {
+    FETCH_CLIENT.as_ref().map_err(Clone::clone)
+}
+
+fn fetch_timeout(opts: &FetchOpts) -> Duration {
+    Duration::from_millis(opts.timeout_ms.unwrap_or(DEFAULT_FETCH_TIMEOUT_MS).max(1))
+}
+
+fn request_builder(client: &reqwest::Client, opts: &FetchOpts) -> reqwest::RequestBuilder {
     let method = reqwest::Method::from_bytes(
         opts.method
             .as_deref()
@@ -169,14 +181,41 @@ fn run_blocking(opts_json: &str) -> String {
             .as_bytes(),
     )
     .unwrap_or(reqwest::Method::GET);
-    let mut req = client.request(method, &opts.url);
+    let mut req = client
+        .request(method, &opts.url)
+        .timeout(fetch_timeout(opts));
     for (k, v) in &opts.headers {
         req = req.header(k, v);
     }
     if let Some(b) = &opts.body {
         req = req.body(b.clone());
     }
-    match req.send() {
+    req
+}
+
+fn run_sync(opts_json: &str) -> String {
+    let result = std::panic::catch_unwind(|| {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| format!("fetch runtime: {e}"))?;
+        runtime.block_on(run_async(opts_json))
+    });
+
+    match result {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => err(&e),
+        Err(_) => err("fetch worker panicked"),
+    }
+}
+
+async fn run_async(opts_json: &str) -> Result<String, String> {
+    let opts: FetchOpts = match serde_json::from_str(opts_json) {
+        Ok(o) => o,
+        Err(e) => return Ok(err(&format!("bad fetch opts: {e}"))),
+    };
+    let req = request_builder(fetch_client()?, &opts);
+    match req.send().await {
         Ok(resp) => {
             let status = resp.status().as_u16();
             let headers: HashMap<String, String> = resp
@@ -184,10 +223,13 @@ fn run_blocking(opts_json: &str) -> String {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
-            let body = resp.text().unwrap_or_default();
-            serde_json::json!({ "status": status, "headers": headers, "body": body }).to_string()
+            let body = resp.text().await.unwrap_or_default();
+            Ok(
+                serde_json::json!({ "status": status, "headers": headers, "body": body })
+                    .to_string(),
+            )
         }
-        Err(e) => err(&format!("request failed: {e}")),
+        Err(e) => Ok(err(&format!("request failed: {e}"))),
     }
 }
 
@@ -213,28 +255,7 @@ fn run_stream_worker(job_id: String, opts_json: String) {
 async fn run_stream_async(job_id: String, opts_json: String) -> Result<(), String> {
     let opts: FetchOpts =
         serde_json::from_str(&opts_json).map_err(|e| format!("bad fetch opts: {e}"))?;
-    let timeout = Duration::from_millis(opts.timeout_ms.unwrap_or(30_000).max(1));
-    let client = reqwest::Client::builder()
-        .connect_timeout(timeout)
-        .read_timeout(timeout)
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| format!("client: {e}"))?;
-    let method = reqwest::Method::from_bytes(
-        opts.method
-            .as_deref()
-            .unwrap_or("GET")
-            .to_uppercase()
-            .as_bytes(),
-    )
-    .unwrap_or(reqwest::Method::GET);
-    let mut req = client.request(method, &opts.url);
-    for (k, v) in &opts.headers {
-        req = req.header(k, v);
-    }
-    if let Some(b) = &opts.body {
-        req = req.body(b.clone());
-    }
+    let req = request_builder(fetch_client()?, &opts);
 
     let resp = req
         .send()
@@ -375,6 +396,7 @@ mod tests {
     use crate::plugin::js_runtime::host_api::PluginSandbox;
     use std::io::Write;
     use std::net::TcpListener;
+    use std::sync::atomic::Ordering;
     use std::sync::mpsc;
     use std::thread;
     use std::time::Instant;
@@ -401,6 +423,38 @@ mod tests {
             write!(stream, "0\r\n\r\n").unwrap();
         });
         format!("http://{addr}/stream")
+    }
+
+    fn serve_fixed(body: &'static str, requests: usize) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            for _ in 0..requests {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0_u8; 1024];
+                let _ = std::io::Read::read(&mut stream, &mut request);
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
+        });
+        format!("http://{addr}/ok")
+    }
+
+    fn serve_unresponsive() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut request);
+            thread::sleep(Duration::from_secs(10));
+        });
+        format!("http://{addr}/slow")
     }
 
     fn poll_until_done(plugin_id: &str, job_id: &str) -> serde_json::Value {
@@ -563,6 +617,52 @@ mod tests {
 
         assert_eq!(body["status"], 302);
         assert!(escaped_rx.recv_timeout(Duration::from_millis(100)).is_err());
+    }
+
+    #[test]
+    fn fetch_reuses_shared_client_across_calls() {
+        let _guard = TEST_LOCK.lock();
+        let before = FETCH_CLIENT_BUILDS.load(Ordering::SeqCst);
+        let first = fetch_client().unwrap() as *const reqwest::Client;
+        let second = fetch_client().unwrap() as *const reqwest::Client;
+        assert_eq!(first, second);
+        let after_lookup = FETCH_CLIENT_BUILDS.load(Ordering::SeqCst);
+        assert_eq!(after_lookup, before + usize::from(before == 0));
+
+        let url = serve_fixed("ok", 2);
+        for _ in 0..2 {
+            let body: serde_json::Value =
+                serde_json::from_str(&run(&serde_json::json!({ "url": url }).to_string())).unwrap();
+            assert_eq!(body["status"], 200);
+            assert_eq!(body["body"], "ok");
+        }
+        assert_eq!(FETCH_CLIENT_BUILDS.load(Ordering::SeqCst), after_lookup);
+    }
+
+    #[test]
+    fn fetch_default_timeout_is_about_five_seconds() {
+        let _guard = TEST_LOCK.lock();
+        let url = serve_unresponsive();
+        let started = Instant::now();
+        let body: serde_json::Value =
+            serde_json::from_str(&run(&serde_json::json!({ "url": url }).to_string())).unwrap();
+        let elapsed = started.elapsed();
+
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("request failed"),
+            "unexpected response: {body}"
+        );
+        assert!(
+            elapsed >= Duration::from_millis(DEFAULT_FETCH_TIMEOUT_MS - 500),
+            "timeout returned too early: {elapsed:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(8),
+            "timeout returned too late: {elapsed:?}"
+        );
     }
 
     #[test]
