@@ -116,6 +116,34 @@ sender metadata). All senders (send/report/mesh/delayed) go through it.
 - **WM.M3** (codex) — route delayed/reminder + mesh through Messenger.
 - **WM.M4** (codex/plugin) — chatBackend reply-to-return-address.
 
+## Wave E — emergence wiring (cross-pane reply semantics, NEW 2026-06-19)
+
+From live screenshots: a PTY agent (GA) told a chatBackend pane to "run codeterm
+send in your shell" — but a chatBackend pane is NOT a shell (it acts via curated
+tools). And inbound messages arrived with no sender (M1 not yet deployed at the
+time). Fix both sides.
+- **WE.E1** (plugin) — ✅ MERGED (plugins bcf9a12): lmstudio prompt teaches the
+  model to reply to an inbound `[CodeTerm inbound … from_pane=…]` via the codeterm
+  tool with the CORRECT arg shape (`{"args":{"args":"send \"…\" --pane <id>"}}`).
+- **WE.E2** (codex/prompt) — PTY agents (GA + the codeterm skill / general_agent
+  prompt) must understand pane TYPES: a chatBackend peer replies via its tool, NOT
+  a shell. Stop instructing chatBackend peers to "run in your shell"; describe how
+  to address chatBackend vs PTY panes. Surface in the shared agent prompt/skill.
+- **WE.M4** (= Wave M M4) — the formal reply-to-return-address routing closes the loop.
+
+## Wave U — UI polish
+
+- **WU.model-badge** (codex) — long LM Studio model ids on sidebar tabs (e.g.
+  `GOOGLE/GEMMA-4-26B-A4B-QAT`) overflow + cover the tab name. Strip vendor prefix
+  (before `/`), drop quant/format suffixes (-QAT/-A4B/-MLX/-4bit/…) when over a cap,
+  hard max-width + ellipsis so the NAME always shows; full id in tooltip. Pure
+  formatter + TabItem. Gate: tsc + test:unit.
+
+## Done this session (merged to plugins-rethink)
+Wave1 (CI-green, T10) · R-chain (R1 parser, R1b+R3 plugin, R2 cards) · Messenger
+(M1 gateway, M2 inbound render) · E1 reply-prompt. dev @5667c0c5 deploys all of it
++ refreshed lmstudio plugin. R2 cards confirmed live by Andrey.
+
 ## Manager-only (mem / live, not delegated)
 
 - **SR** — orchestration-skill rewrite + 2 dev-facts. Spec: 2026-06-19-orchestration-deburring.md.
