@@ -265,65 +265,65 @@ pub async fn send_text(
     }
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
-    state
-        .svc
-        .ensure_pane_pty_for_send(&pane_id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    let target_is_chat = state.svc.pane_chat_backing(&pane_id).is_some();
+    if !target_is_chat {
+        state
+            .svc
+            .ensure_pane_pty_for_send(&pane_id)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
 
-    if !await_pty_link(&state, &pane_id).await {
-        return Err((
-            StatusCode::NOT_FOUND,
-            "Pane not found or PTY did not start within 3s",
-        ));
+        if !await_pty_link(&state, &pane_id).await {
+            return Err((
+                StatusCode::NOT_FOUND,
+                "Pane not found or PTY did not start within 3s",
+            ));
+        }
     }
 
-    // Prefix only for agent recipients; shells run the bytes verbatim. One
-    // canonical builder serves both local and mesh-relayed deliveries.
-    let source_prefix: Option<String> = body.source_pane.as_deref().and_then(|src| {
-        let mux = state.svc.mux.write();
-        let target_is_agent = mux
-            .get_pane(&pane_id)
-            .and_then(|p| p.agent_type.as_ref())
-            .is_some();
-        match body.source_peer.as_deref().filter(|p| !p.is_empty()) {
-            // Mesh delivery: the source pane is foreign — identity comes from
-            // the body (resolved on the originating peer), peer-qualified here.
-            Some(peer) => {
-                let label = body
-                    .source_label
-                    .as_deref()
-                    .filter(|s| !s.trim().is_empty())
-                    .unwrap_or(peer);
-                crate::service::msg_prefix::delivery_prefix(
-                    target_is_agent,
-                    src,
-                    &pane_id,
-                    label,
-                    body.source_model.as_deref(),
-                    Some(peer),
-                )
+    let source_envelope: Option<crate::service::messenger::MessageEnvelope> =
+        body.source_pane.as_deref().and_then(|src| {
+            match body.source_peer.as_deref().filter(|p| !p.is_empty()) {
+                // Mesh delivery: the source pane is foreign — identity comes from
+                // the body (resolved on the originating peer), peer-qualified here.
+                Some(peer) => {
+                    let label = body
+                        .source_label
+                        .as_deref()
+                        .filter(|s| !s.trim().is_empty())
+                        .unwrap_or(peer);
+                    Some(
+                        crate::service::messenger::MessageEnvelope::pane(label, src)
+                            .model(body.source_model.clone())
+                            .peer(Some(peer.to_string()))
+                            .mesh(Some(peer.to_string())),
+                    )
+                }
+                // Local delivery: resolve the label/model from the local mux.
+                None => {
+                    let mux = state.svc.mux.write();
+                    let resolved = mux.resolve_pane_id(src)?;
+                    let from_label = mux.display_label_for_pane(&resolved);
+                    let model = mux
+                        .get_pane(&resolved)
+                        .and_then(|p| p.agent_session_model.clone());
+                    Some(
+                        crate::service::messenger::MessageEnvelope::pane(from_label, resolved)
+                            .model(model),
+                    )
+                }
             }
-            // Local delivery: resolve the label/model from the local mux.
-            None => {
-                let from_label = mux.display_label_for_pane(src);
-                let model = mux
-                    .get_pane(src)
-                    .and_then(|p| p.agent_session_model.clone());
-                crate::service::msg_prefix::delivery_prefix(
-                    target_is_agent,
-                    src,
-                    &pane_id,
-                    &from_label,
-                    model.as_deref(),
-                    None,
-                )
-            }
-        }
-    });
+        });
     let prepend = |s: &str| -> String {
-        match &source_prefix {
-            Some(p) => format!("{}{}", p, s),
+        match &source_envelope {
+            Some(envelope) if !target_is_chat => {
+                format!(
+                    "{}{}",
+                    crate::service::messenger::Messenger::pty_prefix(envelope),
+                    s
+                )
+            }
             None => s.to_string(),
+            Some(_) => s.to_string(),
         }
     };
 
@@ -444,7 +444,15 @@ pub async fn send_text(
         return Ok(Json(serde_json::json!({"ok": true})));
     }
 
-    let text = prepend(&stage(body.text.unwrap_or_default()));
+    let raw_text = body.text.unwrap_or_default();
+    if let Some(envelope) = source_envelope {
+        crate::service::messenger::Messenger::deliver(&state.svc, &pane_id, envelope, &raw_text)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+        record_push_activity(&state, &svc_token_match, &pane_id, &raw_text);
+        return Ok(Json(serde_json::json!({"ok": true})));
+    }
+
+    let text = prepend(&stage(raw_text));
     state
         .svc
         .send_text_when_ready(&pane_id, &text, body.enter)

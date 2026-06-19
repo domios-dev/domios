@@ -90,24 +90,31 @@ impl ServiceContext {
         // back to the reporter's own pane is the bug we just fixed — guard against that explicitly.
         if let Some(ref target_id) = target_opt {
             if target_id != pane_id {
+                let target_is_chat = self.pane_chat_backing(target_id).is_some();
                 let live = self.target_has_live_agent(target_id);
                 log::info!(
                     "[report] target={} live_agent={} — {}",
                     target_id,
                     live,
-                    if live {
+                    if target_is_chat {
+                        "delivering to chatBackend transcript"
+                    } else if live {
                         "injecting into PTY"
                     } else {
                         "stored only (no agent TUI on screen)"
                     },
                 );
-                if live {
-                    let pfx = crate::service::msg_prefix::CtxPrefix::report(&from_title, pane_id)
-                        .model(model.clone());
-                    if let Err(e) =
-                        self.send_text(target_id, &pfx.wrap(&report.inject_body()), true)
-                    {
-                        log::warn!("[report] PTY inject failed for {}: {}", target_id, e);
+                if target_is_chat || live {
+                    let envelope =
+                        crate::service::messenger::MessageEnvelope::report(&from_title, pane_id)
+                            .model(model.clone());
+                    if let Err(e) = crate::service::messenger::Messenger::deliver(
+                        self,
+                        target_id,
+                        envelope,
+                        &report.inject_body(),
+                    ) {
+                        log::warn!("[report] delivery failed for {}: {}", target_id, e);
                     }
                 }
             }

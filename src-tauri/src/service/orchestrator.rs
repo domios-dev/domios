@@ -547,7 +547,7 @@ impl ServiceContext {
         let model = mux
             .get_pane(&src)
             .and_then(|p| p.agent_session_model.clone());
-        crate::service::msg_prefix::delivery_prefix(
+        crate::service::messenger::delivery_prefix(
             true,
             &src,
             target_pane,

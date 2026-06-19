@@ -155,6 +155,16 @@ pub struct ChatMsg {
     /// System-message provenance (skill_context, <cmd>_meta, meta, …).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub system_subtype: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_pane: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_mesh: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub inbound_kind: Option<String>,
     /// XML tag name for local-command entries.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tag_name: Option<String>,
