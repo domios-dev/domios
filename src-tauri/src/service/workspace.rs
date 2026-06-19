@@ -2,6 +2,7 @@
 
 use super::ServiceContext;
 use crate::multiplexer::state::WorkspaceInfo;
+use crate::multiplexer::types::ClosedPane;
 
 impl ServiceContext {
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
@@ -141,5 +142,29 @@ impl ServiceContext {
         self.mux.write().rename_tab(workspace_id, tab_id, title)?;
         self.emit_state_changed();
         Ok(())
+    }
+
+    /// Snapshot of a workspace's recently-closed ring (newest first).
+    pub fn list_recently_closed(&self, workspace_id: &str) -> Vec<ClosedPane> {
+        self.mux.read().list_recently_closed(workspace_id)
+    }
+
+    /// Reopen a recently-closed pane (browser-style). `index` picks the ring
+    /// entry (newest = 0, default). Re-materializes the pane with its original
+    /// backing in a fresh, activated tab; the restore path then resumes a PTY
+    /// agent or lazily reloads a chatBackend transcript. Returns (tab_id, pane_id).
+    pub fn reopen_closed_pane(
+        &self,
+        workspace_id: &str,
+        index: Option<usize>,
+    ) -> Result<(String, String), String> {
+        let (tab_id, pane_id) = {
+            let mut mux = self.mux.write();
+            let result = mux.reopen_closed_pane(workspace_id, index)?;
+            let _ = mux.set_active_tab(workspace_id, &result.0);
+            result
+        };
+        self.emit_state_changed();
+        Ok((tab_id, pane_id))
     }
 }

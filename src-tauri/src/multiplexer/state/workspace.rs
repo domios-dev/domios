@@ -12,6 +12,7 @@ impl MultiplexerState {
             active_tab_id: None,
             cwd: cwd.clone(),
             protected: false,
+            recently_closed: vec![],
         };
 
         self.workspaces.push(workspace);
