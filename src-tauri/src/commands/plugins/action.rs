@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use serde_json::Value;
+use std::sync::Arc;
 
 use crate::service::ServiceContext;
 
@@ -8,14 +9,33 @@ use super::snapshot::build_snapshot;
 
 const PROTECTED_PLUGIN_CHANNELS: [&str; 2] = ["codeterm-core", "codeterm-plugins"];
 
+type SnapshotRebuild = Arc<dyn Fn() -> Result<Value, String> + Send + Sync + 'static>;
+
+#[derive(Clone)]
+struct SnapshotFlight {
+    done: tokio::sync::watch::Receiver<Option<Result<Value, String>>>,
+    finish: tokio::sync::watch::Sender<Option<Result<Value, String>>>,
+}
+
+enum SnapshotFlightRole {
+    Leader(SnapshotFlight, u64),
+    Follower(SnapshotFlight),
+}
+
 static SNAPSHOT_CACHE: std::sync::Mutex<Option<(std::time::Instant, Value)>> =
     std::sync::Mutex::new(None);
+static SNAPSHOT_FLIGHT: std::sync::Mutex<Option<SnapshotFlight>> = std::sync::Mutex::new(None);
+static SNAPSHOT_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 const SNAPSHOT_TTL: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub(crate) fn invalidate_plugin_snapshot() {
     if let Ok(mut c) = SNAPSHOT_CACHE.lock() {
         *c = None;
     }
+    if let Ok(mut flight) = SNAPSHOT_FLIGHT.lock() {
+        *flight = None;
+    }
+    SNAPSHOT_EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,6 +55,14 @@ pub struct PluginManagerAction {
 pub(super) async fn plugin_manager_snapshot_impl(
     svc: tauri::State<'_, crate::service::ServiceState>,
 ) -> Result<Value, String> {
+    let svc = svc.inner().clone();
+    cached_plugin_snapshot(Arc::new(move || {
+        build_snapshot(None, Some(svc.chatbackend_registry.as_ref()))
+    }))
+    .await
+}
+
+async fn cached_plugin_snapshot(rebuild: SnapshotRebuild) -> Result<Value, String> {
     if let Ok(guard) = SNAPSHOT_CACHE.lock() {
         if let Some((at, v)) = guard.as_ref() {
             if at.elapsed() < SNAPSHOT_TTL {
@@ -42,16 +70,62 @@ pub(super) async fn plugin_manager_snapshot_impl(
             }
         }
     }
-    let svc = svc.inner().clone();
-    let snap = tokio::task::spawn_blocking(move || {
-        build_snapshot(None, Some(svc.chatbackend_registry.as_ref()))
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-    if let Ok(mut guard) = SNAPSHOT_CACHE.lock() {
-        *guard = Some((std::time::Instant::now(), snap.clone()));
+
+    let role = snapshot_flight_role();
+    match role {
+        SnapshotFlightRole::Leader(flight, epoch) => {
+            let result = tokio::task::spawn_blocking(move || rebuild())
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|v| v);
+
+            if let Ok(mut in_progress) = SNAPSHOT_FLIGHT.lock() {
+                if in_progress
+                    .as_ref()
+                    .is_some_and(|current| current.finish.same_channel(&flight.finish))
+                {
+                    *in_progress = None;
+                }
+            }
+            if let Ok(snap) = result.as_ref() {
+                if SNAPSHOT_EPOCH.load(std::sync::atomic::Ordering::SeqCst) == epoch {
+                    if let Ok(mut guard) = SNAPSHOT_CACHE.lock() {
+                        *guard = Some((std::time::Instant::now(), snap.clone()));
+                    }
+                }
+            }
+            let _ = flight.finish.send(Some(result.clone()));
+            result
+        }
+        SnapshotFlightRole::Follower(mut flight) => loop {
+            let result = { flight.done.borrow().as_ref().cloned() };
+            if let Some(result) = result {
+                return result.clone();
+            }
+            flight.done.changed().await.map_err(|e| e.to_string())?;
+        },
     }
-    Ok(snap)
+}
+
+fn snapshot_flight_role() -> SnapshotFlightRole {
+    if let Ok(mut in_progress) = SNAPSHOT_FLIGHT.lock() {
+        if let Some(flight) = in_progress.as_ref() {
+            return SnapshotFlightRole::Follower(flight.clone());
+        }
+        let (finish, done) = tokio::sync::watch::channel(None);
+        let flight = SnapshotFlight { done, finish };
+        *in_progress = Some(flight.clone());
+        return SnapshotFlightRole::Leader(
+            flight,
+            SNAPSHOT_EPOCH.load(std::sync::atomic::Ordering::SeqCst),
+        );
+    }
+
+    let (finish, done) = tokio::sync::watch::channel(None);
+    SnapshotFlightRole::Leader(
+        SnapshotFlight { done, finish },
+        SNAPSHOT_EPOCH.load(std::sync::atomic::Ordering::SeqCst),
+    )
 }
 
 pub(super) async fn plugin_manager_action_impl(
@@ -289,6 +363,78 @@ fn plugin_action_args(action: &PluginManagerAction) -> Result<Vec<String>, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    fn counted_rebuild(count: Arc<AtomicUsize>, delay: std::time::Duration) -> SnapshotRebuild {
+        Arc::new(move || {
+            let n = count.fetch_add(1, Ordering::SeqCst) + 1;
+            if !delay.is_zero() {
+                std::thread::sleep(delay);
+            }
+            Ok(json!({ "generation": n }))
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn cold_concurrent_snapshots_share_one_rebuild() {
+        let _guard = TEST_LOCK.lock().await;
+        invalidate_plugin_snapshot();
+        let count = Arc::new(AtomicUsize::new(0));
+        let rebuild = counted_rebuild(count.clone(), std::time::Duration::from_millis(75));
+        let mut handles = Vec::new();
+
+        for _ in 0..12 {
+            let rebuild = rebuild.clone();
+            handles.push(tokio::spawn(async move {
+                cached_plugin_snapshot(rebuild).await.unwrap()
+            }));
+        }
+
+        let mut results = Vec::new();
+        for handle in handles {
+            results.push(handle.await.unwrap());
+        }
+
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        assert!(results.iter().all(|v| v == &json!({ "generation": 1 })));
+        invalidate_plugin_snapshot();
+    }
+
+    #[tokio::test]
+    async fn snapshot_cache_hit_does_not_rebuild() {
+        let _guard = TEST_LOCK.lock().await;
+        invalidate_plugin_snapshot();
+        let count = Arc::new(AtomicUsize::new(0));
+        let rebuild = counted_rebuild(count.clone(), std::time::Duration::ZERO);
+
+        let first = cached_plugin_snapshot(rebuild.clone()).await.unwrap();
+        let second = cached_plugin_snapshot(rebuild).await.unwrap();
+
+        assert_eq!(first, json!({ "generation": 1 }));
+        assert_eq!(second, first);
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        invalidate_plugin_snapshot();
+    }
+
+    #[tokio::test]
+    async fn snapshot_invalidation_forces_rebuild() {
+        let _guard = TEST_LOCK.lock().await;
+        invalidate_plugin_snapshot();
+        let count = Arc::new(AtomicUsize::new(0));
+        let rebuild = counted_rebuild(count.clone(), std::time::Duration::ZERO);
+
+        let first = cached_plugin_snapshot(rebuild.clone()).await.unwrap();
+        invalidate_plugin_snapshot();
+        let second = cached_plugin_snapshot(rebuild).await.unwrap();
+
+        assert_eq!(first, json!({ "generation": 1 }));
+        assert_eq!(second, json!({ "generation": 2 }));
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+        invalidate_plugin_snapshot();
+    }
 
     #[test]
     fn update_action_builds_json_cli_args() {
