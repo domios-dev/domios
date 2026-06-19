@@ -134,7 +134,7 @@ pub struct Pane {
     /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this pane.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session_binding_nonce: Option<String>,
-    /// Orchestration role (orchestrator / lead / worker).
+    /// Orchestration role (orchestrator / worker — 2-level, no middle tier).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,
     /// Parent pane ID in the orchestration hierarchy.
@@ -143,7 +143,7 @@ pub struct Pane {
     /// Whether this pane can spawn child agents.
     #[serde(default)]
     pub can_spawn: bool,
-    /// Depth in hierarchy: 0=none, 1=orchestrator, 2=lead/worker, 3=worker.
+    /// Depth in hierarchy: 0=none, 1=orchestrator, 2=worker (flat, 2-level).
     #[serde(default)]
     pub depth: u8,
     /// Report target pane ID — for cron agents that report without joining hierarchy.
