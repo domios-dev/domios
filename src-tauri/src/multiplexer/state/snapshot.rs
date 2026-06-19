@@ -82,6 +82,7 @@ impl MultiplexerState {
                     active_tab_id: ws.active_tab_id.clone(),
                     cwd: ws.cwd.clone(),
                     protected: ws.protected,
+                    recently_closed: ws.recently_closed.clone(),
                     tabs: ws
                         .tabs
                         .iter()
@@ -286,6 +287,7 @@ impl MultiplexerState {
                 }).collect(),
                 cwd: ws.cwd.clone(),
                 protected: ws.protected,
+                recently_closed: ws.recently_closed.clone(),
             }
         }).collect();
 
@@ -343,6 +345,7 @@ mod tests {
                 active_tab_id: Some("tab".into()),
                 cwd: None,
                 protected: false,
+                recently_closed: vec![],
                 tabs: vec![TabSnapshot {
                     id: "tab".into(),
                     title: "tab".into(),
@@ -506,6 +509,61 @@ mod tests {
             "report_target must survive restore, not reset to None"
         );
         assert_eq!(pane.parent_pane_id.as_deref(), Some("orch-1"));
+    }
+
+    #[test]
+    fn recently_closed_ring_round_trips_through_snapshot() {
+        use crate::multiplexer::types::PaneBacking;
+        // Close a chatBackend tab + an agent tab, then round-trip the snapshot.
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = state.list_workspaces()[0].id.clone();
+
+        let (tab_a, pane_a) = state.create_tab(&wsid).unwrap();
+        if let Some(p) = state.get_pane_mut(&pane_a) {
+            p.backing = PaneBacking::ChatBackend {
+                plugin_id: "lmstudio".into(),
+                session_id: "cb-1".into(),
+            };
+            p.title = "Chat".into();
+        }
+        state.close_tab(&wsid, &tab_a).unwrap();
+
+        let (_tab_b, pane_b) = state.create_tab(&wsid).unwrap();
+        if let Some(p) = state.get_pane_mut(&pane_b) {
+            p.agent_type = Some("claude".into());
+            p.agent_session_id = Some("ag-9".into());
+        }
+        state.close_pane(&pane_b).unwrap();
+
+        let snap = state.to_session_snapshot();
+        // Persisted on the workspace snapshot, newest first.
+        let ws_snap = &snap.workspaces[0];
+        assert_eq!(ws_snap.recently_closed.len(), 2);
+        assert_eq!(
+            ws_snap.recently_closed[0].agent_session_id.as_deref(),
+            Some("ag-9")
+        );
+
+        let restored = MultiplexerState::from_session_snapshot(&snap);
+        let ring = restored.list_recently_closed(&wsid);
+        assert_eq!(ring.len(), 2, "ring survives restart");
+        assert_eq!(ring[0].agent_type.as_deref(), Some("claude"));
+        assert_eq!(
+            ring[1].backing,
+            PaneBacking::ChatBackend {
+                plugin_id: "lmstudio".into(),
+                session_id: "cb-1".into(),
+            },
+            "chatBackend backing survives the snapshot round-trip"
+        );
+
+        // And reopen works against the restored ring.
+        let mut restored = restored;
+        let (_t, np) = restored.reopen_closed_pane(&wsid, None).unwrap();
+        assert_eq!(
+            restored.get_pane(&np).unwrap().agent_type.as_deref(),
+            Some("claude")
+        );
     }
 
     #[test]

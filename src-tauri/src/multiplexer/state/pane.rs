@@ -194,7 +194,16 @@ impl MultiplexerState {
 
     /// Close a pane: remove from the workspace tree and pane registry.
     /// Cascade-closes all children. Returns pty_ids that should be killed.
+    ///
+    /// Records the requested pane into the recently-closed ring (browser-style
+    /// reopen). Cascade-closed children are NOT recorded — only the tab the user
+    /// actually closed is reopenable.
     pub fn close_pane(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
+        self.record_closed_pane(pane_id);
+        self.close_pane_inner(pane_id)
+    }
+
+    fn close_pane_inner(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
         if let Some(pane) = self.panes.get(pane_id) {
             if pane.protected {
                 return Err("Cannot close protected pane".to_string());
@@ -220,7 +229,7 @@ impl MultiplexerState {
         }
 
         for cid in child_ids {
-            if let Ok(child_ptys) = self.close_pane(&cid) {
+            if let Ok(child_ptys) = self.close_pane_inner(&cid) {
                 pty_ids.extend(child_ptys);
             }
         }
