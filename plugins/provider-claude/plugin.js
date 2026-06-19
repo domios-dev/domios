@@ -23,6 +23,8 @@ __export(plugin_exports, {
   default: () => plugin_default
 });
 module.exports = __toCommonJS(plugin_exports);
+
+// plugins/provider-claude/src/shared.ts
 function manifest() {
   try {
     return JSON.parse(host.manifestJson() || "null");
@@ -30,6 +32,439 @@ function manifest() {
     return null;
   }
 }
+
+// plugins/provider-claude/src/usage.ts
+function usageNormalize(raw) {
+  let out = "";
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch === "" || ch === "\r") continue;
+    if ("\u2588\u258C\u258D\u258E\u258F\u258A\u258B".indexOf(ch) !== -1) {
+      out += " ";
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+function usageParseBlock(text, marker, isWeekly, nowMs) {
+  const re = new RegExp(
+    marker + "[\\s\\S]{0,800}?(\\d+(?:\\.\\d+)?)\\s*%\\s*used[\\s\\S]*?Resets?\\s*([^()\\n]+?)\\s*\\("
+  );
+  const caps = re.exec(text);
+  if (!caps) return { pct: null, resetsMs: null };
+  let pct = parseFloat(caps[1]);
+  if (isNaN(pct)) pct = null;
+  const timeRaw = (caps[2] || "").trim();
+  const resetsMs = isWeekly ? usageParseWeeklyReset(timeRaw, nowMs) : usageParseTodayClock(timeRaw, nowMs);
+  return { pct, resetsMs };
+}
+function usageParseHMmAmPm(s) {
+  s = String(s || "").trim().toLowerCase();
+  let pm;
+  if (s.slice(-2) === "pm") pm = true;
+  else if (s.slice(-2) === "am") pm = false;
+  else return null;
+  const stripped = s.slice(0, -2).trim();
+  let hh, mm;
+  const idx = stripped.indexOf(":");
+  if (idx !== -1) {
+    hh = parseInt(stripped.slice(0, idx).trim(), 10);
+    mm = parseInt(stripped.slice(idx + 1).trim(), 10);
+  } else {
+    hh = parseInt(stripped, 10);
+    mm = 0;
+  }
+  if (isNaN(hh) || isNaN(mm) || hh === 0 || hh > 12 || mm > 59) return null;
+  return { hh, mm, pm };
+}
+function usageParseTodayClock(s, nowMs) {
+  const t = usageParseHMmAmPm(s);
+  if (!t) return null;
+  const hour24 = t.hh % 12 + (t.pm ? 12 : 0);
+  const now = new Date(nowMs);
+  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour24, t.mm, 0, 0);
+  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1e3);
+  return cand.getTime();
+}
+function usageParseWeeklyReset(s, nowMs) {
+  return usageParseMonthDayClock(s, nowMs) ?? usageParseRelativeDayClock(s, nowMs) ?? usageParseTodayClock(s, nowMs);
+}
+var USAGE_MONTHS = {
+  jan: 0,
+  january: 0,
+  feb: 1,
+  february: 1,
+  mar: 2,
+  march: 2,
+  apr: 3,
+  april: 3,
+  may: 4,
+  jun: 5,
+  june: 5,
+  jul: 6,
+  july: 6,
+  aug: 7,
+  august: 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  oct: 9,
+  october: 9,
+  nov: 10,
+  november: 10,
+  dec: 11,
+  december: 11
+};
+function usageParseMonthDayClock(s, nowMs) {
+  const parts = usageCleanParts(s);
+  while (parts.length > 0 && usageIsWeekday(parts[0])) parts.shift();
+  if (parts.length < 3) return null;
+  const month = USAGE_MONTHS[parts[0]];
+  if (month === void 0) return null;
+  const day = usageParseDayToken(parts[1]);
+  if (day === null) return null;
+  let idx = 2;
+  let explicitYear = null;
+  if (/^\d{4}$/.test(parts[idx] || "")) {
+    explicitYear = parseInt(parts[idx], 10);
+    idx++;
+  }
+  if (parts[idx] === "at") idx++;
+  const t = usageParseHMmAmPm(parts.slice(idx).join(" "));
+  if (!t) return null;
+  const hour24 = t.hh % 12 + (t.pm ? 12 : 0);
+  const now = new Date(nowMs);
+  const year = explicitYear ?? now.getFullYear();
+  let cand = new Date(year, month, day, hour24, t.mm, 0, 0);
+  if (explicitYear === null && cand.getTime() < nowMs) {
+    cand = new Date(year + 1, month, day, hour24, t.mm, 0, 0);
+  }
+  return cand.getTime();
+}
+function usageParseRelativeDayClock(s, nowMs) {
+  const parts = usageCleanParts(s);
+  const first = parts[0];
+  let offsetDays;
+  if (first === "today" || first === "tonight") offsetDays = 0;
+  else if (first === "tomorrow") offsetDays = 1;
+  else return null;
+  let idx = 1;
+  if (parts[idx] === "at") idx++;
+  const t = usageParseHMmAmPm(parts.slice(idx).join(" "));
+  if (!t) return null;
+  const hour24 = t.hh % 12 + (t.pm ? 12 : 0);
+  const now = new Date(nowMs);
+  return new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + offsetDays,
+    hour24,
+    t.mm,
+    0,
+    0
+  ).getTime();
+}
+function usageCleanParts(s) {
+  return String(s || "").trim().toLowerCase().replace(/,/g, " ").split(/\s+/).map((p) => p.replace(/[.;]+$/g, "")).filter(Boolean);
+}
+function usageParseDayToken(s) {
+  const n = parseInt(String(s || "").replace(/(?:st|nd|rd|th)$/i, ""), 10);
+  return Number.isFinite(n) && n >= 1 && n <= 31 ? n : null;
+}
+function usageIsWeekday(s) {
+  return /^(mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday)$/.test(s);
+}
+
+// plugins/provider-claude/src/session.ts
+var CLAUDE_SESSION_DELTA_TYPES = { system: true, user: true, assistant: true, attachment: true };
+function claudeSessionFilePath(cwd, sessionId) {
+  const m = manifest();
+  const root = m && m.sessions && m.sessions.rootDir || "~/.claude/projects";
+  const ext = m && m.sessions && m.sessions.fileExtension || "jsonl";
+  const expanded = host.expandHome(root);
+  if (!expanded) return null;
+  const encoded = encodeCwdDashed(cwd);
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  return expanded + sep + encoded + sep + sessionId + "." + ext;
+}
+function encodeCwdDashed(cwd) {
+  return String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
+}
+function contentToText(c) {
+  if (typeof c === "string") return c;
+  if (!Array.isArray(c)) return "";
+  const chunks = [];
+  for (let i = 0; i < c.length; i++) {
+    const b = c[i];
+    if (b && typeof b.text === "string") chunks.push(b.text);
+  }
+  return chunks.join(" ");
+}
+function isValidClaudeSessionMessage(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v.type !== "user" && v.type !== "assistant") return false;
+  if (!v.message || typeof v.message !== "object" || Array.isArray(v.message)) return false;
+  const content = v.message.content;
+  if (typeof content !== "string" && !Array.isArray(content)) return false;
+  return true;
+}
+function validateEntry(v) {
+  return isValidClaudeSessionDelta(v);
+}
+function isValidClaudeSessionDelta(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (!CLAUDE_SESSION_DELTA_TYPES[v.type]) return false;
+  if (v.type === "system") {
+    const sc = v.content;
+    return typeof sc === "string" || Array.isArray(sc);
+  }
+  if (v.type === "attachment") {
+    const a = v.attachment;
+    return !!a && typeof a === "object" && a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0;
+  }
+  const msg = v.message;
+  if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;
+  if (typeof msg.content !== "string" && !Array.isArray(msg.content)) return false;
+  return true;
+}
+function extractSetModelFamily(raw) {
+  const idx = raw.indexOf("Set model to ");
+  if (idx === -1) return null;
+  const after = raw.substring(idx + "Set model to ".length);
+  const cleaned = stripAnsi(after).replace(/^\s+/, "");
+  let fam = "";
+  for (let i = 0; i < cleaned.length; i++) {
+    const c = cleaned.charAt(i);
+    if (!/[a-zA-Z]/.test(c)) break;
+    fam += c;
+  }
+  return fam ? capitalize(fam) : null;
+}
+function stripAnsi(s) {
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    if (s.charCodeAt(i) === 27 && s.charAt(i + 1) === "[") {
+      i += 2;
+      while (i < s.length && !/[a-zA-Z]/.test(s.charAt(i))) i++;
+      if (i < s.length) i++;
+    } else {
+      out += s.charAt(i);
+      i++;
+    }
+  }
+  return out;
+}
+function familyFromModelId(id) {
+  const m = String(id || "").toLowerCase();
+  const fams = ["opus", "sonnet", "haiku"];
+  for (let i = 0; i < fams.length; i++) {
+    if (m.indexOf(fams[i]) !== -1) return capitalize(fams[i]);
+  }
+  const body = m.indexOf("claude-") === 0 ? m.substring(7) : m;
+  const head = body.split("-")[0] || body;
+  return capitalize(head);
+}
+function capitalize(s) {
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.substring(1).toLowerCase();
+}
+
+// plugins/provider-claude/src/models.ts
+function discoverAnthropicModels() {
+  const key = host.envGet("ANTHROPIC_API_KEY") || host.envGet("CLAUDE_API_KEY");
+  if (!key) return null;
+  const raw = host.fetch(JSON.stringify({
+    url: "https://api.anthropic.com/v1/models",
+    method: "GET",
+    timeoutMs: 3e3,
+    headers: {
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01"
+    }
+  }));
+  const response = safeJson(raw);
+  if (!response || response.status !== 200 || typeof response.body !== "string") return null;
+  const body = safeJson(response.body);
+  const data = body && body.data;
+  if (!Array.isArray(data)) return null;
+  const models = [];
+  for (let i = 0; i < data.length; i++) {
+    const item = data[i];
+    if (!item) continue;
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    if (!id) continue;
+    const display = typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : typeof item.displayName === "string" && item.displayName.trim() ? item.displayName.trim() : displayNameFromId(id);
+    models.push({ id, displayName: display });
+  }
+  return models.length ? models : null;
+}
+function manifestModels() {
+  const m = manifest();
+  return Array.isArray(m && m.models) ? m.models : [];
+}
+function safeJson(s) {
+  try {
+    return JSON.parse(String(s || "null"));
+  } catch (_) {
+    return null;
+  }
+}
+function displayNameFromId(id) {
+  const leaf = id.split("/").pop() || id;
+  return leaf.split("-").filter(Boolean).map((part) => {
+    return part ? part.charAt(0).toUpperCase() + part.substring(1) : part;
+  }).join(" ");
+}
+
+// plugins/provider-claude/src/classify.ts
+var CLASSIFY_THRESHOLD = 0.8;
+var RESUME_BUFFER_MS = 60 * 1e3;
+function classifyClaudePaneState(snapshot) {
+  const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
+  if (!screen.trim()) return null;
+  const authConfidence = scoreAuthPrompt(screen);
+  if (authConfidence >= CLASSIFY_THRESHOLD) {
+    return {
+      state: "waiting_on_auth",
+      confidence: authConfidence,
+      action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
+    };
+  }
+  if (looksBusy(screen)) return { state: "working", confidence: 0 };
+  const rl = scoreRateLimit(screen, host.unixNowMs());
+  if (rl.confidence >= CLASSIFY_THRESHOLD && rl.waitKeys && rl.waitKeys.length > 0) {
+    const action = { keys: rl.waitKeys };
+    const data = {};
+    if (rl.resetAtMs !== null) {
+      data.resetAt = new Date(rl.resetAtMs).toISOString();
+      action.delayedResume = {
+        at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
+        text: "continue your work",
+        thenKeys: ["enter"]
+      };
+    } else {
+      action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
+    }
+    return {
+      state: "rate_limited",
+      confidence: rl.confidence,
+      data: rl.resetAtMs !== null ? data : void 0,
+      action
+    };
+  }
+  const cq = scoreClarifyingQuestion(screen);
+  if (cq.confidence >= CLASSIFY_THRESHOLD && cq.questions.length > 0) {
+    return {
+      state: "clarifying_question",
+      confidence: cq.confidence,
+      data: { questions: cq.questions },
+      action: { surface: { kind: "clarifying_question", payload: { questions: cq.questions } } }
+    };
+  }
+  const partial = rl.confidence > cq.confidence ? rl.confidence : cq.confidence;
+  if (partial > 0) return { state: "unknown", confidence: partial };
+  return { state: "working", confidence: 0 };
+}
+var CLAUDE_MENU_OPTION_RE = /^[ \t]*([>❯▶➤])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
+function parseClaudeMenuOptions(screen) {
+  const lines = String(screen || "").split("\n");
+  const options = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = CLAUDE_MENU_OPTION_RE.exec(lines[i]);
+    if (!m) continue;
+    options.push({ highlighted: !!m[1], label: m[3] });
+  }
+  return options;
+}
+function navigationKeys(options, targetIdx) {
+  let highlightIdx = -1;
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].highlighted) {
+      highlightIdx = i;
+      break;
+    }
+  }
+  if (highlightIdx === -1) highlightIdx = 0;
+  const keys = [];
+  const delta = targetIdx - highlightIdx;
+  if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
+  else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
+  keys.push("enter");
+  return keys;
+}
+function looksBusy(screen) {
+  const s = String(screen || "");
+  return /\besc to interrupt\b/i.test(s) || /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) || /\bWorking[….]/.test(s) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(s);
+}
+function scoreRateLimit(screen, nowMs) {
+  const options = parseClaudeMenuOptions(screen);
+  let waitIdx = -1;
+  let hasUpgradeOption = false;
+  for (let i = 0; i < options.length; i++) {
+    const label = options[i].label;
+    if (/\bupgrade\b/i.test(label)) hasUpgradeOption = true;
+    if (waitIdx === -1 && /\b(?:wait|stop and wait)\b/i.test(label) && !/\bupgrade\b/i.test(label)) {
+      waitIdx = i;
+    }
+  }
+  const sigWaitUpgradeMenu = waitIdx !== -1 && hasUpgradeOption;
+  const sigLimitWord = /\b(?:session|usage|rate|message|weekly)\s+limit\b/i.test(screen) || /\blimit\b[\s\S]{0,40}\breset/i.test(screen);
+  const sigResetClock = /\breset[s]?\b[\s\S]{0,40}\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(screen);
+  const sigConfirmFooter = /\bto confirm\b/i.test(screen) && /\bto (?:cancel|exit)\b/i.test(screen);
+  let confidence = 0;
+  if (sigWaitUpgradeMenu) confidence += 0.5;
+  if (sigLimitWord) confidence += 0.25;
+  if (sigResetClock) confidence += 0.15;
+  if (sigConfirmFooter) confidence += 0.1;
+  if (confidence > 1) confidence = 1;
+  const waitKeys = sigWaitUpgradeMenu ? navigationKeys(options, waitIdx) : null;
+  const resetAtMs = parseResetClock(screen, nowMs);
+  return { confidence, waitKeys, resetAtMs };
+}
+function parseResetClock(screen, nowMs) {
+  const m = /\breset[s]?\b[^\n]{0,40}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
+  if (!m) return null;
+  return usageParseTodayClock(m[1], nowMs);
+}
+function scoreClarifyingQuestion(screen) {
+  const options = parseClaudeMenuOptions(screen);
+  const questions = extractQuestions(screen);
+  const sigMenu = options.length >= 2;
+  const sigQuestion = questions.length > 0;
+  const sigConfirmFooter = /\bto (?:confirm|submit|select)\b/i.test(screen);
+  let confidence = 0;
+  if (sigMenu) confidence += 0.35;
+  if (sigQuestion) confidence += 0.3;
+  if (sigConfirmFooter) confidence += 0.35;
+  if (confidence > 1) confidence = 1;
+  return { confidence, questions };
+}
+function extractQuestions(screen) {
+  const lines = String(screen || "").split("\n");
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.length > 1 && line.charAt(line.length - 1) === "?") out.push(line);
+  }
+  return out;
+}
+function scoreAuthPrompt(screen) {
+  const s = String(screen || "");
+  let score = 0;
+  if (/\bsign[ -]?in\b/i.test(s)) score += 0.5;
+  if (/\blog[ -]?in\b/i.test(s)) score += 0.5;
+  if (/\bauthenticat(?:e|ion|ing)\b/i.test(s)) score += 0.5;
+  if (/\bo\s?auth\b/i.test(s)) score += 0.6;
+  if (/\bapi key\b/i.test(s)) score += 0.6;
+  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(s)) score += 0.6;
+  if (/\bauthorization code\b/i.test(s)) score += 0.6;
+  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
+  return score > 1 ? 1 : score;
+}
+
+// plugins/provider-claude/src/plugin.ts
 var TITLE_RE = /claude/i;
 var BRAILLE_LO = 10241;
 var BRAILLE_HI = 10495;
@@ -66,7 +501,6 @@ var TUI_FRAGMENTS = [
 ];
 var SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/i;
 var SESSION_BARE_RE = /(?:^|\n)\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*(?:$|\n)/m;
-var CLAUDE_SESSION_DELTA_TYPES = { system: true, user: true, assistant: true, attachment: true };
 function isBrailleSpinner(ch) {
   if (!ch) return false;
   const code = ch.charCodeAt(0);
@@ -542,212 +976,12 @@ var plugin = {
     }
     return { ok: false, error: "writeJson failed for " + path };
   },
-  // AS3 (Case B: rate-limit menu) + AS4 (clarifying question / auth) — classify a
-  // parked claude pane from its rendered screen. The core reactor
-  // (state_reactor.rs) only calls this on the idle/waiting edge and only
-  // auto-acts when confidence >= GLOBAL_THRESHOLD (0.8), the state is NOT
-  // waiting_on_auth, and an action is present. All claude-specific knowledge
-  // (the rate-limit fingerprint, the reset-time/timezone parse, the confirm-wait
-  // navigation, the auth guard) lives here; core stays generic.
-  //
-  // Guarantees this method enforces:
-  //  1. Auth is sacred — a login/OAuth/API-key screen is waiting_on_auth with NO
-  //     keys, surfaced and never auto-pressed.
-  //  2. No false positives — every actionable verdict is an ENSEMBLE of
-  //     independent STRUCTURAL signals (a numbered menu shape, a reset-clock
-  //     pattern, a confirm/cancel footer — never literal vendor copy). A single
-  //     weak match stays below threshold. An actively-streaming screen (busy
-  //     markers) is vetoed to `working` even if a menu is visible.
-  //  3. Rate-limit → confirm-wait by NAVIGATING to the wait option (never a blind
-  //     Enter on whatever is highlighted) + a delayed `continue your work` resume
-  //     scheduled at the parsed reset time + buffer. An unparseable reset time
-  //     surfaces to the user instead of auto-scheduling at a wrong moment.
-  //  4. Clarifying question → surface the extracted question(s); NEVER auto-answer
-  //     (no keys), so the user decides.
+  // AS3/AS4 pane-state classification lives in ./classify; the facade delegates.
+  // See that module for the auth/rate-limit/clarifying ensemble and its guarantees.
   classifyPaneState(snapshot) {
-    const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
-    if (!screen.trim()) return null;
-    const authConfidence = scoreAuthPrompt(screen);
-    if (authConfidence >= CLASSIFY_THRESHOLD) {
-      return {
-        state: "waiting_on_auth",
-        confidence: authConfidence,
-        action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
-      };
-    }
-    if (looksBusy(screen)) return { state: "working", confidence: 0 };
-    const rl = scoreRateLimit(screen, host.unixNowMs());
-    if (rl.confidence >= CLASSIFY_THRESHOLD && rl.waitKeys && rl.waitKeys.length > 0) {
-      const action = { keys: rl.waitKeys };
-      const data = {};
-      if (rl.resetAtMs !== null) {
-        data.resetAt = new Date(rl.resetAtMs).toISOString();
-        action.delayedResume = {
-          at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
-          text: "continue your work",
-          thenKeys: ["enter"]
-        };
-      } else {
-        action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
-      }
-      return {
-        state: "rate_limited",
-        confidence: rl.confidence,
-        data: rl.resetAtMs !== null ? data : void 0,
-        action
-      };
-    }
-    const cq = scoreClarifyingQuestion(screen);
-    if (cq.confidence >= CLASSIFY_THRESHOLD && cq.questions.length > 0) {
-      return {
-        state: "clarifying_question",
-        confidence: cq.confidence,
-        data: { questions: cq.questions },
-        action: { surface: { kind: "clarifying_question", payload: { questions: cq.questions } } }
-      };
-    }
-    const partial = rl.confidence > cq.confidence ? rl.confidence : cq.confidence;
-    if (partial > 0) return { state: "unknown", confidence: partial };
-    return { state: "working", confidence: 0 };
+    return classifyClaudePaneState(snapshot);
   }
 };
-function discoverAnthropicModels() {
-  const key = host.envGet("ANTHROPIC_API_KEY") || host.envGet("CLAUDE_API_KEY");
-  if (!key) return null;
-  const raw = host.fetch(JSON.stringify({
-    url: "https://api.anthropic.com/v1/models",
-    method: "GET",
-    timeoutMs: 3e3,
-    headers: {
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01"
-    }
-  }));
-  const response = safeJson(raw);
-  if (!response || response.status !== 200 || typeof response.body !== "string") return null;
-  const body = safeJson(response.body);
-  const data = body && body.data;
-  if (!Array.isArray(data)) return null;
-  const models = [];
-  for (let i = 0; i < data.length; i++) {
-    const item = data[i];
-    if (!item) continue;
-    const id = typeof item.id === "string" ? item.id.trim() : "";
-    if (!id) continue;
-    const display = typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : typeof item.displayName === "string" && item.displayName.trim() ? item.displayName.trim() : displayNameFromId(id);
-    models.push({ id, displayName: display });
-  }
-  return models.length ? models : null;
-}
-function manifestModels() {
-  const m = manifest();
-  return Array.isArray(m && m.models) ? m.models : [];
-}
-function safeJson(s) {
-  try {
-    return JSON.parse(String(s || "null"));
-  } catch (_) {
-    return null;
-  }
-}
-function displayNameFromId(id) {
-  const leaf = id.split("/").pop() || id;
-  return leaf.split("-").filter(Boolean).map((part) => {
-    return part ? part.charAt(0).toUpperCase() + part.substring(1) : part;
-  }).join(" ");
-}
-function claudeSessionFilePath(cwd, sessionId) {
-  const m = manifest();
-  const root = m && m.sessions && m.sessions.rootDir || "~/.claude/projects";
-  const ext = m && m.sessions && m.sessions.fileExtension || "jsonl";
-  const expanded = host.expandHome(root);
-  if (!expanded) return null;
-  const encoded = encodeCwdDashed(cwd);
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return expanded + sep + encoded + sep + sessionId + "." + ext;
-}
-function encodeCwdDashed(cwd) {
-  return String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
-}
-function contentToText(c) {
-  if (typeof c === "string") return c;
-  if (!Array.isArray(c)) return "";
-  const chunks = [];
-  for (let i = 0; i < c.length; i++) {
-    const b = c[i];
-    if (b && typeof b.text === "string") chunks.push(b.text);
-  }
-  return chunks.join(" ");
-}
-function isValidClaudeSessionMessage(v) {
-  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
-  if (v.type !== "user" && v.type !== "assistant") return false;
-  if (!v.message || typeof v.message !== "object" || Array.isArray(v.message)) return false;
-  const content = v.message.content;
-  if (typeof content !== "string" && !Array.isArray(content)) return false;
-  return true;
-}
-function validateEntry(v) {
-  return isValidClaudeSessionDelta(v);
-}
-function isValidClaudeSessionDelta(v) {
-  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
-  if (!CLAUDE_SESSION_DELTA_TYPES[v.type]) return false;
-  if (v.type === "system") {
-    const sc = v.content;
-    return typeof sc === "string" || Array.isArray(sc);
-  }
-  if (v.type === "attachment") {
-    const a = v.attachment;
-    return !!a && typeof a === "object" && a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0;
-  }
-  const msg = v.message;
-  if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;
-  if (typeof msg.content !== "string" && !Array.isArray(msg.content)) return false;
-  return true;
-}
-function extractSetModelFamily(raw) {
-  const idx = raw.indexOf("Set model to ");
-  if (idx === -1) return null;
-  const after = raw.substring(idx + "Set model to ".length);
-  const cleaned = stripAnsi(after).replace(/^\s+/, "");
-  let fam = "";
-  for (let i = 0; i < cleaned.length; i++) {
-    const c = cleaned.charAt(i);
-    if (!/[a-zA-Z]/.test(c)) break;
-    fam += c;
-  }
-  return fam ? capitalize(fam) : null;
-}
-function stripAnsi(s) {
-  let out = "";
-  let i = 0;
-  while (i < s.length) {
-    if (s.charCodeAt(i) === 27 && s.charAt(i + 1) === "[") {
-      i += 2;
-      while (i < s.length && !/[a-zA-Z]/.test(s.charAt(i))) i++;
-      if (i < s.length) i++;
-    } else {
-      out += s.charAt(i);
-      i++;
-    }
-  }
-  return out;
-}
-function familyFromModelId(id) {
-  const m = String(id || "").toLowerCase();
-  const fams = ["opus", "sonnet", "haiku"];
-  for (let i = 0; i < fams.length; i++) {
-    if (m.indexOf(fams[i]) !== -1) return capitalize(fams[i]);
-  }
-  const body = m.indexOf("claude-") === 0 ? m.substring(7) : m;
-  const head = body.split("-")[0] || body;
-  return capitalize(head);
-}
-function capitalize(s) {
-  if (!s) return "";
-  return s.charAt(0).toUpperCase() + s.substring(1).toLowerCase();
-}
 function writeTaskTempFile(task) {
   const suffix = ".ct-task-" + randomShortHex(8);
   const win = host.platform() === "windows";
@@ -778,244 +1012,5 @@ function isCodetermHook(entry) {
     }
   }
   return false;
-}
-function usageNormalize(raw) {
-  let out = "";
-  for (let i = 0; i < raw.length; i++) {
-    const ch = raw[i];
-    if (ch === "\x1B" || ch === "\r") continue;
-    if ("\u2588\u258C\u258D\u258E\u258F\u258A\u258B".indexOf(ch) !== -1) {
-      out += " ";
-      continue;
-    }
-    out += ch;
-  }
-  return out;
-}
-function usageParseBlock(text, marker, isWeekly, nowMs) {
-  const re = new RegExp(
-    marker + "[\\s\\S]{0,800}?(\\d+(?:\\.\\d+)?)\\s*%\\s*used[\\s\\S]*?Resets?\\s*([^()\\n]+?)\\s*\\("
-  );
-  const caps = re.exec(text);
-  if (!caps) return { pct: null, resetsMs: null };
-  let pct = parseFloat(caps[1]);
-  if (isNaN(pct)) pct = null;
-  const timeRaw = (caps[2] || "").trim();
-  const resetsMs = isWeekly ? usageParseWeeklyReset(timeRaw, nowMs) : usageParseTodayClock(timeRaw, nowMs);
-  return { pct, resetsMs };
-}
-function usageParseHMmAmPm(s) {
-  s = String(s || "").trim().toLowerCase();
-  let pm;
-  if (s.slice(-2) === "pm") pm = true;
-  else if (s.slice(-2) === "am") pm = false;
-  else return null;
-  const stripped = s.slice(0, -2).trim();
-  let hh, mm;
-  const idx = stripped.indexOf(":");
-  if (idx !== -1) {
-    hh = parseInt(stripped.slice(0, idx).trim(), 10);
-    mm = parseInt(stripped.slice(idx + 1).trim(), 10);
-  } else {
-    hh = parseInt(stripped, 10);
-    mm = 0;
-  }
-  if (isNaN(hh) || isNaN(mm) || hh === 0 || hh > 12 || mm > 59) return null;
-  return { hh, mm, pm };
-}
-function usageParseTodayClock(s, nowMs) {
-  const t = usageParseHMmAmPm(s);
-  if (!t) return null;
-  const hour24 = t.hh % 12 + (t.pm ? 12 : 0);
-  const now = new Date(nowMs);
-  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour24, t.mm, 0, 0);
-  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1e3);
-  return cand.getTime();
-}
-function usageParseWeeklyReset(s, nowMs) {
-  return usageParseMonthDayClock(s, nowMs) ?? usageParseRelativeDayClock(s, nowMs) ?? usageParseTodayClock(s, nowMs);
-}
-var USAGE_MONTHS = {
-  jan: 0,
-  january: 0,
-  feb: 1,
-  february: 1,
-  mar: 2,
-  march: 2,
-  apr: 3,
-  april: 3,
-  may: 4,
-  jun: 5,
-  june: 5,
-  jul: 6,
-  july: 6,
-  aug: 7,
-  august: 7,
-  sep: 8,
-  sept: 8,
-  september: 8,
-  oct: 9,
-  october: 9,
-  nov: 10,
-  november: 10,
-  dec: 11,
-  december: 11
-};
-function usageParseMonthDayClock(s, nowMs) {
-  const parts = usageCleanParts(s);
-  while (parts.length > 0 && usageIsWeekday(parts[0])) parts.shift();
-  if (parts.length < 3) return null;
-  const month = USAGE_MONTHS[parts[0]];
-  if (month === void 0) return null;
-  const day = usageParseDayToken(parts[1]);
-  if (day === null) return null;
-  let idx = 2;
-  let explicitYear = null;
-  if (/^\d{4}$/.test(parts[idx] || "")) {
-    explicitYear = parseInt(parts[idx], 10);
-    idx++;
-  }
-  if (parts[idx] === "at") idx++;
-  const t = usageParseHMmAmPm(parts.slice(idx).join(" "));
-  if (!t) return null;
-  const hour24 = t.hh % 12 + (t.pm ? 12 : 0);
-  const now = new Date(nowMs);
-  const year = explicitYear ?? now.getFullYear();
-  let cand = new Date(year, month, day, hour24, t.mm, 0, 0);
-  if (explicitYear === null && cand.getTime() < nowMs) {
-    cand = new Date(year + 1, month, day, hour24, t.mm, 0, 0);
-  }
-  return cand.getTime();
-}
-function usageParseRelativeDayClock(s, nowMs) {
-  const parts = usageCleanParts(s);
-  const first = parts[0];
-  let offsetDays;
-  if (first === "today" || first === "tonight") offsetDays = 0;
-  else if (first === "tomorrow") offsetDays = 1;
-  else return null;
-  let idx = 1;
-  if (parts[idx] === "at") idx++;
-  const t = usageParseHMmAmPm(parts.slice(idx).join(" "));
-  if (!t) return null;
-  const hour24 = t.hh % 12 + (t.pm ? 12 : 0);
-  const now = new Date(nowMs);
-  return new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + offsetDays,
-    hour24,
-    t.mm,
-    0,
-    0
-  ).getTime();
-}
-function usageCleanParts(s) {
-  return String(s || "").trim().toLowerCase().replace(/,/g, " ").split(/\s+/).map((p) => p.replace(/[.;]+$/g, "")).filter(Boolean);
-}
-function usageParseDayToken(s) {
-  const n = parseInt(String(s || "").replace(/(?:st|nd|rd|th)$/i, ""), 10);
-  return Number.isFinite(n) && n >= 1 && n <= 31 ? n : null;
-}
-function usageIsWeekday(s) {
-  return /^(mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday)$/.test(s);
-}
-var CLASSIFY_THRESHOLD = 0.8;
-var RESUME_BUFFER_MS = 60 * 1e3;
-var CLAUDE_MENU_OPTION_RE = /^[ \t]*([>❯▶➤])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
-function parseClaudeMenuOptions(screen) {
-  const lines = String(screen || "").split("\n");
-  const options = [];
-  for (let i = 0; i < lines.length; i++) {
-    const m = CLAUDE_MENU_OPTION_RE.exec(lines[i]);
-    if (!m) continue;
-    options.push({ highlighted: !!m[1], label: m[3] });
-  }
-  return options;
-}
-function navigationKeys(options, targetIdx) {
-  let highlightIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    if (options[i].highlighted) {
-      highlightIdx = i;
-      break;
-    }
-  }
-  if (highlightIdx === -1) highlightIdx = 0;
-  const keys = [];
-  const delta = targetIdx - highlightIdx;
-  if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
-  else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
-  keys.push("enter");
-  return keys;
-}
-function looksBusy(screen) {
-  const s = String(screen || "");
-  return /\besc to interrupt\b/i.test(s) || /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) || /\bWorking[….]/.test(s) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(s);
-}
-function scoreRateLimit(screen, nowMs) {
-  const options = parseClaudeMenuOptions(screen);
-  let waitIdx = -1;
-  let hasUpgradeOption = false;
-  for (let i = 0; i < options.length; i++) {
-    const label = options[i].label;
-    if (/\bupgrade\b/i.test(label)) hasUpgradeOption = true;
-    if (waitIdx === -1 && /\b(?:wait|stop and wait)\b/i.test(label) && !/\bupgrade\b/i.test(label)) {
-      waitIdx = i;
-    }
-  }
-  const sigWaitUpgradeMenu = waitIdx !== -1 && hasUpgradeOption;
-  const sigLimitWord = /\b(?:session|usage|rate|message|weekly)\s+limit\b/i.test(screen) || /\blimit\b[\s\S]{0,40}\breset/i.test(screen);
-  const sigResetClock = /\breset[s]?\b[\s\S]{0,40}\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(screen);
-  const sigConfirmFooter = /\bto confirm\b/i.test(screen) && /\bto (?:cancel|exit)\b/i.test(screen);
-  let confidence = 0;
-  if (sigWaitUpgradeMenu) confidence += 0.5;
-  if (sigLimitWord) confidence += 0.25;
-  if (sigResetClock) confidence += 0.15;
-  if (sigConfirmFooter) confidence += 0.1;
-  if (confidence > 1) confidence = 1;
-  const waitKeys = sigWaitUpgradeMenu ? navigationKeys(options, waitIdx) : null;
-  const resetAtMs = parseResetClock(screen, nowMs);
-  return { confidence, waitKeys, resetAtMs };
-}
-function parseResetClock(screen, nowMs) {
-  const m = /\breset[s]?\b[^\n]{0,40}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
-  if (!m) return null;
-  return usageParseTodayClock(m[1], nowMs);
-}
-function scoreClarifyingQuestion(screen) {
-  const options = parseClaudeMenuOptions(screen);
-  const questions = extractQuestions(screen);
-  const sigMenu = options.length >= 2;
-  const sigQuestion = questions.length > 0;
-  const sigConfirmFooter = /\bto (?:confirm|submit|select)\b/i.test(screen);
-  let confidence = 0;
-  if (sigMenu) confidence += 0.35;
-  if (sigQuestion) confidence += 0.3;
-  if (sigConfirmFooter) confidence += 0.35;
-  if (confidence > 1) confidence = 1;
-  return { confidence, questions };
-}
-function extractQuestions(screen) {
-  const lines = String(screen || "").split("\n");
-  const out = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line.length > 1 && line.charAt(line.length - 1) === "?") out.push(line);
-  }
-  return out;
-}
-function scoreAuthPrompt(screen) {
-  const s = String(screen || "");
-  let score = 0;
-  if (/\bsign[ -]?in\b/i.test(s)) score += 0.5;
-  if (/\blog[ -]?in\b/i.test(s)) score += 0.5;
-  if (/\bauthenticat(?:e|ion|ing)\b/i.test(s)) score += 0.5;
-  if (/\bo\s?auth\b/i.test(s)) score += 0.6;
-  if (/\bapi key\b/i.test(s)) score += 0.6;
-  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(s)) score += 0.6;
-  if (/\bauthorization code\b/i.test(s)) score += 0.6;
-  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
-  return score > 1 ? 1 : score;
 }
 var plugin_default = plugin;
