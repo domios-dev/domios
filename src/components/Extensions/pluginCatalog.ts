@@ -9,7 +9,7 @@ import type {
 } from "./types";
 import type { SettingField } from "../../lib/types";
 
-export type CatalogFilter = "all" | "installed" | "marketplace" | "updates";
+export type CatalogFilter = "all" | "installed" | "marketplace" | "updates" | "channels";
 
 export interface CatalogEntry {
   id: string;
@@ -189,6 +189,8 @@ function matchesFilter(entry: CatalogEntry, filter: CatalogFilter): boolean {
       return entry.inMarketplace;
     case "updates":
       return entry.updateAvailable;
+    case "channels":
+      return false;
     default:
       return true;
   }
