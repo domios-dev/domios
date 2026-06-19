@@ -7,7 +7,10 @@
 //! (`close_pane`) closes the session too, so a normal pane-close also releases
 //! the plugin's model/context.
 
+use std::collections::HashMap;
 use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use super::pane_transport::PaneTransport;
 use super::pty_io::SendBatchItem;
@@ -15,6 +18,42 @@ use super::ServiceContext;
 use crate::agent::chat_types::StructuredChat;
 use crate::agent::provider::ModelInfo;
 use crate::chatbackend::ChatBackendProvider;
+
+/// Serializes the restore→reopen transition per pane. Without it the transition
+/// "read `restored_from_snapshot == true` → `openSession` → set it false" has no
+/// guard and is reachable concurrently from [`ChatBackendTransport::send`],
+/// [`Messenger::deliver`], and [`ServiceContext::chatbackend_pane_send`]: two
+/// callers both observe `true`, each fire `openSession` + a poll loop, and the
+/// one pane ends up with two plugin sessions. The first caller to take a pane's
+/// lock runs the reopen; the others block, then run their critical section only
+/// after it returns — observing the transition already done and reusing the
+/// resulting session id.
+///
+/// [`Messenger::deliver`]: crate::service::messenger::Messenger::deliver
+#[derive(Default)]
+pub struct PaneReopenGuards {
+    locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+}
+
+impl PaneReopenGuards {
+    fn lock_for(&self, pane_id: &str) -> Arc<Mutex<()>> {
+        self.locks
+            .lock()
+            .entry(pane_id.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// Run `transition` while holding the per-pane lock, so concurrent
+    /// restore→reopen transitions for the SAME pane run one-at-a-time. The outer
+    /// map lock is released before `transition` runs (only the per-pane lock is
+    /// held), so different panes never block each other.
+    pub fn serialized<T>(&self, pane_id: &str, transition: impl FnOnce() -> T) -> T {
+        let lock = self.lock_for(pane_id);
+        let _held = lock.lock();
+        transition()
+    }
+}
 
 /// Whether outbound preprocessor stages (`chatPreprocessor`) should run for a
 /// chatBackend send. Mirrors the PTY gate ([`is_user_turn_send`]): only agent
@@ -175,64 +214,81 @@ impl ServiceContext {
     /// migrate history to the (possibly new) session id so it stays continuous,
     /// update the pane backing, and start the inbound poll loop.
     ///
-    /// Returns `Some(effective_session_id)` if a re-open happened, `None` if the
-    /// pane was already live (a no-op). Best-effort: a missing meta/plugin is a
-    /// soft error so a plain shell still sends.
+    /// Returns `Some(effective_session_id)` for a chatBackend pane — the freshly
+    /// re-opened session id when this call performed the reopen, or the
+    /// already-live session id when the pane was live or a concurrent caller
+    /// just reopened it (so a racing sender targets the migrated session, never
+    /// a dead one). `None` for a non-chatBackend pane. Serialized per pane via
+    /// [`PaneReopenGuards`] so only the FIRST caller re-opens. Best-effort: a
+    /// missing meta/plugin is a soft error so a plain shell still sends.
     pub fn chatbackend_reopen_if_restored(&self, pane_id: &str) -> Result<Option<String>, String> {
         use crate::multiplexer::types::PaneBacking;
 
-        let (plugin_id, old_session) = {
-            let mux = self.mux.write();
-            let Some(resolved) = mux.resolve_pane_id(pane_id) else {
-                return Ok(None);
+        // Serialize the whole read-recheck-reopen transition per pane: the lock
+        // is the once-guard, and the `restored_from_snapshot` recheck below is
+        // the compare-and-swap — only the first caller sees `true`.
+        self.chatbackend_reopen_guards.serialized(pane_id, || {
+            let (plugin_id, old_session) = {
+                let mux = self.mux.write();
+                let Some(resolved) = mux.resolve_pane_id(pane_id) else {
+                    return Ok(None);
+                };
+                let Some(pane) = mux.get_pane(&resolved) else {
+                    return Ok(None);
+                };
+                match (&pane.backing, pane.restored_from_snapshot) {
+                    (
+                        PaneBacking::ChatBackend {
+                            plugin_id,
+                            session_id,
+                        },
+                        true,
+                    ) => (plugin_id.clone(), session_id.clone()),
+                    // Already-live chatBackend (spawned normally, or a concurrent
+                    // caller already reopened it under this lock): reuse the
+                    // current live session id rather than re-opening again.
+                    (PaneBacking::ChatBackend { session_id, .. }, false) => {
+                        return Ok(Some(session_id.clone()));
+                    }
+                    _ => return Ok(None),
+                }
             };
-            let Some(pane) = mux.get_pane(&resolved) else {
-                return Ok(None);
-            };
-            match (&pane.backing, pane.restored_from_snapshot) {
-                (
-                    PaneBacking::ChatBackend {
-                        plugin_id,
-                        session_id,
-                    },
-                    true,
-                ) => (plugin_id.clone(), session_id.clone()),
-                _ => return Ok(None),
-            }
-        };
 
-        let path =
-            crate::service::pane_chat::chatbackend_history::session_path(&plugin_id, &old_session);
-        let config = crate::service::pane_chat::chatbackend_history::read_meta(&path)
-            .unwrap_or(serde_json::Value::Null);
+            let path = crate::service::pane_chat::chatbackend_history::session_path(
+                &plugin_id,
+                &old_session,
+            );
+            let config = crate::service::pane_chat::chatbackend_history::read_meta(&path)
+                .unwrap_or(serde_json::Value::Null);
 
-        let new_session = self.chatbackend_open_session(&plugin_id, pane_id, config.clone())?;
-        crate::service::pane_chat::chatbackend_history::migrate(
-            &plugin_id,
-            &old_session,
-            &new_session,
-        );
+            let new_session = self.chatbackend_open_session(&plugin_id, pane_id, config.clone())?;
+            crate::service::pane_chat::chatbackend_history::migrate(
+                &plugin_id,
+                &old_session,
+                &new_session,
+            );
 
-        {
-            let mut mux = self.mux.write();
-            if let Some(resolved) = mux.resolve_pane_id(pane_id) {
-                if let Some(pane) = mux.get_pane_mut(&resolved) {
-                    pane.backing = PaneBacking::ChatBackend {
-                        plugin_id: plugin_id.clone(),
-                        session_id: new_session.clone(),
-                    };
-                    pane.restored_from_snapshot = false;
+            {
+                let mut mux = self.mux.write();
+                if let Some(resolved) = mux.resolve_pane_id(pane_id) {
+                    if let Some(pane) = mux.get_pane_mut(&resolved) {
+                        pane.backing = PaneBacking::ChatBackend {
+                            plugin_id: plugin_id.clone(),
+                            session_id: new_session.clone(),
+                        };
+                        pane.restored_from_snapshot = false;
+                    }
                 }
             }
-        }
 
-        self.spawn_chatbackend_poll_loop(
-            pane_id.to_string(),
-            plugin_id,
-            new_session.clone(),
-            config,
-        );
-        Ok(Some(new_session))
+            self.spawn_chatbackend_poll_loop(
+                pane_id.to_string(),
+                plugin_id,
+                new_session.clone(),
+                config,
+            );
+            Ok(Some(new_session))
+        })
     }
 
     /// Deliver one user turn to a plugin session.
@@ -336,7 +392,66 @@ impl ServiceContext {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
     use serde_json::json;
+
+    #[test]
+    fn reopen_guard_serializes_to_a_single_open() {
+        // MED race fix: with N senders hitting a freshly-restored chatBackend
+        // pane at once, only the FIRST may run `openSession`; the rest must wait
+        // and reuse the resulting (migrated) session id. The per-pane lock is the
+        // once-guard, and the `restored` recheck inside is the compare-and-swap.
+        let guards = Arc::new(super::PaneReopenGuards::default());
+        let restored = Arc::new(AtomicBool::new(true)); // pane.restored_from_snapshot
+        let opens = Arc::new(AtomicUsize::new(0)); // count of openSession calls
+        let session = Arc::new(Mutex::new(String::from("old"))); // live session id
+
+        let handles: Vec<_> = (0..16)
+            .map(|_| {
+                let (guards, restored, opens, session) = (
+                    guards.clone(),
+                    restored.clone(),
+                    opens.clone(),
+                    session.clone(),
+                );
+                std::thread::spawn(move || {
+                    guards.serialized("pane-1", || {
+                        if restored.swap(false, Ordering::SeqCst) {
+                            // First (and only) caller: "re-open" + migrate.
+                            opens.fetch_add(1, Ordering::SeqCst);
+                            *session.lock() = "migrated".to_string();
+                        }
+                        session.lock().clone()
+                    })
+                })
+            })
+            .collect();
+
+        let seen: Vec<String> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        assert_eq!(
+            opens.load(Ordering::SeqCst),
+            1,
+            "only the first caller re-opens the session"
+        );
+        assert!(
+            seen.iter().all(|s| s == "migrated"),
+            "every caller observed the migrated session id, none the dead 'old' one: {seen:?}"
+        );
+    }
+
+    #[test]
+    fn reopen_guard_does_not_block_distinct_panes() {
+        // Different panes take different locks, so a slow reopen on one pane
+        // never serializes another. Both closures run; both observe their own
+        // first-caller transition.
+        let guards = super::PaneReopenGuards::default();
+        let a = guards.serialized("pane-a", || "a");
+        let b = guards.serialized("pane-b", || "b");
+        assert_eq!((a, b), ("a", "b"));
+    }
 
     #[test]
     fn chatbackend_send_is_gated_on_agent_pane() {
