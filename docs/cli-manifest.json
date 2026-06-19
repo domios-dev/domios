@@ -68,6 +68,22 @@
           "subcommands": []
         },
         {
+          "name": "ledger",
+          "about": "List an orchestrator's workers from the durable ledger (survives daemon restart): branch / model / status / last-seen, one row per worker",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Orchestrator pane ID (default: current focused pane)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "link",
           "about": "Link a pane as worker under a parent",
           "aliases": [],
@@ -144,6 +160,22 @@
           "aliases": [],
           "args": [
             {
+              "name": "branch",
+              "positional": false,
+              "value_name": "BRANCH",
+              "default": null,
+              "help": "Git branch the work landed on",
+              "aliases": []
+            },
+            {
+              "name": "changed_files",
+              "positional": false,
+              "value_name": "CHANGED_FILES",
+              "default": null,
+              "help": "Changed files (comma-separated or repeat the flag)",
+              "aliases": []
+            },
+            {
               "name": "message",
               "positional": true,
               "value_name": "MESSAGE",
@@ -157,6 +189,46 @@
               "value_name": "PANE",
               "default": null,
               "help": "Pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "aliases": []
+            },
+            {
+              "name": "sha",
+              "positional": false,
+              "value_name": "SHA",
+              "default": null,
+              "help": "Commit SHA produced",
+              "aliases": []
+            },
+            {
+              "name": "skipped",
+              "positional": false,
+              "value_name": "SKIPPED",
+              "default": null,
+              "help": "Anything deliberately skipped",
+              "aliases": []
+            },
+            {
+              "name": "status",
+              "positional": false,
+              "value_name": "STATUS",
+              "default": null,
+              "help": "Task outcome: done | blocked | partial",
+              "aliases": []
+            },
+            {
+              "name": "test_cmd",
+              "positional": false,
+              "value_name": "TEST_CMD",
+              "default": null,
+              "help": "Test command that was run",
+              "aliases": []
+            },
+            {
+              "name": "test_result",
+              "positional": false,
+              "value_name": "TEST_RESULT",
+              "default": null,
+              "help": "Result of the test command (e.g. \"42 passed\")",
               "aliases": []
             }
           ],
@@ -325,6 +397,14 @@
               "value_name": "TASK",
               "default": null,
               "help": "Task to send after agent starts",
+              "aliases": []
+            },
+            {
+              "name": "task_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task",
               "aliases": []
             },
             {

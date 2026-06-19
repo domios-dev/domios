@@ -59,6 +59,8 @@ impl MultiplexerState {
                 claude_session_id: pane.and_then(|p| p.agent_session_id.clone()),
                 role: pane.and_then(|p| p.role.map(|r| format!("{:?}", r))),
                 parent_pane_id: pane.and_then(|p| p.parent_pane_id.clone()),
+                spawned_by_pane_id: pane.and_then(|p| p.spawned_by_pane_id.clone()),
+                report_target_pane_id: pane.and_then(|p| p.report_target_pane_id.clone()),
                 can_spawn: pane.map(|p| p.can_spawn).unwrap_or(false),
                 depth: pane.map(|p| p.depth).unwrap_or(0),
                 chat_view: pane.map(|p| p.chat_view),
@@ -145,6 +147,8 @@ impl MultiplexerState {
                 claude_session_id,
                 role,
                 parent_pane_id,
+                spawned_by_pane_id,
+                report_target_pane_id,
                 can_spawn,
                 depth,
                 chat_view,
@@ -227,8 +231,10 @@ impl MultiplexerState {
                     parent_pane_id: parent_pane_id.clone(),
                     can_spawn: *can_spawn,
                     depth: *depth,
-                    report_target_pane_id: None,
-                    spawned_by_pane_id: None,
+                    // P3: hierarchy map survives restart — restore the real
+                    // spawner / report target instead of hardcoding None.
+                    report_target_pane_id: report_target_pane_id.clone(),
+                    spawned_by_pane_id: spawned_by_pane_id.clone(),
                     title_level: restored_level,
                     chat_view: chat_view.unwrap_or(false),
                     pending_prompt: None,
@@ -303,6 +309,8 @@ mod tests {
             claude_session_id: None,
             role: None,
             parent_pane_id: None,
+            spawned_by_pane_id: None,
+            report_target_pane_id: None,
             can_spawn: false,
             depth: 0,
             chat_view: Some(true),
@@ -387,6 +395,8 @@ mod tests {
             claude_session_id: Some("c-1".into()),
             role: None,
             parent_pane_id: None,
+            spawned_by_pane_id: None,
+            report_target_pane_id: None,
             can_spawn: false,
             depth: 0,
             chat_view: Some(false),
@@ -398,5 +408,83 @@ mod tests {
         let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
         let pane = state.panes.get("p2").expect("pane restored");
         assert_eq!(pane.backing, PaneBacking::Pty);
+    }
+
+    #[test]
+    fn spawned_by_and_report_target_restore_intact_not_none() {
+        // Regression for the snapshot.rs gap that hardcoded
+        // spawned_by_pane_id: None / report_target_pane_id: None on restore,
+        // erasing a recovered orchestrator's parent/child map.
+        let leaf = SplitNodeSnapshot::Leaf {
+            pane_id: "worker-1".into(),
+            cwd: None,
+            title: Some("Worker".into()),
+            title_level: Some("User".into()),
+            agent_type: Some("claude".into()),
+            agent_type_locked: true,
+            claude_session_id: None,
+            role: Some("Worker".into()),
+            parent_pane_id: Some("orch-1".into()),
+            spawned_by_pane_id: Some("spawner-1".into()),
+            report_target_pane_id: Some("target-1".into()),
+            can_spawn: false,
+            depth: 2,
+            chat_view: Some(false),
+            auto_approve: false,
+            agent_session_model: None,
+            chatbackend_plugin_id: None,
+            chatbackend_session_id: None,
+        };
+        let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
+        let pane = state.panes.get("worker-1").expect("pane restored");
+        assert_eq!(
+            pane.spawned_by_pane_id.as_deref(),
+            Some("spawner-1"),
+            "spawned_by must survive restore, not reset to None"
+        );
+        assert_eq!(
+            pane.report_target_pane_id.as_deref(),
+            Some("target-1"),
+            "report_target must survive restore, not reset to None"
+        );
+        assert_eq!(pane.parent_pane_id.as_deref(), Some("orch-1"));
+    }
+
+    #[test]
+    fn spawned_by_round_trips_through_snapshot() {
+        // state → snapshot → state preserves the hierarchy linkage fields.
+        let leaf = SplitNodeSnapshot::Leaf {
+            pane_id: "w".into(),
+            cwd: None,
+            title: Some("Worker".into()),
+            title_level: Some("User".into()),
+            agent_type: Some("claude".into()),
+            agent_type_locked: true,
+            claude_session_id: None,
+            role: Some("Worker".into()),
+            parent_pane_id: Some("orch".into()),
+            spawned_by_pane_id: Some("spawner".into()),
+            report_target_pane_id: None,
+            can_spawn: false,
+            depth: 2,
+            chat_view: Some(false),
+            auto_approve: false,
+            agent_session_model: None,
+            chatbackend_plugin_id: None,
+            chatbackend_session_id: None,
+        };
+        let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
+        let round = state.to_session_snapshot();
+        match &round.workspaces[0].tabs[0].split_tree {
+            SplitNodeSnapshot::Leaf {
+                spawned_by_pane_id,
+                report_target_pane_id,
+                ..
+            } => {
+                assert_eq!(spawned_by_pane_id.as_deref(), Some("spawner"));
+                assert_eq!(report_target_pane_id.as_deref(), None);
+            }
+            _ => panic!("expected a leaf"),
+        }
     }
 }

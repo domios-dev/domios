@@ -55,9 +55,15 @@ pub(super) fn dispatch(
         "agent.report" => {
             let pane_id = get_string_param(params, "pane_id")?;
             let message = get_string_param(params, "message")?;
+            // Optional structured fields (status/branch/sha/...) ride alongside
+            // the freeform message; absent keys deserialize to None.
+            let details = params
+                .as_ref()
+                .and_then(|p| serde_json::from_value(p.clone()).ok())
+                .unwrap_or_default();
             let svc_ref = &**svc;
             let result = svc_ref
-                .submit_report(&pane_id, &message)
+                .submit_report(&pane_id, &message, details)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
@@ -82,6 +88,16 @@ pub(super) fn dispatch(
                 svc_ref.get_reports(&pane_id)
             };
             serde_json::to_value(&reports).map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e.to_string(),
+            })
+        }
+
+        "agent.ledger" => {
+            let pane_id = get_string_param(params, "pane_id")?;
+            let svc_ref = &**svc;
+            let rows = svc_ref.get_ledger(&pane_id);
+            serde_json::to_value(&rows).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
             })

@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 5 -->
+<!-- revision: 7 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -24,6 +24,12 @@ Toggle whether a pane can spawn children
 Compact agent context (sends /compact to Claude)
 
 - `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+
+#### `codeterm agent ledger`
+
+List an orchestrator's workers from the durable ledger (survives daemon restart): branch / model / status / last-seen, one row per worker
+
+- `--pane` — Orchestrator pane ID (default: current focused pane)
 
 #### `codeterm agent link`
 
@@ -53,8 +59,15 @@ List available agent providers (claude, codex, ...) with their display names, de
 
 Send a report to your parent in the hierarchy
 
+- `--branch` — Git branch the work landed on
+- `--changed_files` — Changed files (comma-separated or repeat the flag)
 - `<message>` — Report message (also accepts --message alias)
 - `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--sha` — Commit SHA produced
+- `--skipped` — Anything deliberately skipped
+- `--status` — Task outcome: done | blocked | partial
+- `--test_cmd` — Test command that was run
+- `--test_result` — Result of the test command (e.g. "42 passed")
 
 #### `codeterm agent reports`
 
@@ -92,6 +105,7 @@ Spawn a new agent (creates tab in workspace, linked in hierarchy)
 - `--role` — Role: Orchestrator, Worker
 - `--system_prompt` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
+- `--task_file` — Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task
 - `--title` — Tab title
 - `--workspace` — Target workspace ID (default: parent's workspace or active workspace)
 
