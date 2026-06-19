@@ -1038,12 +1038,18 @@ mod claude {
         );
         let action = c.action.expect("rate-limit verdict carries an action");
         // Default highlight is the wait option → a bare Enter confirms it.
-        assert_eq!(action.keys.as_deref(), Some(["enter".to_string()].as_slice()));
+        assert_eq!(
+            action.keys.as_deref(),
+            Some(["enter".to_string()].as_slice())
+        );
         let resume = action
             .delayed_resume
             .expect("a resume is scheduled when the reset time parsed");
         assert_eq!(resume.text, "continue your work");
-        assert_eq!(resume.then_keys.as_deref(), Some(["enter".to_string()].as_slice()));
+        assert_eq!(
+            resume.then_keys.as_deref(),
+            Some(["enter".to_string()].as_slice())
+        );
         // resetAt + the resume's `at` are real RFC3339 instants the reactor can
         // hand straight to delayed-send (parse_iso_to_ms there).
         let reset_at = c.data.and_then(|d| d.reset_at).expect("data.resetAt set");
@@ -1073,7 +1079,9 @@ mod claude {
             agent_type: "claude".into(),
             session_id: None,
             cwd: None,
-            screen_text: "Reading src/router.ts and tracing the middleware chain.\n(esc to interrupt)\n".into(),
+            screen_text:
+                "Reading src/router.ts and tracing the middleware chain.\n(esc to interrupt)\n"
+                    .into(),
         };
         if let Some(c) = j.classify_pane_state(&snap) {
             assert_ne!(c.state, PaneState::RateLimited);

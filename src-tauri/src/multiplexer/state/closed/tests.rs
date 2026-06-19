@@ -74,7 +74,9 @@ fn reopen_recreates_pane_with_same_backing() {
     state.rename_tab(&wsid, &tab_id, "Restored Chat").unwrap();
     state.close_tab(&wsid, &tab_id).unwrap();
 
-    let (new_tab, new_pane) = state.reopen_closed_pane(&wsid, None, &HashSet::new()).unwrap();
+    let (new_tab, new_pane) = state
+        .reopen_closed_pane(&wsid, None, &HashSet::new())
+        .unwrap();
     assert_ne!(new_tab, tab_id, "fresh tab id");
     let pane = state.get_pane(&new_pane).expect("reopened pane exists");
     assert_eq!(
@@ -103,7 +105,9 @@ fn reopen_agent_pane_marks_for_resume() {
     }
     state.close_pane(&pane_id).unwrap();
 
-    let (_t, new_pane) = state.reopen_closed_pane(&wsid, None, &HashSet::new()).unwrap();
+    let (_t, new_pane) = state
+        .reopen_closed_pane(&wsid, None, &HashSet::new())
+        .unwrap();
     let pane = state.get_pane(&new_pane).unwrap();
     assert_eq!(pane.agent_type.as_deref(), Some("codex"));
     assert!(pane.agent_type_locked);
@@ -293,7 +297,9 @@ fn reopen_by_index_selects_older_entry() {
 fn reopen_empty_history_errors() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let err = state.reopen_closed_pane(&wsid, None, &HashSet::new()).unwrap_err();
+    let err = state
+        .reopen_closed_pane(&wsid, None, &HashSet::new())
+        .unwrap_err();
     assert!(err.contains("No recently closed"));
 }
 
@@ -383,7 +389,9 @@ fn reopen_cascade_group_restores_subtree_and_relinks_parents() {
     state.close_pane(&orch_pane).unwrap();
 
     let group_id = state.recent_closed_view()[0].group_id.clone();
-    let (ws, _tab, first_pane) = state.reopen_closed_group(&group_id, &HashSet::new()).unwrap();
+    let (ws, _tab, first_pane) = state
+        .reopen_closed_group(&group_id, &HashSet::new())
+        .unwrap();
     assert_eq!(ws, wsid, "cascade reopens into origin workspace");
 
     // Two panes restored, parent link rebuilt across the new ids.
@@ -450,7 +458,9 @@ fn reopen_workspace_group_recreates_workspace_with_tabs() {
     state.close_workspace(&wsid).unwrap();
     let group_id = state.recent_closed_view()[0].group_id.clone();
 
-    let (new_ws, _tab, _pane) = state.reopen_closed_group(&group_id, &HashSet::new()).unwrap();
+    let (new_ws, _tab, _pane) = state
+        .reopen_closed_group(&group_id, &HashSet::new())
+        .unwrap();
     let info = state
         .list_workspaces()
         .into_iter()
@@ -478,9 +488,7 @@ fn reopen_orphaned_pane_recreates_workspace() {
 
     state.close_workspace(&wsid).unwrap();
 
-    let (new_ws, _tab, new_pane) = state
-        .reopen_orphaned_pane(&pane1, &HashSet::new())
-        .unwrap();
+    let (new_ws, _tab, new_pane) = state.reopen_orphaned_pane(&pane1, &HashSet::new()).unwrap();
     assert_ne!(new_ws, wsid);
     assert_eq!(state.get_pane(&new_pane).unwrap().title, "Lonely");
 }
@@ -504,7 +512,9 @@ fn reopen_workspace_group_matches_existing_workspace_by_path() {
         .id;
     let count_before = state.list_workspaces().len();
 
-    let (target_ws, _tab, _pane) = state.reopen_closed_group(&group_id, &HashSet::new()).unwrap();
+    let (target_ws, _tab, _pane) = state
+        .reopen_closed_group(&group_id, &HashSet::new())
+        .unwrap();
     assert_eq!(
         target_ws, live_id,
         "restore into the live same-path workspace, not a duplicate"
