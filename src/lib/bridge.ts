@@ -61,6 +61,12 @@ const HTTP_MAP: Record<string, Mapper> = {
       sessionId: s(a, "sessionId"),
       model: s(a, "model"),
     }),
+  chatbackend_describe_model_switch: (a) =>
+    webJson("POST", "/api/plugins/chatbackend/describe-model-switch", {
+      pluginId: s(a, "pluginId"),
+      sessionId: s(a, "sessionId"),
+      model: s(a, "model"),
+    }),
   // ── config ──
   get_config: () => webJson("GET", "/api/config"),
   // PATCH: the route has no POST; the handler merges top-level keys, so the full config object works as a partial.
