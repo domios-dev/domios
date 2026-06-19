@@ -29,11 +29,14 @@ impl ViewProvider for JsViewProvider {
     }
 
     async fn call(&self, method: &str, args: Value) -> Result<Value, ViewError> {
-        call_json::<Value>(
-            &self.vm,
-            "viewCall",
-            &[Value::String(method.to_string()), args],
-        )
+        // VM lock + JS execution are synchronous — keep them off the async runtime.
+        let vm = self.vm.clone();
+        let method = method.to_string();
+        tokio::task::spawn_blocking(move || {
+            call_json::<Value>(&vm, "viewCall", &[Value::String(method), args])
+        })
+        .await
+        .map_err(|e| ViewError::Call(format!("view task failed: {e}")))?
         .map_err(|e| ViewError::Call(format!("{e:?}")))
     }
 }
