@@ -97,13 +97,19 @@ pub fn queue_from_send(
 }
 
 fn queue_message(json: bool, pane_id: &str, text: String, scheduled_at_ms: u64) {
+    let mut body = serde_json::json!({
+        "text": text,
+        "scheduledAtMs": scheduled_at_ms,
+    });
+    if let Ok(creator) = std::env::var("CODETERM_PANE_ID") {
+        if !creator.trim().is_empty() {
+            body["createdByPane"] = serde_json::json!(creator);
+        }
+    }
     let value = request_json(
         "POST",
         &format!("/api/panes/{}/delayed-messages", pane_id),
-        Some(serde_json::json!({
-            "text": text,
-            "scheduledAtMs": scheduled_at_ms,
-        })),
+        Some(body),
     );
     print_delayed_result(json, value);
 }

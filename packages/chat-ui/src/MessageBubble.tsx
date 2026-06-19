@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { recognize } from "./codeterm/recognize";
 import { CodetermCard } from "./codeterm/CodetermCard";
+import { ReminderCard } from "./codeterm/ReminderCard";
+import { messageTimestamp } from "./codeterm/relativeTime";
 import type { PaneNameResolver } from "./codeterm/templates";
 import { CodeBlock, ChevronIcon, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import {
@@ -144,6 +146,19 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       );
     }
 
+    if (origin?.kind === "reminder") {
+      return (
+        <ReminderCard
+          whoSet={origin.whoSet}
+          model={origin.model}
+          setAt={origin.setAt}
+          fireAt={origin.fireAt}
+          id={origin.id}
+          body={message.content}
+        />
+      );
+    }
+
     // Origin header rendered above the bubble when the message came from a
     // codeterm channel (cross-pane, telegram, mesh) or wraps slash-commands.
     const originHeader = origin ? (() => {
@@ -231,7 +246,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     })() : null;
 
     return (
-      <div className={`flex mb-3 w-full max-w-4xl min-w-0 mx-auto ${origin ? "justify-start" : "justify-end"}`}>
+      <div className={`group flex mb-3 w-full max-w-4xl min-w-0 mx-auto ${origin ? "justify-start" : "justify-end"}`}>
         <div className="min-w-0 max-w-[75%] sm:max-w-[75%]">
           {originHeader}
           <div
@@ -306,6 +321,19 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               </div>
             )}
           </div>
+          {(() => {
+            const ts = messageTimestamp(message.timestamp);
+            if (!ts) return null;
+            return (
+              <div
+                className={`mt-0.5 text-[10px] opacity-0 transition-opacity duration-150 group-hover:opacity-60 ${origin ? "text-left" : "text-right"}`}
+                style={{ color: "var(--ct-muted-fg)" }}
+                title={ts.full}
+              >
+                {ts.short}
+              </div>
+            );
+          })()}
         </div>
       </div>
     );
