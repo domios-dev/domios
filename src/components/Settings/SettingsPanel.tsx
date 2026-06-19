@@ -421,6 +421,7 @@ export function SettingsPanel({
                 <SettingsCard icon={<Keyboard size={16} />} title="Keybindings">
                   <KeybindGroup title="Tabs" bindings={[
                     ["new_tab", "New Tab"],
+                    ["reopen_tab", "Reopen Closed Tab"],
                     ["close_tab", "Close Tab"],
                   ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
 

@@ -24,7 +24,8 @@ function defaultConfig(): AppConfig {
     toast_duration: 5,
   },
   keybindings: {
-    new_tab: "Ctrl+Shift+T",
+    new_tab: "Ctrl+T",
+    reopen_tab: "Ctrl+Shift+T",
     close_tab: "Ctrl+Shift+W",
     next_tab: "Ctrl+Tab",
     prev_tab: "Ctrl+Shift+Tab",

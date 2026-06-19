@@ -15,6 +15,7 @@ import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ExtensionsIcon } fr
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
+import { RecentlyClosed } from "./RecentlyClosed";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import {
@@ -83,6 +84,7 @@ export function Sidebar({
     moveTab,
     createTab,
     closeTab,
+    reopenClosed,
     setActiveTab,
     setTabTitle,
     spawnAgentTab,
@@ -672,6 +674,12 @@ export function Sidebar({
                               />
                             );
                           })()}
+                          <RecentlyClosed
+                            workspace={ws}
+                            onReopen={(index) => reopenClosed(ws.id, index)}
+                            touchMode={touchMode}
+                            uiFontScale={uiFontScale}
+                          />
                         </>
                       </div>
                     </div>

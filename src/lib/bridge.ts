@@ -19,6 +19,7 @@ import {
 import { IS_WEB, webJson } from "./webApi";
 import { webListen } from "./webEvents";
 import { setClientPaneUiMode } from "./clientPaneUiMode";
+import type { TabInfo } from "./types";
 
 export type UnlistenFn = TauriUnlistenFn;
 export { IS_WEB };
@@ -106,6 +107,10 @@ const HTTP_MAP: Record<string, Mapper> = {
       "POST",
       `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/close`,
     ),
+  mux_reopen_closed_pane: (a) =>
+    webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/reopen-closed`, {
+      index: a.index,
+    }),
   mux_rename_tab: (a) =>
     webJson(
       "POST",
@@ -389,6 +394,12 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
       if (w.__ctPerf.length > 200) w.__ctPerf.shift();
     }
   }
+}
+
+/** Reopen a recently-closed pane in a workspace. `index` selects the ring
+ *  entry (0 = most recent, the default). Works in both Tauri and web modes. */
+export function reopenClosedPane(workspaceId: string, index = 0): Promise<TabInfo> {
+  return invoke<TabInfo>("mux_reopen_closed_pane", { workspaceId, index });
 }
 
 export async function listen<T>(

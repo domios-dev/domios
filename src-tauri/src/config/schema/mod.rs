@@ -237,6 +237,7 @@ impl Default for NotificationConfig {
 #[serde(default)]
 pub struct KeybindingsConfig {
     pub new_tab: String,
+    pub reopen_tab: String,
     pub close_tab: String,
     pub next_tab: String,
     pub prev_tab: String,
@@ -259,6 +260,7 @@ impl Default for KeybindingsConfig {
     fn default() -> Self {
         Self {
             new_tab: "Ctrl+T".to_string(),
+            reopen_tab: "Ctrl+Shift+T".to_string(),
             close_tab: "Ctrl+W".to_string(),
             next_tab: "Ctrl+Tab".to_string(),
             prev_tab: "Ctrl+Shift+Tab".to_string(),
