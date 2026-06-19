@@ -137,6 +137,15 @@ Acquire in order, drop before awaiting. parking_lot is **not reentrant** — `mu
 
 After parallel Rust refactors, grep for nested `.lock()` to verify ordering.
 
+## Async runtime & hot-path discipline (perf — learned the hard way)
+
+Blocking/heavy work on the Tauri async runtime starves ALL IPC and freezes the WHOLE UI (every pane + sidebar), not just the caller. A 3-4s full-UI freeze on every tab switch was `plugin_manager_snapshot` forking CLI subprocesses (including a network `channel diff`) on the async runtime.
+
+- **The daemon NEVER shells out to its own `codeterm` CLI.** Call the in-process function. A daemon forking its own CLI that reconnects to it is an architecture smell — and slow (process start + IPC + network per call).
+- **Blocking / IO / heavy / subprocess work in a Tauri command → `tokio::task::spawn_blocking`.** Synchronous `dispatch::dispatch`, disk reads, network, `Command::new` all qualify. A plain sync `fn` command runs on the runtime too — same rule applies.
+- **Hot-path commands (fire on tab switch / mount / render) must be cheap and bounded.** Cache expensive snapshots; rebuild on change (file-watcher / explicit action), never on every call.
+- **Measure before optimizing.** The dev build logs `[SLOW-IPC] <cmd> <ms>` + `[LONGTASK]` (frontend `invoke` wrapper → dev log). A trivial command (e.g. `get_config`) blocking seconds means the runtime is starved; the slow command that resolves FIRST is the cause, the rest are queued victims — don't chase the victims. Test under realistic load (many panes), not a clean 2-tab dev instance.
+
 ## Process safety
 
 **NEVER kill prod CodeTerm.** Identify by port:

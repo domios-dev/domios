@@ -330,7 +330,7 @@ const CANNED: Record<string, unknown> = {
   kill_pty: null,
 };
 
-export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
+async function invokeRaw<T>(cmd: string, args?: Args): Promise<T> {
   if (!IS_WEB) {
     return tauriInvoke<T>(cmd, args);
   }
@@ -348,6 +348,41 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
   const msg = `[web] command not available in browser mode: ${cmd}`;
   console.warn(msg, args);
   throw new Error(msg);
+}
+
+const IPC_SLOW_MS = 300;
+type IpcSample = { cmd: string; ms: number; at: number };
+
+// Diagnostic: report any main-thread block (render / term.write / sync JS) >300ms.
+if (typeof PerformanceObserver !== "undefined") {
+  try {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        if (e.duration >= IPC_SLOW_MS) {
+          // eslint-disable-next-line no-console
+          console.warn(`[LONGTASK] main thread blocked ${e.duration.toFixed(0)}ms`);
+          const w = window as unknown as { __ctPerf?: IpcSample[] };
+          (w.__ctPerf ??= []).push({ cmd: "LONGTASK", ms: e.duration, at: Date.now() });
+        }
+      }
+    }).observe({ entryTypes: ["longtask"] });
+  } catch { /* longtask unsupported */ }
+}
+
+export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
+  const t0 = performance.now();
+  try {
+    return await invokeRaw<T>(cmd, args);
+  } finally {
+    const ms = performance.now() - t0;
+    if (ms >= IPC_SLOW_MS) {
+      // eslint-disable-next-line no-console
+      console.warn(`[SLOW-IPC] ${cmd} ${ms.toFixed(0)}ms`, args);
+      const w = window as unknown as { __ctPerf?: IpcSample[] };
+      (w.__ctPerf ??= []).push({ cmd, ms, at: Date.now() });
+      if (w.__ctPerf.length > 200) w.__ctPerf.shift();
+    }
+  }
 }
 
 export async function listen<T>(

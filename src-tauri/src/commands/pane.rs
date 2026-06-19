@@ -39,7 +39,7 @@ pub async fn get_pane_history_raw(
         strip_ansi: false,
         full: true,
     };
-    let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
+    let result = crate::dispatch::dispatch_blocking(cmd, svc.inner().clone()).await?;
     Ok(result
         .into_json()
         .get("output")
@@ -59,7 +59,7 @@ pub async fn get_pane_text(
         pane_id,
         formatted: formatted.unwrap_or(false),
     };
-    let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
+    let result = crate::dispatch::dispatch_blocking(cmd, svc.inner().clone()).await?;
     Ok(result
         .into_json()
         .get("text")

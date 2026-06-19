@@ -110,6 +110,16 @@ impl CommandResult {
 }
 
 /// Dispatch a command against ServiceContext. Pure logic, no transport concerns.
+// Run a synchronous (possibly blocking) dispatch off the async runtime so heavy commands never starve Tauri IPC.
+pub async fn dispatch_blocking(
+    cmd: Command,
+    svc: crate::service::ServiceState,
+) -> Result<CommandResult, String> {
+    tokio::task::spawn_blocking(move || dispatch(&cmd, svc.as_ref()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, String> {
     match cmd {
         Command::Health => cmd_health(),
