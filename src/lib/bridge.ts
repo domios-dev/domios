@@ -78,6 +78,13 @@ const HTTP_MAP: Record<string, Mapper> = {
       "POST",
       `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/focus`,
     ),
+  mux_set_active_tab_and_workspace: async (a) => {
+    await webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/focus`);
+    return webJson(
+      "POST",
+      `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/focus`,
+    );
+  },
   mux_close_tab: (a) =>
     webJson(
       "POST",

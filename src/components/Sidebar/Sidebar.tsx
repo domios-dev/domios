@@ -491,7 +491,7 @@ export function Sidebar({
                           return (
                             <button
                               key={tab.id}
-                              onClick={() => { setActiveWorkspace(ws.id); setActiveTab(ws.id, tab.id); onNavigateToTab?.(); }}
+                              onClick={() => { setActiveTab(ws.id, tab.id); onNavigateToTab?.(); }}
                               className={`w-8 h-7 flex items-center justify-center rounded transition-colors ${
                                 isTabActive
                                   ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
@@ -609,7 +609,6 @@ export function Sidebar({
                                     index={index}
                                     isActive={isActiveVisual && tab.id === ws.active_tab_id}
                                     onClick={() => {
-                                      setActiveWorkspace(ws.id);
                                       setActiveTab(ws.id, tab.id);
                                       onNavigateToTab?.();
                                     }}
