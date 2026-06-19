@@ -21,9 +21,8 @@ The in-repo `docs/contributing/agents.md` doc is the execution playbook; role lo
 
 ## Non-Claude agents (Codex/GPT)
 
-Non-Claude agents (Codex and GPT task workers) should read repository-generated [`AGENTS.md`](../../AGENTS.md).
-When policies change, edit [`CLAUDE.md`](../../CLAUDE.md), then run `bash scripts/gen-agents-md.sh` to regenerate `AGENTS.md`.
-Do not edit `AGENTS.md` manually.
+Non-Claude agents (Codex and GPT task workers) read [`AGENTS.md`](../../AGENTS.md) — the cross-vendor source of truth.
+When policies change, edit `AGENTS.md` directly. Claude Code reads [`CLAUDE.md`](../../CLAUDE.md), which is just `@AGENTS.md` (importing it) plus any Claude-specific notes — one rulebook, no generation step.
 ## Orchestrator-only rules
 
 (Read this only if you are the Orchestrator — no role, running at the top.)
