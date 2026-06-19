@@ -32,7 +32,7 @@ import {
   isPaneUiModeEvent,
   type PaneUiMode,
 } from "../../lib/chatUiMode";
-import { useAgentDescriptor } from "../../lib/agentDescriptorCache";
+import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
 

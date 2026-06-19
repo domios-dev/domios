@@ -1,13 +1,13 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { X, Pencil, UserMinus, MessageSquare, SquareTerminal } from "lucide-react";
-import { getAgentProvider } from "../../lib/agentProviders";
 import {
   emitPaneUiMode,
   isChatUiSupported,
   maybeAskDefaultNewAgentPaneToChat,
   shouldDefaultNewAgentPaneToChat,
 } from "../../lib/chatUiMode";
+import { usePaneProvider, useShellSessionModel } from "../../lib/usePaneProvider";
 import {
   getClientPaneUiMode,
   getCurrentPaneUiMode,
@@ -16,7 +16,7 @@ import {
 } from "../../lib/clientPaneUiMode";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TelegramIcon, TerminalIcon } from "../Icons";
-import { AgentIcon } from "../AgentIcon";
+import { ProviderGlyph } from "../ProviderGlyph";
 import type { Pane, PaneStatus, Tab } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 
@@ -58,7 +58,14 @@ function TabItemInner({
   touchMode = false,
   uiFontScale,
 }: TabItemProps) {
-  const agentProvider = getAgentProvider(pane?.agent_type);
+  // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
+  // panes — drives the icon, tooltip, and (for shells) the model badge.
+  const provider = usePaneProvider(pane);
+  const shellSessionModel = useShellSessionModel(pane);
+  const providerName = provider?.displayName || "Agent";
+  // Agent panes carry the model on the pane record; shell panes don't — fall
+  // back to the live chatBackend session model (fetched/cached out of band).
+  const tabModel = pane?.agent_session_model ?? shellSessionModel;
   const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
@@ -70,7 +77,7 @@ function TabItemInner({
     const current = getCurrentPaneUiMode(p.id);
     if (current) return current === "chat";
     const client = getClientPaneUiMode(p.id);
-    return client ? client === "chat" : p.chat_view === true || shouldDefaultNewAgentPaneToChat(p.agent_type);
+    return client ? client === "chat" : p.chat_view === true || shouldDefaultNewAgentPaneToChat(p.agent_type, p.backing);
   };
   const [chatView, setChatView] = useState(() => resolveChatView(pane));
   const tabRef = useRef<HTMLDivElement>(null);
@@ -84,7 +91,7 @@ function TabItemInner({
     }
     setChatView(resolveChatView(pane));
     return listenCurrentPaneUiMode(pane.id, (mode) => setChatView(mode === "chat"));
-  }, [pane?.id, pane?.agent_type]);
+  }, [pane?.id, pane?.agent_type, pane?.backing?.kind]);
 
   // Close animation phases
   const [closePhase, setClosePhase] = useState<0 | 1 | 2>(0);
@@ -115,7 +122,7 @@ function TabItemInner({
         onClick: () => { if (pane) invoke("mux_clear_pane_role", { paneId: pane.id }); },
       });
     }
-    if (pane && isChatUiSupported(pane.agent_type)) {
+    if (pane && isChatUiSupported(pane.agent_type, pane.backing)) {
       const nextChatView = !chatView;
       items.push({
         label: nextChatView ? "Open Chat UI" : "Open Terminal",
@@ -187,14 +194,17 @@ function TabItemInner({
         />
       )}
       <div className={`flex items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
-        {hasAgent ? (
-          <AgentIcon
-            // Pass agent_type directly — AgentIcon resolves via the backend descriptor cache (icon_svg ships with every registered provider, JS-plugin or
-            // native). Going through the FE-only getAgentProvider list dropped any third-party drop-in plugin to a "claude" fallback icon.
-            providerId={pane?.agent_type ?? "claude"}
+        {provider ? (
+          // Agent (descriptor) OR chatBackend shell (plugin snapshot) — both
+          // resolve through usePaneProvider, so shell panes get their plugin
+          // icon/color + working pulse instead of the generic terminal glyph.
+          <ProviderGlyph
+            iconSvg={provider.iconSvg}
+            iconColor={provider.iconColor}
+            iconHint={provider.iconHint}
             working={status === "Working"}
             className={`shrink-0 leading-none ${touchMode ? "text-[15px]" : isSubPane ? "text-[10px]" : "text-[12px]"}`}
-            title={status === "Working" ? `${agentProvider?.displayName || "Agent"} working...` : status === "Waiting" ? `${agentProvider?.displayName || "Agent"} — waiting for input` : agentProvider?.displayName || "Agent"}
+            title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
           />
         ) : (
           <TerminalIcon className={`shrink-0 ${touchMode ? "scale-110" : isSubPane ? "scale-90" : ""}`} />
@@ -266,12 +276,12 @@ function TabItemInner({
       </div>
       {/* Right slot: model badge by default, 3-dot menu on hover (layered) */}
       <div className="shrink-0 relative z-[1] flex items-center">
-        {pane?.agent_session_model && !touchMode && (
+        {tabModel && !touchMode && (
           <span
             className="sidebar-tab-badge px-1 py-0 text-[8px] leading-tight rounded font-mono uppercase tracking-wider border border-[var(--ct-border)] text-[var(--ct-muted-fg)]"
-            title={pane.agent_session_model}
+            title={tabModel}
           >
-            {pane.agent_session_model}
+            {tabModel}
           </span>
         )}
         {menuItems.length > 0 && (
@@ -303,6 +313,13 @@ function TabItemInner({
 // and SET_PANE_TITLE. Function props (onClick/onClose/onRename) close over
 // stable IDs and stable callbacks (guaranteed after A2 context memo fix), so
 // skipping their reference check is safe.
+function backingPluginId(p: Pane): string | undefined {
+  return p.backing?.kind === "chat_backend" ? p.backing.plugin_id : undefined;
+}
+function backingSessionId(p: Pane): string | undefined {
+  return p.backing?.kind === "chat_backend" ? p.backing.session_id : undefined;
+}
+
 function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
   if (
     prev.isActive !== next.isActive ||
@@ -326,6 +343,11 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
   return (
     pp.id === np.id &&
     pp.agent_type === np.agent_type &&
+    // backing drives the shell icon/tooltip/model badge + chat gating; the live
+    // shell model itself comes from a hook (useShellSessionModel), not a prop.
+    pp.backing?.kind === np.backing?.kind &&
+    backingPluginId(pp) === backingPluginId(np) &&
+    backingSessionId(pp) === backingSessionId(np) &&
     pp.protected === np.protected &&
     pp.role === np.role &&
     pp.chat_view === np.chat_view &&

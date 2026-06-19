@@ -1,6 +1,6 @@
 import { getAgentDescriptor } from "./agentDescriptorCache";
 import { invoke } from "./bridge";
-import type { AppConfig } from "./types";
+import type { AppConfig, PaneBacking } from "./types";
 
 export const CHAT_UI_DEFAULT_KEY = "codeterm-chat-ui-default-enabled";
 export const CHAT_UI_DEFAULT_PROMPTED_KEY = "codeterm-chat-ui-default-prompted";
@@ -14,13 +14,20 @@ export type ChatUiDefaultPromptDetail = {
 };
 
 // Capability-driven: a provider supports chat when its descriptor says so
-// (JSONL sessions or structured/DB-backed chat). No hardcoded provider list.
-export function isChatUiSupported(agentType?: string | null): boolean {
+// (JSONL sessions or structured/DB-backed chat). chatBackend shell panes have no
+// `agent_type` — they are intrinsically chat, so the backing alone qualifies.
+// No hardcoded provider list either way.
+export function isChatUiSupported(agentType?: string | null, backing?: PaneBacking | null): boolean {
+  if (backing?.kind === "chat_backend") return true;
   if (!agentType) return false;
   return getAgentDescriptor(agentType)?.supports_chat_ui === true;
 }
 
-export function shouldDefaultNewAgentPaneToChat(agentType?: string | null): boolean {
+export function shouldDefaultNewAgentPaneToChat(
+  agentType?: string | null,
+  backing?: PaneBacking | null,
+): boolean {
+  if (backing?.kind === "chat_backend") return true; // shells are always chat
   if (!isChatUiSupported(agentType)) return false;
   return cachedDefaultNewAgentPaneChat;
 }
