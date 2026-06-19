@@ -518,6 +518,9 @@ export interface ProviderDescriptor {
   schema_version: number;
   id: string;
   display_name: string;
+  /** "agent" = PTY agent provider (claude/codex/…); "shell" = chatBackend open
+   * shell (non-PTY, e.g. lmstudio). Drives how "+ new session" spawns it. */
+  kind?: "agent" | "shell";
   icon_hint?: string;
   icon_svg?: string;
   icon_color?: string;
