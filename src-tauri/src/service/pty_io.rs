@@ -103,7 +103,7 @@ impl ServiceContext {
         enter: bool,
     ) -> Result<(), String> {
         let (pane_id, agent_type) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             match mux.pane_id_for_pty(pty_id) {
                 Some(pid) => {
                     let at = mux.get_pane(&pid).and_then(|p| p.agent_type.clone());
@@ -118,7 +118,7 @@ impl ServiceContext {
             .as_ref()
             .map(|pid| {
                 self.mux
-                    .write()
+                    .read()
                     .get_pane(pid)
                     .map(|p| p.agent_booting)
                     .unwrap_or(false)
@@ -220,7 +220,7 @@ impl ServiceContext {
         loop {
             let booting = self
                 .mux
-                .write()
+                .read()
                 .get_pane(pane_id)
                 .map(|p| p.agent_booting)
                 .unwrap_or(false);
@@ -247,7 +247,7 @@ impl ServiceContext {
         loop {
             let booting = self
                 .mux
-                .write()
+                .read()
                 .get_pane(pane_id)
                 .map(|p| p.agent_booting)
                 .unwrap_or(false);
@@ -290,7 +290,7 @@ impl ServiceContext {
             env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
         }
 
-        let mux = self.mux.write();
+        let mux = self.mux.read();
         if let Some(pane) = mux.get_pane(pane_id) {
             if let Some(ref role) = pane.role {
                 env_vars.insert("CODETERM_ROLE".into(), format!("{:?}", role));
@@ -334,7 +334,7 @@ impl ServiceContext {
     }
 
     fn restored_tab_context(&self, pane_id: &str) -> Option<(String, String)> {
-        let mux = self.mux.write();
+        let mux = self.mux.read();
         for ws in &mux.snapshot().workspaces {
             for tab in &ws.tabs {
                 if tab.pane_id == pane_id {
@@ -354,7 +354,7 @@ impl ServiceContext {
         }
         let resolved = self
             .mux
-            .write()
+            .read()
             .resolve_pane_id(pane_id)
             .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
         if self.resolve_pty_id(&resolved).is_ok() {
@@ -362,7 +362,7 @@ impl ServiceContext {
         }
 
         let (cwd, protected, restored, agent_type, session_id, auto_approve) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let pane = mux
                 .get_pane(&resolved)
                 .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
@@ -822,7 +822,7 @@ impl ServiceContext {
     /// Skips locked panes; on match, sets and locks the detected provider.
     fn feed_input_parser(&self, pty_id: &str, text: &str, enter: bool) {
         let (pane_id, locked) = {
-            let m = self.mux.write();
+            let m = self.mux.read();
             let pid = m.pane_id_for_pty(pty_id);
             let locked = pid
                 .as_ref()
@@ -903,7 +903,7 @@ impl ServiceContext {
 
     /// Resolve pane_id (or alias) → pty_id.
     pub fn resolve_pty_id(&self, pane_id: &str) -> Result<String, String> {
-        let mux = self.mux.write();
+        let mux = self.mux.read();
         let resolved = mux
             .resolve_pane_id(pane_id)
             .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
@@ -925,7 +925,7 @@ impl ServiceContext {
         tokio::time::timeout(tokio::time::Duration::from_secs(timeout_secs), async {
             loop {
                 {
-                    let m = mux.write();
+                    let m = mux.read();
                     if let Some(pane) = m.get_pane(&pid) {
                         if let Some(ref pty_id) = pane.pty_id {
                             return pty_id.clone();

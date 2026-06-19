@@ -26,7 +26,7 @@ pub struct TabInfo {
 /// Returns the full multiplexer state for frontend hydration (read-only).
 #[tauri::command]
 pub fn mux_get_state(state: State<'_, MuxState>) -> Result<MultiplexerSnapshot, String> {
-    Ok(state.write().snapshot())
+    Ok(state.read().snapshot())
 }
 
 /// Create a new workspace.

@@ -5,7 +5,7 @@ use crate::multiplexer::state::WorkspaceInfo;
 
 impl ServiceContext {
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
-        self.mux.write().list_workspaces()
+        self.mux.read().list_workspaces()
     }
 
     pub fn create_workspace(
@@ -54,9 +54,9 @@ impl ServiceContext {
     }
 
     pub fn close_workspace(&self, id: &str) -> Result<(), String> {
-        let pre_focus = self.mux.write().get_focused_pane_id().map(str::to_string);
+        let pre_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.write().close_workspace(id)?;
-        let post_focus = self.mux.write().get_focused_pane_id().map(str::to_string);
+        let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.emit_state_changed();
         if pre_focus != post_focus {
@@ -102,9 +102,9 @@ impl ServiceContext {
     }
 
     pub fn close_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
-        let pre_focus = self.mux.write().get_focused_pane_id().map(str::to_string);
+        let pre_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.write().close_tab(workspace_id, tab_id)?;
-        let post_focus = self.mux.write().get_focused_pane_id().map(str::to_string);
+        let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.emit_state_changed();
         if pre_focus != post_focus {
