@@ -245,7 +245,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
             crate::service::hierarchy::worker_death_report(&mux, &store, pid)
         };
         if let Some((target_id, msg)) = watchdog {
-            match svc.submit_report(pid, &msg) {
+            match svc.submit_report(pid, &msg, Default::default()) {
                 Ok(_) => log::info!(
                     "[worker-death] synthesized dead-report for worker {} -> {}",
                     pid,

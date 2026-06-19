@@ -122,7 +122,8 @@ impl ServiceContext {
     fn batch_report(&self, params: &serde_json::Value) -> Result<serde_json::Value, String> {
         let pane_id = json_str(params, "pane_id").ok_or("pane_id required")?;
         let message = json_str(params, "message").ok_or("message required")?;
-        let result = self.submit_report(&pane_id, &message)?;
+        let details = serde_json::from_value(params.clone()).unwrap_or_default();
+        let result = self.submit_report(&pane_id, &message, details)?;
         Ok(serde_json::json!({"ok": true, "report_id": result.report_id}))
     }
 }
