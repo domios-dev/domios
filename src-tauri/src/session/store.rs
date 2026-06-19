@@ -77,6 +77,13 @@ pub enum SplitNodeSnapshot {
         /// instead of dropping the pane to the provider default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent_session_model: Option<String>,
+        /// chatBackend (shell) pane backing — persisted so the pane restores as a
+        /// chatBackend (not a PTY) and can lazily re-open its plugin session on
+        /// first send. `None` for ordinary PTY panes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chatbackend_plugin_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chatbackend_session_id: Option<String>,
     },
     Split {
         orientation: String,

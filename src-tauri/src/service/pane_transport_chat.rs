@@ -53,6 +53,15 @@ pub struct ChatBackendTransport<'a> {
 
 impl PaneTransport for ChatBackendTransport<'_> {
     fn send(&self, text: &str, _enter: bool) -> Result<(), String> {
+        // R3 restore-gap: a pane restored after a daemon restart has no live
+        // plugin session. Lazily re-open it (re-seeding from the persisted
+        // systemPrompt/preset) before the first send so the conversation
+        // continues. No-op for a normally-spawned pane.
+        let session_id = self
+            .svc
+            .chatbackend_reopen_if_restored(&self.pane_id)
+            .unwrap_or(None)
+            .unwrap_or_else(|| self.session_id.clone());
         // Gate the preprocessor on agent-ness, like the PTY path — a plain shell
         // chatBackend must not get context injected into every send.
         let staged = if chatbackend_should_stage(self.svc.pane_has_agent(&self.pane_id)) {
@@ -62,7 +71,7 @@ impl PaneTransport for ChatBackendTransport<'_> {
             text.to_string()
         };
         self.svc
-            .chatbackend_send(&self.plugin_id, &self.session_id, &staged)
+            .chatbackend_send(&self.plugin_id, &session_id, &staged)
     }
 
     fn send_batch(&self, batch: Vec<SendBatchItem>) -> Result<(), String> {
@@ -138,6 +147,73 @@ impl ServiceContext {
         self.chatbackend_provider(plugin_id)?
             .open_session(ctx)
             .map_err(|e| e.to_string())
+    }
+
+    /// Lazily re-open a chatBackend pane's plugin session after a daemon
+    /// restart. A restored pane carries `backing: ChatBackend { .. }` but the
+    /// plugin VM has no live session for the persisted id. On the first send we
+    /// re-open from the persisted openSession config (the JSONL `_meta` header),
+    /// migrate history to the (possibly new) session id so it stays continuous,
+    /// update the pane backing, and start the inbound poll loop.
+    ///
+    /// Returns `Some(effective_session_id)` if a re-open happened, `None` if the
+    /// pane was already live (a no-op). Best-effort: a missing meta/plugin is a
+    /// soft error so a plain shell still sends.
+    pub fn chatbackend_reopen_if_restored(&self, pane_id: &str) -> Result<Option<String>, String> {
+        use crate::multiplexer::types::PaneBacking;
+
+        let (plugin_id, old_session) = {
+            let mux = self.mux.lock();
+            let Some(resolved) = mux.resolve_pane_id(pane_id) else {
+                return Ok(None);
+            };
+            let Some(pane) = mux.get_pane(&resolved) else {
+                return Ok(None);
+            };
+            match (&pane.backing, pane.restored_from_snapshot) {
+                (
+                    PaneBacking::ChatBackend {
+                        plugin_id,
+                        session_id,
+                    },
+                    true,
+                ) => (plugin_id.clone(), session_id.clone()),
+                _ => return Ok(None),
+            }
+        };
+
+        let path =
+            crate::service::pane_chat::chatbackend_history::session_path(&plugin_id, &old_session);
+        let config = crate::service::pane_chat::chatbackend_history::read_meta(&path)
+            .unwrap_or(serde_json::Value::Null);
+
+        let new_session = self.chatbackend_open_session(&plugin_id, pane_id, config.clone())?;
+        crate::service::pane_chat::chatbackend_history::migrate(
+            &plugin_id,
+            &old_session,
+            &new_session,
+        );
+
+        {
+            let mut mux = self.mux.lock();
+            if let Some(resolved) = mux.resolve_pane_id(pane_id) {
+                if let Some(pane) = mux.get_pane_mut(&resolved) {
+                    pane.backing = PaneBacking::ChatBackend {
+                        plugin_id: plugin_id.clone(),
+                        session_id: new_session.clone(),
+                    };
+                    pane.restored_from_snapshot = false;
+                }
+            }
+        }
+
+        self.spawn_chatbackend_poll_loop(
+            pane_id.to_string(),
+            plugin_id,
+            new_session.clone(),
+            config,
+        );
+        Ok(Some(new_session))
     }
 
     /// Deliver one user turn to a plugin session.
