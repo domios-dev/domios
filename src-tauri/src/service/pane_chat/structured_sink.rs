@@ -81,10 +81,28 @@ impl ChatBackendStructuredSink {
 
 impl StructuredSink for ChatBackendStructuredSink {
     fn emit(&self, pane_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>) {
+        let messages = drop_already_stored_inbound(messages);
+        if messages.is_empty() {
+            return;
+        }
         // Persist first (cheap, deduped), then forward to the UI sink.
         self.history.lock().upsert(&messages);
         self.inner.emit(pane_id, messages, cursor);
     }
+}
+
+fn drop_already_stored_inbound(messages: Vec<ChatMsg>) -> Vec<ChatMsg> {
+    messages
+        .into_iter()
+        .filter(|msg| !is_already_stored_inbound(msg))
+        .collect()
+}
+
+fn is_already_stored_inbound(msg: &ChatMsg) -> bool {
+    msg.kind == "user"
+        && crate::message_markers::parse(&msg.content)
+            .map(|marker| marker.kind == "inbound")
+            .unwrap_or(false)
 }
 
 /// Adapter that turns a JSONL [`DeltaSink`] (RichMessage) into the structured
@@ -177,6 +195,44 @@ mod tests {
         let read = chatbackend_history::read_messages(&path);
         assert_eq!(read.len(), 1, "one line per message id");
         assert_eq!(read[0].content, "Hello");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn chatbackend_sink_drops_plugin_echo_of_host_stored_inbound() {
+        let plugin = "test-sink-inbound-filter";
+        let session = "sink-sid";
+        let path = chatbackend_history::session_path(plugin, session);
+        let _ = std::fs::remove_file(&path);
+
+        let inner = Arc::new(CountingSink::default());
+        let sink = ChatBackendStructuredSink::new(inner.clone(), plugin, session, None);
+        let inbound = crate::message_markers::Marker::new("inbound")
+            .attr("kind", "pane")
+            .attr("from_label", "Alice")
+            .attr("from_pane", "pane-a")
+            .payload("hello")
+            .build();
+
+        sink.emit(
+            "pane-1",
+            vec![
+                ChatMsg {
+                    id: "echo".into(),
+                    kind: "user".into(),
+                    content: inbound,
+                    ..Default::default()
+                },
+                msg("reply", "ack"),
+            ],
+            None,
+        );
+
+        assert_eq!(inner.emits.load(std::sync::atomic::Ordering::Relaxed), 1);
+        let read = chatbackend_history::read_messages(&path);
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].id, "reply");
 
         let _ = std::fs::remove_file(&path);
     }

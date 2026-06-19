@@ -468,7 +468,7 @@ pub(super) fn install(
             log::warn!("[plugin] denied exec({bin}) — not in subprocess.allow");
             return serde_json::json!({ "error": format!("exec denied: {bin}") }).to_string();
         }
-        super::host_exec::run(&opts_json)
+        super::host_exec::run_with_host_env(&opts_json, &super::host_exec::current_host_env())
     });
 
     // Async exec (job-id + poll) — same `subprocess.allow` gate as blocking
@@ -481,7 +481,11 @@ pub(super) fn install(
             log::warn!("[plugin] denied exec.start({bin}) — not in subprocess.allow");
             return serde_json::json!({ "error": format!("exec denied: {bin}") }).to_string();
         }
-        super::host_exec::start(sb.plugin_id(), &opts_json)
+        super::host_exec::start_with_host_env(
+            sb.plugin_id(),
+            &opts_json,
+            &super::host_exec::current_host_env(),
+        )
     });
     let sb = sandbox.clone();
     bind!("execPoll", move |job_id: String| -> String {

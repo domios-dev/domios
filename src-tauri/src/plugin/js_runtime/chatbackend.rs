@@ -14,6 +14,7 @@
 //! * `listModels() -> Model[]` (`{ id, displayName, description? }`)
 //! * `listPresets() -> Preset[]` (`{ id, name, description? }`) optional
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -36,6 +37,7 @@ pub struct JsChatBackend {
     /// backend is user-openable from the new-session picker. Bare
     /// `chatBackend: true` ⇒ false (backend-only).
     spawnable: bool,
+    session_exec_env: parking_lot::Mutex<HashMap<String, HashMap<String, String>>>,
 }
 
 impl JsChatBackend {
@@ -49,6 +51,7 @@ impl JsChatBackend {
             icon_svg: None,
             icon_color: None,
             spawnable: false,
+            session_exec_env: parking_lot::Mutex::new(HashMap::new()),
         }
     }
 
@@ -61,7 +64,18 @@ impl JsChatBackend {
             icon_svg: manifest.icon_svg.clone(),
             icon_color: manifest.icon_color.clone(),
             spawnable: manifest.capabilities.chat_backend_spawnable(),
+            session_exec_env: parking_lot::Mutex::new(HashMap::new()),
         }
+    }
+
+    fn exec_env_scope(&self, session_id: &str) -> super::host_exec::HostExecEnvGuard {
+        let env = self
+            .session_exec_env
+            .lock()
+            .get(session_id)
+            .cloned()
+            .unwrap_or_default();
+        super::host_exec::host_env_scope(env)
     }
 }
 
@@ -114,6 +128,38 @@ fn map_err(method: &str, e: super::vm::VmError) -> ChatBackendError {
     ChatBackendError::Call(format!("plugin {method} failed: {e:?}"))
 }
 
+fn chatbackend_host_exec_env(ctx: &serde_json::Value) -> HashMap<String, String> {
+    let mut env = HashMap::new();
+    if let Some(pane_id) = ctx.get("paneId").and_then(|v| v.as_str()) {
+        env.insert("CODETERM_PANE_ID".to_string(), pane_id.to_string());
+    }
+    if let Some(workspace_id) = ctx.get("workspaceId").and_then(|v| v.as_str()) {
+        env.insert(
+            "CODETERM_WORKSPACE_ID".to_string(),
+            workspace_id.to_string(),
+        );
+    }
+    env.insert(
+        "CODETERM_SOCKET_PATH".to_string(),
+        crate::socket::server::socket_display_path(),
+    );
+    let api_cfg = crate::config::load_config().api;
+    let host = if api_cfg.host == "0.0.0.0" {
+        "127.0.0.1".to_string()
+    } else {
+        api_cfg.host.clone()
+    };
+    env.insert(
+        "CODETERM_API_URL".to_string(),
+        format!("http://{}:{}", host, api_cfg.port),
+    );
+    env.insert("CODETERM_API_PORT".to_string(), api_cfg.port.to_string());
+    if let Some(token) = api_cfg.token {
+        env.insert("CODETERM_API_TOKEN".to_string(), token);
+    }
+    env
+}
+
 impl ChatBackendProvider for JsChatBackend {
     fn id(&self) -> &str {
         &self.id
@@ -140,23 +186,31 @@ impl ChatBackendProvider for JsChatBackend {
     }
 
     fn open_session(&self, ctx: serde_json::Value) -> Result<String, ChatBackendError> {
+        let exec_env = chatbackend_host_exec_env(&ctx);
         let out: OpenOut =
             call_json(&self.vm, "openSession", &[ctx]).map_err(|e| map_err("openSession", e))?;
         if let Some(e) = out.error {
             return Err(ChatBackendError::Call(e));
         }
-        out.session_id
+        let session_id = out
+            .session_id
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| ChatBackendError::Call("openSession returned no sessionId".into()))
+            .ok_or_else(|| ChatBackendError::Call("openSession returned no sessionId".into()))?;
+        self.session_exec_env
+            .lock()
+            .insert(session_id.clone(), exec_env);
+        Ok(session_id)
     }
 
     fn send_message(&self, session_id: &str, text: &str) -> Result<(), ChatBackendError> {
+        let _guard = self.exec_env_scope(session_id);
         call_json::<serde_json::Value>(&self.vm, "sendMessage", &[json!(session_id), json!(text)])
             .map_err(|e| map_err("sendMessage", e))?;
         Ok(())
     }
 
     fn pump(&self, session_id: &str) -> Result<(), ChatBackendError> {
+        let _guard = self.exec_env_scope(session_id);
         // Optional export; a missing `pump` is not an error (best-effort advance,
         // mirrors `closeSession`). Errors are swallowed so a flaky pump can't kill
         // the host poll loop.
@@ -169,6 +223,7 @@ impl ChatBackendProvider for JsChatBackend {
         session_id: &str,
         cursor: Option<&str>,
     ) -> Result<StructuredChat, ChatBackendError> {
+        let _guard = self.exec_env_scope(session_id);
         let out: PollOut = call_json(&self.vm, "poll", &[json!(session_id), json!(cursor)])
             .map_err(|e| map_err("poll", e))?;
         Ok(match out {
@@ -181,8 +236,10 @@ impl ChatBackendProvider for JsChatBackend {
     }
 
     fn close_session(&self, session_id: &str) -> Result<(), ChatBackendError> {
+        let _guard = self.exec_env_scope(session_id);
         // Optional export; a missing `closeSession` is not an error.
         let _ = call_json::<serde_json::Value>(&self.vm, "closeSession", &[json!(session_id)]);
+        self.session_exec_env.lock().remove(session_id);
         Ok(())
     }
 
@@ -217,6 +274,7 @@ impl ChatBackendProvider for JsChatBackend {
     }
 
     fn session_info(&self, session_id: &str) -> Result<ChatSessionInfo, ChatBackendError> {
+        let _guard = self.exec_env_scope(session_id);
         // Optional export — a bare backend with no `sessionInfo` reports no model
         // (honest null), mirroring the `listPresets` missing-export handling.
         let info =
@@ -232,6 +290,7 @@ impl ChatBackendProvider for JsChatBackend {
     }
 
     fn set_model(&self, session_id: &str, model: &str) -> Result<(), ChatBackendError> {
+        let _guard = self.exec_env_scope(session_id);
         // Required for a switch — a missing export is surfaced as an error so the
         // command reports "unsupported" rather than silently no-op'ing.
         match call_json::<serde_json::Value>(
@@ -289,6 +348,52 @@ mod tests {
             .open_session(json!({ "paneId": "pane-7", "config": {} }))
             .unwrap();
         assert_eq!(sid, "pane-7");
+    }
+
+    #[test]
+    fn chatbackend_host_exec_env_includes_pane_identity() {
+        let env = chatbackend_host_exec_env(&json!({
+            "paneId": "chat-pane",
+            "workspaceId": "ws-1",
+            "config": {}
+        }));
+
+        assert_eq!(
+            env.get("CODETERM_PANE_ID").map(String::as_str),
+            Some("chat-pane")
+        );
+        assert_eq!(
+            env.get("CODETERM_WORKSPACE_ID").map(String::as_str),
+            Some("ws-1")
+        );
+        assert!(env.contains_key("CODETERM_SOCKET_PATH"));
+    }
+
+    #[test]
+    fn send_message_host_exec_sees_chatbackend_pane_identity() {
+        let vm = vm_with(
+            r#"let last = "";
+               module.exports.default = {
+                 openSession(ctx) { return { sessionId: "s1" }; },
+                 sendMessage(sid, text) {
+                   const opts = host.platform() === "windows"
+                     ? { bin: "powershell", args: ["-NoProfile", "-Command", "[Console]::Out.Write($env:CODETERM_PANE_ID)"] }
+                     : { bin: "sh", args: ["-c", "printf %s \"$CODETERM_PANE_ID\""] };
+                   const out = JSON.parse(host.exec(JSON.stringify(opts)));
+                   last = out.stdout || "";
+                 },
+                 poll() { return [{ id: "1", type: "assistant", content: last }]; }
+               }"#,
+        );
+        let b = JsChatBackend::new(vm, "local-shell");
+        let sid = b
+            .open_session(json!({ "paneId": "chat-pane", "config": {} }))
+            .unwrap();
+        b.send_message(&sid, "reply").unwrap();
+
+        let msgs = b.poll(&sid, None).unwrap().messages;
+
+        assert_eq!(msgs[0].content, "chat-pane");
     }
 
     #[test]
