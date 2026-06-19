@@ -74,3 +74,22 @@ parity discipline restored. **Release remains PARKED** for your personal tests +
 `release-pipeline` task un-parks (and the codeterm-plugins push/release decision is yours).
 
 <!-- revision: 1 -->
+
+## ROG definitive final-tip re-run — 3 pre-existing Windows/test items (NOT branch regressions)
+All in areas the campaign did not touch; surfaced as bonus findings. Your call to fix:
+1. **keybinding-display content != 'CTRLT' (Windows)** — settings.spec.ts:87. Element present
+   (settings-keybinding-display); KeybindGroup renders the RAW config value via renderKbd
+   (KeybindGroup.tsx:55) with no Mod→Ctrl resolution for display. Pre-existing (Settings/keybindings
+   untouched on branch). Either a display bug (resolve `Mod` per-platform in renderKbd) or a
+   mac-centric test expectation. Low.
+2. **web-access serve-hint DOM-absent (2 fails)** — TEST-TESTID TYPO: web-access.spec.ts:92 queries
+   `[data-testid="web-ui-serve-hint"]` but the element is `web-access-serve-hint` (NetworkTab.tsx:269).
+   Trivial test fix; not a code bug. (ROG's earlier tailscale-serve hypothesis was withdrawn.)
+3. **extensions addChannel closes the WebView2 page (3 fails, 3min hang)** — extensions.spec.ts:128
+   addChannel → locator.click → page/context closed. No reload/navigation in app code
+   (ExtensionsView addChannel just runs the add-channel action); backend stays alive. Windows/WebView2
+   CDP page-lifecycle artifact under the harness. Wave-3 TTL/force-refresh didn't clear it (it's
+   upstream of those assertions). Needs a Windows repro outside PW to confirm app-vs-harness.
+
+Everything else from smoke+golden cleared on the final tip (theme-select = timing flake; live-agent/
+chat-400 = no-auth harness; voice = no mic). test:plugins 31/0 + tsc clean on Windows; cargo total pending.
