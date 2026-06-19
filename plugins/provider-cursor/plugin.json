@@ -1,0 +1,94 @@
+{
+  "id": "cursor",
+  "version": "1.4.6",
+  "minCodeterm": "1.0.0",
+  "displayName": "Cursor",
+  "binaryName": "cursor-agent",
+  "cliBinary": "cursor-agent",
+  "iconHint": "⌖",
+  "iconColor": "var(--ct-fg)",
+  "iconSvg": "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M12 2 L21 7 V17 L12 22 L3 17 V7 Z M12 4.2 L5 8.1 V15.9 L12 19.8 L19 15.9 V8.1 Z M12 8 L16 10.2 V13.8 L12 16 L8 13.8 V10.2 Z\"/></svg>",
+  "entry": "plugin.js",
+  "spawn": {
+    "readinessStrategy": {
+      "kind": "poll_shell_prompt",
+      "timeoutSecs": 30
+    },
+    "taskDelivery": "pty_input",
+    "taskInputWarmupMs": 3000,
+    "verifySubmit": {
+      "kind": "tui_input_drained",
+      "timeoutSecs": 15,
+      "idleAfterDrainMs": 800
+    },
+    "sessionIdInjection": "none",
+    "statusBarRows": 1,
+    "preservesContextOnResume": true,
+    "supportsLazySkills": false,
+    "hasHooks": false
+  },
+  "models": [
+    {
+      "id": "auto",
+      "displayName": "Auto",
+      "description": "Cursor picks the best available model per turn."
+    },
+    {
+      "id": "composer-2.5",
+      "displayName": "Composer 2.5",
+      "description": "Cursor's in-house fast coding model."
+    },
+    {
+      "id": "claude-4.6-sonnet",
+      "displayName": "Claude Sonnet 4.6",
+      "description": "Anthropic Sonnet, balanced quality and speed."
+    },
+    {
+      "id": "claude-opus-4.8",
+      "displayName": "Claude Opus 4.8",
+      "description": "Anthropic Opus, frontier reasoning and coding."
+    },
+    {
+      "id": "gpt-5.5",
+      "displayName": "GPT-5.5",
+      "description": "OpenAI frontier model for complex work."
+    },
+    {
+      "id": "gpt-5.2-codex",
+      "displayName": "GPT-5.2 Codex",
+      "description": "OpenAI coding-optimized model."
+    },
+    {
+      "id": "gemini-3-pro",
+      "displayName": "Gemini 3 Pro",
+      "description": "Google frontier multimodal model."
+    },
+    {
+      "id": "grok-4.3",
+      "displayName": "Grok 4.3",
+      "description": "xAI frontier model with large context."
+    },
+    {
+      "id": "kimi-k2.5",
+      "displayName": "Kimi K2.5",
+      "description": "Moonshot agentic coding model."
+    }
+  ],
+  "defaultModel": "auto",
+  "installer": {
+    "macos": "curl https://cursor.com/install -fsS | bash",
+    "linux": "curl https://cursor.com/install -fsS | bash",
+    "windows": "powershell -ExecutionPolicy ByPass -c \"irm 'https://cursor.com/install?win32=true' | iex\""
+  },
+  "commands": {
+    "stopKey": "\u001b",
+    "modelSwitchFormat": "/model {model}",
+    "autoApproveFlags": [
+      "--force"
+    ],
+    "modelLaunchArgsFormat": [
+      "--model",
+      "{model}"
+    ]
+  }
+}
