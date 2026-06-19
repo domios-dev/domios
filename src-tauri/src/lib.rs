@@ -460,6 +460,11 @@ pub fn run() {
                 use crate::agent::provider::AgentProvider;
                 use std::collections::HashSet;
                 use std::path::PathBuf;
+                agent_registry.begin_startup_provider_loading(
+                    crate::plugin::system_plugins::SYSTEM_PLUGIN_HASHES
+                        .iter()
+                        .map(|(id, _)| *id),
+                );
                 let workspace_root: Option<PathBuf> = Some(PathBuf::from(
                     concat!(env!("CARGO_MANIFEST_DIR"), "/..")
                 ));
@@ -536,6 +541,7 @@ pub fn run() {
                         plugin::audit::append_daemon_reloaded(&id, &version);
                     }
                 }
+                agent_registry.finish_startup_provider_loading();
 
                 // Hot-reload watcher: polls the same roots every 2s and (a) discovers new plugin folders dropped into ~/.codeterm/plugins/, (b) reloads
                 // Hot-reload keeps plugin VMs in sync: reload existing plugins and drop vanished plugin dirs.

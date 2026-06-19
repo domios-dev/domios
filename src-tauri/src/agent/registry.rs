@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use parking_lot::RwLock;
+use parking_lot::{Condvar, Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 
 use super::provider::{AgentProvider, SessionMetadata};
@@ -37,7 +38,23 @@ pub struct AgentRegistry {
     /// doesn't implement to the native impl. Never overwritten by later
     /// re-registrations (hot-reload), so the fallback survives plugin reloads.
     native_fallbacks: RwLock<HashMap<String, Arc<dyn AgentProvider>>>,
+    startup_loading: Mutex<StartupProviderLoading>,
+    startup_loading_changed: Condvar,
 }
+
+#[derive(Default)]
+struct StartupProviderLoading {
+    pending: HashSet<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderStartupStatus {
+    Ready,
+    LoadingTimedOut,
+    Unknown,
+}
+
+pub const PROVIDER_STARTUP_WAIT: Duration = Duration::from_secs(5);
 
 impl AgentRegistry {
     /// Create an empty registry. Providers are added via `register_provider()`.
@@ -45,6 +62,68 @@ impl AgentRegistry {
         Self {
             providers: RwLock::new(HashMap::new()),
             native_fallbacks: RwLock::new(HashMap::new()),
+            startup_loading: Mutex::new(StartupProviderLoading::default()),
+            startup_loading_changed: Condvar::new(),
+        }
+    }
+
+    pub fn begin_startup_provider_loading<I, S>(&self, ids: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut loading = self.startup_loading.lock();
+        loading.pending.extend(
+            ids.into_iter()
+                .map(|id| id.as_ref().trim().to_string())
+                .filter(|id| !id.is_empty()),
+        );
+    }
+
+    pub fn finish_startup_provider_loading(&self) {
+        let mut loading = self.startup_loading.lock();
+        if loading.pending.is_empty() {
+            return;
+        }
+        loading.pending.clear();
+        self.startup_loading_changed.notify_all();
+    }
+
+    fn mark_startup_provider_loaded(&self, id: &str) {
+        let mut loading = self.startup_loading.lock();
+        if loading.pending.remove(id) {
+            self.startup_loading_changed.notify_all();
+        }
+    }
+
+    pub fn wait_for_provider_startup(&self, id: &str) -> ProviderStartupStatus {
+        self.wait_for_provider_startup_with_timeout(id, PROVIDER_STARTUP_WAIT)
+    }
+
+    pub fn wait_for_provider_startup_with_timeout(
+        &self,
+        id: &str,
+        timeout: Duration,
+    ) -> ProviderStartupStatus {
+        let deadline = Instant::now() + timeout;
+        let mut loading = self.startup_loading.lock();
+        while loading.pending.contains(id) {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return ProviderStartupStatus::LoadingTimedOut;
+            };
+            if self
+                .startup_loading_changed
+                .wait_for(&mut loading, remaining)
+                .timed_out()
+            {
+                return ProviderStartupStatus::LoadingTimedOut;
+            }
+        }
+        drop(loading);
+        if self.with_provider(id, |_| ()).is_some() {
+            ProviderStartupStatus::Ready
+        } else {
+            ProviderStartupStatus::Unknown
         }
     }
 
@@ -83,7 +162,9 @@ impl AgentRegistry {
                     .or_insert_with(|| Arc::from(prev));
             }
         }
-        guard.insert(id, provider);
+        guard.insert(id.clone(), provider);
+        drop(guard);
+        self.mark_startup_provider_loaded(&id);
     }
 
     /// Register a provider only if `id` is not already present.
@@ -97,10 +178,14 @@ impl AgentRegistry {
                 "[agent-registry] skipping provider {}: already registered",
                 id
             );
+            drop(guard);
+            self.mark_startup_provider_loaded(&id);
             return false;
         }
         log::info!("[agent-registry] registered provider: {}", id);
-        guard.insert(id, provider);
+        guard.insert(id.clone(), provider);
+        drop(guard);
+        self.mark_startup_provider_loaded(&id);
         true
     }
 
@@ -518,6 +603,64 @@ mod tests {
     fn test_registry_get_unknown() {
         let reg = AgentRegistry::new();
         assert!(reg.with_provider("nonexistent", |_| ()).is_none());
+    }
+
+    #[test]
+    fn startup_wait_unblocks_when_provider_registers() {
+        let reg = Arc::new(AgentRegistry::new());
+        reg.begin_startup_provider_loading(["slow"]);
+
+        let worker_reg = reg.clone();
+        let worker = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(25));
+            worker_reg.register_provider(Box::new(FallbackStub {
+                id: "slow",
+                native: false,
+            }));
+        });
+
+        assert_eq!(
+            reg.wait_for_provider_startup_with_timeout("slow", Duration::from_secs(1)),
+            ProviderStartupStatus::Ready
+        );
+        worker
+            .join()
+            .expect("provider registration thread panicked");
+    }
+
+    #[test]
+    fn startup_wait_reports_loading_before_unknown() {
+        let reg = AgentRegistry::new();
+        reg.begin_startup_provider_loading(["slow"]);
+
+        assert_eq!(
+            reg.wait_for_provider_startup_with_timeout("slow", Duration::from_millis(1)),
+            ProviderStartupStatus::LoadingTimedOut
+        );
+        reg.finish_startup_provider_loading();
+        assert_eq!(
+            reg.wait_for_provider_startup_with_timeout("slow", Duration::from_millis(1)),
+            ProviderStartupStatus::Unknown
+        );
+    }
+
+    #[test]
+    fn register_if_absent_clears_startup_loading_for_pinned_native() {
+        let reg = AgentRegistry::new();
+        reg.register_provider(Box::new(FallbackStub {
+            id: "pinned",
+            native: true,
+        }));
+        reg.begin_startup_provider_loading(["pinned"]);
+
+        assert!(!reg.register_provider_if_absent(Box::new(FallbackStub {
+            id: "pinned",
+            native: false,
+        })));
+        assert_eq!(
+            reg.wait_for_provider_startup_with_timeout("pinned", Duration::from_millis(1)),
+            ProviderStartupStatus::Ready
+        );
     }
 
     #[test]
