@@ -166,10 +166,13 @@ impl ServiceContext {
         }
         let handle = self.app_handle.clone();
         let pending = self.mux_emit_pending.clone();
+        // Acquire lock, clone snapshot, then drop lock before spawning the thread.
+        // Serde serialization happens outside the lock in the spawned thread.
+        let snapshot = self.mux.lock().snapshot();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(50));
             pending.store(false, Ordering::Release);
-            let _ = handle.emit("mux-state-changed", ());
+            let _ = handle.emit("mux-state-changed", &snapshot);
         });
     }
 
