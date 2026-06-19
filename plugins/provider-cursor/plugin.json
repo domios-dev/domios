@@ -2,6 +2,7 @@
   "id": "cursor",
   "version": "1.4.6",
   "minCodeterm": "1.0.0",
+  "hostApi": 2,
   "displayName": "Cursor",
   "binaryName": "cursor-agent",
   "cliBinary": "cursor-agent",
