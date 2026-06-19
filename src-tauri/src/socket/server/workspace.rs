@@ -136,6 +136,40 @@ pub(super) fn dispatch(
             })
         }
 
+        "workspace.recently_closed" => {
+            let workspace_id = get_string_param(params, "workspace_id")?;
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::WorkspaceRecentlyClosed { workspace_id },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e,
+            })
+        }
+
+        "workspace.reopen_closed" => {
+            let workspace_id = get_string_param(params, "workspace_id")?;
+            let index = params
+                .as_ref()
+                .and_then(|p| p.get("index"))
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize);
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::WorkspaceReopenClosedPane {
+                    workspace_id,
+                    index,
+                },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError {
+                code: -32602,
+                message: e,
+            })
+        }
+
         "workspace.move_tab" => {
             let tab_id = get_string_param(params, "tab_id")?;
             let from_id = get_string_param(params, "from_workspace_id")?;

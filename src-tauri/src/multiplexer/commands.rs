@@ -155,6 +155,29 @@ pub fn mux_close_pane(svc: State<'_, ServiceState>, pane_id: String) -> Result<(
     svc.close_pane(&pane_id)
 }
 
+/// Reopen a recently-closed pane (browser-style). `index` picks the ring entry
+/// (newest = 0, default). Returns the new tab/pane ids.
+#[tauri::command]
+pub fn mux_reopen_closed_pane(
+    svc: State<'_, ServiceState>,
+    workspace_id: String,
+    index: Option<usize>,
+) -> Result<TabInfo, String> {
+    let (tab_id, pane_id) = svc.reopen_closed_pane(&workspace_id, index)?;
+    let title = svc
+        .mux
+        .read()
+        .get_workspace(&workspace_id)
+        .and_then(|ws| ws.tabs.iter().find(|t| t.id == tab_id))
+        .map(|t| t.title.clone())
+        .unwrap_or_default();
+    Ok(TabInfo {
+        id: tab_id,
+        title,
+        pane_id,
+    })
+}
+
 /// Set the focused pane.
 #[tauri::command]
 pub fn mux_set_focused_pane(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {

@@ -103,6 +103,45 @@ pub async fn close_workspace(
     Ok(Json(result.into_json()))
 }
 
+pub async fn list_recently_closed(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let cmd = crate::dispatch::Command::WorkspaceRecentlyClosed { workspace_id: id };
+    let result = crate::dispatch::dispatch(&cmd, &state.svc).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to list recently closed",
+        )
+    })?;
+    Ok(Json(result.into_json()))
+}
+
+#[derive(Deserialize, Default)]
+pub(crate) struct ReopenClosedBody {
+    #[serde(default)]
+    index: Option<usize>,
+}
+
+pub async fn reopen_closed_pane(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: Option<Json<ReopenClosedBody>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let index = body.and_then(|Json(b)| b.index);
+    let cmd = crate::dispatch::Command::WorkspaceReopenClosedPane {
+        workspace_id: id,
+        index,
+    };
+    let result = crate::dispatch::dispatch(&cmd, &state.svc)
+        .map_err(|_| (StatusCode::NOT_FOUND, "No recently closed pane"))?;
+    Ok(Json(result.into_json()))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct MoveTabBody {
     to_workspace_id: String,

@@ -193,6 +193,7 @@ pub fn run() {
             multiplexer::commands::mux_set_active_tab_and_workspace,
             multiplexer::commands::mux_rename_tab,
             multiplexer::commands::mux_close_pane,
+            multiplexer::commands::mux_reopen_closed_pane,
             multiplexer::commands::mux_set_focused_pane,
             multiplexer::commands::mux_link_pty,
             multiplexer::commands::mux_rename_pane,

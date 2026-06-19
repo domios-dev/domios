@@ -84,6 +84,17 @@ pub enum Command {
     /// List all workspaces with their metadata.
     WorkspaceList,
 
+    /// List a workspace's recently-closed panes (newest first).
+    WorkspaceRecentlyClosed { workspace_id: String },
+
+    /// Reopen a recently-closed pane (browser-style). `index` selects the ring
+    /// entry (newest = 0, default).
+    WorkspaceReopenClosedPane {
+        workspace_id: String,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+
     /// Resize the PTY backing a pane.
     PtyResize {
         pane_id: String,
@@ -161,6 +172,13 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
         }
         Command::WorkspaceClose { workspace_id } => cmd_workspace_close(ctx, workspace_id),
         Command::WorkspaceList => cmd_workspace_list(ctx),
+        Command::WorkspaceRecentlyClosed { workspace_id } => {
+            cmd_workspace_recently_closed(ctx, workspace_id)
+        }
+        Command::WorkspaceReopenClosedPane {
+            workspace_id,
+            index,
+        } => cmd_workspace_reopen_closed_pane(ctx, workspace_id, *index),
         Command::PtyResize {
             pane_id,
             cols,
@@ -336,6 +354,28 @@ fn cmd_workspace_list(ctx: &ServiceContext) -> Result<CommandResult, String> {
     let json =
         serde_json::to_value(&workspaces).map_err(|e| format!("serialize workspaces: {}", e))?;
     Ok(CommandResult::Json(json))
+}
+
+fn cmd_workspace_recently_closed(
+    ctx: &ServiceContext,
+    workspace_id: &str,
+) -> Result<CommandResult, String> {
+    let closed = ctx.list_recently_closed(workspace_id);
+    let json =
+        serde_json::to_value(&closed).map_err(|e| format!("serialize recently_closed: {}", e))?;
+    Ok(CommandResult::Json(json))
+}
+
+fn cmd_workspace_reopen_closed_pane(
+    ctx: &ServiceContext,
+    workspace_id: &str,
+    index: Option<usize>,
+) -> Result<CommandResult, String> {
+    let (tab_id, pane_id) = ctx.reopen_closed_pane(workspace_id, index)?;
+    Ok(CommandResult::Json(serde_json::json!({
+        "tab_id": tab_id,
+        "pane_id": pane_id,
+    })))
 }
 
 fn cmd_pty_resize(
