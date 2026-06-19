@@ -7,7 +7,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { extractFilePathsFromClipboard } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { MessageBubble } from "@codeterm/chat-ui";
-import type { NormalizedChatMessage } from "@codeterm/chat-core";
+import { attachToolResults, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { AlertTriangle, File } from "lucide-react";
 import { SendIcon, ChevronUpIcon } from "../Icons";
 
@@ -437,7 +437,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
                 </button>
               </div>
             )}
-            {messages.map((msg) => (
+            {attachToolResults(messages).map((msg) => (
               <div key={msg.id} data-testid="direct-chat-message" data-message-role={msg.type}>
                 <MessageBubble message={msg} />
               </div>
