@@ -541,6 +541,74 @@ var plugin = {
       return { ok: true };
     }
     return { ok: false, error: "writeJson failed for " + path };
+  },
+  // AS3 (Case B: rate-limit menu) + AS4 (clarifying question / auth) — classify a
+  // parked claude pane from its rendered screen. The core reactor
+  // (state_reactor.rs) only calls this on the idle/waiting edge and only
+  // auto-acts when confidence >= GLOBAL_THRESHOLD (0.8), the state is NOT
+  // waiting_on_auth, and an action is present. All claude-specific knowledge
+  // (the rate-limit fingerprint, the reset-time/timezone parse, the confirm-wait
+  // navigation, the auth guard) lives here; core stays generic.
+  //
+  // Guarantees this method enforces:
+  //  1. Auth is sacred — a login/OAuth/API-key screen is waiting_on_auth with NO
+  //     keys, surfaced and never auto-pressed.
+  //  2. No false positives — every actionable verdict is an ENSEMBLE of
+  //     independent STRUCTURAL signals (a numbered menu shape, a reset-clock
+  //     pattern, a confirm/cancel footer — never literal vendor copy). A single
+  //     weak match stays below threshold. An actively-streaming screen (busy
+  //     markers) is vetoed to `working` even if a menu is visible.
+  //  3. Rate-limit → confirm-wait by NAVIGATING to the wait option (never a blind
+  //     Enter on whatever is highlighted) + a delayed `continue your work` resume
+  //     scheduled at the parsed reset time + buffer. An unparseable reset time
+  //     surfaces to the user instead of auto-scheduling at a wrong moment.
+  //  4. Clarifying question → surface the extracted question(s); NEVER auto-answer
+  //     (no keys), so the user decides.
+  classifyPaneState(snapshot) {
+    const screen = String(snapshot && snapshot.screenText || "");
+    if (!screen.trim()) return null;
+    const authConfidence = scoreAuthPrompt(screen);
+    if (authConfidence >= CLASSIFY_THRESHOLD) {
+      return {
+        state: "waiting_on_auth",
+        confidence: authConfidence,
+        action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
+      };
+    }
+    if (looksBusy(screen)) return { state: "working", confidence: 0 };
+    const rl = scoreRateLimit(screen, host.unixNowMs());
+    if (rl.confidence >= CLASSIFY_THRESHOLD && rl.waitKeys && rl.waitKeys.length > 0) {
+      const action = { keys: rl.waitKeys };
+      const data = {};
+      if (rl.resetAtMs !== null) {
+        data.resetAt = new Date(rl.resetAtMs).toISOString();
+        action.delayedResume = {
+          at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
+          text: "continue your work",
+          thenKeys: ["enter"]
+        };
+      } else {
+        action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
+      }
+      return {
+        state: "rate_limited",
+        confidence: rl.confidence,
+        data: rl.resetAtMs !== null ? data : void 0,
+        action
+      };
+    }
+    const cq = scoreClarifyingQuestion(screen);
+    if (cq.confidence >= CLASSIFY_THRESHOLD && cq.questions.length > 0) {
+      return {
+        state: "clarifying_question",
+        confidence: cq.confidence,
+        data: { questions: cq.questions },
+        action: { surface: { kind: "clarifying_question", payload: { questions: cq.questions } } }
+      };
+    }
+    const partial = rl.confidence > cq.confidence ? rl.confidence : cq.confidence;
+    if (partial > 0) return { state: "unknown", confidence: partial };
+    return { state: "working", confidence: 0 };
   }
 };
 function discoverAnthropicModels() {
@@ -851,5 +919,103 @@ function usageParseDayToken(s) {
 }
 function usageIsWeekday(s) {
   return /^(mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday)$/.test(s);
+}
+var CLASSIFY_THRESHOLD = 0.8;
+var RESUME_BUFFER_MS = 60 * 1e3;
+var CLAUDE_MENU_OPTION_RE = /^[ \t]*([>❯▶➤])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
+function parseClaudeMenuOptions(screen) {
+  const lines = String(screen || "").split("\n");
+  const options = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = CLAUDE_MENU_OPTION_RE.exec(lines[i]);
+    if (!m) continue;
+    options.push({ highlighted: !!m[1], label: m[3] });
+  }
+  return options;
+}
+function navigationKeys(options, targetIdx) {
+  let highlightIdx = -1;
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].highlighted) {
+      highlightIdx = i;
+      break;
+    }
+  }
+  if (highlightIdx === -1) highlightIdx = 0;
+  const keys = [];
+  const delta = targetIdx - highlightIdx;
+  if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
+  else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
+  keys.push("enter");
+  return keys;
+}
+function looksBusy(screen) {
+  const s = String(screen || "");
+  return /\besc to interrupt\b/i.test(s) || /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) || /\bWorking[….]/.test(s) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(s);
+}
+function scoreRateLimit(screen, nowMs) {
+  const options = parseClaudeMenuOptions(screen);
+  let waitIdx = -1;
+  let hasUpgradeOption = false;
+  for (let i = 0; i < options.length; i++) {
+    const label = options[i].label;
+    if (/\bupgrade\b/i.test(label)) hasUpgradeOption = true;
+    if (waitIdx === -1 && /\b(?:wait|stop and wait)\b/i.test(label) && !/\bupgrade\b/i.test(label)) {
+      waitIdx = i;
+    }
+  }
+  const sigWaitUpgradeMenu = waitIdx !== -1 && hasUpgradeOption;
+  const sigLimitWord = /\b(?:session|usage|rate|message|weekly)\s+limit\b/i.test(screen) || /\blimit\b[\s\S]{0,40}\breset/i.test(screen);
+  const sigResetClock = /\breset[s]?\b[\s\S]{0,40}\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(screen);
+  const sigConfirmFooter = /\bto confirm\b/i.test(screen) && /\bto (?:cancel|exit)\b/i.test(screen);
+  let confidence = 0;
+  if (sigWaitUpgradeMenu) confidence += 0.5;
+  if (sigLimitWord) confidence += 0.25;
+  if (sigResetClock) confidence += 0.15;
+  if (sigConfirmFooter) confidence += 0.1;
+  if (confidence > 1) confidence = 1;
+  const waitKeys = sigWaitUpgradeMenu ? navigationKeys(options, waitIdx) : null;
+  const resetAtMs = parseResetClock(screen, nowMs);
+  return { confidence, waitKeys, resetAtMs };
+}
+function parseResetClock(screen, nowMs) {
+  const m = /\breset[s]?\b[^\n]{0,40}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
+  if (!m) return null;
+  return usageParseTodayClock(m[1], nowMs);
+}
+function scoreClarifyingQuestion(screen) {
+  const options = parseClaudeMenuOptions(screen);
+  const questions = extractQuestions(screen);
+  const sigMenu = options.length >= 2;
+  const sigQuestion = questions.length > 0;
+  const sigConfirmFooter = /\bto (?:confirm|submit|select)\b/i.test(screen);
+  let confidence = 0;
+  if (sigMenu) confidence += 0.35;
+  if (sigQuestion) confidence += 0.3;
+  if (sigConfirmFooter) confidence += 0.35;
+  if (confidence > 1) confidence = 1;
+  return { confidence, questions };
+}
+function extractQuestions(screen) {
+  const lines = String(screen || "").split("\n");
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.length > 1 && line.charAt(line.length - 1) === "?") out.push(line);
+  }
+  return out;
+}
+function scoreAuthPrompt(screen) {
+  const s = String(screen || "");
+  let score = 0;
+  if (/\bsign[ -]?in\b/i.test(s)) score += 0.5;
+  if (/\blog[ -]?in\b/i.test(s)) score += 0.5;
+  if (/\bauthenticat(?:e|ion|ing)\b/i.test(s)) score += 0.5;
+  if (/\bo\s?auth\b/i.test(s)) score += 0.6;
+  if (/\bapi key\b/i.test(s)) score += 0.6;
+  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(s)) score += 0.6;
+  if (/\bauthorization code\b/i.test(s)) score += 0.6;
+  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
+  return score > 1 ? 1 : score;
 }
 var plugin_default = plugin;

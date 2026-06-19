@@ -998,6 +998,94 @@ mod claude {
         }
     }
 
+    /// AS3 (Case B): the real claude plugin.js classifies a rate-limit menu as
+    /// `RateLimited` through the QuickJS runtime, and its wire output round-trips
+    /// into the native `PaneStateClassification` types — confirm-wait keys + a
+    /// scheduled `continue your work` resume. This is the native↔JS parity for
+    /// the claude classifier: the JS verdict parses natively into the exact
+    /// generic shape the core reactor acts on.
+    #[test]
+    fn classify_rate_limit_menu_round_trips_native_types() {
+        use crate::agent::pane_state::{PaneState, PaneStateSnapshot};
+        if require_plugins().is_none() {
+            return;
+        }
+        let j = load_js("claude");
+        let snap = PaneStateSnapshot {
+            pane_id: "pane-1".into(),
+            agent_type: "claude".into(),
+            session_id: None,
+            cwd: None,
+            screen_text: concat!(
+                "You've hit your session limit \u{b7} resets 4:20pm (Europe/Riga)\n",
+                "/rate-limit-options\n\n",
+                "What do you want to do?\n\n",
+                "> 1. Stop and wait for limit to reset\n",
+                "  2. Upgrade your plan\n",
+                "  3. Upgrade to Team plan\n\n",
+                "Enter to confirm \u{b7} Esc to cancel\n",
+            )
+            .into(),
+        };
+        let c = j
+            .classify_pane_state(&snap)
+            .expect("claude classifier must return a verdict");
+        assert_eq!(c.state, PaneState::RateLimited, "state");
+        assert!(
+            c.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD,
+            "confidence {} below threshold",
+            c.confidence
+        );
+        let action = c.action.expect("rate-limit verdict carries an action");
+        // Default highlight is the wait option → a bare Enter confirms it.
+        assert_eq!(action.keys.as_deref(), Some(["enter".to_string()].as_slice()));
+        let resume = action
+            .delayed_resume
+            .expect("a resume is scheduled when the reset time parsed");
+        assert_eq!(resume.text, "continue your work");
+        assert_eq!(resume.then_keys.as_deref(), Some(["enter".to_string()].as_slice()));
+        // resetAt + the resume's `at` are real RFC3339 instants the reactor can
+        // hand straight to delayed-send (parse_iso_to_ms there).
+        let reset_at = c.data.and_then(|d| d.reset_at).expect("data.resetAt set");
+        let reset = chrono::DateTime::parse_from_rfc3339(&reset_at).expect("resetAt is RFC3339");
+        let resume_at =
+            chrono::DateTime::parse_from_rfc3339(&resume.at).expect("resume.at is RFC3339");
+        assert!(
+            resume_at > reset,
+            "resume must fire after reset (buffer): {} vs {}",
+            resume.at,
+            reset_at
+        );
+    }
+
+    /// The no-false-positive wall (mirrors the negative corpus): a normal
+    /// streaming screen yields no actionable verdict — never `RateLimited`, never
+    /// a key action — so the reactor stays its hand.
+    #[test]
+    fn classify_normal_screen_is_not_actionable() {
+        use crate::agent::pane_state::{PaneState, PaneStateSnapshot};
+        if require_plugins().is_none() {
+            return;
+        }
+        let j = load_js("claude");
+        let snap = PaneStateSnapshot {
+            pane_id: "pane-1".into(),
+            agent_type: "claude".into(),
+            session_id: None,
+            cwd: None,
+            screen_text: "Reading src/router.ts and tracing the middleware chain.\n(esc to interrupt)\n".into(),
+        };
+        if let Some(c) = j.classify_pane_state(&snap) {
+            assert_ne!(c.state, PaneState::RateLimited);
+            assert_ne!(c.state, PaneState::ClarifyingQuestion);
+            assert_ne!(c.state, PaneState::WaitingOnAuth);
+            assert!(
+                c.action.and_then(|a| a.keys).is_none(),
+                "normal screen must not yield a key action"
+            );
+        }
+    }
+
     #[test]
     fn parse_interactive_events_native_js_parity() {
         // No bundled-plugin dependency (inline JS + native impl), so this always
