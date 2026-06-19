@@ -487,7 +487,7 @@ export function Sidebar({
                         </button>
                         {isExpanded && ws.tabs.map((tab) => {
                           const tabPaneIds = collectPaneIds(tab, state.panes);
-                          const isTabActive = isActiveVisual && tab.id === ws.active_tab_id;
+                          const isTabActive = isActiveVisual && tab.id === state.activeTabIds[ws.id];
                           return (
                             <button
                               key={tab.id}
@@ -607,7 +607,7 @@ export function Sidebar({
                                   <TabItem
                                     tab={tab}
                                     index={index}
-                                    isActive={isActiveVisual && tab.id === ws.active_tab_id}
+                                    isActive={isActiveVisual && tab.id === state.activeTabIds[ws.id]}
                                     onClick={() => {
                                       setActiveTab(ws.id, tab.id);
                                       onNavigateToTab?.();
@@ -675,10 +675,10 @@ export function Sidebar({
                         </>
                       </div>
                     </div>
-                    {!isExpanded && isActiveVisual && ws.active_tab_id ? (
+                    {!isExpanded && isActiveVisual && state.activeTabIds[ws.id] ? (
                       /* Collapsed but active — show selected tab */
                       (() => {
-                        const activeTab = ws.tabs.find((t) => t.id === ws.active_tab_id);
+                        const activeTab = ws.tabs.find((t) => t.id === state.activeTabIds[ws.id]);
                         if (!activeTab) return null;
                         const atPids = collectPaneIds(activeTab, state.panes);
                         const atFirstPane = atPids[0] ? state.panes[atPids[0]] : null;
