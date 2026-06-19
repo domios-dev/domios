@@ -377,7 +377,7 @@ fn bind_reported_session(
         ));
     }
 
-    // A report carrying a nonce that disagrees with the pane's launch nonce is a stale or foreign reporter (relaunch, /new in another process, reused pane id). A missing report nonce is tolerated so not-yet-reinstalled hooks keep binding.
+    // A report carrying a nonce that disagrees with the pane's launch nonce is a stale or foreign reporter (relaunch, /new in another process, reused pane id). A missing report nonce is tolerated only after provider-owned session validation below.
     if let Some(expected) = mux
         .get_pane(pane_id)
         .and_then(|p| p.session_binding_nonce.clone())
@@ -391,6 +391,41 @@ fn bind_reported_session(
                 return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
             }
         }
+    }
+
+    let Some(pane) = mux.get_pane(pane_id) else {
+        return Err((StatusCode::NOT_FOUND, "pane not found".to_string()));
+    };
+    if let Some(existing_provider) = pane.agent_type.as_deref() {
+        if existing_provider != provider_id {
+            return Err((
+                StatusCode::CONFLICT,
+                format!(
+                    "pane provider '{}' does not match report provider '{}'",
+                    existing_provider, provider_id
+                ),
+            ));
+        }
+    }
+    let cwd = pane.cwd.clone().unwrap_or_default();
+
+    let exists = registry
+        .with_provider(provider_id, |p| p.session_exists(&cwd, sid))
+        .unwrap_or(false);
+    if !exists {
+        log::warn!(
+            "[hook_session_start] rejecting sid {} for pane {} provider={}: session does not belong to provider",
+            sid,
+            pane_id,
+            provider_id,
+        );
+        return Err((
+            StatusCode::CONFLICT,
+            format!(
+                "session_id '{}' is not a known session for provider '{}'",
+                sid, provider_id
+            ),
+        ));
     }
 
     let conflict = mux
@@ -414,17 +449,7 @@ fn bind_reported_session(
     let Some(pane) = mux.get_pane_mut(pane_id) else {
         return Err((StatusCode::NOT_FOUND, "pane not found".to_string()));
     };
-    if let Some(existing_provider) = pane.agent_type.as_deref() {
-        if existing_provider != provider_id {
-            return Err((
-                StatusCode::CONFLICT,
-                format!(
-                    "pane provider '{}' does not match report provider '{}'",
-                    existing_provider, provider_id
-                ),
-            ));
-        }
-    } else {
+    if pane.agent_type.is_none() {
         pane.agent_type = Some(provider_id.to_string());
         pane.agent_type_locked = true;
         pane.agent_set_at = Some(std::time::Instant::now());
@@ -440,6 +465,7 @@ fn bind_reported_session(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -450,19 +476,22 @@ mod tests {
     use crate::agent::registry::AgentRegistry;
     use crate::multiplexer::state::MultiplexerState;
 
-    struct HookProvider(&'static str);
+    struct HookProvider {
+        id: &'static str,
+        sessions: HashSet<&'static str>,
+    }
 
     impl AgentProvider for HookProvider {
         fn id(&self) -> &str {
-            self.0
+            self.id
         }
 
         fn display_name(&self) -> &str {
-            self.0
+            self.id
         }
 
         fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
-            self.0.to_string()
+            self.id.to_string()
         }
 
         fn readiness_strategy(&self) -> ReadinessStrategy {
@@ -491,6 +520,10 @@ mod tests {
             None
         }
 
+        fn session_exists(&self, _: &str, session_id: &str) -> bool {
+            self.sessions.contains(session_id)
+        }
+
         fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
             None
         }
@@ -501,9 +534,20 @@ mod tests {
     }
 
     fn registry(ids: &[&'static str]) -> AgentRegistry {
+        registry_with_sessions(
+            ids.iter()
+                .map(|id| (*id, vec!["sid-a", "sid-b", "ses_shared"]))
+                .collect(),
+        )
+    }
+
+    fn registry_with_sessions(items: Vec<(&'static str, Vec<&'static str>)>) -> AgentRegistry {
         let registry = AgentRegistry::new();
-        for id in ids {
-            registry.register_provider(Box::new(HookProvider(id)));
+        for (id, sessions) in items {
+            registry.register_provider(Box::new(HookProvider {
+                id,
+                sessions: sessions.into_iter().collect(),
+            }));
         }
         registry
     }
@@ -511,6 +555,7 @@ mod tests {
     #[test]
     fn reported_session_rebinds_same_pane_for_new_conversation() {
         let (mut mux, pane_id) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_id).unwrap().cwd = Some("/tmp/project".into());
         let registry = registry(&["codex"]);
 
         let first =
@@ -551,7 +596,9 @@ mod tests {
     #[test]
     fn reported_session_rejects_cross_pane_duplicate_claim() {
         let (mut mux, pane_a) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_a).unwrap().cwd = Some("/tmp/project".into());
         let pane_b = mux.create_pane();
+        mux.get_pane_mut(&pane_b).unwrap().cwd = Some("/tmp/project".into());
         let registry = registry(&["opencode"]);
 
         bind_reported_session(&mut mux, &registry, &pane_a, "opencode", "ses_shared", None)
@@ -569,6 +616,7 @@ mod tests {
     #[test]
     fn reported_session_rejects_wrong_provider_for_locked_pane() {
         let (mut mux, pane_id) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_id).unwrap().cwd = Some("/tmp/project".into());
         let registry = registry(&["claude", "codex"]);
 
         bind_reported_session(&mut mux, &registry, &pane_id, "claude", "sid-a", None).unwrap();
@@ -584,6 +632,7 @@ mod tests {
     #[test]
     fn reported_session_enforces_binding_nonce() {
         let (mut mux, pane_id) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_id).unwrap().cwd = Some("/tmp/project".into());
         let registry = registry(&["claude"]);
         mux.get_pane_mut(&pane_id).unwrap().session_binding_nonce = Some("nonce-1".into());
 
@@ -625,5 +674,78 @@ mod tests {
             mux.get_pane(&pane_id).unwrap().agent_session_id.as_deref(),
             Some("sid-b")
         );
+    }
+
+    #[test]
+    fn reported_session_rejects_sid_not_owned_by_provider() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_id).unwrap().cwd = Some("/tmp/project".into());
+        let registry = registry_with_sessions(vec![
+            ("claude", vec!["claude-real"]),
+            ("cursor-agent", vec!["cursor-foreign"]),
+        ]);
+
+        let err = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "claude",
+            "cursor-foreign",
+            Some("nonce-1"),
+        )
+        .unwrap_err();
+
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        let pane = mux.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.agent_type.as_deref(), None);
+        assert_eq!(pane.agent_session_id.as_deref(), None);
+    }
+
+    #[test]
+    fn reported_session_binds_sid_owned_by_provider() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_id).unwrap().cwd = Some("/tmp/project".into());
+        let registry = registry_with_sessions(vec![("claude", vec!["claude-real"])]);
+
+        bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "claude",
+            "claude-real",
+            Some("nonce-1"),
+        )
+        .unwrap();
+
+        let pane = mux.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.agent_type.as_deref(), Some("claude"));
+        assert_eq!(pane.agent_session_id.as_deref(), Some("claude-real"));
+    }
+
+    #[test]
+    fn reported_session_without_nonce_rejects_foreign_sid() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        let pane = mux.get_pane_mut(&pane_id).unwrap();
+        pane.cwd = Some("/tmp/project".into());
+        pane.session_binding_nonce = Some("nonce-1".into());
+        let registry = registry_with_sessions(vec![
+            ("claude", vec!["claude-real"]),
+            ("cursor-agent", vec!["cursor-foreign"]),
+        ]);
+
+        let err = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "claude",
+            "cursor-foreign",
+            None,
+        )
+        .unwrap_err();
+
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        let pane = mux.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.agent_type.as_deref(), None);
+        assert_eq!(pane.agent_session_id.as_deref(), None);
     }
 }
