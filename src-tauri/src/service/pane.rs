@@ -16,9 +16,9 @@ impl ServiceContext {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
         }
 
-        let pre_focus = self.mux.write().get_focused_pane_id().map(str::to_string);
+        let pre_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.write().close_pane(pane_id)?;
-        let post_focus = self.mux.write().get_focused_pane_id().map(str::to_string);
+        let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.prompt_detector.lock().remove_pane(pane_id);
         self.emit_state_changed();
@@ -33,7 +33,7 @@ impl ServiceContext {
     pub fn rename_pane(&self, pane_id: &str, title: &str) -> Result<(), String> {
         // Sync tab.title so the sidebar label matches.
         let tab_sync = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let mut sync = None;
             'outer: for ws in mux.snapshot().workspaces.iter() {
                 for tab in &ws.tabs {
@@ -163,7 +163,7 @@ impl ServiceContext {
     /// Also kicks the global focused-pane model poller — one thread total.
     pub fn kick_off_pollers_for_existing_agents(&self) {
         let restored: Vec<(String, String, bool)> = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             mux.snapshot()
                 .panes
                 .values()
@@ -200,7 +200,7 @@ impl ServiceContext {
             loop {
                 std::thread::sleep(step);
                 let target = {
-                    let mux = svc.mux.write();
+                    let mux = svc.mux.read();
                     let focused = mux.snapshot().focused_pane_id;
                     focused.and_then(|id| {
                         mux.get_pane(&id)
@@ -219,7 +219,7 @@ impl ServiceContext {
     /// instant the user switches tabs, instead of waiting up to one tick.
     pub fn refresh_focused_pane_model(&self) {
         let target: Option<(String, String)> = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             mux.snapshot().focused_pane_id.and_then(|id| {
                 mux.get_pane(&id)
                     .and_then(|p| p.agent_type.clone())
@@ -233,7 +233,7 @@ impl ServiceContext {
 
     fn refresh_session_model_once(&self, pane_id: &str, agent_id: &str) {
         let (cwd, session_id, current_model) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let Some(p) = mux.get_pane(pane_id) else {
                 return;
             };
@@ -280,7 +280,7 @@ impl ServiceContext {
         }
         // Model badge needs a bound session. Binding is provider-reported only — we never guess one from the filesystem here; an unbound pane just has no model badge yet.
         let sid = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             mux.get_pane(pane_id)
                 .and_then(|p| p.agent_session_id.clone())
         };
@@ -330,7 +330,7 @@ impl ServiceContext {
             for _ in 0..30u32 {
                 std::thread::sleep(step);
                 let (pty_id, already, current_agent) = {
-                    let mux = svc.mux.write();
+                    let mux = svc.mux.read();
                     let Some(p) = mux.get_pane(&pane_id) else {
                         return;
                     };
@@ -532,7 +532,7 @@ impl ServiceContext {
 
                 let agent_type = self
                     .mux
-                    .write()
+                    .read()
                     .get_pane(pane_id)
                     .and_then(|p| p.agent_type.clone());
                 let steps = if let Some(ref at) = agent_type {

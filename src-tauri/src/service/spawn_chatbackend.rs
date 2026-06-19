@@ -257,7 +257,7 @@ impl ServiceContext {
             let mut last_signature: Option<u64> = None;
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                if svc.mux.write().get_pane(&pane_id).is_none() {
+                if svc.mux.read().get_pane(&pane_id).is_none() {
                     break;
                 }
                 let (svc2, plugin2, sid2, cur) = (
