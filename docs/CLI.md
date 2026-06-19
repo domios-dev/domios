@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -53,8 +53,15 @@ List available agent providers (claude, codex, ...) with their display names, de
 
 Send a report to your parent in the hierarchy
 
+- `--branch` — Git branch the work landed on
+- `--changed_files` — Changed files (comma-separated or repeat the flag)
 - `<message>` — Report message (also accepts --message alias)
 - `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--sha` — Commit SHA produced
+- `--skipped` — Anything deliberately skipped
+- `--status` — Task outcome: done | blocked | partial
+- `--test_cmd` — Test command that was run
+- `--test_result` — Result of the test command (e.g. "42 passed")
 
 #### `codeterm agent reports`
 

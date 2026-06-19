@@ -244,15 +244,44 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        AgentAction::Report { message, pane } => {
+        AgentAction::Report {
+            message,
+            pane,
+            status,
+            branch,
+            sha,
+            changed_files,
+            test_cmd,
+            test_result,
+            skipped,
+        } => {
             let pane_id = resolve_pane(client, pane);
-            let result = client.call(
-                "agent.report",
-                Some(serde_json::json!({
-                    "pane_id": pane_id,
-                    "message": message,
-                })),
-            );
+            let mut body = serde_json::json!({
+                "pane_id": pane_id,
+                "message": message,
+            });
+            if let Some(s) = status {
+                body["status"] = serde_json::json!(s.as_str());
+            }
+            if let Some(b) = branch {
+                body["branch"] = serde_json::json!(b);
+            }
+            if let Some(s) = sha {
+                body["sha"] = serde_json::json!(s);
+            }
+            if let Some(cf) = changed_files {
+                body["changed_files"] = serde_json::json!(cf);
+            }
+            if let Some(c) = test_cmd {
+                body["test_cmd"] = serde_json::json!(c);
+            }
+            if let Some(r) = test_result {
+                body["test_result"] = serde_json::json!(r);
+            }
+            if let Some(sk) = skipped {
+                body["skipped"] = serde_json::json!(sk);
+            }
+            let result = client.call("agent.report", Some(body));
             handle_result(json, result);
         }
         AgentAction::Reports { pane, clear, limit } => {
