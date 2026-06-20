@@ -522,7 +522,9 @@ async fn fetch_peer_services(
     use crate::mesh::transport::TryNext;
 
     let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(PEER_SERVICES_FETCH_TIMEOUT_SECS))
+        .timeout(std::time::Duration::from_secs(
+            PEER_SERVICES_FETCH_TIMEOUT_SECS,
+        ))
         .build()
     {
         Ok(c) => c,
@@ -597,7 +599,9 @@ async fn peer_authed_request(
     };
 
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(PEER_SERVICES_FETCH_TIMEOUT_SECS))
+        .timeout(std::time::Duration::from_secs(
+            PEER_SERVICES_FETCH_TIMEOUT_SECS,
+        ))
         .build()
         .map_err(|e| e.to_string())?;
 
