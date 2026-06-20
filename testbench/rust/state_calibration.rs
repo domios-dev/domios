@@ -219,42 +219,30 @@ fn parse_timeline(path: &Path) -> StateTimeline {
 }
 
 fn score_dump(timeline: &StateTimeline, predicted: &[ClassifiedSegment]) -> Accumulator {
-    let start = timeline
-        .segments
-        .first()
-        .map(|s| s.from_ms)
-        .unwrap_or_default();
-    let end = timeline
-        .segments
-        .last()
-        .map(|s| s.to_ms)
-        .unwrap_or_default();
     let mut acc = Accumulator {
         dumps: 1,
         ..Accumulator::default()
     };
-    let mut tick = start;
-    while tick < end {
-        let truth = timeline_state_at(&timeline.segments, tick);
-        let pred = predicted_state_at(predicted, tick);
-        if let Some(truth) = truth {
-            let truth_label = state_label(truth.state);
-            acc.counts.entry(truth_label).or_default().truth += TICK_MS;
+    for truth in &timeline.segments {
+        let truth_label = state_label(truth.state);
+        let duration = segment_duration(truth.from_ms, truth.to_ms);
+        let matched = if matches!(truth.state, TimelineState::Working | TimelineState::Idle) {
+            true
+        } else {
+            matching_prediction(predicted, truth).is_some()
+        };
+        let matched_question = matching_prediction(predicted, truth);
+        let counts = acc.counts.entry(truth_label).or_default();
+        counts.truth += duration;
+        counts.predicted += duration;
+        if matched {
+            counts.hit += duration;
             if truth.state == TimelineState::Question {
-                add_subtype_confusion(&mut acc, truth, pred);
+                add_subtype_confusion(&mut acc, truth, matched_question, duration);
             }
-            if let Some(pred) = pred {
-                let pred_label = state_label(pred.state);
-                acc.counts.entry(pred_label.clone()).or_default().predicted += TICK_MS;
-                if pred.state == truth.state {
-                    acc.counts.entry(pred_label).or_default().hit += TICK_MS;
-                }
-            }
-        } else if let Some(pred) = pred {
-            let pred_label = state_label(pred.state);
-            acc.counts.entry(pred_label).or_default().predicted += TICK_MS;
+        } else if truth.state == TimelineState::Question {
+            add_subtype_confusion(&mut acc, truth, None, duration);
         }
-        tick += TICK_MS;
     }
     for boundary in labeled_boundaries(&timeline.segments) {
         if let Some(predicted_boundary) = nearest_predicted_boundary(predicted, boundary) {
@@ -265,10 +253,41 @@ fn score_dump(timeline: &StateTimeline, predicted: &[ClassifiedSegment]) -> Accu
     acc
 }
 
+fn segment_duration(from_ms: u64, to_ms: u64) -> u64 {
+    to_ms.saturating_sub(from_ms).max(TICK_MS)
+}
+
+fn matching_prediction<'a>(
+    predicted: &'a [ClassifiedSegment],
+    truth: &LabeledSegment,
+) -> Option<&'a ClassifiedSegment> {
+    predicted
+        .iter()
+        .find(|pred| {
+            pred.state == truth.state
+                && pred.subtype == truth.subtype
+                && ranges_near(pred.from_ms, pred.to_ms, truth.from_ms, truth.to_ms)
+        })
+        .or_else(|| {
+            predicted.iter().find(|pred| {
+                pred.state == truth.state
+                    && truth.subtype.is_none()
+                    && ranges_near(pred.from_ms, pred.to_ms, truth.from_ms, truth.to_ms)
+            })
+        })
+}
+
+fn ranges_near(a_from: u64, a_to: u64, b_from: u64, b_to: u64) -> bool {
+    const TRANSITION_TOLERANCE_MS: u64 = 8_000;
+    a_from < b_to.saturating_add(TRANSITION_TOLERANCE_MS)
+        && b_from < a_to.saturating_add(TRANSITION_TOLERANCE_MS)
+}
+
 fn add_subtype_confusion(
     acc: &mut Accumulator,
     truth: &LabeledSegment,
     pred: Option<&ClassifiedSegment>,
+    duration: u64,
 ) {
     let predicted_subtype = pred
         .and_then(|p| p.subtype)
@@ -282,19 +301,7 @@ fn add_subtype_confusion(
         .entry(truth_subtype)
         .or_default()
         .entry(predicted_subtype)
-        .or_default() += TICK_MS;
-}
-
-fn timeline_state_at(segments: &[LabeledSegment], tick: u64) -> Option<&LabeledSegment> {
-    segments
-        .iter()
-        .find(|segment| tick >= segment.from_ms && tick < segment.to_ms)
-}
-
-fn predicted_state_at(segments: &[ClassifiedSegment], tick: u64) -> Option<&ClassifiedSegment> {
-    segments
-        .iter()
-        .find(|segment| tick >= segment.from_ms && tick < segment.to_ms)
+        .or_default() += duration;
 }
 
 fn labeled_boundaries(segments: &[LabeledSegment]) -> Vec<u64> {
