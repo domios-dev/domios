@@ -617,8 +617,8 @@ pub async fn plugin_snapshot(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    // snapshot() forks subprocesses + clones channels over the network — never
-    // on the async runtime (mirrors the Tauri command's spawn_blocking wrap).
+    // snapshot() does blocking filesystem work + clones channels via `git` —
+    // never on the async runtime (mirrors the Tauri command's spawn_blocking wrap).
     let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || {
         crate::commands::plugins::snapshot(Some(svc.chatbackend_registry.as_ref()))
@@ -636,8 +636,8 @@ pub async fn plugin_action(
     Json(action): Json<crate::commands::plugins::PluginManagerAction>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    // run_action shells the CLI (Command::new) — keep it off the async runtime
-    // (mirrors the Tauri command's spawn_blocking wrap).
+    // run_action does blocking plugin filesystem work (+ `git` for channels) —
+    // keep it off the async runtime (mirrors the Tauri command's spawn_blocking wrap).
     let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || crate::commands::plugins::run_action(action, svc.as_ref()))
         .await

@@ -30,3 +30,4 @@ sha2 = "0.10"
 # without minding the input language.
 deunicode = "1"
 codeterm-mem-store = { path = "../crates/mem-store" }
+codeterm-plugins = { path = "../crates/codeterm-plugins" }
