@@ -10,6 +10,7 @@ pub mod provider;
 pub mod registry;
 pub mod reports;
 pub mod run_watcher;
+pub mod signal_extractor;
 pub mod state_reactor;
 #[allow(dead_code)]
 pub mod status;
