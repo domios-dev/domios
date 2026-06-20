@@ -22,6 +22,30 @@ evals/agent-state/run.sh          # dev-locked wrapper (sources evals/_lib/lib.s
 cd src-tauri && cargo test --test agent_state_replay -- --nocapture
 ```
 
+## Capture real fixtures (RT3 driver)
+
+`capture-live.sh` drives a LIVE provider agent through a state and banks a labeled
+`.cast` + `screen.txt` + starter `expected.json`. Dev-locked (`dc`); never touches
+prod. Content states are deterministic; interactive-TUI states need a real system
+trigger — `capture-live.sh recipes` prints them.
+
+```bash
+evals/agent-state/capture-live.sh claude turn_complete_real "Reply with exactly: OK" 60
+evals/agent-state/capture-live.sh codex  working_streaming_real "Write ~400 words on Unix pipes ..." 150
+evals/agent-state/capture-live.sh recipes     # interactive-TUI manual trigger recipes
+```
+
+The current real baseline + the false-positives it exposed are in `BASELINE.md`.
+
+## Gating vs non-gating buckets
+
+`expected.json` carries `"gating"` (default `true`). **Seed** fixtures gate CI:
+a failure fails the build. **Real captures** set `"gating": false` — they are
+MEASURED into the baseline scorecard but never fail CI, because a real classifier
+false-positive is the finding, not a failure. Real-capture dirs use a `_real`
+suffix so they never collide with the gating seeds. Never weaken an oracle to hide
+a real FP; record it in `BASELINE.md` as the P2 target instead.
+
 Offline: no daemon, no network, no live provider account. Requires the bundled
 `plugins/provider-*/plugin.js` to exist (they are checked in). If missing locally
 the test skips; in CI it fails.
@@ -58,10 +82,14 @@ hand-edit the byte stream of a real capture.
   "provider": "codex",
   "final_state": "update_prompt",
   "extracted": { "keys": ["down", "enter"] },
-  "negatives": ["waiting_on_auth", "rate_limited", "waiting", "turn_complete"]
+  "negatives": ["waiting_on_auth", "rate_limited", "waiting", "turn_complete"],
+  "gating": true
 }
 ```
 
+- **`gating`** — optional, default `true`. Seed fixtures gate CI; real captures set
+  `false` (measured into the baseline, never failing the build). `source` is an
+  optional free-text marker (e.g. `"real-capture"`).
 - **`final_state`** — the `PaneState` the classifier must return at the final
   quiescent frame (GOLDEN assertion). Snake_case, per `pane_state.rs`.
 - **`extracted.keys`** — optional; the classifier's recommended `action.keys`
@@ -91,19 +119,26 @@ gaps (`TICK_MS`) so a mid-stream stall is actually sampled. This is a deliberate
 stand-in for today's coarse gate; P2 replaces it with the semantic-veto gate and
 the eval re-measures. Constants live at the top of `agent_state_replay.rs`.
 
-## Fixtures (seed)
+## Fixtures
 
-Synthetic seeds so the harness runs green NOW (real captures arrive from RT1 /
-the orchestrator). Content guidance: `plugins/provider-codex/tests/fixtures/pane-state/*.txt`.
+**Gating seeds** (synthetic; gate CI). Content guidance:
+`plugins/provider-codex/tests/fixtures/pane-state/*.txt`.
 
 - `codex/working_streaming` — sustained streaming output; stays `working`, no
   false parked/done mid-stream. Includes a `"r"` resize row.
 - `codex/update_prompt` — self-update menu; final `update_prompt` with
   `["down","enter"]` (skips the `Update now` default); never auth/rate-limited.
 
+**Real captures** (`*_real`; non-gating baseline, banked by `capture-live.sh`):
+`claude/{turn_complete,working_streaming,clarifying_question}_real`,
+`codex/{turn_complete,working_streaming}_real`. See `BASELINE.md`.
+
 ## Adding a fixture
 
-1. Capture a real stream to `recording.cast` (RT1 `pane capture`).
-2. Drop it under `tests/fixtures/agent-state/<provider>/<state>/`.
-3. Write `expected.json` (final_state + negatives; extracted/keys when actionable).
+1. Capture a real stream with `capture-live.sh` (RT1 `pane capture` tap) — or any
+   `recording.cast`.
+2. Drop it under `tests/fixtures/agent-state/<provider>/<state>/` (use a `_real`
+   suffix for non-gating real captures).
+3. Write `expected.json` (final_state + negatives; `gating:false` + extracted/keys
+   when applicable).
 4. `evals/agent-state/run.sh` — the new fixture is auto-discovered.
