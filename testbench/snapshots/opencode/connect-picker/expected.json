@@ -1,24 +1,22 @@
 {
   "provider": "opencode",
-  "unit": "provider_screen",
+  "unit": "provider_screen_attr",
   "expected": {
-    "hasEventMarkers": true,
-    "detectEvents": ["PermissionRequest"],
-    "parsePrompt": {
-      "question": "Connect a provider",
-      "options": [
-        { "label": "OpenCode Zen (Recommended)", "value": "1" },
-        { "label": "OpenCode Go Low cost subscription for everyone", "value": "2" },
-        { "label": "OpenAI (ChatGPT Plus/Pro or API key)", "value": "3" },
-        { "label": "GitHub Copilot", "value": "4" },
-        { "label": "Anthropic (API key)", "value": "5" },
-        { "label": "Google", "value": "6" },
-        { "label": "302.AI", "value": "7" },
-        { "label": "Abacus", "value": "8" },
-        { "label": "abliteration.ai", "value": "9" },
-        { "label": "AIHubMix", "value": "10" },
-        { "label": "Alibaba", "value": "11" }
-      ]
-    }
+    "question": "Connect a provider",
+    "options": [
+      "OpenCode Zen (Recommended)",
+      "OpenCode Go Low cost subscription for everyone",
+      "OpenAI (ChatGPT Plus/Pro or API key)",
+      "GitHub Copilot",
+      "Anthropic (API key)",
+      "Google",
+      "302.AI",
+      "Abacus",
+      "abliteration.ai",
+      "AIHubMix",
+      "Alibaba"
+    ],
+    "selectedIndex": 0,
+    "multiSelect": false
   }
 }

@@ -1,55 +1,21 @@
 {
   "provider": "cursor",
-  "unit": "provider_screen",
+  "unit": "provider_screen_attr",
   "expected": {
-    "hasEventMarkers": true,
-    "detectEvents": [
-      "PermissionRequest"
+    "question": "Available models",
+    "options": [
+      "Auto",
+      "Composer 2.5",
+      "Opus 4.8",
+      "GPT-5.5",
+      "Sonnet 4.6",
+      "Codex 5.3",
+      "Opus 4.7",
+      "Grok Build 0.1",
+      "GPT-5.4",
+      "Opus 4.6"
     ],
-    "parsePrompt": {
-      "question": "Available models",
-      "options": [
-        {
-          "label": "Auto",
-          "value": "1"
-        },
-        {
-          "label": "Composer 2.5",
-          "value": "2"
-        },
-        {
-          "label": "Opus 4.8",
-          "value": "3"
-        },
-        {
-          "label": "GPT-5.5",
-          "value": "4"
-        },
-        {
-          "label": "Sonnet 4.6",
-          "value": "5"
-        },
-        {
-          "label": "Codex 5.3",
-          "value": "6"
-        },
-        {
-          "label": "Opus 4.7",
-          "value": "7"
-        },
-        {
-          "label": "Grok Build 0.1",
-          "value": "8"
-        },
-        {
-          "label": "GPT-5.4",
-          "value": "9"
-        },
-        {
-          "label": "Opus 4.6",
-          "value": "10"
-        }
-      ]
-    }
+    "selectedIndex": 1,
+    "multiSelect": false
   }
 }

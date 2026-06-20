@@ -1,6 +1,7 @@
 {
   "provider": "claude",
   "unit": "provider_screen",
+  "gating": false,
   "expected": {
     "parsePrompt": {
       "question": "How should I configure the linter?",

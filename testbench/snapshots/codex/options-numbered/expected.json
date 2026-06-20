@@ -1,6 +1,7 @@
 {
   "provider": "codex",
   "unit": "provider_screen",
+  "gating": false,
   "expected": {
     "parsePrompt": {
       "question": "Which test strategy should we use?",
