@@ -1,9 +1,39 @@
-Выбери, что хочешь увидеть:
 
-1. A — Исследовать код
-2. Б — Подкорректировать файл
-3. В — Запустить тесты/сборку
-4. Г — Поискать в коде
-5. Type your own answer
+  ┃
+  ┃  Ask me one native interactive question. Question: Choose the audit scope. Options: Monolith, Microservices, Edge
+  ┃  services, Data pipeline. Do not answer it yourself; ask me.
+  ┃
 
-↑↓ select  enter submit  esc dismiss
+     + Thought: 359ms
+
+  ┃
+  ┃  # Questions
+  ┃
+  ┃  Choose the audit scope:
+  ┃  Monolith
+  ┃
+
+     + Thought: 240ms
+
+     Monolith selected.
+
+     ▣  Build · DeepSeek V4 Flash Free · 5.2s
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                            9.3K (5%)  ctrl+p commands

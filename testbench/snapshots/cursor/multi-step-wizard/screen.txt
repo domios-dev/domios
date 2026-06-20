@@ -1,0 +1,29 @@
+dev@workstation codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-85d63c97-0f90-4ae7-863b-294f71231fd5.sh
+
+
+  Cursor Agent
+  v2026.06.19-20-24-33-653a7fb
+  Use /plan to iterate on an implementation plan before code changes.
+
+
+  Ask me a multi-step multi-select setup wizard. Use the native question UI if available. First question: choose
+  all migration phases that apply, with options Audit, Build, Test, Rollout. Do not answer it yourself; ask me.
+
+
+  Starting the setup wizard with the first multi-select question about migration phases.
+
+ ┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │ Migration Setup Wizard                                                                                             │
+ │                                                                                                                    │
+ │ Question 1 of 1                                                                                                    │
+ │                                                                                                                    │
+ │ 1. Step 1 of 4 — Which migration phases apply to your project? (Select all that apply) (multi-select)              │
+ │                                                                                                                    │
+ │   › [ ] Audit                                                                                                      │
+ │     [ ] Build                                                                                                      │
+ │     [ ] Test                                                                                                       │
+ │     [ ] Rollout                                                                                                    │
+ │     [ ] Other: (type to answer)                                                                                    │
+ │                                                                                                                    │
+ │ ↑/↓ option · ←/→ question · Space select · Enter next/submit · Esc to skip                                         │
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

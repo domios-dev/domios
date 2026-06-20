@@ -1,0 +1,10 @@
+{
+  "provider": "opencode",
+  "situation": "permission-picker",
+  "capturedAtMs": 1781983853360,
+  "paneId": "bf1eaf90",
+  "source": "dev-7686",
+  "until": "(Allow|Deny|Approve|Reject|Run command|permission|enter|esc|select|touch /tmp/codeterm)",
+  "prompt": "Create a file by running this shell command exactly: touch /tmp/codeterm-opencode-permission-snapshot",
+  "providerCliVersion": "1.17.8"
+}
