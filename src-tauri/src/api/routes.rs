@@ -32,15 +32,9 @@ pub struct AppState {
     pub events: crate::api::events::EventBroadcasterState,
     /// Directory holding the built React bundle, served at /web.
     pub web_dist: Option<std::path::PathBuf>,
-    /// Short-lived web tokens for PWA/mirror auth. Maps token → creation instant;
-    /// avoids exposing the permanent master API token outside the daemon.
-    /// Tokens expire after WEB_TOKEN_TTL.
-    pub web_tokens:
-        std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>>,
 }
 
-/// Lifetime of web tokens minted by mesh_web_token. After this period the token
-/// is no longer accepted by the auth middleware and the browser must re-fetch.
+/// Lifetime of the `codeterm-web-token` PWA bootstrap cookie (web_routes).
 pub(crate) const WEB_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
 
 pub fn create_router(state: AppState) -> Router {
@@ -377,11 +371,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/debug/sign", get(mesh_routes::mesh_debug_sign))
         .route("/api/mesh/status", get(mesh_routes::mesh_status))
         .route("/api/mesh/peers", get(mesh_routes::mesh_peers))
-        .route("/api/mesh/web-token", get(mesh_routes::mesh_web_token))
-        .route(
-            "/api/mesh/peers/{id}/web-token",
-            get(mesh_routes::mesh_peer_web_token),
-        )
+        .route("/api/mesh/relay-to", post(mesh_routes::mesh_relay_to_peer))
         .route("/api/mesh/discover", post(mesh_routes::mesh_discover))
         .route("/api/mesh/connect", post(mesh_routes::mesh_connect_peer))
         .route("/api/mesh/approve", post(mesh_routes::mesh_approve_peer))
