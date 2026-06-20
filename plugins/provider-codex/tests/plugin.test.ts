@@ -128,6 +128,24 @@ assert(Array.isArray(plugin.noisePatterns) && plugin.noisePatterns.length > 0, "
 // No image-send strategy → path fallback used by host
 assert(plugin.imageSend === undefined, "imageSend undefined (host falls back to path strategy)");
 
+console.log("\n--- hasEventMarkers: picker/menu screens gate a screen read (/model) ---\n");
+{
+  const evp = loadHostPlugin();
+  // Captured live from `codex` after `/model`: a numbered ratatui menu with a › selector
+  // and an "enter to confirm / esc to go back" footer. hasEventMarkers must fire so the
+  // host reads the screen and the universal numbered parser extracts it — even off the
+  // auto-approve path where chunks carry no approval phrase.
+  const modelScreen = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "model-picker.txt"),
+    "utf8",
+  );
+  assert(evp.hasEventMarkers(modelScreen), "hasEventMarkers fires on the /model picker screen");
+  assert(evp.hasEventMarkers("Press enter to confirm or esc to go back"), "fires on the confirm/back footer");
+  assert(evp.hasEventMarkers("› 1. gpt-5.5 (current)"), "fires on a › selector option row");
+  assert(evp.hasEventMarkers("Would you like to run the following command"), "still fires on approval phrasing");
+  assert(!evp.hasEventMarkers("Wrote 12 lines to src/lib/foo.ts and ran the tests."), "stays quiet on normal output");
+}
+
 console.log("\n--- parseSessionDelta hardening ---\n");
 const hostPlugin = loadHostPlugin();
 const chunk = [
