@@ -37,8 +37,9 @@ var OUTPUT_SIGNALS = [
   "\u2579"
 ];
 var TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
-var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
-var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192"];
+var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
+var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
+var PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
 var lastPromptShape = "horizontal";
 var plugin = {
   detectFromTitle(title) {
@@ -80,12 +81,12 @@ var plugin = {
   hasEventMarkers(chunk) {
     const c = String(chunk || "");
     const lc = c.toLowerCase();
-    return c.indexOf("Permission required") !== -1 || lc.indexOf("approve") !== -1 || chunkHasQuestionMenuRow(c) || lc.indexOf("select") !== -1 && lc.indexOf("submit") !== -1 && lc.indexOf("dismiss") !== -1;
+    return c.indexOf("Permission required") !== -1 || lc.indexOf("approve") !== -1 || chunkHasQuestionMenuRow(c) || findModalPickerTitle(c) >= 0 || lc.indexOf("select") !== -1 && lc.indexOf("submit") !== -1 && lc.indexOf("dismiss") !== -1;
   },
   detectEvents(text) {
     const t = String(text || "");
     const events = [];
-    if (t.indexOf("Permission required") !== -1 || t.indexOf("Allow this tool call") !== -1 || t.indexOf("Approve this command") !== -1 || parseQuestionMenuPrompt(t)) {
+    if (t.indexOf("Permission required") !== -1 || t.indexOf("Allow this tool call") !== -1 || t.indexOf("Approve this command") !== -1 || parseQuestionMenuPrompt(t) || parseModalPickerPrompt(t)) {
       events.push("permission_request");
     }
     return events;
@@ -98,7 +99,8 @@ var plugin = {
   // Parse opencode prompt boxes into host cards; the plugin remembers the shape
   // because response bytes depend on horizontal vs vertical navigation.
   parsePrompt(text) {
-    return parseQuestionMenuPrompt(String(text || "")) || parsePermissionPrompt(String(text || ""));
+    const screen = String(text || "");
+    return parseQuestionMenuPrompt(screen) || parseModalPickerPrompt(screen) || parsePermissionPrompt(screen);
   },
   // opencode has both horizontal permission rows and vertical question menus.
   buildPromptResponse(optionIndex, screen) {
@@ -108,8 +110,9 @@ var plugin = {
     const ENTER = "DQ==";
     const steps = [];
     const target = optionIndex > 0 ? optionIndex : 0;
-    if (lastPromptShape === "vertical") {
-      const current = screen ? questionMenuHighlightIndex(String(screen)) : -1;
+    const promptShape = screen && isVerticalPrompt(String(screen)) ? "vertical" : lastPromptShape;
+    if (promptShape === "vertical") {
+      const current = screen ? verticalPromptHighlightIndex(String(screen)) : -1;
       const start = current >= 0 ? current : 0;
       const delta = target - start;
       const move = delta >= 0 ? DOWN : UP;
@@ -361,8 +364,43 @@ function parseQuestionMenuPrompt(text) {
     options: c.cluster.map((row) => [row.label, row.value])
   };
 }
+function collectModalPickerPrompt(text) {
+  const rawLines = String(text || "").split("\n");
+  const titleIdx = findModalPickerTitle(text);
+  if (titleIdx < 0) return null;
+  const searchIdx = findModalSearchLine(rawLines, titleIdx);
+  if (searchIdx < 0) return null;
+  const modalCol = rawLines[searchIdx].indexOf("Search");
+  if (modalCol < 0) return null;
+  const question = cleanPromptLine(rawLines[titleIdx].slice(modalCol)).replace(/\s+esc$/i, "").trim();
+  const rows = [];
+  let nextValue = 1;
+  for (let i = searchIdx + 1; i < Math.min(rawLines.length, searchIdx + 22); i++) {
+    const raw = rawLines[i];
+    const label = modalPickerLabel(raw, modalCol);
+    if (!label) continue;
+    if (isModalPickerSection(label)) continue;
+    rows.push({
+      value: String(nextValue++),
+      label,
+      idx: i,
+      sel: raw.slice(Math.max(0, modalCol - 4), modalCol + 2).indexOf("\u25CF") !== -1
+    });
+  }
+  if (rows.length < 2) return null;
+  return { question: question || "Select an option", cluster: rows };
+}
+function parseModalPickerPrompt(text) {
+  const c = collectModalPickerPrompt(text);
+  if (!c) return null;
+  lastPromptShape = "vertical";
+  return {
+    question: c.question,
+    options: c.cluster.map((row) => [row.label, row.value])
+  };
+}
 function cleanPromptLine(line) {
-  return String(line).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/[│┃|╎╏┆┊╭╮╯╰]/g, " ").replace(/^[\s←⚠»·]+/, "").replace(/[\s·»]+$/, "").trim();
+  return String(line).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/[│┃|╎╏┆┊╭╮╯╰╹▀]/g, " ").replace(/^[\s←⚠»·]+/, "").replace(/[\s·»]+$/, "").trim();
 }
 function chunkHasQuestionMenuRow(chunk) {
   const lines = String(chunk || "").split("\n");
@@ -376,9 +414,42 @@ function questionMenuHighlightIndex(text) {
   if (!c) return -1;
   return c.cluster.findIndex((row) => row.sel);
 }
+function verticalPromptHighlightIndex(text) {
+  const modal = collectModalPickerPrompt(text);
+  if (modal) return modal.cluster.findIndex((row) => row.sel);
+  return questionMenuHighlightIndex(text);
+}
+function isVerticalPrompt(text) {
+  return !!collectQuestionMenuPrompt(text) || !!collectModalPickerPrompt(text);
+}
 function isQuestionMenuSelected(line) {
   const first = String(line || "").trim().charAt(0);
   return QUESTION_MENU_SELECTORS.indexOf(first) !== -1;
+}
+function findModalPickerTitle(text) {
+  const lines = String(text || "").split("\n");
+  const start = Math.max(0, lines.length - 40);
+  for (let i = lines.length - 1; i >= start; i--) {
+    if (PICKER_TITLE_RE.test(cleanPromptLine(lines[i]))) return i;
+  }
+  return -1;
+}
+function findModalSearchLine(lines, titleIdx) {
+  for (let i = titleIdx + 1; i < Math.min(lines.length, titleIdx + 8); i++) {
+    if (cleanPromptLine(lines[i]) === "Search") return i;
+  }
+  return -1;
+}
+function modalPickerLabel(rawLine, modalCol) {
+  const cropped = rawLine.slice(modalCol, modalCol + 54);
+  const label = cleanPromptLine(cropped).replace(/\s+/g, " ").trim();
+  if (!label) return "";
+  if (/^\/.+\b\d+\.\d+\.\d+\b/.test(label)) return "";
+  return label;
+}
+function isModalPickerSection(label) {
+  const lc = label.toLowerCase();
+  return lc === "search" || lc === "popular" || lc === "providers" || lc === "popular providers" || lc.indexOf("view all providers") === 0;
 }
 function hasQuestionMenuFooter(lines, lastOptionIdx) {
   for (let i = lastOptionIdx + 1; i < Math.min(lines.length, lastOptionIdx + 7); i++) {

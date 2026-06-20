@@ -267,6 +267,48 @@ console.log("\n--- parsePrompt (vertical numbered question picker) ---\n");
   eq(p.buildPromptResponse(0, highlighted), ["G1tB", "G1tB", "DQ=="], "vertical target above highlight → up ×2 + Enter");
 }
 
+console.log("\n--- parsePrompt (opencode modal pickers) ---\n");
+{
+  const p = loadOpencodeWithHost(ocHost({}));
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "testbench", "snapshots", "opencode");
+  const model = fs.readFileSync(path.join(root, "model-picker", "screen.txt"), "utf8");
+  const modelParsed = p.parsePrompt(model);
+  eq(modelParsed && modelParsed.question, "Select model", "model picker question");
+  eq(
+    modelParsed && modelParsed.options.slice(0, 5),
+    [
+      ["Big Pickle Free", "1"],
+      ["DeepSeek V4 Flash Free Free", "2"],
+      ["MiMo V2.5 Free Free", "3"],
+      ["Nemotron 3 Ultra Free Free", "4"],
+      ["North Mini Code Free Free", "5"],
+    ],
+    "model picker extracts visible model choices without sidebar rows",
+  );
+  eq(p.buildPromptResponse(4, model), ["G1tC", "G1tC", "G1tC", "DQ=="], "model picker sends down from highlighted row");
+
+  const connect = fs.readFileSync(path.join(root, "connect-picker", "screen.txt"), "utf8");
+  const connectParsed = p.parsePrompt(connect);
+  eq(connectParsed && connectParsed.question, "Connect a provider", "connect picker question");
+  eq(
+    connectParsed && connectParsed.options,
+    [
+      ["OpenCode Zen (Recommended)", "1"],
+      ["OpenCode Go Low cost subscription for everyone", "2"],
+      ["OpenAI (ChatGPT Plus/Pro or API key)", "3"],
+      ["GitHub Copilot", "4"],
+      ["Anthropic (API key)", "5"],
+      ["Google", "6"],
+      ["302.AI", "7"],
+      ["Abacus", "8"],
+      ["abliteration.ai", "9"],
+      ["AIHubMix", "10"],
+      ["Alibaba", "11"],
+    ],
+    "connect picker extracts provider choices",
+  );
+}
+
 console.log("\n--- buildPromptResponse (horizontal ←/→ nav, NOT down) ---\n");
 {
   const p = loadOpencodeWithHost(ocHost({}));
