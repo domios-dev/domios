@@ -1,0 +1,9 @@
+{
+  "provider": "codex",
+  "scenario": "working-idle",
+  "variant": 2,
+  "cli_version": "codex-cli 0.141.0",
+  "capturedAtMs": 1781986868710,
+  "source": "state-capture.sh dev-7686",
+  "paneId": "b33cf26b"
+}

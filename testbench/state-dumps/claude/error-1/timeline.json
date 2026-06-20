@@ -1,0 +1,37 @@
+{
+  "steps": [
+    {
+      "at_ms": 1033,
+      "action": "send failing-command task",
+      "expect": "working"
+    },
+    {
+      "at_ms": 1165,
+      "action": "error text visible",
+      "expect": "question:error"
+    },
+    {
+      "at_ms": 15706,
+      "action": "post-error quiescence",
+      "expect": "idle"
+    }
+  ],
+  "segments": [
+    {
+      "from_ms": 1033,
+      "to_ms": 1165,
+      "state": "working"
+    },
+    {
+      "from_ms": 1165,
+      "to_ms": 15706,
+      "state": "question",
+      "subtype": "error"
+    },
+    {
+      "from_ms": 15706,
+      "to_ms": 18206,
+      "state": "idle"
+    }
+  ]
+}

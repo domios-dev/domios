@@ -1,0 +1,35 @@
+dev@workstation codeterm-state-capture-claude-error-2-89316 % bash /tmp/codeterm-spawn-7c593eb1-045c-4bb6-9d61-c89fcd69ec16.sh
+╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Run /init to create a CLAUDE.md file with instructions for Cla… │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ Improved auto mode safety: destructive git commands (`git rese… │
+│                        ▘▘ ▝▝                       │ Added a warning when the requested model is deprecated or auto… │
+│                                                    │ Added `attribution.sessionUrl` setting to omit the claude.ai s… │
+│ Opus 4.8 with high effort · Claude Team · Team Org A │ /release-notes for more                                         │
+│  /…/T/codeterm-state-capture-claude-error-2-89316  │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Try to execute nonexistent_command_xyz and report the exact error output.                                             
+
+⏺ Bash(nonexistent_command_xyz)
+  ⎿  Error: Exit code 127
+     (eval):1: command not found: nonexistent_command_xyz
+
+⏺ Here's the exact error output:
+
+  (eval):1: command not found: nonexistent_command_xyz
+
+  Exit code: 127
+
+  This is the standard zsh error for an unrecognized command. The (eval):1: prefix indicates the command was run via
+  eval in the shell, and 127 is the conventional exit status for "command not found."
+
+✻ Brewed for 7s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents    

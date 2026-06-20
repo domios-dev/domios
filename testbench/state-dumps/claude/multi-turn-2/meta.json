@@ -1,0 +1,9 @@
+{
+  "provider": "claude",
+  "scenario": "multi-turn",
+  "variant": 2,
+  "cli_version": "2.1.183 (Claude Code)",
+  "capturedAtMs": 1781987710415,
+  "source": "state-capture.sh dev-7686",
+  "paneId": "d0ba7419"
+}
