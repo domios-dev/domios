@@ -20,19 +20,17 @@
   bracketed-paste is an ANTI-signal (shells set it on every line prompt → use to EXCLUDE
   the normal shell); `?1049h` alt-screen is high-precision but full-screen-only. Keys on
   protocol brackets, not vendor menu text — fits "structural fingerprints, never strings."
-- **Structured channels beat scraping — but ONLY for the APPROVAL/permission class** (be
-  precise; the earlier framing was too broad). Claude `--permission-prompt-tool` /
-  `canUseTool`; Codex `app-server` JSON-RPC; Cursor ACP `session/request_permission` route
-  *tool/command-approval* requests to a PROGRAM (the host) instead of drawing a TUI yes/no
-  prompt — handing us {tool, input, question} + a programmatic allow/deny path,
-  deterministic, no scraping. This covers the very common "agent wants to run X — approve?"
-  prompts. It does NOT cover `/model` selection, arbitrary menus ("[Demo] 1/2/3"), or
-  free-form clarifying questions — those are not routed through the permission hook and
-  still need the generic DECSET detector, EVEN on known agents. Caveat: CodeTerm runs these
-  agents as interactive PTYs, so using the channel means launching e.g. claude with
-  `--permission-prompt-tool` wired to a CodeTerm-side handler (we already do MCP/settings
-  integration — `hasHooks`, `claude_settings_json`); verify it works in interactive mode,
-  else the approval class also falls back to the generic detector.
+- **DECISION (Andrey 2026-06-20): NO MCP — the GENERIC detector is the PRIMARY path for
+  ALL providers, including claude approvals.** The claude `--permission-prompt-tool`/MCP
+  route is DROPPED: registering an MCP tool inside claude is painful + brittle in the
+  interactive-PTY setup. So we intercept everything via the generic DECSET+quiescence
+  detector (read the prompt off the screen, send keys back) — one universal mechanism, no
+  MCP. Non-MCP structured channels (codex `app-server` JSON-RPC, cursor ACP
+  `session/request_permission`) remain an OPTIONAL bonus per-provider IF they're cheap and
+  reliably better than the generic path — but they are NOT required and NOT MCP, and the
+  generic detector must stand alone for every provider. (For reference: those structured
+  channels would only ever cover the tool/command-APPROVAL class anyway, never `/model`,
+  menus, or free-form questions — which always need the generic detector.)
 
 ## Architecture — two-tier, general-in-core / specific-in-plugin
 ```
@@ -97,9 +95,10 @@ core matches no vendor string.
 - **P9.1 (core):** CSI private-mode tracker in `semantic_marker.rs` (cursor ?25l/h, alt
   ?1049, paste ?2004) → `StreamSignals.input_mode`; fuse with quiescence → `picker_active`.
   TDD over fixtures. Additive.
-- **P9.2 (plugins, tier 1):** wire the structured permission/option channels — claude
-  `--permission-prompt-tool`/canUseTool, codex app-server, cursor ACP request_permission —
-  into `classify_pane_state` → `PaneAttentionState` with options + an answer path.
+- **P9.2 (plugins, OPTIONAL non-MCP structured channels):** NOT claude-MCP (dropped). Only
+  where cheap + clearly better than generic: codex `app-server` JSON-RPC, cursor ACP
+  `session/request_permission` → `classify_pane_state` → `PaneAttentionState`. Lower
+  priority than P9.1/P9.3 — the generic detector must work without it.
 - **P9.3 (core/plugin, tier 2):** generic option-grid extraction from the vt100 screen when
   `picker_active` and no structured channel (opaque TUIs); nav-key answer path.
 - **P9.4 (chat UI) = facet8 CE5:** render the card (options/model buttons/question); click →
