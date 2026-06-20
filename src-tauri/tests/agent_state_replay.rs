@@ -190,6 +190,10 @@ struct Extracted {
     keys: Option<Vec<String>>,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Deserialize)]
 struct Expected {
     final_state: String,
@@ -199,6 +203,13 @@ struct Expected {
     /// (e.g. "rate_limited") AND the coarse axis ("waiting"/"turn_complete").
     #[serde(default)]
     negatives: Vec<String>,
+    /// Curated seed fixtures gate CI (default). Real captures set this false:
+    /// they are MEASURED into the baseline but never fail the build — a real
+    /// classifier false-positive is the finding, not a test failure.
+    #[serde(default = "default_true")]
+    gating: bool,
+    #[serde(default)]
+    source: Option<String>,
 }
 
 fn parse_state(s: &str) -> PaneState {
@@ -230,6 +241,8 @@ struct FixtureResult {
     false_waiting: usize,
     false_turn_complete: usize,
     failures: Vec<String>,
+    gating: bool,
+    source: Option<String>,
 }
 
 fn run_fixture(name: &str, dir: &Path, provider: &JsProvider) -> FixtureResult {
@@ -305,6 +318,8 @@ fn run_fixture(name: &str, dir: &Path, provider: &JsProvider) -> FixtureResult {
         false_waiting,
         false_turn_complete,
         failures,
+        gating: expected.gating,
+        source: expected.source,
     }
 }
 
@@ -376,20 +391,46 @@ fn agent_state_replay_eval() {
 
     print_scorecard(&results);
 
-    let failed: Vec<&FixtureResult> = results.iter().filter(|r| !r.failures.is_empty()).collect();
     assert!(
         !results.is_empty(),
         "no agent-state fixtures discovered under {}",
         root.display()
     );
-    if !failed.is_empty() {
-        for r in &failed {
+
+    // Real captures (gating:false) are MEASURED, never fatal. Their failures
+    // are the baseline findings (real classifier false-positives) — surfaced
+    // loudly as P2 targets, but they do NOT fail CI. Never weaken the oracle to
+    // hide one. Only curated seed fixtures (gating:true) gate the build.
+    let baseline_findings: Vec<&FixtureResult> = results
+        .iter()
+        .filter(|r| !r.gating && !r.failures.is_empty())
+        .collect();
+    if !baseline_findings.is_empty() {
+        eprintln!("\n--- baseline findings (non-gating real captures; P2 targets) ---");
+        for r in &baseline_findings {
+            eprintln!("FINDING {}", r.name);
+            for f in &r.failures {
+                eprintln!("    - {f}");
+            }
+        }
+        eprintln!("(non-gating: recorded in evals/agent-state/BASELINE.md, NOT failing CI)\n");
+    }
+
+    let gating_failed: Vec<&FixtureResult> = results
+        .iter()
+        .filter(|r| r.gating && !r.failures.is_empty())
+        .collect();
+    if !gating_failed.is_empty() {
+        for r in &gating_failed {
             eprintln!("FAIL {}", r.name);
             for f in &r.failures {
                 eprintln!("    - {f}");
             }
         }
-        panic!("{} agent-state fixture(s) failed", failed.len());
+        panic!(
+            "{} gating agent-state fixture(s) failed",
+            gating_failed.len()
+        );
     }
 }
 
@@ -430,8 +471,41 @@ fn print_scorecard(results: &[FixtureResult]) {
         }
     };
 
+    let n_gating = results.iter().filter(|r| r.gating).count();
+    let n_real = results.len() - n_gating;
+
     println!("\n=== agent-state baseline scorecard ===");
-    println!("fixtures: {}", results.len());
+    println!(
+        "fixtures: {} (gating seed: {n_gating}, real baseline: {n_real})",
+        results.len()
+    );
+
+    // Per-fixture detail — receipts for every real false-positive.
+    println!(
+        "\n{:<34} {:>6} {:<18} {:<18} {:>4} {:>4}",
+        "fixture", "bucket", "truth", "predicted", "fW", "fTC"
+    );
+    println!("{}", "-".repeat(90));
+    for r in results {
+        let bucket = if r.gating { "seed" } else { "REAL" };
+        let flag = if !r.gating && (r.predicted != r.truth || !r.failures.is_empty()) {
+            "  <- FINDING"
+        } else {
+            ""
+        };
+        println!(
+            "{:<34} {:>6} {:<18} {:<18} {:>4} {:>4}{}",
+            r.name,
+            bucket,
+            label(r.truth),
+            label(r.predicted),
+            r.false_waiting,
+            r.false_turn_complete,
+            flag
+        );
+        let _ = &r.source;
+    }
+
     println!("\n{:<22} {:>10} {:>10}", "state", "precision", "recall");
     println!("{}", "-".repeat(44));
     for s in &states {
@@ -440,7 +514,15 @@ fn print_scorecard(results: &[FixtureResult]) {
         let recall = ratio(t, t + *f_n.get(s).unwrap_or(&0));
         println!("{s:<22} {precision:>10.2} {recall:>10.2}");
     }
-    println!("\nfalse Waiting (mid-stream):       {fw}");
-    println!("false turn_complete (mid-stream): {ftc}");
+
+    // The wait-FP / can't-tell-done metrics, split so P2 grades the REAL bucket.
+    let (rfw, rftc): (usize, usize) = results
+        .iter()
+        .filter(|r| !r.gating)
+        .fold((0, 0), |(a, b), r| {
+            (a + r.false_waiting, b + r.false_turn_complete)
+        });
+    println!("\nfalse Waiting (mid-stream),       all: {fw:>4}   real: {rfw:>4}");
+    println!("false turn_complete (mid-stream), all: {ftc:>4}   real: {rftc:>4}");
     println!("======================================\n");
 }
