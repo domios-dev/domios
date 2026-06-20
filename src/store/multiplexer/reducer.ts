@@ -89,15 +89,17 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       for (const w of mergedWorkspaces) {
         if (w.active_tab_id) activeTabIds[w.id] = w.active_tab_id;
       }
-      // Snapshots now carry `focused_pane_id`. Adopt it when it names a pane
-      // present in the merged set (initial hydrate / restore where the separate
-      // `pane-focused` event may be missed); otherwise keep the current focus —
-      // never clobber a valid focus with a stale/null value naming nothing.
+      // Adopt incoming focus when it names a live pane; otherwise fall back to
+      // the prior focus only if that pane still exists in the merged set.
+      // Clearing to null when the prior focus is gone prevents a ghost
+      // focused_pane_id targeting a closed/rolled-back pane.
       const incomingFocus = action.state.focused_pane_id;
       const focused_pane_id =
         incomingFocus && mergedPanes[incomingFocus]
           ? incomingFocus
-          : state.focused_pane_id;
+          : state.focused_pane_id && mergedPanes[state.focused_pane_id]
+            ? state.focused_pane_id
+            : null;
       return {
         ...state,
         workspaces: mergedWorkspaces,

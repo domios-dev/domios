@@ -128,6 +128,19 @@ test("snapshot naming a missing pane preserves prior focus", () => {
   );
 });
 
+test("prior focused pane removed from snapshot clears focused_pane_id to null", () => {
+  const hydrated = reducer(base(), {
+    type: "SET_STATE",
+    state: snapWithFocus(1, ["p1"], "p1"),
+  });
+  // New snapshot no longer contains p1 (closed/rolled back), incoming focus null
+  const after = reducer(hydrated, {
+    type: "SET_STATE",
+    state: snapWithFocus(2, ["p2"], null),
+  });
+  assert(after.focused_pane_id === null, "ghost focused_pane_id cleared when pane removed");
+});
+
 test("snapshot with null focus preserves prior focus", () => {
   const hydrated = reducer(base(), {
     type: "SET_STATE",
