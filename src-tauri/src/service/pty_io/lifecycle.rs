@@ -235,7 +235,9 @@ impl ServiceContext {
         self.pty
             .lock()
             .resize(&pty_id, cols, rows)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        crate::pty::capture::CaptureRegistry::global().tap_resize(&pty_id, cols, rows);
+        Ok(())
     }
 
     /// Kill the PTY process for a pane without removing the pane from the mux.
