@@ -1,0 +1,31 @@
+{
+  "provider": "cursor",
+  "unit": "provider_screen",
+  "expected": {
+    "hasEventMarkers": true,
+    "detectEvents": [
+      "PermissionRequest"
+    ],
+    "parsePrompt": {
+      "question": "When should this rule be applied?",
+      "options": [
+        {
+          "label": "Always Apply",
+          "value": "1"
+        },
+        {
+          "label": "Apply Intelligently",
+          "value": "2"
+        },
+        {
+          "label": "Apply to Specific Files",
+          "value": "3"
+        },
+        {
+          "label": "Apply Manually",
+          "value": "4"
+        }
+      ]
+    }
+  }
+}
