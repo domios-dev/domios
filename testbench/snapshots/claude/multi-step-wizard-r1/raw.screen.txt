@@ -1,0 +1,34 @@
+dev@workstation codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-d28f3bc0-cd09-41e0-8f76-85a6349bbb52.sh
+╭─── Claude Code v2.1.185 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ The stream-stall hint now reads "Waiting for API response · wi… │
+│                        ▘▘ ▝▝                       │ Improved auto mode safety: destructive git commands (`git rese… │
+│                                                    │ Added a warning when the requested model is deprecated or auto… │
+│ Opus 4.8 with high effort · Claude Team · Team Org A │ /release-notes for more                                         │
+│          /…/T/codeterm-snapshot-testbench          │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Walk me through a few sections of A/B/C choices using your in-terminal questionnaire UI, one section at a time, and   
+  pause for my selections.                                                                                              
+  
+⏺ I'll present them one section at a time. Here's the first.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Beverage 
+
+Which beverage would you like to start your day with?
+
+❯ 1. Coffee
+     A classic caffeine kick — bold and bitter to wake you up.
+  2. Tea
+     A gentler lift — soothing, aromatic, and easy on the stomach.
+  3. Fresh juice
+     No caffeine — vitamins and natural sweetness to get going.
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

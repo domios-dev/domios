@@ -1,0 +1,8 @@
+{
+  "provider": "opencode",
+  "unit": "provider_screen_attr",
+  "expected": {
+    "detectPicker": null
+  },
+  "gating": false
+}
