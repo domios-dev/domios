@@ -20,6 +20,9 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
   const [agent, setAgent] = useState<string>("claude");
   const [openRun, setOpenRun] = useState<CronRunInfo | null>(null);
   const cronId = serviceIdToCronId(service.id);
+  const sourcePeerId = service.source_peer_id;
+  const isRemote = !!sourcePeerId;
+  const actionsDisabled = busy || !!service.stale;
   const scheduleInputClass = `${UI_INPUT.full} flex-1 font-mono outline-none border border-[var(--ct-accent)] text-[10px]`;
   const scheduleBtnClass = `${UI_BUTTON.compact} ${UI_BUTTON.base} border-[var(--ct-border)] text-[var(--ct-muted)]`;
   const sectionMetaClass = "text-[10px] text-[var(--ct-fg)] flex flex-col gap-0.5";
@@ -27,25 +30,35 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    invoke<CronRunInfo[]>("cron_history", { id: cronId })
+    invoke<CronRunInfo[]>(
+      isRemote ? "mesh_peer_cron_history" : "cron_history",
+      isRemote ? { instanceId: sourcePeerId, id: cronId } : { id: cronId },
+    )
       .then((r) => {
         if (!cancelled) setRuns(Array.isArray(r) ? r.slice(-5).reverse() : []);
       })
       .catch(() => {});
-    invoke<CronJob>("cron_get", { id: cronId })
-      .then((j) => {
-        if (!cancelled && j?.agent) setAgent(j.agent);
-      })
-      .catch(() => {});
+    if (!isRemote) {
+      invoke<CronJob>("cron_get", { id: cronId })
+        .then((j) => {
+          if (!cancelled && j?.agent) setAgent(j.agent);
+        })
+        .catch(() => {});
+    }
     return () => {
       cancelled = true;
     };
-  }, [cronId]);
+  }, [cronId, isRemote, sourcePeerId]);
 
   const handleTrigger = async () => {
     setBusy(true);
     try {
-      await invoke("cron_trigger", { id: cronId });
+      await invoke(
+        isRemote ? "mesh_peer_cron_action" : "cron_trigger",
+        isRemote
+          ? { instanceId: sourcePeerId, id: cronId, action: "trigger" }
+          : { id: cronId },
+      );
       onUpdate();
     } catch (e) {
       alert(`Trigger failed: ${e}`);
@@ -57,7 +70,16 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
   const handleToggle = async () => {
     setBusy(true);
     try {
-      await invoke("cron_toggle", { id: cronId, enabled: !service.enabled });
+      await invoke(
+        isRemote ? "mesh_peer_cron_action" : "cron_toggle",
+        isRemote
+          ? {
+              instanceId: sourcePeerId,
+              id: cronId,
+              action: service.enabled ? "disable" : "enable",
+            }
+          : { id: cronId, enabled: !service.enabled },
+      );
       onUpdate();
     } catch (e) {
       alert(`Toggle failed: ${e}`);
@@ -93,7 +115,7 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
             />
             <button
               onClick={handleSaveSchedule}
-              disabled={busy}
+              disabled={actionsDisabled}
               className={`${UI_BUTTON.primary} ${UI_BUTTON.compact} disabled:opacity-50`}
             >
               Save
@@ -115,7 +137,15 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
             </span>
             <button
               onClick={() => setEditingSchedule(true)}
+              disabled={isRemote || !!service.stale}
               className={`${UI_BUTTON.base} ${UI_BUTTON.compact} text-[var(--ct-muted)] border-none`}
+              title={
+                service.stale
+                  ? "Cached cron state is not editable"
+                  : isRemote
+                    ? "Remote cron schedule editing is not wired yet"
+                    : "Edit schedule"
+              }
             >
               Edit
             </button>
@@ -127,15 +157,17 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
         <div className="flex gap-1.5">
           <button
             onClick={handleTrigger}
-            disabled={busy}
+            disabled={actionsDisabled}
             className={`${UI_BUTTON.ghost} ${UI_BUTTON.compact} flex-1 disabled:opacity-50`}
+            title={service.stale ? "Cached cron state is not actionable" : undefined}
           >
             ▶ Trigger now
           </button>
           <button
             onClick={handleToggle}
-            disabled={busy}
+            disabled={actionsDisabled}
             className={`${UI_BUTTON.ghost} ${UI_BUTTON.compact} flex-1 disabled:opacity-50`}
+            title={service.stale ? "Cached cron state is not actionable" : undefined}
           >
             {service.enabled ? "⏸ Pause" : "▶ Resume"}
           </button>

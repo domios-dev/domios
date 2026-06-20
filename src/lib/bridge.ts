@@ -214,6 +214,21 @@ const HTTP_MAP: Record<string, Mapper> = {
   mesh_list_peers: () => webJson("GET", "/api/mesh/peers"),
   mesh_peer_services_list: (a) =>
     webJson("GET", `/api/mesh/peers/${enc(s(a, "instanceId"))}/services`),
+  mesh_peer_service_delete: (a) =>
+    webJson(
+      "DELETE",
+      `/api/mesh/peers/${enc(s(a, "instanceId"))}/services/${enc(s(a, "id"))}`,
+    ),
+  mesh_peer_cron_action: (a) =>
+    webJson(
+      "POST",
+      `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}/${enc(s(a, "action"))}`,
+    ),
+  mesh_peer_cron_history: (a) =>
+    webJson(
+      "GET",
+      `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}/history`,
+    ),
   mesh_scan_peers: () => webJson("POST", "/api/mesh/discover"),
   mesh_connect: (a) =>
     webJson("POST", "/api/mesh/connect", { instance_id: a.instanceId }),

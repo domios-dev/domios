@@ -35,6 +35,7 @@ export interface Service {
   updated_at: number;
   enabled: boolean;
   // Populated client-side when merging from remote peers
+  source_peer_id?: string;
   source_peer?: string;
   /** Last-known data served from the daemon cache (peer unreachable). */
   stale?: boolean;
