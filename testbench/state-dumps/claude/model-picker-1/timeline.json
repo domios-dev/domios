@@ -1,0 +1,42 @@
+{
+  "steps": [
+    {
+      "at_ms": 1026,
+      "action": "send /model",
+      "expect": "question:model_choice"
+    },
+    {
+      "at_ms": 2173,
+      "action": "model picker visible",
+      "expect": "question:model_choice"
+    },
+    {
+      "at_ms": 2216,
+      "action": "accept model picker default",
+      "expect": "idle"
+    },
+    {
+      "at_ms": 5429,
+      "action": "picker closed and idle",
+      "expect": "idle"
+    }
+  ],
+  "segments": [
+    {
+      "from_ms": 1026,
+      "to_ms": 2173,
+      "state": "idle"
+    },
+    {
+      "from_ms": 2173,
+      "to_ms": 2216,
+      "state": "question",
+      "subtype": "model_choice"
+    },
+    {
+      "from_ms": 2216,
+      "to_ms": 7429,
+      "state": "idle"
+    }
+  ]
+}

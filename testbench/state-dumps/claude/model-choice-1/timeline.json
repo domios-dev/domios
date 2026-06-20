@@ -1,0 +1,47 @@
+{
+  "steps": [
+    {
+      "at_ms": 1034,
+      "action": "send prompt that asks for model choice",
+      "expect": "working"
+    },
+    {
+      "at_ms": 1178,
+      "action": "choice block visible",
+      "expect": "question:model_choice"
+    },
+    {
+      "at_ms": 1224,
+      "action": "answer model choice",
+      "expect": "working"
+    },
+    {
+      "at_ms": 14819,
+      "action": "quiescence settled after answer",
+      "expect": "idle"
+    }
+  ],
+  "segments": [
+    {
+      "from_ms": 1034,
+      "to_ms": 1178,
+      "state": "working"
+    },
+    {
+      "from_ms": 1178,
+      "to_ms": 1224,
+      "state": "question",
+      "subtype": "model_choice"
+    },
+    {
+      "from_ms": 1224,
+      "to_ms": 14819,
+      "state": "working"
+    },
+    {
+      "from_ms": 14819,
+      "to_ms": 17319,
+      "state": "idle"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "provider": "claude",
+  "scenario": "model-picker",
+  "variant": 1,
+  "cli_version": "2.1.183 (Claude Code)",
+  "capturedAtMs": 1781987788389,
+  "source": "state-capture.sh dev-7686",
+  "paneId": "732885f2"
+}

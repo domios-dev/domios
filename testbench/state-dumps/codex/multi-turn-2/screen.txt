@@ -1,0 +1,40 @@
+     4 +from greet import hello
+     5 +
+     6 +
+     7 +def test_hello_returns_greeting():
+     8 +    assert hello("Codex") == "Hello, Codex!"
+     9 +
+    10 +
+    11 +def test_cli_prints_greeting():
+    12 +    result = subprocess.run(
+    13 +        [sys.executable, "greet.py", "--name", "Codex"],
+    14 +        check=True,
+    15 +        capture_output=True,
+    16 +        text=True,
+    17 +    )
+    18 +
+    19 +    assert result.stdout == "Hello, Codex!\n"
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The tests are in place; I’ll run pytest now to verify they pass in this workspace.
+
+• Ran python3 -m pytest
+  └ ============================= test session starts ==============================
+    platform darwin -- Python 3.13.5, pytest-9.1.0, pluggy-1.6.0
+    … +5 lines (ctrl + t to view transcript)
+
+    ============================== 2 passed in 0.07s ===============================
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Added test_greet.py:1 with tests for both hello() and the --name CLI behavior.
+
+  Verified with python3 -m pytest: 2 tests passed.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Write tests for @filename
+
+  gpt-5.5 medium · /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-state-capture-codex-multi-turn-2-4…

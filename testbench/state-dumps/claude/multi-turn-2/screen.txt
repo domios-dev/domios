@@ -1,0 +1,48 @@
+  ⎿  Wrote 30 lines to test_greet.py
+      1 import subprocess
+      2 import sys
+      3 
+      4 from greet import hello
+      5 
+      6
+      7 def test_hello_basic():
+      8     assert hello("World") == "Hello, World!"
+      9
+     … +20 lines (ctrl+o to expand)
+
+⏺ Bash(python3 -m pytest test_greet.py -q)
+  ⎿  Error: Exit code 1
+     rtk: Failed to run pytest: Failed to spawn process: No such file or directory (os error 2)
+
+⏺ Bash(python3 -c "import pytest; print(pytest.__version__)" 2>&1; which pytest 2>&1)
+  ⎿  Error: Exit code 1
+     9.1.0
+     pytest not found
+
+⏺ pytest 9.1.0 is importable but the -m pytest invocation hit an odd spawn error from the shell wrapper. Let me run it
+  via a direct Python entry point:
+
+⏺ Bash(python3 -c "import pytest, sys; sys.exit(pytest.main(['test_greet.py', '-q']))")
+  ⎿  ....                                                                     [100%]
+     4 passed in 0.40s
+  ⎿  Allowed by auto mode classifier
+
+⏺ All 4 tests pass.
+
+  test_greet.py covers both the function and the CLI:
+
+  ....                                                                     [100%]
+  4 passed in 0.40s
+
+  - test_hello_basic / test_hello_other_name — the hello() function directly
+  - test_cli_with_name / test_cli_default — the --name flag and its default
+
+  (Note: python3 -m pytest failed with a shell-wrapper spawn error in this environment, so I ran it via pytest.main()
+  instead — same result.)
+
+✻ Crunched for 19s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ commit this
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
