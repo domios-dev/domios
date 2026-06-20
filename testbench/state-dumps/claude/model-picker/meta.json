@@ -1,0 +1,9 @@
+{
+  "provider": "claude",
+  "scenario": "model-picker",
+  "cli_version": "from existing real snapshot fixture",
+  "capturedAtMs": 1781984508062,
+  "source": "testbench/snapshots/claude/options-abc/raw.cast",
+  "width": 120,
+  "height": 40
+}
