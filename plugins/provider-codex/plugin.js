@@ -547,11 +547,20 @@ function discoverCodexModelsFromCache() {
   const cache = host.fs.readJson(path);
   const raw = cache && cache.models;
   if (!Array.isArray(raw)) return null;
-  const models = [];
+  const kept = [];
   for (let i = 0; i < raw.length; i++) {
     const item = raw[i];
     const id = typeof item.slug === "string" ? item.slug.trim() : "";
     if (!id) continue;
+    if (item.visibility === "hide") continue;
+    if (isNonChatModel(id)) continue;
+    kept.push(item);
+  }
+  kept.sort((a, b) => priorityOf(a) - priorityOf(b));
+  const models = [];
+  for (let i = 0; i < kept.length; i++) {
+    const item = kept[i];
+    const id = item.slug.trim();
     models.push({
       id,
       displayName: typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : displayNameFromId(id),
@@ -560,6 +569,9 @@ function discoverCodexModelsFromCache() {
   }
   return models.length ? models : null;
 }
+function priorityOf(m) {
+  return typeof m.priority === "number" ? m.priority : 1e9;
+}
 function manifestModels() {
   try {
     const m = JSON.parse(host.manifestJson() || "null");
@@ -567,6 +579,13 @@ function manifestModels() {
   } catch (_) {
     return [];
   }
+}
+var NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
+function isNonChatModel(id) {
+  const leaf = (id.split("/").pop() || id).toLowerCase();
+  const toks = leaf.split(/[-_.]/);
+  for (let i = 0; i < toks.length; i++) if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
+  return false;
 }
 function displayNameFromId(id) {
   const parts = id.split("/");

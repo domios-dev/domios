@@ -81,15 +81,27 @@ console.log("\n--- discoverModels ---\n");
 
 {
   const p = loadOpencodeWithHost(ocHost({
-    exec: () => JSON.stringify({ code: 0, stdout: "opencode/live-a\nanthropic/claude-live-b\n" }),
+    exec: () => JSON.stringify({ code: 0, stdout: "opencode/big-pickle\nanthropic/claude-opus-4-8\n" }),
   }));
   eq(
     p.discoverModels(),
     [
-      { id: "opencode/live-a", displayName: "OpenCode Live A" },
-      { id: "anthropic/claude-live-b", displayName: "Claude Live B" },
+      { id: "opencode/big-pickle", displayName: "OpenCode Zen Big Pickle" },
+      { id: "anthropic/claude-opus-4-8", displayName: "Claude Opus 4.8" },
     ],
-    "discoverModels surfaces the stubbed opencode models probe",
+    "discoverModels: clean labels (OpenCode Zen prefix + dotted version), no availability signal → unset",
+  );
+}
+
+// Non-chat (embedding/tts) ids dropped from the live list.
+{
+  const p = loadOpencodeWithHost(ocHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "openai/text-embedding-3-large\nopencode/gpt-5.5\nopenai/whisper-1\n" }),
+  }));
+  eq(
+    p.discoverModels(),
+    [{ id: "opencode/gpt-5.5", displayName: "OpenCode Zen GPT 5.5" }],
+    "embedding + whisper filtered out; chat model kept with clean label",
   );
 }
 
