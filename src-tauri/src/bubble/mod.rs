@@ -1,11 +1,6 @@
-//! Status-bubble capability — a plugin contributes a small status pill into the
-//! pane-footer bubble row (alongside the native Usage/Git bubbles). The pill is
-//! pane-scoped: `bubble(ctx)` receives `{ cwd?, paneId?, provider? }` and returns
-//! a [`BubbleData`] or `None` to hide for that context. Clicking the pill opens
-//! the plugin's glance popover.
-//!
-//! Core asks the capability, never the identity — resolution goes through
-//! [`BubbleRegistry`] (a [`CapabilityRegistry`](crate::plugin::capability::CapabilityRegistry)).
+//! Status-bubble capability — a plugin contributes a pane-scoped status pill to the
+//! footer row; `bubble(ctx)` returns a [`BubbleData`] or `None` to hide. Clicking
+//! opens its glance popover. Core resolves via [`BubbleRegistry`], never an identity.
 
 use std::sync::Arc;
 

@@ -1,17 +1,8 @@
-//! Durable host-side history for chatBackend (shell) panes.
-//!
-//! A chatBackend pane's transcript otherwise lives ONLY in the plugin VM's
-//! in-memory sessions Map, so a refresh / VM reload / daemon restart loses it.
-//! We persist it as JSONL — one line per message, UPSERT by id — under
-//! `~/.codeterm[-dev]/chatbackend-sessions/<plugin_id>/<session_id>.jsonl`.
-//!
-//! A streaming assistant message grows in place across polls (same id), so we
-//! key by id and rewrite the growing message's line instead of appending N
-//! duplicates: the file holds exactly one line per message.
-//!
-//! The optional first line `{"_meta": <openSessionConfig>}` carries the
-//! systemPrompt / preset / model so a pane restored after a daemon restart can
-//! lazily re-open its plugin session and continue the conversation.
+//! Durable host-side history for chatBackend panes — otherwise the transcript
+//! lives only in the plugin VM's in-memory map and is lost on reload/restart.
+//! Persisted as JSONL (one line per message, UPSERT by id, so a streaming
+//! message rewrites its own line). The optional `{"_meta": <openSessionConfig>}`
+//! first line lets a restored pane lazily re-open its session.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -85,9 +76,8 @@ fn is_meta_line(line: &str) -> bool {
         .is_some()
 }
 
-/// Move a session's JSONL from one id to another (best-effort). Used when a
-/// lazily re-opened session is assigned a fresh id by the plugin so history
-/// stays continuous. No-op if ids match, source is missing, or dest exists.
+/// Move a session's JSONL to a new id (best-effort), so a re-opened session keeps
+/// continuous history. No-op if ids match, source is missing, or dest exists.
 pub fn migrate(plugin_id: &str, from_session: &str, to_session: &str) {
     if from_session == to_session {
         return;
@@ -143,21 +133,15 @@ impl ChatBackendHistory {
         }
     }
 
-    /// The single shared in-memory mirror for `(plugin_id, session_id)`. BOTH the
-    /// poll-loop sink and the host-side gateway (`Messenger::deliver_chatbackend`)
-    /// upsert through THIS instance, so a host-written inbound row lives in the
-    /// same `by_id`/`order` the poll loop flushes — a later poll-loop flush can
-    /// never clobber a row it didn't author (single-writer invariant). Without
-    /// this, the two paths held separate instances and the poll flush rewrote the
-    /// JSONL from its own state, dropping the host inbound + reply on refresh.
+    /// The single shared mirror for `(plugin_id, session_id)`. Both the poll-loop
+    /// sink and the host-side gateway upsert through this instance, so a flush can't
+    /// clobber a row it didn't author (single-writer invariant).
     pub fn shared(plugin_id: &str, session_id: &str) -> SharedHistory {
         let key = (plugin_id.to_string(), session_id.to_string());
         if let Some(h) = SHARED.lock().get(&key) {
             return h.clone();
         }
-        // Build OUTSIDE the registry lock — `open` reads the JSONL and we never
-        // hold the global lock across disk IO. Insert is idempotent: a racing
-        // builder's instance is discarded (first writer wins).
+        // Build outside the registry lock (never hold it across disk IO); insert is idempotent, first writer wins.
         let built: SharedHistory = Arc::new(Mutex::new(Self::open(plugin_id, session_id)));
         SHARED.lock().entry(key).or_insert(built).clone()
     }

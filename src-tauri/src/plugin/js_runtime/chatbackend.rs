@@ -1,18 +1,7 @@
-//! `JsChatBackend` — adapts a JS plugin that declares `capabilities.chatBackend`
-//! to the core [`ChatBackendProvider`](crate::chatbackend::ChatBackendProvider)
-//! trait. Mirrors `JsTranscriber`: wraps the shared `Arc<PluginVm>` and
-//! dispatches to exported plugin functions via the synchronous `call_json` (the
-//! VM is not `Send`, so we call it directly on the caller's thread).
-//!
-//! Plugin surface (all via `call_json`):
-//! * `openSession(ctx) -> { sessionId }` — `ctx` is the SDK
-//!   `{ paneId, config, systemPrompt?, preset?, model? }` envelope (the host
-//!   builds it; a plugin may key its session on `paneId`).
-//! * `sendMessage(sessionId, text)` — fire; transcript arrives via `poll`
-//! * `poll(sessionId) -> NormalizedChatMessage[]` (or `{ messages: [...] }`)
-//! * `closeSession(sessionId)` — optional, best-effort
-//! * `listModels() -> Model[]` (`{ id, displayName, description? }`)
-//! * `listPresets() -> Preset[]` (`{ id, name, description? }`) optional
+//! `JsChatBackend` — adapts a JS `capabilities.chatBackend` plugin to the core
+//! [`ChatBackendProvider`](crate::chatbackend::ChatBackendProvider) trait via the
+//! synchronous `call_json` (the VM is not `Send`, so it's called on the caller's thread).
+//! Plugin surface: `openSession` / `sendMessage` / `poll` / `closeSession` / `listModels` / `listPresets`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -33,9 +22,7 @@ pub struct JsChatBackend {
     icon_hint: Option<String>,
     icon_svg: Option<String>,
     icon_color: Option<String>,
-    /// `capabilities.chatBackend` was authored as `{ spawnable: true }` — the
-    /// backend is user-openable from the new-session picker. Bare
-    /// `chatBackend: true` ⇒ false (backend-only).
+    /// `{ spawnable: true }` ⇒ user-openable from the picker; bare `chatBackend: true` ⇒ false (backend-only).
     spawnable: bool,
     session_exec_env: parking_lot::Mutex<HashMap<String, HashMap<String, String>>>,
 }
@@ -211,9 +198,7 @@ impl ChatBackendProvider for JsChatBackend {
 
     fn pump(&self, session_id: &str) -> Result<(), ChatBackendError> {
         let _guard = self.exec_env_scope(session_id);
-        // Optional export; a missing `pump` is not an error (best-effort advance,
-        // mirrors `closeSession`). Errors are swallowed so a flaky pump can't kill
-        // the host poll loop.
+        // Optional export, best-effort: errors are swallowed so a flaky pump can't kill the host poll loop.
         let _ = call_json::<serde_json::Value>(&self.vm, "pump", &[json!(session_id)]);
         Ok(())
     }
@@ -276,8 +261,7 @@ impl ChatBackendProvider for JsChatBackend {
 
     fn session_info(&self, session_id: &str) -> Result<ChatSessionInfo, ChatBackendError> {
         let _guard = self.exec_env_scope(session_id);
-        // Optional export — a bare backend with no `sessionInfo` reports no model
-        // (honest null), mirroring the `listPresets` missing-export handling.
+        // Optional export — a bare backend with no `sessionInfo` reports no model.
         let info =
             match call_json::<PluginSessionInfo>(&self.vm, "sessionInfo", &[json!(session_id)]) {
                 Ok(info) => info,
@@ -292,8 +276,7 @@ impl ChatBackendProvider for JsChatBackend {
 
     fn set_model(&self, session_id: &str, model: &str) -> Result<(), ChatBackendError> {
         let _guard = self.exec_env_scope(session_id);
-        // Required for a switch — a missing export is surfaced as an error so the
-        // command reports "unsupported" rather than silently no-op'ing.
+        // Required for a switch — a missing export surfaces as an error so the command reports "unsupported".
         match call_json::<serde_json::Value>(
             &self.vm,
             "setModel",
@@ -335,10 +318,7 @@ mod tests {
 
     #[test]
     fn open_session_forwards_ctx_pane_id() {
-        // The host passes the SDK ctx envelope `{ paneId, config }`; a plugin
-        // keying its session on paneId (LM Studio) must receive it. Guards the
-        // P1 wiring bug where the host passed bare config and `ctx.paneId` was
-        // null.
+        // A plugin keying its session on paneId must receive the full `{ paneId, config }` envelope, not bare config.
         let vm = vm_with(
             r#"module.exports.default = {
                 openSession(ctx) { return { sessionId: ctx.paneId }; }
@@ -440,8 +420,7 @@ mod tests {
 
     #[test]
     fn poll_maps_normalized_messages_type_to_kind() {
-        // Plugin returns the SDK shape `{ id, type, content }`; serde maps
-        // `type` → ChatMsg.kind via the rename on ChatMsg.
+        // Plugin returns `{ id, type, content }`; serde maps `type` → ChatMsg.kind.
         let vm = vm_with(
             r#"module.exports.default = {
                 poll(sid) { return [
@@ -473,11 +452,7 @@ mod tests {
 
     #[test]
     fn poll_forwards_cursor_and_returns_delta_plus_next_cursor() {
-        // Contract: poll(sessionId, cursor) -> { messages, cursor }. The plugin
-        // echoes the cursor it received and returns the next one; an idle poll
-        // (cursor already at the end) returns an empty delta. Guards the C1+M1
-        // wiring bug where the host passed no cursor and got the whole transcript
-        // every tick.
+        // Contract: poll(sessionId, cursor) -> { messages, cursor } returns only the delta after the cursor, not the whole transcript every tick.
         let vm = vm_with(
             r#"module.exports.default = {
                 poll(sid, cursor) {
@@ -577,8 +552,7 @@ mod tests {
 
     #[test]
     fn pump_advances_state_that_poll_then_surfaces() {
-        // Item 6: the host calls pump() each tick BEFORE poll(); an async plugin
-        // moves completed work into its transcript in pump, poll surfaces it.
+        // pump() runs each tick before poll(); an async plugin advances work in pump, poll surfaces it.
         let vm = vm_with(
             r#"let pumped = 0;
                module.exports.default = {
@@ -615,9 +589,7 @@ mod tests {
 
     #[test]
     fn set_model_then_session_info_round_trips_via_exports() {
-        // P1 contract: switch_model routes to the plugin's `setModel` export and
-        // `session_info` reads the live model back via `sessionInfo`. Mirrors the
-        // lmstudio shell where the session model drives the next /api/v1/chat.
+        // switch_model routes to `setModel`; session_info reads the live model back via `sessionInfo`.
         let vm = vm_with(
             r#"let model = "init";
                module.exports.default = {
@@ -637,8 +609,7 @@ mod tests {
 
     #[test]
     fn session_info_missing_export_is_empty() {
-        // A bare backend with no `sessionInfo` export reports no model (honest
-        // null), never an error.
+        // A bare backend with no `sessionInfo` export reports no model, never an error.
         let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
         let b = JsChatBackend::new(vm, "local-shell");
         assert!(b.session_info("s").unwrap().model.is_none());
@@ -646,8 +617,7 @@ mod tests {
 
     #[test]
     fn set_model_missing_export_errors() {
-        // A backend that cannot switch surfaces an error so the command reports
-        // "unsupported" rather than silently doing nothing.
+        // A backend that cannot switch surfaces an error (command reports "unsupported").
         let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
         let b = JsChatBackend::new(vm, "local-shell");
         assert!(b.set_model("s", "m").is_err());

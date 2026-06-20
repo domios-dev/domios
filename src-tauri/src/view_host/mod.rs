@@ -1,13 +1,7 @@
-//! `view` capability — a plugin ships a full HTML/JS/CSS UI (`ui/index.html`)
-//! rendered in a **sandboxed iframe** (VS Code / Figma webview model). The iframe
-//! is origin-`null`, CSP-locked (`connect-src 'none'`), and can reach the host
-//! ONLY through the `ct.invoke` postMessage bridge, which lands here.
-//!
-//! Security boundary: the bridge routes to a SINGLE plugin export — `viewCall` —
-//! never arbitrary exports, so an XSS'd iframe can't reach capability methods
-//! (e.g. a secret backend's `secretGetItem`). The plugin's `viewCall` dispatches
-//! only the UI-safe operations it chooses to expose; `host.*` calls inside it stay
-//! permission-gated by the VM sandbox.
+//! `view` capability — a plugin ships an HTML/JS/CSS UI rendered in a sandboxed,
+//! CSP-locked iframe that reaches the host only through the `ct.invoke` bridge.
+//! Security boundary: the bridge routes to the single `viewCall` export (never
+//! arbitrary ones), so an XSS'd iframe can't reach other capability methods.
 
 use std::sync::Arc;
 
@@ -47,8 +41,7 @@ pub type ViewRegistryHandle = Arc<ViewRegistry>;
 /// Resolve a plugin's on-disk directory by id, scanning the same roots the
 /// snapshot uses. The iframe asset route serves `<dir>/ui/*` from here.
 pub fn plugin_ui_dir(plugin_id: &str) -> Option<std::path::PathBuf> {
-    // Same roots the snapshot scans: data-dir installs + the workspace `plugins/`
-    // in dev (so workspace-loaded plugins serve their UI too).
+    // Same roots the snapshot scans: data-dir installs + the dev workspace `plugins/`.
     let workspace = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
     for root in crate::plugin::js_runtime::default_roots(Some(workspace.as_path())) {
         let dir = root.join(plugin_id);

@@ -20,8 +20,7 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 struct Tracked {
     manifest_mtime: SystemTime,
     entry_mtime: SystemTime,
-    /// mtime of the per-plugin `config.yaml` (§1.7). An edit triggers a reload
-    /// that re-stamps `host.settingsJson` into the VM — live settings reload.
+    /// mtime of the per-plugin `config.yaml`; an edit re-stamps `host.settingsJson` into the live VM.
     config_mtime: SystemTime,
 }
 
@@ -125,13 +124,10 @@ pub struct HotReloadRegistry {
     load_count: std::sync::atomic::AtomicUsize,
 }
 
-/// Process-wide handle to the live watcher, set when `start()` runs. Lets
-/// stateless surfaces (the plugin snapshot command, CLI-routed `get plugin`)
-/// query `pending_reload` without threading the Arc through Tauri state.
+/// Process-wide handle to the live watcher, so stateless surfaces can query `pending_reload` without threading the Arc.
 static WATCHER: OnceLock<Arc<HotReloadRegistry>> = OnceLock::new();
 
-/// Plugin ids installed after daemon start that need a reload to activate
-/// (§1.8). Empty before the watcher starts or on a fresh process.
+/// Plugin ids installed after daemon start that need a reload to activate.
 pub fn pending_reload_ids() -> Vec<String> {
     WATCHER
         .get()
@@ -139,9 +135,7 @@ pub fn pending_reload_ids() -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Late-bind the `ServiceContext` into the running watcher (P4). Called once
-/// from `lib.rs` after service init: the watcher starts before the service
-/// exists, so it can't receive the ref at construction. No-op before `start()`.
+/// Late-bind the `ServiceContext` into the running watcher (it starts before the service exists). No-op before `start()`.
 pub fn set_watcher_service(svc: std::sync::Weak<crate::service::ServiceContext>) {
     if let Some(w) = WATCHER.get() {
         w.set_service_ref(svc);
@@ -184,8 +178,7 @@ impl HotReloadRegistry {
         self.vms.lock().insert(id.to_string(), Arc::downgrade(vm));
     }
 
-    /// The live VM for `id`, if still alive. `None` once the plugin is gone — the
-    /// caller then rebuilds rather than re-stamping a dead VM.
+    /// The live VM for `id`, or `None` once the plugin is gone (the caller then rebuilds).
     fn existing_vm(&self, id: &str) -> Option<Arc<super::PluginVm>> {
         self.vms.lock().get(id).and_then(std::sync::Weak::upgrade)
     }
@@ -264,13 +257,8 @@ impl HotReloadRegistry {
                 }
             }
         }
-        // Anything we used to track that's no longer present → unregister.
-        // Collect (and forget) the removed ids under a SHORT-held `state` lock,
-        // then drop the guard before touching vms/pending_reload/
-        // activated_startup or the agent/capability registries. Those paths
-        // re-acquire mutexes that sit below `state` in the load order, and a
-        // subsystem could re-enter the HotReloadRegistry — holding `state`
-        // across them risks a non-reentrant-mutex deadlock (parking_lot).
+        // Collect removed ids under a short-held `state` lock, then drop it before
+        // touching registries below it in the load order — holding `state` across them risks a deadlock.
         let removed: Vec<String> = {
             let mut state = self.state.lock();
             let removed: Vec<String> = state
@@ -360,13 +348,8 @@ impl HotReloadRegistry {
             if !manifest_changed && !entry_changed && !config_changed {
                 return Some(manifest.id);
             }
-            // A CONFIG-ONLY change (e.g. the Settings UX writing config.yaml) must
-            // NOT rebuild the VM: a rebuild wipes the plugin's module-scope
-            // in-memory sessions, silently bricking every open chatBackend shell.
-            // Re-stamp the resolved settings into the EXISTING VM instead, so
-            // `host.settingsJson()` reflects the edit on its next call while live
-            // sessions survive. Only a manifest/entry (contract/code) change
-            // forces a full rebuild.
+            // A config-only change must NOT rebuild the VM (that wipes in-memory sessions);
+            // re-stamp settings into the existing VM instead. Only a manifest/entry change rebuilds.
             if config_changed && !manifest_changed && !entry_changed {
                 if let Some(vm) = self.existing_vm(&manifest.id) {
                     let settings = manifest_path
@@ -383,15 +366,9 @@ impl HotReloadRegistry {
                     );
                     return Some(manifest.id);
                 }
-                // No live VM to re-stamp (never loaded / torn down) — fall through
-                // to a full load so the new settings still take effect.
+                // No live VM to re-stamp — fall through to a full load.
             }
-            // Full-rebuild on a manifest/entry change. In-place `vm.reload` would
-            // be faster but adds a second code path that races against any
-            // provider call holding the VM mutex (an idle pane's
-            // detect_from_output still runs at PTY-event rate). Throwing the old
-            // VM away and constructing a new one is 10-50ms — cheap enough for
-            // code edits.
+            // Full rebuild on a manifest/entry change: in-place reload would race a provider call holding the VM mutex.
             log::info!(
                 "[plugin-watcher] {} changed (manifest={manifest_changed}, entry={entry_changed}, config={config_changed}) — reloading",
                 manifest.id
@@ -411,12 +388,9 @@ impl HotReloadRegistry {
             Ok(mut provider) => {
                 let id = provider.manifest().id.clone();
                 let version = provider.manifest().version.clone();
-                // Track the freshly built VM so a later config-only change can
-                // re-stamp settings into it instead of rebuilding (§1.7 / HIGH-2).
+                // Track the VM so a later config-only change can re-stamp settings into it.
                 self.register_vm(&id, provider.vm());
-                // A `requiresReload` plugin freshly installed after start cannot
-                // hot-activate (§1.8): mark it pending and skip live capability
-                // registration. Already-activated (startup) plugins reload normally.
+                // A `requiresReload` plugin installed after start can't hot-activate: mark pending, skip live registration.
                 let activated_at_startup = self.activated_startup.lock().contains(&id);
                 if provider.manifest().requires_reload && !activated_at_startup {
                     self.pending_reload.lock().insert(id.clone());
@@ -433,24 +407,14 @@ impl HotReloadRegistry {
                     );
                     return Some(id);
                 }
-                // Late-bind the ServiceContext into the new VM BEFORE registering
-                // capabilities — host.mem/worker/agent must be live the moment a
-                // capability adapter (e.g. chatPreprocessor's mem search) can be
-                // called (P4). Startup-loaded plugins get this via lib.rs's
-                // plugin_vms loop; hot-installed ones get it here.
+                // Bind the ServiceContext before registering capabilities — host.mem/worker/agent must be live before an adapter can call them.
                 self.bind_service(provider.vm());
-                // Re-register capability adapters live (§1.8 P1) — bubble/glance/
-                // view/secret/transcribe/chatBackend/chatPreprocessor/agent_commands
-                // — so an installed capability plugin works without a restart.
+                // Re-register capability adapters live so an installed capability plugin works without a restart.
                 self.caps
                     .register_plugin(provider.manifest(), provider.vm());
-                // Only AGENT plugins register as providers. A capability-only
-                // plugin (transcriber / secret backend) must NOT pollute the
-                // agent registry — its adapter is registered at startup. Mirrors
-                // the same capability gate in lib.rs (spec §2 invariant).
+                // Only agent plugins register as providers; a capability-only plugin must not pollute the agent registry.
                 if provider.manifest().capabilities.agent_provider {
-                    // Registry handle so the (re)loaded JS provider can delegate
-                    // unimplemented capabilities to its native fallback.
+                    // Registry handle so the JS provider can delegate unimplemented capabilities to its native fallback.
                     provider.set_registry(self.agent_registry.clone());
                     self.agent_registry.register_provider(Box::new(provider));
                     log::info!("[plugin-watcher] registered {id}");
@@ -504,9 +468,7 @@ fn mtime_or_epoch(p: &std::path::Path) -> SystemTime {
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
-/// mtime of the plugin's `config.yaml` sibling, or the epoch when absent — so a
-/// later `config.yaml` create/edit registers as a change and reloads the VM
-/// (live settings reload, §1.7).
+/// mtime of the plugin's `config.yaml` sibling, or the epoch when absent — so a later create/edit registers as a change.
 fn config_mtime_for(manifest_path: &std::path::Path) -> SystemTime {
     manifest_path
         .parent()

@@ -2,19 +2,10 @@
 //! send/write/batch ServiceContext methods.
 use crate::service::ServiceContext;
 
-/// Build the byte sequence written to a freshly-attached pty to launch a
-/// shell-level command (agent spawn, mem worker spawn, anything that goes
-/// through bash/cmd to start a process). On Unix we write the launch_cmd
-/// to a temp script and exec via `bash <path>` to bypass bracketed-paste
-/// markers entirely.
-/// macOS system bash 3.2 has no bracketed-paste readline binding, so the
-/// markers leak as literal `00~` / `01~` text into the shell command and
-/// break spawn (mem worker spawns silently broken on Intel Mac mini hosts
-/// whose login shell is still /bin/bash). The script-file path is shell-
-/// agnostic — markers stay only in the interactive Claude TUI input path
-/// where they are still needed.
-/// Script self-cleans via `trap 'rm -f $0' EXIT` so /tmp doesn't accumulate.
-/// Errors propagate — no fallback to known-broken bracketed paste.
+/// Bytes written to a fresh pty to launch a shell-level command. On Unix, exec a
+/// temp script via `bash <path>` to bypass bracketed-paste markers — macOS system
+/// bash 3.2 has no bracketed-paste binding and leaks the markers as literal text.
+/// Script self-cleans via `trap 'rm -f $0' EXIT`.
 #[cfg(unix)]
 pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
     use std::io::Write;
@@ -30,24 +21,15 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
     Ok(format!("bash {}\r", script_path).into_bytes())
 }
 
-/// Windows pty + cmd.exe handle bracketed-paste markers correctly and there
-/// is no /bin/bash to script-exec with, so we keep the original behavior.
-///
-/// A sacrificial leading space absorbs PSReadLine's first-byte race: the very
-/// first content byte after the `ESC[200~` opener is dropped when the paste
-/// arrives before the bracketed-paste handler is fully armed (the
-/// `emove-Item` / `nset CLAUDECODE` launch glitch). PowerShell ignores leading
-/// whitespace, so the space is harmless whether or not it gets eaten.
+/// Windows keeps bracketed paste (no /bin/bash to script-exec). The leading space
+/// is sacrificial: it absorbs PSReadLine's dropped first byte before the paste handler arms.
 #[cfg(windows)]
 pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
     Ok(format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes())
 }
 
-/// Wait (event-driven) for a shell prompt to appear on a PTY.
-/// Arms the prompt signal once under the `screen_state` lock and then blocks on a
-/// condvar — no busy-poll. The `ScreenState::process` path fires the signal as soon
-/// as a chunk produces a prompt-looking last line, so this returns immediately.
-/// Returns `true` if ready, `false` on timeout.
+/// Wait (event-driven, via a condvar armed under `screen_state`) for a shell
+/// prompt to appear on a PTY. Returns `true` if ready, `false` on timeout.
 pub fn poll_shell_prompt(
     screen_state: &crate::ScreenStateHandle,
     pty_id: &str,
@@ -73,10 +55,8 @@ pub fn poll_shell_prompt(
     ready
 }
 
-/// Cap a provider's submit-verify timeout. Interactive sends keep verification
-/// (codex/opencode need the escalating-Enter retry to actually submit) but must
-/// not inherit the provider's full 15s timeout, which compounds across retries
-/// into a minute-long stall on a busy TUI.
+/// Cap a provider's submit-verify timeout: keep verification but don't let the
+/// full provider timeout compound across retries into a minute-long stall.
 fn cap_submit_timeout(
     strategy: crate::agent::provider::VerifySubmitStrategy,
     max: std::time::Duration,
@@ -98,13 +78,8 @@ fn cap_submit_timeout(
 }
 
 impl ServiceContext {
-    /// Send text to PTY via bracket paste mode (ESC[200~ ... ESC[201~).
-    /// Standard terminal paste protocol — all TUI apps handle it correctly.
-    /// Prevents special chars from being interpreted as commands.
-    /// PTY init takes 1-15s after agent_spawn returns (shell spawn fast,
-    /// agent spawn waits for orchestrator's background task to spawn +
-    /// link the PTY). resolve_pty_id is wrapped in a 15s retry so scripts
-    /// can chain `spawn → send` without hitting "no PTY".
+    /// Send text to a pane (chatBackend or PTY). PTY link is awaited up to 15s so
+    /// scripts can chain `spawn → send` without hitting "no PTY".
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
         if self.pane_chat_backing(pane_id).is_some() {
             return self.chatbackend_pane_send(pane_id, text);
@@ -116,11 +91,9 @@ impl ServiceContext {
         self.send_text_to_pty_smart(&pty_id, text, enter)
     }
 
-    /// Verified injection for agent panes, naive paste for shells. A
-    /// freshly-booted TUI can swallow the naive path's single fire-and-forget
-    /// `\r`, leaving the message typed-but-never-submitted (the chat composer
-    /// "no reply" bug); the verified path re-sends Enter until the TUI input
-    /// drains. Blocking — call from sync context or spawn_blocking.
+    /// Verified injection for agent panes, naive paste for shells: a booting TUI
+    /// can swallow the naive `\r`, so the verified path re-sends Enter until the
+    /// input drains (the "no reply" bug). Blocking — call from sync/spawn_blocking.
     pub fn send_text_to_pty_smart(
         &self,
         pty_id: &str,
@@ -137,8 +110,7 @@ impl ServiceContext {
                 None => (None, None),
             }
         };
-        // A booting TUI silently swallows bracket-paste — wait it out, else the
-        // chat composer's message vanishes with no error (web "no reply" bug).
+        // A booting TUI silently swallows bracket-paste — wait it out, else the message vanishes silently.
         let was_booting = pane_id
             .as_ref()
             .map(|pid| {
@@ -152,11 +124,7 @@ impl ServiceContext {
         if let Some(ref pid) = pane_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
         }
-        // ONLY for a just-booted agent: the boot flag can clear before the TUI
-        // finishes rendering its input (no-task spawns clear it right after the
-        // launch command), so wait for the provider's TUI fingerprint. An
-        // already-running provider is ready — skip this so a plain send isn't
-        // delayed by a fingerprint that doesn't happen to match the idle screen.
+        // Only for a just-booted agent: the boot flag can clear before the TUI renders its input, so wait for its fingerprint.
         if was_booting {
             if let Some(ref agent_id) = agent_type {
                 self.await_agent_tui_on_screen(
@@ -167,13 +135,7 @@ impl ServiceContext {
             }
         }
         if let Some(ref agent_id) = agent_type {
-            // Cap the verify-submit timeout for interactive sends. We DO need
-            // verification — codex/opencode swallow a single `\r` while still
-            // ingesting the bracket paste, so without the drain check + escalating
-            // Enter the message sits typed-but-unsent. But the provider's own
-            // timeout (codex 15s) × retries stalled every send for a minute, so
-            // cap it short: the drain normally confirms in <1s; the cap only
-            // bounds the busy-TUI worst case.
+            // codex/opencode swallow a `\r` while ingesting the paste, so verification stays — but capped so retries don't stall a minute.
             let strategy = cap_submit_timeout(
                 self.agent_registry
                     .with_provider(agent_id, |p| p.verify_submit_strategy())
@@ -181,10 +143,7 @@ impl ServiceContext {
                 std::time::Duration::from_secs(3),
             );
             let opts = crate::service::inject_verify::VerifyOpts {
-                // Don't gate on poll_shell_prompt: a live TUI's last screen line
-                // is its footer (claude's "⏵⏵ bypass permissions…"), not the ❯
-                // input cursor, so the prompt poll would time out on a perfectly
-                // ready agent. The boot-wait above handles the not-yet-ready race.
+                // Don't gate on poll_shell_prompt: a live TUI's last line is its footer, not a prompt, so the poll would time out.
                 require_prompt_first: false,
                 verify_echo: false,
                 verify_submit: true,
@@ -198,9 +157,7 @@ impl ServiceContext {
         self.send_text_to_pty(pty_id, text, enter)
     }
 
-    /// Poll the pty's screen until the provider's TUI fingerprint shows (or the
-    /// universal agent-TUI glyph check), bounded by `timeout`. Best-effort: a
-    /// timeout just proceeds — the verified injection still runs.
+    /// Poll the screen until the provider's TUI fingerprint shows, bounded by `timeout`. Best-effort.
     fn await_agent_tui_on_screen(
         &self,
         pty_id: &str,
@@ -227,9 +184,7 @@ impl ServiceContext {
         }
     }
 
-    /// `send_text` that first waits out an in-flight agent boot. A booting
-    /// TUI silently swallows bracket-paste, so input sent in that window
-    /// vanished without an error — the chat composer's "message lost" bug.
+    /// `send_text` that first waits out an in-flight agent boot — a booting TUI swallows input silently.
     pub async fn send_text_when_ready(
         &self,
         pane_id: &str,
@@ -288,12 +243,8 @@ impl ServiceContext {
         }
     }
 
-    /// Windows ConPTY: writing a launch command before the shell prompt is
-    /// rendered races the first byte — it can be dropped or duplicated, yielding
-    /// a mangled command line (e.g. `c codex`, which PowerShell rejects with
-    /// CommandNotFoundException). Block (bounded) until the prompt appears so
-    /// PSReadLine's bracketed-paste handler is armed before the write. Native
-    /// PTYs on macOS/Linux don't exhibit this race, so this is a no-op there.
+    /// Windows ConPTY: a write before the prompt renders races the first byte and
+    /// mangles the command, so block until the prompt arms PSReadLine. No-op on Unix.
     pub(crate) fn await_shell_ready(&self, pty_id: &str) {
         #[cfg(windows)]
         poll_shell_prompt(
@@ -325,13 +276,10 @@ impl ServiceContext {
         }
     }
 
-    /// Same as [`send_text`] but takes a PTY id directly, skipping pane→pty
-    /// resolution. Use this when the caller already holds a verified pty_id
-    /// and must not race against `link_pty` overwrites swapping `pane.pty_id`
-    /// out from under the send.
+    /// `send_text` by PTY id, skipping pane→pty resolution — use when the caller
+    /// holds a verified pty_id and must not race a `link_pty` swap of `pane.pty_id`.
     pub fn send_text_to_pty(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        // Feed parsed text before bracket-paste ESCs so parser state stays stable.
-        // This keeps API/CLI launched commands reliable when a launch is typed manually.
+        // Feed parsed text before the bracket-paste ESCs so parser state stays stable.
         self.feed_input_parser(pty_id, text, enter);
         let paste = if cfg!(windows) {
             format!("\x1b[200~ {}\x1b[201~", text)
@@ -341,8 +289,7 @@ impl ServiceContext {
         self.pty.lock().write(pty_id, paste.as_bytes())?;
 
         if enter {
-            // Send \r as a separate raw write after a short delay. TUI apps (Claude Code/ink) process bracket paste asynchronously — \r concatenated with
-            // paste end or sent immediately is swallowed.
+            // \r as a separate delayed write: ink-based TUIs process bracket paste async and swallow a \r sent with it.
             let pty = self.pty.clone();
             let pty_id = pty_id.to_string();
             if tokio::runtime::Handle::try_current().is_ok() {
@@ -360,8 +307,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    /// Write raw bytes to PTY without bracket paste wrapping.
-    /// Use for keystrokes that need TUI interpretation (vim j/k, arrow keys, etc).
+    /// Write raw bytes (no bracket paste) — for keystrokes the TUI must interpret (vim j/k, arrows).
     pub fn write_raw(&self, pane_id: &str, data: &[u8]) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(pane_id)?;
         self.pty
@@ -370,13 +316,8 @@ impl ServiceContext {
             .map_err(|e| e.to_string())
     }
 
-    /// Inject ordered raw key sequences into the pane's PTY off-thread. Resolves
-    /// the pane→pty once, then writes each sequence from a short-lived thread so
-    /// the caller (the state reactor's poll loop) never blocks on the pty lock.
-    /// Raw bytes, no bracket-paste — TUI keystrokes only. Keystroke injection is
-    /// inherently PTY-only (chatBackend panes have no keys), so this lives on the
-    /// PTY path rather than the `PaneTransport` seam. Returns Err if the pane has
-    /// no live PTY.
+    /// Inject ordered raw key sequences off-thread so the caller (state reactor's
+    /// poll loop) never blocks on the pty lock. PTY-only — chatBackend panes have no keys.
     pub fn inject_raw_keys_async(&self, pane_id: &str, writes: Vec<Vec<u8>>) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(pane_id)?;
         let pty = self.pty.clone();
@@ -388,9 +329,8 @@ impl ServiceContext {
         Ok(())
     }
 
-    /// Feed `send_text`-style payloads to the typed-launch input parser so the
-    /// CLI/API path triggers the same `agent_type` lock as a direct Tauri write.
-    /// Skips locked panes; on match, sets and locks the detected provider.
+    /// Feed payloads to the typed-launch input parser so the CLI/API path triggers
+    /// the same `agent_type` lock as a direct Tauri write. Skips locked panes.
     pub(crate) fn feed_input_parser(&self, pty_id: &str, text: &str, enter: bool) {
         let (pane_id, locked) = {
             let m = self.mux.read();

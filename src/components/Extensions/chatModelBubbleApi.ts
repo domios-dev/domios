@@ -1,10 +1,7 @@
 /**
- * Data seam for the chatBackend shell model bubble (CB-P3).
- *
- * A shell pane has no agent registry entry — its provider is `backing.plugin_id`
- * and its switchable models live in the plugin snapshot (CB-P1 joins them per
- * plugin). The live model + model switching go through the chatBackend commands.
- * Core asks the capability resolved by `plugin_id`; never a hardcoded id.
+ * Data seam for the chatBackend shell model bubble. A shell has no agent registry
+ * entry — its provider is `backing.plugin_id`; live model + switching go through the
+ * chatBackend commands, resolved by `plugin_id`, never a hardcoded id.
  */
 import { invoke } from "../../lib/bridge";
 import type { ModelInfo } from "../../lib/types";
@@ -15,10 +12,8 @@ export interface ChatSessionInfo {
 }
 
 /**
- * The plugin's verdict on a pending model switch (P6). The PLUGIN decides whether
- * a switch is disruptive enough to confirm (e.g. unload/reload, VRAM-tight) and
- * supplies the human-facing message; the UI stays generic — no provider/model
- * logic here.
+ * The plugin's verdict on a pending model switch: whether it needs confirmation and
+ * the message to show. The UI stays generic — no provider/model logic here.
  */
 export interface ModelSwitchDescription {
   needsConfirm: boolean;
@@ -30,9 +25,8 @@ export interface ChatModelBubbleApi {
   availableModels(pluginId: string): Promise<ModelInfo[]>;
   switchModel(pluginId: string, sessionId: string, model: string): Promise<ChatSessionInfo>;
   /**
-   * Ask the plugin whether switching to `model` needs user confirmation, and for
-   * the message to show. Optional: a chatBackend that doesn't implement it (the
-   * method is absent, or the call rejects) falls back to a direct switch.
+   * Ask the plugin whether switching to `model` needs confirmation (+ the message).
+   * Optional: an unimplemented/rejecting backend falls back to a direct switch.
    */
   describeModelSwitch?(
     pluginId: string,

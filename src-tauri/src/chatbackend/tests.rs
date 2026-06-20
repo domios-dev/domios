@@ -1,19 +1,7 @@
-//! Completeness oracle for the pane↔PTY decoupling (plan Appendix B1.1#7).
-//!
-//! Two guards that "kill the fear" that a pane-keyed op was missed:
-//!
-//! 1. `chatbackend_registry_routes_every_op` — a fake [`ChatBackendProvider`]
-//!    registered in the registry receives every capability op
-//!    (open/send/poll/close/list) and no PTY exists at this layer. This proves
-//!    the registry+provider contract in isolation; it does NOT drive the
-//!    `ServiceContext` guards or `pane_transport()` (those need a full
-//!    `ServiceContext`, which has no unit-test harness). The transport's chat
-//!    impl and the PTY-entry guards funnel through exactly these registry calls,
-//!    and the live end-to-end (every entry op on a running chat pane) is
-//!    Track D's daemon demo.
-//! 2. `no_new_resolve_pty_id_outside_allowlist` — the CI grep guard: a direct
-//!    `resolve_pty_id(` call may only appear in the known PTY-path files. A new
-//!    one elsewhere means a pane-keyed entry bypassed the `PaneTransport` seam.
+//! Completeness oracle for the pane↔PTY decoupling. Two guards: a fake
+//! [`ChatBackendProvider`] receives every capability op (no PTY at this layer),
+//! and a CI grep guard asserting `resolve_pty_id(` appears only in PTY-path files
+//! (a new one elsewhere means an entry op bypassed the `PaneTransport` seam).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -104,12 +92,8 @@ fn unregistered_backend_resolves_to_none() {
     assert!(reg.get("absent").is_none());
 }
 
-/// Pane teardown (`close_pane`) and `pty kill` both reach the plugin via
-/// `ServiceContext::chatbackend_close`, which is exactly
-/// `chatbackend_registry.get(plugin)?.close_session(sid)`. This asserts that
-/// teardown call path closes the session on the provider (so the plugin's
-/// model/context is released, not leaked). The `close_pane` → `chatbackend_close`
-/// edge itself is compile-checked; a live pane-close is Track D's daemon demo.
+/// Pane teardown / `pty kill` reach the plugin via `chatbackend_close` →
+/// `close_session(sid)`; assert that path releases the session (no model/context leak).
 #[test]
 fn teardown_closes_the_plugin_session() {
     let reg = ChatBackendRegistry::new();
@@ -128,19 +112,15 @@ fn teardown_closes_the_plugin_session() {
     assert_eq!(fake.closed.load(Ordering::SeqCst), 1);
 }
 
-/// The CI grep guard (B1.1#7). A direct `resolve_pty_id(` call is allowed only
-/// in these PTY-path files. Re-grep + update this list intentionally if a new
-/// PTY-path file legitimately needs it — but a pane-keyed *entry* op must route
-/// through `PaneTransport`, not add a fresh `resolve_pty_id`.
+/// CI grep guard: `resolve_pty_id(` is allowed only in these PTY-path files. Update
+/// the list intentionally for a new PTY-path file — entry ops must route through `PaneTransport`.
 #[test]
 fn no_new_resolve_pty_id_outside_allowlist() {
     const ALLOWED: &[&str] = &[
         // The transport seam itself — the canonical home for resolve_pty_id.
         "service/pane_transport.rs",
         // PTY-path internals + the PTY entry methods (guarded for chat).
-        // `pty_io` split by responsibility (send / lifecycle); resolve_pty_id is
-        // DEFINED in lifecycle.rs and the keystroke-injection helper that the
-        // state reactor delegates to lives in send.rs — both are PTY-path home.
+        // `pty_io` split (send / lifecycle): resolve_pty_id is defined in lifecycle.rs; send.rs holds the keystroke-injection helper.
         "service/pty_io/send.rs",
         "service/pty_io/lifecycle.rs",
         "service/pane.rs",

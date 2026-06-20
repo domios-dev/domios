@@ -252,9 +252,7 @@ impl Messenger {
         let message_id = format!("inbound-{}", uuid::Uuid::new_v4().simple());
         let (msg, marked) = build_chatbackend_inbound(&envelope, body, message_id.clone());
 
-        // Upsert into the SHARED per-session mirror — the same instance the poll
-        // loop's sink flushes — so this host row survives later poll flushes
-        // (single-writer invariant). Lock is a leaf, dropped before send/await.
+        // Upsert into the shared per-session mirror the poll loop's sink flushes, so this host row survives later flushes.
         crate::service::pane_chat::chatbackend_history::ChatBackendHistory::shared(
             plugin_id, session_id,
         )
@@ -267,8 +265,7 @@ impl Messenger {
             None,
         );
 
-        // The model still gets the marker (sender identity + return address); the
-        // stored/rendered row above carries only the clean body.
+        // The model gets the marker (sender + return address); the stored row carries only the clean body.
         let staged = svc.run_outbound_stages(to_pane, marked);
         svc.chatbackend_send(plugin_id, session_id, &staged)?;
         Ok(Delivery::ChatBackend { message_id })
@@ -281,8 +278,7 @@ impl Messenger {
         }
         let pane = short_id(&self.envelope.from_pane);
         let base = clean_name(&self.envelope.from_label);
-        // Peer-qualify the label for cross-mesh deliveries. Skip the `@peer`
-        // suffix when no distinct source label is known (avoids `PEER@PEER`).
+        // Peer-qualify the label for cross-mesh deliveries; skip `@peer` when no distinct source label exists.
         let label = match &self.envelope.peer {
             Some(peer) => {
                 let peer_clean = clean_name(peer);
@@ -325,12 +321,9 @@ impl Messenger {
     }
 }
 
-/// Build the `(stored_row, model_facing_string)` pair for a chatBackend inbound.
-/// The stored/rendered `ChatMsg` carries the CLEAN body plus the structured
-/// `from_*` sender fields (they drive the "FROM X" header); the returned string
-/// is the marker-wrapped body fed to the model so it learns the sender and return
-/// address. Pure so the clean-body/marker split is unit-testable without a
-/// `ServiceContext`.
+/// Build the `(stored_row, model_facing_string)` pair for a chatBackend inbound:
+/// the stored `ChatMsg` carries the clean body + structured `from_*` fields, the
+/// returned string is the marker-wrapped body the model sees. Pure for testability.
 fn build_chatbackend_inbound(
     envelope: &MessageEnvelope,
     body: &str,
@@ -374,14 +367,9 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
         .build()
 }
 
-/// Whether the PTY recipient should get a `-=-codeterm:…-=-` source prefix.
-///
-/// Shells (`target_is_agent == false`) run bytes verbatim → never. A fired
-/// reminder ALWAYS carries its marker for an agent recipient — even when it is
-/// self-addressed (`from_pane == target`) or has an unknown creator
-/// (`from_pane` empty); it is a system-injected event, not a peer message, so
-/// the recipient must be able to tell it apart from typed input. Every other
-/// kind keeps the self-send / empty-source guard.
+/// Whether the PTY recipient gets a `-=-codeterm:…-=-` source prefix. Shells never
+/// do; a reminder always does for an agent (system event, must be distinguishable
+/// from typed input) even self-addressed; every other kind keeps the self-send/empty-source guard.
 fn should_prefix_pty(
     kind: MessageKind,
     target_is_agent: bool,
@@ -397,14 +385,9 @@ fn should_prefix_pty(
     !from_pane.is_empty() && from_pane != resolved_target
 }
 
-/// The single canonical decision for every agent-to-agent delivery path
-/// (local socket send, HTTP send, mesh relay). Returns the source prefix
-/// token to prepend, or `None` when no prefix should be applied.
-///
-/// Shells run bytes verbatim — `target_is_agent == false` always yields
-/// `None`. A self-send (`source_pane == target_pane`) or an empty source
-/// also yields `None`. When `peer` is set the delivery crossed the mesh and
-/// the label is peer-qualified (`label@peer`, tagged `mesh=peer`).
+/// The canonical source-prefix decision for every agent-to-agent delivery path.
+/// `None` for a shell recipient, self-send, or empty source. With `peer` set the
+/// delivery crossed the mesh and the label is peer-qualified (`label@peer`).
 pub fn delivery_prefix(
     target_is_agent: bool,
     source_pane: &str,
@@ -618,9 +601,6 @@ mod tests {
 
     #[test]
     fn reminder_inbound_context_is_canonical_with_sender_fields() {
-        // A fired reminder delivered to a chatBackend pane stores a structured
-        // inbound carrying kind=reminder + the creator's identity, via the same
-        // canonical marker used for live sends.
         let envelope = MessageEnvelope::reminder("Main", "e8a0ac20-1111")
             .model(Some("opus".into()))
             .set_at(1000)
@@ -695,10 +675,7 @@ mod tests {
 
     #[test]
     fn chatbackend_inbound_stores_clean_body_model_gets_marker() {
-        // BUG A: the rendered/stored chatBackend row must be the CLEAN body — no
-        // raw `-=-codeterm:inbound …-=-` marker inline. The structured from_*
-        // fields carry the sender (they drive the "FROM X" header). The marker
-        // goes ONLY to the model-facing string.
+        // Stored row must be the clean body (no inline marker); the marker goes only to the model-facing string.
         let envelope = MessageEnvelope::pane("Gauss", "abc12345-ffff")
             .model(Some("qwen".into()))
             .mesh(Some("Mac-Air".into()));

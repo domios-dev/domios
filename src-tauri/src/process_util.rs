@@ -1,10 +1,6 @@
-//! Cross-cutting helpers around `Command` spawning.
-//!
-//! The CodeTerm daemon is a GUI (windowed-subsystem) Tauri app, so any
-//! console subprocess we spawn — `bw`, `tailscale`, `powershell`, `reg`,
-//! `cmd /c …`, embed/rerank binaries — flashes a fresh `conhost.exe`
-//! window on Windows by default. Pass every spawn through here and the
-//! flicker disappears.
+//! Cross-cutting `Command`-spawning helpers. The daemon is a windowed Tauri app,
+//! so a console subprocess flashes a `conhost.exe` window on Windows by default;
+//! route every spawn through here to suppress the flicker.
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -34,14 +30,9 @@ pub fn no_window_tokio(cmd: &mut tokio::process::Command) {
 pub fn no_window_tokio(_cmd: &mut tokio::process::Command) {}
 
 /// Spawn a subprocess that disclaims TCC responsibility, capturing its stdout.
-///
-/// macOS "App Data" protection denies a signed `.app` bundle in-process reads of
-/// another app's `~/Library/Group Containers/<other-team>/…`, returning a silent
-/// EPERM (no sandboxd log). A plain CLI tool run by the user is not gated, but a
-/// child of the bundle inherits the bundle's responsibility — so it is denied
-/// too, unless we disclaim. `responsibility_spawnattrs_setdisclaim` makes the
-/// child its own responsible process (CLI-tool authority), which is exactly how
-/// our PTY panes can read those dirs while the daemon's own thread cannot.
+/// macOS "App Data" protection silently EPERMs a signed bundle (and its children)
+/// reading another app's Group Containers; disclaiming makes the child its own
+/// responsible process (CLI-tool authority), so it can read those dirs.
 #[cfg(target_os = "macos")]
 pub fn disclaimed_capture(program: &str, args: &[&str]) -> Option<String> {
     use std::ffi::CString;

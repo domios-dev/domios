@@ -1,7 +1,5 @@
 // Plugin-facing capability contracts. Each capability is one Rust trait the host
-// adapts to a `plugin.js` export. Shapes are derived from how the host consumes
-// them (src-tauri/src/view/mod.rs for view nodes; the AgentProvider trait; the
-// SecretStore/Transcriber adapters) and from the existing hand-written plugins.
+// adapts to a `plugin.js` export; shapes mirror how the host consumes them.
 
 // ── Shared context ──
 
@@ -183,10 +181,7 @@ export interface Transcriber {
 // via call_json (mirror src-tauri/src/plugin/js_runtime/transcriber.rs) and pushes
 // `poll` output into the existing StructuredSink / `pane-chat-msg` path.
 
-// Minimal shared chat shape, mirroring @codeterm/chat-core types.ts
-// NormalizedChatMessage. The host maps it onto Rust ChatMsg (agent/chat_types.rs,
-// where `kind` is `#[serde(rename = "type")]`). Kept minimal on purpose — extra
-// fields are allowed by the consumers but only these three are contractual.
+// Minimal shared chat shape mapped onto Rust ChatMsg. Only id/type/content are contractual; extra fields are allowed.
 export interface NormalizedChatMessage {
   id: string;
   type: string;
@@ -200,13 +195,10 @@ export interface NormalizedChatMessage {
 
 export interface ModelInfo {
   id: string;
-  // camelCase here; the host maps it to Rust ModelInfo.display_name (snake_case)
-  // when registering via model_catalog::register.
+  // camelCase here; the host maps it to Rust ModelInfo.display_name.
   displayName: string;
   description?: string;
-  // Whether the account can select this model right now. Omitted (the common
-  // case) means "no info — treat as available"; `false` greys it out in the
-  // picker; `true` is confirmed-available. Live discovery sets this.
+  // Account-can-select-this-now. Omitted ⇒ "no info, treat as available"; `false` greys it out. Set by live discovery.
   available?: boolean;
 }
 
@@ -227,28 +219,19 @@ export interface ChatBackendOpenSessionCtx {
   model?: string;
 }
 
-// Live state of an open session, surfaced to the pane's tab/bubble. Mirrors the
-// Rust ChatSessionInfo (chatbackend/mod.rs). `model` absent ⇒ the backend does
-// not expose a per-session model.
+// Live state of an open session (mirrors Rust ChatSessionInfo). `model` absent ⇒ no per-session model.
 export interface ChatSessionInfo {
   model?: string;
 }
 
-// Manifest declaration form for `capabilities.chatBackend` (mirrors the Rust
-// `ChatBackendCap` in plugin/js_runtime/manifest.rs). A bare `true` registers
-// the backend but it is NOT user-spawnable — a host-/agent-driven backend pane
-// (e.g. an NPC). `{ spawnable: true }` marks it user-openable: it then appears
-// in the new-session picker as a shell.
+// Manifest form for `capabilities.chatBackend`. Bare `true` = registered but not
+// user-spawnable (host-/agent-driven); `{ spawnable: true }` = user-openable in the picker.
 export type ChatBackendCapability = boolean | { spawnable?: boolean };
 
 export interface ChatBackend {
   openSession(ctx: ChatBackendOpenSessionCtx): { sessionId: string };
   sendMessage(sessionId: string, text: string): void;
-  // Optional turn-advance, called by the host poll loop each tick BEFORE `poll`
-  // (Item 6). An ASYNC backend does its work here: drain `host.agent`/`host.worker`
-  // tickets and move completed replies into the transcript `poll` then surfaces.
-  // Synchronous (one `call_json` dispatch, no event loop); best-effort — a throw
-  // does not kill the host loop. A plugin with no async work omits it.
+  // Optional turn-advance, called each tick before `poll` so an async backend drains its tickets. Best-effort; omit if synchronous.
   pump?(sessionId: string): void;
   poll(
     sessionId: string,
@@ -257,12 +240,9 @@ export interface ChatBackend {
   closeSession(sessionId: string): void;
   listModels?(): Model[];
   listPresets?(): PresetInfo[];
-  // Optional: current live model of a session (the host's `chatbackend_session_info`
-  // command reads this). A backend that does not track a per-session model omits it.
+  // Optional: current live model of a session; omit if the backend tracks none.
   sessionInfo?(sessionId: string): ChatSessionInfo;
-  // Optional: switch the model the session uses on its NEXT turn (the host's
-  // `chatbackend_switch_model` command routes here). A backend that cannot switch
-  // omits it; the host then surfaces an "unsupported" error.
+  // Optional: switch the model used on the next turn; omit if the backend can't (host surfaces "unsupported").
   setModel?(sessionId: string, model: string): void;
 }
 

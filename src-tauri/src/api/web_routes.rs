@@ -805,10 +805,8 @@ fn ui_mime(path: &str) -> &'static str {
     }
 }
 
-/// Serves a plugin's iframe UI from `plugins/<id>/ui/*`, injecting the CSP+nonce
-/// and the bridge shim into `index.html`. Static, query-token-gated; the iframe
-/// makes no other requests (CSP `connect-src 'none'`) — all power flows through
-/// the parent's `plugin_view_call`.
+/// Serves a plugin's iframe UI from `plugins/<id>/ui/*`, injecting CSP+nonce and the
+/// bridge shim into `index.html`. Query-token-gated; all power flows through `plugin_view_call`.
 pub async fn plugin_ui(
     AxumState(state): AxumState<AppState>,
     axum::extract::Path((id, path)): axum::extract::Path<(String, String)>,
@@ -869,20 +867,10 @@ pub async fn plugin_ui(
             .insert(header::CONTENT_TYPE, HeaderValue::from_static(ui_mime(rel)));
         r
     };
-    // NB: deliberately NO X-Frame-Options. The app embeds this iframe
-    // cross-origin (desktop shell at tauri://localhost / :1420 framing the
-    // daemon at :7686; web over a Tailscale IP / serve host), so SAMEORIGIN
-    // would block the legitimate embed and blank the panel. Framing is safe
-    // here without it: the iframe is sandbox="allow-scripts" (origin null),
-    // CSP-locked (default-src 'none'; connect-src 'none'), and only loads at
-    // all with a valid api/web token in the query — an attacker who framed it
-    // would get an inert, capability-less document.
+    // Deliberately NO X-Frame-Options: the app embeds this cross-origin, and SAMEORIGIN
+    // would blank the panel. Framing is safe anyway — sandboxed, CSP-locked, token-gated to an inert document.
     //
-    // Cache policy splits on asset kind. index.html carries the per-load nonce
-    // and is rebuilt in place, so no-store stops the embedding WebView
-    // (WKWebView) from serving a stale shell. Sibling assets are content-hashed
-    // (app-<hash>.js) — the filename changes on every rebuild — so they cache
-    // immutably and forever; a stale bundle can never be served under a fresh name.
+    // Cache: index.html is no-store (per-load nonce, rebuilt in place); content-hashed sibling assets cache immutably.
     let cache = if rel.ends_with(".html") {
         "no-store, must-revalidate"
     } else {

@@ -1,12 +1,7 @@
-//! Agent-facing plugin configuration (plan §1.7).
-//!
-//! A plugin's settings live in a self-documenting `config.yaml` in its install
-//! dir, whose inline comments are the agent docs for each field. `plugin get`
-//! returns that YAML (secret values redacted) plus install/configure state;
-//! `plugin config` edits it comment-preservingly, validating against the
-//! plugin's `settings.schema.json`. Secret-typed fields (schema `api_key`) are
-//! NEVER written into the YAML — they are reported for routing to the secret
-//! store.
+//! Agent-facing plugin configuration. Settings live in a self-documenting
+//! `config.yaml`; `plugin get` returns it (secrets redacted), `plugin config`
+//! edits it comment-preservingly against `settings.schema.json`. Secret-typed
+//! fields are never written into the YAML — they route to the secret store.
 
 use super::*;
 use serde_json::Value;
@@ -38,9 +33,7 @@ pub(super) fn get_command(id: &str) -> Result<Value, String> {
     }))
 }
 
-/// Permissions a user/agent may grant or revoke per plugin (§1.10). Mirrors the
-/// keys the host reads in `grants::apply_persisted`. Powerful host grants only —
-/// allowlist gates writes so a typo can't persist a bogus grant.
+/// Grantable per-plugin permissions; an allowlist so a typo can't persist a bogus grant.
 const GRANTABLE_PERMS: &[&str] = &[
     "manage_workspaces",
     "spawn_agents",
@@ -48,8 +41,7 @@ const GRANTABLE_PERMS: &[&str] = &[
     "secrets",
 ];
 
-/// `codeterm plugin config <id> [--set k=v]... [--values-json '{…}'] [--grant
-/// P]... [--revoke P]...`.
+/// `codeterm plugin config <id> [--set k=v]... [--values-json '{…}'] [--grant P]... [--revoke P]...`.
 pub(super) fn config_command(
     id: &str,
     sets: &[String],
@@ -70,8 +62,7 @@ pub(super) fn config_command(
         let (k, v) = s
             .split_once('=')
             .ok_or_else(|| format!("--set expects KEY=VALUE, got '{s}'"))?;
-        // Infer the scalar TYPE from the string so `enabled=false` writes a real
-        // YAML boolean, not the truthy string "false" (BUG B).
+        // Infer the scalar type so `enabled=false` writes a real YAML boolean, not the truthy string "false".
         updates.push((k.trim().to_string(), infer_scalar(v)));
     }
     if let Some(j) = values_json {
@@ -100,8 +91,7 @@ pub(super) fn config_command(
         }
     }
 
-    // Persist grant/revoke decisions to the plugin's grants.yaml (§1.10). The
-    // host reads this fail-closed via grants::apply_persisted on next reload.
+    // Persist grant/revoke to grants.yaml; the host reads it fail-closed on next reload.
     let granted = apply_grants(&dir, grants, revokes)?;
 
     let yaml_path = dir.join("config.yaml");
@@ -110,8 +100,7 @@ pub(super) fn config_command(
     let mut secrets_pending: Vec<String> = Vec::new();
     for (k, v) in &updates {
         if secret_keys.contains(k) {
-            // Security invariant: a secret never lands in the YAML. Report it for
-            // routing to the secret store instead.
+            // Security invariant: a secret never lands in the YAML — report it for the secret store instead.
             secrets_pending.push(k.clone());
             continue;
         }
@@ -134,11 +123,8 @@ pub(super) fn config_command(
     }))
 }
 
-/// Merge grant/revoke decisions into the plugin's `grants.yaml` — a flat
-/// `{ permission: bool }` map the host reads via `grants::apply_persisted`. Kept
-/// in lockstep with that reader's shape (serde_yaml map). Returns the changed
-/// permission names. Validates against [`GRANTABLE_PERMS`] so a typo can't
-/// persist a bogus grant.
+/// Merge grant/revoke into the plugin's `grants.yaml` (a flat `{ permission: bool }`
+/// map the host reads), validated against [`GRANTABLE_PERMS`]. Returns the changed names.
 fn apply_grants(dir: &Path, grants: &[String], revokes: &[String]) -> Result<Vec<String>, String> {
     if grants.is_empty() && revokes.is_empty() {
         return Ok(Vec::new());
@@ -262,11 +248,8 @@ fn yaml_has_content(text: &str) -> bool {
         .any(|l| !l.is_empty() && !l.starts_with('#'))
 }
 
-/// Infer the scalar type of a `--set KEY=VALUE` string so booleans and numbers
-/// land in the YAML as their native types — `enabled=false` → `false` (bool),
-/// `port=8080` → `8080` (number), everything else stays a string. Without this,
-/// `enabled=false` was stored as the quoted string "false", which is truthy in
-/// the plugin VM, so the toggle never took effect (BUG B).
+/// Infer the scalar type of a `--set KEY=VALUE` string so booleans/numbers land in
+/// the YAML natively — else `enabled=false` stores as the truthy string "false" and the toggle never takes effect.
 fn infer_scalar(s: &str) -> Value {
     match s {
         "true" => return Value::Bool(true),
@@ -276,8 +259,7 @@ fn infer_scalar(s: &str) -> Value {
     if let Ok(i) = s.parse::<i64>() {
         return Value::from(i);
     }
-    // Only treat as a float when it round-trips and actually looks numeric (so
-    // "1.2.3" / "http://x" stay strings). serde_json::Number guards NaN/inf.
+    // Only a float when it round-trips ("1.2.3"/"http://x" stay strings); Number guards NaN/inf.
     if let Ok(f) = s.parse::<f64>() {
         if let Some(n) = serde_json::Number::from_f64(f) {
             return Value::Number(n);
@@ -286,10 +268,8 @@ fn infer_scalar(s: &str) -> Value {
     Value::String(s.to_string())
 }
 
-/// Set a top-level `key: value`, preserving comments. Replaces the value of an
-/// existing `key:` line (keeping any trailing ` # comment`), otherwise appends a
-/// new `key: value` line. The value is YAML-encoded by type so booleans/numbers
-/// stay native and strings are quoted only when needed.
+/// Set a top-level `key: value`, preserving comments: replace an existing line
+/// (keeping its trailing comment) or append. Value is YAML-encoded by type.
 fn yaml_set_scalar(text: &str, key: &str, value: &Value) -> String {
     let encoded = encode_scalar(value);
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
@@ -384,9 +364,7 @@ mod tests {
 
     #[test]
     fn set_bool_writes_native_yaml_bool_not_string() {
-        // BUG B: `--set enabled=false` must write a real boolean. Quoting it as
-        // the string "false" leaves it truthy in JS, so the plugin never
-        // disables and augmentation keeps running.
+        // `--set enabled=false` must write a real boolean, not the truthy string "false".
         let out = yaml_set_scalar("enabled: 'true'\n", "enabled", &infer_scalar("false"));
         assert!(
             out.contains("enabled: false"),

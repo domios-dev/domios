@@ -72,15 +72,8 @@ const PLUGIN_PREAMBLE: &str = r#"
   };
   host.manifest = function () { return parseJson(host.manifestJson()); };
 
-  // ── host compute base ──────────────────────────────────────────────
-  // ALL compute binds are SYNCHRONOUS — each returns its parsed result
-  // directly. mem search is sync at the host; workspace ops are cheap mux ops;
-  // worker/agent are job-id/poll, which is *sync per step* (each call returns a
-  // ticket/status immediately — the long-running work happens between calls, on
-  // the host side). They are NOT Promise-wrapped: QuickJS has no event loop to
-  // drain a Promise inside a synchronous `call_json` dispatch, so wrapping would
-  // break sync consumers like the chatBackend `pump`/`poll` (Item 6). Plugin code
-  // that `await`s these still works — `await x` on a non-thenable yields `x`.
+  // host compute base — all binds are synchronous (worker/agent are job-id/poll,
+  // sync per step). Not Promise-wrapped: QuickJS can't drain a Promise in a sync `call_json` dispatch.
   host.mem = {
     search: function (opts) { return parseJson(host.memSearch(JSON.stringify(opts))) || { hits: [] }; },
   };
@@ -105,8 +98,7 @@ const PLUGIN_PREAMBLE: &str = r#"
   host.fetch.stream = function (opts) { return parseJson(host.fetchStream(JSON.stringify(opts))); };
   host.fetch.streamPoll = function (jobId) { return parseJson(host.fetchStreamPoll(jobId)); };
   host.fetch.streamClose = function (jobId) { host.fetchStreamClose(jobId); };
-  // Async exec: job-id + poll, so a slow tool call never holds the VM lock for
-  // its whole duration (sibling panes share this VM). Mirrors fetch.stream.
+  // Async exec (job-id + poll) so a slow tool call never holds the shared VM lock for its whole duration.
   host.exec.start = function (opts) { return parseJson(host.execStart(JSON.stringify(opts))); };
   host.exec.poll = function (jobId) { return parseJson(host.execPoll(jobId)); };
   host.exec.close = function (jobId) { host.execClose(jobId); };
@@ -304,26 +296,18 @@ impl PluginVm {
         &self.plugin_id
     }
 
-    /// Late-bind the host `ServiceContext` into this plugin's sandbox. The VM is
-    /// constructed before `ServiceContext` exists (plan §1.5 F4), so the host
-    /// wires this in once the service is built. First write wins; returns
-    /// whether this call populated it.
+    /// Late-bind the host `ServiceContext` (the VM is built before it exists). First write wins.
     pub fn set_service(&self, svc: std::sync::Weak<crate::service::ServiceContext>) -> bool {
         self.inner.lock().sandbox.set_service(svc)
     }
 
-    /// Whether this plugin holds the `agent_commands` grant (read from the
-    /// sandbox — the enforcement source of truth). Drives registration of the
-    /// inverse-seam handler.
+    /// Whether this plugin holds the `agent_commands` grant — drives inverse-seam handler registration.
     pub fn agent_commands_allowed(&self) -> bool {
         self.inner.lock().sandbox.agent_commands_allowed()
     }
 
-    /// Re-stamp the plugin's user settings into the EXISTING sandbox without
-    /// rebuilding the VM. The hot-reload watcher calls this on a config-only
-    /// change so `host.settingsJson()` reflects the edit on its next call while
-    /// the plugin's in-memory state (open chatBackend sessions) survives. Mirrors
-    /// the `set_service` late-bind: mutate the shared sandbox in place.
+    /// Re-stamp the plugin's settings into the existing sandbox without rebuilding the
+    /// VM, so a config-only reload preserves in-memory state (open chatBackend sessions).
     pub fn reload_settings(&self, settings_json: String) {
         self.inner.lock().sandbox.set_settings(settings_json);
     }
@@ -671,12 +655,7 @@ mod tests {
 
     #[test]
     fn preamble_compute_is_fully_synchronous() {
-        // Item 6: ALL compute binds (mem/workspace/worker/agent) are synchronous
-        // — each returns its parsed result DIRECTLY, never a Promise. A Promise
-        // would be undrainable inside a sync `call_json` dispatch and would break
-        // the chatBackend `pump`/`poll` consumers. No service is bound in
-        // from_source, so the underlying sync binds return the `{ error }`
-        // envelope — we assert the SHAPE (sync, not thenable) here.
+        // All compute binds return their result directly, never a Promise (undrainable in a sync dispatch). Assert the shape.
         let vm = fixture(
             r#"
             module.exports.default = {
@@ -719,10 +698,7 @@ mod tests {
 
     #[test]
     fn host_compute_perms_gate_workspace_and_agent() {
-        // §1.10 P3: host.workspace* requires manage_workspaces; host.agent*
-        // requires spawn_agents. A restricted sandbox without the grant is
-        // denied at the bind; with the grant it passes the gate (svc absent in a
-        // unit test → "host service unavailable", proving the gate was crossed).
+        // host.workspace* needs manage_workspaces, host.agent* needs spawn_agents: without the grant the bind denies; with it, the gate is crossed.
         use crate::plugin::js_runtime::host_api::PluginSandbox;
         use crate::plugin::js_runtime::manifest::PermissionsConfig;
         use std::sync::Arc;

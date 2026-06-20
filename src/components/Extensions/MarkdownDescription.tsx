@@ -1,16 +1,7 @@
 /**
- * Safe markdown renderer for plugin README / description content.
- *
- * Security model: plugin markdown is untrusted. We render with react-markdown
- * WITHOUT `rehype-raw`, so raw embedded HTML in the markdown is treated as plain
- * text and never executed (no `dangerouslySetInnerHTML` path). react-markdown's
- * default URL transform also strips dangerous link protocols (`javascript:` etc).
- *
- * Images: remote images are intentionally NOT loaded. A plugin README could
- * otherwise beacon arbitrary hosts (tracking pixels) or pull unvetted content.
- * There is no backend-served plugin-asset URL for README assets yet, so we render
- * a small inline caption for any image instead of fetching it. When an asset
- * proxy lands, swap the `img` override to resolve local `./` paths through it.
+ * Safe markdown renderer for untrusted plugin README/description. No `rehype-raw`
+ * (embedded HTML stays inert), dangerous link protocols stripped, and remote images
+ * aren't fetched (a README could beacon arbitrary hosts) — rendered as a caption instead.
  */
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -37,9 +28,7 @@ export function MarkdownDescription({ markdown }: { markdown: string }) {
           ul: ({ children }) => <ul style={{ margin: "0 0 10px", paddingLeft: 20 }}>{children}</ul>,
           ol: ({ children }) => <ol style={{ margin: "0 0 10px", paddingLeft: 20 }}>{children}</ol>,
           li: ({ children }) => <li style={{ margin: "2px 0" }}>{children}</li>,
-          // GFM tables: react-markdown parses them (remark-gfm), but without these
-          // overrides they fall back to unstyled browser defaults (cramped, no
-          // borders). Mirror the chat's MarkdownBody table treatment.
+          // GFM table overrides — without them tables fall back to unstyled browser defaults.
           table: ({ children }) => (
             <div style={{ overflowX: "auto", margin: "0 0 12px" }}>
               <table style={{ borderCollapse: "collapse", fontSize: 12.5, width: "100%" }}>{children}</table>

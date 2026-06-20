@@ -1,12 +1,6 @@
 /**
- * Capability chip — the signature element of the Extensions surface. A plugin is
- * defined by what it's allowed to do, so its capabilities render identically in the
- * install grant dialog, on its card, and in its settings panel.
- *
- * Variants:
- *   granted  — accent-tinted, the permission is active
- *   denied   — hollow/dashed, requested-but-withheld (or not needed)
- *   system   — green-tinted, an OS/device permission asked elsewhere
+ * Capability chip, rendered identically across the grant dialog, card, and settings.
+ * Variants: granted (active), denied (requested-but-withheld), system (OS permission asked elsewhere).
  */
 import type { CSSProperties } from "react";
 
