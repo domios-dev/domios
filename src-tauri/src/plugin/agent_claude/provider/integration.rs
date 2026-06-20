@@ -154,7 +154,9 @@ pub fn install_integration(api_port: u16) -> Result<(), String> {
         serde_json::json!({})
     };
 
-    let null_dev = crate::shell::ShellSyntax::NULL_DEV;
+    // Hooks run via sh/bash even on Windows, so the null device is /dev/null,
+    // not "NUL" — bash `> NUL` would create a real reserved-name file in the cwd.
+    let null_dev = "/dev/null";
     let auth_h = "-H \"Authorization: Bearer ${CODETERM_API_TOKEN}\"";
     let nonce_h = "-H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"";
     let notify_cmd = format!(
