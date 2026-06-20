@@ -126,6 +126,8 @@ fn no_new_resolve_pty_id_outside_allowlist() {
         "service/pane.rs",
         "service/spawn.rs",
         // PTY-only / None-safe REST + bridge sites (each guarded or PTY-only).
+        // commands/pane.rs: shell_command_snapshot — None-safe (.ok()) pty-keyed read, command sibling of pane_routes.
+        "commands/pane.rs",
         "api/pane_routes.rs",
         "api/mem_routes/items.rs",
         "bridge/manager/mod.rs",
