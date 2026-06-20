@@ -5,7 +5,7 @@ use super::signal_extractor::{Motion, SignalExtractor, StreamSignals, VolatileHi
 
 pub const TICK_MS: u64 = 250;
 pub const WAIT_MS: u64 = 800;
-pub const DONE_MS: u64 = 1500;
+pub const DONE_MS: u64 = 800;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -19,6 +19,7 @@ pub enum TimelineState {
 #[serde(rename_all = "snake_case")]
 pub enum QuestionSubtype {
     ModelChoice,
+    ModelPicker,
     Permission,
     Auth,
     RateLimit,
@@ -72,6 +73,7 @@ pub struct BoundarySignals {
     pub semantic_idle_ms: u64,
     pub picker_active: bool,
     pub picker_detected: bool,
+    pub text_question_detected: bool,
     pub ready_prompt: bool,
 }
 
@@ -139,6 +141,8 @@ pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignal
     }
 
     let signals = extractor.step(b"", at_ms);
+    let picker = detect_picker(&extractor.attributed_screen());
+    let text_question = classify_text_question(&signals);
     let verdict = classify_signals(
         &extractor,
         &signals,
@@ -153,7 +157,8 @@ pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignal
         byte_idle_ms: signals.quiescence.byte_idle_ms,
         semantic_idle_ms: signals.quiescence.semantic_idle_ms,
         picker_active: signals.picker_active,
-        picker_detected: detect_picker(&extractor.attributed_screen()).is_some(),
+        picker_detected: picker.is_some(),
+        text_question_detected: text_question.is_some(),
         ready_prompt: ready_prompt(&signals),
     }
 }
@@ -164,14 +169,17 @@ fn classify_signals(
     previous: Verdict,
 ) -> Verdict {
     if let Some(picker) = detect_picker(&extractor.attributed_screen()) {
-        let parked_picker =
-            signals.quiescence.semantic_idle_ms >= WAIT_MS && !ready_prompt(signals);
-        if signals.picker_active || parked_picker {
-            return Verdict {
-                state: TimelineState::Question,
-                subtype: Some(classify_question_subtype(signals, &picker.question)),
-            };
-        }
+        return Verdict {
+            state: TimelineState::Question,
+            subtype: Some(classify_question_subtype(signals, &picker.question)),
+        };
+    }
+
+    if let Some(subtype) = classify_text_question(signals) {
+        return Verdict {
+            state: TimelineState::Question,
+            subtype: Some(subtype),
+        };
     }
 
     let q = signals.quiescence;
@@ -209,7 +217,7 @@ fn classify_question_subtype(signals: &StreamSignals, question: &str) -> Questio
             "reasoning level",
         ],
     ) {
-        QuestionSubtype::ModelChoice
+        QuestionSubtype::ModelPicker
     } else if contains_any(&question_text, &["connect a provider", "provider"])
         || contains_any(
             &text,
@@ -233,25 +241,89 @@ fn classify_question_subtype(signals: &StreamSignals, question: &str) -> Questio
     }
 }
 
+fn classify_text_question(signals: &StreamSignals) -> Option<QuestionSubtype> {
+    let text = signals.screen.lines.join("\n").to_lowercase();
+    if contains_any(
+        &text,
+        &[
+            "rate limit",
+            "usage limit",
+            "quota exceeded",
+            "try again later",
+            "too many requests",
+        ],
+    ) {
+        Some(QuestionSubtype::RateLimit)
+    } else if contains_any(
+        &text,
+        &[
+            "login required",
+            "not authenticated",
+            "sign in",
+            "oauth",
+            "api key",
+            "authenticate",
+        ],
+    ) {
+        Some(QuestionSubtype::Auth)
+    } else if contains_any(&text, &["update available", "new version", "upgrade now"]) {
+        Some(QuestionSubtype::Update)
+    } else if contains_any(
+        &text,
+        &[
+            "error:",
+            "failed",
+            "command not found",
+            "exit code",
+            "traceback",
+            "file not found",
+        ],
+    ) {
+        Some(QuestionSubtype::Error)
+    } else {
+        None
+    }
+}
+
 fn contains_any(text: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| text.contains(needle))
 }
 
 fn ready_prompt(signals: &StreamSignals) -> bool {
-    if !signals.cursor.visible {
-        return false;
-    }
-    let tail = signals.tail.to_lowercase();
+    let visible = signals
+        .screen
+        .lines
+        .iter()
+        .rev()
+        .take(8)
+        .map(|line| line.trim())
+        .collect::<Vec<_>>();
+    let bottom = visible.join("\n").to_lowercase();
     let busy = [
         "esc to interrupt",
-        "working",
-        "thinking",
+        "ctrl+c to stop",
         "running",
+        "thinking",
+        "composing",
+        "editing",
+        "reading",
+        "globbing",
         "booting",
     ]
     .iter()
-    .any(|needle| tail.contains(needle));
-    !busy
+    .any(|needle| bottom.contains(needle));
+    if busy {
+        return false;
+    }
+    let composer_visible = signals.screen.lines.iter().any(|line| {
+        let line = line.trim();
+        line.starts_with('❯')
+            || line.starts_with('›')
+            || line.starts_with("→ add a follow-up")
+            || line.starts_with("→ plan, search, build anything")
+            || line.contains("ctrl+p commands")
+    });
+    composer_visible
 }
 
 fn collapse_samples(samples: Vec<(u64, Verdict)>, end_ms: u64) -> Vec<ClassifiedSegment> {

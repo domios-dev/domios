@@ -83,11 +83,12 @@ fn print_rule_set() {
         "  thin reuse: BAD when below both floors and no classifier or labeled transition proves span"
     );
     println!("  shape: code-then-idle=working then idle; multi-turn=>=4 alternating working/idle");
-    println!(
-        "  shape: model_choice=question:model_choice; model-picker=real transition into question"
-    );
+    println!("  shape: model_choice=question:model_choice; model-picker=question:model_picker");
     println!("  shape: error=question:error; approval=question:permission; update-prompt=question:update");
-    println!("  boundary: working->idle must re-render with settled quiescence; ->question must show picker signal");
+    println!(
+        "  boundary: working->idle must re-render with settled quiescence and a ready composer"
+    );
+    println!("  boundary: picker questions require picker signal; text questions require text fingerprint");
 }
 
 fn inspect_dump(root: &Path, dir: &Path) -> DumpVerdict {
@@ -188,11 +189,8 @@ fn validate_shape(scenario: &str, segments: &[LabeledSegment]) -> Vec<String> {
             }
         }
         "model-picker" => {
-            if !contains_state(segments, TimelineState::Question) {
-                problems.push("shape model-picker lacks question segment".into());
-            }
-            if segments.len() < 2 || !has_boundary_into(segments, TimelineState::Question) {
-                problems.push("shape model-picker lacks real transition into question".into());
+            if !has_question_subtype(segments, QuestionSubtype::ModelPicker) {
+                problems.push("shape model-picker lacks question:model_picker".into());
             }
         }
         "error" => {
@@ -237,15 +235,55 @@ fn validate_boundaries(input: &CastTimelineInput, segments: &[LabeledSegment]) -
         }
         if after.state == TimelineState::Question {
             let signals = render_signals_at(input, boundary);
-            if !signals.picker_active && !signals.picker_detected {
+            if picker_subtype(after.subtype) && !signals.picker_active && !signals.picker_detected {
                 problems.push(format!(
                     "boundary {}ms ->question lacks picker signal (active={} detected={})",
                     boundary, signals.picker_active, signals.picker_detected
                 ));
             }
+            if text_subtype(after.subtype) && !text_question_in_segment(input, after) {
+                problems.push(format!(
+                    "boundary {}ms ->question lacks text fingerprint for {:?}",
+                    boundary, after.subtype
+                ));
+            }
         }
     }
     problems
+}
+
+fn picker_subtype(subtype: Option<QuestionSubtype>) -> bool {
+    matches!(
+        subtype,
+        Some(
+            QuestionSubtype::ModelChoice
+                | QuestionSubtype::ModelPicker
+                | QuestionSubtype::Permission
+        )
+    )
+}
+
+fn text_subtype(subtype: Option<QuestionSubtype>) -> bool {
+    matches!(
+        subtype,
+        Some(
+            QuestionSubtype::Auth
+                | QuestionSubtype::RateLimit
+                | QuestionSubtype::Update
+                | QuestionSubtype::Error
+        )
+    )
+}
+
+fn text_question_in_segment(input: &CastTimelineInput, segment: &LabeledSegment) -> bool {
+    let mut at_ms = segment.from_ms;
+    while at_ms < segment.to_ms {
+        if render_signals_at(input, at_ms).text_question_detected {
+            return true;
+        }
+        at_ms += 250;
+    }
+    false
 }
 
 fn has_ordered_states(segments: &[LabeledSegment], want: &[TimelineState]) -> bool {
@@ -256,16 +294,6 @@ fn has_ordered_states(segments: &[LabeledSegment], want: &[TimelineState]) -> bo
         }
     }
     pos == want.len()
-}
-
-fn has_boundary_into(segments: &[LabeledSegment], state: TimelineState) -> bool {
-    segments
-        .windows(2)
-        .any(|pair| pair[0].state != state && pair[1].state == state)
-}
-
-fn contains_state(segments: &[LabeledSegment], state: TimelineState) -> bool {
-    segments.iter().any(|segment| segment.state == state)
 }
 
 fn has_question_subtype(segments: &[LabeledSegment], subtype: QuestionSubtype) -> bool {

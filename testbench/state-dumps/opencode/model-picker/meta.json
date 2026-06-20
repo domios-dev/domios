@@ -1,9 +1,0 @@
-{
-  "provider": "opencode",
-  "scenario": "model-picker",
-  "cli_version": "from existing real snapshot fixture",
-  "capturedAtMs": 1781984508071,
-  "source": "testbench/snapshots/opencode/model-picker/raw.cast",
-  "width": 120,
-  "height": 40
-}
