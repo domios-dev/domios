@@ -84,6 +84,29 @@ def _to_ms(t):
         return None
 
 
+def cmd_binding_state(want_raw: str):
+    """Classify a chat-raw/start response (the UI seam) for the session-binding gate.
+
+    Prints exactly one of:
+      pending  — pending=true: pane.agent_session_id still empty (session NOT bound).
+      empty    — bound but the wanted user echo isn't in the transcript yet.
+      bound    — bound AND the user echo is present (session bound + transcript delivered).
+    """
+    doc = load_stdin()
+    if not doc:
+        print("pending")
+        return
+    if doc.get("pending") is True:
+        print("pending")
+        return
+    want = norm(want_raw)
+    msgs = doc.get("messages") or []
+    echoed = any(
+        m.get("type") == "user" and want in norm(m.get("content", "")) for m in msgs
+    )
+    print("bound" if echoed else "empty")
+
+
 def cmd_skew(capture_json: str):
     c = json.loads(capture_json)
     ts = c.get("user_echo_timestamp")
@@ -103,6 +126,8 @@ def main():
         cmd_match_roundtrip(sys.argv[2], int(sys.argv[3]))
     elif cmd == "rapid-check":
         cmd_rapid_check(sys.argv[2])
+    elif cmd == "binding-state":
+        cmd_binding_state(sys.argv[2])
     elif cmd == "skew":
         cmd_skew(sys.argv[2])
     else:

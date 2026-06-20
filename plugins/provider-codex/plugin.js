@@ -77,8 +77,7 @@ var plugin = {
     }
     return events;
   },
-  // Codex CLI has no account-model-list subcommand; its local cache is the only
-  // clean synchronous account-scoped source. Missing or stale cache => seed.
+  // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels() {
     return discoverCodexModelsFromCache() || manifestModels();
   },
@@ -105,8 +104,7 @@ var plugin = {
     parts.push(host.shell.quote(uuid));
     return parts.join(" ");
   },
-  // Rollout-tree detection: scan `~/.codex/sessions/.../rollout-*.jsonl`
-  // and read only `session_meta` headers on first file match.
+  // Rollout-tree detection: scan `~/.codex/sessions/.../rollout-*.jsonl`, reading only `session_meta` headers.
   sessionFilePath(_cwd, sessionId) {
     const root = codexSessionsRoot();
     if (!root) return null;
@@ -127,11 +125,9 @@ var plugin = {
   sessionJsonlPath(cwd, sessionId) {
     return this.sessionFilePath(cwd, sessionId);
   },
-  // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.
-  // Parse codex rollout JSONL into RichMessages. Codex schema:
-  //   {type:"response_item", payload:{type:"message"|"function_call"|"function_call_output", ...}}
-  // We read response_item lines only (event_msg duplicates them; reasoning is
-  // encrypted; token_count/turn_context/session_meta are metadata).
+  // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
+  // Parse codex rollout JSONL into RichMessages, reading only `response_item` lines
+  // ({type:"response_item", payload:{type:"message"|"function_call"|"function_call_output"}}).
   parseSessionDelta(chunk) {
     const out = [];
     const lines = String(chunk || "").split("\n");
@@ -158,6 +154,7 @@ var plugin = {
       if (!v || v.type !== "response_item" || !v.payload) continue;
       const p = v.payload;
       let ts = null;
+      const tsIso = typeof v.timestamp === "string" ? v.timestamp : null;
       if (typeof v.timestamp === "string") {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1e3);
@@ -175,7 +172,7 @@ var plugin = {
           text = p.content;
         }
         if (!text) continue;
-        out.push({ role, blocks: [{ kind: "text", data: { text } }], ts });
+        out.push({ role, blocks: [{ kind: "text", data: { text } }], ts, timestamp: tsIso });
       } else if (p.type === "function_call") {
         let input = {};
         try {
@@ -189,7 +186,8 @@ var plugin = {
         out.push({
           role: "assistant",
           blocks: [{ kind: "tool_use", data: { name: name || "tool", input } }],
-          ts
+          ts,
+          timestamp: tsIso
         });
       } else if (p.type === "function_call_output") {
         let content = p.output;
@@ -197,7 +195,8 @@ var plugin = {
         out.push({
           role: "assistant",
           blocks: [{ kind: "tool_result", data: { content: String(content == null ? "" : content) } }],
-          ts
+          ts,
+          timestamp: tsIso
         });
       }
     }
@@ -284,8 +283,7 @@ var plugin = {
     if (status && status.hooks_installed) return { ok: true };
     return this.installIntegration(apiPort);
   },
-  // Parse the `/status` TUI screen into a UsageSnapshot-shaped object
-  // (snake_case fields). Gauges report "% left"; snapshot stores "% used".
+  // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText, nowMs) {
     const raw = String(rawText || "");
     if (!raw.trim()) return null;
@@ -405,20 +403,10 @@ var plugin = {
     }
     return out;
   },
-  // AS2 (Case A) — classify a parked codex pane from its rendered screen.
-  // The core reactor (state_reactor.rs) only calls this on the idle/waiting edge
-  // and only auto-acts when confidence >= GLOBAL_THRESHOLD (0.8), the state is
-  // NOT waiting_on_auth, and an action is present. All codex-specific knowledge
-  // (the self-update fingerprint, Skip navigation, auth-guard) lives here; core
-  // stays generic.
-  //
-  // Two guarantees this method enforces:
-  //  1. Auth is sacred — a login/OAuth/API-key screen is classified
-  //     waiting_on_auth with NO keys, so it is surfaced, never auto-pressed.
-  //  2. No false positives — the update verdict is an ENSEMBLE of independent
-  //     structural signals; a single weak match stays below threshold. When it
-  //     does fire, the action navigates to "Skip", never the default
-  //     "Update now" highlight (a blind Enter would update mid-session).
+  // Classify a parked codex pane from its rendered screen. Invariants: auth is
+  // sacred (surfaced, never auto-pressed); the update verdict is an ensemble of
+  // structural signals so a lone weak match stays sub-threshold, and when it
+  // fires it navigates to "Skip", never the default "Update now" highlight.
   classifyPaneState(snapshot) {
     const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
     if (!screen.trim()) return null;
