@@ -935,6 +935,23 @@ pub async fn get_pane_text(
     }
 }
 
+/// GET /api/panes/{id}/shell-commands — OSC4 chat snapshot hydration: the
+/// pane's accumulated shell command list + cwd. Empty (not 404) when the pane
+/// has no PTY or no shell-integration markers yet, so chat mount never errors.
+pub async fn shell_command_snapshot(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let pty_id = resolve_pty_id_with_fallback(&state, &raw_pane_id).ok();
+    let snap = pty_id.and_then(|pty_id| state.svc.shell_caps.lock().snapshot(&pty_id));
+    let snap = snap.unwrap_or_default();
+    serde_json::to_value(snap)
+        .map(Json)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "serialize failed"))
+}
+
 #[derive(Deserialize)]
 pub struct CaptureStartBody {
     /// Path of the `.cast` file to write.
