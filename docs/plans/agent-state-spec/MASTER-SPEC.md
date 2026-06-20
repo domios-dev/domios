@@ -41,6 +41,21 @@ mechanically separates a paused/animating TUI from a finished turn. Same delta+r
 machinery feeds the live partial stream. MUST: size the vt100 parser to real pane
 geometry + reset PrevGrid on resize; `now_ms` is a required param (no internal clock).
 
+> **BOUNDARY (critical — answers "is the extractor in the plugin?"):** the
+> SignalExtractor is in CORE but is STRICTLY PROVIDER-AGNOSTIC — pure, generic
+> terminal mechanics (vt100 diff → screen/tail/delta/quiescence/cursor), identical for
+> every PTY, knows NO provider and matches NO vendor string. It lives in core (not a
+> plugin) only because it's heavy, stateful, byte-level emulation over the raw stream
+> that already lives in core, and reimplementing it per-plugin in QuickJS would be
+> wasteful + wrong. The ONE place provider-specificity could leak is the **volatile
+> `regions`** (which screen area is spinner/status "noise" the semantic clock must
+> ignore) — that is **PLUGIN-DECLARED** (a manifest hint) and fed INTO the generic
+> extractor, NOT hardcoded in core. ALL semantic interpretation (busy/promptReady,
+> menu/option parsing, state fingerprints, reset-time) lives in the PLUGIN's
+> `classify_pane_state`. RULE OF THUMB: if you ever want to hardcode a provider-
+> specific thing in the SignalExtractor, that is the signal it belongs in the plugin
+> (as a declared region/pattern, or in classify) — core must stay generic.
+
 ### Output — AgentPaneState taxonomy (facet3)
 `working_streaming{phase,partial}` · `turn_complete{promptReady}` ·
 `clarifying_question{question,options}` · `presented_options{options,intent}` ·
